@@ -132,7 +132,7 @@
     :get-snapshot-before-update
     :component-did-catch})
 
-(defn- validate-spec!
+(defn- validate-class-spec!
   "Throw `:rf.error/create-class-key-unsupported` if `spec` carries any
   out-of-cap keys. Per IMPL-SPEC §6.2 + R-002 mitigation. Returns
   `spec` unchanged on success so the validator composes inline."
@@ -355,13 +355,13 @@
 ;; so re-frame's render-trace + `current-component` reads work.
 ;; ---------------------------------------------------------------------------
 
-(defn- prev-argv-from
+(defn- previous-argv-from-props
   "Extract the previous argv stashed on React's prevProps. The argv
   travels through React's props as `__rfArgv` (see fn-to-class)."
   [^js prev-props]
   (when prev-props (.-__rfArgv prev-props)))
 
-(defn- bind-and-call
+(defn- call-with-current-component
   "Run `f` (a user lifecycle fn) with `*current-component*` bound to
   `this`. Returns whatever `f` returns. Always installs the binding
   so user-side calls to `current-component` resolve correctly during
@@ -379,13 +379,13 @@
   (when props
     (set! (.-cljsArgv c) (.-__rfArgv props))))
 
-(defn- install-lifecycle!
+(defn- install-lifecycle-methods!
   "Attach the cap's lifecycle methods (those present in `spec`) to the
   React class's prototype. The user fn for each key is invoked with
   `this` (and any extra React args) inside a *current-component*
   binding."
-  [^js klass spec]
-  (let [proto (.-prototype klass)]
+  [^js component-class spec]
+  (let [prototype (.-prototype component-class)]
     ;; componentDidMount: always installed (even without a user
     ;; :component-did-mount) so a React.StrictMode simulated
     ;; unmount→remount can re-establish the per-instance render Reaction
@@ -405,20 +405,20 @@
     ;; was disposed by an unmount, so a normal first mount (render() already
     ;; ran, `cljsRenderRea` live, no marker) is a no-op here.
     (let [user-fn (:component-did-mount spec)]
-      (set! (.-componentDidMount proto)
+      (set! (.-componentDidMount prototype)
             (fn []
               (this-as ^js this
                 (when (.-cljsRemountReattach this)
                   (set! (.-cljsRemountReattach this) false)
                   (batching/queue-render! this))
                 (when user-fn
-                  (bind-and-call this #(user-fn this)))))))
+                  (call-with-current-component this #(user-fn this)))))))
 
     ;; componentWillUnmount: always installed (even without
     ;; :component-will-unmount) so the per-instance render Reaction
     ;; can dispose its watch graph and unblock GC. Per IMPL-SPEC §3.4.
     (let [user-fn (:component-will-unmount spec)]
-      (set! (.-componentWillUnmount proto)
+      (set! (.-componentWillUnmount prototype)
             (fn []
               (this-as ^js this
                 ;; Clear the dirty flag on unmount (rf2-mdgt8t (a)). A
@@ -441,40 +441,45 @@
                   ;; remounts, so the marker is discarded with the instance.
                   (set! (.-cljsRemountReattach this) true))
                 (when user-fn
-                  (bind-and-call this #(user-fn this)))))))
+                  (call-with-current-component this #(user-fn this)))))))
 
-    (when-let [f (:component-did-update spec)]
+    (when-let [did-update-fn (:component-did-update spec)]
       ;; React calls componentDidUpdate(prevProps, prevState, snapshot).
       ;; User fn signature: (this prev-argv prev-state snapshot) per
       ;; IMPL-SPEC §6.6. prevProps is translated to prev-argv; prevState
       ;; and snapshot pass through verbatim (stock-Reagent parity: the
       ;; 2.0.1 custom-wrapper calls f with c, props-argv, oldstate,
       ;; snapshot).
-      (set! (.-componentDidUpdate proto)
+      (set! (.-componentDidUpdate prototype)
             (fn [prev-props prev-state snapshot]
               (this-as this
-                (bind-and-call this
-                  #(f this (prev-argv-from prev-props) prev-state snapshot))))))
+                (call-with-current-component this
+                  #(did-update-fn this
+                                  (previous-argv-from-props prev-props)
+                                  prev-state
+                                  snapshot))))))
 
-    (when-let [f (:get-snapshot-before-update spec)]
+    (when-let [snapshot-fn (:get-snapshot-before-update spec)]
       ;; User fn: (this prev-argv prev-state) → snapshot; React then
       ;; threads snapshot as componentDidUpdate's third argument (the
       ;; user fn's fourth). prevState passes through verbatim, as stock.
-      (set! (.-getSnapshotBeforeUpdate proto)
+      (set! (.-getSnapshotBeforeUpdate prototype)
             (fn [prev-props prev-state]
               (this-as this
-                (bind-and-call this
-                  #(f this (prev-argv-from prev-props) prev-state))))))
+                (call-with-current-component this
+                  #(snapshot-fn this
+                                (previous-argv-from-props prev-props)
+                                prev-state))))))
 
-    (when-let [f (:component-did-catch spec)]
+    (when-let [did-catch-fn (:component-did-catch spec)]
       ;; Error-boundary logging half — user fn: (this error info).
       ;; Per IMPL-SPEC §6.4. Stateful fallback is the user's
       ;; responsibility (reset! a state-atom from inside the callback).
-      (set! (.-componentDidCatch proto)
+      (set! (.-componentDidCatch prototype)
             (fn [error info]
               (this-as this
-                (bind-and-call this
-                  #(f this error info))))))
+                (call-with-current-component this
+                  #(did-catch-fn this error info))))))
 
     ;; getDerivedStateFromError: React-19 requires it (paired with
     ;; componentDidCatch) for the boundary to catch at all. Default
@@ -485,14 +490,14 @@
     ;; Reagent state atom so `(reagent2.core/state this)` sees it too
     ;; (rf2-ygknv finding 4 — the React-state/Reagent-atom desync).
     (when (:component-did-catch spec)
-      (set! (.-getDerivedStateFromError klass)
+      (set! (.-getDerivedStateFromError component-class)
             (fn [_error]
               #js {:cljsHasError true})))
 
     (when-let [name-str (:display-name spec)]
-      (set! (.-displayName klass) name-str))
+      (set! (.-displayName component-class) name-str))
 
-    klass))
+    component-class))
 
 ;; ---------------------------------------------------------------------------
 ;; React class construction (per IMPL-SPEC §6.3 + §4.4)
@@ -508,7 +513,7 @@
   atom (rf2-ygknv finding 4).
 
   The default `getDerivedStateFromError` (installed by
-  `install-lifecycle!`) is a STATIC method — it cannot reach the
+  `install-lifecycle-methods!`) is a STATIC method — it cannot reach the
   instance, so it can only patch React's own `this.state` with
   `#js {:cljsHasError true}`. But the advertised public state API
   (`reagent2.core/state` → derefs `.-cljsState`) reads a SEPARATE
@@ -554,17 +559,18 @@
       (sync-error-state! this)
       (binding [*current-component* this]
         (batching/mark-rendered this)
-        (let [^js cached-rea (.-cljsRenderRea this)
-              hiccup (if (nil? cached-rea)
-                       (let [^js new-rea (ratom/make-reaction
-                                           #(wrap-render this render-fn)
-                                           :auto-run
-                                           (fn [_changed-rea]
-                                             (batching/queue-render! this)))]
-                         (set! (.-cljsRenderRea this) new-rea)
-                         @new-rea)
+        (let [^js render-reaction (.-cljsRenderRea this)
+              hiccup (if (nil? render-reaction)
+                       (let [^js new-render-reaction
+                             (ratom/make-reaction
+                               #(wrap-render this render-fn)
+                               :auto-run
+                               (fn [_changed-reaction]
+                                 (batching/queue-render! this)))]
+                         (set! (.-cljsRenderRea this) new-render-reaction)
+                         @new-render-reaction)
                        ;; ._run re-captures deps AND produces fresh hiccup.
-                       (._run cached-rea false))]
+                       (._run render-reaction false))]
           (->react-element hiccup))))))
 
 ;; ---------------------------------------------------------------------------
@@ -642,7 +648,7 @@
   cap's lifecycle methods (IMPL-SPEC §6.4), and is tagged
   `cljsReagentClass = true` for `reagent-class?`."
   [spec]
-  (validate-spec! spec)
+  (validate-class-spec! spec)
   (let [render-fn (or (:reagent-render spec)
                       ;; EP-0015 (rf2-uwqale): summarise the Form-3 spec —
                       ;; never carry the whole spec map. A spec can carry
@@ -655,44 +661,45 @@
                                 :reason       "create-class spec is missing the required :reagent-render fn."
                                 :spec/summary (diag/value-summary spec)})))
         ;; The constructor: extends React.Component via prototype chain.
-        ^js klass (fn [props]
-                    (this-as this
-                      ;; Call React.Component's constructor.
-                      (.call (.-Component react) this props)
-                      ;; React fields React expects.
-                      (set! (.-state this) #js {})
-                      ;; Stash the initial argv from props.__rfArgv so render
-                      ;; can read it without a fresh prop-walk.
-                      (copy-argv-from-props! this props)
-                      this))]
-    ;; Prototype chain: klass -> React.Component.prototype -> ...
-    (set! (.-prototype klass)
+        ^js component-class (fn [props]
+                              (this-as this
+                                ;; Call React.Component's constructor.
+                                (.call (.-Component react) this props)
+                                ;; React fields React expects.
+                                (set! (.-state this) #js {})
+                                ;; Stash the initial argv from props.__rfArgv so render
+                                ;; can read it without a fresh prop-walk.
+                                (copy-argv-from-props! this props)
+                                this))]
+    ;; Prototype chain: component-class -> React.Component.prototype -> ...
+    (set! (.-prototype component-class)
           (.create js/Object (.-prototype (.-Component react))))
-    (set! (.. klass -prototype -constructor) klass)
-    (set! (.-cljsReagentClass klass) true)
+    (set! (.. component-class -prototype -constructor) component-class)
+    (set! (.-cljsReagentClass component-class) true)
     ;; Stash the user's `:reagent-render` on the class so out-of-band
     ;; introspection (e.g. `re-frame.test-helpers/expand-tree`) can
     ;; invoke it without going through React. Mirrors stock Reagent's
     ;; convention of exposing the user fn alongside the class tag.
-    (set! (.-cljsReagentRender klass) render-fn)
+    (set! (.-cljsReagentRender component-class) render-fn)
 
     ;; render delegates to wrap-render over the user's :reagent-render.
     ;; make-render-method's body re-stashes argv from props at render
     ;; entry, so a single install is sufficient.
-    (set! (.. klass -prototype -render) (make-render-method render-fn))
+    (set! (.. component-class -prototype -render)
+          (make-render-method render-fn))
 
     ;; Framework-default shouldComponentUpdate: restore stock Reagent's
     ;; argv-equality gate on every slim class (rf2-5al9d7). Internal — NOT a
     ;; user cap key. React skips sCU on the initial render and for forceUpdate
     ;; (the reactive-update drain in reagent2.impl.batching), so this gates
     ;; only parent-propagated re-renders: an equal-argv child is skipped.
-    (set! (.. klass -prototype -shouldComponentUpdate)
+    (set! (.. component-class -prototype -shouldComponentUpdate)
           (fn [next-props _next-state]
             (this-as this
               (argv-should-update? this next-props))))
 
-    (install-lifecycle! klass spec)
-    klass))
+    (install-lifecycle-methods! component-class spec)
+    component-class))
 
 ;; ---------------------------------------------------------------------------
 ;; fn-to-class — lift a plain CLJS fn into a reagent-slim React class
@@ -737,12 +744,13 @@
   field, not a lifecycle slot)."
   [f]
   (or (.-cljsReagentClass-fn ^js f)
-      (let [^js klass (create-class*
-                        {:reagent-render f
-                         :display-name   (or (some-> f .-displayName)
-                                             (some-> f .-name)
-                                             "")})]
+      (let [^js component-class
+            (create-class*
+              {:reagent-render f
+               :display-name   (or (some-> f .-displayName)
+                                   (some-> f .-name)
+                                   "")})]
         (when-some [ctx (:contextType (meta f))]
-          (set! (.-contextType klass) ctx))
-        (set! (.-cljsReagentClass-fn ^js f) klass)
-        klass)))
+          (set! (.-contextType component-class) ctx))
+        (set! (.-cljsReagentClass-fn ^js f) component-class)
+        component-class)))

@@ -591,7 +591,7 @@ Any other key throws `:rf.error/create-class-key-unsupported` at `create-class` 
 ### §6.2 Validation throw shape
 
 ```clojure
-(defn- validate-spec! [spec]
+(defn- validate-class-spec! [spec]
   (let [supported #{:component-did-mount :component-will-unmount
                     :component-did-update :reagent-render
                     :display-name :get-snapshot-before-update
@@ -671,10 +671,10 @@ The implementation: the React class's `componentDidUpdate` method receives `[pre
   (this-as this
     (let [user-fn (:component-did-update spec)]
       (when user-fn
-        (user-fn this (prev-argv-from prev-props) prev-state snapshot)))))
+        (user-fn this (previous-argv-from-props prev-props) prev-state snapshot)))))
 ```
 
-(`prev-argv-from` reads `__rfArgv` off React's props; Stage 4 picks the exact accessor. `:get-snapshot-before-update` translates identically, one argument shorter.)
+(`previous-argv-from-props` reads `__rfArgv` off React's props; Stage 4 picks the exact accessor. `:get-snapshot-before-update` translates identically, one argument shorter.)
 
 ---
 
@@ -809,13 +809,13 @@ Per Stage 1 DECISION-6 + Stage 2 §2.5 + S3-005: pure-CLJS recursive walker; ~15
     (nil? x)               nil
     (string? x)            (.append sb (escape-text x))
     (number? x)            (.append sb (str x))
-    (vector? x)            (emit-vector sb x)
+    (vector? x)            (emit-hiccup-vector sb x)
     (seq? x)               (doseq [c x] (emit-element sb c))
     :else                  (throw (ex-info ":rf.error/static-markup-bad-element"
                                    {:got x}))))
 ```
 
-`emit-vector` dispatches on the head. For DOM-tag heads, it emits `<tag attrs>` + children + `</tag>` (or self-closes for void elements per §8.4). For `:<>` (Fragment), it emits children only. For `:>` and `:r>` and `:f>` (React-component interop) — the static-markup path does NOT walk into React components; it emits `<!--reagent-react-component-->` placeholder comments. This matches `react-dom/server`'s behaviour for the static-markup case — non-static content is opaque.
+`emit-hiccup-vector` dispatches on the head. For DOM-tag heads, it emits `<tag attrs>` + children + `</tag>` (or self-closes for void elements per §8.4). For `:<>` (Fragment), it emits children only. For `:>` and `:r>` and `:f>` (React-component interop) — the static-markup path does NOT walk into React components; it emits `<!--reagent-react-component-->` placeholder comments. This matches `react-dom/server`'s behaviour for the static-markup case — non-static content is opaque.
 
 (Alternative approach: invoke a function head with no props/children and recurse on the result. Reagent's `render-to-static-markup` in stock takes the function-call-the-fn path. **Stage 4 picks the function-call path** to match stock's behaviour; this preserves Dash8/rf8 HTML-export compatibility.)
 
@@ -838,7 +838,7 @@ Lift the existing implementation from `re-frame.ssr.html-helpers/escape-html` �
 ### §8.3 Attribute serialisation
 
 ```clojure
-(defn- emit-attrs [sb attrs]
+(defn- emit-attributes [sb attrs]
   (when (seq attrs)
     (doseq [[k v] attrs]
       (cond
@@ -849,7 +849,7 @@ Lift the existing implementation from `re-frame.ssr.html-helpers/escape-html` �
         :else               (let [s (-> v
                                         (cond-> (named? v) name)  ; narrowed; HTML-attr names only here
                                         (str)
-                                        escape-attr)]
+                                        escape-attribute)]
                               (.append sb " ")
                               (.append sb (name k))
                               (.append sb "=\"")
@@ -859,7 +859,7 @@ Lift the existing implementation from `re-frame.ssr.html-helpers/escape-html` �
 
 The same narrowed `convert-prop-value` rules apply (per S3-005): the static-markup path stringifies keyword values only for HTML-attribute names. (Inside an HTML attribute serialisation, every prop name IS by definition an HTML attribute name — this layer doesn't see React-component props, only DOM-element attrs.)
 
-**Attribute-name casing (`attr-name`) — SVG case-sensitivity (rf2-ygknv finding 3).** `react-dom/server` does NOT blanket-lowercase camelCase attribute names; it consults a fixed attribute-name table. Three observed output shapes for a camelCase hiccup name (the React-camelCase form `cached-prop-name` produces): **preserved** (`viewBox`, `preserveAspectRatio`, `gradientUnits`, `stdDeviation`, `colSpan`, `readOnly`, …), **dasherized** (`clipPath`→`clip-path`, `strokeWidth`→`stroke-width`, `fillOpacity`→`fill-opacity`, `stopColor`→`stop-color`, `httpEquiv`→`http-equiv`, `acceptCharset`→`accept-charset`, …), and **lowercased** (plain HTML camelCase like `tabIndex`→`tabindex`). `reagent2.dom.server` carries `react-attr-name-overrides` — an explicit map pinning the preserved + dasherized shapes to React 19's exact output, extracted from the live `renderToStaticMarkup`. Any camelCase token not in the map falls through to the lowercase rule (correct for the residual HTML attributes). The earlier blanket-lowercase turned case-sensitive SVG names (`:viewBox`→`viewbox`, `:clipPath`→`clippath`, `:strokeWidth`→`strokewidth`) into broken markup. The React-element (client) path was already correct — React itself remaps SVG names at the DOM layer — so only this pure serializer needed the fix; parity is pinned in `parity_cljs_test.cljs` per §8.7.
+**Attribute-name casing (`attribute-name`) — SVG case-sensitivity (rf2-ygknv finding 3).** `react-dom/server` does NOT blanket-lowercase camelCase attribute names; it consults a fixed attribute-name table. Three observed output shapes for a camelCase hiccup name (the React-camelCase form `cached-prop-name` produces): **preserved** (`viewBox`, `preserveAspectRatio`, `gradientUnits`, `stdDeviation`, `colSpan`, `readOnly`, …), **dasherized** (`clipPath`→`clip-path`, `strokeWidth`→`stroke-width`, `fillOpacity`→`fill-opacity`, `stopColor`→`stop-color`, `httpEquiv`→`http-equiv`, `acceptCharset`→`accept-charset`, …), and **lowercased** (plain HTML camelCase like `tabIndex`→`tabindex`). `reagent2.dom.server` carries `react-attribute-name-overrides` — an explicit map pinning the preserved + dasherized shapes to React 19's exact output, extracted from the live `renderToStaticMarkup`. Any camelCase token not in the map falls through to the lowercase rule (correct for the residual HTML attributes). The earlier blanket-lowercase turned case-sensitive SVG names (`:viewBox`→`viewbox`, `:clipPath`→`clippath`, `:strokeWidth`→`strokewidth`) into broken markup. The React-element (client) path was already correct — React itself remaps SVG names at the DOM layer — so only this pure serializer needed the fix; parity is pinned in `parity_cljs_test.cljs` per §8.7.
 
 **Inline-style value serialisation (`emit-style-attr` / `style-string`)** must match `react-dom/server.renderToStaticMarkup`'s `pushStyleAttribute` (rf2-9nyg6):
 
@@ -874,7 +874,7 @@ These rules are pinned by `parity_cljs_test.cljs` against `react-dom/server` (nu
 Boolean attributes (`disabled`, `checked`, `selected`, `readOnly`, `required`, etc.): if `true`, emit just the name (HTML5 short form). If `false`, omit entirely. The list of recognised boolean attributes is a static set:
 
 ```clojure
-(def boolean-attrs
+(def boolean-attributes
   #{:disabled :checked :selected :read-only :required :auto-focus
     :auto-play :controls :default :hidden :loop :multiple :muted :open
     :reversed})
@@ -1196,9 +1196,9 @@ Earlier revisions of this document read the core spelling as a "function form", 
 
 ### §14.3 Boolean-attribute set + void-tag set duplication
 
-The rewrite's `reagent2.dom.server` and `re-frame.ssr` both need the `boolean-attrs` and `void-tags` sets. Per §8.4 — Stage 4 lifts both from `re-frame.ssr`. **But** this creates a load-order ordering: `reagent2.dom.server` would need to require `re-frame.ssr`. The SSR seam is in a different artefact (`day8/re-frame2-ssr`), and the rewrite **must not** statically require it (per the bundle-isolation contract; cf. `re-frame.adapter.reagent`'s comment on lines 12-20 about not requiring the SSR ns).
+The rewrite's `reagent2.dom.server` and `re-frame.ssr` both need the `boolean-attributes` and `void-tags` sets. Per §8.4 — Stage 4 lifts both from `re-frame.ssr`. **But** this creates a load-order ordering: `reagent2.dom.server` would need to require `re-frame.ssr`. The SSR seam is in a different artefact (`day8/re-frame2-ssr`), and the rewrite **must not** statically require it (per the bundle-isolation contract; cf. `re-frame.adapter.reagent`'s comment on lines 12-20 about not requiring the SSR ns).
 
-**Resolution (as shipped)**: the static sets were duplicated via copy-paste, not require. The void-tag set lives in `reagent2.impl.template/void-tags` and is consumed by `reagent2.dom.server` (`server.cljs:686`); boolean-attrs is local to the artefact. The HTML5 void-tag list is fixed, so the duplication carries no practical maintenance cost.
+**Resolution (as shipped)**: the static sets were duplicated via copy-paste, not require. The void-tag set lives in `reagent2.impl.template/void-tags` and is consumed by `reagent2.dom.server` (`server.cljs:686`); `boolean-attributes` is local to the artefact. The HTML5 void-tag list is fixed, so the duplication carries no practical maintenance cost.
 
 **Disposition**: no bead filed. The lockstep concern (if the void-tag list ever changed — extraordinarily unlikely — both copies must update) is captured in-tree as a code comment at `server.cljs:121-124` calling out the `reagent2.impl.template/void-tags` ↔ `re-frame.ssr.emit/void-elements` keyword-vs-string duplication. A comment is the right weight for an immutable HTML5 list; a tracking bead was deemed unnecessary.
 

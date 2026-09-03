@@ -35,7 +35,7 @@
 ;; Frames are wiped so the MUST-1 sub-cache walk inside dispose sees an
 ;; empty registry (this file pins MUST 2 + 3, not MUST 1).
 
-(defn fresh-slim [test-fn]
+(defn with-fresh-slim-adapter [test-fn]
   (adapter/reset-lifecycle-state-for-tests!)
   (reset! frame/frames {})
   (adapter/install-adapter! reagent-slim-adapter/adapter)
@@ -43,11 +43,11 @@
   (reset! frame/frames {})
   (adapter/reset-lifecycle-state-for-tests!))
 
-(use-fixtures :each fresh-slim)
+(use-fixtures :each with-fresh-slim-adapter)
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- mk-fake-root
+(defn- make-fake-root
   "A fake Root identity — an object carrying an `.unmount` method so
   `reagent2.dom.client/unmount`'s `(some? (.-unmount root))` guard
   passes. The spy on `rdc/unmount` records calls; the method body is
@@ -62,9 +62,9 @@
   (testing "dispose-adapter! unmounts every root mounted-but-not-unmounted
             (the headless / hot-reload path) — rf2-7v82h MUST 2"
     (let [unmount-calls (atom [])
-          root-a        (mk-fake-root :a)
-          root-b        (mk-fake-root :b)
-          root-c        (mk-fake-root :c)
+          root-a        (make-fake-root :a)
+          root-b        (make-fake-root :b)
+          root-c        (make-fake-root :c)
           roots         (atom [root-a root-b root-c])]
       (with-redefs [rdc/create-root (fn
                                       ([_]   (let [[r] @roots] (swap! roots rest) r))
@@ -97,8 +97,8 @@
             active set, so dispose-adapter! does NOT unmount it again
             — rf2-7v82h MUST 2 (the thunk disj's itself before unmount)"
     (let [unmount-calls (atom [])
-          root-live     (mk-fake-root :live)
-          root-gone     (mk-fake-root :gone)
+          root-live     (make-fake-root :live)
+          root-gone     (make-fake-root :gone)
           roots         (atom [root-live root-gone])]
       (with-redefs [rdc/create-root (fn
                                       ([_]   (let [[r] @roots] (swap! roots rest) r))
@@ -125,8 +125,8 @@
   (testing "one root whose unmount throws does not strand the rest of
             the drain — rf2-7v82h MUST 2 (per-root try/catch)"
     (let [unmount-calls (atom [])
-          bad-root      (mk-fake-root :bad)
-          good-root     (mk-fake-root :good)
+          bad-root      (make-fake-root :bad)
+          good-root     (make-fake-root :good)
           roots         (atom [bad-root good-root])]
       (with-redefs [rdc/create-root (fn
                                       ([_]   (let [[r] @roots] (swap! roots rest) r))

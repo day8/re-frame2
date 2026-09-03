@@ -26,18 +26,18 @@
 (defn- write! [c v]
   ((:replace-container! adapter/adapter) c v))
 
-(defn- derive [sources f]
+(defn- make-derived-value [sources f]
   ((:make-derived-value adapter/adapter) sources f))
 
 (deftest derived-zero-arity-cljs-test
   (testing "0 sources — compute-fn called with no args"
-    (let [derived (derive [] (fn [] ::seed))]
+    (let [derived (make-derived-value [] (fn [] ::seed))]
       (is (= ::seed @derived)))))
 
 (deftest derived-one-arity-cljs-test
   (testing "1 source — derefs source per recompute (layer-1 dominant path)"
     (let [src     (make-source 7)
-          derived (derive [src] (fn [a] (* a 10)))]
+          derived (make-derived-value [src] (fn [a] (* a 10)))]
       (is (= 70 @derived))
       (write! src 8)
       (is (= 80 @derived) "1-arity recompute picks up source mutation"))))
@@ -46,7 +46,7 @@
   (testing "2 sources — derefs both per recompute (layer-n dominant path)"
     (let [a       (make-source 3)
           b       (make-source 4)
-          derived (derive [a b] +)]
+          derived (make-derived-value [a b] +)]
       (is (= 7 @derived))
       (write! a 100)
       (is (= 104 @derived) "source-0 mutation flows through")
@@ -56,7 +56,7 @@
 (deftest derived-three-arity-cljs-test
   (testing "3 sources — fallback (apply + mapv deref) path"
     (let [a (make-source 1) b (make-source 2) c (make-source 3)
-          derived (derive [a b c] (fn [x y z] (+ x y z)))]
+          derived (make-derived-value [a b c] (fn [x y z] (+ x y z)))]
       (is (= 6 @derived))
       (write! a 10) (write! b 20) (write! c 30)
       (is (= 60 @derived) "all 3 sources flow through after mutations"))))
@@ -64,12 +64,12 @@
 (deftest derived-four-arity-cljs-test
   (testing "4 sources — fallback path with apply"
     (let [a (make-source :a) b (make-source :b) c (make-source :c) d (make-source :d)
-          derived (derive [a b c d] (fn [w x y z] [w x y z]))]
+          derived (make-derived-value [a b c d] (fn [w x y z] [w x y z]))]
       (is (= [:a :b :c :d] @derived)))))
 
 (deftest derived-source-vector-order-preserved-cljs-test
   (testing "argument order matches source-vector order"
     (let [s0 (make-source 100)
           s1 (make-source 1)
-          derived (derive [s0 s1] -)]
+          derived (make-derived-value [s0 s1] -)]
       (is (= 99 @derived)))))

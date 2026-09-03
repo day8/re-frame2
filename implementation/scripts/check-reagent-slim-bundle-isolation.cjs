@@ -158,7 +158,7 @@ const REACT_DOM_SERVER_SENTINELS = [
 //        while every serializer sentinel drops to 0.) Hence sentinel 2.
 //
 //   2. `static-markup-bad-tag` — a string literal `ex-info` type owned
-//      exclusively by `reagent2.dom.server`'s `emit-vector` walker. It is
+//      exclusively by `reagent2.dom.server`'s `emit-hiccup-vector` walker. It is
 //      reachable ONLY when the SSR serializer namespace is in the bundle;
 //      removing the `render-to-static-markup` call DCEs the whole
 //      namespace and drops this to 0. It survives :advanced (string
@@ -177,7 +177,7 @@ const REACT_DOM_SERVER_SENTINELS = [
 const SLIM_SSR_PRESENCE_SENTINELS = [
   { source: 'counter_slim_and_fast SSR boot exercise (host-global write, DCE anchor)',
     sentinel: 'counterSlimPrerender' },
-  { source: 'reagent2.dom.server emit-vector serializer (ex-info type string)',
+  { source: 'reagent2.dom.server emit-hiccup-vector serializer (ex-info type string)',
     sentinel: 'static-markup-bad-tag' },
 ];
 

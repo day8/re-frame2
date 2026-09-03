@@ -283,7 +283,8 @@
     ;; The deref-fast-path (non-reactive deref of a no-auto-run Reaction)
     ;; does NOT bind *ratom-context* — it just calls f. That's stock
     ;; Reagent's design (per IMPL-SPEC §3.2). Use :auto-run true so the
-    ;; first deref goes through `_run` → `deref-capture` → `in-context`,
+    ;; first deref goes through `_run` → `deref-capture` →
+    ;; `call-with-ratom-context`,
     ;; which does bind *ratom-context*.
     (let [seen (atom nil)
           r    (ratom/make-reaction
@@ -379,7 +380,8 @@
   ;; Pre-rf2-ee38b.15, `_run` did `(set! state res)` unconditionally; on the
   ;; check=true error path `_try-capture` had already set `state` to the
   ;; caught error, but `_run` then clobbered it with the catch-block's
-  ;; return value (`false`), AND `notify-w` fired with that spurious `false`.
+  ;; return value (`false`), AND `notify-watches!` fired with that spurious
+  ;; `false`.
   ;; The fix: `_try-capture` sets state on the success branch; `_run` only
   ;; sets state when NOT check.
   ;;

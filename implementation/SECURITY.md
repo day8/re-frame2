@@ -42,7 +42,7 @@ Four sections:
 | MCP-tool wire-egress INDICATOR walkers (downstream of projection) | `re-frame.mcp-base.elision/count-elided-markers` (counts `:rf.size/large-elided` markers for the `:elided-large` envelope slot) and `re-frame.mcp-base.sensitive/strip-sensitive` (drops `:sensitive?`-stamped trace EVENTS, returning `[kept dropped-count]` for the `:dropped-sensitive` slot). These are envelope-indicator counters over an ALREADY-projected payload — NOT the redaction boundary: `re-frame.core/project-egress` (over `elide-wire-value`) runs at the runtime boundary, under the frame's classification + the tool's `:rf.egress/off-box-tool` profile, before the payload reaches these walkers. | `day8/re-frame2-mcp-base` (`re-frame.mcp-base.elision` / `re-frame.mcp-base.sensitive`) |
 | Hiccup → HTML attribute-key gate (HTML5-grammar reject, applied at attribute emit) | `re-frame.ssr.html-helpers/validate-attr-name!` (applied via `re-frame.ssr.html-helpers/attr-string`) | `day8/re-frame2-ssr` (`re-frame.ssr.html-helpers`) |
 | JSON-LD `<script>` body `<` escape | `re-frame.ssr.html-helpers/escape-script-body-string` | `day8/re-frame2-ssr` (`re-frame.ssr.html-helpers`) |
-| Reagent-slim event-handler-prop filter | `reagent2.dom.server/event-handler-prop?` (applied in `emit-attr`; also drops fn-valued props) | `day8/re-frame2-reagent` slim build — `reagent2.dom.server` |
+| Reagent-slim event-handler-prop filter | `reagent2.dom.server/event-handler-prop?` (applied in `emit-attribute`; also drops fn-valued props) | `day8/re-frame2-reagent` slim build — `reagent2.dom.server` |
 | Reagent-slim reserved-prop-keys gate | `reagent2.impl.template/reserved-prop-key?` over the set `reserved-prop-keys` (`#{"__proto__" "prototype" "constructor"}`) | `day8/re-frame2-reagent` slim build — `reagent2.impl.template` |
 
 The public surface (the names a user types into their code) is consolidated in [`../spec/API.md`](../spec/API.md). This table is the contract for *internal CLJS implementation conformance* — a future port would re-bind every row to host-idiomatic names.
@@ -161,7 +161,7 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 |---|---|---|
 | rf2-m5u23 | JSON-LD `<script>` body: escape `<` as `&lt;` | Standard XSS posture for inline `application/ld+json`. Attacker-supplied substring cannot close the script context. |
 | rf2-vl8ir | Hiccup attribute *key* escape (not just value) | Attribute keys are attacker-reachable through registered hiccup forms receiving keyed data; escape prevents breakout from the attribute namespace. |
-| rf2-dwds9 | Reagent-slim strips `on*` and fn-valued props at emit-attr; reserved-prop-keys dropped before `aset` | Matches react-dom/server. Closes both the event-handler-injection vector and the `__proto__` / `constructor` / `prototype` prototype-pollution path on the client. |
+| rf2-dwds9 | Reagent-slim strips `on*` and fn-valued props at `emit-attribute`; reserved-prop-keys dropped before `aset` | Matches react-dom/server. Closes both the event-handler-injection vector and the `__proto__` / `constructor` / `prototype` prototype-pollution path on the client. |
 
 ### CRLF injection
 

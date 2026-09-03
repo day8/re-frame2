@@ -218,8 +218,9 @@
 ;;
 ;;   - `cached-prop-name` — never caches a reserved name. (Belt: keeps the
 ;;     shared cache clean.)
-;;   - `kv-conv` / `top-prop-conv` — drop reserved camelCased names before
-;;     writing to the per-render JS props object. (Braces: the actual
+;;   - `add-converted-nested-prop!` / `add-converted-top-level-prop!` — drop
+;;     reserved camelCased names before writing to the per-render JS props
+;;     object. (Braces: the actual
 ;;     prototype-pollution chokepoint, because the props object is what
 ;;     flows into `React.createElement`.)
 ;;
@@ -351,13 +352,13 @@
 ;; cost once.
 ;;
 ;; `data-*` and `aria-*` are NOT camelCased — React passes them through
-;; as DOM attributes verbatim. The dont-camel-case starter prefix list
+;; as DOM attributes verbatim. The verbatim-prop-prefixes set
 ;; per stock Reagent.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private dont-camel-case #{"aria" "data"})
+(def ^:private verbatim-prop-prefixes #{"aria" "data"})
 
-(defn- capitalize [s]
+(defn- capitalize-prop-segment [s]
   (if (< (count s) 2)
     (str/upper-case s)
     (str (str/upper-case (subs s 0 1)) (subs s 1))))
@@ -376,9 +377,9 @@
       (if (str/starts-with? name-str "--")
         name-str
         (let [[start & parts] (str/split name-str #"-")]
-          (if (dont-camel-case start)
+          (if (verbatim-prop-prefixes start)
             name-str
-            (apply str start (map capitalize parts))))))))
+            (apply str start (map capitalize-prop-segment parts))))))))
 
 (def ^:private prop-name-cache
   (doto (js/Object.create nil)
@@ -400,8 +401,8 @@
 
   Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
   `constructor`) are never cached. The downstream `convert-props` writes
-  drop these too (see `kv-conv`), so a malicious key cannot reach the
-  React props object.
+  drop these too (see `add-converted-nested-prop!`), so a malicious key cannot
+  reach the React props object.
 
   The cache has no prototype (rf2-lhdp0), so the HIT path is one property
   load and an `undefined?` test — no own-property guard, no reserved-name
@@ -487,8 +488,8 @@
 
 (declare convert-prop-value)
 
-(defn- kv-conv
-  "Reduce-kv step: convert one [k v] pair into the JS props object `o`.
+(defn- add-converted-nested-prop!
+  "Reduce-kv step: convert one prop-key/prop-value pair into `js-props`.
 
   Used for NESTED maps (style objects, custom-component prop sub-maps)
   reached via `convert-prop-value`'s `map?` branch. At this depth there
@@ -497,37 +498,39 @@
   conversion uses the 1-arg `convert-prop-value`, which stringifies
   EVERY named value (`{:cursor :pointer}` → `cursor \"pointer\"`). This
   matches stock Reagent AND the pure server serializer
-  (`dom/server.cljs`, whose `named->str` stringifies every style value),
+  (`dom/server.cljs`, whose `named-value->string` stringifies every style
+  value),
   so the slim LIVE and SSR style paths agree — no live-vs-SSR hydration
   mismatch (rf2-fdm4rm). Routing nested values through the 2-arg
   (interop) form instead left keyword style values (`:cursor :pointer`)
   reaching React as RAW keywords, silently dropped by the CSSOM. The KEY
   is still camelCased via `cached-prop-name`. The TOP-LEVEL prop map is
-  converted by `convert-props` with the native-aware `top-prop-conv`
+  converted by `convert-props` with the DOM-aware
+  `add-converted-top-level-prop!`
   step instead, the seam that makes native-DOM keyword ATTRIBUTES
   stringify (per rf2-ygknv finding 1).
 
   Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
-  `constructor`) are dropped silently. `aset o \"__proto__\" v` would
-  invoke the prototype-setter on the props object — replacing its
+  `constructor`) are dropped silently. `aset js-props \"__proto__\" value`
+  would invoke the prototype-setter on the props object — replacing its
   prototype chain with whatever `v` is, leaking inherited slots into
   every subsequent property lookup. The key has no legitimate React
   meaning, so dropping is the only correct behaviour."
-  [o k v]
-  (let [k' (cached-prop-name k)]
-    (if (and (string? k') (reserved-prop-key? k'))
-      o
+  [js-props prop-key prop-value]
+  (let [converted-key (cached-prop-name prop-key)]
+    (if (and (string? converted-key) (reserved-prop-key? converted-key))
+      js-props
       ;; 1-arg form: nested-map values carry no outer prop-name context,
       ;; so stringify every named value (rf2-fdm4rm). See the docstring.
-      (let [v' (convert-prop-value v)]
-        (aset o k' v')
-        o))))
+      (let [converted-value (convert-prop-value prop-value)]
+        (aset js-props converted-key converted-value)
+        js-props))))
 
-(defn- top-prop-conv
-  "Reduce-kv step for the TOP-LEVEL prop map of a hiccup element. `o`
-  is the JS props object; `[k v]` the prop pair; `native?` whether the
-  element is a native DOM/string tag (vs a `:>` interop / custom React
-  component).
+(defn- add-converted-top-level-prop!
+  "Reduce-kv step for the TOP-LEVEL prop map of a hiccup element. `js-props`
+  is the accumulator; `prop-key`/`prop-value` are the prop pair;
+  `dom-element?` says whether the element is a native DOM/string tag (vs a
+  `:>` interop / custom React component).
 
   For native DOM tags, keyword/symbol values stringify for ANY prop
   name — every prop on a real DOM element is an HTML attribute that
@@ -539,29 +542,30 @@
   `:rf/foo` on a React-context Provider's `:value` is preserved.
 
   Reserved-key dropping (rf2-dwds9 MEDIUM) is unchanged."
-  [native? o k v]
-  (let [k' (cached-prop-name k)]
-    (if (and (string? k') (reserved-prop-key? k'))
-      o
-      (let [v' (convert-prop-value k v native?)]
-        (aset o k' v')
-        o))))
+  [dom-element? js-props prop-key prop-value]
+  (let [converted-key (cached-prop-name prop-key)]
+    (if (and (string? converted-key) (reserved-prop-key? converted-key))
+      js-props
+      (let [converted-value
+            (convert-prop-value prop-key prop-value dom-element?)]
+        (aset js-props converted-key converted-value)
+        js-props))))
 
 (defn convert-prop-value
-  "Convert a hiccup prop-map value `v` for prop-name `k` to a React-
+  "Convert a hiccup `prop-value` for `prop-key` to a React-
   shaped JS value.
 
   Per IMPL-SPEC §7.2 (DECISION-2) + rf2-ygknv finding 1: keyword/symbol
   stringification is TARGET-AWARE.
 
-    - NATIVE DOM/string tags (the 3-arg form with `native?` true):
+    - NATIVE DOM/string tags (the 3-arg form with `dom-element?` true):
       keyword/symbol values stringify for ANY prop name — every prop on
       a real DOM element is an HTML attribute taking a string value, and
       the pure server serializer stringifies them unconditionally, so
       the live React path must agree (`[:button {:type :button}]` →
       `props.type \"button\"`).
 
-    - CUSTOM/INTEROP components (the 2-arg form, or `native?` false):
+    - CUSTOM/INTEROP components (the 2-arg form, or `dom-element?` false):
       keyword/symbol values stringify only for documented HTML-attribute
       prop names (`:class`, `:id`, `:role`, `:data-*`, `:aria-*`); other
       named values pass through unchanged (with a one-shot dev warning),
@@ -586,7 +590,7 @@
   HOT PATH — this runs once per prop on every render. The `(fn? v)`
   test sits before `(ifn? v)` so the common case (event-handler fn) does
   not allocate a wrapper."
-  ([v]
+  ([prop-value]
    ;; 1-arg form: used recursively for map values where there's no
    ;; outer prop-name context (e.g. nested style objects). Treat
    ;; named? values as not-an-HTML-attr (they're map values, not
@@ -594,37 +598,42 @@
    ;; expect for `:style {:cursor :pointer}` etc. — :cursor is the
    ;; CSS prop name, not an HTML attr.
    (cond
-     (js-val? v)  v
-     (named? v)  (name v)         ; nested map values: stringify (CSS values)
-     (map? v)     (reduce-kv kv-conv #js {} v)
-     (coll? v)    (clj->js v)
-     (fn? v)      v                ; pass through — preserves identity
-     (ifn? v)     (fn [& args] (apply v args))
-     :else        v))
-  ([k v]
+     (js-val? prop-value) prop-value
+     (named? prop-value)  (name prop-value) ; nested values: stringify
+     (map? prop-value)    (reduce-kv add-converted-nested-prop!
+                                     #js {} prop-value)
+     (coll? prop-value)   (clj->js prop-value)
+     (fn? prop-value)     prop-value ; pass through — preserves identity
+     (ifn? prop-value)    (fn [& args] (apply prop-value args))
+     :else                prop-value))
+  ([prop-key prop-value]
    ;; 2-arg form: CUSTOM/INTEROP semantics (the `:>` path + the public
    ;; Var's documented contract). Narrowed stringification per §7.2.
    (cond
-     (js-val? v)  v
-     (named? v)  (if (html-attr-name? k)
-                    (name v)
-                    (do
-                      (when ^boolean js/goog.DEBUG
-                        (warn-once-keyword-prop! k v))
-                      v))
-     (map? v)     (reduce-kv kv-conv #js {} v)
-     (coll? v)    (clj->js v)
-     (fn? v)      v                ; pass through — preserves identity
-     (ifn? v)     (fn [& args] (apply v args))
-     :else        v))
-  ([k v native?]
+     (js-val? prop-value) prop-value
+     (named? prop-value)  (if (html-attr-name? prop-key)
+                            (name prop-value)
+                            (do
+                              (when ^boolean js/goog.DEBUG
+                                (warn-once-keyword-prop!
+                                  prop-key prop-value))
+                              prop-value))
+     (map? prop-value)    (reduce-kv add-converted-nested-prop!
+                                     #js {} prop-value)
+     (coll? prop-value)   (clj->js prop-value)
+     (fn? prop-value)     prop-value ; pass through — preserves identity
+     (ifn? prop-value)    (fn [& args] (apply prop-value args))
+     :else                prop-value))
+  ([prop-key prop-value dom-element?]
    ;; 3-arg form: TARGET-AWARE. For a native DOM tag every prop is an
    ;; HTML attribute, so keyword/symbol values stringify regardless of
    ;; the prop name — matching the pure server serializer and React DOM.
    ;; For non-native targets we defer to the 2-arg interop semantics.
-   (if (and native? (named? v) (not (js-val? v)))
-     (name v)
-     (convert-prop-value k v))))
+   (if (and dom-element?
+            (named? prop-value)
+            (not (js-val? prop-value)))
+     (name prop-value)
+     (convert-prop-value prop-key prop-value))))
 
 ;; ---------------------------------------------------------------------------
 ;; set-id-class — merge :div.foo#bar parts into the prop map
@@ -683,7 +692,7 @@
   `cached-prop-name`, so leaving both keys in the map sends two writes
   to the same JS slot — the survivor is iteration-order dependent
   (PersistentArrayMap vs PersistentHashMap differ), silently dropping
-  one class string. Mirrors the server path's `merge-shorthand`
+  one class string. Mirrors the server path's `merge-tag-shorthand`
   (which already `dissoc`'s `:className`) so React and SSR agree.
 
   Per stock Reagent, the prop-map `:class` is the value; a stray
@@ -725,14 +734,16 @@
 
   Returns nil for empty input."
   [props ^HiccupTag parsed]
-  (let [native?     (string? (.-tag parsed))
+  (let [dom-element? (string? (.-tag parsed))
         collapsed   (collapse-class-keys props)
         class       (:class collapsed)
         normalised  (cond-> collapsed
                       class (assoc :class (class-names class)))
         with-shorthand (set-id-class normalised parsed)
         ^js js-props (when (seq with-shorthand)
-                       (reduce-kv (fn [o k v] (top-prop-conv native? o k v))
+                       (reduce-kv (fn [js-props prop-key prop-value]
+                                    (add-converted-top-level-prop!
+                                      dom-element? js-props prop-key prop-value))
                                   #js {} with-shorthand))]
     js-props))
 
@@ -743,10 +754,11 @@
 ;; OR via `:key` in the props map. We honour the meta first, falling
 ;; back to the props map.
 ;;
-;; ONE rule, TWO entry points. `react-key` is the rule and takes the props
-;; slot; `get-react-key` finds the slot first, for a caller that holds only
-;; a vector. The constructors that have already shaped their argv
-;; (`native-element`, `fragment-element`) call the rule; `expand-seq`'s
+;; ONE rule, TWO entry points. `react-key-from-meta-or-props` is the rule and
+;; takes the props slot; `react-key-from-argv` finds the slot first, for a caller
+;; that holds only a vector. The constructors that have already shaped their
+;; argv (`converted-props-element`, `fragment-element`) call the rule;
+;; `expand-seq`'s
 ;; per-child missing-key DEBUG warning — which runs on the RAW list children
 ;; of EVERY head shape — and the cold component constructors call the finder.
 ;;
@@ -759,34 +771,38 @@
 ;; properly-keyed `:r>` list child.
 ;; ---------------------------------------------------------------------------
 
-(defn- react-key
+(defn- react-key-from-meta-or-props
   "THE RULE: `^{:key …}` meta on the hiccup vector wins; failing that, the
   props map's `:key`. `props` is the vector's props slot, nil when it has
   none — `(:key nil)` is nil, so the absence needs no branch.
 
   This is what an element constructor calls. Locating the props slot is
   precisely what the constructor's own `props-slot?` test has just done for
-  it, so re-deriving the slot from the head — `get-react-key`'s `nth`/`case`
-  ladder below — is work the hot path does not owe: 133.9 → 62.8 ns per
-  element, the two costed side by side on one run over the census page
+  it, so re-deriving the slot from the head — `react-key-from-argv`'s
+  `nth`/`case` ladder below — is work the hot path does not owe: 133.9 → 62.8
+  ns per element, the two costed side by side on one run over the census page
   (rf2-lhdp0)."
   [argv props]
   (or (some-> (meta argv) :key)
       (:key props)))
 
-(defn- get-react-key
-  "[[react-key]] for a caller holding only a hiccup vector, which must
-  find the props slot before it can read it: the slot is at index 2 under
-  an interop head and index 1 otherwise."
+(defn- react-key-from-argv
+  "`react-key-from-meta-or-props` for a caller holding only a hiccup vector.
+  Finds the props slot before reading it: the slot is at index 2 under an
+  interop head and index 1 otherwise."
   [v]
   (when (vector? v)
     (case (nth v 0 nil)
-      (:> :f>) (react-key v (let [h (nth v 2 nil)] (when (map? h) h)))
+      (:> :f>) (react-key-from-meta-or-props
+                 v (let [slot-value (nth v 2 nil)]
+                     (when (map? slot-value) slot-value)))
       ;; `:r>` reaches here only via expand-seq's missing-key warning (see
       ;; the header note); its props slot is a JS object, so the rule's
       ;; `:key` lookup does not apply — read the `.key` React honours.
       :r>      (or (some-> (meta v) :key) (some-> (nth v 2 nil) (.-key)))
-      (react-key v (let [h (nth v 1 nil)] (when (map? h) h))))))
+      (react-key-from-meta-or-props
+        v (let [slot-value (nth v 1 nil)]
+            (when (map? slot-value) slot-value))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-coord stamping (per IMPL-SPEC §5.4 + §9.4)
@@ -945,7 +961,7 @@
         (let [el (first items)]
           (when ^boolean js/goog.DEBUG
             (when (and (vector? el)
-                       (not (get-react-key el))
+                       (not (react-key-from-argv el))
                        (exists? js/console))
               ;; EP-0015 (rf2-uwqale): summarise the offending child, never
               ;; `pr-str` it whole — a hiccup child can carry app-owned
@@ -964,8 +980,9 @@
 ;; ---------------------------------------------------------------------------
 ;; Shared hiccup-shape detection
 ;;
-;; Four sites (native-element, fragment-element, and the server walker's
-;; emit-dom-vector / emit-fragment) ask the same shape question: "is the slot
+;; Four sites (converted-props-element, fragment-element, and the server
+;; walker's emit-dom-element / emit-fragment) ask the same shape question:
+;; "is the slot
 ;; at `first-pos` a props map, and where do children start?"
 ;;
 ;; THE RULE IS THE SHARED THING; THE ARITHMETIC IS NOT (rf2-e7zxb). This was
@@ -986,17 +1003,18 @@
 ;; ---------------------------------------------------------------------------
 
 (defn ^boolean props-slot?
-  "True when hiccup slot value `head` occupies the conventional props-map
+  "True when hiccup `slot-value` occupies the conventional props-map
   position: nil, or a map. Anything else is the first CHILD.
 
-  `head` is the slot VALUE — `(nth argv first-pos nil)` — not the vector, so
+  `slot-value` is `(nth argv first-pos nil)` — not the vector head, so
   the `nil` arm covers both an explicit `[:div nil \"x\"]` and an index past
   the end of the vector."
-  [head]
-  (or (nil? head) (map? head)))
+  [slot-value]
+  (or (nil? slot-value) (map? slot-value)))
 
-(defn- native-element
-  "Emit a DOM element. `parsed` is the parsed HiccupTag; `argv` the
+(defn- converted-props-element
+  "Emit an element after converting its Hiccup props. `parsed` is the parsed
+  or synthetic HiccupTag; `argv` the
   full hiccup vector; `first-pos` the index of the first arg position
   (1 for `:div ...`, 2 for `:> Component ...` etc.).
 
@@ -1005,11 +1023,11 @@
   as `:data-rf2-source-coord`. The merge happens before
   prop-conversion so the attr name flows through cached-prop-name.
 
-  native-element is the emit path for BOTH real DOM tags AND `:>` interop
-  elements (interop-element builds a synthetic HiccupTag whose tag slot
-  holds the foreign COMPONENT, then calls native-element). Stamping is
+  converted-props-element is the emit path for BOTH real DOM tags AND `:>`
+  interop elements (interop-element builds a synthetic HiccupTag whose tag slot
+  holds the foreign COMPONENT, then calls converted-props-element). Stamping is
   gated on the tag being a string DOM tag — `(string? component)`, the
-  same discriminator convert-props uses for native? and the React-hook
+  same discriminator convert-props uses for DOM elements and the React-hook
   spine uses via dom-element? — so a `:>`-rooted view does NOT stamp the
   attr as a foreign prop on the component (React would drop it, and the
   real DOM root would go unannotated). When the root is `:>`/interop the
@@ -1017,18 +1035,18 @@
   DOM element downstream (§5.4's 'first hiccup vector with a DOM-tag
   head')."
   [^HiccupTag parsed argv first-pos]
-  (let [component   (.-tag parsed)
-        head        (nth argv first-pos nil)
-        has-props   (props-slot? head)
-        first-child (+ first-pos (if has-props 1 0))
-        props       (cond-> (when has-props head)
+  (let [component    (.-tag parsed)
+        slot-value   (nth argv first-pos nil)
+        has-props?   (props-slot? slot-value)
+        first-child  (+ first-pos (if has-props? 1 0))
+        props        (cond-> (when has-props? slot-value)
                       (and *source-coord* (string? component)) merge-source-coord-attr)
-        js-props    (or (convert-props props parsed) #js {})]
-    ;; `props` IS the props slot `get-react-key` would go and re-derive, on
-    ;; both routes here: a DOM tag enters at `first-pos` 1 and `:>` at 2,
+        js-props     (or (convert-props props parsed) #js {})]
+    ;; `props` IS the props slot `react-key-from-argv` would go and re-derive,
+    ;; on both routes here: a DOM tag enters at `first-pos` 1 and `:>` at 2,
     ;; which are exactly the two indices that ladder reads. (The source-coord
     ;; merge only ever adds `:data-rf2-source-coord`, never `:key`.)
-    (when-some [key (react-key argv props)]
+    (when-some [key (react-key-from-meta-or-props argv props)]
       (set! (.-key js-props) key))
     (make-element argv component js-props first-child)))
 
@@ -1047,7 +1065,7 @@
                    (component/react-class? component)   component
                    :else                                 (component/fn-to-class component))
         js-props #js {:__rfArgv argv}]
-    (when-some [key (get-react-key argv)]
+    (when-some [key (react-key-from-argv argv)]
       (set! (.-key js-props) key))
     (react/createElement klass js-props)))
 
@@ -1063,7 +1081,7 @@
       ;; Copy the caller's js-props before stamping :key (rf2-mdgt8t (d)).
       ;; js-props here is the caller-supplied object (nth argv 2); mutating
       ;; it with (set! (.-key …)) is a user-visible mutation of an input.
-      ;; native-element / react-component-element mint fresh props objects,
+      ;; converted-props-element / react-component-element mint fresh props objects,
       ;; so only :r> was affected. Shallow-copy so the stamp is ours alone.
       (let [js-props (js/Object.assign #js {} (or supplied #js {}))]
         (set! (.-key js-props) key)
@@ -1117,15 +1135,15 @@
   The user args (`[:f> f a b]` → `[a b]`) travel through React props as
   `__rfArgv` (head-included, matching the class path's convention). The
   original vector's `:key` meta / props-map `:key` is honoured via
-  `get-react-key` so React keys flow."
+  `react-key-from-argv` so React keys flow."
   [argv]
   (let [f          (nth argv 1 nil)
         component  (as-fn-component f)
         ;; [head & user-args] as [f & user-args] — as-fn-component's
         ;; wrapper drops the head with (rest __rfArgv) before applying f.
-        synth-argv (with-meta (into [f] (subvec argv 2)) (meta argv))
-        js-props   #js {:__rfArgv synth-argv}]
-    (when-some [key (get-react-key argv)]
+        synthetic-argv (with-meta (into [f] (subvec argv 2)) (meta argv))
+        js-props       #js {:__rfArgv synthetic-argv}]
+    (when-some [key (react-key-from-argv argv)]
       (set! (.-key js-props) key))
     (react/createElement component js-props)))
 
@@ -1134,14 +1152,16 @@
   `[:<> & children]` or `[:<> {:key k} & children]`. Props map (if
   present) is JS-converted; only `:key` is meaningful on Fragments."
   [argv]
-  (let [head        (nth argv 1 nil)
-        has-props   (props-slot? head)
-        first-child (if has-props 2 1)
-        js-props    (or (when (and has-props (some? head))
-                          (convert-prop-value head))
+  (let [slot-value  (nth argv 1 nil)
+        has-props?  (props-slot? slot-value)
+        first-child (if has-props? 2 1)
+        js-props    (or (when (and has-props? (some? slot-value))
+                          (convert-prop-value slot-value))
                         #js {})]
-    ;; The slot is in hand, so the rule is read directly — see `react-key`.
-    (when-some [key (react-key argv (when has-props head))]
+    ;; The slot is in hand, so the rule is read directly — see
+    ;; `react-key-from-meta-or-props`.
+    (when-some [key (react-key-from-meta-or-props
+                      argv (when has-props? slot-value))]
       (set! (.-key js-props) key))
     (make-element argv (.-Fragment react) js-props first-child)))
 
@@ -1154,8 +1174,8 @@
         ;; Build a synthetic HiccupTag that names the component by
         ;; its component slot. We pass nil for id/class — :> doesn't
         ;; use the shorthand; the tag is a foreign component.
-        synth-tag (->HiccupTag component nil nil)]
-    (native-element synth-tag argv 2)))
+        synthetic-tag (->HiccupTag component nil nil)]
+    (converted-props-element synthetic-tag argv 2)))
 
 (defn vec-to-elem
   "Dispatch on a hiccup vector's head and emit the React element."
@@ -1203,7 +1223,7 @@
       (cond
         ;; DOM-tag head — keyword, symbol, or string.
         (hiccup-tag? tag)
-        (native-element (cached-parse tag argv) argv 1)
+        (converted-props-element (cached-parse tag argv) argv 1)
 
         ;; Reagent / React class head — instantiate directly.
         (component/reagent-class? tag)

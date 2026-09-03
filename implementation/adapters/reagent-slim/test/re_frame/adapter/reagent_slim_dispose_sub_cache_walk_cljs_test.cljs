@@ -35,7 +35,7 @@
 ;; body call dispose-adapter! to drive the walk. Each test cleans up
 ;; after itself so a re-run is idempotent.
 
-(defn fresh-slim [test-fn]
+(defn with-fresh-slim-adapter [test-fn]
   ;; Wipe lifecycle state — adapter slot + disposed breadcrumb +
   ;; frame registry — so the test starts from a never-installed cold
   ;; state. The `reset-lifecycle-state-for-tests!` seam exists for
@@ -53,7 +53,7 @@
   (reset! frame/frames {})
   (adapter/reset-lifecycle-state-for-tests!))
 
-(use-fixtures :each fresh-slim)
+(use-fixtures :each with-fresh-slim-adapter)
 
 ;; ---- helpers --------------------------------------------------------------
 

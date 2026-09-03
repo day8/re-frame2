@@ -23,10 +23,10 @@
         ├── number                   → str
         ├── boolean                  → nothing (matches React)
         ├── keyword/symbol           → escape-text on (name x)
-        ├── vector                   → emit-vector
+        ├── vector                   → emit-hiccup-vector
         └── seq                      → recurse over each child
 
-  emit-vector dispatches on the head:
+  emit-hiccup-vector dispatches on the head:
 
     | head           | meaning                                     |
     |----------------|---------------------------------------------|
@@ -103,7 +103,7 @@
       (str/replace "\"" "&quot;")
       (str/replace "'" "&#39;")))
 
-(defn- escape-attr
+(defn- escape-attribute
   "Escape attribute content per HTML5 with double-quoted values:
   `&` and `\"` only. Matches react-dom/server."
   [s]
@@ -126,12 +126,12 @@
 ;; **Lockstep**: the void-tag set above (in template.cljs) duplicates
 ;; `re-frame.ssr.emit/void-elements` (keyword form vs string form,
 ;; same membership). If HTML5 extends the void-element list, both
-;; copies update. Boolean-attrs is local to this artefact (re-frame.ssr
+;; copies update. Boolean-attributes is local to this artefact (re-frame.ssr
 ;; takes value-driven booleans through `html-helpers/attr-string`
 ;; instead of carrying its own name set).
 ;; ---------------------------------------------------------------------------
 
-(def ^:private boolean-attrs
+(def ^:private boolean-attributes
   "HTML5 boolean attributes (post-lowercase form): emit name only
   when truthy; omit when falsy. The set is the union of stock-
   Reagent and React's lists."
@@ -176,7 +176,7 @@
 ;;      `httpEquiv`→`http-equiv`, `acceptCharset`→`accept-charset`, …
 ;;   3. LOWERCASED — plain HTML camelCase like `tabIndex`→`tabindex`.
 ;;
-;; `react-attr-name-overrides` below pins shapes 1 + 2 exactly to
+;; `react-attribute-name-overrides` below pins shapes 1 + 2 exactly to
 ;; React 19's emitted output (extracted from `renderToStaticMarkup` —
 ;; see `parity_cljs_test.cljs` for the round-trip pin). Any camelCase
 ;; token NOT in the map falls through to the lowercase rule (shape 3),
@@ -186,7 +186,7 @@
 ;; this pure serializer diverged).
 ;; ---------------------------------------------------------------------------
 
-(def ^:private react-attr-name-overrides
+(def ^:private react-attribute-name-overrides
   "React's canonical HTML/SVG output name for each camelCase hiccup
   attribute whose serialized form is NOT a plain `lower-case` of the
   name. Keyed on the React-camelCase token `cached-prop-name` produces;
@@ -352,10 +352,10 @@
    "yChannelSelector" "yChannelSelector"
    "zoomAndPan" "zoomAndPan"})
 
-(defn- attr-name
+(defn- attribute-name
   "Hiccup keyword/string → HTML attribute name string. Honours React
   aliases (`:class` → \"class\", `:for` → \"for\"). For camelCase
-  tokens, consults `react-attr-name-overrides` to emit React 19's exact
+  tokens, consults `react-attribute-name-overrides` to emit React 19's exact
   output (`viewBox` preserved, `clipPath`→`clip-path`, …); any camelCase
   token not in the table lowercases for HTML5 conformance
   (`tabIndex` → `tabindex`). Kebab-case `data-*` / `aria-*` pass through
@@ -370,7 +370,7 @@
       "htmlFor"   "for"
       ;; data-*/aria-* stay verbatim — cached-prop-name doesn't
       ;; camelCase them. Other non-camel tokens stay verbatim too.
-      (or (get react-attr-name-overrides n)
+      (or (get react-attribute-name-overrides n)
           (if (or (str/starts-with? n "data-")
                   (str/starts-with? n "aria-")
                   ;; All-lowercase already.
@@ -388,7 +388,7 @@
 ;; firing.
 ;; ---------------------------------------------------------------------------
 
-(defn- named->str [x]
+(defn- named-value->string [x]
   (cond
     (nil? x)              nil
     (or (keyword? x)
@@ -416,8 +416,9 @@
 ;; The unitless-property set below mirrors React 19.2.0's `unitlessNumber`
 ;; Set *exactly* (vendor-prefixed entries included). React keys that set on
 ;; the *camelCase* style name (`flexGrow`, `zIndex`, `MozBoxFlex`, …) — the
-;; same form the React-element path hands React via `kv-conv`/
-;; `cached-prop-name`. So we camelCase the hiccup key through
+;; same form the React-element path hands React via
+;; `add-converted-nested-prop!` / `cached-prop-name`. So we camelCase the
+;; hiccup key through
 ;; `template/cached-prop-name` (the in-artefact transform that path uses)
 ;; before the unitless lookup, then convert that camelCase name to the
 ;; kebab CSS name with React's own rule (`([A-Z]) → -$1`, lower-case,
@@ -471,7 +472,7 @@
       (str/lower-case)
       (str/replace #"^ms-" "-ms-")))
 
-(defn- style-value->str
+(defn- style-value->string
   "Serialise one style value to its CSS string, applying React's `px`
   rule for numbers. `camel` is the camelCase property name (the
   unitless-lookup key). Numeric values get a `px` suffix unless the
@@ -481,7 +482,7 @@
     (if (or (zero? v) (contains? unitless-style-props camel))
       (str v)
       (str v "px"))
-    (named->str v)))
+    (named-value->string v)))
 
 (defn- style-string
   "Serialise a style map to an HTML inline-style string, matching
@@ -495,23 +496,23 @@
                (when (and (some? v)
                           (not (boolean? v))
                           (not= "" v))
-                 (let [raw (named->str k)]
+                 (let [raw (named-value->string k)]
                    (if (str/starts-with? raw "--")
                      ;; CSS custom property: name + value verbatim, no px.
-                     (str raw ":" (named->str v))
+                     (str raw ":" (named-value->string v))
                      (let [camel    (template/cached-prop-name k)
                            css-name (camel->css-name camel)]
-                       (str css-name ":" (style-value->str camel v))))))))
+                       (str css-name ":" (style-value->string camel v))))))))
        (str/join ";")))
 
-(defn- attr-value-string
+(defn- attribute-value-string
   "Convert a hiccup-shaped attribute value to its HTML-attribute
   string form. Keyword/symbol → name; collections → space-joined
   (for `:class [\"a\" \"b\"]`); other → str."
   [v]
   (cond
     (or (keyword? v) (symbol? v)) (name v)
-    (coll? v) (->> v (keep named->str) (str/join " "))
+    (coll? v) (->> v (keep named-value->string) (str/join " "))
     :else     (str v)))
 
 ;; ---------------------------------------------------------------------------
@@ -596,7 +597,7 @@
   "True when `k`'s name looks like a React event-handler prop
   (`onClick`, `onChange`, `on-click`, …) OR is a canonical lowercase
   HTML event-handler attribute (`onclick`, `onchange`, …). Matches
-  kebab-, camel-, and lowercase forms before `attr-name` lowercasing
+  kebab-, camel-, and lowercase forms before `attribute-name` lowercasing
   (rf2-ut3mod)."
   [k]
   (let [n (cond
@@ -615,7 +616,7 @@
                          (<= (.charCodeAt ch 0) 90)))) ; 'Z'
              (contains? event-handler-allowlist (str/lower-case n))))))
 
-(defn- emit-attr
+(defn- emit-attribute
   "Emit one [k v] attribute pair to the StringBuilder. Skips nil and
   false values; emits boolean-attribute short form for true.
 
@@ -656,26 +657,26 @@
     (= :style k)
     (when (and (map? v) (seq v))
       (.append sb " style=\"")
-      (.append sb (escape-attr (style-string v)))
+      (.append sb (escape-attribute (style-string v)))
       (.append sb "\""))
 
     (true? v)
-    (let [n      (attr-name k)
+    (let [n      (attribute-name k)
           ;; HTML5 boolean attributes are lowercase (`readonly`,
-          ;; `disabled`, …); `attr-name` may preserve React's casing
+          ;; `disabled`, …); `attribute-name` may preserve React's casing
           ;; (`readOnly`), so the boolean-attr membership test + the
           ;; emitted short-form use the lowercased name (rf2-ygknv
           ;; finding 3 follow-on: the case-preserving override must not
           ;; defeat the lowercase boolean-attr set).
           bool-n (str/lower-case n)]
-      (when (contains? boolean-attrs bool-n)
+      (when (contains? boolean-attributes bool-n)
         (.append sb " ")
         (.append sb bool-n)))
 
     :else
-    (let [n      (attr-name k)
+    (let [n      (attribute-name k)
           bool-n (str/lower-case n)]
-      (if (contains? boolean-attrs bool-n)
+      (if (contains? boolean-attributes bool-n)
         ;; Boolean attribute with non-true truthy value: emit the
         ;; (lowercase HTML5) name.
         (do (.append sb " ")
@@ -683,15 +684,15 @@
         (do (.append sb " ")
             (.append sb n)
             (.append sb "=\"")
-            (.append sb (escape-attr (attr-value-string v)))
+            (.append sb (escape-attribute (attribute-value-string v)))
             (.append sb "\""))))))
 
-(defn- emit-attrs
+(defn- emit-attributes
   "Emit a hiccup attribute map. Iteration order = insertion order."
   [^StringBuffer sb attrs]
   (when (seq attrs)
     (doseq [[k v] attrs]
-      (emit-attr sb k v))))
+      (emit-attribute sb k v))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tag-shorthand merging — :div.foo#bar
@@ -701,7 +702,7 @@
 ;; so the SSR walker sees the same parsed shape the React walker does.
 ;; ---------------------------------------------------------------------------
 
-(defn- merge-shorthand
+(defn- merge-tag-shorthand
   "Merge HiccupTag's id/class shorthand into the user-supplied attrs.
   User :id wins over shorthand id; shorthand class is prepended to
   user :class (matches stock Reagent's behaviour). Returns nil when
@@ -730,7 +731,7 @@
 
 (declare emit-element)
 
-(defn- react-component-comment
+(defn- emit-react-component-placeholder
   "Placeholder for foreign React-component subtrees — matches
   react-dom/server's opaque treatment under static markup."
   [^StringBuffer sb]
@@ -741,17 +742,17 @@
   (doseq [c children]
     (emit-element sb c)))
 
-(defn- emit-dom-vector
+(defn- emit-dom-element
   "Emit a hiccup vector whose head is a DOM-tag keyword/symbol/string."
   [^StringBuffer sb argv]
   (let [head         (nth argv 0 nil)
         parsed       (template/parse-tag head argv)
         tag-str      (.-tag parsed)
         first-arg    (nth argv 1 nil)
-        has-props    (template/props-slot? first-arg)
-        children-pos (if has-props 2 1)
-        user-attrs   (when (and has-props (some? first-arg)) first-arg)
-        attrs        (merge-shorthand parsed user-attrs)
+        has-props?   (template/props-slot? first-arg)
+        children-pos (if has-props? 2 1)
+        user-attrs   (when (and has-props? (some? first-arg)) first-arg)
+        attrs        (merge-tag-shorthand parsed user-attrs)
         n            (count argv)
         children     (when (< children-pos n)
                        (subvec argv children-pos))
@@ -760,7 +761,7 @@
                        (:dangerouslySetInnerHTML user-attrs))]
     (.append sb "<")
     (.append sb tag-str)
-    (emit-attrs sb attrs)
+    (emit-attributes sb attrs)
     (cond
       void?
       ;; HTML5 void elements: bare `<br>`, no closing tag, no children.
@@ -832,7 +833,7 @@
   [^StringBuffer sb klass argv]
   (emit-render-fn sb (.-cljsReagentRender ^js klass) (rest argv)))
 
-(defn- emit-vector
+(defn- emit-hiccup-vector
   [^StringBuffer sb argv]
   (when (zero? (count argv))
     ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape
@@ -854,10 +855,10 @@
       (= :<> head)                (emit-fragment sb argv)
       (or (= :> head)
           (= :r> head)
-          (= :f> head))           (react-component-comment sb)
+          (= :f> head))           (emit-react-component-placeholder sb)
       (or (keyword? head)
           (symbol? head)
-          (string? head))         (emit-dom-vector sb argv)
+          (string? head))         (emit-dom-element sb argv)
       ;; Form-3 head: a reagent-slim class made by `create-class*`. It
       ;; is a JS fn (so `fn?` would be true), but calling it would invoke
       ;; the class constructor, not render — so detect it BEFORE the
@@ -866,7 +867,7 @@
       ;; A generic React class (not made by `create-class*`) has no
       ;; CLJS render fn to walk — treat it as opaque foreign content,
       ;; same as `:>` (rf2-o3hqr).
-      (component/react-class? head)   (react-component-comment sb)
+      (component/react-class? head)   (emit-react-component-placeholder sb)
       ;; Plain user fn head — Form-1 or Form-2 (rf2-o3hqr).
       (fn? head)                  (emit-user-fn sb head argv)
       :else
@@ -899,7 +900,7 @@
     (number? x)     (.append sb (str x))
     (or (keyword? x) (symbol? x))
     (.append sb (escape-text (name x)))
-    (vector? x)     (emit-vector sb x)
+    (vector? x)     (emit-hiccup-vector sb x)
     (sequential? x) (doseq [c x] (emit-element sb c))
     :else
     ;; Canonical shape replicated inline (bundle isolation — see above).

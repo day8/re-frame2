@@ -199,7 +199,8 @@
             so React.memo / shouldComponentUpdate bail-outs work. Two
             calls with the SAME fn return the SAME reference."
     (let [handler (fn [_e] :clicked)
-          ;; 2-arg form — the production path through `kv-conv`.
+          ;; 2-arg form — the production path through
+          ;; `add-converted-nested-prop!`.
           a (template/convert-prop-value :on-click handler)
           b (template/convert-prop-value :on-click handler)]
       (is (identical? handler a)
@@ -241,8 +242,9 @@
             keyword. This exercises the real nested-map path through
             as-element, the path production renders actually take. (The
             old 1-arg-direct test was VACUOUS: no nested-map render reaches
-            the 1-arg form directly — kv-conv did, but routed values through
-            the 2-arg interop form, leaving the keyword un-stringified.)"
+            the 1-arg form directly — add-converted-nested-prop! did, but
+            routed values through the 2-arg interop form, leaving the keyword
+            un-stringified.)"
     (let [^js el (template/as-element [:div {:style {:cursor :pointer}}])
           style  (-> el .-props .-style)]
       (is (= "div" (.-type el)))
@@ -413,7 +415,7 @@
 ;; iteration-order dependent (array-map vs hash-map differ) — silently
 ;; dropping one class string (and, with shorthand, the shorthand class
 ;; too). collapse-class-keys folds :className into :class deterministically,
-;; matching the server path's merge-shorthand :className handling.
+;; matching the server path's merge-tag-shorthand :className handling.
 (deftest as-element-classname-prop-only
   (testing "[:div {:className \"bar\"}] → React-style :className passes through"
     (let [^js el (template/as-element [:div {:className "bar"}])]
@@ -607,8 +609,9 @@
 ;; ---------------------------------------------------------------------------
 ;; Source-coord stamping is gated on a native DOM-tag head (rf2-33lo7r)
 ;;
-;; native-element is the emit path for BOTH real DOM tags AND :> interop
-;; elements. The *source-coord* merge must fire ONLY for a string DOM tag —
+;; converted-props-element is the emit path for BOTH real DOM tags AND :>
+;; interop elements. The *source-coord* merge must fire ONLY for a string DOM
+;; tag —
 ;; never as a foreign prop on a :> component (React drops the unknown prop,
 ;; leaving the real DOM root unannotated), mirroring the React-hook spine's
 ;; dom-element? string-type gate.
@@ -867,8 +870,9 @@
 ;;
 ;; User-controlled hiccup keys like `:__proto__`, `:constructor`, and
 ;; `:prototype` MUST NOT mutate the prototype chain of the per-element
-;; props object or any shared cache. `kv-conv` and `cached-prop-name`
-;; drop the reserved key trio before any `aset`, which is the single
+;; props object or any shared cache. `add-converted-nested-prop!` and
+;; `cached-prop-name` drop the reserved key trio before any `aset`, which is
+;; the single
 ;; chokepoint where user keys become JS object writes.
 ;;
 ;; These tests pin the contract by attempting the attack-shape and
@@ -880,8 +884,9 @@
 (deftest prototype-key-dropped-from-props-rf2-dwds9
   (testing "rf2-dwds9: {:__proto__ {:polluted true}} prop does NOT
             mutate the props object's prototype chain. Without the
-            kv-conv filter, `aset obj '__proto__' {...}` would invoke
-            the prototype-setter and change Object.prototype lookups
+            add-converted-nested-prop! filter, `aset obj '__proto__' {...}`
+            would invoke the prototype-setter and change Object.prototype
+            lookups
             on every subsequent prop object — exactly the leak we close."
     (let [;; A sentinel "evil" prototype carrying a slot we can detect.
           evil      #js {:polluted "yes"}
@@ -1094,20 +1099,21 @@
 ;; ---------------------------------------------------------------------------
 ;; rf2-lhdp0: the per-element `:key` read, straight off the props slot
 ;;
-;; `react-key` is the RULE (meta wins, then the props map's `:key`) and the
-;; constructors that have already shaped their argv call it with the slot in
-;; hand; `get-react-key` is that same rule plus the `nth`/`case` search for
-;; the slot, for callers holding a bare vector.
+;; `react-key-from-meta-or-props` is the RULE (meta wins, then the props map's
+;; `:key`) and the constructors that have already shaped their argv call it
+;; with the slot in hand; `react-key-from-argv` is that same rule plus the
+;; `nth`/`case` search for the slot, for callers holding a bare vector.
 ;;
 ;; So every constructor that took the short road is witnessed here, on both
 ;; key spellings, with the precedence between them and the absence case:
 ;; a DOM tag (props at index 1), `:>` interop (index 2 — both are
-;; `native-element`), and `:<>` fragments. The heads still on the finder
-;; (`:f>`, `:r>`, component heads) are witnessed by the sibling suites above,
+;; `converted-props-element`), and `:<>` fragments. The heads still on the
+;; finder (`:f>`, `:r>`, component heads) are witnessed by the sibling suites
+;; above,
 ;; and `expand-seq`'s missing-key warning is the finder's other caller.
 ;; ---------------------------------------------------------------------------
 
-(deftest key-read-covers-both-native-element-routes-rf2-lhdp0
+(deftest key-read-covers-both-converted-props-routes-rf2-lhdp0
   (testing "rf2-lhdp0: DOM tag — meta key, prop key, neither"
     (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:div "x"])))
         "meta key on a DOM tag")

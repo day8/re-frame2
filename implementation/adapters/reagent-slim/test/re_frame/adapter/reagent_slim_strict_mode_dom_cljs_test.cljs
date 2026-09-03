@@ -15,8 +15,8 @@
   (`reagent2.impl.component`), the microtask render scheduler
   (`reagent2.impl.batching`), and a per-component render Reaction. Its
   `componentWillUnmount` UNCONDITIONALLY disposes + nils that render Reaction
-  (`install-lifecycle!`), and the render method lazily RECREATES it on the next
-  render (`make-render-method`). React.StrictMode's development simulated
+  (`install-lifecycle-methods!`), and the render method lazily RECREATES it on
+  the next render (`make-render-method`). React.StrictMode's development simulated
   unmount→remount stresses exactly that dispose/recreate + subscription re-wire.
   Stock reagent / uix all carry a StrictMode DOM scenario; slim did not
   (Finding 1 of the rf2-x76af2.37 clarity-nit review, deferred here). The

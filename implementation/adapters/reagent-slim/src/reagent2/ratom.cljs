@@ -72,24 +72,24 @@
 ;; Internal helpers
 ;; ---------------------------------------------------------------------------
 
-(defn- ^number arr-len [x]
+(defn- ^number array-length [x]
   (if (nil? x) 0 (alength x)))
 
-(defn- ^boolean arr-eq [x y]
-  (let [len (arr-len x)]
-    (and (== len (arr-len y))
+(defn- ^boolean arrays-identical? [x y]
+  (let [length (array-length x)]
+    (and (== length (array-length y))
          (loop [i 0]
-           (or (== i len)
+           (or (== i length)
                (if (identical? (aget x i) (aget y i))
                  (recur (inc i))
                  false))))))
 
-(defn- in-context
-  "Run f with *ratom-context* bound to obj. Any deref inside f registers
-  the deref'd ratom on obj (via notify-deref-watcher!), which is how a
+(defn- call-with-ratom-context
+  "Run f with *ratom-context* bound to context. Any deref inside f registers
+  the deref'd ratom on context (via notify-deref-watcher!), which is how a
   Reaction discovers its dependencies."
-  [obj f]
-  (binding [*ratom-context* obj]
+  [context f]
+  (binding [*ratom-context* context]
     (f)))
 
 (defn- deref-capture
@@ -99,45 +99,48 @@
   no-longer-watched ratoms. Clears the dirty? flag on r."
   [f ^clj r]
   (set! (.-captured r) nil)
-  (let [res (in-context r f)
-        c   (.-captured r)]
+  (let [result   (call-with-ratom-context r f)
+        captured (.-captured r)]
     (set! (.-dirty? r) false)
     ;; Optimise common case where derefs occur in same order
-    (when-not (arr-eq c (.-watching r))
-      (._update-watching r c))
-    res))
+    (when-not (arrays-identical? captured (.-watching r))
+      (._update-watching r captured))
+    result))
 
 (defn- notify-deref-watcher!
   "Add `derefed` to the captured array on the in-flight reactive context.
   No-op outside a reactive context."
   [derefed]
-  (when-some [^clj r *ratom-context*]
-    (let [c (.-captured r)]
-      (if (nil? c)
-        (set! (.-captured r) (array derefed))
-        (.push c derefed)))))
+  (when-some [^clj reaction *ratom-context*]
+    (let [captured (.-captured reaction)]
+      (if (nil? captured)
+        (set! (.-captured reaction) (array derefed))
+        (.push captured derefed)))))
 
-(defn- add-w [^clj this key f]
-  (set! (.-watches this) (assoc (.-watches this) key f))
-  (set! (.-watchesArr this) nil))
+(defn- add-watch-entry! [^clj watchable watch-key watch-fn]
+  (set! (.-watches watchable)
+        (assoc (.-watches watchable) watch-key watch-fn))
+  (set! (.-watchesArr watchable) nil))
 
-(defn- remove-w [^clj this key]
-  (set! (.-watches this) (dissoc (.-watches this) key))
-  (set! (.-watchesArr this) nil))
+(defn- remove-watch-entry! [^clj watchable watch-key]
+  (set! (.-watches watchable)
+        (dissoc (.-watches watchable) watch-key))
+  (set! (.-watchesArr watchable) nil))
 
-(defn- notify-w [^clj this old new]
-  (let [w   (.-watchesArr this)
-        a   (if (nil? w)
-              (->> (.-watches this)
-                   (reduce-kv #(doto %1 (.push %2) (.push %3)) #js [])
-                   (set! (.-watchesArr this)))
-              w)
-        len (alength a)]
+(defn- notify-watches! [^clj watchable old-value new-value]
+  (let [cached-watch-slots (.-watchesArr watchable)
+        watch-slots        (if (nil? cached-watch-slots)
+                             (->> (.-watches watchable)
+                                  (reduce-kv #(doto %1 (.push %2) (.push %3))
+                                             #js [])
+                                  (set! (.-watchesArr watchable)))
+                             cached-watch-slots)
+        slot-count         (alength watch-slots)]
     (loop [i 0]
-      (when (< i len)
-        (let [k (aget a i)
-              f (aget a (inc i))]
-          (f k this old new))
+      (when (< i slot-count)
+        (let [watch-key (aget watch-slots i)
+              watch-fn  (aget watch-slots (inc i))]
+          (watch-fn watch-key watchable old-value new-value))
         (recur (+ 2 i))))))
 
 (defn- pr-atom [a writer opts type-tag body]
@@ -215,7 +218,7 @@
     (let [old-value state]
       (set! state new-value)
       (when-not (nil? watches)
-        (notify-w a old-value new-value))
+        (notify-watches! a old-value new-value))
       new-value))
 
   ISwap
@@ -234,9 +237,9 @@
   (-pr-writer [a w opts] (pr-atom a w opts "RAtom" {:val (-deref a)}))
 
   IWatchable
-  (-notify-watches [this old new] (notify-w this old new))
-  (-add-watch [this key f]        (add-w this key f))
-  (-remove-watch [this key]       (remove-w this key))
+  (-notify-watches [this old new] (notify-watches! this old new))
+  (-add-watch [this key f]        (add-watch-entry! this key f))
+  (-remove-watch [this key]       (remove-watch-entry! this key))
 
   IHash
   (-hash [this] (goog/getUid this)))
@@ -275,8 +278,8 @@
     "Register a 1-arg callback to fire when this Reaction is disposed.
      Multiple callbacks accumulate; they run in registration order."))
 
-(defn- handle-reaction-change [^clj this _sender old new]
-  (._handle-change this _sender old new))
+(defn- handle-reaction-change [^clj reaction sender old-value new-value]
+  (._handle-change reaction sender old-value new-value))
 
 ;; ---------------------------------------------------------------------------
 ;; Reaction — derived value with equality memoisation
@@ -293,11 +296,11 @@
   IReactiveAtom
 
   IWatchable
-  (-notify-watches [this old new] (notify-w this old new))
-  (-add-watch [this key f]        (add-w this key f))
+  (-notify-watches [this old new] (notify-watches! this old new))
+  (-add-watch [this key f]        (add-watch-entry! this key f))
   (-remove-watch [this key]
     (let [was-empty (empty? watches)]
-      (remove-w this key)
+      (remove-watch-entry! this key)
       (when (and (not was-empty)
                  (empty? watches)
                  (nil? auto-run))
@@ -309,7 +312,7 @@
     (let [oldval state]
       (set! state newval)
       (on-set oldval newval)
-      (notify-w a oldval newval)
+      (notify-watches! a oldval newval)
       newval))
 
   ISwap
@@ -356,7 +359,7 @@
     ;; throwing queued/flush! recompute would leave `state` = false instead
     ;; of the error AND notify watchers of a spurious `false` change
     ;; (rf2-ee38b.15 P2). Returning the new state keeps `_run`'s
-    ;; `notify-w … res` reflecting the recompute on the success path.
+    ;; `notify-watches! … res` reflecting the recompute on the success path.
     (try
       (set! caught nil)
       (set! state (deref-capture f this))
@@ -381,7 +384,7 @@
       ;; Skip notify-watches when the recomputed value is = the old one.
       (when-not (or (nil? watches)
                     (= oldstate res))
-        (notify-w this oldstate res))
+        (notify-watches! this oldstate res))
       res))
 
   (_set-opts [this {:keys [auto-run on-set on-dispose]}]
@@ -407,7 +410,7 @@
           (let [oldstate state]
             (set! state (f))
             (when-not (or (nil? watches) (= oldstate state))
-              (notify-w this oldstate state))))
+              (notify-watches! this oldstate state))))
         ;; Inside a reactive context (or auto-run set): subscribe the
         ;; outer context to this Reaction; recompute if dirty.
         (do

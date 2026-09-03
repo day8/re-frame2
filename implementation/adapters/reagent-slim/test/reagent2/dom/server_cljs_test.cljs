@@ -122,7 +122,7 @@
 
 (deftest attr-camelcase-react-canonical-name
   (testing "camelCased prop names emit React 19's canonical output name"
-    ;; rf2-ygknv finding 3: `attr-name` is no longer a blanket lowercase.
+    ;; rf2-ygknv finding 3: `attribute-name` is no longer a blanket lowercase.
     ;; React's attribute-name table governs the output:
     ;;   :tab-index → "tabindex"  (plain HTML camelCase → lowercased)
     ;;   :col-span  → "colSpan"   (React PRESERVES this camelCase token)

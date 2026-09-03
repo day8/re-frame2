@@ -33,13 +33,13 @@
 ;; Helpers
 ;; ---------------------------------------------------------------------------
 
-(defn- a-mock-emitter
+(defn- mock-hiccup-emitter
   "A toy hiccup -> HTML emitter so install-path tests assert wiring, not
   real rendering."
   [render-tree _opts]
   (str "<mock>" (pr-str render-tree) "</mock>"))
 
-(defn- with-cleared-emitter
+(defn- with-cleared-hiccup-emitter
   "Run `f` with the adapter's hiccup-emitter forced to nil."
   [f]
   (reagent-slim/set-hiccup-emitter! nil)
@@ -128,16 +128,16 @@
 
 (deftest render-to-string-throws-without-emitter
   (testing "render-to-string raises when no hiccup-emitter installed"
-    (with-cleared-emitter
+    (with-cleared-hiccup-emitter
       (fn []
         (let [render-to-string (:render-to-string reagent-slim/adapter)]
           (is (thrown? :default (render-to-string [:div] {}))))))))
 
 (deftest set-hiccup-emitter-installs-fn
   (testing "set-hiccup-emitter! lets render-to-string emit"
-    (with-cleared-emitter
+    (with-cleared-hiccup-emitter
       (fn []
-        (reagent-slim/set-hiccup-emitter! a-mock-emitter)
+        (reagent-slim/set-hiccup-emitter! mock-hiccup-emitter)
         (let [render-to-string (:render-to-string reagent-slim/adapter)
               tree             [:div "ok"]
               html             (render-to-string tree {})]
@@ -156,12 +156,12 @@
     (let [hook-fn (late-bind/get-fn :reagent/set-hiccup-emitter!)]
       (is (some? hook-fn)
           "the chained hook is registered after the Reagent Slim adapter ns has loaded")
-      (with-cleared-emitter
+      (with-cleared-hiccup-emitter
         (fn []
           (let [render-to-string (:render-to-string reagent-slim/adapter)]
             (is (thrown? :default (render-to-string [:div] {}))
                 "precondition: emitter cleared"))
-          (hook-fn a-mock-emitter)
+          (hook-fn mock-hiccup-emitter)
           (let [render-to-string (:render-to-string reagent-slim/adapter)
                 html             (render-to-string [:div "via-chain"] {})]
             (is (str/starts-with? html "<mock>")
