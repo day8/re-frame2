@@ -2,7 +2,7 @@
   "THE LIVE HALF OF THE PRODUCTION-ERASURE PROOF.
 
   `implementation/hicasso/scripts/check_production_erasure.cjs` scans the
-  `:advanced` / `goog.DEBUG=false` bundle and requires five strings to be
+  `:advanced` / `goog.DEBUG=false` bundle and requires eight strings to be
   ABSENT. An absence is only evidence about erasure if the string is
   something a live surface really emits — a sentinel that quietly stopped
   being produced is absent from every bundle for a reason that has nothing
@@ -24,7 +24,7 @@
 
   ## What is asserted, and what is not
 
-  Five sentinels and two of the scan's three positive controls. The third
+  Eight sentinels and two of the scan's three positive controls. The third
   control — the release entry's own view name — is not asserted here
   because this namespace is not that entry; what it depends on is the
   MECHANISM, that `mint-view!` stamps `\"<ns>/<sym>\"` unconditionally, and
@@ -48,10 +48,13 @@
             [re-frame.hicasso.test :as ht]))
 
 (def sentinels
-  "The five strings the release-bundle scan requires to be ABSENT, spelled
+  "The eight strings the release-bundle scan requires to be ABSENT, spelled
   exactly as `check_production_erasure.cjs` spells them."
   {:body-slot        "hicassoBody"
    :views-slot       "hicassoViews"
+   :view-attrs-slot  "hicassoViewAttrs"
+   :source-coord     "data-rf2-source-coord"
+   :view-id          "data-rf-view"
    :test-kit-refusal "rf.error/hicasso-test-"
    :evidence-schema  "re-frame.hicasso.evidence"
    :console-prefix   "[hicasso]"})
@@ -106,6 +109,31 @@
               "and the cleanup uncounts it")))
       (finally
         (rf/destroy-frame! ::erasure-views)))))
+
+(deftest the-spec-006-annotations-write-the-slot-and-the-keys-the-scan-names
+  (testing "`hicassoViewAttrs` is the own property a dev-built body carries,
+            and the two attribute names are the keys inside it"
+    (let [body  (codec/retained-body probe)
+          attrs (unchecked-get body (:view-attrs-slot sentinels))]
+      (is (some? attrs)
+          "the mint writes Spec 006's attrs map under this exact property name")
+      (is (= #{(:source-coord sentinels) (:view-id sentinels)}
+             (into #{} (map name) (keys attrs)))
+          "and the map's two keys ARE the two scanned literals — which is what
+           makes their absence from a release bundle a statement about Spec
+           006 §Production elision rather than about some other string")
+      (testing "the values are the contract's formats, built by core's own
+                cross-host formatters so they read identically to Reagent's"
+        (is (= ":re-frame.hicasso.erasure-sentinels-cljs-test/probe"
+               (:data-rf-view attrs))
+            "`data-rf-view` is (str id), leading colon preserved")
+        (is (str/starts-with?
+              (:data-rf2-source-coord attrs)
+              "re-frame.hicasso.erasure-sentinels-cljs-test:probe:")
+            "`data-rf2-source-coord` is <ns>:<sym>:<line>:<col>")
+        (is (re-find #":\d+:\d+$" (:data-rf2-source-coord attrs))
+            "and the line/col segments are REAL — a `?:?` here would mean the
+             declaration extent was closed before the mint read it")))))
 
 (deftest the-test-kits-refusal-ids-carry-the-family-the-scan-names
   (testing "`rf.error/hicasso-test-` prefixes the ids the kit mints"

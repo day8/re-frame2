@@ -158,6 +158,52 @@ const SENTINELS = [
       'must carry no view names.',
   },
   {
+    surface: 'Spec 006 annotations — the dev-only attrs stamp on a minted body (rf2-c5w1)',
+    sentinel: 'hicassoViewAttrs',
+    source: 'src/re_frame/hicasso/impl/collector.cljs',
+    premise: '(def ^:private view-attrs-slot',
+    why:
+      'The own property `mint-view!` writes on a declared view\'s body — the ' +
+      'pre-built `data-rf2-source-coord` / `data-rf-view` attrs map ' +
+      '`run-once` merges into the root hiccup. Written inside ' +
+      '`(when ^boolean js/goog.DEBUG …)` and read inside another, so a ' +
+      'release body carries neither the slot nor a coordinate.',
+    remedy:
+      'Check both gates in impl/collector.cljs — the write in `mint-view!` ' +
+      'and the read in `run-once`; a production body must carry no attrs.',
+  },
+  {
+    surface: 'Spec 006 §Source-coord annotation — production elision (rf2-c5w1)',
+    sentinel: 'data-rf2-source-coord',
+    source: 'src/re_frame/hicasso/impl/collector.cljs',
+    premise: ':data-rf2-source-coord',
+    why:
+      'The attribute Spec 006 §Source-coord annotation requires on a ' +
+      'registered view\'s rendered root, and whose §Production elision ' +
+      'clause makes this literal\'s ABSENCE from an `:advanced` + ' +
+      '`goog.DEBUG=false` bundle mandatory. It is a keyword key in ' +
+      '`collector/view-annotations`, reached only from `mint-view!`\'s dev ' +
+      'gate, so the whole fn is unreferenced in a release build and folds.',
+    remedy:
+      'Check that `view-annotations` is reached only from the `goog.DEBUG` ' +
+      'gate in `mint-view!` — a second, ungated caller would keep it alive.',
+  },
+  {
+    surface: 'Spec 006 §View tagging contract — production elision (rf2-c5w1)',
+    sentinel: 'data-rf-view',
+    source: 'src/re_frame/hicasso/impl/collector.cljs',
+    premise: ':data-rf-view',
+    why:
+      'The view-id attribute Spec 006 §View tagging contract requires ' +
+      'alongside the source coord, riding the same gate and the same merge. ' +
+      'A row of its own rather than trusting the coord row above, because ' +
+      'the two are separate keys in the same map and a partial elision ' +
+      'would leak exactly one of them.',
+    remedy:
+      'Same gate as the row above; both keys are built in ' +
+      '`collector/view-annotations`.',
+  },
+  {
     surface: 'test kit — the kit itself (rf2-hic-020)',
     sentinel: 'rf.error/hicasso-test-',
     source: 'test_kit/src/re_frame/hicasso/test.cljs',
