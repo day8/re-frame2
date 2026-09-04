@@ -1244,14 +1244,21 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; `:recovery` declared here could never be satisfied (subs passes one in and
   ;; it does not survive into `:tags`).
   ;;
-  ;; Per-slot ownership — the emitter that stamps it:
-  ;;   :event    router/emit-frame-destroyed! + ui/frames/emit-and-throw-frame-destroyed!
+  ;; Per-slot ownership — the emitter that stamps it. `ui/frames` co-owned
+  ;; `:event`, `:op` and `:reason` here until it was removed on 2026-08-16
+  ;; (rf2-0yp7w); its half of each row is DROPPED rather than re-pointed —
+  ;; there is no successor producer, the view layer that replaced it stamping
+  ;; none of these slots. Every surviving producer below is live, so no SLOT
+  ;; lost its claim the way the `:where` group did (rf2-22ks).
+  ;;   :event    router/emit-frame-destroyed!
   ;;   :query-v  subs/emit-frame-destroyed-recovery!
-  ;;   :op       ui/frames (all four values) + capture-frame pre-check + router/subs
-  ;;             LATE captured-op fences; rf2-alk8a — subs/emit-frame-destroyed-
-  ;;             recovery! stamps `:subscribe` on these dev-trace tags AND the
-  ;;             always-on record (subscribe-realm by construction).
-  ;;   :reason   router + ui/frames (the constant `:frame-destroyed`)
+  ;;   :op       capture-frame pre-check + router's LATE captured-op fences;
+  ;;             rf2-alk8a — subs/emit-frame-destroyed-recovery! stamps
+  ;;             `:subscribe` on these dev-trace tags AND the always-on record
+  ;;             (subscribe-realm by construction). Those cover three of the
+  ;;             four declared `:op` values; `:capture` was the retired seam's
+  ;;             alone and is now unproduced — rf2-xtqs, not this row's fix.
+  ;;   :reason   router (the constant `:frame-destroyed`)
   ;;
   ;; `:where` / `:rf.sub/id` / `:rf.sub/query-v` were declared here until
   ;; 2026-08-21 and are GONE (rf2-63t1i). Their only emitter was the internal

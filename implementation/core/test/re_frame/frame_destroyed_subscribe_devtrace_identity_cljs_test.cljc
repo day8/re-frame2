@@ -7,9 +7,14 @@
   ## The residual this file pins closed
 
   #6516 (the wd4ac original) fixed the UI PRODUCER: `re-frame.ui.frames`'
-  `emit-and-throw-frame-destroyed!` now passes the raw query vector on BOTH the
+  `emit-and-throw-frame-destroyed!` passed the raw query vector on BOTH the
   always-on `:event` slot AND the dev-trace `:event` tag for the `:subscribe`
-  realm. The always-on egress (axis 1) then stays raw because
+  realm. That tree was removed on 2026-08-16 (rf2-0yp7w); the live producer of
+  the same shape is `router/emit-frame-destroyed!`, reached from
+  `capture-frame`'s superseded-`:subscribe` seam (`capture-subscribe!` via
+  `emit-captured-frame-superseded!`), which passes the attempted query vector
+  as `:event` under `:op :subscribe`. The always-on egress (axis 1) then stays
+  raw because
   `error-emit/raw-identity-query-vector-event?` skips elision keyed on
   `(:rf.error/frame-destroyed, :op :subscribe)`.
 
@@ -77,7 +82,7 @@
   (rf.registrar/register! :event shared-id {:sensitive [[:token]]}))
 
 (defn- frame-destroyed-devtrace
-  "The axis-2 dev-trace event `emit-and-throw-frame-destroyed!` fans (frames.cljc):
+  "The axis-2 dev-trace event `router/emit-frame-destroyed!` fans (router.cljc):
   `{:operation :rf.error/frame-destroyed :tags {:frame … :op … :event … …}}`."
   [op event]
   {:operation :rf.error/frame-destroyed
