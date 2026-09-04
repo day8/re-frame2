@@ -61,9 +61,12 @@
     (is (some? form) "dispatch-dry-run must be defined")
     (is (mentions-sym? form 'binding)
         "dispatch-dry-run must establish a dynamic binding around dispatch-sync")
-    (is (mentions-sym? form 'fx/*effect-sink*)
-        (str "dispatch-dry-run must bind re-frame.fx/*effect-sink* (the "
-             "universal effect-executor sink) — the structural no-effect guarantee"))
+    (is (mentions-sym? form 'rf.fx/*effect-sink*)
+        (str "dispatch-dry-run must bind re-frame.fx/*effect-sink* — spelled "
+             "`rf.fx/*effect-sink*` at the use site, since the preload requires "
+             "`[re-frame.fx :as rf.fx]` under the canonical require-alias "
+             "dialect (rf2-7sx1) — the universal effect-executor sink, and the "
+             "structural no-effect guarantee"))
     (is (mentions-sym? form 'rf/dispatch-sync)
         "dispatch-dry-run must run the cascade via dispatch-sync inside the sink")))
 
