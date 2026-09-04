@@ -18,9 +18,9 @@
       introspectable truth). For every JVM-loadable public namespace
       this generator calls `ns-publics`, drops the documented `^:no-doc`
       internal carve-outs, and derives `:kind` (`:macro` / `:fn` /
-      `:var`) and `:facade?` (does the var live in the user-facing
-      `re-frame.core` façade, or in its home artefact ns?) from var
-      metadata.
+      `:var`) and `:facade?` (does the var live in one of the
+      user-facing façades named by `facade-namespaces`, or in its home
+      artefact ns?) from var metadata.
     - :tier / :owner / :status are CURATED in the sidecar
       `spec/api-manifest-metadata.edn`, keyed by `[namespace var]`,
       because they are human-classification axes that cannot be derived
@@ -757,12 +757,29 @@
   (with-open [r (io/reader @sidecar-file)]
     (edn/read (java.io.PushbackReader. r))))
 
+(def facade-namespaces
+  "The facade namespaces — the ONE namespace a consumer requires to use each
+   product. spec/Conventions.md §Facade policy names three: `re-frame.core`
+   (the framework), `re-frame.story` (the stories library) and
+   `day8.re-frame2-xray.core` (the Xray devtool).
+
+   A SET rather than a predicate on purpose (rf2-i6kh): the facade-audit
+   invariants below — `implementation-facade-rows`, `unjustified-facade-rows`,
+   `bad-action-facade-rows` — are the mechanical home of the Conventions
+   obligation, and that obligation is on FACADE exports generally, not on
+   `re-frame.core` alone. Widening a set is the whole edit; a second
+   predicate would let the two facades drift apart.
+
+   `day8.re-frame2-xray.core` is deliberately ABSENT: it carries no manifest
+   rows at all (its namespace is not on `jvm-namespaces`), so naming it here
+   would be a claim the generator cannot yet check. Enrolling it is rf2-ar67."
+  '#{re-frame.core re-frame.story})
+
 (defn- facade?
-  "A var is part of the user-facing `re-frame.core` façade iff it is
-   published from that namespace. Everything else lives in its home
-   artefact namespace."
+  "A var is part of a user-facing façade iff it is published from one of
+   `facade-namespaces`. Everything else lives in its home artefact namespace."
   [ns-sym]
-  (= 're-frame.core ns-sym))
+  (contains? facade-namespaces ns-sym))
 
 (defn- classification-for
   "Look up the curated {:tier :owner :status (:justification) (:action)}
@@ -900,8 +917,9 @@
    `:facade? true` (rf2-93sxp).
 
    A facade export tiered `:implementation` is annotation, not removal: the
-   var still resolves from `re-frame.core`, still projects into docs/api and
-   still reaches SCI's `copy-ns`, while its row claims it is internal. Per
+   var still resolves from its façade (`re-frame.core` / `re-frame.story`),
+   still projects into docs/api and still reaches SCI's `copy-ns`, while its
+   row claims it is internal. Per
    Conventions §Removing or demoting a facade export the disposition must
    fire on the SURFACE — the var leaves the facade for its owning namespace,
    where the generator does not row it — so a row of this shape is a
