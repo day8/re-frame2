@@ -29,7 +29,7 @@
   (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core            :as rf]
-            [re-frame.adapter.uix     :as uix-adapter]))
+            [re-frame.adapter.uix     :as rf.adapter.uix]))
 
 ;; ============================================================================
 ;; SEED DATA
@@ -234,8 +234,8 @@
   ;; paint. Wrapping the row in a `role="group"` with an `aria-label` lets a
   ;; screen reader announce one labelled set of toggles instead of three
   ;; loose buttons.
-  (let [active-tags (uix-adapter/use-subscribe [:dashboard/active-tags])
-        {:keys [dispatch]} (uix-adapter/use-frame)]
+  (let [active-tags (rf.adapter.uix/use-subscribe [:dashboard/active-tags])
+        {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div.dash-chips {:role "group" :aria-label "Filter metrics by category"}
        (for [{:keys [id label]} all-tags]
          (let [selected? (contains? active-tags id)]
@@ -277,8 +277,8 @@
   ;;
   ;; As with the chips, `is-on` is paint only; `aria-checked` is the state
   ;; assistive tech reads.
-  (let [active-range-id    (uix-adapter/use-subscribe [:dashboard/range])
-        {:keys [dispatch]} (uix-adapter/use-frame)
+  (let [active-range-id    (rf.adapter.uix/use-subscribe [:dashboard/range])
+        {:keys [dispatch]} (rf.adapter.uix/use-frame)
         range-count        (count ranges)
         active-range-index (or (some (fn [[range-index {:keys [id]}]]
                                        (when (= active-range-id id) range-index))
@@ -318,8 +318,8 @@
          ranges))))
 
 (defui dashboard []
-  (let [visible-metrics (uix-adapter/use-subscribe [:dashboard/visible-metrics])
-        selected-range  (uix-adapter/use-subscribe [:dashboard/selected-range])]
+  (let [visible-metrics (rf.adapter.uix/use-subscribe [:dashboard/visible-metrics])
+        selected-range  (rf.adapter.uix/use-subscribe [:dashboard/selected-range])]
     ($ :div.dash-shell
        ($ :header.dash-shell-head
           ($ :div
@@ -366,7 +366,7 @@
     ;; `:initial-events` once to seed app-db. Save and hot-reload, and it
     ;; reuses the same frame untouched — no re-seeding, so your state sticks.
     (uix-dom/render-root
-      ($ uix-adapter/frame-root {:id app-frame
+      ($ rf.adapter.uix/frame-root {:id app-frame
                                      :initial-events [[:dashboard/initialise]]}
          ($ dashboard))
       @react-root)))
@@ -374,5 +374,5 @@
 (defn run []
   ;; `init!` installs the UIx adapter — this is how re-frame2 learns which
   ;; substrate to render through.
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (mount!))

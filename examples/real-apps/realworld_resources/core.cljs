@@ -41,7 +41,7 @@
             ;; key; the auth machine needs machines.
             [re-frame.routing]
             [re-frame.machines]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [realworld-shared.avatar :as avatar]
             [realworld-resources.schema]
             [realworld-resources.scope]
@@ -228,7 +228,7 @@
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 (def app-frame :rf/default)
 
@@ -313,7 +313,7 @@
     ;; went looking for it. The session token seeded by `:auth/initialise` is
     ;; already in app-db by then, so the bearer-auth interceptor decorates
     ;; those reads on the way out.
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id              app-frame
                       :doc             "RealWorld-on-resources demo frame."
                       :url-bound?      true
@@ -338,7 +338,7 @@
     (install-conduit-debug! app-frame)))
 
 (defn run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; Register the bearer-auth interceptor at boot, before the frame's
   ;; `:initial-events` dispatch. Timing matters: session-restore fires an
   ;; authenticated `GET /user` the moment the JWT is hydrated, so the header has

@@ -30,7 +30,7 @@
             ;; hands us `model/frame-config` for the mount below. It names no
             ;; substrate — see model.cljc.
             [login.model :as model]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; VIEWS  (Reagent — reg-view)
@@ -119,7 +119,7 @@
 ;; the DOM exactly zero times. Otherwise, the moment another example
 ;; co-requires this one, two `create-root` calls race for `#app` and you get
 ;; the kind of bug that only shows up on Tuesdays.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
 ;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
@@ -143,7 +143,7 @@
     ;; views' injected `dispatch`/`subscribe` (and the machine reads) know to
     ;; talk to `:rf/default`. Render a `reg-view` outside any frame scope and it
     ;; fails loud rather than guessing.
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root (merge {:id  :rf/default
                              :doc "Login demo frame."}
                             model/frame-config)
@@ -153,5 +153,5 @@
 (defn run []
   ;; Tell re-frame2 to render through Reagent. The adapter is just a spec
   ;; map; hand it straight to `init!`.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

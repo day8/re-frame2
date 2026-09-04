@@ -38,7 +38,7 @@
             ;; re-frame.flows once wires up the flow API; leave it out and the
             ;; reg-flow calls below raise :rf.error/flows-artefact-missing.
             [re-frame.flows]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; FLOWS
@@ -275,7 +275,7 @@
 ;; never at ns-load. Loading a namespace should touch no DOM, so that two
 ;; co-required example namespaces don't both race to slap `create-root` onto
 ;; the shared `#app`.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; `frame-root` (ENSURE, `{:id …}`) would normally be where
 ;; `:rf/default` gets created — but by the time it mounts below, `run` has
@@ -297,7 +297,7 @@
 (defn mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame}
        [cart-app]]
       el)))
@@ -325,7 +325,7 @@
   ;; here, Reagent. It has to come before any frame is constructed: a
   ;; frame's state container is substrate-specific, so `rf/make-frame` (next)
   ;; would raise :rf.error/no-adapter-installed without this first.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; Create the frame explicitly, here, rather than leaving it to
   ;; `frame-root` in `mount!`. `reg-flow` (inside `install-flows!`) needs a
   ;; LIVE frame to register against, and the render tree — where

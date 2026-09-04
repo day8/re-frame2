@@ -28,7 +28,7 @@
             ;; is what makes `rf/reg-app-schema` below mean anything. Guide:
             ;; docs/core/how-to/validate-with-schemas.md.
             [re-frame.schemas]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -230,7 +230,7 @@
 ;; example namespaces get required into one test page, and if each grabbed the
 ;; shared `#app` on load they'd trample each other. Deferring to `run` keeps them
 ;; out of each other's way. See examples/TESTING.md (Example mount-isolation).
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The frame's whole life happens in one place: the `frame-root {:id app-frame …}`
 ;; down in `mount!`. On the first mount it creates the frame, applies its config,
@@ -253,7 +253,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id             app-frame
                       :initial-events [[:crud/initialise]]}
        [crud-view]]
@@ -262,5 +262,5 @@
 (defn run []
   ;; `init!` tells the runtime to render through Reagent — once, for the whole
   ;; process. It picks the substrate; it does not create a frame.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

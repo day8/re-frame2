@@ -26,7 +26,7 @@
             ;; Pulling this in registers the hooks that teach the frame how to
             ;; validate against a schema — that's what makes `rf/reg-app-schema` work.
             [re-frame.schemas]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 (def tick-ms
   "Wall-clock delay, in milliseconds, between one tick and the next. 100ms is
@@ -198,7 +198,7 @@
 ;; ns-load. Loading a namespace shouldn't touch the DOM — if it did, two example
 ;; namespaces loaded together would both race to `create-root` the shared `#app`
 ;; element, and exactly one of them would win. Lazy keeps that drama away.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; All the frame's lifecycle happens in one spot — the `frame-root` in
 ;; `mount!` below. On first mount it creates the frame, applies its config, and fires
@@ -219,7 +219,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
                       :initial-events [[:timer/initialise]]}
        [timer-view]]
@@ -228,5 +228,5 @@
 (defn run []
   ;; `init!` tells the runtime to render through the Reagent adapter. That's all
   ;; it does — it does *not* create a frame. The `frame-root` in `mount!` does that.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

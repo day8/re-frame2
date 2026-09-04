@@ -57,7 +57,7 @@
    The RealWorld spec lives at
    https://github.com/gothinkster/realworld/tree/main/api."
   (:require [clojure.string :as str]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as rf.registrar]))
 
 (def reply-delay-ms
   "How long the demo backend waits before handing back each canned reply (via
@@ -572,10 +572,10 @@
   (let [[next-state reply] (transition @state-atom args-map)]
     (reset! state-atom next-state)
     (if-let [failure (:failure reply)]
-      (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
         (stub frame-ctx (assoc args-map
                                :after-ms reply-delay-ms
                                :kind     (:kind failure)
                                :tags     (:tags failure))))
-      (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
         (stub frame-ctx (assoc args-map :after-ms reply-delay-ms :value (:ok reply)))))))

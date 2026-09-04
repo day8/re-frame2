@@ -82,7 +82,7 @@
    vocabulary installs itself on the first `reg-*` call, so there's no boot
    step to remember."
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             ;; Pull in the example's own registrations — the machine, the
             ;; demo events / subs / views, the `:ui/render` selector. The
             ;; variant bodies below name its event-ids and `root-view` as
@@ -177,7 +177,7 @@
   ;; reg-tag — a project tag that flags the one variant we screenshot.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-tag :nine-states/canonical
+  (rf.story/reg-tag :nine-states/canonical
     {:doc "Marks the variant that ships as the example's canonical
           screenshot — the `:some` standard-list state. The face of the
           example, so to speak."})
@@ -188,7 +188,7 @@
   ;; variants only have to spell out their own per-state setup.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-story :story.nine-states
+  (rf.story/reg-story :story.nine-states
     {:doc        "The Nine States of UI — every canonical view-state of
                  the todos page, each driven through the `:ui/nine-states`
                  parallel machine."
@@ -196,7 +196,7 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  (story/reg-story :story.nine-states-lifecycle
+  (rf.story/reg-story :story.nine-states-lifecycle
     {:doc        "The RemoteData fetch lifecycle as a stepped cascade —
                  load → loading → loaded / error. Kept apart from the
                  canonical nine so the async path (and its Xray Epoch /
@@ -215,7 +215,7 @@
   ;; -------------------------------------------------------------------------
 
   ;; State 1 — Nothing. Initialise the form slice and reset the machine.
-  (story/reg-variant :story.nine-states/nothing
+  (rf.story/reg-variant :story.nine-states/nothing
     {:doc        "State 1 — Nothing. Never fetched; the `:data` region
                  sits at `:nothing`. The blank-slate welcome screen with a
                  'Get started' nudge."
@@ -226,7 +226,7 @@
   ;; State 2 — Loading. `:fetch-started` parks the `:data` region at
   ;; `:loading`, and since no reply is ever sent it stays put — perfect for
   ;; a screenshot of a spinner that never resolves.
-  (story/reg-variant :story.nine-states/loading
+  (rf.story/reg-variant :story.nine-states/loading
     {:doc        "State 2 — Loading. A first fetch is in flight; the
                  `:data` region is parked at `:loading` (a `:fetch-started`
                  with no reply behind it). The spinner view."
@@ -236,7 +236,7 @@
      :substrates #{:reagent}})
 
   ;; State 3 — Empty. Load zero todos and the `:always`-cascade picks `:empty`.
-  (story/reg-variant :story.nine-states/empty
+  (rf.story/reg-variant :story.nine-states/empty
     {:doc        "State 3 — Empty. Fetched, but the result came back empty.
                  The `:always`-cascade reads a count of zero and picks
                  `:empty`."
@@ -246,7 +246,7 @@
      :substrates #{:reagent}})
 
   ;; State 4 — One. Exactly one todo, so the cascade picks `:one`.
-  (story/reg-variant :story.nine-states/one
+  (rf.story/reg-variant :story.nine-states/one
     {:doc        "State 4 — One. Exactly one todo; the focused
                  single-item layout (the `:one` cardinality bucket)."
      :setup      [[:nine-states.app/initialise]
@@ -255,7 +255,7 @@
      :substrates #{:reagent}})
 
   ;; State 5 — Some. A small, manageable list — and the canonical screenshot.
-  (story/reg-variant :story.nine-states/some
+  (rf.story/reg-variant :story.nine-states/some
     {:doc        "State 5 — Some. A small, manageable list, rendered
                  plainly (the `:some` cardinality bucket). This is the
                  example's canonical screenshot."
@@ -265,7 +265,7 @@
      :substrates #{:reagent}})
 
   ;; State 6 — Too Many. Push past the threshold and get search + truncation.
-  (story/reg-variant :story.nine-states/too-many
+  (rf.story/reg-variant :story.nine-states/too-many
     {:doc        "State 6 — Too Many. More items than the too-many
                  threshold (7), so the view switches to search +
                  truncation (the `:too-many` cardinality bucket)."
@@ -275,7 +275,7 @@
      :substrates #{:reagent}})
 
   ;; State 7 — Incorrect. Type a too-short title, submit → `:submit-invalid`.
-  (story/reg-variant :story.nine-states/incorrect
+  (rf.story/reg-variant :story.nine-states/incorrect
     {:doc        "State 7 — Incorrect. A too-short title trips the form
                  validator on submit; the `:form` region lands at
                  `:incorrect` (via `:submit-invalid`) and the inline
@@ -287,7 +287,7 @@
      :substrates #{:reagent}})
 
   ;; State 8 — Correct. Type a valid title, submit → `:submit-valid`.
-  (story/reg-variant :story.nine-states/correct
+  (rf.story/reg-variant :story.nine-states/correct
     {:doc        "State 8 — Correct. A valid title sails through the form
                  validator on submit; the `:form` region lands at
                  `:correct` (via `:submit-valid`) and the success
@@ -299,7 +299,7 @@
      :substrates #{:reagent}})
 
   ;; State 9 — Done. Load some items, then archive → `:mode` reaches `:done`.
-  (story/reg-variant :story.nine-states/done
+  (rf.story/reg-variant :story.nine-states/done
     {:doc        "State 9 — Done. Load a few todos, then archive: the
                  `:mode` region reaches its terminal, read-only `:done`
                  state and the form and controls all grey themselves out."
@@ -315,7 +315,7 @@
   ;; alongside :loading and :some.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.nine-states-lifecycle/loading
+  (rf.story/reg-variant :story.nine-states-lifecycle/loading
     {:doc        "Lifecycle — the in-flight `:loading` step. Same as the
                  canonical Loading variant, shown here as the opening arm
                  of the fetch cascade."
@@ -324,7 +324,7 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.nine-states-lifecycle/loaded
+  (rf.story/reg-variant :story.nine-states-lifecycle/loaded
     {:doc        "Lifecycle — the resolved `:some` step. The full
                  `:rf.http/managed` cascade runs in `:setup`, so pick this
                  variant and watch the fetch play out across Xray's Epoch /
@@ -334,7 +334,7 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.nine-states-lifecycle/error
+  (rf.story/reg-variant :story.nine-states-lifecycle/error
     {:doc           "Lifecycle — the `:error` branch. This is the one
                     variant that wants its fetch to fail, so it stamps
                     `:fx-overrides {:rf.http/managed
@@ -362,7 +362,7 @@
   ;; is what you want for a stable README screenshot.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-workspace :Workspace.nine-states/all-states
+  (rf.story/reg-workspace :Workspace.nine-states/all-states
     {:doc      "Every canonical state, side by side in render order."
      :layout   :grid
      :variants [:story.nine-states/nothing
@@ -377,7 +377,7 @@
      :columns  3
      :tags     #{:docs}})
 
-  (story/reg-workspace :Workspace.nine-states/auto-grid
+  (rf.story/reg-workspace :Workspace.nine-states/auto-grid
     {:doc     "The set-it-and-forget-it grid — auto-pulls every variant off
               :story.nine-states, so new variants land here on their own."
      :layout  :variants-grid
@@ -385,7 +385,7 @@
      :columns 3
      :tags    #{:docs}})
 
-  (story/reg-workspace :Workspace.nine-states/lifecycle
+  (rf.story/reg-workspace :Workspace.nine-states/lifecycle
     {:doc      "The RemoteData fetch lifecycle as a left-to-right
               stepped row: loading → loaded → error."
      :layout   :grid

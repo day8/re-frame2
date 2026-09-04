@@ -15,7 +15,7 @@
    On the menu: `reg-event`, `reg-sub`, and `reg-view` with its frame-bound
    `dispatch`/`subscribe`."
   (:require [re-frame.core    :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; -- Events / subs -----------------------------------------------------------
 ;;
@@ -78,7 +78,7 @@
 ;; are exactly the bug you don't want in your test harness. See
 ;; examples/TESTING.md, "mount-isolation".
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The frame's whole life story fits in one place: the `frame-root {:id
 ;; app-frame …}` in `mount!` below. First mount creates the frame and runs its
@@ -105,7 +105,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id             app-frame
                       :initial-events [[:counter/initialise]]}
        [counter-app]]
@@ -117,5 +117,5 @@
   ;; ns and pass that var. One call, at startup, and you're done. Note it
   ;; installs the adapter for the whole process, not a frame — frames come
   ;; later, via the provider. See `docs/core/glossary.md#init`.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

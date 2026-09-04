@@ -38,8 +38,8 @@
             ;; The routing runtime. Loading it triggers its hook + reg-sub
             ;; registrations; without it the reg-route calls have nothing to hook
             ;; into. Aliased so ROUTER WIRING below can build `url-strategy` off
-            ;; `routing/with-base-path` + `routing/history-url-strategy`.
-            [re-frame.routing :as routing]
+            ;; `rf.routing/with-base-path` + `rf.routing/history-url-strategy`.
+            [re-frame.routing :as rf.routing]
             ;; Loading resources is what makes `:resources` route-metadata
             ;; accepted — it's the late-bound routing extension.
             [re-frame.resources]
@@ -350,4 +350,4 @@
 ;; `/realworld-resources`. `strip-base-path` fails safe on `/`, so the strategy
 ;; also boots correctly when the build is served at the server root.
 (def url-strategy
-  (routing/with-base-path routing/history-url-strategy "/realworld-resources"))
+  (rf.routing/with-base-path rf.routing/history-url-strategy "/realworld-resources"))

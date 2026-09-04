@@ -47,12 +47,12 @@
             ;; The write seam (`record-in-flight!`) isn't on the public facade,
             ;; so we reach for the registry ns directly. It's the same atom the
             ;; live transport writes into and the live abort fx resolves.
-            [re-frame.http.registry :as http-registry]
+            [re-frame.http.registry :as rf.http.registry]
             ;; The verb helpers (rf.http/get / post / put / delete / patch /
             ;; head / options). Each builds the canonical
             ;; [:rf.http/managed args-map] vector so the call site stays a line.
             [re-frame.http :as rf.http]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; APP-DB SHAPE
@@ -221,7 +221,7 @@
     ;; here and hand it to the deferred dispatch ourselves. See
     ;; docs/core/glossary.md#frame-identity-is-carried-not-found.
     (let [frame (:frame frame-ctx)]
-      (http-registry/record-in-flight!
+      (rf.http.registry/record-in-flight!
         request-id nil
         {:url      long-pending-url
          ;; The :abort-fn is the request's cancellation hook — the thing that
@@ -233,7 +233,7 @@
          ;; :http-counter/start-long. The live fx would deliver it via `:reply-to`,
          ;; so we mirror that: the canonical envelope is the appended last arg.
          :abort-fn (fn [reason]
-                     (http-registry/clear-in-flight! request-id)
+                     (rf.http.registry/clear-in-flight! request-id)
                      ;; The canonical abort reply uses `:status :cancelled`
                      ;; with `:cancelled? true`, carries the abort reason
                      ;; under the uniform reply contract's namespaced field
@@ -337,7 +337,7 @@
 ;; side effects, so that two example namespaces sharing a page can't race each
 ;; other to call `create-root` on the same `#app`.
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The app stands its frame up in exactly one place: the render root's
 ;; `frame-root {:id app-frame}`. On the first mount that provider creates
@@ -359,7 +359,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
                       :initial-events [[:http-counter/initialise]]}
        [counter-app]]
@@ -369,5 +369,5 @@
   ;; `init!` installs the Reagent adapter — and only the adapter. You hand it
   ;; the adapter spec map (every adapter ns exports one as `adapter`). It does
   ;; not create a frame; that's the frame-root's job, in `mount!`.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

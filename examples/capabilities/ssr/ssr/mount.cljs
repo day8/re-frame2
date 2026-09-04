@@ -15,7 +15,7 @@
   assembly with the login + realworld examples already sharing the consolidated
   test bundle (`:rf.error/image-duplicate-id`). This namespace registers nothing,
   so a test loads only the mount logic and no example ids enter the bundle."
-  (:require [re-frame.adapter.reagent :as reagent-adapter]))
+  (:require [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 (defn mount!
   "Mount `tree` into the container `el` through the adapter's client-root
@@ -33,4 +33,4 @@
   Returns nil; does nothing when `el` is absent (no container to mount into)."
   [handle el tree payload]
   (when el
-    (reagent-adapter/render! handle tree el {:hydrate? (some? payload)})))
+    (rf.adapter.reagent/render! handle tree el {:hydrate? (some? payload)})))

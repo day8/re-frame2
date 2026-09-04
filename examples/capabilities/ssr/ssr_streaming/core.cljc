@@ -9,7 +9,7 @@
   shape as collected data; it does not simulate network timings.
 
   Six ideas earn their keep here:
-   - `ssr/boundary` — one component that says \"this region may arrive
+   - `rf.ssr/boundary` — one component that says \"this region may arrive
      late.\" That component IS the whole streaming API.
    - It is **cross-host**: the same form defers a region on the server and
      renders it in the browser, so the views are shared verbatim and there
@@ -33,8 +33,8 @@
   See the [SSR guide — Streaming](../../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)."
   (:require [re-frame.core :as rf]
             [re-frame.schemas]
-            [re-frame.ssr :as ssr]
-            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
+            [re-frame.ssr :as rf.ssr]
+            #?(:cljs [re-frame.adapter.reagent :as rf.adapter.reagent])))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -117,7 +117,7 @@
   "One card's slot in the dashboard — and, since the boundary became a
   component, ONE program rather than two.
 
-  `ssr/boundary` wraps a region that's allowed to arrive late. On the
+  `rf.ssr/boundary` wraps a region that's allowed to arrive late. On the
   server the `:fallback` ships inline in the shell right now, and `body`
   renders separately and streams in as its own chunk once it resolves. In
   the browser the same form renders `body` — or, when this boundary is one
@@ -152,7 +152,7 @@
   trees reference views by **Var** (`card-view`, which `reg-view` defs for
   you) or by `(rf/view :id)` lookup."
   [boundary-id card-id body]
-  [ssr/boundary {:id boundary-id :fallback [card-skeleton card-id]}
+  [rf.ssr/boundary {:id boundary-id :fallback [card-skeleton card-id]}
    body])
 
 (rf/reg-view ^{:rf/id :dashboard/root} root-view []
@@ -205,7 +205,7 @@
                                :initial-events [[:rf/server-init]]})
            hiccup (rf/with-frame fid ((rf/view :dashboard/root)))
            {:keys [shell-html continuations]}
-           (rf/with-frame fid (ssr/streaming-render-shell hiccup))
+           (rf/with-frame fid (rf.ssr/streaming-render-shell hiccup))
            ;; Render the shell handed us one continuation per boundary —
            ;; the slow subtrees it deferred. Drain them in order, collecting
            ;; each resolved subtree's HTML plus its hydration delta. This is
@@ -215,13 +215,13 @@
            (mapv (fn [entry]
                    (let [{:keys [id html delta failed?]}
                          (rf/with-frame fid
-                           (ssr/streaming-render-continuation fid entry))]
+                           (rf.ssr/streaming-render-continuation fid entry))]
                      {:id    id
                       :template (if failed?
-                                  (ssr/streaming-failed-template id html)
-                                  (ssr/streaming-resolved-template id html))
+                                  (rf.ssr/streaming-failed-template id html)
+                                  (rf.ssr/streaming-resolved-template id html))
                       :delta-script (when (and (not failed?) (some? delta))
-                                      (ssr/streaming-hydrate-delta-script
+                                      (rf.ssr/streaming-hydrate-delta-script
                                         id (pr-str delta)))
                       :failed? failed?}))
                  continuations)
@@ -231,7 +231,7 @@
            ;; instead of every view inferring failure from missing state.
            failed-boundaries (into #{} (comp (filter :failed?) (map :id))
                                    resolved-chunks)
-           render-hash (rf/with-frame fid (ssr/render-tree-hash hiccup))
+           render-hash (rf/with-frame fid (rf.ssr/render-tree-hash hiccup))
            ;; The final payload: the canonical, whole app-db. This is the
            ;; load-bearing idea of the example. Those per-card deltas are a
            ;; speed bet — they exist only to paint each region early. This
@@ -246,7 +246,7 @@
            ;; apps usually pass an explicit allowlist of top-level keys
            ;; instead.
            final-payload (rf/with-frame fid
-                           (ssr/streaming-build-final-payload
+                           (rf.ssr/streaming-build-final-payload
                              fid render-hash
                              ;; No `:version` — the builder sources `:rf/version`
                              ;; from the SSR artefact's compiled-in
@@ -257,7 +257,7 @@
            ;; Strip the payload's `:rf/frame-id` before it goes over the
            ;; wire. The two sides don't share a frame id: the server renders
            ;; under this per-request gensym frame (`fid`), the client hydrates
-           ;; a fixed `app-frame` (below). When `ssr/hydrate!` sees a frame-id on the
+           ;; a fixed `app-frame` (below). When `rf.ssr/hydrate!` sees a frame-id on the
            ;; wire, it checks it against the client's explicit `:frame` and
            ;; fails closed if they differ — which a gensym always would. Send
            ;; no frame-id and the client's explicit target simply stands. (If
@@ -289,7 +289,7 @@
 ;;  2. The resolved cards stream in (Transfer-Encoding: chunked), each a
 ;;     `<template data-rf2-suspense-resolved=…>` plus a matching
 ;;     `<script data-rf2-suspense-hydrate=…>`. The client streaming runtime
-;;     (`ssr/streaming-install!`) does two things per chunk: it brings the
+;;     (`rf.ssr/streaming-install!`) does two things per chunk: it brings the
 ;;     inert fallback `<template>`s to life as `<rf-suspense>` mounts (now
 ;;     the skeletons paint), then swaps each mount's content for the resolved
 ;;     subtree in place and merges that subtree's delta into app-db. `run`
@@ -300,7 +300,7 @@
 ;;     processes any chunk still pending, consumes or quarantines the last
 ;;     deltas, unwraps every `<rf-suspense>` mount it created — leaving the
 ;;     DOM as the plain markup the author's tree describes — disconnects, and
-;;     calls `:on-ready`. Only then does `run` hydrate: `ssr/hydrate!`
+;;     calls `:on-ready`. Only then does `run` hydrate: `rf.ssr/hydrate!`
 ;;     dispatches `:rf/hydrate`, replacing the whole client frame-state in one
 ;;     step (app-db plus its serialisable runtime-db slice, which carries
 ;;     which boundaries failed), and `hydrate-root` adopts the painted DOM.
@@ -339,10 +339,10 @@
 ;; sibling example namespaces loaded alongside this one can't race each other
 ;; to `create-root` the shared `#app`. (Mount-isolation convention — see
 ;; examples/TESTING.md.)
-#?(:cljs (defonce app-root (reagent-adapter/client-root)))
+#?(:cljs (defonce app-root (rf.adapter.reagent/client-root)))
 
 ;; The client's app-frame id, carried explicitly. The same id flows into the
-;; streaming `install!`, into `ssr/hydrate!`, and into the root
+;; streaming `install!`, into `rf.ssr/hydrate!`, and into the root
 ;; `frame-provider` — one source of truth for which frame everything targets.
 ;; This example uses `:rf/default`. It has to be a `:client`-platform frame,
 ;; or the `:rf.ssr/check-*` compatibility checks that `:rf/hydrate` runs
@@ -367,7 +367,7 @@
      (when-let [el (and (exists? js/document) (js/document.getElementById "app"))]
        ;; Wrap the render in `frame-provider` so every `dispatch` and
        ;; `subscribe` inside the tree resolves to the frame we hydrated.
-       (reagent-adapter/render! app-root
+       (rf.adapter.reagent/render! app-root
          [rf/frame-provider {:frame app-frame}
           [(rf/view :dashboard/root)]]
          el))))
@@ -376,7 +376,7 @@
    (defn run []
      ;; `init!` installs the Reagent adapter and nothing more — it creates no
      ;; frame. The app stands up its own, explicitly, just below.
-     (rf/init! reagent-adapter/adapter)
+     (rf/init! rf.adapter.reagent/adapter)
      ;; Stand up the client app-frame BEFORE we install streaming or hydrate
      ;; into it — both need a frame to land in. `make-frame` is a no-op the
      ;; second time round, so hot-reload just works. `:platform :client` is
@@ -409,7 +409,7 @@
      ;; life, and mounting a fresh root in the meantime throws away the very
      ;; markup the server streamed. The readiness callback removes the race by
      ;; removing the guess.
-     (ssr/streaming-install!
+     (rf.ssr/streaming-install!
        {:frame    app-frame
         :on-ready (fn [_outcomes]
                     ;; Reconcile against the canonical payload first: read
@@ -425,7 +425,7 @@
                     ;; verification would warn every time. A real streaming
                     ;; server stamps the genuine hash and passes
                     ;; `:render-tree-fn` to switch mismatch detection on.)
-                    (let [payload (ssr/hydrate! {:frame app-frame})
+                    (let [payload (rf.ssr/hydrate! {:frame app-frame})
                           el      (and (exists? js/document)
                                        (js/document.getElementById "app"))
                           tree    [rf/frame-provider {:frame app-frame}
@@ -440,7 +440,7 @@
                         ;; to adopt — and the adapter mounts a fresh root.
                         ;; Either way the root is created exactly once, here,
                         ;; and the `^:dev/after-load` `render!` above reuses it.
-                        (reagent-adapter/render! app-root tree el
+                        (rf.adapter.reagent/render! app-root tree el
                                                  {:hydrate? (some? payload)}))))})))
 
 ;; The JVM headless test that walks the server stream end to end (shell →

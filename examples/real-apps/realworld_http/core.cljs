@@ -51,7 +51,7 @@
             ;; `:rf/hydrate` handler and the SSR helpers ssr.cljc leans on
             ;; (`rf/render-tree-hash`).
             [re-frame.ssr]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [realworld-shared.avatar :as avatar]
             [realworld-http.schema]
             ;; Requiring http registers the demo `:rf.http/managed` override fx
@@ -293,7 +293,7 @@
 ;; tests, with React grumbling "createRoot called twice" the whole way. The
 ;; name `app-root` (not `root`) keeps it distinct from the `root-view`
 ;; above.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; ============================================================================
 ;; HTTP REQUEST INTERCEPTOR
@@ -409,7 +409,7 @@
     ;; act on the moment `GET /user` lands (auth.cljs §THE COLD-BOOT DEEP-LINK
     ;; WINDOW has the full sequence; rf2-k85nd is the bug that taught us).
     ;; No explicit `:rf.route/handle-url-change` initial event is needed.
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id              :rf/default
                       :doc             "Realworld demo frame."
                       :url-bound?      true
@@ -425,7 +425,7 @@
   ;; Tell re-frame2 to render through Reagent. This is the one genuinely
   ;; frameworky step, and it has to come before any frame mounts; everything
   ;; below it is just this app wiring itself up.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; Register the Bearer-auth interceptor (defined above) so it stamps the
   ;; `Authorization` header onto outbound managed requests. Order matters:
   ;; register it before the frame's `:initial-events` run, so it's already on

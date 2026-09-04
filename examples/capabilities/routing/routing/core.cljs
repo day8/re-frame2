@@ -28,7 +28,7 @@
             ;; :rf.error/routing-artefact-missing — which is the runtime's
             ;; polite way of saying "you asked for routing but never packed it".
             [re-frame.routing]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; ROUTES
@@ -164,7 +164,7 @@
 ;; the test harness loads several example namespaces side by side, and if each
 ;; eagerly grabbed `#app` they'd trample one another's `create-root`. Lazy
 ;; means whoever calls `run` wins the element, and only then.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The id of the one frame this whole app runs under. `:rf/default` looks
 ;; special, but it isn't — it's an ordinary id with no secret privileges, and
@@ -197,7 +197,7 @@
     ;; every Back/Forward resolves whichever frame owns the URL at pop time
     ;; and updates its `:rf/route` slice. Idempotent, so hot reload never
     ;; stacks up duplicate listeners.
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
                       :doc "Routing demo frame."
                       :url-bound? true
@@ -208,5 +208,5 @@
 (defn run []
   ;; Tell re-frame2 to render through Reagent. Every adapter namespace exports
   ;; an `adapter` var; hand it straight to `init!` and you're done.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

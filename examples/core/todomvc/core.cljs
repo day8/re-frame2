@@ -5,15 +5,15 @@
   Everything else leans on this wiring. `init!` picks the reactive substrate
   (here, Reagent). The render root is a `frame-root {:id …}`: on first
   mount it creates the app frame, marks it `:url-bound?` so the frame owns the
-  address bar, and declares `:url-strategy routing/hash-url-strategy` so the router
+  address bar, and declares `:url-strategy rf.routing/hash-url-strategy` so the router
   speaks hash URLs (`#/active`) — because TodoMVC's URLs are hash-based. The
   frame is seeded once via `:initial-events`. In re-frame2 the URL is just an
   input and navigation is just an event; the router's hash strategy handles the
   `#` on both sides, so this app uses `route-link` / `rf.route/navigate` like
   every other example. See docs/core/frames.md."
   (:require [re-frame.core :as rf]
-            [re-frame.routing :as routing]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.routing :as rf.routing]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [todomvc.events]
             [todomvc.subs]
             [todomvc.views :as views]))
@@ -37,18 +37,18 @@
 ;; the app frame and runs `:initial-events`; every reload after that reuses the
 ;; same frame and skips the seed, so your todos survive a code change.
 ;;
-;; `:url-strategy routing/hash-url-strategy` is the one line that makes this a hash
+;; `:url-strategy rf.routing/hash-url-strategy` is the one line that makes this a hash
 ;; app. It tells the router to encode `route-url` output as `#/active` at the
 ;; egress points (link hrefs, pushState) and decode `window.location.hash` back
 ;; to a path on the way in. `route-url` and `match-url` stay path-form; only the
 ;; browser address-bar shape changes.
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       ;; The seed is just `[:todo/initialise]` — it folds the saved
       ;; todos (via the `:todo.storage/todos` coeffect in db.cljs)
       ;; into app-db. The initial URL sync happens automatically:
@@ -59,7 +59,7 @@
       [rf/frame-root {:id             app-frame
                       :doc            "TodoMVC demo frame."
                       :url-bound?     true
-                      :url-strategy   routing/hash-url-strategy
+                      :url-strategy   rf.routing/hash-url-strategy
                       :initial-events [[:todo/initialise]]}
        [views/root-view]]
       el)))
@@ -82,7 +82,7 @@
 ;; See docs/routing/concepts.md#the-browser-is-just-another-event-source.
 
 (defn- boot! []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))
 
 (defn run []          ; shadow :init-fn — runs once, at page load

@@ -36,7 +36,7 @@
   ;; same app runs on UIx. See docs/core/glossary.md#adapter.
   (:require [clojure.string     :as str]
             [re-frame.core      :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; SEED DATA
@@ -374,7 +374,7 @@
 ;; container. Defer the mount and they stay out of each other's way. See
 ;; examples/TESTING.md (mount-isolation convention).
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; re-frame2 won't conjure a frame for you — an app stands up its own. We
 ;; do it in exactly one place: the `frame-root {:id app-frame}` in
@@ -395,7 +395,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
                       :initial-events [[:notebook/initialise]]}
        [notebook]]
@@ -404,5 +404,5 @@
 (defn run []
   ;; One job each: `init!` tells the runtime to render through Reagent. It
   ;; does not make a frame — the `frame-root` in `mount!` does that.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

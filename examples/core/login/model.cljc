@@ -73,7 +73,7 @@
   ;; switching itself on — and note the absence: no adapter, no view library.
   ;; This namespace is substrate-free by construction.
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             ;; Malli directly — for the pre-submit form validator below
             ;; (`m/explain` + `me/humanize`), the same pure validator the form
             ;; recipe builds (docs/core/how-to/build-a-form.md, "Validation is a
@@ -274,7 +274,7 @@
           login? (= "/api/login" url)]
       (cond
         (and login? (= good-password (:password body)))
-        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
           (stub frame-ctx (assoc args-map
                                  :after-ms 50
                                  :value {:user  {:id    (random-uuid)
@@ -282,7 +282,7 @@
                                          :token "demo-token-123"})))
 
         login?
-        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
           (stub frame-ctx (assoc args-map
                                  :after-ms 50
                                  :kind :rf.http/http-4xx
@@ -290,7 +290,7 @@
                                         :message "Invalid credentials."})))
 
         :else
-        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
           (stub frame-ctx (assoc args-map :after-ms 50 :value {})))))))
 
 ;; ============================================================================

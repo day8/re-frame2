@@ -43,7 +43,7 @@
    bundle-isolation gate fails the build if any Story or Xray sentinel sneaks
    into the plain `:examples/login` output."
   (:require [re-frame.core  :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.config :as xray-config]
             ;; Pull in the example's registrations (machine / schemas / demo
             ;; fx / subs / views) and its Story artefacts. We get `login.core`
@@ -52,7 +52,7 @@
             [login.stories]
             ;; The shared Story-host helper, which owns the fiddly bits: the
             ;; live-app↔Story-shell hash router and the React-root handle.
-            [re-frame.testbed.story-host :as story-host]))
+            [re-frame.testbed.story-host :as rf.testbed.story-host]))
 
 ;; -- The live-app frame ----------------------------------------------------
 ;;
@@ -112,7 +112,7 @@
   ;; panel open — the page should land on the app or the shell first, and the
   ;; reader pops Xray with Ctrl+Shift+C when they want it.
   (xray-config/configure! {:rf.xray/auto-open? false})
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; No `(story/install-canonical-vocabulary!)` call needed: the first
   ;; `reg-*` over in `login.stories` (loaded via the require above) installs
   ;; the canonical Story vocabulary for us.
@@ -124,4 +124,4 @@
   ;; request time, so the 'open in editor' chips land on the real file with
   ;; nothing to configure. We pass `live-app-root` (not the bare `login-app`)
   ;; so the `#/` surface arrives already wrapped in its frame.
-  (story-host/mount-with-hash-routing! live-app-root))
+  (rf.testbed.story-host/mount-with-hash-routing! live-app-root))

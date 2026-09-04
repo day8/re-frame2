@@ -28,7 +28,7 @@
             ;; machine, event, and sub, and hands us `model/frame-config` for the
             ;; mount below. It names no substrate — the UIx code lives only here.
             [login.model :as model]
-            [re-frame.adapter.uix :as uix-adapter]))
+            [re-frame.adapter.uix :as rf.adapter.uix]))
 
 ;; ============================================================================
 ;; VIEWS  (UIx — defui + use-subscribe)
@@ -49,13 +49,13 @@
 ;; secret). The draft lives in app-db, which is exactly why you won't find a
 ;; `uix/use-state` anywhere in here.
 (defui login-form []
-  (let [draft     (uix-adapter/use-subscribe [:auth.login/draft])
-        busy?     (uix-adapter/use-subscribe [:rf.machine/has-tag?
+  (let [draft     (rf.adapter.uix/use-subscribe [:auth.login/draft])
+        busy?     (rf.adapter.uix/use-subscribe [:rf.machine/has-tag?
                                               :auth.login/flow :auth/busy])
-        err       (uix-adapter/use-subscribe [:auth.login/error])
-        email-err (uix-adapter/use-subscribe [:auth.login/field-error :email])
-        pw-err    (uix-adapter/use-subscribe [:auth.login/field-error :password])
-        {:keys [dispatch]} (uix-adapter/use-frame)]
+        err       (rf.adapter.uix/use-subscribe [:auth.login/error])
+        email-err (rf.adapter.uix/use-subscribe [:auth.login/field-error :email])
+        pw-err    (rf.adapter.uix/use-subscribe [:auth.login/field-error :password])
+        {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :form.login-form
        {:data-testid "login-form"
         :on-submit (fn [e]
@@ -90,9 +90,9 @@
      ($ :p "Too many failed attempts. Contact support to unlock.")))
 
 (defui login-banner []
-  (let [authed? (uix-adapter/use-subscribe [:rf.machine/has-tag?
+  (let [authed? (rf.adapter.uix/use-subscribe [:rf.machine/has-tag?
                                             :auth.login/flow :auth/authenticated])
-        locked? (uix-adapter/use-subscribe [:rf.machine/has-tag?
+        locked? (rf.adapter.uix/use-subscribe [:rf.machine/has-tag?
                                             :auth.login/flow :auth/locked])]
     ($ :div.banner {:data-testid "login-banner"}
        (cond
@@ -139,7 +139,7 @@
     ;; runtime-db the first time the flow runs
     ;; (see docs/machines/glossary.md#snapshot).
     (uix-dom/render-root
-      ($ uix-adapter/frame-root {:id  :rf/default
+      ($ rf.adapter.uix/frame-root {:id  :rf/default
                                      :doc "Login (UIx) demo frame."
                                      ;; `:&` spreads the substrate-free
                                      ;; `model/frame-config` (demo-stub
@@ -152,5 +152,5 @@
 (defn run []
   ;; Tell the runtime to render through UIx. (This installs the adapter; it does
   ;; not create a frame — the frame-root below does that.)
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (mount!))
