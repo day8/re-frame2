@@ -66,6 +66,7 @@ See [Flows: derived values your handlers can read](../core/flows.md) for the con
   - Sibling frames' state is preserved.
   - The frame resolves from the `opts` `:frame` key (a frame-id keyword), else the surrounding scope. With no scope and no `:frame`, it raises `:rf.error/no-frame-context`.
   - A no-op when `id` is not registered against the frame.
+  - Called outside an event drain, it **settles before it returns**: any flow that declared the cleared flow's `:output-path` as an input has already recomputed against its absence, so the returned-to code never sees a dependent still publishing a value derived from the removed slot. You do not dispatch a follow-up event. A dependent's `:derive` throwing during that settle propagates `:rf.error/flow-eval-exception` to the caller; the deregistration and vacation stand. Called from inside a handler or a `:rf.fx/*` effect, the current drain's flow pass performs the settle instead — the boundary is the same either way.
 - **Example**:
   ```clojure
   ;; Deregister :cart/subtotal; clears [:cart :subtotal] in this frame's app-db.

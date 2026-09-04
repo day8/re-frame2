@@ -338,6 +338,8 @@ The fx variant is the common one because most toggling happens *inside* event ha
 (flows/clear-flow :editor/can-submit? {:frame :scratch})  ;; clear lives on re-frame.flows
 ```
 
+`clear-flow` keeps the settle boundary when you call it this way. It returns having vacated the output path *and* recomputed anything that read it, so the next line of your boot code or test can trust `app-db` — you never dispatch an unrelated event to nudge the graph into agreement. (`reg-flow`'s direct form does not make the matching promise about a newly registered flow's *initial* output; inside a handler, use the `:rf.fx/reg-flow` effect, which does.)
+
 Notice which function lives where: `reg-flow` stays on `re-frame.core`, since registration must stay central (it captures the call-site source coordinates), but the lifecycle helper `clear-flow` lives on its owning namespace, `re-frame.flows` — reach it as `flows/clear-flow`, not `rf/clear-flow`. Most code never needs it directly anyway: prefer the `:rf.fx/clear-flow` effect from inside a handler.
 
 ## Re-registering a flow (and hot reload)
