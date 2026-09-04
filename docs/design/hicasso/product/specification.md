@@ -2,7 +2,7 @@
 
 ## Product analysis, design review, and action specification
 
-Hicasso is the selected native re-frame2 view adapter. Its default is interpreted Hiccup with ambient re-frame2 reads, data-first events, React-correct controlled fields, and ordinary Clojure composition. When a measured part of an application needs native React performance or semantics, that part drops through an explicit React boundary while retaining the same root, frame context, and state owner. Hicasso supplies a small optional native namespace for this purpose; UIx and raw React/JavaScript components remain supported alternative authoring routes rather than required dependencies.
+Hicasso is the selected native re-frame2 view adapter. Its default is interpreted Hiccup with ambient re-frame2 reads, data-first events, React-correct controlled fields, and ordinary Clojure composition. When a measured part of an application needs native React performance or semantics, that part drops through an explicit React boundary while retaining the same root, frame context, and state owner. UIx and raw React/JavaScript are the two authoring routes for that part, and neither is a required dependency; Hicasso supplies a small optional native namespace — two read hooks — so whichever route writes it can reach Hicasso state. (*This sentence made the namespace the route and called UIx and raw React* "supported alternative authoring routes" *until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` retired the namespace's authoring surface on 2026-08-29.*)
 
 This living product specification defines what Hicasso should become, how it is judged, and the work required to ship it. The companion [decision brief](decision-brief.md) owns the forensic scoreboard, the selected-direction record, the scoped amendment, the K3 disposition, and the kill rules; this document assumes that direction and turns it into a product contract.
 
@@ -30,7 +30,7 @@ Hicasso has five cooperating surfaces. Only the interpreted core is unavoidable.
 |---|---|---|
 | Interpreted core | Views, reads, Hiccup lowering, event intents, controlled fields, roots, SSR/hydration semantics | Small fixed boundary shell; variable cost follows actual reads and markup |
 | React bridge | Declared hosts, raw elements, providers, refs, render props, outward embedding, server policies | Paid only at the crossing |
-| Native hot path | Direct React output or a named native island, authored through Hicasso's optional native namespace, UIx, or raw React/JavaScript | Paid only by the selected region; absent when the namespace is unused |
+| Native hot path | Direct React output or a named native island, authored in UIx or raw React/JavaScript and reading Hicasso state through the optional native namespace's two hooks | Paid only by the selected region; absent when the namespace is unused |
 | Optional libraries | Forms, overlays, presence, routing integration, deployable Node/React SSR service | Zero reachable production code when absent |
 | Developer products | Testing, Xray, lint, migration, AI-readable evidence | Development-only; erased from production |
 
