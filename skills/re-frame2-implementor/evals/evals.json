@@ -41,9 +41,10 @@
   "name": "behav-minimum-port-no-interview",
   "should_trigger": true,
   "prompt": "Build me a minimum re-frame2 port in TypeScript.",
-  "expected_output": "The agent takes the minimum-port request without an interview, per references/phase-1-decisions.md §No interview by default: it records the port profile (spec pin + host-idiomatic TypeScript mechanisms) with every optional capability defaulted to no, asks at most a single materially load-bearing question, and moves into Step 0 / the first foundation slice in the same run rather than stopping to collect answers.",
+  "expected_output": "The agent takes the minimum-port request without an interview, per references/phase-1-decisions.md §No interview by default: it records the port profile (spec pin + host-idiomatic TypeScript mechanisms) with every optional capability (the checklist's Q1\u2013Q9) defaulted to no and the four v1-required families still claimed, asks at most a single materially load-bearing question, and moves into Step 0 / the first foundation slice in the same run rather than stopping to collect answers.",
   "expectations": [
-   "The output records a port profile in which every optional capability (state machines, routing, SSR, schemas, flows, managed HTTP, resources, Tool-Pair inspection, stories, AI-Audit) is defaulted to no.",
+   "The output records a port profile in which every optional capability \u2014 the Implementor-Checklist's nine numbered questions (Q1 state machines, Q2 routing, Q3 SSR, Q4 schemas, Q5 stories, Q6 Tool-Pair inspection, Q7 AI-Audit, Q8 managed HTTP, Q9 resources) \u2014 is defaulted to no.",
+      "The output does NOT place flows, Spec 013 or any :flow/* capability in known-skipped, and does not treat flows as a scope question: Spec 013 is v1-required, so the profile's claim carries :flow/* alongside :core/*, :identity/* and :data-classification/*, and the foundation sequence it walks includes EP 013.",
    "The output asks no per-decision or per-optional-capability question — at most one question, and only where a missing choice materially changes the implementation.",
    "The output picks host-idiomatic TypeScript mechanisms itself (persistent data, the reactive container over the React binding, build tool, test runner) rather than handing the engineer a questionnaire.",
    "The output begins work in the same run — the Step 0 conformance feedback seam and/or the first foundation slice — instead of ending at the profile.",

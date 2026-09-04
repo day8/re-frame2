@@ -28,12 +28,13 @@ New pure primitives may register a new `:call` op in a later fixture spec versio
 
 [README §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus) is the contract. The shape: read every fixture; filter (host-applicability first, then capability subset); bootstrap the registry; realise handler bodies via the DSL; create the frame; run the dispatches or calls; capture observables and compare; report per-fixture plus the aggregate `passed / claimed-applicable`.
 
-Five fail-loud floors the harness owes:
+Six fail-loud floors the harness owes:
 
 - **Spec version.** Reject a `:fixture/spec-version` the harness hasn't moved with (README §Versioning) — never silently run a mismatched fixture.
 - **Unknown capability.** A fixture capability in neither the claim nor the `known-skipped` allowlist FAILS the suite with a diagnostic naming it (§The two out-of-claim flavours below).
 - **Unknown op.** An unrecognised handler-DSL op or Mode-B `:call` op fails with a diagnostic naming it; then either grow the interpreter (the designed path) or file the corpus gap (rules 8–9).
-- **Unknown top-level fixture key.** A `:fixture/*` key of the fixture map the harness does not implement fails the run naming it. This is the quietest of the five and the reason it is here: the corpus grows setup and expectation keys ahead of the README's §Fixture format, so a harness that reads only the keys it recognises drops a fixture's setup or its expectation on the floor and reports a **pass** — an expectation that was never checked. Derive the live key set at your pin (the grep above); read §Fixture format as a description, never as a closed list.
+- **Unknown top-level fixture key.** A `:fixture/*` key of the fixture map the harness does not implement fails the run naming it. This is the quietest of the six and the reason it is here: the corpus grows setup and expectation keys ahead of the README's §Fixture format, so a harness that reads only the keys it recognises drops a fixture's setup or its expectation on the floor and reports a **pass** — an expectation that was never checked. Derive the live key set at your pin (the grep above); read §Fixture format as a description, never as a closed list.
+- **Required-family skip.** A `known-skipped` entry naming any capability in a **v1-required** family — any `:core/…`, `:identity/…`, `:flow/…`, `:data-classification/…` tag — fails the run naming it, before a single fixture is filtered. The allowlist exists to record capabilities the port genuinely does not claim; a v1-required family is never one of them. This floor is what makes the reduced path safe **by construction**: a minimum port cannot shrink its denominator by declaring the omission, so "we skipped it on purpose" stops being a route to `claimed-applicable / claimed-applicable`.
 - **Non-vacuous run.** Assert a non-zero runnable-fixture floor — an empty or all-skipped corpus goes RED, never green having exercised nothing.
 
 The middle three are one rule at three depths — capability, operator, key — and all three exist because the README states the principle for capabilities: *"a harness that silently skips unknown capabilities is the shape the spec forbids"* (§Capability tagging). Nothing is special about capabilities there; a silently-skipped key is the same failure wearing a green tick.
@@ -46,9 +47,11 @@ Wire the harness into the port's CI; every commit should report the score. **The
 
 This section is the skill's single owner of three things: how to **derive** the claimable set, the **family → scope-decision map**, and the **corpus/spec divergence rule**. The port profile records only the result.
 
-Three families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the `:rf/path` algebra + CEDN-1 canonical identity — `EP-0012` is the `docs/EP/` proposal behind it, `spec/Conventions.md` the normative text), and `:data-classification/*` (the Spec 015 egress/redaction contract). Every other family maps to a profile scope decision and is claimed iff that answer is yes.
+Four families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the `:rf/path` algebra + CEDN-1 canonical identity — `EP-0012` is the `docs/EP/` proposal behind it, `spec/Conventions.md` the normative text), `:flow/*` (the Spec 013 flow substrate), and `:data-classification/*` (the Spec 015 egress/redaction contract). The checklist calls these the **always-run** families: a port never declines one, and a port scoring itself only against the families it declared is over-reporting. Every other family maps to a numbered checklist scope question and is claimed iff that answer is yes.
 
-**Q-numbers are the checklist's, and it numbers seven.** [`spec/Implementor-Checklist.md` Part 1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#part-1--how-complete) carries Q1–Q7 and stops; it has no question row for flows, managed HTTP or resources. Those three are **skill-local scope decisions** — same yes/no shape, same default of no, but read from the owning Spec named in the row rather than from a checklist question. Do not cite a Q-number for them.
+**Q-numbers are the checklist's, and it numbers nine.** [`spec/Implementor-Checklist.md` Part 1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#part-1--how-complete) carries **Q1–Q9**: managed HTTP is **Q8** and resources is **Q9** (declaring Q9 implies Q8). There are no skill-local scope decisions — every optional capability is a numbered checklist question, so cite its Q-number.
+
+**Flows carries no Q-number for the opposite reason.** Spec 013 is v1-required, so the checklist lists Flows under [Required — not gated; every implementation ships these](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#required-not-gated-every-implementation-ships-these), never as a question: putting it behind a yes/no would let a port opt out of required behaviour. **So a missing Q-number is not evidence that a capability is optional — read the row the capability actually sits in.** That inference is the specific mistake this section exists to stop: it once concluded that flows, managed HTTP and resources were all skill-local optional decisions, which let a minimum port declare `:flow/*` a known skip and still report itself v1-complete.
 
 | Family | Claimed when |
 |---|---|
@@ -56,9 +59,9 @@ Three families are **v1-required** and always claimed: `:core/*` (pattern-requir
 | `:routing/*` | Q2 routing |
 | `:ssr/*` | Q3 SSR |
 | `:schemas/*` | Q4 schemas ≠ no (see §Static hosts below) |
-| `:flow/*` | flows — skill-local; owner [`spec/013-Flows.md`](https://day8.github.io/re-frame2/spec/013-Flows/) |
-| `:rf.http/managed` | managed HTTP — skill-local; owner [`spec/014-HTTPRequests.md`](https://day8.github.io/re-frame2/spec/014-HTTPRequests/) |
-| `:resources/*` | resources — skill-local, presupposes managed HTTP; owner [`spec/016-Resources.md`](https://day8.github.io/re-frame2/spec/016-Resources/) |
+| `:flow/*` | **nothing — always run.** [`spec/013-Flows.md`](https://day8.github.io/re-frame2/spec/013-Flows/) is v1-required and cannot be declined |
+| `:rf.http/managed` | Q8 managed HTTP — one tag rather than a `/*` axis, claimed whole |
+| `:resources/*` | Q9 resources (implies Q8) |
 | `:derivation/algebra-graph` + `:derivation/algebra-graph-subs-machines` | Q6 Tool-Pair inspection — a subs+machines-only graph host claims the narrow tag and known-skips the broad one. Owner: [`spec/Derivations.md` §Graph inspection](https://day8.github.io/re-frame2/spec/Derivations/), which the fixtures themselves cite; the `:derivation-graph` `:call` op is specified there |
 
 **Fixtures are authoritative for what RUNS; the README + owning Spec for what EXISTS to be claimed — and the two diverge in both directions.** The common case is corpus-ahead: the fixtures carry tags the prose lists lag, so enumerate each claimed family from `spec/conformance/fixtures/` at the pin (the greps above). But `:actor/*` is corpus-**behind**: the README and Spec 005 declare capabilities the fixtures don't yet back — a real, spec-mandated capability with no fixture goes on `known-skipped` only if you don't implement it, never because a grep missed it. Cross-check each family against the README's table before finalising the claim.
@@ -70,9 +73,11 @@ A fixture whose capabilities aren't a subset of the claim is **not** simply "ski
 - **Intentional out-of-claim** — the capability is on the explicit `known-skipped` allowlist, with a reason. Reported "skipped (out-of-claim)"; does not fail the suite.
 - **Typo / claim-set drift** — the capability is in neither set. The suite **MUST FAIL** naming it. The remedy is to add it to the claim (with runtime backing) or to `known-skipped` (an explicit decision) — a harness that silently skips unknown capabilities is the shape the spec forbids.
 
+A **v1-required** family is in neither flavour, and that is the point. `:core/*`, `:identity/*`, `:flow/*` and `:data-classification/*` are always claimed, so their fixtures are never out of claim: allowlisting one is not an "intentional" skip but the claim itself being wrong, and the required-family floor above refuses it. The second remedy above — "or to `known-skipped`" — is therefore available only for a genuinely optional capability.
+
 ### Static hosts and dynamic-host-only fixtures
 
-Some fixtures carry `:fixture/dynamic-host-only? true` (derive the live set with the grep above): they assert a **runtime** validation trace a statically-typed host claiming schemas via its type system cannot produce — the malformed value never compiles. A static-host port filters those fixtures out *before* the capability-subset check, claims the shape-description capability it actually provides, and puts the runtime-trace tags on `known-skipped` with an explicit static-host reason. That is a documented static-host conformance path, not claim-set drift; report it in the port README so the skip reads as a host-mechanism fact.
+Some fixtures carry `:fixture/dynamic-host-only? true` (derive the live set with the grep above): they assert a **runtime** validation trace a statically-typed host claiming schemas via its type system cannot produce — the malformed value never compiles. A static-host port filters those fixtures out *before* the capability-subset check, claims the shape-description capability it actually provides, and puts the affected `:schemas/*` runtime-validation tags on `known-skipped` with an explicit static-host reason (only those — a v1-required tag can never go there, per the floor above). That is a documented static-host conformance path, not claim-set drift; report it in the port README so the skip reads as a host-mechanism fact.
 
 ## Diagnosis — spec gap vs implementation bug
 
