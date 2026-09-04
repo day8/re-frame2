@@ -56,13 +56,12 @@ The whole point fits in 4 facts, all in one small app.
   to get subtly wrong.
 
 - The reply settles the same way every time — no clock-watching. A success
-  reply commits: the mutation's `:populates` re-seeds the board with the
-  server's authoritative value, so a card's temporary id is replaced by the
-  server's and the optimistic marker clears. A failure reply rolls back: the
-  recorded before is restored exactly, and the change visibly reverts. No
-  wall-clock race decides which wins. The verdict keys off recorded facts — which
-  write this is, and each entry's revision when the patch applied — not "whichever
-  reply landed last."
+  reply commits: the mutation's `:patches` folds in the value the server saved
+  for that write, so a card's temporary id is replaced by the server's and the
+  optimistic marker clears. A failure reply rolls back: the recorded before is
+  restored exactly, and the change visibly reverts. Which of the two happens
+  keys off recorded facts — which write this is, and each entry's revision when
+  the patch applied — not "whichever reply landed last."
 
 - Rollback is the thing you actually watch — the headline. A **"Fail the next
   write"** toggle tells the demo backend to answer the next write with a `503`.
@@ -93,6 +92,31 @@ with stale data. So instead the runtime refetches the authoritative value and le
 the read path heal the cache. (This is the deliberate difference from TanStack/SWR,
 which restore captured context unconditionally — fine until two writes overlap.)
 
+Overlapping writes commit at the granularity they wrote at. Nothing stops you
+adding a card while a retitle is still saving, or moving one card while another
+is in flight — the controls stay live, and each write runs under its own
+mutation instance (`[:create tmp-id]`, `[:edit id]`, `[:status id]`). So the
+success consequences have to be disjoint, or one write's commit would undo
+another's. That is why each mutation declares
+[`:patches`](../../../../docs/resources/glossary.md#mutation) and not
+`:populates`: `edit-title` sets the title the server saved, `change-status` sets
+the status, `create-issue` swaps its temporary card for the server's row, and
+none of them re-seeds the whole board from its own reply. A whole-board reply is
+a snapshot of the server as it stood when *that* write landed — it knows nothing
+about the write that started a moment later — so seeding the cache from it would
+drop the other change, and the board would settle on whichever reply arrived
+last. The demo backend answers a write with just the row it changed, to match.
+
+Be precise about what is ordered for you. The commit-or-roll-back verdict for a
+write is decided from recorded facts, and a stale reply for a write that has
+since re-executed is suppressed. Both of those are *per-instance* guarantees.
+Two **independent** instances writing the same entry are not ordered for you,
+and nothing on the client could order them. Keeping their consequences disjoint
+is the application's job — and it is a small one: patch what you wrote. (If your
+API only hands back coarse snapshots, the honest alternatives are to invalidate
+and refetch, or to serialise the writes deliberately. Not to treat the snapshots
+as though they commute.)
+
 Scope is a fail-closed leak boundary, even on a write. The board is one public
 board, so the resource carries the explicit, auditable `:scope :rf.scope/global`
 claim — there's no implicit default to fall back on. A per-team board would carry a
@@ -119,7 +143,8 @@ There's no server here. So the example overrides the
 [`:rf.http/managed`](../../../../docs/resources/glossary.md#managed-http) effect — the
 one transport every read and write lowers onto — with a small canned stub. The
 stub holds the canonical board in a closure (it is the demo server) and builds
-the authoritative reply for each read and write, delegating to the
+the authoritative reply for each read and write — a read answers with the whole
+board, a write with just the row it changed — delegating to the
 framework-shipped `:rf.http/managed-canned-success` / `-failure`
 ([Spec 014 §Testing](../../../../spec/014-HTTPRequests.md#testing)). It delays each reply by a
 small `:after-ms`, so the optimistic value is visibly painted before the reply

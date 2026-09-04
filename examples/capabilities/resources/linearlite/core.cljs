@@ -31,11 +31,16 @@
      to get subtly wrong.
 
    - The reply settles the same way every time. A success (`:ok`) commits:
-     `:populates` overwrites the optimistic guess with the server's authoritative
-     board. A failure (`:error`) rolls back: the recorded value returns and the
-     optimistic change visibly reverts. The verdict reads recorded facts — the
-     generation-acceptance verdict (which write this is) plus each entry's
-     revision when the patch applied — so no wall-clock race decides who wins.
+     `:patches` folds in the value the server saved for THAT write, replacing the
+     optimistic guess. A failure (`:error`) rolls back: the recorded value returns
+     and the optimistic change visibly reverts. Which of the two happens reads
+     recorded facts — the generation-acceptance verdict (which write this is)
+     plus each entry's revision when the patch applied — so no wall-clock race
+     decides it. And because each commit touches only what its own write changed
+     (its title, its status, its own new card), two writes in flight at once can
+     settle in either order without one undoing the other. Re-seeding the whole
+     board from a single write's reply is what would break that, and it's why
+     these mutations use `:patches` rather than `:populates`.
 
    - Rollback is the thing you actually watch. A 'Fail the next write' toggle
      arms the demo backend to answer the next mutation with a 503. The optimistic
@@ -106,7 +111,7 @@
 ;; The entire issue board is a single resource entry: `{:issues [...]}`. The
 ;; route ensures it on entry; the view reads it passively. Every optimistic
 ;; write patches this one entry's `:data` in place, and the success reply
-;; re-seeds it with the server's authoritative board via `:populates`. The
+;; patches it again with the value the server saved for that write. The
 ;; runtime owns the board's value, its freshness, and the recorded inverse that
 ;; makes rollback honest. It lives in the resource cache — state you don't own,
 ;; kept where state you don't own belongs, never in app-db.
@@ -115,7 +120,7 @@
   {:doc            "The whole issue board — `{:issues [...]}` — as one managed
                     server-state read. Optimistic writes patch this entry in
                     place before their request is sent; the success reply
-                    re-seeds it with the server's authoritative board."
+                    patches it again with the value the server saved."
 
    ;; One public board in the demo, so the identity params are empty. A real app
    ;; would scope this per-team or per-user and key the team into :params.
@@ -132,8 +137,8 @@
 
    ;; A tag on the board, so something external (a server push, say) can
    ;; invalidate the whole thing by tag. The optimistic writes below patch the
-   ;; entry directly and re-seed via `:populates` on commit, so they never need
-   ;; this coarser hammer. Guide:
+   ;; entry directly and patch it again on commit, so they never need this
+   ;; coarser hammer. Guide:
    ;; ../../../../docs/resources/glossary.md#cache-tag
    :tags           (fn [_params _data] #{[:board]})}
   (fn [_params _ctx]
@@ -146,7 +151,7 @@
 
 (def ^:private board-key
   "Where the board lives in the cache: a `{:resource :scope :params}` map. We
-   reuse it as both the `:optimistic` patch key and the `:populates` commit key,
+   reuse it as both the `:optimistic` patch key and the `:patches` commit key,
    so every write aims at exactly the same entry. Empty `:params` means the one
    public board."
   {:resource :linearlite/board :scope :rf.scope/global :params {}})
@@ -159,10 +164,10 @@
 
 ;; A counter for client-minted ids. The moment an optimistic card appears it
 ;; needs a stable React key, but the server hasn't named the issue yet — so we
-;; hand it a `tmp-N` id to tide it over. On commit the success reply re-seeds the
-;; whole board with the server's value (real id and all), so the temporary id
-;; never outlives the round trip; a rollback just removes the card that never
-;; landed.
+;; hand it a `tmp-N` id to tide it over. On commit the success reply carries the
+;; row the server created (real id and all) and the commit patch swaps it in for
+;; the temporary card, so the temporary id never outlives the round trip; a
+;; rollback just removes the card that never landed.
 (defonce ^:private optimistic-id-seq (atom 0))
 
 (defn- next-issue-id
@@ -181,25 +186,59 @@
 
 (defn- patch-issue
   "Build a board-`:data` patch that applies `f` to the issue with `id` and
-   leaves everything else alone. Forward only: the runtime records the inverse,
-   so this never has to describe how to undo itself."
+   leaves every other card alone. Forward only: the runtime records the inverse,
+   so this never has to describe how to undo itself.
+
+   Variadic because one shape serves both hooks: an `:optimistic` patch fn is
+   handed the data, a success-time `:patches` fn is handed the data and the
+   reply. `f` closes over whatever it needs either way."
   [id f]
-  (fn [data]
+  (fn [data & _]
     (update data :issues
             (fn [issues]
               (mapv (fn [issue] (if (= id (:id issue)) (f issue) issue))
                     (or issues []))))))
+
+(defn- replied-issue
+  "The row a write's reply is about. A write answers with the issue it changed,
+   in the board's own `{:issues [...]}` envelope, so pick out the one this write
+   named. `nil` when the reply doesn't carry it — and then the commit leaves the
+   card exactly as it is rather than inventing a value for it."
+  [result id]
+  (some #(when (= id (:id %)) %) (:issues result)))
 
 ;; ============================================================================
 ;; THE MUTATIONS — create / edit-title / change-status, all optimistic
 ;; ============================================================================
 ;;
 ;; Each write reads the same three keys. `:optimistic` is the forward patch over
-;; the board entry, applied before the request goes out. `:populates` is the
-;; commit — on `:ok`, re-seed the board with the server's authoritative value.
-;; `:on-conflict :invalidate` is the (default) conflict policy. The runtime fills
-;; in the rest itself: it records the inverse and each entry's revision, and the
-;; reply settles deterministically.
+;; the board entry, applied before the request goes out. `:patches` is the
+;; commit — on `:ok`, fold the server's saved value for THIS write into the
+;; board. `:on-conflict :invalidate` is the (default) conflict policy. The
+;; runtime fills in the rest itself: it records the inverse and each entry's
+;; revision, and the reply settles deterministically.
+;;
+;; WHY `:patches` AND NOT `:populates`. `:populates` seeds the entry with the
+;; reply outright, and it's the right tool when the reply IS the whole of what
+;; the entry holds. It's the wrong tool here, because these three writes are
+;; INDEPENDENT: they run under separate mutation instances (`[:create tmp-id]`,
+;; `[:edit id]`, `[:status id]`), the controls stay live while a write is in
+;; flight, so two of them are routinely outstanding over the one board at once.
+;; A whole-board reply is a snapshot of the server as it stood when THAT write
+;; landed — it knows nothing of the write that started a moment later — so
+;; seeding the entry from it would throw the other write's change away, and the
+;; board would settle on whichever reply arrived last. The runtime's stale-reply
+;; suppression does not cover this: it's scoped to one instance's re-execute,
+;; which is a different question from ordering two instances that write the same
+;; entry. Nothing on the client can order those; keeping their consequences
+;; disjoint is the part you own, and it's a small part — patch what you wrote.
+;;
+;; So each write commits at the granularity it wrote at: `edit-title` sets the
+;; title the server saved, `change-status` sets the status, `create-issue` swaps
+;; its temporary card for the server's row. Nothing else on the board is
+;; touched, so the three commits COMMUTE — they can land in any order and every
+;; accepted change survives. The demo backend answers a write with just the row
+;; it changed, to match.
 ;;
 ;; Writes don't retry — reads do, writes don't. A 503 surfaces as `:error` and
 ;; rolls the optimistic change back, which is exactly the arc the demo's 'fail
@@ -222,10 +261,19 @@
                                  (upsert-issue issues
                                                {:id id :title title :status :backlog
                                                 :optimistic? true}))))})
-   ;; Commit: the `:ok` reply is the server's whole authoritative board. Re-seed
-   ;; the entry with it — the placeholder id gives way to the server's, and the
-   ;; optimistic flag clears. Same `{:issues …}` envelope the resource stores.
-   :populates     (fn [_params result] {board-key result})
+   ;; Commit: the `:ok` reply carries the row the server created, with its real
+   ;; id. Drop the temporary card and merge that row in — this write's own card
+   ;; and nothing else, so a write still in flight over another card keeps its
+   ;; optimistic value. The placeholder id gives way to the server's and the
+   ;; optimistic flag clears, because the server's row carries neither.
+   :patches       (fn [{:keys [id]} result]
+                    {board-key
+                     (fn [data & _]
+                       (update data :issues
+                               (fn [issues]
+                                 (reduce upsert-issue
+                                         (filterv #(not= id (:id %)) issues)
+                                         (:issues result)))))})
    ;; On conflict (the default): if a rollback is contested, refetch rather than
    ;; restore a now-stale inverse. See the conflict-policy note at the top.
    :on-conflict   :invalidate}
@@ -242,7 +290,17 @@
    :scope         :rf.scope/global
    :optimistic    (fn [{:keys [id title]}]
                     {board-key (patch-issue id #(assoc % :title title :optimistic? true))})
-   :populates     (fn [_params result] {board-key result})
+   ;; Commit: take the TITLE off the row the server saved — the one field this
+   ;; write asked for — and leave the rest of the card, and every other card,
+   ;; alone. A status move still in flight over the same issue survives.
+   :patches       (fn [{:keys [id]} result]
+                    (let [saved (replied-issue result id)]
+                      {board-key (patch-issue id (fn [issue]
+                                                   (if saved
+                                                     (-> issue
+                                                         (assoc :title (:title saved))
+                                                         (dissoc :optimistic?))
+                                                     issue)))}))
    :on-conflict   :invalidate}
   (fn [{:keys [id title]} _ctx]
     {:request {:method :put :url (str "/api/issues/" id)
@@ -257,7 +315,17 @@
    :scope         :rf.scope/global
    :optimistic    (fn [{:keys [id status]}]
                     {board-key (patch-issue id #(assoc % :status status :optimistic? true))})
-   :populates     (fn [_params result] {board-key result})
+   ;; Commit: the STATUS off the saved row, and nothing else — the twin of the
+   ;; retitle above. Retitle and move can be in flight over the same card at
+   ;; once, and settling either leaves the other's optimistic value standing.
+   :patches       (fn [{:keys [id]} result]
+                    (let [saved (replied-issue result id)]
+                      {board-key (patch-issue id (fn [issue]
+                                                   (if saved
+                                                     (-> issue
+                                                         (assoc :status (:status saved))
+                                                         (dissoc :optimistic?))
+                                                     issue)))}))
    :on-conflict   :invalidate}
   (fn [{:keys [id status]} _ctx]
     {:request {:method :put :url (str "/api/issues/" id)
@@ -308,37 +376,46 @@
   (str "srv-" (inc (count (:issues board)))))
 
 (defn- apply-write!
-  "Apply a successful write to the canonical demo board and return the new
-   authoritative board — the value that becomes the `:populates` payload. Routed
-   the way a real server would route it, by method + URL: POST mints a fresh
-   server id for the new issue; PUT patches title and/or status by id from the
-   request body."
+  "Apply a successful write to the canonical demo board and return THE ROW IT
+   CHANGED, in the board's own `{:issues [...]}` envelope — the value that
+   becomes the `:patches` payload. Routed the way a real server would route it,
+   by method + URL: POST mints a fresh server id for the new issue; PUT patches
+   title and/or status by id from the request body.
+
+   A write's reply speaks only for the row that write touched. That's the
+   deliberate bit: a whole-board reply would also carry a stale copy of every
+   OTHER card — including one a concurrent write had just changed — and folding
+   that into the cache would silently undo the other write."
   [method url body]
-  (swap! demo-board
-         (fn [board]
-           (cond
-             ;; POST /api/issues — a create. Mint a server id for the new issue.
-             (and (= method :post) (str/ends-with? url "/api/issues"))
-             (update board :issues
-                     (fn [issues]
-                       (conj (vec issues)
-                             {:id (next-server-id board) :title (:title body) :status :backlog})))
+  (let [create? (and (= method :post) (str/ends-with? url "/api/issues"))
+        put-id  (when (= method :put) (second (re-find #"/api/issues/([^/?]+)$" url)))
+        ;; The id this write is about, minted up front for a create so the reply
+        ;; can name the row it produced.
+        id      (if create? (next-server-id @demo-board) put-id)
+        board'  (swap! demo-board
+                       (fn [board]
+                         (cond
+                           ;; POST /api/issues — a create, under the id above.
+                           create?
+                           (update board :issues
+                                   (fn [issues]
+                                     (conj (vec issues)
+                                           {:id id :title (:title body) :status :backlog})))
 
-             ;; PUT /api/issues/:id — edit title and/or move status.
-             (and (= method :put) (re-find #"/api/issues/([^/?]+)$" url))
-             (let [id (second (re-find #"/api/issues/([^/?]+)$" url))]
-               (update board :issues
-                       (fn [issues]
-                         (mapv (fn [issue]
-                                 (if (= id (:id issue))
-                                   (cond-> issue
-                                     (contains? body :title)  (assoc :title (:title body))
-                                     (contains? body :status) (assoc :status (:status body)))
-                                   issue))
-                               issues))))
+                           ;; PUT /api/issues/:id — edit title and/or move status.
+                           put-id
+                           (update board :issues
+                                   (fn [issues]
+                                     (mapv (fn [issue]
+                                             (if (= id (:id issue))
+                                               (cond-> issue
+                                                 (contains? body :title)  (assoc :title (:title body))
+                                                 (contains? body :status) (assoc :status (:status body)))
+                                               issue))
+                                           issues)))
 
-             :else board)))
-  (strip-optimistic @demo-board))
+                           :else board)))]
+    (strip-optimistic {:issues (filterv #(= id (:id %)) (:issues board'))})))
 
 (rf/reg-fx :linearlite.demo/http-stub
   {:doc       "Demo stand-in for `:rf.http/managed`. Holds the canonical board in
@@ -378,8 +455,8 @@
                                  :kind     :rf.http/http-5xx
                                  :tags     {:status  503
                                             :message "Simulated server failure (the demo's rollback seam)."})))
-        ;; Otherwise, success: a read returns the current board; a write mutates
-        ;; the canonical board and returns the new authoritative one.
+        ;; Otherwise, success: a read returns the whole current board; a write
+        ;; mutates the canonical board and returns just the row it changed.
         (let [payload (if write?
                         (apply-write! method url body)
                         (strip-optimistic @demo-board))
