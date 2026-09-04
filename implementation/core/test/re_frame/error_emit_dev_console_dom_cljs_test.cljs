@@ -60,6 +60,12 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            ;; rf2-xpd8: the app-db rejection arm below needs the OPTIONAL
+            ;; schemas artefact actually loaded — without the require,
+            ;; `reg-app-schema` writes into a registry no validator consults
+            ;; and the whole deftest passes vacuously.
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -364,6 +370,87 @@
           "the registry is empty again, so the fallback resumes")
       (is (= "[re-frame2]" (ffirst (:console unowned))))
       (is (zero? (:report-error unowned))))))
+
+;; ===========================================================================
+;; THE APP-DB CANDIDATE REJECTION — rf2-xpd8's whole point (PR1)
+;; ===========================================================================
+;;
+;; This is the refusal the rf2-fu75 mechanism could not reach, and the reason
+;; is structural rather than an oversight: a rejected `app-db` candidate
+;; emitted on the DEV TRACE only, and the fallback hangs off the `:errors`
+;; stream. So the one refusal that discards a WHOLE transaction was the one
+;; refusal an untooled dev build could not see — measured on a live page as an
+;; application-wide permanent rollback loop producing 0 page errors, 0 console
+;; messages of any level, 0 failed requests, and an empty screen.
+;;
+;; rf2-xpd8 routes that rejection onto the `:errors` stream from inside the
+;; validator's own `debug-enabled?` gate, and this fallback then fires FOR
+;; FREE — which is what makes Option A dominate a second printer in the
+;; validator. So the assertions here are about the seam, not about a new
+;; printer: one line per failing registration, naming the registered path and
+;; the TYPE of what it found, and silent the moment anything owns the stream.
+
+(defn- register-rollback-app! []
+  (rf/make-frame {:id :fu75.rollback/frame :doc "rf2-xpd8 console witness"})
+  (rf/with-frame :fu75.rollback/frame
+    (rf/reg-app-schema [:articles] :int)
+    (rf/reg-app-schema [:tags]     :int))
+  (rf/reg-event :fu75.rollback/write
+                (fn [_ _] {:db {:unrelated 1}})))
+
+(deftest unowned-app-db-rollback-reaches-the-dev-console
+  (when (and (browser?)
+             (some? (rf.late-bind/get-fn :schemas/validate-app-schema!)))
+    (register-rollback-app!)
+    (testing "an EMPTY registry — one console.error per FAILING registration,
+              each naming the registered path and what was found there"
+      (let [{:keys [console report-error]}
+            (capture-console
+              #(rf/dispatch-sync [:fu75.rollback/write]
+                                 {:frame :fu75.rollback/frame}))
+            rollback (filterv (fn [args]
+                                (= :rf.error/schema-validation-failure
+                                   (:error (nth args 2 nil))))
+                              console)]
+        (is (= 2 (count rollback))
+            (str "one line per violated registration; got "
+                 (pr-str (mapv second console))))
+        (doseq [[prefix summary record] rollback]
+          (is (= "[re-frame2]" prefix))
+          (is (re-find #"^:rf\.error/schema-validation-failure\b" summary)
+              (str "the summary names the category first; got " (pr-str summary)))
+          (is (re-find #"got nil" summary)
+              (str "and ends with the TYPE of what it found — the half that "
+                   "makes a wall of these lines self-diagnosing; got "
+                   (pr-str summary)))
+          (is (= :app-db (:where record)))
+          (is (true? (:rollback? record)))
+          (is (nil? (:value record))
+              "the offending value stays on the dev trace"))
+        (is (= #{[:articles] [:tags]}
+               (set (map (fn [args] (:registered-path (nth args 2))) rollback)))
+            "each line names a DISTINCT registration, so seventeen of them read
+             as seventeen broken declarations rather than one repeated noise")
+        (is (zero? report-error)
+            "console.error, never reportError — a rejected candidate is a
+             framework verdict, not an unhandled exception")))
+
+    (testing "ANY listener owns the stream and the fallback goes quiet — the
+              rf2-fu75 ownership rule applies unchanged to this category"
+      (rf.error-emit/clear-error-listeners!)
+      (let [seen (atom [])]
+        (rf/register-listener! :errors :fu75/rollback-owner
+                               (fn [r] (swap! seen conj r)))
+        (let [{:keys [console]}
+              (capture-console
+                #(rf/dispatch-sync [:fu75.rollback/write]
+                                   {:frame :fu75.rollback/frame}))]
+          (is (= 2 (count (filter #(= :rf.error/schema-validation-failure (:error %))
+                                  @seen)))
+              "the owner got both records")
+          (is (empty? console)
+              (str "and nothing printed; got " (pr-str console))))
+        (rf/unregister-listener! :errors :fu75/rollback-owner)))))
 
 ;; ===========================================================================
 ;; HOST BOUNDARY — Node-targeted CLJS stays listener-only

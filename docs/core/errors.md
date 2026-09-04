@@ -223,6 +223,20 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     Malli form is the separate `:rf.error/malformed-schema`, which fails closed and
     rolls the commit back.)
 
+    **In dev, a rollback is not quiet.** An `:app-db` rejection lands on the `:errors`
+    stream as well as the trace — one record per failing registration, carrying
+    `:rollback? true`, the `:registered-path` and a `:reason` naming the *type* it
+    found there. So an empty page with red `[re-frame2]
+    :rf.error/schema-validation-failure … got nil` lines in the console is a schema you
+    registered non-nilable over a slot nothing has written yet: the transaction was
+    rejected, so nothing installed, and the next dispatch will be rejected the same
+    way. Register the path as nilable, or seed it before the first write. The console
+    lines are the framework's fallback for an error *nothing owns*: they appear only
+    while no `:errors` listener is registered, so attaching one — in a dev build, for
+    any reason — takes ownership and they stop. A deliberate dev listener that wants
+    to ignore rollbacks keys on `:rollback? true`. None of this reaches production,
+    because the check itself does not.
+
     **One arm of this category does survive a production build, and it is the one you
     would reach for.** An event handler registered with `{:interceptors
     [:rf.schema/at-boundary]}` is the framework's answer for untrusted structured

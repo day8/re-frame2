@@ -422,10 +422,16 @@
   here — the caller observes the throw at the call site and fixes the
   declaration there, so the fact does not silently disappear
   (`:rf.error/custom-element-conflict`, `:rf.error/dispatch-disconnected`,
-  `:rf.error/flush-convergence-exceeded`). (Dev-only-validation /
-  registration-time categories — dev schema checks,
-  machine-unresolved-guard — stay dev-trace-only and do NOT call
-  this fn; that is correct, not a gap.)
+  `:rf.error/flush-convergence-exceeded`). (Registration-time categories —
+  and dev-only checks that merely SKIP or SURFACE a value — stay
+  trace-only and do NOT call this fn; that is correct, not a gap. The
+  exception, ruled rf2-xpd8, is a dev-gated refusal that discards a WHOLE
+  candidate transition: `:rf.error/schema-validation-failure`
+  `:where :app-db` with `:rollback? true` fans a structural-only record
+  onto the `:errors` stream from inside its own `debug-enabled?` gate,
+  through [[dispatch-error-record!]] rather than this fn. A release build
+  carries neither the check nor the record, so the always-on axis's
+  production contract is unchanged — what is conditional is the PRODUCER.)
 
   There is no app-steering recovery policy. Recovery is framework-owned
   (the per-category typed defaults); observability is this listener.

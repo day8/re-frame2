@@ -455,6 +455,12 @@ easier to remember as a pair. `:rolled-back` has no producer in a release build:
 `:events` stream survives the gate but `reg-app-schema` candidate validation does not, so
 a dispatch whose `:db` violates a registered schema installs anyway and reports `:ok` —
 the outcome is quiet in production by construction, not because your schemas are holding.
+In *dev*, though, it is not quiet on either stream: the rejection also fans one
+structural-only `:rf.error/schema-validation-failure` record per failing registration
+onto `:errors`, carrying `:rollback? true` and the `:registered-path`, so the discarded
+transaction reaches a listener and your frame's `:observability :errors` sink rather than
+only the trace. That record is gated with the check, so it is absent from a release build
+for the same reason `:rolled-back` is.
 `:rejected` is the other way round, and it is the one that fires there. The boundary
 interceptor's check is ungated and so is its report: a refused payload settles
 `:outcome :rejected` here and fans one `:rf.error/schema-validation-failure` record
