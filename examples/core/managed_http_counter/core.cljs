@@ -241,7 +241,13 @@
          ;; :http-counter/start-long. The live fx would deliver it via `:reply-to`,
          ;; so we mirror that: the canonical envelope is the appended last arg.
          :abort-fn (fn [reason]
-                     (rf.http.registry/clear-in-flight! request-id)
+                     ;; The carried frame does the same work on the way OUT as
+                     ;; it does on the way in. `clear-in-flight!`'s one-arg form
+                     ;; is an ANY-FRAME sweep: it would clear this id in EVERY
+                     ;; frame, so mounting this demo twice and cancelling one
+                     ;; copy would silently deregister the other's live request.
+                     ;; Cleanup is frame-scoped for exactly the reason lookup is.
+                     (rf.http.registry/clear-in-flight-in-frame! frame request-id)
                      ;; The canonical abort reply uses `:status :cancelled`
                      ;; with `:cancelled? true`, carries the abort reason
                      ;; under the uniform reply contract's namespaced field
