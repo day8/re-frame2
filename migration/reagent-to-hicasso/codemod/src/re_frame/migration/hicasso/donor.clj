@@ -18,7 +18,7 @@
   rule with the same three seeded renames and the same `aria`/`data`
   exemption. They part company in exactly two cells:
 
-  | cell | Reagent's `cached-prop-name` | our `slot/prop-name` |
+  | cell | Reagent's `cached-prop-name` | our `rf.hicasso.impl.slot/prop-name` |
   |---|---|---|
   | a STRING key | verbatim — the cache is only consulted for `named?` keys, so `\"class\"` stays `\"class\"` | the three renames apply to every spelling, so `\"class\"` is `\"className\"` |
   | a `--custom-property` | mangled: `--brand-color` → `BrandColor` | preserved verbatim |
@@ -32,7 +32,7 @@
   directions. There is one camel rule in this repository and this
   namespace calls it."
   (:require [clojure.string :as str]
-            [re-frame.hicasso.impl.slot :as slot]))
+            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]))
 
 (defn css-var-name?
   "Is `n` a CSS custom property? Reagent's `dash-to-prop-name` splits
@@ -72,7 +72,7 @@
         ;; The cache is keyed on `(name k)`, so a namespaced spelling
         ;; lands on the same slot as its bare twin — `:x/class` is
         ;; `className`. Re-keywording `n` reproduces that.
-        (slot/prop-name (keyword n))))
+        (rf.hicasso.impl.slot/prop-name (keyword n))))
 
     :else nil))
 

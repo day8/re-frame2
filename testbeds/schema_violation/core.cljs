@@ -33,7 +33,7 @@
             ;; would expose counters but no recovery traces.
             [re-frame.schemas.malli]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ----------------------------------------------------------------------------
@@ -224,6 +224,6 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (rf/dispatch-sync [::initialise])
   (rdc/render react-root [root]))

@@ -20,7 +20,6 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]
             [re-frame.views :as views])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 

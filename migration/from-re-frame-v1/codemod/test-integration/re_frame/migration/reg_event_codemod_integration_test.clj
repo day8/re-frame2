@@ -21,20 +21,20 @@
   self-contained (the codemod artefact itself never loads re-frame2)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.migration.reg-event-codemod :as cm])
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.migration.reg-event-codemod :as rf.migration.reg-event-codemod])
   (:import [java.io PushbackReader StringReader]))
 
 ;; ---- fixtures --------------------------------------------------------------
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
   ;; re-registers the framework standards (incl. :rf.interceptor/path) after
   ;; the clear — idempotent by design.
-  (rf/init! plain-atom/adapter)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -79,11 +79,11 @@
 
 (deftest rewritten-canonical-metadata-registers
   (testing "the codemod's emitted output for the canonical v1 form registers cleanly"
-    (let [{:keys [source findings]} (cm/rewrite-string canonical-v1)]
+    (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string canonical-v1)]
       (is (= :rewrite (:action (first findings))))
       (is (nil? (rf-error-id #(eval-source! source)))
           "emitted output must register without any :rf.error/* throw")
-      (is (some? (registrar/lookup :event :counter/inc))
+      (is (some? (rf.registrar/lookup :event :counter/inc))
           "the event handler actually registered"))))
 
 (deftest rewritten-positional-vector-registers
@@ -91,10 +91,10 @@
     (let [src (str "(rf/reg-event-db :counter/dec\n"
                    "  [(rf/path :counter)]\n"
                    "  (fn [db _] (update db :value dec)))")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (nil? (rf-error-id #(eval-source! source))))
-      (is (some? (registrar/lookup :event :counter/dec))))))
+      (is (some? (rf.registrar/lookup :event :counter/dec))))))
 
 ;; ---- negative controls: the PRE-FIX outputs hard-fail registration --------
 ;;

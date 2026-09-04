@@ -43,9 +43,9 @@
             ;; Public reader for the per-frame elision registry (EP-0025):
             ;; `re-frame.elision/declarations` returns the `:large` `:app-db`
             ;; declarations the commit-plane effects recorded.
-            [re-frame.elision :as elision]
+            [re-frame.elision :as rf.elision]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ----------------------------------------------------------------------------
@@ -194,7 +194,7 @@
 ;; through app-db. (A debug-introspection convenience; the load-bearing assert
 ;; is the wire-marker on the trace.)
 (rf/reg-sub :elision-decls
-  (fn [db _] (elision/declarations :rf/default)))
+  (fn [db _] (rf.elision/declarations :rf/default)))
 
 (reg-view buttons []
   (let [auto-len       @(subscribe [:auto-len])
@@ -265,7 +265,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — register `:rf/default` as the app frame, scope the boot
   ;; dispatch, and wrap the render in a frame-provider.

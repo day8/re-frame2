@@ -27,8 +27,8 @@
   (:require [cljs.reader :as edn]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
-            [re-frame.trace :as trace]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.trace :as rf.trace]
             ;; Managed-HTTP ships in day8/re-frame2-http. Requiring at
             ;; app boot triggers its load-time fx registrations
             ;; (`:rf.http/managed` / `:rf.http/managed-abort`); without it,
@@ -42,7 +42,7 @@
             [re-frame.http.test-support]
             [re-frame.http :as rf.http]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ----------------------------------------------------------------------------
@@ -85,12 +85,12 @@
 ;;
 ;; The framework-shipped `:rf.http/managed-canned-failure` synthesises a
 ;; failure reply via the same late-bind dispatch path the live transport
-;; uses, but it does NOT call `trace/emit-error!`. The live failure path
+;; uses, but it does NOT call `rf.trace/emit-error!`. The live failure path
 ;; (`re-frame.http.transport/finalise-failure!`) emits a single
 ;; `:rf.http/<kind>` error-trace event before dispatching the reply; the
 ;; canned stub skips it. The testbed README documents an ordered
 ;; `:rf.http/<kind>` stream per click — so this per-testbed wrapper fx
-;; replays the live path's `trace/emit-error!` before delegating to the
+;; replays the live path's `rf.trace/emit-error!` before delegating to the
 ;; canned stub. Consumers (Xray, Story, cross-cutting specs) can now
 ;; assert on the `:operation :rf.http/<kind>` trace directly rather than
 ;; falling back to the `:rf.fx/handled` proxy.
@@ -110,13 +110,13 @@
       ;; :kind, tags carry the category-specific slots plus :request-id,
       ;; :url, and :recovery (canned failures are :no-recovery — they
       ;; classify identically to a terminal live failure).
-      (trace/emit-error! kind
+      (rf.trace/emit-error! kind
                          (assoc tags
                                 :kind       kind
                                 :request-id (:request-id args-map)
                                 :url        url
                                 :recovery   :no-recovery))
-      ((registrar/handler :fx :rf.http/managed-canned-failure)
+      ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
        frame-ctx args-map))))
 
 (rf/reg-event ::go
@@ -239,7 +239,7 @@
                §Testing for the canonical stub seam."
    :platforms #{:client}}
   (fn fx-deferred-abortable [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :http-toggle/canned-failure-with-trace)]
+    (let [stub (rf.registrar/handler :fx :http-toggle/canned-failure-with-trace)]
       ;; Demo-only artificial latency. The :request-id in args-map
       ;; would normally bind the abort handle in the in-flight
       ;; registry; for the testbed stub, the Cancel button fires the
@@ -322,7 +322,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter). The boot dispatch

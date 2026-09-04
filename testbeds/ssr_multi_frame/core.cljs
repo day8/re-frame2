@@ -43,10 +43,10 @@
             ;; SSR hydration metadata is durable runtime-db state, so the
             ;; per-frame :hydration readout is a runtime-db sub
             ;; (reg-runtime-sub lives on the re-frame.subs surface).
-            [re-frame.subs :as subs]
+            [re-frame.subs :as rf.subs]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.ssr :as ssr]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.ssr :as rf.ssr]
             [cljs.reader])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -85,7 +85,7 @@
 ;; runtime-db partition (NOT app-db). So :hydration is a runtime-db sub; the
 ;; frame-explicit `{:frame f}` reads in `hydration-summary` resolve it against
 ;; each named frame's runtime-db.
-(subs/reg-runtime-sub :hydration
+(rf.subs/reg-runtime-sub :hydration
   (fn [rt _] (get-in rt [:rf.runtime/ssr :hydration])))
 
 ;; ----------------------------------------------------------------------------
@@ -187,7 +187,7 @@
     (cljs.reader/read-string (.-textContent el))))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
 
   ;; Register the three frames with their initialisers. Each has its
   ;; own :initial-events, but :rf/hydrate (dispatched below) will REPLACE

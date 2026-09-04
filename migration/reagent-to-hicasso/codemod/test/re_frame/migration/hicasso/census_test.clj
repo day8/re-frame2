@@ -37,11 +37,11 @@
   (:require [clojure.set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.migration.hicasso.census :as census]
-            [re-frame.migration.hicasso.codemod :as cm]
+            [re-frame.migration.hicasso.census :as rf.migration.hicasso.census]
+            [re-frame.migration.hicasso.codemod :as rf.migration.hicasso.codemod]
             [re-frame.migration.hicasso.rewrite :as rf.migration.hicasso.rewrite]))
 
-(defn- classes [src file] (mapv :class (:entries (census/scan src file))))
+(defn- classes [src file] (mapv :class (:entries (rf.migration.hicasso.census/scan src file))))
 
 ;; ---------------------------------------------------------------------------
 ;; It can answer NON-EMPTY, on exactly the source the fixer answers empty on
@@ -60,12 +60,12 @@
 (deftest the-fixer-is-silent-here
   (testing "the crossing population is genuinely empty in this file — the census is
             not being compared against a fixer that simply failed"
-    (let [r (cm/scan-string form-2 "app/counter.cljs")]
+    (let [r (rf.migration.hicasso.codemod/scan-string form-2 "app/counter.cljs")]
       (is (= [] (:entries r)))
       (is (= 0 (:sites r))))))
 
 (deftest the-census-answers-non-empty
-  (let [{:keys [entries reagent? unresolved?]} (census/scan form-2 "app/counter.cljs")]
+  (let [{:keys [entries reagent? unresolved?]} (rf.migration.hicasso.census/scan form-2 "app/counter.cljs")]
     (is (true? reagent?))
     (is (false? unresolved?))
     (is (= [:local-reactive-cell] (mapv :class entries)))
@@ -77,10 +77,10 @@
       (is (str/includes? (:note (first entries)) "NO view-local state tier")))))
 
 (deftest every-roster-class-has-a-recovery-sentence
-  (doseq [[api {:keys [class verdict]}] census/surface]
+  (doseq [[api {:keys [class verdict]}] rf.migration.hicasso.census/surface]
     (testing (str api)
-      (is (contains? (set census/verdicts) verdict))
-      (is (string? (:note (first (:entries (census/scan
+      (is (contains? (set rf.migration.hicasso.census/verdicts) verdict))
+      (is (string? (:note (first (:entries (rf.migration.hicasso.census/scan
                                             (str "(ns a (:require [reagent.core :as r]))\n"
                                                  "(r/" api " x)\n")
                                             "a.cljs")))))
@@ -122,7 +122,7 @@
        "(defn panel [] (r/atom {}))\n"))
 
 (deftest an-unbindable-require-is-reported
-  (let [{:keys [entries unresolved?]} (census/scan vendored-require "app/panel.cljs")]
+  (let [{:keys [entries unresolved?]} (rf.migration.hicasso.census/scan vendored-require "app/panel.cljs")]
     (is (true? unresolved?))
     (is (= [:unresolved-reagent-require :unresolved-alias] (mapv :class entries)))
     (testing "the require is reported at the `ns` form, where the fix goes"
@@ -135,7 +135,7 @@
 (deftest the-unqualified-core-call-beside-it-is-not-reported
   (testing "`(atom nil)` on line 4 is `clojure.core`'s. An alias is what could not
             be bound, so a call with no alias is not evidence of it."
-    (is (not-any? #(= 4 (:line %)) (:entries (census/scan vendored-require "app/panel.cljs"))))))
+    (is (not-any? #(= 4 (:line %)) (:entries (rf.migration.hicasso.census/scan vendored-require "app/panel.cljs"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A require behind a reader conditional RESOLVES (rf2-m4hm)
@@ -146,7 +146,7 @@
             form, which throws on a reader-conditional node, so EVERY alias
             came back empty and the file's real findings were reported only as
             `:unresolved-alias`"
-    (let [{:keys [entries reagent? unresolved?]} (census/scan conditional-require "app/ssr.cljc")]
+    (let [{:keys [entries reagent? unresolved?]} (rf.migration.hicasso.census/scan conditional-require "app/ssr.cljc")]
       (is (true? reagent?))
       (is (false? unresolved?) "resolved, not merely reported")
       (is (= [:root-mount] (mapv :class entries))
@@ -189,7 +189,7 @@
                    "\n"
                    "(defn v [] (r/atom 1))\n"
                    "(defn m [] (rdc/render nil nil))\n")
-          {:keys [entries unresolved?]} (census/scan src "app/mixed.cljc")]
+          {:keys [entries unresolved?]} (rf.migration.hicasso.census/scan src "app/mixed.cljc")]
       (is (false? unresolved?))
       (is (= [:local-reactive-cell :root-mount] (mapv :class entries))
           "BOTH requires' call sites are named, not just the ordinary one")
@@ -203,7 +203,7 @@
                    "  (:require #?(:cljs [clojure.string :as str])))\n"
                    "\n"
                    "(defn v [] (str/atom 1))\n")
-          {:keys [entries reagent? unresolved?]} (census/scan src "app/util.cljc")]
+          {:keys [entries reagent? unresolved?]} (rf.migration.hicasso.census/scan src "app/util.cljc")]
       (is (false? reagent?))
       (is (false? unresolved?))
       (is (= [] entries)))))
@@ -225,7 +225,7 @@
                    "   [reagent.core :as r]))\n"
                    "\n"
                    "(def graph-ref-map (r/atom {}))\n")
-          {:keys [entries reagent? unresolved?]} (census/scan src "app/graph.cljs")]
+          {:keys [entries reagent? unresolved?]} (rf.migration.hicasso.census/scan src "app/graph.cljs")]
       (is (true? reagent?))
       (is (false? unresolved?) "resolved, not merely reported")
       (is (= [:local-reactive-cell] (mapv :class entries)))
@@ -256,7 +256,7 @@
                  "\n"
                  "(defn page []\n"
                  "  [:div (for [x @(rf/subscribe [:xs])] ^{:key x} [:span x])])\n")
-        {:keys [entries reagent? unresolved? recognised?]} (census/scan src "app/views.cljs")]
+        {:keys [entries reagent? unresolved? recognised?]} (rf.migration.hicasso.census/scan src "app/views.cljs")]
     (is (= [] entries))
     (is (false? reagent?))
     (is (false? unresolved?))
@@ -276,7 +276,7 @@
                    "  (:require [clojure.string :as str]))\n"
                    "\n"
                    "(defn page [] [:div (str/upper-case \"x\")])\n")
-          {:keys [entries reagent?]} (census/scan src "app/editor.cljs")]
+          {:keys [entries reagent?]} (rf.migration.hicasso.census/scan src "app/editor.cljs")]
       (is (= [] entries))
       (is (false? reagent?)))))
 
@@ -293,7 +293,7 @@
                    "    [:div]\n"
                    "    (finally (dispatch [:cancel]))))\n")]
       (is (= [:with-let] (classes src "app/bench.cljs")))
-      (is (= 7 (:line (first (:entries (census/scan src "app/bench.cljs")))))))))
+      (is (= 7 (:line (first (:entries (rf.migration.hicasso.census/scan src "app/bench.cljs")))))))))
 
 (deftest a-core-name-is-not-reagents-without-a-binding
   (testing "half the roster shares a name with `clojure.core`. Only a bound alias,
@@ -397,7 +397,7 @@
                    "\n"
                    "(def a (ratom 0))\n"
                    "(def b (atom 0))\n")
-          {:keys [entries]} (census/scan src "app/p.clj")]
+          {:keys [entries]} (rf.migration.hicasso.census/scan src "app/p.clj")]
       (is (= [:local-reactive-cell] (mapv :class entries)))
       (is (= [4] (mapv :line entries)) "the renamed call, not the core one")
       (testing "and it is reported under the ROSTER name, which is the only one
@@ -411,7 +411,7 @@
                    "\n"
                    "(def a (ratom 0))\n"
                    "(def b (atom 0))\n")]
-      (is (= [4] (mapv :line (:entries (census/scan src "app/p.clj")))))))
+      (is (= [4] (mapv :line (:entries (rf.migration.hicasso.census/scan src "app/p.clj")))))))
 
   (testing "a `:rename` with no `:refer` binds nothing, which is the effect
             Clojure gives it"
@@ -426,19 +426,19 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-second-scan-reports-identically
-  (is (= (census/scan form-2 "app/counter.cljs")
-         (census/scan form-2 "app/counter.cljs")))
-  (is (= (census/scan conditional-require "app/ssr.cljc")
-         (census/scan conditional-require "app/ssr.cljc")))
-  (is (= (census/scan vendored-require "app/panel.cljs")
-         (census/scan vendored-require "app/panel.cljs"))))
+  (is (= (rf.migration.hicasso.census/scan form-2 "app/counter.cljs")
+         (rf.migration.hicasso.census/scan form-2 "app/counter.cljs")))
+  (is (= (rf.migration.hicasso.census/scan conditional-require "app/ssr.cljc")
+         (rf.migration.hicasso.census/scan conditional-require "app/ssr.cljc")))
+  (is (= (rf.migration.hicasso.census/scan vendored-require "app/panel.cljs")
+         (rf.migration.hicasso.census/scan vendored-require "app/panel.cljs"))))
 
 (deftest the-summary-names-every-bucket-including-the-empty-ones
-  (let [built (census/build [(census/scan form-2 "app/counter.cljs")
-                             (census/scan vendored-require "app/panel.cljs")
-                             (census/scan "(ns a)\n(defn f [] [:div])\n" "app/plain.cljs")])
+  (let [built (rf.migration.hicasso.census/build [(rf.migration.hicasso.census/scan form-2 "app/counter.cljs")
+                             (rf.migration.hicasso.census/scan vendored-require "app/panel.cljs")
+                             (rf.migration.hicasso.census/scan "(ns a)\n(defn f [] [:div])\n" "app/plain.cljs")])
         s     (:summary built)]
-    (is (= (set census/verdicts) (set (keys (:by-verdict s))))
+    (is (= (set rf.migration.hicasso.census/verdicts) (set (keys (:by-verdict s))))
         "an absent key is a count nobody can tell from a bug")
     (is (= 0 (get-in s [:by-verdict :mechanical]))
         "nothing outside a crossing is mechanical, and the census says so with a zero")
@@ -484,7 +484,7 @@
             so a census that classified by the Reagent roster alone had nothing
             to count in the file that actually mounts the application."
     (let [{:keys [entries reagent? substrate? recognised?]}
-          (census/scan rf2-native-boot "app/core.cljs")]
+          (rf.migration.hicasso.census/scan rf2-native-boot "app/core.cljs")]
       (is (false? reagent?) "there is genuinely no Reagent name in this file")
       (is (true? substrate?))
       (is (true? recognised?))
@@ -498,13 +498,13 @@
             it is a value in argument position, and this walk reads call heads.
             The file is recognised through its `ns` form regardless, so nothing
             rides on catching it — stated here so the silence is a decision."
-    (is (= 2 (count (:entries (census/scan rf2-native-boot "app/core.cljs")))))))
+    (is (= 2 (count (:entries (rf.migration.hicasso.census/scan rf2-native-boot "app/core.cljs")))))))
 
 (deftest every-substrate-class-has-a-recovery-sentence
-  (doseq [[api {:keys [verdict]}] census/substrate-surface]
+  (doseq [[api {:keys [verdict]}] rf.migration.hicasso.census/substrate-surface]
     (testing (str api)
-      (is (contains? (set census/verdicts) verdict))
-      (is (string? (:note (first (:entries (census/scan
+      (is (contains? (set rf.migration.hicasso.census/verdicts) verdict))
+      (is (string? (:note (first (:entries (rf.migration.hicasso.census/scan
                                             (str "(ns a (:require [re-frame.adapter.uix :as ad]))\n"
                                                  "(ad/" api " x)\n")
                                             "a.cljs")))))
@@ -520,8 +520,8 @@
             (rf2-xoal). An UNINTENDED overlap still reds here — only the
             deliberate one is allowed through."
     (is (= '#{flush-views!}
-           (clojure.set/intersection (set (keys census/surface))
-                                     (set (keys census/substrate-surface))))))
+           (clojure.set/intersection (set (keys rf.migration.hicasso.census/surface))
+                                     (set (keys rf.migration.hicasso.census/substrate-surface))))))
 
   (testing "through `reagent2.dom.client` the shared name is Reagent's — and the
             file counts as one that NAMES Reagent, which is the flag the migration
@@ -530,7 +530,7 @@
                    "  (:require [reagent2.dom.client :as rdc]))\n"
                    "\n"
                    "(defn settle [] (rdc/flush-views!))\n")
-          {:keys [entries reagent? substrate?]} (census/scan src "app/t.cljs")]
+          {:keys [entries reagent? substrate?]} (rf.migration.hicasso.census/scan src "app/t.cljs")]
       (is (true? reagent?))
       (is (false? substrate?))
       (is (= [:substrate-test-seam] (mapv :class entries)))))
@@ -542,7 +542,7 @@
                    "  (:require [re-frame.adapter.uix :as ad]))\n"
                    "\n"
                    "(defn settle [] (ad/flush-views!))\n")
-          {:keys [entries reagent? substrate?]} (census/scan src "app/t.cljs")]
+          {:keys [entries reagent? substrate?]} (rf.migration.hicasso.census/scan src "app/t.cljs")]
       (is (false? reagent?))
       (is (true? substrate?))
       (is (= [:substrate-test-seam] (mapv :class entries))))))
@@ -557,7 +557,7 @@
                    "  (:require [my.vendored.re-frame.adapter.reagent :as ad]))\n"
                    "\n"
                    "(defn f [] (ad/render! nil nil nil))\n")
-          {:keys [entries substrate? recognised?]} (census/scan src "app/p.cljs")]
+          {:keys [entries substrate? recognised?]} (rf.migration.hicasso.census/scan src "app/p.cljs")]
       (is (= [] entries))
       (is (false? substrate?))
       (is (false? recognised?)))))
@@ -578,7 +578,7 @@
                    "(def cache (r/atom {}))\n"
                    "(defn chart [] (r/create-class {:reagent-render (fn [] [:div])}))\n"
                    "(defn el [h] (r/as-element h))\n")
-          {:keys [entries reagent? unresolved?]} (census/scan src "app/chart.cljs")]
+          {:keys [entries reagent? unresolved?]} (rf.migration.hicasso.census/scan src "app/chart.cljs")]
       (is (true? reagent?))
       (is (false? unresolved?) "bound, not merely named")
       (is (= [:local-reactive-cell :lifecycle-class :as-element] (mapv :class entries)))))
@@ -610,7 +610,7 @@
   **This table is the ratchet, and the assertion below that it is
   COMPLETE is the half that matters.** Recognition is decided per FILE and
   entries are found per NAME, so widening the namespace set without
-  widening `census/surface` converts an honest *I did not recognise this
+  widening `rf.migration.hicasso.census/surface` converts an honest *I did not recognise this
   file* into `:recognition :full` with `entries 0` — a confident zero, and
   a strictly worse answer than the one it replaced. PR #9132 did exactly
   that: it added the `reagent2.*` four and left `reagent2.dom.server`'s
@@ -646,7 +646,7 @@
   "Scan a one-call file that requires `ns*` as `x`, and return the census
   summary over it."
   [ns* call]
-  (:summary (census/build [(census/scan (str "(ns app.probe\n"
+  (:summary (rf.migration.hicasso.census/build [(rf.migration.hicasso.census/scan (str "(ns app.probe\n"
                                              "  (:require [" ns* " :as x]))\n"
                                              "\n"
                                              "(defn f [] " call ")\n")
@@ -693,7 +693,7 @@
                    "\n"
                    "(defn page-html []\n"
                    "  (rds/render-to-static-markup [:div \"hello\"]))\n")
-          s   (:summary (census/build [(census/scan src "app/ssr.cljs")]))]
+          s   (:summary (rf.migration.hicasso.census/build [(rf.migration.hicasso.census/scan src "app/ssr.cljs")]))]
       (is (= 1 (:files-recognised s)))
       (is (= :full (:recognition s)))
       (is (= 1 (:entries s))         "was 0")
@@ -714,14 +714,14 @@
                    "  (:require [reagent.core :as r]))\n"
                    "\n"
                    "(defn v [] [:div \"no rostered call in this file\"])\n")
-          s   (:summary (census/build [(census/scan src "app/v.cljs")]))]
+          s   (:summary (rf.migration.hicasso.census/build [(rf.migration.hicasso.census/scan src "app/v.cljs")]))]
       (is (= :full (:recognition s)))
       (is (= 0 (:entries s)))
       (is (str/includes? (:caveat s) "fixed roster"))
       (is (str/includes? (:caveat s) "not that these files hold no migration work"))
       (testing "and the CLI tail — the last line of the run, read by whoever reads
                 nothing else — marks the zero rather than printing it bare"
-        (is (str/includes? (census/describe {:summary s}) "ZERO ENTRIES"))))))
+        (is (str/includes? (rf.migration.hicasso.census/describe {:summary s}) "ZERO ENTRIES"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A zero the tool CANNOT report confidently (rf2-xoal)
@@ -732,8 +732,8 @@
             the census has no population anywhere in it. Its zero used to be
             indistinguishable from a clean bill of health, which is the
             fail-open shape."
-    (let [s (:summary (census/build [(census/scan rf2-native-view "app/articles.cljs")
-                                     (census/scan rf2-native-view "app/profile.cljs")]))]
+    (let [s (:summary (rf.migration.hicasso.census/build [(rf.migration.hicasso.census/scan rf2-native-view "app/articles.cljs")
+                                     (rf.migration.hicasso.census/scan rf2-native-view "app/profile.cljs")]))]
       (is (= 0 (:entries s)))
       (is (= :none (:recognition s)))
       (is (= 2 (:files-scanned s)))
@@ -742,24 +742,24 @@
       (is (str/includes? (:caveat s) "NOT A CLEAN BILL OF HEALTH"))
       (testing "and the CLI tail says it too, because whoever reads only the last
                 line of the run is exactly who this misleads"
-        (is (str/includes? (census/describe {:summary s}) "NOTHING RECOGNISED")))))
+        (is (str/includes? (rf.migration.hicasso.census/describe {:summary s}) "NOTHING RECOGNISED")))))
 
   (testing "THE CONTROL, and it has to fire or the assertion above means nothing:
             the same machinery over a corpus the census DOES have a population
             in reports `:full`, and its caveat says the zero would be a
             measurement rather than a shrug."
-    (let [s (:summary (census/build [(census/scan form-2 "app/counter.cljs")]))]
+    (let [s (:summary (rf.migration.hicasso.census/build [(rf.migration.hicasso.census/scan form-2 "app/counter.cljs")]))]
       (is (= :full (:recognition s)))
       (is (= 1 (:entries s)))
       (is (= 0 (:files-unrecognised s)))
       (is (str/includes? (:caveat s) "a population throughout"))
-      (is (not (str/includes? (census/describe {:summary s}) "NOTHING RECOGNISED")))))
+      (is (not (str/includes? (rf.migration.hicasso.census/describe {:summary s}) "NOTHING RECOGNISED")))))
 
   (testing "the mixed corpus — one adapter file, one view file — is `:partial`,
             and its caveat is the one a re-frame2 migrator needs: the view files
             are absent from this census AND full of migration work."
-    (let [s (:summary (census/build [(census/scan rf2-native-boot "app/core.cljs")
-                                     (census/scan rf2-native-view "app/articles.cljs")]))]
+    (let [s (:summary (rf.migration.hicasso.census/build [(rf.migration.hicasso.census/scan rf2-native-boot "app/core.cljs")
+                                     (rf.migration.hicasso.census/scan rf2-native-view "app/articles.cljs")]))]
       (is (= :partial (:recognition s)))
       (is (= 2 (:entries s)) "the two mount calls, which used to be zero")
       (is (= 1 (:files-with-substrate s)))
@@ -768,7 +768,7 @@
       (is (str/includes? (:caveat s) "full of migration work"))))
 
   (testing "an empty path set is its own verdict rather than a zero"
-    (let [s (:summary (census/build []))]
+    (let [s (:summary (rf.migration.hicasso.census/build []))]
       (is (= :no-files (:recognition s)))
       (is (str/includes? (:caveat s) "NO SOURCE FILE WAS SCANNED")))))
 
@@ -777,10 +777,10 @@
             scanned, and `files-with-reagent` + `files-unresolved` +
             `files-clean` summing to 0. The buckets close now, and the one that
             was missing is the one the zero was hiding."
-    (let [built (census/build [(census/scan form-2 "app/counter.cljs")
-                               (census/scan vendored-require "app/panel.cljs")
-                               (census/scan rf2-native-boot "app/core.cljs")
-                               (census/scan rf2-native-view "app/articles.cljs")])
+    (let [built (rf.migration.hicasso.census/build [(rf.migration.hicasso.census/scan form-2 "app/counter.cljs")
+                               (rf.migration.hicasso.census/scan vendored-require "app/panel.cljs")
+                               (rf.migration.hicasso.census/scan rf2-native-boot "app/core.cljs")
+                               (rf.migration.hicasso.census/scan rf2-native-view "app/articles.cljs")])
           s     (:summary built)
           with-entries (count (into #{} (map :file) (:entries built)))]
       (is (= (:files-scanned s) (+ (:files-recognised s) (:files-unrecognised s))))

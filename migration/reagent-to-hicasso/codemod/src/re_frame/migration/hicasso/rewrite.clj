@@ -38,8 +38,8 @@
   **(B)** W2 refuses normalized-key collisions — [[injective-keys]].
   **(C)** The key slot gets a dedicated report entry — [[w3-entry]]."
   (:require [clojure.string :as str]
-            [re-frame.migration.hicasso.dest :as dest]
-            [re-frame.migration.hicasso.donor :as donor]
+            [re-frame.migration.hicasso.dest :as rf.migration.hicasso.dest]
+            [re-frame.migration.hicasso.donor :as rf.migration.hicasso.donor]
             [rewrite-clj.node :as n]
             [rewrite-clj.parser :as p]
             [rewrite-clj.zip :as z]))
@@ -759,14 +759,14 @@
   Returns `nil` when injective, else a sorted vector of the colliding
   source keys' texts, grouped by the normalized name they collapse onto.
 
-  CSS custom properties are excluded from the check because [[donor/key-name]]
+  CSS custom properties are excluded from the check because [[rf.migration.hicasso.donor/key-name]]
   answers `nil` for them: they are refused individually and never
   respelled, so they cannot be half of a minted duplicate."
   [map-node]
   (let [named (->> (pairs map-node)
                    (keep (fn [[k _ _]]
                            (let [kv (sexpr-safe k)
-                                 dn (donor/key-name kv)]
+                                 dn (rf.migration.hicasso.donor/key-name kv)]
                              (when dn [dn (str/trim (n/string k))])))))
         clashes (->> (group-by first named)
                      (filter (fn [[_ v]] (> (count v) 1)))
@@ -783,8 +783,8 @@
   reproduces the donor's emitted name."
   [key-node]
   (let [kv (sexpr-safe key-node)
-        dn (donor/key-name kv)]
-    (when (and dn (not= dn (dest/nested-key-name kv)))
+        dn (rf.migration.hicasso.donor/key-name kv)]
+    (when (and dn (not= dn (rf.migration.hicasso.dest/nested-key-name kv)))
       (cond
         (keyword? kv) (n/token-node (keyword dn))
         (symbol? kv)  (n/token-node (symbol dn))
@@ -824,7 +824,7 @@
                  kpath (conj path (str/trim (n/string k)))
                  ;; the key
                  acc   (cond
-                         (and (or (keyword? kv) (symbol? kv)) (donor/css-var-name? (name kv)))
+                         (and (or (keyword? kv) (symbol? kv)) (rf.migration.hicasso.donor/css-var-name? (name kv)))
                          (update acc :entries conj
                                  (entry :css-var-repair :refused
                                         {:path kpath}
@@ -1055,8 +1055,8 @@
    (fn [acc [k v i]]
      (let [kv    (sexpr-safe k)
            ktext (str/trim (n/string k))
-           slot  (when (or (keyword? kv) (symbol? kv) (string? kv)) (dest/canonical-slot kv))
-           event? (dest/event-prop? kv)
+           slot  (when (or (keyword? kv) (symbol? kv) (string? kv)) (rf.migration.hicasso.dest/canonical-slot kv))
+           event? (rf.migration.hicasso.dest/event-prop? kv)
            vi    (inc i)
            add   (fn [a e] (update a :entries conj e))
            edit  (fn [a new-v]
@@ -1072,7 +1072,7 @@
                               "which you meant.")))
 
          ;; ---- §5.3 `:dangerous-html` -----------------------------------------
-         (dest/dangerous-html-key? kv)
+         (rf.migration.hicasso.dest/dangerous-html-key? kv)
          (add acc (entry :dangerous-html :refused {:prop ktext}
                          (str "MIGRATION BLOCKER. Reagent's `convert-props` DELETED this prop "
                               "unless its value was an `UnsafeHTML` instance, so under Reagent it "
@@ -1083,7 +1083,7 @@
          ;; ---- §5.2 `:named-ref` ----------------------------------------------
          ;; A bare symbol at `:ref` is a CALLBACK ref and is fine; only a
          ;; keyword or quoted symbol made the donor produce a string ref.
-         (and (= dest/ref-slot slot) (literal-named-value v))
+         (and (= rf.migration.hicasso.dest/ref-slot slot) (literal-named-value v))
          (add acc (entry :named-ref :refused {:prop ktext :value (str/trim (n/string v))}
                          (str "Reagent's `(name …)` here produced a STRING REF, which React 19 "
                               "removed and now throws on — so preserving Reagent would restore a "
@@ -1143,11 +1143,11 @@
              ;; it would only grow the diff (§4.6).
              native? acc
              ;; both runtimes `name` here — a fixpoint, and skipping keeps the diff small
-             (dest/html-attr-slot? slot) acc
+             (rf.migration.hicasso.dest/html-attr-slot? slot) acc
              ;; the class slot: `class-names` names it on the Hicasso side, in every spelling
-             (= dest/class-slot slot) acc
+             (= rf.migration.hicasso.dest/class-slot slot) acc
              ;; (C) — ratified exclusion, now with its own report entry
-             (= dest/key-slot slot) (add acc (w3-entry :key-slot vv ktext))
+             (= rf.migration.hicasso.dest/key-slot slot) (add acc (w3-entry :key-slot vv ktext))
              :else
              (-> (edit acc (n/string-node (name vv)))
                  (add (w3-entry (if (namespace vv) :namespaced :plain) vv ktext)))))
@@ -1197,7 +1197,7 @@
   (when props-node
     (let [ps (pairs props-node)
           ev (->> ps (keep (fn [[k _ _]] (let [kv (sexpr-safe k)]
-                                           (when (dest/event-prop? kv) (str/trim (n/string k))))))
+                                           (when (rf.migration.hicasso.dest/event-prop? kv) (str/trim (n/string k))))))
                   sort vec)
           fns (->> ps (keep (fn [[k v _]] (when (fn-literal? v) (str/trim (n/string k)))))
                    sort vec)]
@@ -1232,7 +1232,7 @@
             ;; would go live at a native destination.
             carrier?  (and props
                            (some (fn [[k v _]]
-                                   (and (dest/event-prop? (sexpr-safe k))
+                                   (and (rf.migration.hicasso.dest/event-prop? (sexpr-safe k))
                                         (or (vector-node? v) (map-node? v))))
                                  (pairs props)))
             w6-cand?  (and (= :raw kind) plain-tag?)

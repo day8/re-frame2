@@ -18,7 +18,7 @@
   and they run identically on every platform including the Linux CI lane."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.migration.hicasso.codemod :as cm]))
+            [re-frame.migration.hicasso.codemod :as rf.migration.hicasso.codemod]))
 
 ;; ---------------------------------------------------------------------------
 ;; The rig
@@ -46,7 +46,7 @@
         all  (count (re-seq #"\n" s))]
     [crlf (- all crlf)]))
 
-(defn- rewritten [src] (:source (cm/rewrite-string src "src/app/endings.cljs")))
+(defn- rewritten [src] (:source (rf.migration.hicasso.codemod/rewrite-string src "src/app/endings.cljs")))
 
 ;; ---------------------------------------------------------------------------
 ;; The rewrite fires — otherwise every assertion below is vacuous
@@ -133,7 +133,7 @@
   (testing "a one-liner has no convention to preserve, and the fixer must
             not invent one"
     (let [src "[:> Btn {:variant :primary}]"
-          out (:source (cm/rewrite-string src "src/app/one.cljs"))]
+          out (:source (rf.migration.hicasso.codemod/rewrite-string src "src/app/one.cljs"))]
       (is (= "[:> Btn {:variant \"primary\"}]" out))
       (is (= [0 0] (endings out))))))
 

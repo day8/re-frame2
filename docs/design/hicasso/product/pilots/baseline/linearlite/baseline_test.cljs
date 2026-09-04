@@ -20,20 +20,20 @@
    needs no browser."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.fx :as rf.fx]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; Production HTTP + resources surfaces, so the resource runtime,
             ;; the mutation runtime, managed-HTTP lowering and the routing
             ;; integration resolve; the actual fetch is overridden per test.
             [re-frame.http.managed]
             [re-frame.http.test-support]
             [re-frame.resources]
-            [re-frame.resources.route :as resources-route]
-            [re-frame.resources.state :as state]
+            [re-frame.resources.route :as rf.resources.route]
+            [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             ;; The app's production source — registers the :linearlite/board
             ;; resource, the three optimistic mutations, routes, events, subs
             ;; and views at load.
@@ -51,11 +51,11 @@
 ;; `linearlite.core` require above ran them — and re-install them per test in
 ;; `init!`. What gets re-installed is the app's own registrations, not copies.
 (def ^:private resource-kind-snapshots
-  (select-keys @registrar/kind->id->metadata [:resource :mutation]))
+  (select-keys @rf.registrar/kind->id->metadata [:resource :mutation]))
 
 ;; Take those two kinds out of the live registry at load; `init!` puts them
 ;; back before each test, so every test starts from the same registrations.
-(swap! registrar/kind->id->metadata
+(swap! rf.registrar/kind->id->metadata
        (fn [reg]
          (reduce (fn [r [kind id->meta]]
                    (update r kind (fn [m] (apply dissoc m (keys id->meta)))))
@@ -77,21 +77,21 @@
    and the frame is made last."
   []
   (reset! last-managed-args nil)
-  ;; Re-install through `registrar/register!`, which writes the registry and
+  ;; Re-install through `rf.registrar/register!`, which writes the registry and
   ;; the source store in lockstep.
   (doseq [[kind id->meta] resource-kind-snapshots
           [id meta] id->meta]
-    (registrar/register! kind id meta))
-  (routing/reset-counters!)
-  (resources-route/install-routing-integration!)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.registrar/register! kind id meta))
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "linearlite default app frame."}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn init!}))
 
 ;; ============================================================================
@@ -104,9 +104,9 @@
   {:resource :linearlite/board :scope :rf.scope/global :params {}})
 
 (defn- board-key []
-  (state/scoped-resource-key :rf.scope/global :linearlite/board {}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :linearlite/board {}))
 
-(defn- entry [] (get-in (runtime-db) (state/entry-path (board-key))))
+(defn- entry [] (get-in (runtime-db) (rf.resources.state/entry-path (board-key))))
 
 (defn- board-data
   "The passive board `:data` the view reads (the `:rf.resource/data` sub),
@@ -318,7 +318,7 @@
    asked for, and the arguments it built — and deliver nothing."
   []
   (doseq [fx-id canned-fx-ids]
-    (fx/reg-fx fx-id
+    (rf.fx/reg-fx fx-id
       {:doc "linearlite armed-demo-backend test parker (per-test; section 5)."}
       (fn [_ctx args]
         (swap! parked-replies conj {:fx-id    fx-id
@@ -332,7 +332,7 @@
    `request` is the lowered request map the app's own mutation produces."
   [request]
   (reset! parked-replies [])
-  ((registrar/handler :fx :linearlite.demo/http-stub)
+  ((rf.registrar/handler :fx :linearlite.demo/http-stub)
    {:frame :rf/default}
    {:request  request
     :decode   :json

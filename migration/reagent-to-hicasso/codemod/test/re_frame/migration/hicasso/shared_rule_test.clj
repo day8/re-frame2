@@ -30,7 +30,7 @@
 
   ## The donor's two deltas
 
-  Reagent's `cached-prop-name` and our `slot/prop-name` are one rule apart
+  Reagent's `cached-prop-name` and our `rf.hicasso.impl.slot/prop-name` are one rule apart
   from two cells. Each row below cites the executed donor witness that
   pins it — `codemod-contract-donor-*` in
   `implementation/adapters/reagent/test/re_frame/reagent_codemod_contract_donor_cljs_test.cljs`
@@ -39,10 +39,10 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.hicasso.impl.slot :as slot]
-            [re-frame.migration.hicasso.dest :as dest]
-            [re-frame.migration.hicasso.donor :as donor]
-            [re-frame.migration.hicasso.rewrite :as rw]
+            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]
+            [re-frame.migration.hicasso.dest :as rf.migration.hicasso.dest]
+            [re-frame.migration.hicasso.donor :as rf.migration.hicasso.donor]
+            [re-frame.migration.hicasso.rewrite :as rf.migration.hicasso.rewrite]
             [rewrite-clj.parser :as p]))
 
 ;; ---------------------------------------------------------------------------
@@ -50,9 +50,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-slot-rule-is-the-shared-one
-  (testing "the tool's slot resolver IS `slot/prop-name`, by identity —
+  (testing "the tool's slot resolver IS `rf.hicasso.impl.slot/prop-name`, by identity —
             not a transcription of it"
-    (is (identical? dest/canonical-slot slot/prop-name)))
+    (is (identical? rf.migration.hicasso.dest/canonical-slot rf.hicasso.impl.slot/prop-name)))
 
   (testing "and it is loaded from the SHARED `.cljc` IN THE SHIPPED
             PACKAGE, not from a copy inside this artefact and not from
@@ -123,9 +123,9 @@
             calls conventions; this one is a mirror with an alarm on it."
     (let [door (door-contracts)]
       (is (set? door) "the door's `callback-contracts` set was not found in its source")
-      (is (= door (set dest/callback-contracts))
+      (is (= door (set rf.migration.hicasso.dest/callback-contracts))
           (str "the door accepts " (pr-str door) " and this tool prints "
-               (pr-str dest/callback-contracts)))))
+               (pr-str rf.migration.hicasso.dest/callback-contracts)))))
 
   (testing "`:fn` — the keyword the sketch used to print at every
             position — is not among them, which is the whole of the bug"
@@ -138,47 +138,47 @@
 (deftest the-donor-key-rule
   (testing "kebab→camel, which is `dash-to-prop-name`
             (donor witness: codemod-contract-donor-w2-nested-map-keys)"
-    (is (= "pageSize"  (donor/key-name :page-size)))
-    (is (= "firstName" (donor/key-name :first-name)))
-    (is (= "otherKey"  (donor/key-name :other-key))))
+    (is (= "pageSize"  (rf.migration.hicasso.donor/key-name :page-size)))
+    (is (= "firstName" (rf.migration.hicasso.donor/key-name :first-name)))
+    (is (= "otherKey"  (rf.migration.hicasso.donor/key-name :other-key))))
 
   (testing "the three seeded renames, which hold for every spelling of the
             same attribute because the cache is keyed on `(name k)`"
-    (is (= "className" (donor/key-name :class)))
-    (is (= "htmlFor"   (donor/key-name :for)))
-    (is (= "charSet"   (donor/key-name :charset)))
-    (is (= "className" (donor/key-name :x/class))))
+    (is (= "className" (rf.migration.hicasso.donor/key-name :class)))
+    (is (= "htmlFor"   (rf.migration.hicasso.donor/key-name :for)))
+    (is (= "charSet"   (rf.migration.hicasso.donor/key-name :charset)))
+    (is (= "className" (rf.migration.hicasso.donor/key-name :x/class))))
 
   (testing "`aria` and `data` are exempt"
-    (is (= "aria-label" (donor/key-name :aria-label)))
-    (is (= "data-kind"  (donor/key-name :data-kind))))
+    (is (= "aria-label" (rf.migration.hicasso.donor/key-name :aria-label)))
+    (is (= "data-kind"  (rf.migration.hicasso.donor/key-name :data-kind))))
 
   (testing "symbols take the same arm — `named?` is keyword-or-symbol"
-    (is (= "pageSize" (donor/key-name 'page-size))))
+    (is (= "pageSize" (rf.migration.hicasso.donor/key-name 'page-size))))
 
   (testing "DELTA 1 — a STRING key is verbatim under the donor, seeded
             renames included, where our own rule applies them to every
             spelling. This is the cell that makes a transcription of
             `prop-name` wrong for W2's purposes."
-    (is (= "first-name" (donor/key-name "first-name")))
-    (is (= "class"      (donor/key-name "class")))
-    (is (= "className"  (slot/prop-name "class"))
+    (is (= "first-name" (rf.migration.hicasso.donor/key-name "first-name")))
+    (is (= "class"      (rf.migration.hicasso.donor/key-name "class")))
+    (is (= "className"  (rf.hicasso.impl.slot/prop-name "class"))
         "the shared rule's answer for the same key, for contrast"))
 
   (testing "DELTA 2 — a CSS custom property is DETECTED and refused, never
             reproduced. Reagent mangled `--brand-color` into `BrandColor`,
             a style key nothing reads; preserving that would mean writing
             a key that never worked."
-    (is (donor/css-var-name? "--brand-color"))
-    (is (nil? (donor/key-name :--brand-color)))
-    (is (= "--brand-color" (slot/prop-name :--brand-color))
+    (is (rf.migration.hicasso.donor/css-var-name? "--brand-color"))
+    (is (nil? (rf.migration.hicasso.donor/key-name :--brand-color)))
+    (is (= "--brand-color" (rf.hicasso.impl.slot/prop-name :--brand-color))
         "our rule preserves it, and React routes it through `setProperty`"))
 
   (testing "everywhere else the two rules agree, which is why `key-name`
             delegates rather than transcribes"
     (doseq [k [:page-size :first-name :other-key :class :for :charset
                :aria-label :data-kind :onClick :on-click]]
-      (is (= (slot/prop-name k) (donor/key-name k))
+      (is (= (rf.hicasso.impl.slot/prop-name k) (rf.migration.hicasso.donor/key-name k))
           (str "the two rules should agree at " k)))))
 
 ;; ---------------------------------------------------------------------------
@@ -187,38 +187,38 @@
 
 (deftest the-destination-vocabulary
   (testing "`html-attr-slot?` mirrors the codec's, prefix families included"
-    (is (every? dest/html-attr-slot? ["className" "id" "role" "data-kind" "aria-label"]))
-    (is (not-any? dest/html-attr-slot? ["variant" "theme" "key" "ref" "onClick"])))
+    (is (every? rf.migration.hicasso.dest/html-attr-slot? ["className" "id" "role" "data-kind" "aria-label"]))
+    (is (not-any? rf.migration.hicasso.dest/html-attr-slot? ["variant" "theme" "key" "ref" "onClick"])))
 
   (testing "`event-prop?` mirrors `intent/event-prop?`, INCLUDING its type
             gate — a prop key spelled `on-click` as a SYMBOL is not an
             event position, so the tool must not refuse there"
-    (is (dest/event-prop? :on-click))
-    (is (dest/event-prop? :onClick))
-    (is (dest/event-prop? "on-click"))
-    (is (not (dest/event-prop? 'on-click)) "symbols answer false")
-    (is (not (dest/event-prop? :once)) "`on` followed by a lowercase letter is not `on-`")
-    (is (not (dest/event-prop? :online))))
+    (is (rf.migration.hicasso.dest/event-prop? :on-click))
+    (is (rf.migration.hicasso.dest/event-prop? :onClick))
+    (is (rf.migration.hicasso.dest/event-prop? "on-click"))
+    (is (not (rf.migration.hicasso.dest/event-prop? 'on-click)) "symbols answer false")
+    (is (not (rf.migration.hicasso.dest/event-prop? :once)) "`on` followed by a lowercase letter is not `on-`")
+    (is (not (rf.migration.hicasso.dest/event-prop? :online))))
 
   (testing "a nested map key's destination name is `clj->js`'s answer,
             which is what W2 has to make agree with the donor"
-    (is (= "page-size" (dest/nested-key-name :page-size)))
-    (is (= "x/page-size" (dest/nested-key-name 'x/page-size)))
-    (is (= "first-name" (dest/nested-key-name "first-name"))))
+    (is (= "page-size" (rf.migration.hicasso.dest/nested-key-name :page-size)))
+    (is (= "x/page-size" (rf.migration.hicasso.dest/nested-key-name 'x/page-size)))
+    (is (= "first-name" (rf.migration.hicasso.dest/nested-key-name "first-name"))))
 
   (testing "`dangerouslySetInnerHTML` is recognised in any spelling,
             because the kebab one never reached React's exact name under
             either runtime and the migrator needs telling regardless"
-    (is (dest/dangerous-html-key? :dangerouslySetInnerHTML))
-    (is (dest/dangerous-html-key? :dangerously-set-inner-html))
-    (is (dest/dangerous-html-key? "dangerouslySetInnerHTML"))
-    (is (not (dest/dangerous-html-key? :dangerous)))))
+    (is (rf.migration.hicasso.dest/dangerous-html-key? :dangerouslySetInnerHTML))
+    (is (rf.migration.hicasso.dest/dangerous-html-key? :dangerously-set-inner-html))
+    (is (rf.migration.hicasso.dest/dangerous-html-key? "dangerouslySetInnerHTML"))
+    (is (not (rf.migration.hicasso.dest/dangerous-html-key? :dangerous)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Amendment (B), at the unit
 ;; ---------------------------------------------------------------------------
 
-(defn- collisions [src] (rw/injective-keys (p/parse-string src)))
+(defn- collisions [src] (rf.migration.hicasso.rewrite/injective-keys (p/parse-string src)))
 
 (deftest amendment-b-injectivity
   (testing "an ordinary camel-case collision"

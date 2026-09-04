@@ -45,17 +45,17 @@
   and asserts the two rosters equal rather than leaving this one to the
   convention (rf2-vi11)."
   (:require [clojure.string :as str]
-            [re-frame.hicasso.impl.slot :as slot]))
+            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]))
 
 (def canonical-slot
   "**The one slot resolver**, and it is the codec's own. The React prop
   slot a hiccup attribute key emits into.
 
   `front.codec/canonical-slot` is `cached-prop-name`, which is a cache
-  over `slot/prop-name`; a cache changes when a lookup is computed and
+  over `rf.hicasso.impl.slot/prop-name`; a cache changes when a lookup is computed and
   nothing about what it answers, so this alias and the codec's are the
   same function of the same key."
-  slot/prop-name)
+  rf.hicasso.impl.slot/prop-name)
 
 (def key-slot
   "`raw-element` lifts `(:key props)` — the LITERAL keyword, read off the
@@ -80,7 +80,7 @@
 (defn html-attr-slot?
   "Is `slot` one of the HTML-attribute positions? MIRRORS
   `front.codec/html-attr-slot?`, prefix families included —
-  `slot/prop-name` leaves `aria-*` and `data-*` uncamelCased, so the slot
+  `rf.hicasso.impl.slot/prop-name` leaves `aria-*` and `data-*` uncamelCased, so the slot
   still carries the prefix to test."
   [slot]
   (boolean
