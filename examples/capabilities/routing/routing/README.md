@@ -23,7 +23,7 @@ This is the smallest app that puts all 3 to work — just a
 
 - The route table is data (`reg-route`) — 4 rows, one per page:
   `:routing.app/home`, `:routing.app/articles`, `:routing.app/article-detail`
-  (whose `:id` path param carries a Malli `:params` schema), and the
+  (whose `/articles/:id` pattern captures `:id` as a string), and the
   reserved `:rf.route/not-found`. You register rows, the same way you
   register an event handler. No router object is built.
 - The root view branches on the route — `root-view` is a `case`
@@ -63,6 +63,13 @@ table, navigation as an event, the route as a subscription, and a
 root-view switch. This app has each one once, in its plainest form, with
 nothing extra to distract. Read it and you have a complete pattern to
 copy when scaffolding a routed app.
+
+One thing it deliberately leaves out: a route may declare `:params` /
+`:query` Malli schemas, but those validate only in an app that requires
+`re-frame.schemas` — that require is what wires the validator. Declared
+without it, a route schema reads like a contract and enforces nothing, so
+this app declares none and `:id` stays the string the URL held. See the
+[schemas guide](../../../../docs/core/how-to/validate-with-schemas.md).
 
 Two small details are worth copying too:
 
