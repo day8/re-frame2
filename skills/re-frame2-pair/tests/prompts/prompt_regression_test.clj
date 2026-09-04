@@ -118,9 +118,14 @@
  {:id :experiment-loop
  :prompt "Iterate on the cart handler until expired coupons are rejected"
  :recipe-anchor "Experiment loop"
+ ;; rf2-44d3 — the anchor vocabulary is part of the op set now: the
+ ;; recipe must name the PRE-DISPATCH anchor and the baseline RESULT
+ ;; epoch separately, or the loop teaches a confounded comparison.
  :must-mention [["dispatch-and-collect"]
  ["restore-epoch"]
- ["reg-event"]]}
+ ["reg-event"]
+ ["pre-dispatch-epoch-id"]
+ ["baseline-epoch-id"]]}
 
  {:id :where-in-code
  :prompt "Where in the code does this button come from?"
@@ -630,6 +635,93 @@
         (str "ops.md no longer labels the raw eval restore/reset forms as a "
              "BACKSTOP — they must remain documented for a gate-OFF server but "
              "framed as the fallback, not the default (rf2-230ekq)."))))
+
+;; ---------------------------------------------------------------------------
+;; Experiment-loop rewind anchor (rf2-44d3)
+;; ---------------------------------------------------------------------------
+;;
+;; `restore-epoch` reinstalls the named epoch's `:frame-state-after` (Tool-Pair
+;; §Time-travel), so restoring the epoch a dispatch PRODUCED reinstates that
+;; event's POST-state — not the state it started from. The recipe used to
+;; capture the baseline dispatch's own result epoch and restore it before the
+;; edited run, which put the edited handler on top of the baseline's mutation:
+;; a `+1` baseline then a `+2` edit reads 3, not 2, and every non-idempotent
+;; handler (append / toggle / consume-once) compounds it per iteration. The
+;; procedure still LOOKED like a controlled experiment, which is what made it
+;; expensive.
+;;
+;; The old shape passed the table row above (it named `restore-epoch`), so the
+;; row alone cannot hold this. These assertions are the discriminating half:
+;; they pin the two ids as DISTINCT roles, pin the ORDER (anchor captured
+;; before the baseline dispatch), pin the honest refusal when no anchor exists,
+;; and pin the worked control's numbers.
+
+(deftest experiment-loop-rewinds-to-the-pre-dispatch-anchor
+  (let [section (recipe-section @recipes-md "Experiment loop")]
+    (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
+
+    (testing "the anchor and the baseline result are named as SEPARATE roles"
+      (is (str/includes? section "pre-dispatch-epoch-id")
+          (str "the Experiment loop no longer names a `pre-dispatch-epoch-id` — "
+               "without a separately-named anchor the recipe cannot say which "
+               "epoch to rewind to (rf2-44d3)."))
+      (is (str/includes? section "baseline-epoch-id")
+          (str "the Experiment loop no longer names the baseline's RESULT epoch "
+               "separately — the two roles have collapsed back into one "
+               "'the captured epoch' (rf2-44d3).")))
+
+    (testing "the restore step passes the ANCHOR, not the baseline result"
+      (is (str/includes?
+            section
+            "mcp__re-frame2-pair__restore-epoch {epoch-id: \"<pre-dispatch-epoch-id>\"}")
+          (str "the Experiment loop's restore invocation no longer passes "
+               "<pre-dispatch-epoch-id>. A bare <epoch-id> placeholder reads as "
+               "'the one you just captured from the dispatch' — the exact "
+               "defect (rf2-44d3).")))
+
+    (testing "the anchor is captured BEFORE the baseline dispatch"
+      ;; Ordering, not mere presence: a recipe that captures the head only
+      ;; after dispatching has captured the wrong thing under the right name.
+      (let [anchor-at   (str/index-of section "pre-dispatch-epoch-id")
+            baseline-at (str/index-of section "baseline-epoch-id")]
+        (is (and anchor-at baseline-at (< anchor-at baseline-at))
+            (str "the Experiment loop introduces `baseline-epoch-id` at or "
+                 "before `pre-dispatch-epoch-id` — the anchor must be captured "
+                 "BEFORE anything is dispatched, or it is the post-dispatch "
+                 "head under an honest-looking name (rf2-44d3)."))))
+
+    (testing "the recipe states WHY — restore reinstalls :frame-state-after"
+      (is (str/includes? section ":frame-state-after")
+          (str "the Experiment loop no longer states that `restore-epoch` "
+               "reinstalls the named epoch's `:frame-state-after`. Without the "
+               "mechanism the rule reads as a style preference and drifts back "
+               "(rf2-44d3).")))
+
+    (testing "a missing anchor fails honestly instead of substituting one"
+      (is (str/includes? section ":head-id")
+          (str "the Experiment loop no longer reads the frame's current "
+               "`:head-id` — that read IS the anchor capture (rf2-44d3)."))
+      (is (and (str/includes? section "STOP")
+               (str/includes? section "dispatch-dry-run"))
+          (str "the Experiment loop no longer tells the agent to STOP (and fall "
+               "back to `dispatch-dry-run`) when the frame has no retained "
+               "pre-dispatch epoch — a silent substitution of the baseline "
+               "result epoch is the confounded comparison (rf2-44d3).")))
+
+    (testing "the worked control carries the numbers that discriminate"
+      ;; 1 = baseline, 2 = the edit's real answer, 3 = the confounded reading.
+      (is (every? #(str/includes? section %) ["{:n 0}" "{:n 1}" "{:n 2}" "{:n 3}"])
+          (str "the Experiment loop's worked control no longer walks "
+               "{:n 0} → baseline {:n 1} → edited {:n 2}, with {:n 3} named as "
+               "the confounded reading a result-epoch restore produces. Those "
+               "four numbers are what make the defect unfollowable (rf2-44d3).")))
+
+    (testing "the handler fingerprint is captured before the edit, not claimed"
+      (is (str/includes? section "pre-edit-handler-meta")
+          (str "the Experiment loop's verification step no longer references a "
+               "separately-captured `pre-edit-handler-meta`. It used to say the "
+               "fingerprint was captured at step 1, where only the result epoch "
+               "was captured — a comparison against nothing (rf2-44d3).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Single-host boundary (rf2-p1keh)
