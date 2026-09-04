@@ -251,23 +251,6 @@
   []
   (cascade-with-other 100 50))
 
-(defn long-handler-buffer
-  "A buffer of cascades whose `:run-end` rows carry a wide spread of
-  `:duration-ms` values so the panel's duration chrome is visible
-  across the cascade list."
-  []
-  (->> [{:dispatch-id 100 :event-vec [:counter/increment] :id-base 50  :duration 1}
-        {:dispatch-id 101 :event-vec [:cart/add-item :apple] :id-base 100 :duration 6}
-        {:dispatch-id 102 :event-vec [:report/render-table] :id-base 150 :duration 22}
-        {:dispatch-id 103 :event-vec [:dashboard/refresh] :id-base 200 :duration 87}
-        {:dispatch-id 104 :event-vec [:scenario/replay] :id-base 250 :duration 312}]
-       (mapcat (fn [{:keys [dispatch-id event-vec id-base duration]}]
-                 (-> (cascade-evs dispatch-id event-vec id-base)
-                     ;; Patch the run-end emit's :duration-ms so the
-                     ;; rendered duration reflects the variant's intent.
-                     (update 2 update :tags assoc :duration-ms duration))))
-       vec))
-
 ;; ---- specialised cascade builders --------------------------------------
 
 (defn exception-cascade-buffer

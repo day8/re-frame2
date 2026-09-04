@@ -264,28 +264,9 @@
               scrubbed (redact-event base paths)]
           (assoc ctx :rf/redacted-event scrubbed))))))
 
-(defn- redact-interceptor?
-  [interceptor]
-  (and (map? interceptor)
-       (= redact-interceptor-id (:id interceptor))))
-
-(defn user-redaction-paths
-  "Walk an interceptor chain and return the concatenated `:paths` vectors
-  of every `redact-interceptor` interceptor it contains.
-
-  Read by the router at chain-assembly time so the pre-chain trace events
-  (`:run-start`, `emit-pipeline-trailers`'s `:run-end`) and the frame-
-  classification emit-event projection both honour user-declared payload
-  paths."
-  [interceptors]
-  (into []
-        (comp (filter redact-interceptor?)
-              (mapcat :paths))
-        interceptors))
-
 (defn collect-redaction-paths
-  "Single-pass fusion of
-  `schema-redaction-paths` + `user-redaction-paths` over the SAME
+  "Single-pass fusion of the schema-redaction walk and the
+  user-declared `redact-interceptor` `:paths` walk over the SAME
   resolved interceptor chain — read together by the router's
   `prepare-handler-ctx` on every dispatch.
 
@@ -295,8 +276,9 @@
     * the `redact-interceptor` `:paths` (user-declared payload paths).
 
   Returns `{:schema-paths <vec> :user-paths <vec>}`, behaviour-identical
-  to calling `schema-redaction-paths` and `user-redaction-paths`
-  separately. The schema-path overlap is only computed when the frame
+  to walking the chain twice — once for `schema-redaction-paths`, once
+  for the `redact-interceptor` `:paths`. The schema-path overlap is only
+  computed when the frame
   declares ≥1 sensitive app-db path (the dominant no-classification path
   skips the overlap `mapcat` entirely); the single chain walk
   collects `:path` slices unconditionally so the overlap, when needed,

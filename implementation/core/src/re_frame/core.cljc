@@ -2034,8 +2034,9 @@
 ;; the owner of the payload shape; registration-owned `:sensitive` payload
 ;; classification + centralized `project-egress` at egress boundaries
 ;; replace it. The `re-frame.privacy/redact-interceptor` fn (and the
-;; router's internal `redact-interceptor?` consumer) remain as internal
-;; plumbing, but the var is no longer published from this façade.
+;; router's internal `collect-redaction-paths` consumer, which matches
+;; `redact-interceptor-id` itself) remain as internal plumbing, but the
+;; var is no longer published from this façade.
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 

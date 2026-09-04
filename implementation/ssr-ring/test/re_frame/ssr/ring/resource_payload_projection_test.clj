@@ -175,7 +175,7 @@
                         ;; whole-app-db so the test isolates the runtime-db
                         ;; resource projection, not the app-db allowlist.
                         :payload    :rf.ssr.payload/whole-app-db}
-              resp     (#'pipeline/build-full-response* fid {:status 200} opts)
+              resp     (#'pipeline/build-full-response* fid opts)
               body     (:body resp)
               payload  (payload-edn body)
               entries  (get-in payload [:rf/runtime-db
@@ -227,7 +227,7 @@
                         :emit-hash? true
                         :html-shell shell/default-html-shell
                         :payload    :rf.ssr.payload/whole-app-db}
-              resp     (#'pipeline/build-full-response* fid {:status 200} opts)
+              resp     (#'pipeline/build-full-response* fid opts)
               body     (:body resp)
               payload  (payload-edn body)
               entries  (get-in payload [:rf/runtime-db
@@ -303,7 +303,7 @@
                          :emit-hash? true
                          :html-shell shell/default-html-shell
                          :payload    :rf.ssr.payload/whole-app-db}
-                resp    (#'pipeline/build-full-response* fid {:status 200} opts)
+                resp    (#'pipeline/build-full-response* fid opts)
                 payload (payload-edn (:body resp))
                 we      (val (first (get-in payload [:rf/runtime-db
                                                      :rf.runtime/resources
