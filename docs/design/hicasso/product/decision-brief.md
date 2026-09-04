@@ -66,15 +66,13 @@ Raw escapes, `defhost`, and a shared frame context already make mixed subtrees f
 
 **The native tier ships in the same artifact.** An application should not acquire UIx merely to optimize one hot region. Hicasso therefore carries a small surface in a separate namespace, provisionally `re-frame.hicasso.native` as `n`. The namespace makes the semantic boundary visible and contains only:
 
-- `n/$`, compiling one explicit element expression directly to React construction;
-- `n/defcomponent`, defining a stable native component with display name, source, HMR, and one props/children ABI;
-- `n/use-sub` and `n/use-frame`, joining the installed frame through shared native hooks;
-- same-root bridges in both directions; and
-- ABI-preserving helpers for memo, lazy loading, and refs.
+- `n/use-sub` and `n/use-frame`, joining the installed frame through shared native hooks — and, since `rf2-6c12m.3`, nothing else.
+
+*This list carried four more entries until 2026-09-04 (`rf2-aunp`), which is what the namespace was proposed to contain when this brief was written:* `n/$` *compiling one explicit element expression directly to React construction;* `n/defcomponent` *defining a stable native component with display name, source, HMR and one props/children ABI;* "same-root bridges in both directions"; *and* "ABI-preserving helpers for memo, lazy loading, and refs". **The ruling of 2026-08-29 took Option A and deleted all four**, on the grounds that only the two hooks do something React cannot: the rest duplicated UIx, raw React or `h/defhost` and had one non-test consumer each. The bridges were not lost with them — they were never on the tier: `h/defhost` and `[:>]` cross inward and `h/as-component` outward, all three on the `h` facade, and `as-component`'s docstring says it sits there deliberately so a UIx or JavaScript parent need not require the native namespace to cross. *The paragraph's own claim — that an application should not have to acquire UIx to optimize one hot region — is unaffected and is exactly what the two surviving hooks deliver.*
 
 Ordinary hooks come directly from React. Clojure-friendly wrappers appear only when real island code proves repeated ceremony; Hicasso does not pre-emptively clone UIx's utility library. UIx remains supported for applications already using it or whose native region grows into substantial React-first work.
 
-The boundary is **two explicit languages, absolute and visible**: `[...]` is always interpreted Hiccup and `n/$` is always compiled native React. This does not revive macro optimization of later-interpreted Hiccup. Native props take native callbacks with no intent lowering. Controlled-input repair, structural testing, and tree diagnostics stop at the boundary. Xray still names and times it and observes reads through `n/use-sub`, while the inner React tree remains honestly opaque. Foreign libraries still normally enter through `defhost`.
+The boundary is **two explicit languages, absolute and visible**: `[...]` always means interpreted Hiccup, and a React element is never interpreted — it passes through unchanged. (*The second half read* "`n/$` is always compiled native React" *until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` deleted `n/$` on 2026-08-29 and [`lanes/design-laws.md`](lanes/design-laws.md#native-boundary) law 2, which this restates, was corrected in that same act. The boundary itself is unchanged and still absolute.*) This does not revive macro optimization of later-interpreted Hiccup. Native props take native callbacks with no intent lowering. Controlled-input repair, structural testing, and tree diagnostics stop at the boundary. Xray still names and times it and observes reads through `n/use-sub`, while the inner React tree remains honestly opaque. Foreign libraries still normally enter through `defhost`.
 
 The tier is real only after parity against **both UIx and handwritten React**: equivalent DOM, keys, refs, hydration, SVG, custom elements, dynamic props, and children; stable HMR and component identity; zero native runtime in bundles that never require the namespace; and performance inside the native-island parity budget.
 
@@ -98,7 +96,7 @@ The strategic differentiator among the gaps is **demand-driven resource ownershi
 
 **Trust: the one blocker class.** The trust register in `lanes/adversarial-risks.md` holds eleven risks. Eight belong to the kernel: module-global ownership including the shared hydration adoption window; same-id reincarnation dispatch; speculative-render leakage and false abandonment tests; the unstated ambient-read extent; controlled-input portability; HMR identity; callback retirement; and hydration isolation.
 
-Three belong to the native tier: native-language leakage (`n/$` never rewrites interpreted Hiccup), boundary-ABI drift across the three authoring routes, and native-tier rent (zero native runtime in interpreted-only bundles). “Better than the other adaptors” begins at “as trustworthy as them.”
+Three belong to the native tier: native-language leakage (nothing in the tier rewrites interpreted Hiccup), boundary-ABI drift across the two authoring routes, and native-tier rent (zero native runtime in interpreted-only bundles). (*This read* "`n/$` never rewrites interpreted Hiccup" *and* "the three authoring routes" *until 2026-09-04, `rf2-aunp`. `rf2-6c12m.3` deleted `n/$` and the third route on 2026-08-29; the leakage risk survives as a property of the tier rather than of a form, and the ABI is React's own across both remaining routes.*) “Better than the other adaptors” begins at “as trustworthy as them.”
 
 ---
 
