@@ -249,7 +249,7 @@
 ;; EVENT id (a dispatch / dispatch-sync into a destroyed frame) AND with a
 ;; SUB id (a subscribe into a destroyed frame), and also from the
 ;; captured-frame stale-op seam for a `:dispatch` / `:dispatch-sync` /
-;; `:subscribe` / `:capture` op against a dead
+;; `:subscribe` op against a dead
 ;; incarnation. The category keyword ALONE CANNOT name the realm: an
 ;; event-id and a sub-id may legitimately SHARE a keyword — they live in
 ;; SEPARATE registries (`[:event id]` vs `[:sub id]`), so a bare
@@ -257,9 +257,13 @@
 ;; WRONG realm (rf2-xgkgx — the earlier comment here wrongly claimed sub-ids
 ;; and event-ids never collide). Resolution therefore pivots on the exact
 ;; operation realm the record already carries in `:op`: `:dispatch` /
-;; `:dispatch-sync` → `[:event]`, `:subscribe` → `[:sub]`, `:capture` →
-;; NEITHER (a `(frame)` read that resolved a dead incarnation before any op
-;; ran — no component source). The core router / subs emitters carry no
+;; `:dispatch-sync` → `[:event]`, `:subscribe` → `[:sub]`. A fourth realm,
+;; `:capture`, was handled here (→ NEITHER coord) until 2026-09-04: it was the
+;; retired ui `(frame)` read's alone (rf2-0yp7w) and the branch went with the
+;; enum value under rf2-xtqs. It was already unobservable — `error-source-coord`
+;; short-circuits on a nil `id`, and a `:capture` read carried none by
+;; construction, so the branch and the `op`-absent fallback below returned nil
+;; alike. The core router / subs emitters carry no
 ;; `:op`; for them the lookup falls back to `[:sub]`-then-`[:event]`, which
 ;; keeps them correct (the subs sub-id hits `[:sub]`; the router event-id
 ;; misses `[:sub]` then hits `[:event]`). A miss on the resolved realm falls
@@ -369,9 +373,6 @@
         - `:dispatch` / `:dispatch-sync` → the failing op is a DISPATCH, so
           the coord lives under `[:event id]`.
         - `:subscribe`                   → a SUBSCRIBE, coord under `[:sub id]`.
-        - `:capture`                     → a `(frame)` read that resolved a
-          dead incarnation BEFORE any op ran — no component source, so
-          fabricate NEITHER coord (nil), even were an id somehow present.
         - `op` absent (the ordinary address-directed router DISPATCH emitter
           does not carry it — the subs SUBSCRIBE emitter now stamps
           `:op :subscribe` (rf2-alk8a) and so resolves realm-exact via the
@@ -389,7 +390,6 @@
       (case op
         (:dispatch :dispatch-sync) (rf.source-coords/error-coords-for :event id)
         :subscribe                 (rf.source-coords/error-coords-for :sub id)
-        :capture                   nil
         ;; `op` absent — the ordinary address-directed core router DISPATCH
         ;; emitter (the subs SUBSCRIBE emitter now stamps `:op :subscribe` —
         ;; rf2-alk8a — and resolves realm-exact via the `:subscribe` case above).

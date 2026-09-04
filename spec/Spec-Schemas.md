@@ -1200,9 +1200,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; `:op` (rf2-a2x2w / rf2-vub3y) — the failing operation's REALM, a small closed
   ;; enum ratified PUBLIC on this category (per the 009 catalogue row). It is
   ;; OPTIONAL because presence tracks the EMIT SITE'S KNOWLEDGE, not the envelope
-  ;; branch: only a site that already knows the realm stamps it — the compiled-view
-  ;; `(frame)` bundle fences (all four values; `:capture` is ui-only, a `(frame)`
-  ;; read that resolved a dead incarnation before any op ran), the `capture-frame`
+  ;; branch: only a site that already knows the realm stamps it — the `capture-frame`
   ;; stale-op pre-check seam, the router / subs LATE captured-op fences
   ;; (`:dispatch` / `:dispatch-sync` / `:subscribe`), and — rf2-alk8a — the
   ;; ORDINARY address-directed SUBSCRIBE emitter (subs `emit-frame-destroyed-
@@ -1255,9 +1253,9 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;;   :op       capture-frame pre-check + router's LATE captured-op fences;
   ;;             rf2-alk8a — subs/emit-frame-destroyed-recovery! stamps
   ;;             `:subscribe` on these dev-trace tags AND the always-on record
-  ;;             (subscribe-realm by construction). Those cover three of the
-  ;;             four declared `:op` values; `:capture` was the retired seam's
-  ;;             alone and is now unproduced — rf2-xtqs, not this row's fix.
+  ;;             (subscribe-realm by construction). Those cover ALL THREE
+  ;;             declared `:op` values; the fourth, `:capture`, was the retired
+  ;;             seam's alone and went with it under rf2-xtqs (below).
   ;;   :reason   router (the constant `:frame-destroyed`)
   ;;
   ;; `:where` / `:rf.sub/id` / `:rf.sub/query-v` were declared here until
@@ -1270,18 +1268,48 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; dropped them in the same commit; `tags-column-keys-are-documented` reds if
   ;; the two sides ever disagree.
   ;;
-  ;; `:event` is `:any`, not `[:vector :any]`: the ui surface REDACTS a
-  ;; `:dispatch` / dispatch-sync payload body at source (`privacy/redacted-
-  ;; sentinel`; a `:subscribe` query vector egresses RAW as identity, rf2-wd4ac)
-  ;; and stamps nil on its `:capture` arm, and the classification projection may
-  ;; replace
-  ;; any `:event` slot with `:rf/redacted` / `:rf.size/large-elided` on egress.
-  ;; Declaring a vector there would be a claim the runtime does not honour.
+  ;; `:op :capture` was the FOURTH declared enum value until 2026-09-04 and is
+  ;; GONE (rf2-xtqs). It was ui-only — a `(frame)` read that resolved a dead
+  ;; incarnation BEFORE any op ran — and its sole producer was the retired
+  ;; `re-frame.ui` `(frame)` bundle fence, removed on 2026-08-16 (rf2-0yp7w).
+  ;; `:op :capture` now matches no source file in the corpus, while each of the
+  ;; three surviving values has a live producer (the ownership row above). The
+  ;; `:where` rule governs, and it reaches a slot's declared VALUES no less than
+  ;; the slot itself: a declaration is a claim about what an emitter produces.
+  ;;
+  ;; WHY THE RESERVED-KIND PRECEDENT DOES NOT APPLY, since it is the obvious
+  ;; counter-argument and the answer is POLARITY. Retired donor values ARE kept
+  ;; deliberately elsewhere: `:rf.adapter/ui` / `:rf.adapter/freehand` stay
+  ;; rostered (006 §Adapter introspection) because Xray's
+  ;; `react-element-render-kinds` (`tools/xray/src/day8/re_frame2_xray/
+  ;; mount.cljs`) is a REFUSAL set — membership makes
+  ;; `refuse-unsupported-substrate!` publish a clean `:unsupported-substrate`
+  ;; diagnostic, and a kind ABSENT from it takes the permissive path into an
+  ;; uncaught React child error (rf2-zkjd5 measured exactly that when
+  ;; `:rf.adapter/hicasso` was missing). A Malli `[:enum …]` inverts that
+  ;; polarity: membership ACCEPTS. Retaining `:capture` would make nothing
+  ;; refuse it — it would widen what this schema admits on behalf of no
+  ;; producer. Nor is there a defensive consumer to name: nothing in
+  ;; `implementation/` validates against `FrameDestroyedTags`, whose only
+  ;; reader is the conformance harness's `parse-tags-schemas`, and that arm
+  ;; diffs KEY SETS and discards declared types by design.
+  ;;
+  ;; `:event` is `:any`, not `[:vector :any]`: the router ELIDES the payload
+  ;; body in the `:dispatch` / `:dispatch-sync` realm and fail-closes it to
+  ;; `:rf/redacted` under an unresolvable frame (a `:subscribe` query vector
+  ;; egresses RAW as identity instead — rf2-wd4ac / rf2-alk8a), and the
+  ;; classification projection may replace any `:event` slot with
+  ;; `:rf/redacted` / `:rf.size/large-elided` on egress. Each of those
+  ;; substitutes a KEYWORD for the vector, so declaring a vector here would be
+  ;; a claim the runtime does not honour. (The clause this paragraph used to
+  ;; carry about the ui surface's source-redaction and its nil `:capture` arm
+  ;; went with that emitter — rf2-0yp7w / rf2-xtqs; the two reasons above are
+  ;; core's own and stand alone.)
   ;;
   [:map
    [:category       :keyword]
    [:frame          :keyword]
-   [:op             {:optional true} [:enum :dispatch :dispatch-sync :subscribe :capture]]
+   [:op             {:optional true} [:enum :dispatch :dispatch-sync :subscribe]]
    [:event          {:optional true} :any]
    [:query-v        {:optional true} [:vector :any]]
    [:reason         {:optional true} :keyword]])
