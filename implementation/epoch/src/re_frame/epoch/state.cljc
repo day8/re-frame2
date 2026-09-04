@@ -52,13 +52,22 @@
   [x]
   (and (integer? x) (not (neg? x))))
 
+(declare enforce-depth!)
+
 (defn merge-config!
   "Validate and merge an `opts` map into the live config atom. Returns
   nil. Silently drops invalid slot values (`:depth` /
   `:trace-events-keep` must be non-negative integers; `:redact-fn`
   accepts `fn?` or `nil` for explicit-clear; anything else is dropped).
 
-  Validation at this boundary keeps numeric assumptions out of the hot path."
+  Validation at this boundary keeps numeric assumptions out of the hot path.
+
+  An ACCEPTED `:depth` is enforced against the rings that already exist,
+  not only against future appends — see `enforce-depth!`. The two numeric
+  knobs deliberately differ here: `:depth` is a bound on what the ring
+  HOLDS, so it is applied at this boundary, whereas `:trace-events-keep`
+  bounds how far back raw traces survive and stays an append-time rule (no
+  retained record has its payload rewritten by a config change)."
   [opts]
   (when (map? opts)
     (let [numeric-options (select-keys opts [:depth :trace-events-keep])
@@ -79,7 +88,12 @@
                                     {:redact-fn redact-fn-value})))
           valid-options (merge valid-numeric-options valid-redact-option)]
       (when (seq valid-options)
-        (swap! config merge valid-options))))
+        (swap! config merge valid-options)
+        ;; Config FIRST, then the rings: any `record!` that begins after
+        ;; the swap already reads the new depth, so the prune below cannot
+        ;; be undone by an append it raced.
+        (when (contains? valid-options :depth)
+          (enforce-depth! (:depth valid-options))))))
   nil)
 
 (defn current-config
@@ -846,6 +860,120 @@
   nil)
 
 (declare reset-frame-owners!)
+
+;; ---- depth-change enforcement ---------------------------------------------
+;;
+;; rf2-f8wu. Per Tool-Pair §Time-travel "Bounded history" the runtime keeps
+;; the last N epochs per frame and older epochs are discarded, and the
+;; depth-0 bullet is explicit that disabling the ring makes `epoch-history`
+;; return `[]`. Both are statements about the CURRENT depth, so a reduction
+;; has to bite when it is accepted rather than on some later append.
+;;
+;; Enforcing only at append time left the excess reachable by two different
+;; routes, and closing one without the other would still be a defect. It
+;; stayed QUERYABLE — `epoch-history` and `projected-history` both read the
+;; ring vector directly — and it stayed RESTORABLE, because `restore-epoch!`
+;; and `replay-epoch!` resolve their targets off that same vector, so an id
+;; the operator believed retired still rewound the frame to state the app had
+;; moved past. Depth 0 was permanent as well as sharp: `record!` skips
+;; `append-record` entirely at depth 0, so no later append ever arrived to
+;; repair the ring.
+
+(defn- cap-to-depth
+  "Trim `history` to its newest `depth` records, oldest-first; `depth` 0
+  drops them all.
+
+  Materialises the retained window for the same reason `append-record`
+  does — a bare `subvec` view keeps the evicted records alive through the
+  shared backing vector, which would make this a no-op in precisely the
+  case the caller lowered the depth to reclaim heap.
+
+  Pruning cannot disturb the `:trace-events-keep` invariant it walks past:
+  elision runs oldest-first and is one-way, so the records still holding
+  raw traces are the newest ones, and keeping a SUFFIX only moves them
+  closer to the end of the vector."
+  [history depth]
+  (let [history-count (count history)]
+    (cond
+      (zero? depth)            []
+      (<= history-count depth) history
+      :else                    (into [] (subvec history (- history-count depth))))))
+
+(defn- enforce-depth!
+  "Cap every frame's ring to `depth` and reconcile the back-fill anchors
+  naming records the cap dropped. Called from `merge-config!` whenever a
+  valid `:depth` is accepted, which is what makes the caller-visible
+  invariant true: once `configure!` returns, every ring respects the
+  accepted depth.
+
+  Runs on any accepted `:depth` rather than on a detected REDUCTION. A
+  raise is already a no-op here — every ring is at most the previous,
+  smaller cap — and one path is cheaper to be sure of than two.
+
+  ORDER: rings first, anchors second, and the anchors are reconciled
+  against the PRUNED map. An anchor left naming a dropped record is not
+  merely untidy: `resolve-render-epoch` hands it to the post-settle splice,
+  whose `epoch-index` then resolves nil, so the render is silently DROPPED
+  instead of being attributed to the live cascade. `last-settled-epoch` is
+  the whole-frame anchor; `mount-attribution`'s `:epoch-id` is the
+  per-render-key one. Only the `:epoch-id` slot goes — a render-key's
+  learned `:deps` read-set is not an epoch reference, and it is learned at
+  MOUNT, so discarding it here could never be re-learned for a view that is
+  already mounted. `record-mount-epoch!` re-mints the dropped anchor on the
+  view's next attribution, the same way it does after
+  `drop-render-key-mount-attribution!`. `reset-histories!` below clears
+  these same two anchors in lockstep, for the same reason.
+
+  Ordering against a concurrent JVM append: `merge-config!` swaps the
+  config BEFORE calling here, so any `record!` beginning afterwards already
+  reads the new depth. An append that had read the previous depth and lands
+  after this prune can leave one frame transiently one record over the cap;
+  `record!` re-reads the depth on every append, so the next append re-caps
+  it. Returns nil."
+  [depth]
+  (let [pruned-histories (swap! histories
+                                (fn [histories-map]
+                                  (reduce-kv (fn [acc frame-id history]
+                                               (assoc acc frame-id
+                                                      (cap-to-depth history depth)))
+                                             {}
+                                             histories-map)))
+        retained-ids     (into {}
+                               (map (fn [[frame-id history]]
+                                      [frame-id (into #{} (map :epoch-id) history)]))
+                               pruned-histories)
+        retained?        (fn [frame-id epoch-id]
+                           (contains? (get retained-ids frame-id) epoch-id))]
+    (swap! last-settled-epoch
+           (fn [anchors]
+             (reduce-kv (fn [acc frame-id epoch-id]
+                          (cond-> acc
+                            (retained? frame-id epoch-id) (assoc frame-id epoch-id)))
+                        {}
+                        anchors)))
+    (swap! mount-attribution
+           (fn [attribution-map]
+             (reduce-kv
+               (fn [acc frame-id render-key->entry]
+                 (let [kept (reduce-kv
+                              (fn [frame-acc render-key entry]
+                                (let [entry (cond-> entry
+                                              (not (retained? frame-id (:epoch-id entry)))
+                                              (dissoc :epoch-id))]
+                                  ;; Drop the entry — and then the frame's
+                                  ;; whole map — when nothing is left, so a
+                                  ;; prune leaves no residual `{frame {}}`
+                                  ;; shell (as `drop-render-key-mount-
+                                  ;; attribution!` does).
+                                  (cond-> frame-acc
+                                    (seq entry) (assoc render-key entry))))
+                              {}
+                              render-key->entry)]
+                   (cond-> acc
+                     (seq kept) (assoc frame-id kept))))
+               {}
+               attribution-map))))
+  nil)
 
 (defn reset-histories!
   "Wipe every frame's recorded epochs. Also clears the last-settled-epoch

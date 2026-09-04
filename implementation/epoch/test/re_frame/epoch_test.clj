@@ -620,6 +620,155 @@
 
     (is (= [] (rf/epoch-history :test/main)))))
 
+;; ---- depth reduction prunes the live rings (rf2-f8wu) ----------------------
+;;
+;; `(rf/configure! {:epoch-history {:depth N}})` used to change only the
+;; config atom: rings already holding records kept their old contents and
+;; were re-capped only on a LATER append. That left TWO distinct failures,
+;; and a fix closing one without the other looks green on a single-axis
+;; test — so both are pinned below.
+;;
+;;   QUERYABLE  — `epoch-history` and `projected-history` both read the
+;;                un-pruned vector, so records the operator believed were
+;;                dropped stayed visible (and their `:db-before` /
+;;                `:db-after` / `:trace-events` payloads stayed retained,
+;;                which is the whole point of the memory knob).
+;;   RESTORABLE — `restore-epoch!` / `replay-epoch!` resolve their targets
+;;                off that SAME vector, so a saved id still rewound the
+;;                frame to state the app had moved past. That is a
+;;                correctness failure rather than a leak.
+;;
+;; Depth 0 was the sharp case and permanent: `record!` skips
+;; `append-record` entirely at depth 0, so no later append ever arrived to
+;; repair the ring. It contradicted Tool-Pair §Time-travel twice over —
+;; "Setting depth to 0 disables the per-frame ring buffer (so
+;; `(rf/epoch-history frame-id)` returns `[]`)", and the "Bounded history"
+;; rule that "the runtime keeps the last N epochs per frame ... Older
+;; epochs are discarded".
+
+(deftest lowering-depth-prunes-every-live-ring-immediately
+  (testing "a depth reduction caps EVERY frame's ring at the configure!
+            boundary — newest-N retained, no further dispatch needed"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/make-frame {:id :frame/a})
+    (rf/make-frame {:id :frame/b})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} [_ i]] {:db (assoc db :n i)}))
+
+    (rf/dispatch-sync [:seed] {:frame :frame/a})
+    (rf/dispatch-sync [:seed] {:frame :frame/b})
+    (dotimes [i 4]
+      (rf/dispatch-sync [:inc i] {:frame :frame/a})
+      (rf/dispatch-sync [:inc i] {:frame :frame/b}))
+
+    (is (= 5 (count (rf/epoch-history :frame/a))) "precondition: frame/a holds 5")
+    (is (= 5 (count (rf/epoch-history :frame/b))) "precondition: frame/b holds 5")
+
+    (let [newest-2   (fn [frame-id]
+                       (mapv :epoch-id (take-last 2 (rf/epoch-history frame-id))))
+          a-expected (newest-2 :frame/a)
+          b-expected (newest-2 :frame/b)]
+      (rf/configure! {:epoch-history {:depth 2}})
+
+      (is (= a-expected (mapv :epoch-id (rf/epoch-history :frame/a)))
+          "frame/a keeps its NEWEST 2 records, still oldest-first")
+      (is (= b-expected (mapv :epoch-id (rf/epoch-history :frame/b)))
+          "frame/b keeps its NEWEST 2 records, still oldest-first")
+      (is (= [{:n 2} {:n 3}] (mapv :db-after (rf/epoch-history :frame/a)))
+          "the retained window is the newest one, not the oldest"))))
+
+(deftest depth-zero-drops-retained-history-and-refuses-time-travel
+  (testing "setting depth 0 AFTER recording empties the ring on both read
+            surfaces and retires the ids for restore AND replay"
+    (rf/configure! {:epoch-history {:depth 5}})
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (let [saved-id (:epoch-id (first (rf/epoch-history :test/main)))]
+      (rf/dispatch-sync [:inc] {:frame :test/main})
+
+      (is (= 2 (count (rf/epoch-history :test/main))) "precondition: two records")
+      (is (= {:n 2} (rf/app-db-value :test/main)) "precondition: app-db has moved on")
+
+      (rf/configure! {:epoch-history {:depth 0}})
+
+      ;; QUERYABLE half — both public read surfaces read the same ring.
+      (is (= [] (rf/epoch-history :test/main))
+          "epoch-history is empty immediately, per Tool-Pair §Time-travel")
+      (is (= [] (rf/projected-history :test/main))
+          "the off-box projection reads the same pruned ring")
+
+      ;; RESTORABLE half — the more serious one: a retired id must not
+      ;; resurrect state the app has moved past.
+      (is (false? (rf/restore-epoch! :test/main saved-id))
+          "the saved id is no longer a valid restore target")
+      (is (= {:n 2} (rf/app-db-value :test/main))
+          "the refused restore left frame state untouched")
+      (let [res (rf/replay-epoch! :test/main saved-id)]
+        (is (false? (:ok? res)))
+        (is (= :rf.epoch/replay-unknown-epoch (:reason res))
+            "replay refuses the retired id through the EXISTING failure mode"))
+      (is (= {:n 2} (rf/app-db-value :test/main))
+          "the refused replay left frame state untouched"))))
+
+(deftest depth-zero-after-pruning-still-publishes-to-listeners
+  (testing "pruning on the way to depth 0 leaves the listener contract
+            intact: newly assembled records still fan out, none retained"
+    (rf/configure! {:epoch-history {:depth 5}})
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [seen (atom [])]
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
+      (rf/configure! {:epoch-history {:depth 0}})
+      (rf/dispatch-sync [:inc] {:frame :test/main})
+
+      (is (= [:inc] (mapv :event-id @seen))
+          "the post-disable record still reaches the listener")
+      (is (= [] (rf/epoch-history :test/main))
+          "and nothing is retained"))))
+
+(deftest re-enabling-depth-starts-from-an-empty-history
+  (testing "depth 0 then a positive depth starts genuinely clean — no
+            pre-disable record returns, and no back-fill anchor still names
+            a retired epoch id"
+    (rf/configure! {:epoch-history {:depth 5}})
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [retired-id (:epoch-id (first (rf/epoch-history :test/main)))]
+      ;; A render-key whose mount anchor names the about-to-be-retired
+      ;; epoch — `resolve-render-epoch`'s step 2. Left behind, it would
+      ;; send a post-settle render at a record that no longer exists, so
+      ;; the splice would silently drop the render instead of attributing
+      ;; it to the live cascade.
+      (state/record-mount-epoch! :test/main [:view/probe "t1"] retired-id)
+      (is (= retired-id (state/mount-epoch-for :test/main [:view/probe "t1"]))
+          "precondition: the mount anchor names the epoch about to retire")
+
+      (rf/configure! {:epoch-history {:depth 0}})
+      (rf/configure! {:epoch-history {:depth 5}})
+
+      (is (= [] (rf/epoch-history :test/main))
+          "re-enabling does not resurrect the pre-disable records")
+      (is (nil? (state/last-settled-epoch-id :test/main))
+          "the post-settle back-fill anchor no longer names a retired epoch")
+      (is (nil? (state/mount-epoch-for :test/main [:view/probe "t1"]))
+          "nor does the per-render-key mount anchor")
+
+      (rf/dispatch-sync [:inc] {:frame :test/main})
+      (let [history (rf/epoch-history :test/main)]
+        (is (= [:inc] (mapv :event-id history))
+            "a new dispatch records normally into the empty ring")
+        (is (not (contains? (into #{} (map :epoch-id) history) retired-id))
+            "and the retired id is not among them")))))
+
 ;; ---- listener --------------------------------------------------------------
 
 (deftest listener-fires-per-event-settle

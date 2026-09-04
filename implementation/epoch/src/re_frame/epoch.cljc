@@ -60,7 +60,16 @@
     :depth              N — non-negative integer; ring-buffer depth per
                         frame. 0 disables recording (assembled records can
                         still fire on listeners but nothing lands in the
-                        ring buffer).
+                        ring buffer). The bound applies to the LIVE rings,
+                        not merely to future appends: lowering it prunes
+                        each frame's existing history to its newest N
+                        records before this call returns, so the excess is
+                        gone from `epoch-history` / `projected-history` and
+                        is no longer a valid `restore-epoch!` /
+                        `replay-epoch!` target. Depth 0 therefore empties
+                        every ring outright, and re-enabling a positive
+                        depth starts from an empty history rather than
+                        resurrecting the pre-disable records.
     :trace-events-keep  N — non-negative integer; cap how many of the
                         MOST-RECENT records per frame retain their raw
                         `:trace-events` vector. Older records keep the cheap
@@ -118,7 +127,8 @@
 (defn epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
   first. Empty vector when the frame has no recorded epochs (or when
-  depth is 0, which disables recording)."
+  depth is 0, which disables recording — including records retained
+  before the depth was lowered; see `configure!`)."
   [frame-id]
   (state/history-for frame-id))
 
