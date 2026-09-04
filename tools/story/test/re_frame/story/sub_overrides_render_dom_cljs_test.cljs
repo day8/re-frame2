@@ -45,8 +45,7 @@
        (some? (.-createElement js/document))))
 
 (defn- get-act []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try (.-act (js/require "react-dom/test-utils")) (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 (defn- make-mount-node! []
   (let [node (js/document.createElement "div")]
