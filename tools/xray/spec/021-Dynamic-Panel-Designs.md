@@ -1250,9 +1250,10 @@ history buffer.").
 ### §5.5 No film-strip (rf2-o6yqq · generalised rf2-6r9j.16)
 
 The Trace panel has **no film-strip header**. Nor does any other L4
-panel: rf2-o6yqq removed Trace's, §3.7 / §4.8 record the View and App-db
-designs as retired, and rf2-6r9j.16 deleted the shared component itself,
-which had been built (rf2-h7nqh) but never mounted anywhere.
+panel: rf2-o6yqq removed Trace's, §3.7 / §4.8 / §6.5 / §7.5 / §8.5 record
+the View, App-db, Machines, Routing and Issues designs as retired, and
+rf2-6r9j.16 deleted the shared component itself, which had been built
+(rf2-h7nqh) but never mounted anywhere.
 
 Epoch navigation is owned by the L2 events list / events-ribbon nav
 (`◀ ▶ ⏭`); every L4 panel re-scopes whenever spine focus moves. This is
@@ -1460,7 +1461,11 @@ fixed pixel inset); Xray re-frames on panel-entry by bumping the
 | Action chip | Switch to **Epoch** panel, scroll to the FX step's row for that action |
 | Canvas node | Set this state as the "selected" for filter-IN candidate |
 
-### §6.5 Film-strip
+### §6.5 Film-strip — RETIRED 2026-09-04 (rf2-6r9j.16)
+
+> **Status — retired.** See §3.7. The Machines panel mounts no film-strip
+> header; the L2 events list owns spine navigation (§5.5). The design
+> below is kept as historical record and is not normative.
 
 `[◀ Prev] [Next ▶]` MVP chronological. **Stretch (high-value)**: "next
 epoch that touched THIS machine" — already shipped per §003 (rf2-y9xmf).
@@ -1547,7 +1552,11 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
 | Current-route id | (no-op MVP; stretch: filter-IN on the active route) |
 | FROM / TO chip in NAVIGATION | Marks the corresponding nodes in the route table |
 
-### §7.5 Film-strip
+### §7.5 Film-strip — RETIRED 2026-09-04 (rf2-6r9j.16)
+
+> **Status — retired.** See §3.7. The Routing panel mounts no film-strip
+> header; the L2 events list owns spine navigation (§5.5). The design
+> below is kept as historical record and is not normative.
 
 MVP chronological; stretch "next route activity" (skip silent epochs).
 
@@ -1625,7 +1634,13 @@ the `re-frame.subs` emit; the legacy slot is no longer read.
 | Issue row | Selects the parent dispatch and **pivots to the Epoch panel** (the full cascade that produced the issue) |
 | `↗` source coord | Open the responsible handler at `file:line` (`:rf.xray/open-in-editor`) |
 
-### §8.5 Film-strip
+### §8.5 Film-strip — RETIRED 2026-09-04 (rf2-6r9j.16)
+
+> **Status — retired.** See §3.7. The Issues panel mounts no film-strip
+> header; the L2 events list owns spine navigation (§5.5). The design
+> below — including the "next epoch with ⚠ badge" stretch filter the
+> deleted `epoch-has-issues?` predicate was written for — is kept as
+> historical record and is not normative.
 
 MVP chronological. **High-value stretch: "next epoch with ⚠ badge"** —
 operator stepping through bug repro lands on issue-bearing epochs only.
@@ -5376,9 +5391,14 @@ real beads after approving this doc.
   on Reactive panel cross-panel API.
 
 - **rf2-?????** — *Xray: Trace panel — focused-epoch scoping + film-
-  strip.* Re-scope Trace panel to focused `:dispatch-id` (drop any
-  aggregate-across-epochs view). Add `[◀ Prev] [Next ▶]` header. Reuse
-  edn-inspector renderer for expanded payloads.
+  strip.* **(Film-strip half retired — rf2-o6yqq REMOVED Trace's
+  `[◀ Prev] [Next ▶]` header rather than adding one, and rf2-6r9j.16
+  deleted the shared component; see §5.5 / §5.2. The scoping half landed
+  via rf2-o6yqq · rf2-td380 · rf2-gkczt, and scopes to the focused
+  epoch's `:trace-events`, not to `:dispatch-id`.)** Re-scope Trace panel
+  to focused `:dispatch-id` (drop any aggregate-across-epochs view). Add
+  `[◀ Prev] [Next ▶]` header. Reuse edn-inspector renderer for expanded
+  payloads.
 
 - **rf2-?????** — *Xray: Machines panel — topology-always-visible
   empty-state.* When focused epoch has no machine transition, still
@@ -5390,8 +5410,11 @@ real beads after approving this doc.
   per-epoch overlay). Promote from L3 tab if not already done.
 
 - **rf2-?????** — *Xray: Issues panel — focused-epoch scoping +
-  evicted-epoch placeholder.* Re-scope per §8; ensure issues panel
-  film-strip respects the "next epoch with ⚠" stretch filter.
+  evicted-epoch placeholder.* Re-scope per §8. (The trailing "ensure
+  issues panel film-strip respects the 'next epoch with ⚠' stretch
+  filter" clause is **retired** — no L4 panel mounts a film-strip, and
+  the `epoch-has-issues?` predicate written for that filter was deleted
+  unconsumed by rf2-6r9j.16; see §5.5 / §8.5.)
 
 - **rf2-?????** — *Xray: shared film-strip header component.*
   **(Retired — landed as rf2-h7nqh, never mounted by any L4 panel, and
@@ -5428,7 +5451,7 @@ real beads after approving this doc.
 | **Pre-alpha posture** — clean refinements, no back-compat shims | §11.5 keeps `:views` registry key only because it's internal; no transitional dimming in any panel; no "deprecated section" markers |
 | **Xray hot-zone** — design doc work only | This file lives under `tools/xray/spec/`; no `tools/xray/src/` edits |
 | **Reagent hiccup + JetBrains Mono** for mockups | All ASCII mockups assume JetBrains Mono rendering; code examples in §2.2 are Reagent-shaped hiccup-equivalent EDN |
-| **Inspection-by-default · rewind-by-affordance** | §1.3 restated as binding; every L4 mockup uses film-strip nav (inspection) — Rewind affordance is explicit in the focused-epoch header (existing §002), never bound to scroll/scrub |
+| **Inspection-by-default · rewind-by-affordance** | §1.3 restated as binding; epoch nav is inspection-only. (The mockups below drew that nav as a per-panel film-strip; that is retired — the L2 events list and the ribbon's `◀ ▶ ⏭` own it for every L4 panel, §5.5.) Rewind affordance is explicit in the focused-epoch header (existing §002), never bound to scroll/scrub |
 | **Captured-not-replayed** | Every per-panel "queries" subsection cites the trace-bus / registry source; §12 lists every substrate gap, none of which is "derive on inspection" |
 
 ---
@@ -5579,7 +5602,7 @@ to the Figma export + the locked tokens in [022-Design-Tokens](022-Design-Tokens
 | **Background — popover** | `:bg-3` (`#2a2a2a`) | |
 | **L4 panel header stripe** | the **mode `accent`** (the single GitHub-blue accent, both modes) | rf2-ad7zx — the per-panel domain-colour stripe (§007 Per-L4 panel accent stripe) is superseded by the single mode-accent identity, matching the Figma export's one-accent design (App active-tab `--devtools-active`). |
 | **Cross-panel arrow / `⤴` link** | `accent` 600-weight | |
-| **Film-strip back/forward chevron** | `:text-secondary` default · `:text-primary` on hover | |
+| **Film-strip back/forward chevron** — RETIRED (rf2-6r9j.16) | `:text-secondary` default · `:text-primary` on hover | No L4 panel mounts a film-strip (§5.5); the row is kept as the historical token record, not a surface to build against |
 
 Under Windows High-Contrast Mode (`@media (forced-colors: active)`),
 the existing global_styles forced-colors block (§007 / rf2-wxepo)
@@ -5644,7 +5667,9 @@ nil, so the surface cannot return unnoticed. Should a header treatment
 ever return, derive its roster from `panel-registry/tab-ids-for-mode`
 rather than hand-listing one here.
 
-**Film-strip back/forward buttons** (rendered in every L4 panel header):
+**Film-strip back/forward buttons** — RETIRED (rf2-6r9j.16). No L4 panel
+header renders these; the L2 events list owns spine navigation (§5.5).
+Kept as the historical record of the hit-target decision:
 
 - `◀ Prev` — left-pointing triangle glyph, 12px JetBrains Mono, hover
   state shifts color from `:text-secondary` to `:text-primary`
@@ -5680,7 +5705,7 @@ swapped.
 | **Default** | No mod; sits at panel base color (`:bg-2`) | The 90% case |
 | **Hover** | Background shifts to `:bg-active` (`#2A2F3D`); transition `120ms ease-out` | NO tooltip pop on hover (per the "co-visible over expand-to-see" principle) — exceptions: the App-db hover popover (§4.4) and the long-keyword 200ms-delayed tooltip (§007) |
 | **Focus** | Background as hover + 2px focus-ring outline color `#FBBF24` (the global focus-visible amber from rf2-fxde5); outline-offset 2px; under HCM remaps to `Highlight` | The focus-ring is the existing global Xray convention — panels inherit it for free. NEVER suppress `:focus-visible` per-panel. |
-| **Pressed** | Background as hover, transformed `translateY(1px)` for the duration of the click (~60ms); visual feedback only — no layout shift | Applied to film-strip buttons + clickable rows |
+| **Pressed** | Background as hover, transformed `translateY(1px)` for the duration of the click (~60ms); visual feedback only — no layout shift | Applied to clickable rows (the film-strip buttons this also named are retired — §5.5) |
 | **Disabled** | Foreground at `:text-tertiary`; cursor `not-allowed`; tabindex removed | E.g. "Next ▶" at end of L2 spine; "Open in editor" when source unavailable |
 | **Loading** | Skeleton row at `:bg-active` opacity 0.6 with a 1.2s `pulse` animation (interpolated through `--rf-xray-motion-scale` so reduced-motion collapses it) | Used during trace-bus subscription warmup; should be brief (<200ms) |
 | **Empty** | Panel-specific empty-state string in `:text-tertiary` at panel-center | Already specified per-panel in §1-§9 mockups (e.g. "No issues in this epoch.") |
@@ -5952,7 +5977,8 @@ already drafted in §13.
   Dynamic panels.
 
 - **rf2-?????** — *Xray: apply forced-colors palette token coverage to
-  all L4 panel borders + accents + film-strip chevrons.* Audit the new
+  all L4 panel borders + accents.* (The "+ film-strip chevrons" clause is
+  retired — no L4 panel mounts one, §5.5.) Audit the new
   panel content against the §17.1.3 token table + the existing
   `@media (forced-colors: active)` block; add any missing remaps so
   Windows HCM renders the new chrome correctly. Gates: panel-by-panel
@@ -5963,11 +5989,17 @@ already drafted in §13.
   ~50 inline `:padding "10px"` / `:margin "8px 0"` literals across the
   panels to the tokenised values. Mechanical sweep; isolated surface.
 
-- **rf2-?????** — *Xray: film-strip header component.* Single reusable
-  `[◀ Prev] [Next ▶]` header consumed by every L4 panel. Per §17.1.5 hit-
+- **DONE (retired · rf2-h7nqh / rf2-6r9j.16)** — *Xray: film-strip header
+  component.* Originally sketched as a single reusable
+  `[◀ Prev] [Next ▶]` header consumed by every L4 panel, per §17.1.5 hit-
   target sizing (28×20px) + §17.2 state matrix (hover · focus-ring ·
-  pressed · disabled at spine ends). Keyboard `← / →` global binding.
-  Gates: panel-by-panel film-strip rollout.
+  pressed · disabled at spine ends), with a `← / →` global binding. The
+  component shipped under rf2-h7nqh, never acquired a production caller,
+  and was deleted with its self-test by rf2-6r9j.16; the L2 events list
+  owns spine navigation (§5.5). The keyboard half never landed either —
+  `keybinding.cljs` binds the focus-gated `j` / `k` spine keys and wires
+  no `ArrowLeft` / `ArrowRight` handler. (§13 carries the same item; both
+  are retired.)
 
 - **DONE (retired · rf2-6xezz / rf2-qm2rt)** — *Xray: per-L4 panel
   header icons.* Originally sketched as the §17.1.5 Unicode header
