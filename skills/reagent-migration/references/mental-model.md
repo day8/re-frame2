@@ -127,6 +127,29 @@ the value selects one of four behaviours:
 Because the handler is data, "what does this button do?" is an equality check in
 a test — no browser, no click simulation.
 
+**The divergence to carry: an intent dispatches SYNCHRONOUSLY.** This is the one
+place where the handler shift is more than a respelling, so it is worth knowing
+before you lift the first handler. `rf/dispatch` **queues**: it appends the event
+to the router and returns *before* the handler runs, so the browser callback
+finishes first and the event drains after it. A Hicasso intent does not — a
+vector, a key-map branch, or a vector returned from `h/event` goes through the
+frame's **synchronous** door, so the event and its synchronous cascade drain
+inside the callback's own turn and the store is notified before that turn ends.
+
+That is deliberate, and controlled inputs are the reason: a controlled `:value`
+has to converge in the *same* turn as the keystroke that caused it, or the caret
+jumps and the field fights the user. Same-turn convergence is a designed
+property here, not an accident of equivalence.
+
+The cost is that a lifted handler can **reorder** against anything watching the
+callback's turn — later propagation listeners, the browser's default action,
+imperative code after the call, and any state read immediately afterwards. A
+failure thrown during the drain also surfaces on the callback's stack rather
+than the router's. Most application events neither notice nor care, which is why
+the intent vector stays the default everywhere. For the rare site that depends
+on the event staying queued, [`catalog-mechanical.md`](catalog-mechanical.md)
+§MIG-04 / 05 carries the one preservation spelling.
+
 **The identity pass-through is also the migration's sharpest trap.** A leftover
 `#(dispatch …)` closure is a plain function, so it crosses to React silently and
 fails at *click* time with `:rf.error/no-frame-context`. See
