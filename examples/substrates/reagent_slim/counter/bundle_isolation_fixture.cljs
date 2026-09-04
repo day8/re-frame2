@@ -2,10 +2,15 @@
   "Bundle-isolation fixture for the slim counter — NOT something to copy.
 
    Another file to read past if you're learning the example; the teaching
-   surface is `reagent-slim.counter.core`. This is the example-side half
-   of an adapter-owned CI gate, and it has exactly one job: make the slim
-   adapter's pure-CLJS-SSR isolation contract provable on the advanced
-   bundle. The other half — the script that judges the result — is
+   surface is `reagent-slim.counter.core`. This is the fixture half of an
+   adapter-owned CI gate, and it has exactly one job: make the slim
+   adapter's pure-CLJS-SSR isolation contract provable on an advanced
+   bundle. Which bundle matters: the only path here is
+   `bundle-isolation-entry`, the `:init-fn` of the dedicated
+   `:reagent-slim-ssr-isolation-fixture` build, so everything below is
+   compiled into THAT artefact and is absent from the runnable
+   `:examples/counter-slim-and-fast` one (rf2-kjx1). The other half — the
+   script that judges the result — is
    `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` (run via
    `npm run test:reagent-slim:bundle-isolation`), and it owns the contract.
 

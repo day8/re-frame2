@@ -17,7 +17,7 @@ You wire a substrate to re-frame2 with an [adapter](../../../../docs/core/how-to
 - the mount import points at `reagent2.dom.client` instead of stock `reagent.dom.client`, so the React root comes from the slim substrate
 - `(rf/init!)` gets the slim adapter Var instead of the stock one
 
-The dataflow is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, and the two views. The mount keeps the same lazy shape under a `frame-root`, folded into a single `boot!` that the gate files below also call. The same event pipeline runs through a different substrate, and nothing downstream can tell. That's the demonstration.
+The dataflow is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, and the two views. The mount keeps the same lazy shape under a `frame-root`, inside `run` — which is the whole of what this build boots. The same event pipeline runs through a different substrate, and nothing downstream can tell. That's the demonstration.
 
 Read [`core.cljs`](core.cljs) as the example. It's plain, idiomatic re-frame2.
 
@@ -39,9 +39,9 @@ The share is safe only because stock and slim build as 2 separate standalone bun
 
 ```
 counter/
-  core.cljs                          the teaching example: events/subs/views + the shared boot! + mount
-  bundle_isolation_entry.cljs        gate-owned :init-fn — calls core/boot! with the SSR-exercise hook (not app practice)
-  bundle_isolation_fixture.cljs      SSR/sentinel proof for the gate (not app practice)
+  core.cljs                          the teaching example, and all this build boots: events/subs/views + run + mount
+  bundle_isolation_entry.cljs        :init-fn of a separate CI-only build; never compiled into this one (not app practice)
+  bundle_isolation_fixture.cljs      SSR/sentinel proof for that CI-only build (not app practice)
   index.html                         minimal host page
   README.md                          this file
 ```
@@ -53,6 +53,12 @@ Watch the build directly from `implementation/`:
 ```bash
 shadow-cljs watch examples/counter-slim-and-fast
 ```
+
+## The bundle you run is the bundle you compare
+
+Two of the files above belong to CI, and they compile into a build of their own — `reagent-slim-ssr-isolation-fixture`, which has no host page and is never served. `examples/counter-slim-and-fast` boots `core/run` and nothing else, so what you serve here is the counter and the slim substrate, full stop.
+
+That separation is not tidiness. The claim this example makes is that the *only* difference from [`examples/core/counter/`](../../../core/counter/) is the package underneath, so anything extra riding along in this bundle would show up in a size or "what ships" comparison as though the slim substrate had cost it. The gate enforces the split from both sides at once: the CI build must contain the pure-CLJS SSR exercise — that is what gives its "no `react-dom/server`" claim something to be true *about* — and this build must not.
 
 ## Cross-references
 

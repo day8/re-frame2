@@ -4240,9 +4240,10 @@ jobs:
         run: npm ci
 
       # The S3-008 adapter-owned bundle-isolation contract for day8/reagent-slim
-      # (rf2-5lbx). Builds both `examples/counter` (stock-Reagent) and
-      # `examples/counter-slim-and-fast` (slim Reagent rewrite) under
-      # :advanced, then greps the slim bundle for stock-Reagent
+      # (rf2-5lbx). Builds `examples/counter` (stock-Reagent),
+      # `examples/counter-slim-and-fast` (slim Reagent rewrite) and
+      # `reagent-slim-ssr-isolation-fixture` (the gate-only SSR twin) under
+      # :advanced, then greps the slim bundles for stock-Reagent
       # impl-namespace fingerprints AND for `react-dom/server` symbols.
       # Both must be absent from the slim bundle. The same sentinels
       # are required to be present in the stock bundle as a methodology
@@ -4251,13 +4252,16 @@ jobs:
       # the sentinel set is re-derived.
       #
       # Dual contract: stock-Reagent impl + react-dom/server isolation.
-      # The slim build's gate-owned entry (counter-slim-and-fast.bundle-
-      # isolation-entry, the build's :init-fn) deliberately exercises
-      # reagent2.dom.server/render-to-static-markup so the
-      # react-dom/server-absence assertion is non-vacuous (the SSR path
-      # IS in the slim bundle, just pure-CLJS — per IMPL-SPEC §8 +
-      # S3-005). The teaching counter-slim-and-fast.core stays clean of
-      # the fixture (rf2-vyl0vt).
+      # The gate-owned entry (counter-slim-and-fast.bundle-isolation-entry)
+      # deliberately exercises reagent2.dom.server/render-to-static-markup
+      # so the react-dom/server-absence assertion is non-vacuous (the SSR
+      # path IS in that bundle, just pure-CLJS — per IMPL-SPEC §8 + S3-005).
+      # rf2-vyl0vt kept the teaching counter-slim-and-fast.core clean of the
+      # fixture; rf2-kjx1 kept the teaching BUILD clean of it too, by giving
+      # the entry a non-runnable build of its own
+      # (:reagent-slim-ssr-isolation-fixture). So the runnable example bundle
+      # boots core/run and nothing else — Contract 7 greps it to prove that,
+      # and Contract 0 pins both :init-fns in shadow-cljs.edn.
       - name: Verify Reagent Slim bundle isolates stock Reagent + react-dom/server
         run: npm run test:reagent-slim:bundle-isolation
 

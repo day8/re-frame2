@@ -16,10 +16,12 @@
    adapter namespace. The guide page has the coordinate table.
 
    You'll also spot two sibling files here that have nothing to teach you:
-   `bundle-isolation-entry` and `bundle-isolation-fixture`. They exist to
-   prove a CI gate, live entirely off to the side, and boot the same app
-   through the shared `boot!` helper below — the entry just hands it a hook
-   that exercises the pure-CLJS SSR path the gate inspects. Read past them."
+   `bundle-isolation-entry` and `bundle-isolation-fixture`. They belong to a
+   CI gate and compile into a build of their own; nothing in this file knows
+   they exist, and nothing in this example's bundle carries them. What
+   `examples/counter-slim-and-fast` boots is `run` below, and that is the
+   whole of it — which is what makes the comparison against the stock
+   counter a comparison of one thing. Read past them."
   (:require [re-frame.core                      :as rf]
             ;; Monorepo-only spelling (see the ns docstring). Your app picks
             ;; slim by its deps coordinate, not by naming this namespace.
@@ -86,8 +88,7 @@
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and
-;; frame. `boot!` (below) calls it after `init!`, so both the teaching `run` and
-;; the gate-owned bundle-isolation entry share that one mount path.
+;; frame. `run` (below) calls it after `init!`.
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
@@ -97,33 +98,14 @@
        [counter-app]]
       el)))
 
-(defn boot!
-  "Stand the example up. Two steps: install the slim adapter, then lazily
-   mount `counter-app` into `#app` under a `frame-root {:id app-frame …}`.
-   The provider does the frame work — creates it, seeds it (see the comment
-   just above).
-
-   There's one `boot!` and everyone goes through it. The teaching path
-   (`run`, below) and the gate-owned path
-   (`reagent-slim.counter.bundle-isolation-entry/run`) both land here, so
-   the boot lives in a single place and can't drift between them.
-
-   `on-frame` is an optional thunk, and you can cheerfully ignore it — only
-   the bundle-isolation entry passes one; `run` does not. When supplied, it
-   runs once just before the client mount, inside its own throwaway frame
-   (`with-new-frame`, torn down on exit). That keeps the fixture's pre-mount
-   SSR poking well away from the real app frame the provider sets up."
-  ([] (boot! nil))
-  ([on-frame]
-   ;; The slim adapter — this single line is the whole difference from
-   ;; `examples/core/counter`. Same `rf/init!`, different adapter.
-   (rf/init! rf.adapter.reagent-slim/adapter)
-   (when on-frame
-     ;; Fixture-only seam. Run the hook in a throwaway frame (gone on exit)
-     ;; so it never touches the app frame the provider creates below.
-     (rf/with-new-frame [_ (rf/make-frame {})]
-       (on-frame)))
-   (mount!)))
-
-(defn run []
-  (boot!))
+(defn run
+  "Stand the example up — and this is the whole of what the
+   `examples/counter-slim-and-fast` build boots. Two steps: install the slim
+   adapter, then lazily mount `counter-app` into `#app` under a `frame-root
+   {:id app-frame …}`. The provider does the frame work — creates it, seeds
+   it (see the comment just above)."
+  []
+  ;; The slim adapter — this single line is the whole difference from
+  ;; `examples/core/counter`. Same `rf/init!`, different adapter.
+  (rf/init! rf.adapter.reagent-slim/adapter)
+  (mount!))

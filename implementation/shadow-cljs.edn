@@ -1256,16 +1256,44 @@
   ;; scripts/check-reagent-slim-bundle-isolation.cjs; the corresponding
   ;; CI job is `cljs-reagent-slim-bundle-isolation` in .github/workflows/test.yml.
   ;;
-  ;; The `:init-fn` is the gate-owned entrypoint
-  ;; `reagent-slim.counter.bundle-isolation-entry/run` — NOT the teaching
-  ;; `reagent-slim.counter.core/run`. The entry boots the same app and
-  ;; additionally exercises the pure-CLJS `render-to-static-markup` path so
-  ;; Contract 4 (S3-005 non-vacuity) has signal; keeping the fixture behind
-  ;; this entry leaves the teaching `core` namespace free of harness plumbing
-  ;; (rf2-vyl0vt). A reader watches `core/run`; the gate compiles via the entry.
+  ;; The `:init-fn` is the teaching entrypoint `reagent-slim.counter.core/run`
+  ;; and nothing else (rf2-kjx1). This build is the RUNNABLE example — both
+  ;; `npm run dev:example -- examples/counter-slim-and-fast` and a bare
+  ;; `shadow-cljs watch` on it serve exactly this — and it is also the bundle
+  ;; the substrates catalogue invites a reader to weigh against
+  ;; `:examples/counter`. A comparison that holds the app constant is worth
+  ;; nothing if the two builds differ in a second place, so the gate's SSR
+  ;; fixture lives in its own build below rather than in this one's boot.
+  ;; Contract 7 of check-reagent-slim-bundle-isolation.cjs greps this output
+  ;; to prove the fixture stayed out; Contract 0 pins both `:init-fn`s here so
+  ;; the separation can't be undone by an edit to this file alone.
+  ;; (rf2-vyl0vt moved the fixture out of the teaching namespace; rf2-kjx1
+  ;; finished the job by moving it out of the teaching ARTEFACT.)
   :examples/counter-slim-and-fast
   {:target     :browser
    :output-dir "out/examples/counter-slim-and-fast"
+   :asset-path "."
+   :modules    {:main {:init-fn reagent-slim.counter.core/run}}}
+
+  ;; rf2-kjx1 — the slim counter's CI twin, and the ONLY build that compiles
+  ;; the bundle-isolation fixture. Not an `:examples/*` build on purpose: it
+  ;; is not staged, not served by examples/scripts/serve-example.cjs (which
+  ;; only resolves `examples/…` ids), not swept by check-examples-compile.cjs,
+  ;; and has no host page — there is nothing here to run. Its sole consumer is
+  ;; `npm run test:reagent-slim:bundle-isolation`, which releases it beside the
+  ;; two real bundles and greps this output for the pure-CLJS SSR path that
+  ;; makes the S3-005 react-dom/server-absence claim non-vacuous (Contract 4).
+  ;; The naming and the out/-sibling shape follow the local
+  ;; `:bundle-isolation-positive-control` convention above: a gate-only build
+  ;; whose job is to carry a signal the shipped bundles must not.
+  ;;
+  ;; The entry boots `reagent-slim.counter.core/run` first and adds the SSR
+  ;; exercise afterwards, so this bundle is the runnable one PLUS the fixture
+  ;; — which is what lets Contracts 2/3/5 hold over both and Contract 7 name
+  ;; the difference exactly.
+  :reagent-slim-ssr-isolation-fixture
+  {:target     :browser
+   :output-dir "out/reagent-slim-ssr-isolation-fixture"
    :asset-path "."
    :modules    {:main {:init-fn reagent-slim.counter.bundle-isolation-entry/run}}}
 
