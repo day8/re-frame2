@@ -14,9 +14,8 @@
   `capture-frame`'s superseded-`:subscribe` seam (`capture-subscribe!` via
   `emit-captured-frame-superseded!`), which passes the attempted query vector
   as `:event` under `:op :subscribe`. The always-on egress (axis 1) then stays
-  raw because
-  `error-emit/raw-identity-query-vector-event?` skips elision keyed on
-  `(:rf.error/frame-destroyed, :op :subscribe)`.
+  raw because `error-emit/raw-identity-query-vector-event?` skips elision keyed
+  on `(:rf.error/frame-destroyed, :op :subscribe)`.
 
   But the DEV-TRACE egress (axis 2) flows through
   `re-frame.classification/project-trace-event`, which had NO realm-awareness:
