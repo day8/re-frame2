@@ -54,12 +54,14 @@
     it, so it is not a door marker. **(Declined:** Replicant's routing posture of a GLOBAL
     body-level click interceptor — ambient behaviour no vector carries is
     exactly what the in-band school exists to avoid.**)**
-  - **Not wired in v0: the `:prefetch :intent` trio.** Routing publishes
-    it; the census counts no prefetch site, and the opt-in is sugar over
-    an event a Hicasso author can already spell (`:on-mouse-enter
-    [:rf.route/prefetch {…}]`). `:prefetch` is one of the keys the link
-    owns (`control-keys`), so it never reaches the anchor as an
-    attribute; routing's link model is what reads it.
+  - **Not wired in v0: the `:prefetch :intent` trio.** The census counts
+    no prefetch site, and the opt-in is sugar over an event a Hicasso
+    author can already spell (`:on-mouse-enter [:rf.route/prefetch
+    {…}]`). Routing publishes no late-bind seam for it either — the trio
+    was retired as orphaned in rf2-6r9j.15, since nothing read it — so
+    `rf/route-link` reaches the prefetch law by direct call. `:prefetch`
+    is still one of the keys the link owns (`control-keys`), so it never
+    reaches the anchor as a stray attribute.
 
   ## Composition with `::h/prevent`
 
@@ -95,7 +97,7 @@
   `:target` / `:download` pair the link model reads for its `:native?`
   verdict.
 
-  `:prefetch` is owned too: it is routing's link-model key, not an HTML
+  `:prefetch` is owned too: it is a routing props key, not an HTML
   attribute, and Hicasso wires none of the prefetch handlers in v0, so it
   is kept off the anchor rather than emitted as a stray attribute."
   [:to :params :query :fragment :on-click :prefetch])

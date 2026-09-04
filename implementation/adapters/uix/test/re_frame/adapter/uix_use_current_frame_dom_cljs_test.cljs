@@ -53,11 +53,7 @@
        (some? (.-createElement js/document))))
 
 (defn- get-act []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try
-        (let [test-utils (js/require "react-dom/test-utils")]
-          (.-act test-utils))
-        (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 (defn- mount-and-render!
   "Mount `element` under a fresh root inside `act`, then unmount. Returns nil."

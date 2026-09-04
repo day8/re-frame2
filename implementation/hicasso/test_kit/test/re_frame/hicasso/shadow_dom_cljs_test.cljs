@@ -70,7 +70,11 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.test :as ht]
             [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            ;; The ONE second view library this namespace names, and only so
+            ;; that [[foreign-title-row]] is a genuinely foreign element type.
+            ;; `hm/shadow!` itself still requires none — that is its design.
+            [reagent.core :as r]))
 
 ;; ---------------------------------------------------------------------------
 ;; The application under comparison
@@ -524,6 +528,55 @@
             (is (= [:hicasso.shadow/noted ::alien-a] (:reference difference)))
             (is (= [:hicasso.shadow/noted ::alien-b] (:candidate difference)))))
         (finally ((:stop! s)))))))
+
+;; ---------------------------------------------------------------------------
+;; The route the door is FOR: a foreign original as the reference
+;; ---------------------------------------------------------------------------
+;;
+;; Every row above is `h/defview` on BOTH sides, which is the one shape a
+;; migration never has. `hm/shadow!`'s documented route crosses the ORIGINAL in
+;; through the runtime's own `[:> C props]` door, and nothing here executed
+;; that route — which is how the `:article-id` defect in the door's own
+;; docstring example survived to be found by reading rather than by a red
+;; (rf2-rx99, split out as rf2-g1a8).
+;;
+;; One row, and no sabotage twin: the drift classes are already twinned above,
+;; and what is new here is the ROUTE, not a claim about the comparator.
+
+(defn- reagent-title-row
+  "A Reagent original — no Hicasso, no `h/sub`, no knowledge of the frame.
+  It renders from the ONE prop it is crossed with, which is what the
+  original half of a just-ported screen actually looks like."
+  [{:keys [title]}]
+  [:div.row [:h3.title title]])
+
+(def ^:private foreign-title-row
+  "Reactified ONCE at top level, exactly as the door's own example says to:
+  a component allocated per render is a new element type, and it would
+  remount the subtree under it on every pass."
+  (r/reactify-component reagent-title-row))
+
+(h/defview hicasso-title-row
+  "The port of [[reagent-title-row]] — same markup, same single-word prop."
+  [{:keys [title]}]
+  [:div.row [:h3.title title]])
+
+(deftest a-foreign-reference-crosses-in-and-compares-green
+  (if-not (browser?)
+    (skip! "a crossed foreign original needs a real React DOM")
+    (is (= {:status :green :checkpoints 1}
+           (hm/shadow! {:reference      [:> foreign-title-row {:title "Original title"}]
+                        :candidate      [hicasso-title-row {:title "Original title"}]
+                        :initial-events seed
+                        :script         []}))
+        (str "the reference is a REACTIFIED REAGENT component reached through "
+             "`[:> C props]` while the candidate is an `h/defview`, so a green "
+             "is the whole crossing working: the foreign element type mounted, "
+             "the single-word `:title` crossed unchanged (the rename the "
+             "docstring warns about only bites a hyphenated key), and "
+             "canonical DOM called the two sides identical. It cannot be "
+             "vacuous — the candidate always renders the title, so a reference "
+             "that rendered nothing would be `:only-in-candidate` and red"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The closed rosters — refused before anything is mounted, so these rows

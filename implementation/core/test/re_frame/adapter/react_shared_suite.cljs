@@ -2803,15 +2803,11 @@
     (.createElement js/document "div")))
 
 (defn- get-act
-  "Return React's act() if available, else nil. React 18 ships act in
-  react-dom/test-utils; React 19 promotes it to the React namespace
-  proper."
+  "Return React's act() if available, else nil. React 19 — the adapter
+  floor — hosts act on the React namespace proper. Absent only from
+  React's production bundle, which omits act by design."
   []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try
-        (let [test-utils (js/require "react-dom/test-utils")]
-          (.-act test-utils))
-        (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 (defn- enable-react-act-env!
   "React's act() helper warns / behaves as a no-op unless the runner
