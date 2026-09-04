@@ -521,15 +521,18 @@
 
      (def ^{:doc "`h/as-component` — **the outward bridge**.
   Answers a real React component for a hiccup head, so a React parent —
-  UIx or plain JavaScript — mounts a minted Hicasso
+  UIx, Reagent or plain JavaScript — mounts a minted Hicasso
   view under the frame it is already in:
 
       (def article-card* (h/as-component article-card))
 
   Declared once at top level, beside the view. The parent's props arrive
   as the view's ordinary props map (`articleId` → `:article-id`),
-  children at `:children`, values by identity; the frame comes from React
-  context, and no second root, state owner or props ABI appears anywhere.
+  children at `:children`, values as this shallow decode finds them — a
+  Reagent parent's `[:>]` converts first, so names round-trip across the
+  crossing and values do not. The frame comes from React context: ANY
+  frame, written by any React-shaped adapter, rather than a Hicasso
+  root — and no second root, state owner or props ABI appears anywhere.
   Sits HERE rather than on the native tier because a UIx or JavaScript
   parent must not have to require the native namespace — and therefore
   ship it — to cross inward.

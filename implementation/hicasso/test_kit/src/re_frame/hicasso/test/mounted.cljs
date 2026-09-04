@@ -1904,9 +1904,14 @@
   same seeded frame, drives both with one script, and compares canonical
   DOM and the intent stream at every checkpoint.
 
+      ;; Once, at top level, for the same reason `h/as-component` is: a
+      ;; component allocated per render is a new element type and
+      ;; remounts the subtree.
+      (def old-article-row (r/reactify-component old/article-row))
+
       (hm/shadow!
-       {:reference      [:> (r/reactify-component old/article-row) {:article-id 7}]
-        :candidate      [new/article-row {:article-id 7}]
+       {:reference      [:> old-article-row {:id 7}]
+        :candidate      [new/article-row {:id 7}]
         :initial-events [[:demo/install-fixture]]
         :script         [{:click \"button.edit\"}
                          {:type  [\"input.title\" \"Better title\"]}
@@ -1944,6 +1949,15 @@
   own translation table already sends it through. Nothing here `:require`s
   a second view library, and the door works for all of them for that
   reason.
+
+  **Cross single-word props.** The crossing renames the KEY: Hicasso
+  camelCases it on the way out, and a reactified Reagent original reads
+  back the name React actually carried, so `:article-id` reaches the
+  reference as `:articleId` while the Hiccup candidate still sees
+  `:article-id`. Nothing decodes it back on that route. A prop both
+  sides spell the same way — and a seeded frame both sides read — keeps
+  the difference out of the SCRIPT, where it would be a divergence the
+  code under comparison did not cause.
 
   A crossing is also how a foreign original reaches the frame at all. A
   declared callback contract lowers an intent vector into a real function
