@@ -1348,12 +1348,12 @@
       (is (str/includes? egress-src "(defn with-indicators")
           (str "`with-indicators` helper missing from " egress-rel)))
     (testing "egress.cljc delegates to the shared mcp-base envelope helper"
-      (is (str/includes? egress-src "base-envelope/with-indicators")
+      (is (str/includes? egress-src "rf.mcp-base.envelope/with-indicators")
           (str egress-rel " must delegate to "
                "`re-frame.mcp-base.envelope/with-indicators` — the emit-path "
                "MUST stay centralised in mcp-base (rf2-koq5m / rf2-ee38b.19).")))
     (testing "egress.cljc defines count-elided over the mcp-base walker"
-      (is (str/includes? egress-src "base-elision/count-elided-markers")
+      (is (str/includes? egress-src "rf.mcp-base.elision/count-elided-markers")
           (str egress-rel " must reuse "
                "`re-frame.mcp-base.elision/count-elided-markers` for the "
                ":elided-large count (rf2-koq5m).")))
