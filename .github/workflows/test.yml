@@ -942,16 +942,22 @@ jobs:
         run: python scripts/check_doc_slugs.py --verbose
 
       # SKILL.md description-budget gate (rf2-w9p2; armed under rf2-bn5f). Guards
-      # the two limits the agent host actually enforces, both silent when breached:
-      # the 1,536-char `skillListingMaxDescChars` hard slice on a single
-      # description (it truncates mid-sentence, so the disqualifier a description
-      # ends on is the first thing lost), and the family's whole listing footprint
-      # against a pinned RATCHET rather than the absolute 8,000-char budget — past
-      # that budget the planner drops ENTIRE descriptions in ascending priority
-      # order, and nine skills averaging ~1,200 chars cannot fit in 8,000 however
-      # they are written, so failing at the absolute would red the repo with no
-      # in-repo remedy. The absolute comparison PRINTS on every run, green or red,
-      # so the overshoot is never lost behind a tick.
+      # the SKILL.md description limits: the portable 1,024 and the Claude 1,536.
+      # It hard-fails a description over the 1,024-char Agent Skills packaging cap
+      # — the portable contract skills/README.md advertises via `npx skills add` —
+      # and escalates that message when the description is ALSO past Claude Code's
+      # 1,536-char `skillListingMaxDescChars` hard slice, which cuts mid-word, so
+      # the disqualifier a description ends on is the first thing lost. Anything
+      # within 1,024 is within 1,536, so the slice is reported on every run rather
+      # than separately failed on. Separately, the family's whole listing
+      # footprint is hard-failed against a pinned RATCHET rather than the absolute
+      # 8,000-char budget — past that budget the planner drops ENTIRE descriptions
+      # in ascending priority order, and nine skills each carrying a routing
+      # contract cannot fit in 8,000 however they are written (bringing every
+      # description under 1,024 still left the family near 8,900), so failing at
+      # the absolute would red the repo with no in-repo remedy. The absolute
+      # comparison PRINTS on every run, green or red, so the overshoot is never
+      # lost behind a tick.
       #
       # WHY THIS JOB AND NOT THE ALWAYS-ON INVARIANT JOB, where every other
       # check_skill_*.py step lives: this checker is NOT pure stdlib. It reads

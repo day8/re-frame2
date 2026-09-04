@@ -595,9 +595,14 @@ def _is_ci() -> bool:
 def main(argv: Iterable[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Guard the enforced SKILL.md description limits: the 1,536-char "
-            "per-description hard slice, and the family's listing footprint "
-            "against a pinned ratchet (rf2-w9p2)."
+            "Guard the SKILL.md description limits: the portable 1,024 and the "
+            "Claude 1,536. Hard-fails a description over the 1,024-char Agent "
+            "Skills packaging cap, and escalates that message when the "
+            "description is ALSO past Claude Code's 1,536-char hard slice "
+            "(skillListingMaxDescChars), which is otherwise only reported. "
+            "Separately hard-fails the family's listing footprint against a "
+            "pinned ratchet, not against the absolute listing budget, which is "
+            "printed on every run (rf2-w9p2)."
         ),
     )
     parser.add_argument("--verbose", "-v", action="store_true",

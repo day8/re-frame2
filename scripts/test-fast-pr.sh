@@ -933,17 +933,25 @@ run "skill eval-docs match evals.json" "python scripts/check_skill_eval_docs.py 
   python "$spine_root/scripts/check_skill_eval_docs.py" --verbose --ci
 
 # SKILL.md description-budget gate (rf2-w9p2; armed under rf2-bn5f).  Guards the
-# two limits the agent host actually enforces, both silent when breached: the
-# 1,536-char hard slice on a single description (it truncates mid-sentence, so
-# the disqualifier a description ends on is the first thing lost), and the
-# family's whole listing footprint against a pinned ratchet -- past the
-# 8,000-char budget the planner drops ENTIRE descriptions, lowest priority
-# first.  The absolute comparison prints on every run, so the overshoot is never
-# lost behind a tick.  Paired with test.yml's steps of the same ids and moves
-# with them: check_fast_pr_gap.py derives its required set from that job and
-# reports a required checker with no local lane as unrun.  Pure-stdlib and
-# sub-second, so it sits in the always-on block rather than the docs tier -- the
-# footprint it ratchets can be moved by any SKILL.md edit.  Self-test first
+# SKILL.md description limits: the portable 1,024 and the Claude 1,536.  It
+# hard-fails a description over the 1,024-char Agent Skills packaging cap -- the
+# portable contract skills/README.md advertises via `npx skills add` -- and
+# escalates that message when the description is ALSO past Claude Code's
+# 1,536-char hard slice, which cuts mid-word, so the disqualifier a description
+# ends on is the first thing lost.  Anything within 1,024 is within 1,536, so
+# the slice is reported on every run rather than separately failed on.  The
+# family's whole listing footprint is hard-failed against a pinned RATCHET, not
+# against the absolute 8,000-char budget -- past that budget the planner drops
+# ENTIRE descriptions, lowest priority first, but nine skills each carrying a
+# routing contract cannot fit in 8,000 however they are written, so the absolute
+# is printed on every run instead of failed on and the overshoot is never lost
+# behind a tick.  Paired with test.yml's steps of the same ids and moves with
+# them: check_fast_pr_gap.py derives its required set from that job and reports
+# a required checker with no local lane as unrun.  Sub-second, and the footprint
+# it ratchets moves on any SKILL.md edit, so it sits in the always-on block
+# rather than the docs tier.  NOT pure stdlib: it reads SKILL.md front-matter
+# with PyYAML and exits 2 with an install message without it, which is why
+# test.yml runs it in a job that installs requirements.txt.  Self-test first
 # (proves both rules fire in both directions), then the live scan.
 run "SKILL.md description-budget self-test" "python scripts/check_skill_description_budget.py --self-test" \
   python "$spine_root/scripts/check_skill_description_budget.py" --self-test
