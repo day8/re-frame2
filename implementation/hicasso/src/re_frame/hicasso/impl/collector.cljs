@@ -893,6 +893,41 @@
                               view-id (error/source-of view-name))
      :data-rf-view          (adapter-context/format-view-id view-id)}))
 
+(defn- author-owns-slot?
+  "Does `authored` already write the React prop slot `slot`, in ANY of the
+  spellings that land there? `codec/canonical-slot` is the resolver — the
+  same one every deny, dissoc and check in the codec asks, and the one the
+  emitter itself uses — so this cannot answer differently from what
+  `convert-props` will do with the map."
+  [authored slot]
+  (reduce-kv (fn [_ k _] (if (= slot (codec/canonical-slot k)) (reduced true) false))
+             false
+             authored))
+
+(defn- without-authored-slots
+  "`attrs` minus every entry whose canonical React slot `authored` already
+  claims — `attrs` itself, by identity, when it claims neither.
+
+  This is what makes the author's ownership a real one. A hiccup attribute
+  key is written in five spellings (`re-frame.hicasso.impl.slot`), and
+  every one of them emits under a single React name, so `merge` — which
+  resolves a collision only between keys that are `=` — keeps BOTH a
+  body's `\"data-rf-view\"` and the framework's `:data-rf-view`, and
+  `convert-props` then writes them into one slot with the map's ITERATION
+  ORDER picking the winner. Removing the framework's entry at the slot
+  makes the collision a real key collision, and there is no second entry
+  left for an order to choose between.
+
+  Two entries against the root's attribute count, dev-mode only, on a map
+  the codec was about to walk anyway."
+  [attrs authored]
+  (reduce-kv (fn [acc k _]
+               (if (author-owns-slot? authored (codec/canonical-slot k))
+                 (dissoc acc k)
+                 acc))
+             attrs
+             attrs))
+
 (defn annotate-root
   "Merge a declared view's Spec 006 annotations into the root of the
   hiccup its body just returned, and answer the hiccup to encode.
@@ -917,16 +952,24 @@
   that is not a vector at all — nil from a conditional body, a string, a
   seq — is left alone for the same reason.
 
-  The author's attrs WIN the merge, matching the Reagent walk
+  The author's attrs WIN, matching the Reagent walk
   (`re-frame.views.source-coord-annotation/inject-source-coord-attr`): a
-  body that wrote either attribute itself keeps the value it wrote."
+  body that wrote either attribute itself keeps the value it wrote. That
+  win is held AT THE CANONICAL SLOT and not at the key
+  (`without-authored-slots`), because this codec accepts five spellings of
+  one attribute and `merge` is keyed by `=` — so a body writing the string
+  `\"data-rf-view\"` beside the framework's keyword left both in the map
+  and let iteration order pick, which is the guarantee failing
+  nondeterministically rather than failing (rf2-c5w1, audit of PR #9191).
+  Ownership is per slot: the annotation a body did NOT write is still
+  stamped beside the one it did."
   [hiccup attrs]
   (if (and (vector? hiccup)
            (pos? (count hiccup))
            (= :tag (codec/head-kind (nth hiccup 0))))
     (let [maybe-attrs (nth hiccup 1 nil)]
       (if (map? maybe-attrs)
-        (assoc hiccup 1 (merge attrs maybe-attrs))
+        (assoc hiccup 1 (merge (without-authored-slots attrs maybe-attrs) maybe-attrs))
         (into [(nth hiccup 0) attrs] (rest hiccup))))
     hiccup))
 
