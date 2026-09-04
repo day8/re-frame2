@@ -289,7 +289,7 @@ render.
 ## Render a Hicasso view from native React
 
 `h/as-component` converts a Hicasso view head into a real React component for
-UIx, raw React, JavaScript, or TypeScript parents:
+Reagent, UIx, raw React, JavaScript, or TypeScript parents:
 
 ```clojure
 (def article-card*
@@ -299,8 +299,23 @@ UIx, raw React, JavaScript, or TypeScript parents:
 React props return to the Hicasso view as a normal props map with canonical
 names (`articleId` becomes `:article-id`) and identity-preserved values. The
 view retains its memoization, subscription reads, key identity, teardown, and
-frame from React context. Rendering it outside a Hicasso root raises
-`:rf.error/no-frame-context`.
+frame from React context. Rendering it outside every frame raises
+`:rf.error/no-frame-context` — every frame, not every Hicasso root. `h/mount!`,
+`rf/frame-provider` and `rf/frame-root` all write the same frame context, so a
+bridged view inside a Reagent or UIx tree resolves that tree's frame and needs
+no root of its own.
+
+**A Reagent parent converts the props before that decode.** Identity is
+preserved across the decode, which is the second half of the crossing; the
+first half belongs to the parent. Props on this route travel through React, so
+a Reagent parent converts them exactly as it does for any other `[:>]`
+crossing: a keyword becomes its name, a map becomes a camel-cased JavaScript
+object, any other collection is deeply `clj->js`'d, and strings, numbers,
+booleans, `nil` and functions cross unchanged. Prop *names* survive the round
+trip — `:article-id` is camel-cased on the way out and read back as
+`:article-id` — but values do not. Cross an id and read the rest with `h/sub`
+and the conversion never arises: [Views shared across the
+boundary](20-migration-from-reagent.md#views-shared-across-the-boundary).
 
 Use `h/as-element` for one subtree returned through a callback. Use
 `h/as-component` when a native parent will mount, key, and re-render the view
