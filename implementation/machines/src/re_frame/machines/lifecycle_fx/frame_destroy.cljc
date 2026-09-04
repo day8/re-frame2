@@ -163,14 +163,16 @@
   The HTTP-abort fires the shared `:http/abort-on-actor-destroy`
   late-bind hook via `rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http!` — the same
   best-effort, idempotent helper the spawn-destroy + final-state
-  teardowns use, so the abort contract has one home.
+  teardowns use, so the abort contract has one home. It is frame-exact
+  (rf2-wjfm): the frame being torn down is threaded through, so a
+  same-named singleton in a sibling frame keeps its in-flight requests.
 
   A machine's `[:schemas :data]` schema is validation-only; it does not produce
   a per-instance marks table. There are therefore no schema marks for any
   teardown path — singleton or spawned — to clear or preserve."
   [frame-id actor-id]
   (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id)
-  (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! actor-id)
+  (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! frame-id actor-id)
   nil)
 
 (defn teardown-on-frame-destroy!

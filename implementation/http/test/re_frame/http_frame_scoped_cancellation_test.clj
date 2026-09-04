@@ -34,6 +34,11 @@
             [re-frame.http.handlers :as rf.http.handlers]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
+            [re-frame.late-bind :as rf.late-bind]
+            ;; rf2-wjfm — the destroy-cascade cases below drive the REAL
+            ;; machines teardown. machines is a test-only dep of this artefact
+            ;; (see deps.edn) precisely so cancellation-cascade tests can.
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace])
@@ -329,12 +334,14 @@
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest actor-destroy-any-frame-arity-preserves-the-hook-contract
-  (testing "rf2-o8ek — the 1-arg arity is the ANY-FRAME sweep the machines/core
-            destroy cascade calls through the :http/abort-on-actor-destroy hook,
-            which passes an actor address and no frame. It keeps the
-            pre-rf2-o8ek behaviour byte-for-byte rather than silently narrowing
-            a teardown; frame-scoping it needs those callers to thread the frame
-            they already hold"
+  (testing "rf2-o8ek — the 1-arg arity is the ANY-FRAME sweep: it matches the
+            raw actor-id in EVERY frame, keeping the pre-rf2-o8ek behaviour
+            byte-for-byte. rf2-wjfm threaded the frame at both destroy-cascade
+            callers, so NO in-repo destroy path takes this arity any more; it
+            remains the documented seam for a caller that genuinely holds an
+            address and no frame. Pinned here because the behaviour is a
+            contract, not an accident — the cases below prove the cascade does
+            not use it"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])
           mk   (fn [frame-id]
@@ -546,4 +553,141 @@
           "the anonymous handle is untouched — the two-arg handle form owns it")
       (rf.http.registry/clear-in-flight! nil handle)
       (is (nil? (get (rf.http.registry/actor-in-flight-snapshot :frame/a) :worker/anon))))
+    (rf.http.managed/clear-all-in-flight!)))
+
+;; ---- rf2-wjfm — the DESTROY CASCADE threads the destroying frame ----------
+;;
+;; rf2-o8ek keyed the actor index on `[frame-id actor-id]` and gave
+;; `abort-on-actor-destroy` a frame-bearing 2-arity, but left the hook's CALLERS
+;; passing an address alone, so every destroy still took the ANY-FRAME arity.
+;;
+;; A spawned actor's address is frame-LOCAL. One machine spec mounted in two
+;; isolated frames — reusable app code, documented per-request SSR frames, Story
+;; variants, side-by-side mounts — spawns actors under the SAME address in both.
+;; Destroying frame A's actor therefore swept frame B's live requests: the exact
+;; isolation failure this campaign exists to close, reached through the DESTROY
+;; path instead of the abort path. Every pre-existing actor-destroy test uses one
+;; frame, which is why a green suite never saw it.
+;;
+;; These cases drive the REAL destroy entry points against the REAL registry:
+;; the machines cascade (imperative `[:rf.machine/destroy …]`, and `destroy-frame!`
+;; through `teardown-on-frame-destroy!`), and core's machines-ABSENT
+;; `destroy-frame!` fallback — the two call sites the bead named, plus the
+;; final-state/singleton paths that funnel through the same helper.
+
+(def ^:private actor-address
+  "The address the shared spec resolves to in EVERY frame — the spawn counter is
+  per-frame, so identical code yields an identical address. Asserted, not assumed."
+  :worker/proc#1)
+
+(defn- register-two-frame-actor-app!
+  "Register ONE machine spec plus its spawn/destroy events, and mount it in two
+  isolated frames. The whole point is that the app author writes this once."
+  []
+  (rf/make-frame {:id :frame/a :doc "isolated frame A"})
+  (rf/make-frame {:id :frame/b :doc "isolated frame B"})
+  (rf/reg-machine :worker/proc {:initial :running :data {} :states {:running {}}})
+  (rf/reg-event :worker/spawn
+    (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker/proc
+                                        :id-prefix  :worker/proc}]]}))
+  (rf/reg-event :worker/kill
+    (fn [_ [_ actor-id]] {:fx [[:rf.machine/destroy actor-id]]}))
+  (doseq [frame-id [:frame/a :frame/b]]
+    (rf/dispatch-sync [:worker/spawn] {:frame frame-id})))
+
+(defn- actor-snapshot [frame-id actor-id]
+  (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
+          [:rf.runtime/machines :snapshots actor-id]))
+
+(defn- seed-actor-handle!
+  "Register one actor-owned in-flight handle in `frame-id`, recording its aborts
+  into `seen`. Anonymous (nil request-id), so ONLY the actor index selects it —
+  the shape an actor-issued request takes when the app supplies no `:request-id`,
+  and the shape that isolates this test to the actor-destroy path."
+  [seen frame-id actor-id]
+  (rf.http.registry/record-in-flight!
+    nil actor-id
+    {:frame    frame-id
+     :url      "http://x/actor-work"
+     :abort-fn (fn [reason] (swap! seen conj [frame-id reason]))}))
+
+(defn- actor-live? [frame-id actor-id]
+  (= 1 (count (get (rf.http.registry/actor-in-flight-snapshot frame-id) actor-id))))
+
+(defn- assert-same-address-in-both-frames! []
+  (is (some? (actor-snapshot :frame/a actor-address))
+      "frame A spawned the actor")
+  (is (some? (actor-snapshot :frame/b actor-address))
+      "frame B spawned an actor at the SAME address from the SAME spec — the
+       frame-local-address collision the bead names. If this fails the rest of
+       the case proves nothing, so it is asserted rather than assumed"))
+
+(deftest imperative-actor-destroy-aborts-only-the-destroying-frames-http
+  (testing "rf2-wjfm — `[:rf.machine/destroy <addr>]` dispatched in frame A
+            aborts only A's actor-owned HTTP. The identically-addressed actor in
+            frame B keeps its in-flight request. Before the cascade threaded the
+            frame, this aborted BOTH — the hook took its ANY-FRAME arity"
+    (rf.http.managed/clear-all-in-flight!)
+    (register-two-frame-actor-app!)
+    (assert-same-address-in-both-frames!)
+    (let [seen (atom [])]
+      (seed-actor-handle! seen :frame/a actor-address)
+      (seed-actor-handle! seen :frame/b actor-address)
+      (is (and (actor-live? :frame/a actor-address)
+               (actor-live? :frame/b actor-address))
+          "precondition: both frames hold an independent slot under one address")
+      (rf/dispatch-sync [:worker/kill actor-address] {:frame :frame/a})
+      (is (= [[:frame/a :actor-destroyed]] @seen)
+          "ONLY frame A's actor-owned request aborted, with the actor-destroy reason")
+      (is (actor-live? :frame/b actor-address)
+          "frame B's identically-addressed actor keeps its in-flight request"))
+    (rf.http.managed/clear-all-in-flight!)))
+
+(deftest frame-destroy-cascade-aborts-only-the-destroyed-frames-actor-http
+  (testing "rf2-wjfm — `destroy-frame!` with the machines artefact loaded walks
+            the frame's actors through the same helper. Destroying frame A must
+            leave frame B's same-named actor's in-flight request alone"
+    (rf.http.managed/clear-all-in-flight!)
+    (register-two-frame-actor-app!)
+    (assert-same-address-in-both-frames!)
+    (let [seen (atom [])]
+      (seed-actor-handle! seen :frame/a actor-address)
+      (seed-actor-handle! seen :frame/b actor-address)
+      (rf/destroy-frame! :frame/a)
+      ;; The frame-destroy sweep (`:http/on-frame-destroyed!`) also fires for the
+      ;; destroyed frame, so assert on WHICH FRAME was reached rather than on a
+      ;; single reason — the isolation claim is what this case owns.
+      (is (= #{:frame/a} (set (map first @seen)))
+          "only frame A's handles were aborted — nothing reached frame B")
+      (is (actor-live? :frame/b actor-address)
+          "frame B's identically-addressed actor keeps its in-flight request")
+      (is (empty? (get (rf.http.registry/actor-in-flight-snapshot :frame/a) actor-address))
+          "and frame A's own slot is reaped, so the narrowing did not under-abort"))
+    (rf.http.managed/clear-all-in-flight!)))
+
+(deftest machines-absent-frame-destroy-fallback-is-frame-exact
+  (testing "rf2-wjfm — core's `destroy-frame!` fallback, taken when the machines
+            artefact is absent, fires the same hook per snapshot key. It holds
+            the frame under destruction, so it must pass it: this is the second
+            of the two call sites the bead named, and an app with no machines
+            artefact runs only this one"
+    (rf.http.managed/clear-all-in-flight!)
+    (register-two-frame-actor-app!)
+    (assert-same-address-in-both-frames!)
+    (let [seen (atom [])
+          orig (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
+      (seed-actor-handle! seen :frame/a actor-address)
+      (seed-actor-handle! seen :frame/b actor-address)
+      (try
+        ;; Unbind the machines cascade so `destroy-frame!` takes core's
+        ;; machines-ABSENT fallback — the classpath an app without the optional
+        ;; artefact actually has.
+        (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! nil)
+        (rf/destroy-frame! :frame/a)
+        (finally
+          (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! orig)))
+      (is (= #{:frame/a} (set (map first @seen)))
+          "only frame A's handles were aborted by the fallback")
+      (is (actor-live? :frame/b actor-address)
+          "frame B's identically-addressed actor keeps its in-flight request"))
     (rf.http.managed/clear-all-in-flight!)))

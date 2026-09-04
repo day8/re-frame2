@@ -59,16 +59,23 @@
 ;; shape — the caller's raw `:request-id` remains the correlation value echoed
 ;; in replies and traces.
 ;;
-;; ANY-FRAME seams. Three entry points are reached from artefacts that hold a
-;; token but not a frame — resources' out-of-cascade teardown through the
-;; `:http/abort-in-flight!` late-bind hook, and the machines / core actor-
-;; destroy cascade through `:http/abort-on-actor-destroy`. Their frame-less
-;; arities are preserved and documented as ANY-FRAME: they match on the raw id
-;; across every frame, which is exactly the pre-rf2-o8ek behaviour. That is
-;; correct for resources (its token is already frame-qualified —
-;; `[:rf.req frame-id work-id]` per Spec 016 — so at most one frame can match)
-;; and it is the conservative reading for actor destroy until its callers thread
-;; a frame. The frame-BEARING arities alongside them are the isolated ones.
+;; ANY-FRAME seams. The frame-less arities are preserved and documented as
+;; ANY-FRAME: they match on the raw id across every frame, which is exactly the
+;; pre-rf2-o8ek behaviour. The frame-BEARING arities alongside them are the
+;; isolated ones.
+;;
+;; ONE such seam is still reached in production: resources' out-of-cascade
+;; teardown through the `:http/abort-in-flight!` late-bind hook. That is correct
+;; — its token is already frame-qualified (`[:rf.req frame-id work-id]` per Spec
+;; 016), so at most one frame can match.
+;;
+;; The actor-destroy seam is no longer reached (rf2-wjfm). Both callers of
+;; `:http/abort-on-actor-destroy` — the machines destroy cascade and core's
+;; machines-absent frame-destroy fallback — now thread the destroying frame,
+;; because an actor address is frame-LOCAL and the any-frame sweep would abort a
+;; sibling frame's live requests. `abort-on-actor-destroy`'s 1-arity is retained
+;; as the documented seam for a caller that genuinely holds only an address; no
+;; in-repo destroy path is such a caller.
 ;;
 ;; rf2-o8ek audit — the seams are KEPT (no flag day), but the standing law is
 ;; now explicit and mechanical: A CLEANUP PATH THAT POSSESSES AN ISSUING FRAME
@@ -668,14 +675,16 @@
      named frame's actor issued. A same-named actor in a sibling frame is
      untouched, exactly as §Sibling actors are not affected already promises
      for siblings within one frame. This is the isolated form.
-   - 1-arg `[actor-id]` — ANY-FRAME: sweeps that actor-id in EVERY frame. It
-     is the arity the machines / core destroy cascade currently calls through
-     the `:http/abort-on-actor-destroy` late-bind hook, which passes an
-     actor address and no frame, so it preserves the pre-rf2-o8ek behaviour
-     byte-for-byte rather than silently narrowing a teardown. Actor addresses
-     are frame-LOCAL, so this arity can still reach a sibling frame's work;
-     closing that needs the hook's callers to thread the frame they already
-     hold, which is a change in the machines and core artefacts."
+   - 1-arg `[actor-id]` — ANY-FRAME: sweeps that actor-id in EVERY frame,
+     preserving the pre-rf2-o8ek behaviour byte-for-byte. Actor addresses are
+     frame-LOCAL, so this arity CAN reach a sibling frame's work; it is the
+     documented seam for a caller that genuinely holds an address and no frame.
+
+  rf2-wjfm — no in-repo destroy path is such a caller any more. Both callers of
+  the `:http/abort-on-actor-destroy` late-bind hook — the machines destroy
+  cascade (`lifecycle-fx.finalize/abort-actor-in-flight-http!`, whose frame
+  parameter is required) and core's machines-absent `destroy-frame!` fallback —
+  thread the destroying frame and so take the 2-arg arity."
   ([actor-id]
    (when actor-id
      ;; Snapshot the matching frames BEFORE aborting: each per-frame call

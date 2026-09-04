@@ -229,9 +229,11 @@
   ;; stands; recheck before every subsequent framework action.
   (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id)
   ;; (2) abort in-flight HTTP — the late-bound `:http/abort-on-actor-destroy`
-  ;; hook is callback-bearing.
+  ;; hook is callback-bearing. rf2-wjfm — frame-exact: an actor address is
+  ;; frame-LOCAL, so the destroying frame is threaded through and a same-named
+  ;; actor in a sibling frame keeps its in-flight requests.
   (when-not (owner-gone?)
-    (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! actor-id))
+    (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! frame-id actor-id))
   ;; (3) Drop this actor's
   ;; per-instance classification declarations from the per-frame elision
   ;; registry — the teardown half of `rf.machines.classification/lower-at-spawn!`. A

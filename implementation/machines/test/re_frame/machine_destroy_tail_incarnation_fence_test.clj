@@ -159,8 +159,9 @@
           nil)))
     (try
       (when (= trigger :http-abort)
+        ;; rf2-wjfm — the cascade calls the hook's frame-bearing arity.
         (rf.late-bind/set-fn! :http/abort-on-actor-destroy
-                           (fn [_actor-id] (destroy+B!) nil)))
+                           (fn [_frame-id _actor-id] (destroy+B!) nil)))
       (let [token-a (rf.frame/frame-incarnation-token frame-a)]
         (rf.frame/call-with-event-owner-token frame-a token-a
           (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id))))

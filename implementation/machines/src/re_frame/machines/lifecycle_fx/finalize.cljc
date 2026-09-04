@@ -30,6 +30,8 @@
   the abort contract every destroy trigger shares: the finalize cascade,
   the spawn-destroy teardowns (`lifecycle-fx.destroy`), and the
   frame-destroy singleton-straggler pass (`lifecycle-fx.frame-destroy`).
+  It takes the DESTROYING FRAME as well as the actor address (rf2-wjfm);
+  all three call sites already hold one.
 
   The actor-teardown runtime-db projection lives in
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
@@ -66,15 +68,31 @@
 ;; `:http/abort-on-actor-destroy` — re-frame.machines does NOT
 ;; statically `:require` re-frame.http.managed; the destroy path
 ;; looks up this fn at call time.
+;;
+;; rf2-wjfm — the abort is FRAME-EXACT. A spawned actor's address is
+;; frame-LOCAL (Spec 014 §Abort on actor destroy §Frame scope), so two
+;; isolated frames running the same application code spawn actors under the
+;; same address. The hook's frame-bearing arity narrows the sweep to the
+;; destroying frame's slot; passing an address alone would take the hook's
+;; ANY-FRAME arity and reach a sibling frame's live request. This helper
+;; therefore REQUIRES the frame rather than defaulting it — every destroy
+;; trigger in this artefact already has one in scope, so there is no
+;; frame-less call left to make, and the correct call is the only one that
+;; compiles.
 
 (defn abort-actor-in-flight-http!
   "Fire the late-bind hook that aborts every in-flight `:rf.http/managed`
-  request for the destroyed actor. Idempotent and safe to call when
-  the http artefact is absent (returns nil)."
-  [actor-id]
+  request the destroyed actor issued IN `frame-id`. A same-named actor in a
+  sibling frame is untouched. Idempotent and safe to call when the http
+  artefact is absent (returns nil).
+
+  Both ids are required (rf2-wjfm). The hook call is wrapped in a
+  catch-all, so an arity or contract mismatch here fails SILENTLY — which is
+  precisely why the frame is a positional parameter and not an option."
+  [frame-id actor-id]
   (when actor-id
     (when-let [abort! (rf.late-bind/get-fn :http/abort-on-actor-destroy)]
-      (try (abort! actor-id)
+      (try (abort! frame-id actor-id)
            (catch #?(:clj Throwable :cljs :default) _ nil))))
   nil)
 
@@ -628,7 +646,9 @@
         ;; the ruled unwind posture, no rollback.
         (when-not (owner-gone?)
           ;; (6) Abort in-flight HTTP (late-bound hook — callback-bearing).
-          (abort-actor-in-flight-http! machine-id))
+          ;; rf2-wjfm — frame-exact: `frame-id` is this cascade's own frame, so
+          ;; a same-named actor in a sibling frame keeps its in-flight work.
+          (abort-actor-in-flight-http! frame-id machine-id))
         (when-not (owner-gone?)
           ;; Cancel armed `:after` timers (`:reason :on-destroy`). rf2-4ipqe4 —
           ;; each cancellation emits a callback-bearing `:rf.machine.timer/
