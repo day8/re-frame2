@@ -1636,33 +1636,53 @@
   set-tick slot) AFTER calling this; the ratom family's dispose IS exactly
   this subset (no warn-cache, no driver-root).
 
-  THIS IS THE REthrow CHOKEPOINT (rf2-ss8x). Returns nil on a clean drain;
-  on failure it rethrows the FIRST captured cleanup failure — unchanged, and
-  only once every Reaction and every root has been attempted and ownership
-  finalized. That ordering is the whole point, and it is what
-  `rf.substrate.adapter/dispose-adapter!` was always built to receive: it
-  invokes this inside a try/finally, so the process-owned lifecycle still
-  reaches its terminal state (`adapter-disposed?` true, install slot cleared,
-  public delegation answering `:rf.error/adapter-disposed`) and the failure
-  then propagates to the `rf/destroy-adapter!` caller. Before rf2-ss8x both
-  per-step catches discarded their throw, so that tested mechanism could
-  never see a failure and a broken teardown reported success.
+  Rethrow. Returns nil on a clean drain; on failure the FIRST captured
+  cleanup failure is rethrown — unchanged, and only once every Reaction and
+  every root has been attempted and ownership finalized. That ordering is the
+  whole point, and it is what `rf.substrate.adapter/dispose-adapter!` was
+  always built to receive: it invokes the adapter disposer inside a
+  try/finally, so the process-owned lifecycle still reaches its terminal state
+  (`adapter-disposed?` true, install slot cleared, public delegation answering
+  `:rf.error/adapter-disposed`) and the failure then propagates to the
+  `rf/destroy-adapter!` caller. Before rf2-ss8x both per-step catches
+  discarded their throw, so that tested mechanism could never see a failure
+  and a broken teardown reported success.
 
   Later failures ride the rethrown primary as secondary diagnostic evidence —
   see `rethrow-teardown-failure!`. Ownership finalization sits in a `finally`
   per MUST (3), so a caches/claims clear happens even if the drain collapses
-  in a way the per-step catches do not cover."
-  [dispose-reaction! unmount-op active-roots-cell emitter-cell]
-  (let [failures (make-teardown-failures)]
-    (try
-      (dispose-frame-sub-caches! dispose-reaction! failures)
-      (doseq [root @active-roots-cell]
-        (try (unmount-op root)
-             (catch :default e (record-teardown-failure! failures e))))
-      (finally
-        (reset! active-roots-cell #{})
-        (when emitter-cell (reset! emitter-cell nil))))
-    (rethrow-teardown-failure! failures)))
+  in a way the per-step catches do not cover.
+
+  Arities. The FOUR-arg form is the whole teardown for a spine that layers
+  nothing on top of this subset — the ratom family — so it owns the
+  accumulator and rethrows the primary itself. The FIVE-arg form takes the
+  CALLER's accumulator, records into it and returns nil WITHOUT rethrowing,
+  so a spine that layers further teardown (the React-hook spine's warn-cache,
+  singleton driver root and set-tick slot) runs that layer inside ONE teardown
+  transaction and rethrows once, at the end (rf2-ss8x).
+
+  Why threading the accumulator rather than nesting two. Two accumulators do
+  not compose: the inner rethrow attaches ITS secondaries to the primary, and
+  an outer accumulator that then caught that primary would overwrite the same
+  `rfAdapterTeardownSecondaryErrors` expando with only its own later failures
+  — silently dropping the shared drain's evidence. One accumulator across both
+  layers keeps every failure in one traversal-ordered list, and keeps the
+  first-failure rule meaning the same thing at both layers."
+  ([dispose-reaction! unmount-op active-roots-cell emitter-cell]
+   (let [failures (make-teardown-failures)]
+     (dispose-active-roots-and-caches! dispose-reaction! unmount-op
+                                       active-roots-cell emitter-cell failures)
+     (rethrow-teardown-failure! failures)))
+  ([dispose-reaction! unmount-op active-roots-cell emitter-cell failures]
+   (try
+     (dispose-frame-sub-caches! dispose-reaction! failures)
+     (doseq [root @active-roots-cell]
+       (try (unmount-op root)
+            (catch :default e (record-teardown-failure! failures e))))
+     (finally
+       (reset! active-roots-cell #{})
+       (when emitter-cell (reset! emitter-cell nil))))
+   nil))
 
 (defn make-dispose-adapter!
   "Build a `dispose-adapter!` fn satisfying Spec 006 §Adapter disposal
@@ -1685,14 +1705,16 @@
   Best-effort drains. React's `.unmount` is idempotent / no-op on
   already-unmounted roots; a per-root unmount throw is captured rather
   than propagated so one misbehaving root does not strand the rest of the
-  drain, and the FIRST captured failure is rethrown by the shared drain
-  once everything has been attempted (rf2-ss8x). The sub-cache walk has
+  drain, and the FIRST captured failure is rethrown by this fn once
+  everything has been attempted (rf2-ss8x). The sub-cache walk has
   its own per-entry try/catch (see `dispose-frame-sub-caches!`).
 
   rf2-t0x90: also unmounts the singleton after-render DRIVER ROOT (if
   one was lazily armed) and clears its `set-tick` slot, so a torn-down
   adapter releases it and a subsequent `init!` re-arms a fresh one
-  against the new adapter rather than bumping a stale setter."
+  against the new adapter rather than bumping a stale setter. That unmount
+  is a teardown STEP under the same accumulator as the shared drain, not a
+  swallowed side-errand — see the primacy note in the body."
   [{:keys [active-roots-cell warn-cache emitter-cell
            after-render-driver-root-cell after-render-set-tick-ref]}]
   (fn dispose-adapter! []
@@ -1700,26 +1722,52 @@
     ;; drain-with-capture + emitter clear) is the shared core; the React-hook
     ;; spine layers warn-cache + driver-root + set-tick teardown on top.
     ;;
-    ;; rf2-ss8x: the shared core now RETHROWS the first cleanup failure, so
-    ;; this spine's extra teardown must sit in a `finally` — otherwise a
-    ;; throwing Reaction or root would strand the singleton driver root and
-    ;; the warn-once cache, trading MUST (2)'s leak for MUST (2)'s report and
-    ;; leaving the next `init!` bumping a stale setter. Every step below is
-    ;; already throw-guarded or a plain `reset!`, so the `finally` cannot
-    ;; displace the primary failure travelling through it.
-    (try
-      (dispose-active-roots-and-caches! rf.disposable/-dispose
-                                        (fn [r] (.unmount r))
-                                        active-roots-cell emitter-cell)
-      (finally
-        (when warn-cache (reset! warn-cache #{}))
-        (when after-render-driver-root-cell
-          (when-let [root @after-render-driver-root-cell]
-            (try (.unmount root) (catch :default _ nil)))
-          (reset! after-render-driver-root-cell nil))
-        (when after-render-set-tick-ref
-          (reset! after-render-set-tick-ref nil))))
-    nil))
+    ;; rf2-ss8x: ONE teardown transaction spans both layers. The accumulator
+    ;; is owned HERE and handed to the shared core's five-arg arity, which
+    ;; records into it instead of rethrowing its own — so the layered teardown
+    ;; below runs inside the same drain and the single rethrow happens after
+    ;; every step and every ownership reset.
+    ;;
+    ;; PRIMACY, and why the asymmetry is the substance. The singleton driver
+    ;; root is a host-specific resource this spine owns alone (Spec 006 MUST
+    ;; (2)), and its unmount is a teardown step like any other, so it obeys
+    ;; the same first-failure rule as every step before it:
+    ;;
+    ;;   * Nothing earlier threw  -> the driver-root failure IS the primary
+    ;;     and must surface. `destroy-adapter!` returning a clean nil over a
+    ;;     driver root that never released is exactly the silent hole MUST (2)
+    ;;     forbids: the fixture, hot-reload cycle or programmer cannot tell a
+    ;;     clean shutdown from a leaked React root, and the next `init!`
+    ;;     re-arms against a host resource the last generation still holds.
+    ;;   * The shared drain already failed -> it is a SECONDARY on the
+    ;;     primary's `rfAdapterTeardownSecondaryErrors`. The earlier failure
+    ;;     names the real fault and reaches the caller with identity and stack
+    ;;     intact; attachment never wraps or replaces it.
+    ;;
+    ;; The pre-rf2-ss8x `(catch :default _ nil)` here got the second case
+    ;; right by accident — a discarded secondary loses only evidence — and the
+    ;; first case wrong every single time, which is the whole defect.
+    ;;
+    ;; The layered teardown stays in a `finally` so a collapse the per-step
+    ;; catches do not cover still clears the caches (MUST (3)); every step in
+    ;; it is throw-guarded or a plain `reset!`, so the `finally` cannot
+    ;; displace a failure travelling through it.
+    (let [failures (make-teardown-failures)]
+      (try
+        (dispose-active-roots-and-caches! rf.disposable/-dispose
+                                          (fn [r] (.unmount r))
+                                          active-roots-cell emitter-cell
+                                          failures)
+        (finally
+          (when warn-cache (reset! warn-cache #{}))
+          (when after-render-driver-root-cell
+            (when-let [root @after-render-driver-root-cell]
+              (try (.unmount root)
+                   (catch :default e (record-teardown-failure! failures e))))
+            (reset! after-render-driver-root-cell nil))
+          (when after-render-set-tick-ref
+            (reset! after-render-set-tick-ref nil))))
+      (rethrow-teardown-failure! failures))))
 
 (defn make-hiccup-emitter-cell
   "Return a fresh `(atom nil)` cell that will hold the substrate's
