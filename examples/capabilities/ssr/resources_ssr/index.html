@@ -38,15 +38,20 @@
     part 5), `:current-work` is stripped on the wire, and host handles never
     serialize. On hydration the framework `:rf/hydrate` installs this projection
     into the client frame's runtime partition; the reconcile orphans the
-    `[:ssr …]` SSR owner + recomputes the indexes; a fresh entry renders
-    immediately and does NOT immediately re-fetch.
+    `[:ssr …]` SSR owner + recomputes the indexes. That leaves the entry
+    renderable but held by nothing, so `run` then dispatches
+    `:resources-ssr.app/page-opened` to take the client's own hold — which
+    for this fresh entry is a cache hit: the owner attaches, the timers arm,
+    and no request is issued.
 
     Freshness: this article list declares NO time-based staleness policy
     (`:articles/list` omits `:stale-after-ms`), so its entry never ages out on
     a timer and the baked `:stale-at` is nil. That keeps this offline fixture
     deterministically fresh indefinitely — no rebased clock, no rotting
     absolute deadline — with explicit invalidation as the real freshness
-    authority. So the hydrated entry is fresh, and the client does NOT refetch.
+    authority. So the hydrated entry is fresh, the client's page-opened
+    `ensure` fresh-skips, and no request leaves the browser — which is what
+    lets this static fixture run with no server behind it.
 
     The `#app` subtree is the dev-build output of `rf/render-to-string` — the
     same string `handle-request` inlines, minus the `data-rf-render-hash`

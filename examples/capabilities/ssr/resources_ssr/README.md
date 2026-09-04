@@ -103,11 +103,32 @@ per-request, and the wire payload stays minimal.
   the cleanup the wire couldn't carry: it orphans the now-defunct SSR
   owner, recomputes the reverse indexes from `:entries`, and settles any
   wire-stripped in-flight entry to a stable
-  [status](../../../../docs/resources/glossary.md#resource-status). The
-  result is the whole point: a fresh hydrated entry renders its data
-  immediately and does not re-fetch it. (A stale, redacted, or
-  omitted entry does refetch — because for those the client genuinely
-  has no usable data in hand.)
+  [status](../../../../docs/resources/glossary.md#resource-status).
+  Reconciling is all it does. It classifies what arrived; it never causes
+  work — and neither does a passive subscription. So the client issues one
+  command of its own: `run` dispatches `:resources-ssr.app/page-opened`,
+  which `ensure`s the same resource under the app's own
+  [owner](../../../../docs/resources/glossary.md#owner--cause) before the
+  first render. That is where the payoff actually lands. For the fresh
+  hydrated entry the `ensure` is a cache hit — it takes the hold, arms the
+  entry's timers, and issues nothing — so the server's data renders on the
+  first paint and no second request goes out. A cold or stale entry gets
+  exactly the one load it needs, and no more.
+
+- Acquisition is the app's job here, because there is no route. A routed
+  page would not write that event at all: `reg-route`'s `:resources` plan
+  `ensure`s under a `[:route route-id nav-token]` owner on route entry and
+  releases it on route leave, so the framework mints and retires the hold
+  for you. This page is deliberately route-free — the simplest SSR shape
+  there is — so it uses the framework's other answer, the app-minted event
+  owner ([Spec 016 §The scoped-cache owner
+  lifecycle](../../../../spec/016-Resources.md)), and owns the matching
+  `:resources-ssr.app/page-closed` release to go with it. Both halves
+  matter. An owner nobody releases pins its entry alive forever; an entry
+  nobody owns is renderable but inert — tag invalidation and
+  focus/reconnect revalidation pass it by, and no GC clock runs. Taking the
+  hold is what makes the hydrated cache a live cache rather than a picture
+  of one.
 
 - Scope is a wall hydration may never cross. The resource declares
   `:scope :rf.scope/global` — the auditable claim that this article list
@@ -121,8 +142,15 @@ per-request, and the wire payload stays minimal.
 
 The SSR-resource runtime is real: `handle-request` drives the actual
 server path, not a skeleton stand-in. The blocking poll, the per-entry
-projection (redaction / omission / scoped-key privacy / index omission),
-and the client hydration reconcile + refetch plan all run end-to-end.
+payload projection, the client hydration reconcile, and the client
+acquisition all run end-to-end. Two limits on that worth stating plainly.
+`:articles/list` declares neither `:sensitive?` nor `:large?`, so the
+projection's redaction and omission branches are available to it but are
+never taken on this page. And hydration's refetch plan *classifies* what
+arrived without issuing anything — the request this page does or doesn't
+make is decided by the client `ensure` above, not by the plan. The generic
+contract for both is [Spec 016 §SSR and
+hydration](../../../../spec/016-Resources.md).
 
 The `index.html` next to this file carries a pre-baked hydration
 payload — a `:loaded` `:articles/list` entry — so the browser-side `run`
@@ -135,9 +163,11 @@ not under the scoped-key vector as a map key. It's an illustrative
 stand-in for what `handle-request` emits behind a real server, not a
 byte-exact capture. Because `:articles/list` declares no time-based
 staleness policy, the baked entry carries `:stale-at nil` and stays
-deterministically fresh — no rotting absolute deadline — so on hydration
-it renders immediately and the client does not refetch. One visible
-difference is the frame-id. This hand-written
+deterministically fresh — no rotting absolute deadline. So the client's
+`:resources-ssr.app/page-opened` `ensure` takes the fresh-skip path: it
+attaches the page owner and arms the entry's timers without issuing a
+request, which is what lets this fixture run with no server behind it.
+One visible difference is the frame-id. This hand-written
 payload pins `:rf/frame-id :rf/default` — present and equal to the
 client's fixed target, a valid no-conflict shape a static file can
 hand-pick. `handle-request` instead drops `:rf/frame-id`, because its
