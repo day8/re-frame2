@@ -59,6 +59,17 @@ const DEV_ONLY_SENTINELS = [
   // re-frame.schemas — validate-app-schema! reason string.
   { source: 're-frame.schemas/validate-app-schema!',
     sentinel: 'App-db at path ' },
+  // re-frame.schemas — the rf2-xpd8 PR1 app-db candidate-REJECTION record's
+  // reason string. Distinct from the trace reason above: this sentence rides
+  // the always-on `:errors` stream (through the `:error-emit/dispatch-error-
+  // record` hook) so a rejected transaction is not silent in an untooled dev
+  // build. It is emitted from INSIDE `validate-app-schema!`'s outermost
+  // `(if interop/debug-enabled? ...)` gate — the same gate as the check —
+  // so the whole call, this literal included, must DCE under :advanced +
+  // goog.DEBUG=false. This sentinel is what proves the record is gated WITH
+  // the check rather than merely beside it.
+  { source: 're-frame.schemas/validate-app-schema! (:errors rejection record)',
+    sentinel: 'the candidate transition was rejected and nothing installed.' },
   // re-frame.schemas — validate-event! reason string. Per rf2-dz71l
   // the distinctive per-surface slot-tail (" payload failed schema ")
   // is pinned at the call site to the centralised `reason-string`

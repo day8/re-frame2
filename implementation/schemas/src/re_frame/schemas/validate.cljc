@@ -334,6 +334,99 @@
   [tags]
   (trace/emit-error! :rf.error/schema-validation-failure tags))
 
+(defn- emit-app-db-rejection-record!
+  "Fan ONE structural-only `:rf.error/schema-validation-failure` record onto
+  the always-on `:errors` stream for a rejected `app-db` candidate — the
+  `:where :app-db`, `:rollback? true` arm (RULED rf2-xpd8, PR1).
+
+  ## Why a dev-only check reports on the always-on stream
+
+  The promotion criterion (Spec 009 §The promotion criterion) says which
+  categories MUST ride the always-on axis in EVERY build. It does not forbid
+  a check that is compiled out of production from reporting, in the build
+  where it runs, that it discarded a whole transaction. `always-on` describes
+  the STREAM's survival, not a promise that every producer exists in every
+  build.
+
+  And the silence this closes was total. A rejected candidate leaves the page
+  rendering its pre-event state with nothing thrown, nothing logged, no failed
+  request, and nothing on the stream an application registers to hear about its
+  own errors — measured on a live page as 0 `:errors` records beside 17 dev
+  traces for one dispatch, with an unregistered-event-id control proving the
+  listener live. The dev TRACE carried the whole story and has no default
+  listener, so unless the developer already had Xray open and knew to look, an
+  application-wide permanent rollback loop simply rendered empty.
+
+  ## Production is untouched BY CONSTRUCTION
+
+  This is called from inside `validate-app-schema!`'s outermost
+  `(if interop/debug-enabled? …)` gate — the same gate as the check itself —
+  so `:advanced` + `goog.DEBUG=false` (and `-Dre-frame.debug=false` on the
+  JVM) carries neither the call nor the reason string's literals. The elision
+  probe pins the reason's distinctive tail ABSENT from the release bundle;
+  `scripts/test-core-prod-gate.sh` pins zero records under the JVM gate.
+
+  ## The record is BUILT FROM structural inputs, never filtered from `tags`
+
+  Same discipline as the `:rf.schema/at-boundary` arm's
+  `emit-boundary-rejection-record!` (router.cljc), and for the same reason:
+  a validation failure's natural detail is the value that failed. So the key
+  set is CLOSED and every member is composed here from a framework keyword,
+  the developer's own registration root, or an event / frame id.
+
+  Deliberately OMITTED, each for a measured reason:
+
+    - `:path` — the trace's `:path` is the registered root conj'd with the
+      failing leaf's Malli `:in`, and `:in` segments are not all structural:
+      a `:set` failure's segment IS the failing element value and a `:map-of`
+      key rides as the key. `sanitize-sensitive-path` scrubs those only when
+      the leaf is `:sensitive?`, so a non-sensitive set element would ship
+      verbatim. A structural-path projection would have to drop those segment
+      kinds first; that is not this PR.
+    - `:value` / `:received` / `:explain` / `:explain-humanized` / `:schema` —
+      the payload itself, and the schema FORM (unbounded `pr-str`).
+
+  All of them stay on the dev trace, which is BYTE-IDENTICAL to before this
+  change: Xray, Story and the epoch recorder read the trace and are unaffected.
+
+  ## The reason is composed, not copied
+
+  `reason-string` interpolates `(pr-str schema)` — unbounded — so it cannot
+  ride here. This sentence is built from the registered path and
+  `error/type-of-value` (a closed vocabulary plus host class names) alone,
+  and it is what the rf2-fu75 unowned-error console fallback prints when
+  nothing owns the `:errors` stream: seventeen red lines each naming a
+  registered path and ending `got nil` is a self-diagnosing incident.
+
+  Reached through the `:error-emit/dispatch-error-record` late-bind hook, the
+  general non-event union-record chokepoint — never a static require, which
+  would close a load cycle from the schemas artefact into core's error-emit
+  namespace. A nil hook (error-emit not loaded) is a silent skip.
+
+  Returns nil."
+  [registered-path event-id frame-id leaf-value]
+  (when-let [dispatch-error-record! (late-bind/get-fn-cached
+                                      :error-emit/dispatch-error-record)]
+    (dispatch-error-record!
+      {:error           :rf.error/schema-validation-failure
+       :where           :app-db
+       :registered-path registered-path
+       :event-id        event-id
+       :failing-id      event-id
+       :frame           frame-id
+       :rollback?       true
+       :recovery        :no-recovery
+       ;; The tail is ONE string literal on purpose: `str` compiles to a
+       ;; runtime concat, so a tail split across two literals would never
+       ;; appear contiguously in a compiled bundle and `check-elision.cjs`
+       ;; could not prove it absent.
+       :reason          (str "App-db candidate at registered path "
+                             registered-path " failed its schema (got "
+                             (error/type-of-value leaf-value)
+                             "); the candidate transition was rejected and nothing installed.")
+       :time            (interop/now-ms)}))
+  nil)
+
 (defn- emit-malformed-schema!
   "Single emit seam for `:rf.error/malformed-schema` traces.
 
@@ -883,6 +976,18 @@
                           (if-not (continue?)
                             :rf/stale-incarnation
                             (do
+                              ;; rf2-xpd8 PR1: the always-on `:errors` record
+                              ;; FIRST, then the dev trace — mirroring
+                              ;; `emit-error-both!`'s axis-1-then-axis-2
+                              ;; ordering (error_emit.cljc), so the JVM SSR
+                              ;; error-listener's last-write-wins buffer keeps
+                              ;; the RICHER trace as its final input. Both
+                              ;; emits sit under the SAME `(continue?)` guards:
+                              ;; a stale incarnation emits nothing on either
+                              ;; axis, and the two can never disagree about
+                              ;; whether this rejection happened.
+                              (emit-app-db-rejection-record!
+                                registered-path event-id frame-id leaf-value)
                               (emit-validation-failure! tags)
                               (if (continue?)
                                 (recur (next entries) false)
