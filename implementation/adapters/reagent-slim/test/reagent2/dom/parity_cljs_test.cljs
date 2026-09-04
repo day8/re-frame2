@@ -30,14 +30,36 @@
 (defn- via-rewrite [hiccup]
   (server/render-to-static-markup hiccup))
 
-(def ^:private boolean-attr-set
-  "Boolean attributes that React 18 emits as `disabled=\"\"` but
-  HTML5/React 19/the rewrite emits as bare `disabled`. Used in
-  canonicalisation per §8.7 known-difference allow-list."
-  #{"allowfullscreen" "async" "autofocus" "autoplay" "checked"
-    "controls" "default" "defer" "disabled" "formnovalidate" "hidden"
-    "loop" "multiple" "muted" "novalidate" "open" "playsinline"
-    "readonly" "required" "reversed" "selected" "itemscope"})
+;; ---------------------------------------------------------------------------
+;; rf2-owml — there is deliberately NO roster of boolean attribute names
+;; here any more.
+;;
+;; This file used to carry its own 22-name `boolean-attr-set`, a second
+;; copy of `reagent2.dom.server`'s presence roster, so that the diff
+;; could recognise `disabled=""` (React's spelling) as equivalent to
+;; the bare `disabled` this serializer emits. It drifted: PR #9224 added
+;; six presence names to the production roster and this copy stayed at
+;; 22, invisibly, because the corpus below exercises exactly one boolean
+;; name (`:disabled`).
+;;
+;; The roster was answering a question the canonicalisation never needed
+;; to ask. `name` and `name=""` are the SAME markup: an HTML attribute
+;; written without a value has the empty string as its value, so both
+;; spellings parse to an identical DOM node and hydrate identically.
+;; Collapsing them is therefore a lossless canonicalisation of equivalent
+;; bytes rather than an allow-list of names, and it needs no roster —
+;; which is why the drift surface is gone rather than corrected.
+;;
+;; What it does NOT do is hide a missing or wrong roster entry, because
+;; those change whether the attribute is PRESENT, not how it is spelled:
+;; a name the serializer fails to classify emits no attribute at all
+;; (`<input>` vs React's `<input disabled="">`) and still reds. The
+;; roster itself is anchored externally, against react-dom's own
+;; `possibleStandardNames` at run time, by
+;; `reagent2.dom.boolean-attr-react-parity-cljs-test`; that is the gate
+;; for WHICH names are boolean, and this file is the gate for the
+;; corpus's byte-level shape.
+;; ---------------------------------------------------------------------------
 
 (defn- strip-react-19-resource-hints
   "React 19's `renderToStaticMarkup` auto-emits `<link rel=\"preload\">`
@@ -62,9 +84,11 @@
     1. React 18's renderToStaticMarkup emits XHTML-style self-closing
        `<input/>` (closing slash); HTML5/React-19/the rewrite emits
        `<input>`. Strip the closing slash on void tags.
-    2. React 18 emits boolean attrs as `disabled=\"\"`; HTML5/the
-       rewrite emits the short form `disabled`. Collapse to the
-       short form.
+    2. React emits a present-but-empty attribute as `disabled=\"\"`;
+       HTML5/the rewrite emits the short form `disabled`. Both
+       spellings parse to the same DOM node, so BOTH sides collapse
+       to the short form — no roster of names is consulted, and none
+       is maintained here (see the rf2-owml note below).
     3. React's attribute insertion order may differ from hiccup map
        order. Sort attributes within each tag.
     4. React 19 auto-emits `<link rel=\"preload\">` resource hints in
@@ -85,17 +109,17 @@
          (let [parts (->> (re-seq #"\s+([^=\s>]+)(?:=\"([^\"]*)\")?" attrs)
                           (map (fn [[_ k v]]
                                  (cond
-                                   ;; Boolean attr with empty value → short form.
-                                   (and (contains? boolean-attr-set
-                                                   (clojure.string/lower-case k))
-                                        (or (nil? v) (= "" v)))
+                                   ;; Empty value → the bare short form,
+                                   ;; whatever the attribute is named. The
+                                   ;; two spellings denote the same DOM
+                                   ;; node (rf2-owml, above), so this is a
+                                   ;; canonicalisation rather than a
+                                   ;; name-scoped allow-list.
+                                   (or (nil? v) (= "" v))
                                    (str " " k)
 
-                                   v
-                                   (str " " k "=\"" v "\"")
-
                                    :else
-                                   (str " " k))))
+                                   (str " " k "=\"" v "\""))))
                           sort
                           (apply str))]
            ;; Always drop the trailing slash; HTML5 doesn't use it.
@@ -191,6 +215,41 @@
   (testing "false boolean attr is omitted"
     (let [[a b] (=parity [:input {:disabled false}])]
       (is (= a b)))))
+
+(deftest parity-presence-attr-js-falsey-values
+  (testing "rf2-owml: a presence attribute collapses on JS TRUTHINESS, so the
+            JS-falsey non-booleans are omitted like react-dom omits them.
+            `\"\"` and `0` are falsey in JavaScript and TRUTHY in ClojureScript,
+            so a `(when v ...)` written in CLJS emits a bare `disabled` where
+            react-dom emits nothing. Neither value is a boolean, so the
+            boolean-class probe in
+            `reagent2.dom.boolean-attr-react-parity-cljs-test` cannot see this
+            — it is pinned here, against the live react-dom reference."
+    (doseq [v ["" 0]]
+      (let [[a b] (=parity [:button {:disabled v} "x"])]
+        (is (= a b)
+            (str "react-dom omits a presence attribute whose value is the "
+                 "JS-falsey " (pr-str v)))))
+    ;; The reference bytes, stated independently of react-dom so the intent
+    ;; survives a react-dom bump.
+    (is (= "<button>x</button>" (via-rewrite [:button {:disabled ""} "x"])))
+    (is (= "<button>x</button>" (via-rewrite [:button {:disabled 0} "x"]))))
+  (testing "the truthy neighbours must NOT move — including the string \"0\",
+            which is falsey as a number and truthy as a string"
+    (doseq [v ["yes" "0" 1]]
+      (let [[a b] (=parity [:button {:disabled v} "x"])]
+        (is (= a b) (str "react-dom collapses the truthy " (pr-str v)))))
+    (is (= "<button disabled>x</button>" (via-rewrite [:button {:disabled "0"} "x"])))
+    (is (= "<button disabled>x</button>" (via-rewrite [:button {:disabled "yes"} "x"])))))
+
+(deftest empty-value-on-an-ordinary-attribute-keeps-its-quotes
+  (testing "rf2-owml: the canonicalisation above collapses `k=\"\"` to bare `k`
+            on BOTH sides, so it cannot be the thing asserting that an ordinary
+            attribute keeps the quoted empty value. That is pinned here,
+            OUTSIDE `=parity`, on the serializer's raw bytes — react-dom emits
+            `title=\"\"` and so must this."
+    (is (= "<div title=\"\"></div>" (via-rewrite [:div {:title ""}])))
+    (is (= "<div id=\"\"></div>" (via-rewrite [:div {:id ""}])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Void tags
