@@ -1812,6 +1812,101 @@
       (is (= 6 (:page (:query (nav-slice))))
           "the :query-merge delta wins over the current :page=5"))))
 
+(deftest routing-query-merge-non-map-value-rejects
+  (testing "a present NON-MAP :query-merge rejects at the always-on gate — it must never navigate"
+    ;; rf2-16w8. Per Spec 012 §The request grammar / §Validity rules rule 9,
+    ;; `:query-merge`'s value is a MAP of query deltas. Key PRESENCE
+    ;; discriminates the in-place branch, so before this rule the gate said
+    ;; nothing about the VALUE and `navigate-handler`'s `merge` fold decided
+    ;; the outcome by Clojure's incidental collection semantics — THREE
+    ;; different wrong outcomes from one missing boundary check:
+    ;;   * `[:page 2]`  — accepted by `merge` as a map entry: a real
+    ;;                    navigation committed, query changed, nav-token
+    ;;                    advanced, URL pushed.
+    ;;   * `"oops"`     — a raw ClassCastException with no ex-data, contained
+    ;;                    by the generic event-handler channel rather than
+    ;;                    this operation's structural rejection contract.
+    ;;   * `nil`        — swallowed by the fold's `if-let`: a silent no-op,
+    ;;                    despite presence being the grammar's discriminator.
+    ;; The gate now rejects all three BEFORE any guard runs.
+    (rf/reg-route :route/search
+                  {:query     [:map [:q {:optional true} :string]
+                                    [:page {:optional true} :int]]
+                   :can-leave :search/can-leave?}
+                  "/search")
+    (let [pushed      (atom [])
+          errors      (atom [])
+          leave-calls (atom 0)]
+      (rf/reg-sub :search/can-leave?
+                  (fn [_ _] (swap! leave-calls inc) true))
+      (rf.fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/transitioned "/search?q=clojure&page=1"])
+      (is (= {:q "clojure" :page 1} (:query (nav-slice)))
+          "precondition: a real current route exists, so the rejections below
+           cannot be the :no-current-route rule firing instead")
+      (let [query-before (:query (nav-slice))
+            token-before (:nav-token (nav-slice))
+            id-before    (:route-id (nav-slice))]
+        (is (some? token-before) "precondition: a nav-token was allocated")
+
+        ;; POSITIVE CONTROL — the two-element vector genuinely commits a
+        ;; navigation through an unguarded fold. Without this row the
+        ;; assertions below would prove only that something was refused; this
+        ;; is what makes them load-bearing.
+        (is (= {:q "clojure" :page 2} (merge query-before [:page 2]))
+            "control: an unguarded `merge` really does fold a 2-vector into a
+             CHANGED query — this is the silent navigation being closed")
+
+        (reset! leave-calls 0)
+        (doseq [[label bad-value] [["two-element vector" [:page 2]]
+                                   ["string"             "oops"]
+                                   ["present nil"        nil]
+                                   ["seq of pairs"       [[:page 2]]]]]
+          (reset! pushed [])
+          (reset! errors [])
+          ;; SEMANTIC, posture-independent (rf2-o5dbf): the value-shape
+          ;; violation is the always-on gate's own verdict, readable under
+          ;; -Dre-frame.debug=false because `classify` is.
+          (is (= :query-merge-not-map (:reason (gate-verdict {:query-merge bad-value})))
+              (str label ": the gate names the query-merge-not-map violation"))
+          (is (= [:query-merge] (:keys (gate-verdict {:query-merge bad-value})))
+              (str label ": :keys names the offending key"))
+          (rf/register-listener! :trace ::qm-value-reject
+                                 (fn [ev] (when (= :error (:op-type ev))
+                                            (swap! errors conj ev))))
+          (rf/dispatch-sync [:rf.route/navigate {:query-merge bad-value}])
+          (rf/unregister-listener! :trace ::qm-value-reject)
+          (is (= id-before (:route-id (nav-slice)))
+              (str label ": the route slice is unchanged"))
+          (is (= query-before (:query (nav-slice)))
+              (str label ": the query is unchanged — no navigation committed"))
+          (is (= token-before (:nav-token (nav-slice)))
+              (str label ": the nav-token did NOT advance"))
+          (is (empty? @pushed)
+              (str label ": no URL effect committed"))
+          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+          (when rf.interop/debug-enabled?
+            (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
+              (is (some? err) (str label ": :rf.error/navigate-bad-request emitted"))
+              (is (= :query-merge-not-map (-> err :tags :reason))
+                  (str label ": :reason names the value-shape violation"))
+              (is (= [:query-merge] (-> err :tags :keys))
+                  (str label ": :keys names the offending key")))))
+
+        (is (zero? @leave-calls)
+            "the gate rejected BEFORE any guard ran — :can-leave was never
+             consulted for any of the four malformed requests")
+
+        ;; …and the VALID surface still navigates, so the rows above are not
+        ;; passing because :query-merge stopped working altogether.
+        (reset! pushed [])
+        (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
+        (is (= {:q "clojure" :page 2} (:query (nav-slice)))
+            "control: a MAP delta still folds and commits")
+        (is (seq @pushed) "control: the valid navigation did push a URL")))))
+
 (deftest routing-query-merge-with-destination-rejects
   (testing ":query-merge requires an in-place request — a destination target is rejected"
     ;; Per Spec 012 §Validity rules rule 4: :query-merge requires an IN-PLACE

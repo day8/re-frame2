@@ -129,3 +129,37 @@
         (is (= :unknown-keys (-> err :tags :reason)))
         (is (= (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))
                (-> err :tags :keys)))))))
+
+;; ---- navigate `:query-merge` VALUE shape is total on both hosts ----------
+
+(deftest navigate-non-map-query-merge-rejects-cross-host
+  (testing "a present non-map :query-merge rejects (:query-merge-not-map) on
+            both hosts — the fold's collection semantics never decide it"
+    ;; rf2-16w8. This is the case the bead singled out as needing a CLJS
+    ;; witness: the JVM symptom is decided by Clojure's `merge`/`conj`
+    ;; collection protocol, and the CLJS host's protocol could present a
+    ;; DIFFERENT accidental symptom for the same malformed request. Pinning
+    ;; the verdict on `classify` — the always-on gate both hosts run — makes
+    ;; the rejection a property of the boundary rather than of either host's
+    ;; incidental behaviour.
+    (let [current {:route-id :route/search :query {:q "x"}}]
+      ;; POSITIVE CONTROL, evaluated on whichever host is running: a
+      ;; two-element vector really is a map entry HERE too, so an unguarded
+      ;; fold would have silently changed the query on this host as well.
+      (is (= {:q "x" :page 2} (merge {:q "x"} [:page 2]))
+          "control: this host's `merge` folds a 2-vector into a CHANGED query")
+      (is (not (map? [:page 2]))
+          "…and it is not a map, so only an explicit map? check can tell")
+      (doseq [bad-value [[:page 2] "oops" nil [[:page 2]]]]
+        (is (= {:reason :query-merge-not-map :keys [:query-merge]}
+               (rf.routing.address/classify {:query-merge bad-value} current))
+            "the always-on gate rejects the non-map delta with a stable reason"))
+      (is (nil? (rf.routing.address/classify {:query-merge {}} current))
+          "{} remains a valid exact no-op on both hosts")
+      (is (nil? (rf.routing.address/classify {:query-merge {:page 2}} current))
+          "a map delta still passes on both hosts"))
+    ;; …and the rejection really holds through the real dispatch door.
+    (rf/dispatch-sync [:rf.route/navigate {:query-merge [:page 2]}])
+    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                      [:rf.runtime/routing :current]))
+        "the rejected navigate left the route slice unchanged (no commit)")))

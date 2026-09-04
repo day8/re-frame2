@@ -72,7 +72,12 @@
   destination (`:to` / `:url`) is present these PATCH the current location and
   are NEVER validated or stored as a RouteAddress (Spec 012 §The extraction
   law rule 3). Key PRESENCE — not truthiness — discriminates: `:query {}`
-  clears the query, `:fragment nil` clears the fragment."
+  clears the query, `:fragment nil` clears the fragment.
+
+  Because presence rather than truthiness selects the branch, the VALUE of
+  `:query-merge` is checked by `classify` rather than inferred by the fold
+  that consumes it: it must be a map of query deltas, and a present non-map
+  (nil included) rejects `:reason :query-merge-not-map` (rf2-16w8)."
   #{:query :query-merge :fragment})
 
 (def link-behavior-keys
@@ -209,6 +214,9 @@
   8. Unknown keys reject (namespaced included), reported in a total canonical
      order (`rf.identity/canonical-bytes`) so heterogeneous EDN keys never trip a
      `compare`-based `sort`.
+  9. `:query-merge`'s VALUE is a map of query deltas — a present non-map
+     (including nil) rejects `:reason :query-merge-not-map` (rf2-16w8). `{}`
+     is a valid exact no-op; a nil INSIDE the map still deletes a key.
 
   This is the byte-for-byte gate `:rf.route/navigate` ran inline before R0b;
   moving it here makes it the ONE definition every door's whole-roster
@@ -243,6 +251,28 @@
 
       (and (contains? request :query-merge) dest?)
       {:reason :query-merge-in-place-only :keys [:query-merge]}
+
+      ;; rf2-16w8 — `:query-merge`'s VALUE is a map of query deltas. PRESENCE
+      ;; discriminates the in-place branch (`edit-keys`), so this gate is the
+      ;; only place that can speak about the value at all; without this rule a
+      ;; non-map sailed through to `navigate-handler`'s `merge` fold, where
+      ;; Clojure's collection semantics decided the outcome three ways: a
+      ;; two-element vector IS a map entry to `merge`, so `{:query-merge
+      ;; [:page 2]}` silently COMMITTED a real navigation (query changed,
+      ;; nav-token advanced, URL pushed); a string reached a raw
+      ;; ClassCastException with no ex-data; and a present nil vanished into
+      ;; the fold's `if-let` as a silent no-op. One structural boundary, one
+      ;; local explanation. Deliberately placed AFTER the roster and
+      ;; mutual-exclusion rules so a request that is wrong in two ways still
+      ;; reports the relationship it always reported.
+      ;;
+      ;; `{}` stays a valid exact no-op, and a nil INSIDE the delta map still
+      ;; deletes a key — this rule is about the delta map itself, never its
+      ;; members. A present nil for the map itself rejects rather than
+      ;; vanishing: omission is already the unambiguous spelling for "no
+      ;; merge".
+      (and (contains? request :query-merge) (not (map? (:query-merge request))))
+      {:reason :query-merge-not-map :keys [:query-merge]}
 
       (not (or dest? edit?))
       {:reason :no-destination-or-change :keys (sorted-keys ks)}
