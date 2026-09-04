@@ -46,12 +46,12 @@
   one shared test-side place."
   (:require [applied-science.js-interop :as j]
             [cljs.reader :as edn]
-            [re-frame.mcp-base.dedup :as base-dedup]
+            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.freshness :as freshness]
             [re-frame2-pair-mcp.tools.result-envelope :as renv]
-            [re-frame.mcp-base.overflow :as base-overflow]
-            [re-frame.mcp-base.vocab :as base-vocab]))
+            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-envelope extractors — one definition, shared across suites.
@@ -193,8 +193,8 @@
   via `re-frame.mcp-base.dedup/expand`. Idempotent on already-expanded values
   (returns the input unchanged when the wrapper isn't present)."
   [v]
-  (if (and (map? v) (contains? v base-vocab/dedup-table-key))
-    (base-dedup/expand (get v base-vocab/dedup-table-key))
+  (if (and (map? v) (contains? v rf.mcp-base.vocab/dedup-table-key))
+    (rf.mcp-base.dedup/expand (get v rf.mcp-base.vocab/dedup-table-key))
     v))
 
 ;; ---------------------------------------------------------------------------
@@ -211,13 +211,13 @@
   cross-MCP `(quot (count s) 4)` token approximation. Test-only handle
   on the cross-MCP token rule."
   [s]
-  (base-overflow/token-estimate s))
+  (rf.mcp-base.overflow/token-estimate s))
 
 (def overflow-hint-fallback
   "The cross-MCP overflow-marker fallback hint string, sourced from
   `re-frame.mcp-base.overflow/overflow-hint-fallback`. Test-only handle
   on the overflow-fallback contract."
-  base-overflow/overflow-hint-fallback)
+  rf.mcp-base.overflow/overflow-hint-fallback)
 
 (defn truncate-preview
   "Truncate `text` to `result-envelope/preview-cap` chars with a

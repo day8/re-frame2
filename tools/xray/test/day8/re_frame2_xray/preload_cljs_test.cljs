@@ -34,11 +34,11 @@
   on node-test keeps them fast and host-portable."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -46,7 +46,7 @@
 ;; ---- fixtures -----------------------------------------------------------
 ;;
 ;; Per `re-frame.test-support` (rf2-am9d) the canonical CLJS test isolation
-;; pattern is snapshot/restore. `(registrar/clear-all!)` is hostile here:
+;; pattern is snapshot/restore. `(rf.registrar/clear-all!)` is hostile here:
 ;; the framework-shipped registrations land at ns-load time and cannot
 ;; be re-loaded, so wiping the registrar between tests leaves any
 ;; subsequent test ns starting against an empty registry — and the
@@ -64,8 +64,8 @@
   (trace-collector/reset-for-test!))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn xray-init!}))
 
 ;; ---- (1) idempotency ----------------------------------------------------
@@ -80,18 +80,18 @@
     (preload/register-trace-collector!)
     (preload/register-trace-collector!)
     (trace-collector/reset-for-test!)
-    (trace/emit! :info :rf.test/idempotency-check {:source :test})
+    (rf.trace/emit! :info :rf.test/idempotency-check {:source :test})
     (is (= 1 (count (trace-collector/buffer-for-test)))
         "duplicate registrations must not deliver the same event twice")))
 
 (deftest registry-handlers-are-idempotent
   (testing "calling register-xray-handlers! twice registers the sub once"
     (registry/register-xray-handlers!)
-    (let [first-handler (registrar/handler :sub :rf.xray/trace-buffer)]
+    (let [first-handler (rf.registrar/handler :sub :rf.xray/trace-buffer)]
       (is (some? first-handler) "first call registers :rf.xray/trace-buffer")
       (registry/register-xray-handlers!)
       (is (identical? first-handler
-                      (registrar/handler :sub :rf.xray/trace-buffer))
+                      (rf.registrar/handler :sub :rf.xray/trace-buffer))
           "second call does not replace the handler"))))
 
 ;; ---- (2) frame isolation ------------------------------------------------
@@ -120,8 +120,8 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/test-write]))
 
-    (let [default-db (frame/frame-app-db-value :rf/default)
-          xray-db   (frame/frame-app-db-value :rf/xray)]
+    (let [default-db (rf.frame/frame-app-db-value :rf/default)
+          xray-db   (rf.frame/frame-app-db-value :rf/xray)]
       (is (true? (:host-touched? default-db))
           "host write reaches :rf/default")
       (is (nil? (:xray-touched? default-db))
@@ -139,7 +139,7 @@
     (preload/register-trace-collector!)
     ;; A synthetic emit through the framework's trace bus — same path
     ;; used by every drain step / dispatch / fx call.
-    (trace/emit! :info :rf.test/synthetic-event
+    (rf.trace/emit! :info :rf.test/synthetic-event
                  {:source :test
                   :hint   "Phase 1 trace-collector smoke"})
     (let [buf (trace-collector/buffer-for-test)]
@@ -164,7 +164,7 @@
     (trace-collector/set-frameless-ring-depth! 3)
     (try
       (dotimes [i 5]
-        (trace/emit! :info :rf.test/synthetic-overflow
+        (rf.trace/emit! :info :rf.test/synthetic-overflow
                      {:n i :source :test}))
       (let [buf (trace-collector/buffer-for-test)]
         (is (= 3 (count buf))

@@ -43,17 +43,17 @@
   `parallel_frames_e2e_cljs_test` does."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.source-store :as source-store]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private frame-below :below)
 
@@ -71,7 +71,7 @@
   ;; provenance rows) before registering ours, or the host frame's
   ;; default-image assembly fails loud on the cross-ns duplicate.
   (doseq [[kind id] [[:event :counter/inc] [:sub :counter/value]]]
-    (source-store/forget-id! kind id))
+    (rf.source-store/forget-id! kind id))
   (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
   (rf/reg-sub :counter/value (fn [db _] (:counter db))))
 

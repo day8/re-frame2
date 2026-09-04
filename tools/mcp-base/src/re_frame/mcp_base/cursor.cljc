@@ -37,7 +37,7 @@
   - `parse-limit-arg` takes the consumer's `default` + `max`.
   - `cursor-stale-result` takes the consumer's `error-result` fn so
     the envelope is shaped per the consumer's wire convention while the
-    `:reason` stays the cross-MCP `vocab/cursor-stale-reason`.
+    `:reason` stays the cross-MCP `rf.mcp-base.vocab/cursor-stale-reason`.
 
   ## Cross-platform
 
@@ -51,8 +51,8 @@
   otherwise bypass `:default`, decoding to a host `Date` / `UUID`)."
   (:require [clojure.string :as str]
             #?(:clj [clojure.edn :as edn])
-            [re-frame.mcp-base.args :as args]
-            [re-frame.mcp-base.vocab :as vocab])
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab])
   #?(:cljs (:require [cljs.reader]))
   #?(:clj (:import (java.util Base64))))
 
@@ -183,7 +183,7 @@
   (story 200, pair 1000) — the
   convention is the CLAMP behaviour, not the numbers."
   [raw default max]
-  (min max (args/parse-positive-int raw default)))
+  (min max (rf.mcp-base.args/parse-positive-int raw default)))
 
 ;; ---------------------------------------------------------------------------
 ;; Opaque cursor codec — pr-str + base64 of an EDN payload map.
@@ -373,7 +373,7 @@
   "Build a structured cursor-stale error result via the consumer's
   `error-result` fn.
 
-  The `:reason` slot is the cross-MCP `vocab/cursor-stale-reason`
+  The `:reason` slot is the cross-MCP `rf.mcp-base.vocab/cursor-stale-reason`
   (`:rf.mcp/cursor-stale`) so an agent that learned the recovery path
   on one server reuses it on the other — whether staleness means
   ring-rotation (pair) or registry-change-between-pages (story).
@@ -397,7 +397,7 @@
         (str "Cursor stale: it no longer addresses a valid position. "
              "Drop the cursor and restart `" tool "`."))
     (merge {:ok?    false
-            :reason vocab/cursor-stale-reason
+            :reason rf.mcp-base.vocab/cursor-stale-reason
             :tool   tool
             :hint   (or hint "Drop :cursor and re-request from the start.")}
            extra)))

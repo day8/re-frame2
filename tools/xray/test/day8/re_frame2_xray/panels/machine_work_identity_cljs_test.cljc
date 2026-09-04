@@ -9,29 +9,29 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-   #?(:clj  [re-frame.test-support :as test-support
+   #?(:clj  [re-frame.test-support :as rf.test-support
              :refer [with-trace-recorder!]]
-      :cljs [re-frame.test-support :as test-support
+      :cljs [re-frame.test-support :as rf.test-support
              :refer-macros [with-trace-recorder!]])
    [day8.re-frame2-xray.panels.reply-envelope :as reply-envelope]
    [re-frame.core :as rf]
-   [re-frame.frame :as frame]
+   [re-frame.frame :as rf.frame]
    [re-frame.machines]
-   [re-frame.substrate.plain-atom :as plain-atom]))
+   [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private parent-id :xray-work-id/parent)
 (def ^:private child-type :xray-work-id/child-type)
 (def ^:private fixed-child :xray-work-id/fixed-child#7)
 
 (defn- join-state []
-  (get-in (frame/frame-runtime-db-value :rf/default)
+  (get-in (rf.frame/frame-runtime-db-value :rf/default)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- join-attempt []
-  (get-in (frame/frame-runtime-db-value :rf/default)
+  (get-in (rf.frame/frame-runtime-db-value :rf/default)
           [:rf.runtime/machines :snapshots fixed-child :data :rf/join-child]))
 
 (defn- register-machines! []
@@ -269,7 +269,7 @@
                          :rf.machine/destroyed}
                        (:operation %))}]
       (rf/dispatch-sync [:xray-work-id/exit-parent [:start]])
-      (let [join-state (get-in (frame/frame-runtime-db-value :rf/default)
+      (let [join-state (get-in (rf.frame/frame-runtime-db-value :rf/default)
                                [:rf.runtime/machines :spawned
                                 :xray-work-id/exit-parent [:racing]])
             attempt    (:rf/attempt join-state)
@@ -300,7 +300,7 @@
                        #{:rf.machine/destroyed
                          :rf.machine.spawn-all/stale-completion}
                        (:operation %))}]
-      (let [join-state (get-in (frame/frame-runtime-db-value :rf/default)
+      (let [join-state (get-in (rf.frame/frame-runtime-db-value :rf/default)
                                [:rf.runtime/machines :spawned
                                 :xray-work-id/cancel-race-parent [:racing]])
             work-id    [:rf.work/machine

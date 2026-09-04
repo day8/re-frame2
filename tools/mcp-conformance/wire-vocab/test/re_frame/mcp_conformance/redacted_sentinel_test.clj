@@ -19,7 +19,7 @@
   (e.g. `:rf.size/redacted`) or a near-miss spelling that escapes the canonical-marker
   gate would slip past silently because the existing near-miss anti-
   pin only checks `:rf.mcp/*` / `:rf.size/*` marker keys (the namespace
-  pattern fixed in `pins/near-miss-variants`).
+  pattern fixed in `rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants`).
 
   The pin shape mirrors `:rf.mcp/cursor-stale` (the other scalar
   reserved value in the cross-MCP vocabulary):
@@ -30,12 +30,12 @@
        raw `str/includes?`)."
   (:require [clojure.string :as str]
             [clojure.test   :refer [deftest is testing]]
-            [re-frame.mcp-conformance.fixtures :as fx]
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
+            [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
 
 (def ^:private redacted-sentinel-near-miss-variants
   "Near-miss spellings of `:rf/redacted`. The default
-  `pins/near-miss-variants` generator targets the marker-key namespace
+  `rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants` generator targets the marker-key namespace
   patterns (`:rf.mcp/*` / `:rf.size/*`) — `:rf/redacted` rides the
   single-segment `:rf/*` namespace and needs bespoke variants.
 
@@ -65,7 +65,7 @@
   ;; literal. Mirrors `cursor-stale-literal-in-re-frame2-pair-mcp-emit-source`.
   (let [literal  ":rf/redacted"
         rel      "tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"
-        stripped (fx/strip-comments-and-strings (fx/read-source rel))]
+        stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings (rf.mcp-conformance.fixtures/read-source rel))]
     (is (str/includes? stripped literal)
         (str literal " missing from " rel
              " AFTER stripping docstrings/comments. The canonical "
@@ -77,8 +77,8 @@
   ;; docs catalogue. Drift here means the docs lag, not that the emit
   ;; broke.
   (let [literal ":rf/redacted"
-        files   (get pins/doc-source-files :re-frame2-pair-mcp)]
-    (is (some (fn [rel] (str/includes? (fx/read-source rel) literal)) files)
+        files   (get rf.mcp-conformance.wire-vocab.source-pins/doc-source-files :re-frame2-pair-mcp)]
+    (is (some (fn [rel] (str/includes? (rf.mcp-conformance.fixtures/read-source rel) literal)) files)
         (str literal " missing from re-frame2-pair-mcp doc-sources " files
              ". The docs may have re-organised the prose; either "
              "restore the mention or update `doc-source-files`."))))
@@ -90,10 +90,10 @@
   ;; would surface here if it returned — the anti-pin catches it before
   ;; the doc ships.
   (doseq [variant        redacted-sentinel-near-miss-variants
-          [server files] pins/all-source-files
+          [server files] rf.mcp-conformance.wire-vocab.source-pins/all-source-files
           rel            files]
     (testing (str server " — " rel " — near-miss " variant)
-      (is (not (str/includes? (fx/read-source rel) variant))
+      (is (not (str/includes? (rf.mcp-conformance.fixtures/read-source rel) variant))
           (str "Found near-miss variant " variant
                " for :rf/redacted scalar sentinel in " server "/" rel
                " — vocabulary-drift bug. The canonical form is "

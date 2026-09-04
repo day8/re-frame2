@@ -23,7 +23,7 @@
 
   Reads the registered flows through the public introspection surface
   `re-frame.flows/flows-snapshot` (Tool-Pair.md §public APIs; spec/014
-  catalogues `:rf.xray/registered-flows` as `flows/flows-snapshot`).
+  catalogues `:rf.xray/registered-flows` as `rf.flows/flows-snapshot`).
   Since rf2-en00bk the per-frame `flows` atom is the SOLE store; the
   registrar `:flow` kind is RESERVED-but-empty (no write), so the old
   `(rf/registrations :flow)` read now returns `{}` (an empty catalogue).
@@ -50,7 +50,7 @@
   `[rf/frame-provider {:frame :rf/xray}]` in `static/shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
+            [re-frame.flows :as rf.flows]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
@@ -241,7 +241,7 @@
   shape, read directly from the authoritative flows store via
   `re-frame.flows/flows-snapshot`.
 
-  Reads `flows/flows-snapshot` — the whole-registry `{frame-id {flow-id
+  Reads `rf.flows/flows-snapshot` — the whole-registry `{frame-id {flow-id
   flow-map}}` snapshot — NOT the registrar `:flow` slot. Since rf2-en00bk
   the per-frame `flows` atom is the SOLE store; the registrar `:flow` kind
   is RESERVED-but-empty (no write), so the old `(rf/registrations :flow)` /
@@ -258,7 +258,7 @@
   improvement over the old frame-blind last-registration-wins registrar
   slot (rf2-20359j)."
   []
-  (try (flows/flows-snapshot)
+  (try (rf.flows/flows-snapshot)
        (catch :default _ {})))
 
 ;; ---- registrations -------------------------------------------------------
@@ -276,7 +276,7 @@
         — test-only override setter.
     - `:rf.xray.static.flows/registered-flows` — production data sub
                                                   reading the public
-                                                  `flows/flows-snapshot`
+                                                  `rf.flows/flows-snapshot`
                                                   surface (or override).
     - `:rf.xray.static.flows/tab-data`         — view-facing composite."
   []
@@ -300,7 +300,7 @@
 
   ;; ---- production data sub ---------------------------------------------
 
-  ;; Read the registered flows through the public `flows/flows-snapshot`
+  ;; Read the registered flows through the public `rf.flows/flows-snapshot`
   ;; introspection surface (Tool-Pair.md §public APIs) once per sub
   ;; re-fire. The snapshot is already in the per-frame `{frame-id
   ;; {flow-id flow-map}}` shape the projection + picker-scoping helpers

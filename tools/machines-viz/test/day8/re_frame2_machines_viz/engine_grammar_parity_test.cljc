@@ -31,8 +31,8 @@
   shipped machines-viz jar (`:clein/build :src-dirs [\"src\"]`) carries
   no test deps.
 
-  The engine targets `parallel/normalise-root-targets`,
-  `transition/normalise-candidates`, and `transition/target-path` are
+  The engine targets `rf.machines.parallel/normalise-root-targets`,
+  `rf.machines.transition/normalise-candidates`, and `rf.machines.transition/target-path` are
   PRIVATE (`defn-`); the tests reach them through their vars
   (`#'ns/fn`), which is the standard, drift-honest way to pin a private
   contract from outside its namespace."
@@ -40,24 +40,24 @@
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.grammar :as g]
-            [re-frame.machines.choice :as choice]
-            [re-frame.machines.lifecycle-fx.validation :as validation]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.timeout :as timeout]
-            [re-frame.machines.transition :as transition]))
+            [re-frame.machines.choice :as rf.machines.choice]
+            [re-frame.machines.lifecycle-fx.validation :as rf.machines.lifecycle-fx.validation]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.timeout :as rf.machines.timeout]
+            [re-frame.machines.transition :as rf.machines.transition]))
 
 ;; ---------------------------------------------------------------------------
 ;; Private-var accessors for the engine fns the viz copies mirror.
 ;;
-;; `parallel/normalise-root-targets`, `transition/normalise-candidates`,
-;; and `transition/target-path` are `defn-` (engine-internal). Pinning a
+;; `rf.machines.parallel/normalise-root-targets`, `rf.machines.transition/normalise-candidates`,
+;; and `rf.machines.transition/target-path` are `defn-` (engine-internal). Pinning a
 ;; private contract from outside its ns via its var is intentional here —
 ;; the whole point is to assert the public viz copy agrees with the
 ;; engine's internal resolver.
 
-(def engine-normalise-root-targets @#'parallel/normalise-root-targets)
-(def engine-normalise-candidates   @#'transition/normalise-candidates)
-(def engine-target-path            @#'transition/target-path)
+(def engine-normalise-root-targets @#'rf.machines.parallel/normalise-root-targets)
+(def engine-normalise-candidates   @#'rf.machines.transition/normalise-candidates)
+(def engine-target-path            @#'rf.machines.transition/target-path)
 
 ;; ---------------------------------------------------------------------------
 ;; PARITY 1 — normalise-root-targets
@@ -67,7 +67,7 @@
 ;; not delete.
 ;;
 ;; grammar/normalise-root-targets (grammar.cljc) is byte-identical-logic
-;; to the engine's parallel/normalise-root-targets: a parallel-ROOT
+;; to the engine's rf.machines.parallel/normalise-root-targets: a parallel-ROOT
 ;; `:on` / `:after` candidate's `:target` is normalised into a vector of
 ;; region-qualified absolute targets `[[<region> & <in-region-path>] …]`.
 ;; Both projected/exported edges (viz) and the regions the engine moves
@@ -304,9 +304,9 @@
 
 (deftest resolve-timeout-ms-parity
   (testing "viz grammar/resolve-timeout-ms agrees with the engine
-            timeout/resolve-duration-ms on every duration shape"
+            rf.machines.timeout/resolve-duration-ms on every duration shape"
     (doseq [d duration-fixtures]
-      (is (= (timeout/resolve-duration-ms d)
+      (is (= (rf.machines.timeout/resolve-duration-ms d)
              (g/resolve-timeout-ms d))
           (str "timeout duration resolution drifted for " (pr-str d))))))
 
@@ -357,9 +357,9 @@
 
 (deftest desugar-timeouts-parity
   (testing "viz grammar/desugar-timeouts agrees with the engine
-            timeout/desugar-timeouts across every machine shape"
+            rf.machines.timeout/desugar-timeouts across every machine shape"
     (doseq [m timeout-machine-fixtures]
-      (is (= (timeout/desugar-timeouts m)
+      (is (= (rf.machines.timeout/desugar-timeouts m)
              (g/desugar-timeouts m))
           (str ":timeout desugar drifted for " (pr-str m))))))
 
@@ -393,9 +393,9 @@
 
 (deftest desugar-choices-parity
   (testing "viz grammar/desugar-choices agrees with the engine
-            choice/desugar-choices across every machine shape"
+            rf.machines.choice/desugar-choices across every machine shape"
     (doseq [m choice-machine-fixtures]
-      (is (= (choice/desugar-choices m)
+      (is (= (rf.machines.choice/desugar-choices m)
              (g/desugar-choices m))
           (str ":choice desugar drifted for " (pr-str m))))))
 
@@ -435,7 +435,7 @@
   as a clean `:reject`, so a definition that made the engine explode looked
   exactly like one it had validated and rejected (rf2-dhl4d)."
   [m]
-  (try (validation/validate-machine! m) :accept
+  (try (rf.machines.lifecycle-fx.validation/validate-machine! m) :accept
        (catch #?(:clj Throwable :cljs :default) t
          (if (:rf.error/id (ex-data t)) :reject :host-throw))))
 

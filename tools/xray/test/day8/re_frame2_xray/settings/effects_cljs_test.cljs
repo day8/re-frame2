@@ -19,8 +19,8 @@
   subscription value transition."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.frame :as frame]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as effects]
@@ -284,18 +284,18 @@
             saved capacity. Reads the live depth from
             `re-frame.epoch.state` to assert the wire actually landed."
     ;; Capture original depth so the fixture doesn't leak the bump.
-    (let [orig (epoch-state/depth)]
+    (let [orig (rf.epoch.state/depth)]
       (try
         (effects/apply-epoch-history! 123)
-        (is (= 123 (epoch-state/depth))
+        (is (= 123 (rf.epoch.state/depth))
             "substrate depth picks up the new value")
         ;; Defensive: nil / non-numeric is a no-op so a malformed
         ;; persisted payload never zeros the ring.
         (effects/apply-epoch-history! nil)
-        (is (= 123 (epoch-state/depth))
+        (is (= 123 (rf.epoch.state/depth))
             "nil input is a no-op; substrate depth unchanged")
         (effects/apply-epoch-history! 0)
-        (is (= 123 (epoch-state/depth))
+        (is (= 123 (rf.epoch.state/depth))
             "zero input is dropped at the effect boundary; substrate
              depth unchanged (the slider's min is 10 anyway)")
         (finally
@@ -306,14 +306,14 @@
             :epoch-history N` writes through to the substrate via the
             matching effect."
     (setup!)
-    (let [orig (epoch-state/depth)]
+    (let [orig (rf.epoch.state/depth)]
       (try
         (rf/with-frame :rf/xray
           (rf/dispatch-sync [:rf.xray/settings-update
                              :general :epoch-history 150]))
         (is (= 150 (config/get-setting :general :epoch-history))
             "config slot carries the new value")
-        (is (= 150 (epoch-state/depth))
+        (is (= 150 (rf.epoch.state/depth))
             "substrate ring depth follows the dispatch")
         (finally
           (rf/configure! {:epoch-history {:depth orig}}))))))
@@ -322,11 +322,11 @@
   (testing "rf2-3zyyx — the boot path re-applies the persisted depth
             so the substrate ring matches the user's saved capacity
             BEFORE first dispatch."
-    (let [orig (epoch-state/depth)]
+    (let [orig (rf.epoch.state/depth)]
       (try
         (config/update-setting! :general :epoch-history 88)
         (effects/apply-all!)
-        (is (= 88 (epoch-state/depth))
+        (is (= 88 (rf.epoch.state/depth))
             "apply-all! routes the persisted value to the substrate")
         (finally
           (rf/configure! {:epoch-history {:depth orig}}))))))

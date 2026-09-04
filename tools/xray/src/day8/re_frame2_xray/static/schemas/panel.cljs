@@ -25,8 +25,8 @@
 
     - app-db schemas — assembled from the public `re-frame.schemas`
       façade: `rf/frame-ids` enumerates the live frames, then per
-      frame `schemas/app-schemas` lists the registered paths and
-      `schemas/app-schema-meta-at` returns each path's full meta map
+      frame `rf.schemas/app-schemas` lists the registered paths and
+      `rf.schemas/app-schema-meta-at` returns each path's full meta map
       (`:schema` Malli EDN, `:doc`, `:file`/`:line`/`:ns` source
       coords). This yields the `{frame-id {path schema-meta}}` shape
       the per-frame projection consumes — without reaching the private
@@ -54,7 +54,7 @@
   in `static/shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.schemas :as schemas]
+            [re-frame.schemas :as rf.schemas]
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -285,8 +285,8 @@
   / `re-frame.core` surfaces (Tool-Pair.md §public APIs) — never the
   private `re-frame.schemas.storage/schemas-by-frame` atom.
 
-  For each live frame (`rf/frame-ids`), `schemas/app-schemas` enumerates
-  the registered `{path → schema}` and `schemas/app-schema-meta-at`
+  For each live frame (`rf/frame-ids`), `rf.schemas/app-schemas` enumerates
+  the registered `{path → schema}` and `rf.schemas/app-schema-meta-at`
   returns each path's full meta map (`:schema`, `:doc`, `:file` /
   `:line` / `:ns` source coords). Frames with no app-db schemas are
   dropped so the snapshot mirrors the storage atom's shape (absent
@@ -295,10 +295,10 @@
   []
   (reduce
     (fn [acc frame-id]
-      (let [paths (keys (schemas/app-schemas frame-id))
+      (let [paths (keys (rf.schemas/app-schemas frame-id))
             by-path (reduce
                       (fn [m path]
-                        (if-let [meta (schemas/app-schema-meta-at path frame-id)]
+                        (if-let [meta (rf.schemas/app-schema-meta-at path frame-id)]
                           (assoc m path meta)
                           m))
                       {}
@@ -382,7 +382,7 @@
 
   ;; Assembles the three input registries from public surfaces once per
   ;; re-fire: app-db schemas via the `re-frame.schemas` façade
-  ;; (`rf/frame-ids` + `schemas/app-schemas` + `schemas/app-schema-meta-
+  ;; (`rf/frame-ids` + `rf.schemas/app-schemas` + `rf.schemas/app-schema-meta-
   ;; at`) and event / sub specs via `(rf/registrations <kind>)`.
   ;; `:<-`-composes against the trace buffer so the sub is reactive
   ;; against the same "something changed" pulse the other Static-mode

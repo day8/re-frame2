@@ -26,7 +26,7 @@
   - Pattern matching is in `filters/matcher.cljc` (JVM-portable).
   - localStorage round-trip is in `filters/persistence.cljs`."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.filters.error-override :as error-override]
@@ -112,7 +112,7 @@
                ;; require the :rf/xray frame to exist; if not, the
                ;; first `ensure-xray-frame!` call will re-invoke
                ;; this fn.
-               (some? (frame/frame :rf/xray)))
+               (some? (rf.frame/frame :rf/xray)))
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/hydrate-filters chosen]))
       nil)))

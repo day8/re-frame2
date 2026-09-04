@@ -13,7 +13,7 @@
   host render under `:rendered`.
 
   Every Story-MCP test that named the retired slot MANUFACTURED it in a
-  stubbed `story/run-variant` outcome map (`tools_test.clj`'s
+  stubbed `rf.story/run-variant` outcome map (`tools_test.clj`'s
   `secret-bearing-run-result`, `dedup_test.clj`'s ratio fixture). A stub
   proves the scrubber; it cannot prove that a REAL Story run never emits
   the slot — so none of them would have reddened had the retirement been
@@ -23,11 +23,11 @@
 
   The REAL Story-to-consumer path, end to end, with NO `with-redefs`:
 
-  1. `story/run-variant` on a really-registered variant returns a result
+  1. `rf.story/run-variant` on a really-registered variant returns a result
      map carrying no rendering slot — and passing the retired `:render?`
      option changes nothing about that.
   2. The `run-variant` and `preview-variant` MCP handlers, driven through
-     the live `wire-pipeline/invoke-tool` boundary, project a payload
+     the live `rf.story-mcp.tools.wire-pipeline/invoke-tool` boundary, project a payload
      carrying no rendering slot.
   3. No advertised tool descriptor's prose or input schema promises
      rendered output or a `:render?` knob.
@@ -40,14 +40,14 @@
   (:require [clojure.string :as string]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.schemas :as schemas]
-            [re-frame.story :as story]
-            [re-frame.story.recorder :as recorder]
-            [re-frame.story.render :as render]
-            [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.tools.registry :as registry]
-            [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.story :as rf.story]
+            [re-frame.story.recorder :as rf.story.recorder]
+            [re-frame.story.render :as rf.story.render]
+            [re-frame.story-mcp.config :as rf.story-mcp.config]
+            [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]
+            [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; ---------------------------------------------------------------------------
 ;; The retired names. Kept as data so every assertion below probes the SAME
@@ -66,23 +66,23 @@
 
 (defn reset-story
   [t]
-  (try (rf/init! plain-atom/adapter)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
-  (story/clear-all!)
-  (story/install-canonical-vocabulary!)
-  (config/set-allow-writes! false)
-  (config/set-allow-sensitive-reads! false)
-  (schemas/clear-schemas-by-frame!)
-  (recorder/clear!)
+  (rf.story/clear-all!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.story-mcp.config/set-allow-writes! false)
+  (rf.story-mcp.config/set-allow-sensitive-reads! false)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.story.recorder/clear!)
   ;; story-mcp's own artefact carries no epoch dep, so this suite never loads
   ;; `re-frame.epoch`. PIN that posture rather than inherit it: `re-frame.epoch`
   ;; installs its capture hooks PROCESS-WIDE at ns-load, so any JVM that puts
   ;; epoch on this suite's classpath would switch the `:narrative` projection
   ;; to a full per-event tape and balloon the payload past the token cap.
   (rf/configure! {:epoch-history {:depth 0}})
-  (story/reg-story :story.cart
+  (rf.story/reg-story :story.cart
     {:doc "A cart." :component :app.ui/cart :tags #{:dev :test} :args {}})
-  (story/reg-variant :story.cart/full
+  (rf.story/reg-variant :story.cart/full
     {:doc  "A cart variant with a view, so a renderer WOULD have something to render."
      :tags #{:dev :test}
      :args {:label "Checkout"}})
@@ -94,13 +94,13 @@
 (use-fixtures :each reset-story)
 
 (defn- invoke [tool-name args]
-  (wire-pipeline/invoke-tool tool-name (merge {:dedup false} args)))
+  (rf.story-mcp.tools.wire-pipeline/invoke-tool tool-name (merge {:dedup false} args)))
 
 (defn- run-real!
-  "Settle a REAL story/run-variant on the fixture variant. Named away from
+  "Settle a REAL rf.story/run-variant on the fixture variant. Named away from
    clojure.core/run! deliberately."
   [opts]
-  (deref (story/run-variant :story.cart/full opts) 15000 ::timed-out))
+  (deref (rf.story/run-variant :story.cart/full opts) 15000 ::timed-out))
 
 ;; ===========================================================================
 ;; 1 — the REAL Story boundary emits no rendering slot, with or without the
@@ -108,7 +108,7 @@
 ;; ===========================================================================
 
 (deftest real-run-variant-emits-no-rendering-slot
-  (testing "a real story/run-variant result carries no rendering slot"
+  (testing "a real rf.story/run-variant result carries no rendering slot"
     (let [outcome (run-real! nil)]
       (is (not= ::timed-out outcome) "the real run must settle")
       (is (map? outcome) "the real run returns a result map")
@@ -117,9 +117,9 @@
                " — rendering is render-variant's, and a permanently-nil "
                "compatibility slot is the retired false contract (rf2-6r9j.13). "
                "Result keys: " (pr-str (sort (keys outcome)))))
-      (is (story/valid-run-result? outcome)
+      (is (rf.story/valid-run-result? outcome)
           (str "the real result still conforms to the frozen run-result schema: "
-               (story/explain-run-result outcome)))))
+               (rf.story/explain-run-result outcome)))))
   (testing "supplying the RETIRED :render? option changes nothing"
     ;; The option is not merely ignored — the point is that no branch can
     ;; resurrect the slot from it. Feeding it the truthy value the old docs
@@ -164,12 +164,12 @@
 ;; ===========================================================================
 
 (deftest no-tool-descriptor-advertises-rendered-output
-  (doseq [{:keys [name description inputSchema]} registry/tool-registry]
+  (doseq [{:keys [name description inputSchema]} rf.story-mcp.tools.registry/tool-registry]
     (testing (str name " descriptor")
       (is (not (string/includes? (str description) "rendered-hiccup"))
           (str name "'s description promises `rendered-hiccup`, a slot no "
                "story-mcp payload carries — point rendering guidance at "
-               "`story/render-variant` and its `:rendered` result instead "
+               "`rf.story/render-variant` and its `:rendered` result instead "
                "(rf2-6r9j.13)"))
       (is (not (contains? (:properties inputSchema) :render?))
           (str name " advertises the retired `:render?` input knob")))))
@@ -180,7 +180,7 @@
 
 (deftest render-variant-remains-the-rendering-authority
   (testing "render-variant's terminal status vocabulary still names :rendered"
-    (is (contains? render/statuses :rendered)
+    (is (contains? rf.story.render/statuses :rendered)
         "render-variant must still be able to report a completed render"))
   (testing "the rendering authority is a distinct fn, not a run-variant option"
     (is (some? (resolve 're-frame.story.render/render-variant))

@@ -49,7 +49,7 @@
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [re-frame.mcp-base.egress :as base-egress]
+            [re-frame.mcp-base.egress :as rf.mcp-base.egress]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.epoch-egress :as egress]
@@ -682,7 +682,7 @@
   ;; AND turns the structural digests ON — the contract the prior
   ;; observability-default epoch egress silently dropped.
   (testing "rf2-nmjcll — off-box-tool: sensitive stays redacted (fail-closed) + digests on"
-    (let [floor (base-egress/profile-size-opts :rf.egress/off-box-tool)]
+    (let [floor (rf.mcp-base.egress/profile-size-opts :rf.egress/off-box-tool)]
       (is (false? (:rf.size/include-sensitive? floor))
           "off-box-tool fails closed on sensitive — a declared-sensitive epoch field redacts off-box, NOT shipped raw")
       (is (false? (:rf.size/include-large? floor))
@@ -691,7 +691,7 @@
           "off-box-tool turns structural digests ON — the indicator the prior observability default omitted")
       ;; The difference the fix makes, spelled out: off-box-tool == the
       ;; observability default PLUS the digests the tool wire needs.
-      (let [obs (base-egress/profile-size-opts :rf.egress/off-box-observability)]
+      (let [obs (rf.mcp-base.egress/profile-size-opts :rf.egress/off-box-observability)]
         (is (false? (:rf.size/include-digests? obs))
             "the projected-record default (off-box-observability) OMITS digests — the gap rf2-nmjcll closes")
         (is (= (dissoc floor :rf.size/include-digests?)

@@ -33,7 +33,7 @@
   streaming unique random strings as `:variant-id`s would slowly grow
   the JVM's never-shrinking keyword table. The mitigation is to resolve
   every agent-supplied keyword id against a bounded set BEFORE coercing
-  it to a keyword, using `args/safe-keyword` (which routes through
+  it to a keyword, using `rf.mcp-base.args/safe-keyword` (which routes through
   `find-keyword` on the JVM — no intern outside the allowlist).
 
   For READ-side handlers (every tool in dev / docs / testing) the
@@ -45,21 +45,21 @@
 
   The WRITE-side handlers (`register-variant`) are the documented
   exception: by design they extend the registry with a fresh keyword.
-  Those callers intern via `args/fresh-keyword` directly, bounded by
+  Those callers intern via `rf.mcp-base.args/fresh-keyword` directly, bounded by
   the operator-gated `--allow-writes` flag (the registry itself is the
   bounded set; the operator chose to open it)."
   (:require [clojure.string :as str]
-            [re-frame.mcp-base.args :as args]
-            [re-frame.story :as story]
-            [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
-            [re-frame.story-mcp.tools.result :as result]))
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.story :as rf.story]
+            [re-frame.story-mcp.config :as rf.story-mcp.config]
+            [re-frame.story-mcp.tools.cljs-resolve :as rf.story-mcp.tools.cljs-resolve]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]))
 
 (defn include-sensitive?
   "True iff the caller opted in to forwarding `:sensitive? true` records
   / app-db slots AND the operator has opened the server-side gate.
   Default off. Reads the `:include-sensitive` arg via the cross-MCP
-  `args/parse-boolean` parser (so string-form booleans `\"true\"` /
+  `rf.mcp-base.args/parse-boolean` parser (so string-form booleans `\"true\"` /
   `\"yes\"` / `\"1\"` are accepted alongside the JSON `true`).
 
   Predicate FUNCTION name retains the `?` per the Clojure idiom; the
@@ -70,7 +70,7 @@
 
   ## Boot-time gate
 
-  The operator-only gate `config/sensitive-reads-allowed?` (set by
+  The operator-only gate `rf.story-mcp.config/sensitive-reads-allowed?` (set by
   `--allow-sensitive-reads`) is the outer check: when it is `false`,
   this fn always returns `false`,
   the per-call `:include-sensitive` arg is silently ignored, and
@@ -80,8 +80,8 @@
   the descriptor schemas when the gate is closed (see `schemas/
   with-include-sensitive`)."
   [arguments]
-  (and (config/sensitive-reads-allowed?)
-       (args/parse-boolean (get arguments :include-sensitive) false)))
+  (and (rf.story-mcp.config/sensitive-reads-allowed?)
+       (rf.mcp-base.args/parse-boolean (get arguments :include-sensitive) false)))
 
 (defn required-arg
   "Read a required argument. Returns `[value nil]` on success, or
@@ -89,7 +89,7 @@
   [arguments k]
   (let [v (get arguments k)]
     (if (or (nil? v) (and (string? v) (str/blank? v)))
-      [nil (result/error-result (str "Missing required argument: " (name k)))]
+      [nil (rf.story-mcp.tools.result/error-result (str "Missing required argument: " (name k)))]
       [v nil])))
 
 (defn- variant-id-set
@@ -99,12 +99,12 @@
   on the second read (the registry is logically a mutable atom; we
   re-snapshot rather than cache)."
   []
-  (story/ids :variant))
+  (rf.story/ids :variant))
 
 (defn- cell-override-key-set
   "Bounded allowlist for `:cell-overrides` KEYS: the keys of the
   variant's EFFECTIVE-args map under the caller's `active-modes`
-  (`story/resolve-args` with `:active-modes`, no cell-overrides).
+  (`rf.story/resolve-args` with `:active-modes`, no cell-overrides).
   Cell-overrides exist to override an arg already present in the cell's
   effective args, so the legitimate key universe is exactly the keys the
   render will carry — a finite, registry-derived set. That universe is
@@ -115,18 +115,18 @@
   variant alone would drop a caller override for an arg introduced ONLY
   by an active mode, so the render would show the mode value instead of
   the caller override. Used by `read-run-opts` to route each
-  caller-supplied override key through `args/safe-keyword` (no JVM intern
+  caller-supplied override key through `rf.mcp-base.args/safe-keyword` (no JVM intern
   outside the set). Returns `#{}` for an unresolvable variant
   with no active modes — every override key then rejects, which is the
   honest answer (nothing to override)."
   [vk active-modes]
-  (set (keys (story/resolve-args vk {:active-modes active-modes}))))
+  (set (keys (rf.story/resolve-args vk {:active-modes active-modes}))))
 
 (defn- safe-cell-overrides
   "Coerce a caller-supplied `:cell-overrides` map (string-keyed off the
   JSON wire via the no-intern ingress, or keyword-keyed from a
   direct-invoke caller) into a keyword-keyed override map, routing
-  every KEY through `args/safe-keyword` against `allowed` — the
+  every KEY through `rf.mcp-base.args/safe-keyword` against `allowed` — the
   variant's declared arg-key set. A key outside the set is DROPPED (no
   intern), so an attacker cannot mint fresh keywords by streaming unique
   override keys, and a typo'd override simply doesn't apply rather than
@@ -137,7 +137,7 @@
     (persistent!
      (reduce-kv
       (fn [acc k v]
-        (if-let [kw (args/safe-keyword k allowed)]
+        (if-let [kw (rf.mcp-base.args/safe-keyword k allowed)]
           (assoc! acc kw v)
           acc))
       (transient {})
@@ -163,7 +163,7 @@
   [arguments k]
   (let [v (get arguments k)]
     (when (and (some? v) (not (coll? v)))
-      (result/error-result
+      (rf.story-mcp.tools.result/error-result
         (str ":" (name k) " must be an array; got a scalar "
              (some-> v class .getName) " (" (pr-str v) ").")
         {:rf.error :rf.error/scalar-for-collection-arg
@@ -183,7 +183,7 @@
   [arguments k]
   (let [v (get arguments k)]
     (when (and (some? v) (not (map? v)))
-      (result/error-result
+      (rf.story-mcp.tools.result/error-result
         (str ":" (name k) " must be an object; got "
              (some-> v class .getName) " (" (pr-str v) ").")
         {:rf.error :rf.error/non-map-arg
@@ -237,21 +237,21 @@
   [arguments tool-name]
   (let [raw (:substrate arguments)]
     (when (some? raw)
-      (if-not (cljs-resolve/substrate-provider-available?)
-        (result/capability-unavailable-result
+      (if-not (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)
+        (rf.story-mcp.tools.result/capability-unavailable-result
           {:tool       tool-name
            :capability "substrate-registry"
            :detail     (str "An explicit :substrate " (pr-str raw) " was requested, "
                             "but no substrate registry is reachable from this host — "
                             "the request cannot be honoured and is NOT silently "
                             "dropped to nil.")})
-        (when-not (args/safe-keyword raw (cljs-resolve/registered-substrates-set))
-          (result/error-result
+        (when-not (rf.mcp-base.args/safe-keyword raw (rf.story-mcp.tools.cljs-resolve/registered-substrates-set))
+          (rf.story-mcp.tools.result/error-result
             (str "Unknown substrate: " (pr-str raw) ". Registered substrates: "
-                 (pr-str (vec (cljs-resolve/registered-substrates))) ".")
+                 (pr-str (vec (rf.story-mcp.tools.cljs-resolve/registered-substrates))) ".")
             {:rf.error   :rf.error/story-mcp-unknown-substrate
              :substrate  (str raw)
-             :registered (vec (cljs-resolve/registered-substrates))}))))))
+             :registered (vec (rf.story-mcp.tools.cljs-resolve/registered-substrates))}))))))
 
 (defn read-run-opts
   "Build the `re-frame.story/run-variant` opts map from the standard MCP
@@ -271,7 +271,7 @@
   `snapshot-identity` handlers — the same set `run-opts-shape-error`
   gates — each advertising the same `:substrate` / `:active-modes` /
   `:cell-overrides` tuple in its descriptor. (`preview-variant` also
-  threads the resulting opts into `story/variant-share-url`; that is a
+  threads the resulting opts into `rf.story/variant-share-url`; that is a
   Story call inside the handler, not a fourth tool.)
   `:cell-overrides` is identity-bearing for
   `snapshot-identity` — it perturbs the snapshot `:content-hash` via the
@@ -281,41 +281,41 @@
   here.
 
   `:substrate` and each entry in `:active-modes` are coerced through
-  `args/safe-keyword` against the live registry's bounded set — an
+  `rf.mcp-base.args/safe-keyword` against the live registry's bounded set — an
   unrecognised id surfaces as `nil` (which `run-variant`'s opts contract
   tolerates as 'no override') rather than as a freshly-interned keyword.
   The substrate registry is CLJS-only, so on a JVM-standalone deploy
-  `cljs-resolve/registered-substrates-set` normalises the absent provider
+  `rf.story-mcp.tools.cljs-resolve/registered-substrates-set` normalises the absent provider
   to `#{}` — never `nil`. That empty allowlist is not this function's
   refusal boundary: an EXPLICIT `:substrate` against an unreachable
   provider is rejected upstream by `substrate-arg-error`, which gates on
-  `cljs-resolve/substrate-provider-available?`. The modes set is the
+  `rf.story-mcp.tools.cljs-resolve/substrate-provider-available?`. The modes set is the
   registered-mode id set.
 
   `:cell-overrides` arrives string-keyed off the JSON wire (the
   no-intern ingress leaves nested arg keys as strings). Its KEYS are
-  routed through `args/safe-keyword` against the variant's EFFECTIVE
+  routed through `rf.mcp-base.args/safe-keyword` against the variant's EFFECTIVE
   arg-key set under the active modes (`cell-override-key-set`) — a
   bounded, registry-derived allowlist — so an override key outside that
   set is dropped rather than interned. This is the read-side counterpart
   to the operator-gated write-body keywordisation in `tools.write`.
 
   The active modes are coerced FIRST so the cell-override allowlist is
-  derived from the EFFECTIVE args for those modes (`story/resolve-args`
+  derived from the EFFECTIVE args for those modes (`rf.story/resolve-args`
   with `:active-modes`). Story's precedence merges mode args before
   cell-local overrides, so an arg key introduced only by an active mode
   is a legitimate override target, and deriving the allowlist from the
   effective args keeps that override applicable."
   [vk arguments]
-  (let [substrate-set (cljs-resolve/registered-substrates-set)
-        mode-set      (story/list-modes)
+  (let [substrate-set (rf.story-mcp.tools.cljs-resolve/registered-substrates-set)
+        mode-set      (rf.story/list-modes)
         active-modes  (when (some? (:active-modes arguments))
                         (into []
-                              (keep #(args/safe-keyword % mode-set))
+                              (keep #(rf.mcp-base.args/safe-keyword % mode-set))
                               (:active-modes arguments)))]
     (cond-> {}
       (some? (:substrate arguments))
-      (assoc :substrate (args/safe-keyword (:substrate arguments) substrate-set))
+      (assoc :substrate (rf.mcp-base.args/safe-keyword (:substrate arguments) substrate-set))
 
       (some? (:active-modes arguments))
       (assoc :active-modes active-modes)
@@ -328,7 +328,7 @@
 ;; Shared lifecycle timeout
 ;;
 ;; `run-variant` and `preview-variant` both block on the SAME
-;; `story/run-variant` lifecycle via `async/deref-blocking`. The blocking
+;; `rf.story/run-variant` lifecycle via `async/deref-blocking`. The blocking
 ;; ceiling is a single-threaded-stdio protection: the MCP server's
 ;; request loop is single-threaded, so an unbounded blocking deref on one
 ;; tool parks every unrelated call. Both tools share the same ceiling
@@ -357,7 +357,7 @@
 (defn resolve-timeout-ms
   "Resolve the caller-supplied `:timeout-ms` arg into the END-TO-END
   lifecycle deadline for a lifecycle tool. Reads the slot via the
-  cross-MCP `args/parse-positive-int` parser (string-form ints accepted),
+  cross-MCP `rf.mcp-base.args/parse-positive-int` parser (string-form ints accepted),
   defaults to `default-timeout-ms` when absent/unparseable, and clamps
   DOWN to `max-timeout-ms` so one slow request can't park the
   single-threaded stdio loop. Shared by `tool-run-variant` and
@@ -370,12 +370,12 @@
   dereference — see that fn's docstring (rf2-j538f7.31)."
   [arguments]
   (min max-timeout-ms
-       (args/parse-positive-int (:timeout-ms arguments) default-timeout-ms)))
+       (rf.mcp-base.args/parse-positive-int (:timeout-ms arguments) default-timeout-ms)))
 
 (defn with-variant
   "Resolve `:variant-id` from `arguments` (required), resolve it against
   the registered-variants set (no JVM intern outside the allowlist), and
-  probe `story/variant->edn` for the body. When both
+  probe `rf.story/variant->edn` for the body. When both
   succeed, returns `(f vk body)`. Otherwise short-circuits with an
   error result:
 
@@ -395,12 +395,12 @@
   (let [[vid err] (required-arg arguments :variant-id)]
     (if err
       err
-      (if-let [vk (args/safe-keyword vid (variant-id-set))]
-        (let [body (story/variant->edn vk)]
+      (if-let [vk (rf.mcp-base.args/safe-keyword vid (variant-id-set))]
+        (let [body (rf.story/variant->edn vk)]
           (if (nil? body)
-            (result/error-result (str "Variant not found: " (pr-str vk)))
+            (rf.story-mcp.tools.result/error-result (str "Variant not found: " (pr-str vk)))
             (f vk body)))
-        (result/error-result (str "Variant not found: " (pr-str vid)))))))
+        (rf.story-mcp.tools.result/error-result (str "Variant not found: " (pr-str vid)))))))
 
 (defn with-story-id
   "Resolve `:story-id` from `arguments` (required), resolve it against
@@ -417,15 +417,15 @@
   The story-side peer of `with-variant-id`. Crystallises the prelude
   shared by the two docs handlers that resolve a story id directly
   (`get-story`, `get-docs-markdown`) — both probe
-  `(args/safe-keyword sid (story/ids :story))` and emit the same
+  `(rf.mcp-base.args/safe-keyword sid (rf.story/ids :story))` and emit the same
   `Story not found` error on a miss."
   [arguments f]
   (let [[sid err] (required-arg arguments :story-id)]
     (if err
       err
-      (if-let [sk (args/safe-keyword sid (story/ids :story))]
+      (if-let [sk (rf.mcp-base.args/safe-keyword sid (rf.story/ids :story))]
         (f sk)
-        (result/error-result (str "Story not found: " (pr-str sid)))))))
+        (rf.story-mcp.tools.result/error-result (str "Story not found: " (pr-str sid)))))))
 
 (defn with-variant-id
   "Resolve `:variant-id` from `arguments` (required) against the
@@ -445,6 +445,6 @@
   (let [[vid err] (required-arg arguments :variant-id)]
     (if err
       err
-      (if-let [vk (args/safe-keyword vid (variant-id-set))]
+      (if-let [vk (rf.mcp-base.args/safe-keyword vid (variant-id-set))]
         (f vk)
-        (result/error-result (str "Variant not found: " (pr-str vid)))))))
+        (rf.story-mcp.tools.result/error-result (str "Variant not found: " (pr-str vid)))))))

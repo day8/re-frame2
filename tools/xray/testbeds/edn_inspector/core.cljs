@@ -93,7 +93,7 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Xray's public mount facade — `init!` wires the four
             ;; foundation side-effects (registry, trace-cb, epoch-cb,
             ;; keybinding) and `open!` mounts the inline shell into
@@ -554,7 +554,7 @@
 ;; source coordinate against the live JVM source paths at request time, so a
 ;; repository testbed needs no root of its own (mirrors standard_epochs).
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; register the single, plain host frame, scope the boot dispatch, and
   ;; wrap the render in a `frame-provider` (the frame is already

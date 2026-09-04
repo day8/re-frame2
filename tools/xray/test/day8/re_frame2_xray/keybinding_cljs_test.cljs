@@ -33,10 +33,10 @@
   on a real document."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.keybinding :as keybinding]
@@ -693,10 +693,10 @@
 (defn- setup-xray-runtime! []
   (xray-test-support/reset-all!)
   (trace-collector/reset-for-test!)
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (substrate-adapter/install-adapter! plain-atom/adapter)
-  (frame/ensure-default-frame!)
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
+  (rf.frame/ensure-default-frame!)
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
@@ -708,7 +708,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/editor-hint-show]))
     (is (true? (boolean (:editor-hint-open?
-                         (frame/frame-app-db-value defaults/default-frame-id))))
+                         (rf.frame/frame-app-db-value defaults/default-frame-id))))
         "precondition: toast is open")
     (let [{:keys [event prevented stopped]} (mk-keydown-event "Escape")]
       (handle-keydown event)
@@ -721,7 +721,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/editor-hint-dismiss]))
     (is (false? (boolean (:editor-hint-open?
-                          (frame/frame-app-db-value defaults/default-frame-id))))
+                          (rf.frame/frame-app-db-value defaults/default-frame-id))))
         "toast is dismissed")))
 
 (deftest esc-falls-through-when-hint-closed
@@ -730,7 +730,7 @@
             so it falls through to the host and other Esc consumers"
     (setup-xray-runtime!)
     (is (false? (boolean (:editor-hint-open?
-                          (frame/frame-app-db-value defaults/default-frame-id))))
+                          (rf.frame/frame-app-db-value defaults/default-frame-id))))
         "precondition: toast is closed")
     (let [{:keys [event prevented stopped]} (mk-keydown-event "Escape")]
       (handle-keydown event)
@@ -750,7 +750,7 @@
       (rf/dispatch-sync [:rf.xray/editor-hint-show]))
     (is (true? (#'keybinding/editor-hint-open?))
         "true once the toast is shown")
-    (reset! frame/frames {})
+    (reset! rf.frame/frames {})
     (is (false? (#'keybinding/editor-hint-open?))
         "false when the :rf/xray frame is absent — Esc falls through")))
 

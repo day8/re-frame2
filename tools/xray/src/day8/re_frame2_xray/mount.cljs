@@ -45,7 +45,7 @@
   so first mount performs registration and seeding after adapter
   readiness. The operation is idempotent."
   (:require [re-frame.core :as rf]
-            [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.image-view-reads :as image-reads]
@@ -257,7 +257,7 @@
   host app is healthy, so this is not an error) and return it. Returns nil
   when the installed substrate can host the hiccup shell."
   []
-  (let [kind (substrate-adapter/current-adapter)]
+  (let [kind (rf.substrate.adapter/current-adapter)]
     (when (contains? react-element-render-kinds kind)
       (let [diagnostic (unsupported-substrate-diagnostic kind)]
         (reset! diagnostic-state diagnostic)
@@ -360,7 +360,7 @@
   ;; disabled?`, which keys off the render emit's `:frame` tag) suppresses
   ;; it. Threads the shell's actual frame-id (NOT a `:rf/xray` literal),
   ;; matching the frame `ensure-xray-frame!` registered.
-  (let [unmount (substrate-adapter/render
+  (let [unmount (rf.substrate.adapter/render
                   [rf/frame-provider {:frame shell/default-frame-id}
                    [shell/shell-view {:mode mode}]]
                   node nil)]
@@ -914,7 +914,7 @@
           (swap! mount-state assoc :visible? true)
           @mount-state)
       (switch-surface! :inline))
-    (when (substrate-adapter/current-adapter)
+    (when (rf.substrate.adapter/current-adapter)
       (or (refuse-unsupported-substrate!)
           (if-let [node (create-inline-mount-node!)]
             (mount-shell-into! node :inline)
@@ -941,7 +941,7 @@
           (swap! mount-state assoc :visible? true)
           @mount-state)
       (switch-surface! :overlay))
-    (when (substrate-adapter/current-adapter)
+    (when (rf.substrate.adapter/current-adapter)
       (or (refuse-unsupported-substrate!)
           (mount-shell-into! (create-overlay-mount-node!) :overlay)))))
 
@@ -1115,7 +1115,7 @@
 
                   @mount-state nil
 
-                  (substrate-adapter/current-adapter)
+                  (rf.substrate.adapter/current-adapter)
                   (open!)
 
                   (< attempts 120)
@@ -1342,7 +1342,7 @@
 ;; would be asked to detect.
 ;;
 ;; Everything Xray runs for the popout lives in the OPENER's JS realm:
-;; `popout!` is called from the opener, `substrate-adapter/render` paints
+;; `popout!` is called from the opener, `rf.substrate.adapter/render` paints
 ;; the popout's DOM from there, `popout-state` is an opener-realm atom, and
 ;; `start-opener-gone-watchdog!`'s `js/setInterval` registers its timer on
 ;; the OPENER's window. A hard reload of the opener discards that realm and
@@ -1486,7 +1486,7 @@
   []
   (if-let [state @popout-state]
     state
-    (if-not (substrate-adapter/current-adapter)
+    (if-not (rf.substrate.adapter/current-adapter)
       {:ok? false :reason :no-substrate-adapter}
       (or (refuse-unsupported-substrate!)
           (let [win (when (exists? js/window)
@@ -1509,7 +1509,7 @@
                   (set! (.-id node) "rf-xray-popout-root")
                   (.setAttribute node "data-rf-xray-mode" "popout")
                   (.appendChild body node)
-                  (let [unmount      (substrate-adapter/render
+                  (let [unmount      (rf.substrate.adapter/render
                                        ;; rf2-tqlmq — same mount-wrap as
                                        ;; `mount-shell-into!`: wrap the popout
                                        ;; shell in the shell's frame-provider so

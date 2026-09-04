@@ -41,9 +41,9 @@
             [clojure.test   :refer [deftest is testing]]
             [malli.core     :as m]
             [malli.error    :as me]
-            [re-frame.mcp-base.vocab :as mcp-vocab]
-            [re-frame.mcp-conformance.fixtures :as fx]
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
+            [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
 
 (def ResultEnvelope
   "Canonical `:rf.mcp/result` typed-result envelope shape. A
@@ -245,7 +245,7 @@
   ;; prior name. Mirrors `cursor-stale-literal-in-re-frame2-pair-mcp-emit-source`.
   (let [literal  ":rf.mcp/result"
         rel      "tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"
-        stripped (fx/strip-comments-and-strings (fx/read-source rel))]
+        stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings (rf.mcp-conformance.fixtures/read-source rel))]
     (is (str/includes? stripped literal)
         (str literal " missing from " rel
              " AFTER stripping docstrings/comments. The canonical "
@@ -258,10 +258,10 @@
   ;; classpath). The schema dispatches on `:rf.mcp/result` literally; if
   ;; the vocab constant ever drifted from that literal, this gate trips —
   ;; the schema and the canonical key cannot diverge silently.
-  (is (= :rf.mcp/result mcp-vocab/result-key)
+  (is (= :rf.mcp/result rf.mcp-base.vocab/result-key)
       (str "vocab/result-key MUST be :rf.mcp/result — the literal the "
            "ResultEnvelope schema dispatches on. Got "
-           (pr-str mcp-vocab/result-key))))
+           (pr-str rf.mcp-base.vocab/result-key))))
 
 (deftest result-key-literal-in-mcp-base-vocab-spec-doc-source
   ;; Doc-source pin (looser, raw `str/includes?`): the mcp-base
@@ -273,7 +273,7 @@
   ;; prose home is the mcp-base vocab spec.
   (let [literal ":rf.mcp/result"
         rel     "tools/mcp-base/spec/vocab.md"]
-    (is (str/includes? (fx/read-source rel) literal)
+    (is (str/includes? (rf.mcp-conformance.fixtures/read-source rel) literal)
         (str literal " missing from " rel
              ". The vocab spec catalogues this marker — restore the row "
              "or update this test."))))
@@ -284,13 +284,13 @@
   ;; anywhere in the conformance-tracked source/spec tree. Mirrors the
   ;; marker-key near-miss anti-pin. The mcp-base vocab spec is folded
   ;; into the sweep so a near-miss in the catalogue row trips here too.
-  (let [sweep (update pins/all-source-files :re-frame2-pair-mcp
+  (let [sweep (update rf.mcp-conformance.wire-vocab.source-pins/all-source-files :re-frame2-pair-mcp
                       (fnil conj []) "tools/mcp-base/spec/vocab.md")]
-    (doseq [variant         (pins/near-miss-variants :rf.mcp/result)
+    (doseq [variant         (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants :rf.mcp/result)
             [server files]  sweep
             rel             files]
       (testing (str server " — " rel " — near-miss " variant)
-        (is (not (str/includes? (fx/read-source rel) variant))
+        (is (not (str/includes? (rf.mcp-conformance.fixtures/read-source rel) variant))
             (str "Found near-miss variant " variant
                  " for :rf.mcp/result in " server "/" rel
                  " — vocabulary-drift bug. The canonical form is "

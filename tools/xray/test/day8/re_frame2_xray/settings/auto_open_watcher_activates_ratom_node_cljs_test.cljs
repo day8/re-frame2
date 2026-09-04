@@ -32,7 +32,7 @@
   the same proof for the observation port (rf2-8cnxg)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.ratom :as ratom]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
@@ -45,7 +45,7 @@
   ;; invisible. `:runtime` clears the persisted settings so the
   ;; `:auto-open-on-error?` flips below start from the shipped default.
   (xray-test-support/make-xray-runtime-fixture
-    {:adapter    reagent-slim-adapter/adapter
+    {:adapter    rf.adapter.reagent-slim/adapter
      :tier       :runtime
      :post-reset (fn [] (effects/detach-auto-open-watcher!))}))
 

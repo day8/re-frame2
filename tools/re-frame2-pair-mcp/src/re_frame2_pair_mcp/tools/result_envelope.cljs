@@ -86,7 +86,7 @@
   the fall-through arm — the codec is additive: an untagged value is a
   valid input and projects straight to `(on-value v)`."
   (:require [clojure.string :as str]
-            [re-frame.mcp-base.vocab :as base-vocab]))
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire vocabulary.
@@ -96,7 +96,7 @@
   "Top-level discriminator key for a tagged result envelope. Reserved
   under the cross-MCP `:rf.mcp/*` namespace (Conventions §Reserved
   namespaces); single-sourced from `re-frame.mcp-base.vocab/result-key`."
-  base-vocab/result-key)
+  rf.mcp-base.vocab/result-key)
 
 (def preview-cap
   "Max chars of an unserializable value's `pr-str` text to carry on the

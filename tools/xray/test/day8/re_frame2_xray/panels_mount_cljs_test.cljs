@@ -8,12 +8,12 @@
     1. Installs Xray's handlers (idempotent).
     2. Registers `:rf/xray` (idempotent).
     3. Wraps the panel view in `[rf/frame-provider {:frame _} [Panel]]`.
-    4. Delegates to `substrate-adapter/render` with the wrapped tree.
+    4. Delegates to `rf.substrate.adapter/render` with the wrapped tree.
     5. Returns the adapter's unmount fn.
 
   ## Test strategy
 
-  We stub `substrate-adapter/render` so the test can capture the
+  We stub `rf.substrate.adapter/render` so the test can capture the
   rendered tree (the wrapped hiccup) without booting an actual
   substrate. Each test:
 
@@ -29,10 +29,10 @@
   pins the MOUNT API contract, not the view contract."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.trace.projection :as projection]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.trace.projection :as rf.trace.projection]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
@@ -60,7 +60,7 @@
 ;; ---- render-stub helper -------------------------------------------------
 
 (defn- make-render-stub
-  "Build a stub for `substrate-adapter/render` that captures every
+  "Build a stub for `rf.substrate.adapter/render` that captures every
   invocation. Returns `[capture-atom unmount-fn render-fn]` —
 
     - `capture-atom` — `[{:tree _ :mount-point _ :opts _} ...]`
@@ -103,10 +103,10 @@
             Event/Handler panel was retired alongside rf2-5gl5r.)"
     (let [[capture unmount-sentinel render-stub] (make-render-stub)
           mount-point :mount-point-sentinel]
-      (with-redefs [substrate-adapter/render render-stub]
+      (with-redefs [rf.substrate.adapter/render render-stub]
         (let [unmount (panels/mount-epoch-panel! mount-point)]
           (is (= 1 (count @capture))
-              "substrate-adapter/render invoked exactly once")
+              "rf.substrate.adapter/render invoked exactly once")
           (is (frame-provider-wrap? (captured-tree capture) epoch-panel/Panel)
               "tree is wrapped in rf/frame-provider :rf/xray around Panel")
           (is (= mount-point (-> @capture first :mount-point))
@@ -114,38 +114,38 @@
           (is (= unmount-sentinel unmount)
               "adapter's unmount fn is returned to the caller"))
         ;; Side-effect — handlers landed.
-        (is (some? (registrar/handler :sub :rf.xray/event-bundles))
+        (is (some? (rf.registrar/handler :sub :rf.xray/event-bundles))
             "register-xray-handlers! ran as a side-effect of mount")
-        (is (some? (frame/frame :rf/xray))
+        (is (some? (rf.frame/frame :rf/xray))
             ":rf/xray frame is registered as a side-effect of mount")))))
 
 (deftest mount-app-db-diff-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-app-db-diff! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) app-db-diff/Panel)))))
 
 (deftest mount-reactive-panel-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-reactive-panel! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) reactive-panel/Panel)))))
 
 (deftest mount-trace-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-trace! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) trace/Panel)))))
 
 (deftest mount-machine-inspector-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-machine-inspector! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) machine-inspector/Panel)))))
 
 (deftest mount-routing-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-routing! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) routing/Panel)))))
 
@@ -159,20 +159,20 @@
 
 (deftest mount-segment-inspector-wraps-Popup-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-segment-inspector! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) segment-inspector/Popup)))))
 
 (deftest mount-cancellation-cascade-side-panel-wraps-SidePanel
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-cancellation-cascade-side-panel! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture)
                                 cancellation-cascade/SidePanel)))))
 
 (deftest mount-cancellation-cascade-popover-wraps-Popover
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-cancellation-cascade-popover! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture)
                                 cancellation-cascade/Popover)))))
@@ -181,7 +181,7 @@
 
 (deftest mount-managed-fx-wraps-ManagedFxList
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-managed-fx! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) panels/ManagedFxList)))))
 
@@ -194,7 +194,7 @@
             mount fn renders [shell-view {:mode :inline}] directly — no
             outer wrapper."
     (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [substrate-adapter/render render-stub]
+      (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-shell! :mount-point)
         (let [tree (captured-tree capture)]
           (is (vector? tree))
@@ -210,7 +210,7 @@
 
 (deftest mount-shell-supports-mode-opt
   (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [substrate-adapter/render render-stub]
+    (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-shell! :mount-point {:mode :overlay})
       (is (= :overlay (-> (captured-tree capture) second :mode))))))
 
@@ -226,7 +226,7 @@
             target `:rf.xray/*` registrations under whatever frame
             actually carries them."
     (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [substrate-adapter/render render-stub]
+      (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-epoch-panel! :mount-point {:frame :my-app/cart})
         (let [tree (captured-tree capture)]
           (is (= rf/frame-provider (first tree)))
@@ -243,16 +243,16 @@
             substrate render — that's the host's lifecycle choice;
             the panels ns does not deduplicate)."
     (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [substrate-adapter/render render-stub]
+      (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-epoch-panel! :mount-1)
         (panels/mount-app-db-diff! :mount-2)
         (panels/mount-trace! :mount-3)
         (is (= 3 (count @capture))
-            "every mount call delegates to substrate-adapter/render")
+            "every mount call delegates to rf.substrate.adapter/render")
         ;; Handlers landed exactly once — :rf.xray/event-bundles is a
         ;; cross-panel primitive registered inside the orchestrator's
         ;; sentinel guard.
-        (is (some? (registrar/handler :sub :rf.xray/event-bundles)))))))
+        (is (some? (rf.registrar/handler :sub :rf.xray/event-bundles)))))))
 
 ;; ---- contract — panel mount routes through mount/ensure-xray-frame! ---
 ;;
@@ -270,7 +270,7 @@
 
 (defn- pre-mount-dispatch-event
   "Build a trace event matching the shape `event/dispatched` produces.
-  Enough for `projection/group-by-event` to bucket it into a cascade
+  Enough for `rf.trace.projection/group-by-event` to bucket it into a cascade
   with `:frame` set so `spine/focusable-head-frame-id` resolves."
   [id dispatch-id frame-id event-id]
   {:id        id
@@ -288,7 +288,7 @@
             the direct `(rf/make-frame {:id :rf/xray})` bypassed the hook
             table and the slot stayed empty."
     (let [[_capture _ render-stub] (make-render-stub)]
-      (with-redefs [substrate-adapter/render render-stub
+      (with-redefs [rf.substrate.adapter/render render-stub
                     rf/epoch-history (fn [_] [])]
         ;; Host dispatched two events on `:cart-frame` while Xray was
         ;; un-mounted — the trace-bus atom accumulated them.
@@ -320,7 +320,7 @@
                          :trigger-event [:cart/add-item]
                          :event-id      :cart/add-item
                          :trace-events  []}]]
-      (with-redefs [substrate-adapter/render render-stub
+      (with-redefs [rf.substrate.adapter/render render-stub
                     rf/epoch-history (fn [frame-id]
                                        (case frame-id
                                          :cart-frame cart-records
@@ -345,7 +345,7 @@
             behaviour: the target stays unselected (the picker prompts a
             choice) rather than chaining to a synthesised `:rf/default`."
     (let [[_capture _ render-stub] (make-render-stub)]
-      (with-redefs [substrate-adapter/render render-stub
+      (with-redefs [rf.substrate.adapter/render render-stub
                     rf/epoch-history (fn [_] [])]
         (panels/mount-trace! :mount-point)
         (rf/with-frame :rf/xray

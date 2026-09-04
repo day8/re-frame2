@@ -108,11 +108,11 @@
             ;; Path constructors for the runtime-owned machines slots — the
             ;; machines artefact's single source of truth for the
             ;; `[:rf.runtime/machines …]` spelling. `:machine-epochs/finish-login`
-            ;; resolves the spawned child id through `machine-paths/spawned-path`
+            ;; resolves the spawned child id through `rf.machines.paths/spawned-path`
             ;; rather than a literal four-deep vector.
-            [re-frame.machines.paths :as machine-paths]
+            [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; The host-facing Xray focus channel — the SAME surface the
             ;; shared runner uses to pin focus. We use its `:frame` field to
             ;; re-point Xray at the selected machine's frame
@@ -206,7 +206,7 @@
           [:dispatch [:brew/machine [:brew/abort]]]]}))
 
 ;; drive the spawned :session/login child to its :final? state. The child's
-;; deterministic spawn-id is resolved through `machine-paths/spawned-path`.
+;; deterministic spawn-id is resolved through `rf.machines.paths/spawned-path`.
 ;; FAIL LOUD ON A MISS: an `assert` surfaces a missing slot as a
 ;; loud failure at the call site rather than a silent no-op.
 (rf/reg-event :machine-epochs/finish-login
@@ -223,10 +223,10 @@
   ;; route slice off `:rf.db/runtime`). app-db never holds `:spawned`, so a
   ;; read against app-db would resolve nil and the assert would fail loud.
   (fn handler-finish-login [{:keys [db] rt :rf.db/runtime} _ev]
-    (let [child-id (get-in rt (machine-paths/spawned-path :session/flow [:authenticating]))]
+    (let [child-id (get-in rt (rf.machines.paths/spawned-path :session/flow [:authenticating]))]
       (assert child-id
               (str "machine-epochs/finish-login: no spawned :session/login child at "
-                   (machine-paths/spawned-path :session/flow [:authenticating])
+                   (rf.machines.paths/spawned-path :session/flow [:authenticating])
                    " — the :session/flow parent must be in :authenticating "
                    "(run the Session: open step first). A nil here once meant a "
                    "silent no-op; failing loud instead surfaces a spawn-registry "
@@ -808,7 +808,7 @@
   (the read is a one-shot value, not a cross-frame subscription)."
   [track-id machine-id]
   (when-let [db (rf/app-db-value (machine-frame-id track-id))]
-    (get-in db (machine-paths/snapshot-path machine-id :state))))
+    (get-in db (rf.machines.paths/snapshot-path machine-id :state))))
 
 ;; ============================================================================
 ;; VIEWS — picker rail + selected track's step panel (subscribe + dispatch)
@@ -982,7 +982,7 @@
 ;; source coordinate against the live JVM source paths at request time, so a
 ;; repository testbed needs no root of its own.
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; EP-0002: the runtime never synthesises a frame from
   ;; absence — register the SHELL frame explicitly and scope the boot
   ;; dispatches to it. EP-0027: the per-track machine frames are NOT

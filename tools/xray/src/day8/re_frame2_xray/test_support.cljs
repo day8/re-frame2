@@ -34,8 +34,8 @@
 
   **Test-only — never call from production code.** Per rf2-kmhvg
   cluster item 3e (audit rf2-i0veg §3e)."
-  (:require [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as core-test-support]
+  (:require [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.mount :as mount]
@@ -157,9 +157,9 @@
   **Test-only — never call from production code.**"
   ([] (make-xray-runtime-fixture {}))
   ([{:keys [adapter tier post-reset async?]
-     :or   {adapter plain-atom/adapter
+     :or   {adapter rf.substrate.plain-atom/adapter
             tier    :all}}]
-   (core-test-support/make-reset-runtime-fixture
+   (rf.test-support/make-reset-runtime-fixture
      {:adapter adapter
       :async?  async?
       :init-fn (fn []

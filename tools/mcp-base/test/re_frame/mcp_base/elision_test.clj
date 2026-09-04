@@ -6,7 +6,7 @@
   A regression here is a drift in the envelope's elision-indicator
   parity with `:dropped-sensitive`."
   (:require [clojure.test :refer [deftest is]]
-            [re-frame.mcp-base.elision :as elision]))
+            [re-frame.mcp-base.elision :as rf.mcp-base.elision]))
 
 (deftest count-elided-markers-walks-the-payload
   (let [marker {:rf.size/large-elided
@@ -16,23 +16,23 @@
                  :reason :schema
                  :handle [:rf.elision/at [:user :pdf]]}}]
     ;; Empty / leaf cases — nothing to count.
-    (is (= 0 (elision/count-elided-markers nil)))
-    (is (= 0 (elision/count-elided-markers {})))
-    (is (= 0 (elision/count-elided-markers [])))
-    (is (= 0 (elision/count-elided-markers "string")))
-    (is (= 0 (elision/count-elided-markers 42)))
-    (is (= 0 (elision/count-elided-markers {:ok? true :payload {:a 1 :b [2 3]}})))
+    (is (= 0 (rf.mcp-base.elision/count-elided-markers nil)))
+    (is (= 0 (rf.mcp-base.elision/count-elided-markers {})))
+    (is (= 0 (rf.mcp-base.elision/count-elided-markers [])))
+    (is (= 0 (rf.mcp-base.elision/count-elided-markers "string")))
+    (is (= 0 (rf.mcp-base.elision/count-elided-markers 42)))
+    (is (= 0 (rf.mcp-base.elision/count-elided-markers {:ok? true :payload {:a 1 :b [2 3]}})))
 
     ;; Marker counted at every depth and shape.
-    (is (= 1 (elision/count-elided-markers marker))
+    (is (= 1 (rf.mcp-base.elision/count-elided-markers marker))
         "Top-level single marker counts once.")
-    (is (= 1 (elision/count-elided-markers {:value marker}))
+    (is (= 1 (rf.mcp-base.elision/count-elided-markers {:value marker}))
         "Marker nested in a map counts once.")
-    (is (= 1 (elision/count-elided-markers [marker]))
+    (is (= 1 (rf.mcp-base.elision/count-elided-markers [marker]))
         "Marker nested in a vector counts once.")
-    (is (= 2 (elision/count-elided-markers {:a marker :b marker}))
+    (is (= 2 (rf.mcp-base.elision/count-elided-markers {:a marker :b marker}))
         "Sibling markers both count.")
-    (is (= 3 (elision/count-elided-markers
+    (is (= 3 (rf.mcp-base.elision/count-elided-markers
                {:slice1 marker
                 :slice2 {:nested marker}
                 :slice3 [{:deep marker}]}))
@@ -51,7 +51,7 @@
                                 ;; only count the OUTER marker.
                                 :extra {:rf.size/large-elided
                                         {:bytes 1}}}}]
-      (is (= 1 (elision/count-elided-markers body-with-collision))
+      (is (= 1 (rf.mcp-base.elision/count-elided-markers body-with-collision))
           "Marker body is opaque; nested marker-shape isn't double-counted."))))
 
 (deftest count-elided-markers-handles-lazy-seq-input
@@ -69,10 +69,10 @@
         as-lazy  (map identity contents)]
     (is (seq? as-lazy)
         "precondition: `map` yields a lazy seq, not a vector")
-    (is (= 2 (elision/count-elided-markers as-lazy))
+    (is (= 2 (rf.mcp-base.elision/count-elided-markers as-lazy))
         "lazy seqs count markers identically to the vector path")
-    (is (= 2 (elision/count-elided-markers contents))
+    (is (= 2 (rf.mcp-base.elision/count-elided-markers contents))
         "vector path baseline matches the lazy path")
-    (is (= 2 (elision/count-elided-markers
+    (is (= 2 (rf.mcp-base.elision/count-elided-markers
               (filter (constantly true) contents)))
         "filter-derived lazy seq counts identically")))

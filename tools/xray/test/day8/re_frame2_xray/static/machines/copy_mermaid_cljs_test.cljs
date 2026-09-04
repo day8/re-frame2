@@ -44,7 +44,7 @@
   branch lands `:failed` through the fx's own frame-pinned dispatch."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.test-helpers :as th]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-machines-viz.mermaid :as mermaid]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
@@ -107,10 +107,10 @@
              :paused  {:on {:resume :running}}}})
 
 (defn- find-copy-button [tree]
-  (th/find-by-testid tree "rf-xray-static-machines-copy-mermaid"))
+  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-copy-mermaid"))
 
 (defn- find-status-span [tree]
-  (th/find-by-testid tree "rf-xray-static-machines-copy-mermaid-status"))
+  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-copy-mermaid-status"))
 
 ;; -------------------------------------------------------------------------
 ;; (1) Rendering + accessibility + the no-valid-definition gate
@@ -126,7 +126,7 @@
     (rf/with-frame :rf/xray
       (let [tree  (panel/panel)
             btn   (find-copy-button tree)
-            attrs (th/attrs btn)]
+            attrs (rf.test-helpers/attrs btn)]
         (is (some? btn) "the Copy Mermaid control renders")
         (is (= :button (first btn))
             "a real <button> — keyboard-reachable by default")
@@ -146,7 +146,7 @@
     (frame-dispatch [:rf.xray.static.machines/select :m/a])
     (rf/with-frame :rf/xray
       (let [tree (panel/panel)]
-        (is (some? (th/find-by-testid
+        (is (some? (rf.test-helpers/find-by-testid
                      tree "rf-xray-static-machines-detail-header"))
             "header still renders")
         (is (nil? (find-copy-button tree))
@@ -163,7 +163,7 @@
     (frame-dispatch [:rf.xray.static.machines/select :m/a])
     (rf/with-frame :rf/xray
       (let [tree (panel/panel)]
-        (is (some? (th/find-by-testid
+        (is (some? (rf.test-helpers/find-by-testid
                      tree "rf-xray-static-machines-detail-header"))
             "header still renders")
         (is (nil? (find-copy-button tree))
@@ -181,7 +181,7 @@
     (frame-dispatch [:rf.xray.static.machines/select :m/a])
     (let [captured (capture-copy!)
           on-click (rf/with-frame :rf/xray
-                     (:on-click (th/attrs (find-copy-button (panel/panel)))))]
+                     (:on-click (rf.test-helpers/attrs (find-copy-button (panel/panel)))))]
       (is (fn? on-click) "sanity: the rendered control is wired")
       ;; Activate the REAL control. The reg-view-injected dispatcher is
       ;; the queued (async) frame dispatch, so the event lands on the
@@ -216,9 +216,9 @@
             (rf/with-frame :rf/xray
               (let [span (find-status-span (panel/panel))]
                 (is (some? span) "feedback span renders on success")
-                (is (= "status" (:role (th/attrs span)))
+                (is (= "status" (:role (rf.test-helpers/attrs span)))
                     "non-modal accessible status feedback")
-                (is (= "Copied" (th/text-content span))))))
+                (is (= "Copied" (rf.test-helpers/text-content span))))))
           (done))
         50))))
 
@@ -247,8 +247,8 @@
           "rejection lands as :failed")
       (rf/with-frame :rf/xray
         (let [span (find-status-span (panel/panel))]
-          (is (= "Copy failed" (th/text-content span)))
-          (is (not= "Copied" (th/text-content span))
+          (is (= "Copy failed" (rf.test-helpers/text-content span)))
+          (is (not= "Copied" (rf.test-helpers/text-content span))
               "a failed write is never reported as copied"))))))
 
 (deftest unavailable-clipboard-real-fx-lands-failure

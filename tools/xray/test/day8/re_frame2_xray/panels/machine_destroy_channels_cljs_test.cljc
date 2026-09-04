@@ -30,18 +30,18 @@
    [day8.re-frame2-xray.panels.managed-fx-helpers :as managed-fx]
    [re-frame.core :as rf]
    [re-frame.machines]
-   [re-frame.substrate.plain-atom :as plain-atom]
-   [re-frame.test-support :as test-support]
-   [re-frame.trace.tooling :as trace-tooling]))
+   [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- record-traces!
   "Register a raw trace listener accumulating every emitted event."
   [k]
   (let [a (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! a conj ev)))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- destroys-on

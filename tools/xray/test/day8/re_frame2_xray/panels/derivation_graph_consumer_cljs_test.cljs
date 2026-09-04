@@ -45,9 +45,9 @@
        unchanged (arbitrary node metadata rides through)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [re-frame.machines]                     ;; load the machines facade so reg-machine works
-            [re-frame.machines.tooling :as machines-tooling]
+            [re-frame.machines.tooling :as rf.machines.tooling]
             [re-frame.routing]                      ;; load routing so reg-route + navigate materialize a live route slice
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -174,7 +174,7 @@
       ;; (no edge points from a machine the selector does not name).
       (is (every? (fn [{:keys [from to]}]
                     (let [sub-id (second to)]
-                      (contains? (machines-tooling/machine-selector-targets sub-id)
+                      (contains? (rf.machines.tooling/machine-selector-targets sub-id)
                                  (second from))))
                   sel)
           "every selector edge runs from a machine its target selector reads"))))

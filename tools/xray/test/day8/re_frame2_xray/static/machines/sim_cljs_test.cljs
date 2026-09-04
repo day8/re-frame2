@@ -35,9 +35,9 @@
     9. **Frame isolation** — sim state stays on `:rf/xray`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
+            [re-frame.machines :as rf.machines]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.machines.sim :as sim]
@@ -167,17 +167,17 @@
 (deftest registry-installs-sim-handlers
   (testing "register-xray-handlers! installs every rf2-r4nao Sim handler"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray.static.machines/sim-by-machine)))
-    (is (some? (registrar/handler :sub :rf.xray.static.machines/sim-state)))
-    (is (some? (registrar/handler :sub :rf.xray.static.machines/sim-active?)))
-    (is (some? (registrar/handler :sub :rf.xray.static.machines/sim-available-transitions)))
-    (is (some? (registrar/handler :sub :rf.xray.static.machines/sim-event-suggestions)))
-    (is (some? (registrar/handler :event :rf.xray.static.machines/sim-start)))
-    (is (some? (registrar/handler :event :rf.xray.static.machines/sim-step)))
-    (is (some? (registrar/handler :event :rf.xray.static.machines/sim-reset)))
-    (is (some? (registrar/handler :event :rf.xray.static.machines/sim-stop)))
-    (is (some? (registrar/handler :event :rf.xray.static.machines/sim-set-pending-event)))
-    (is (some? (registrar/handler :event :rf.xray.static.machines/sim-set-pending-data)))))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-by-machine)))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-state)))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-active?)))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-available-transitions)))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-event-suggestions)))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-start)))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-step)))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-reset)))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-stop)))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-set-pending-event)))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-set-pending-data)))))
 
 ;; ---- (2) sim-start ------------------------------------------------------
 
@@ -230,7 +230,7 @@
                         :definition fixture-definition}])
     ;; Stub the engine to return an OK Result without booting the
     ;; machines artefact.
-    (with-redefs [machines/machine-transition (fn [_def _snap _event] ok-result)]
+    (with-redefs [rf.machines/machine-transition (fn [_def _snap _event] ok-result)]
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:start]}]))
@@ -253,7 +253,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (with-redefs [machines/machine-transition (fn [_d _s _e] fail-result)]
+    (with-redefs [rf.machines/machine-transition (fn [_d _s _e] fail-result)]
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:bad]}]))
@@ -267,7 +267,7 @@
 
 (deftest sim-step-engine-throw-treated-as-fail
   (testing "When the machines artefact is not on the classpath,
-            `machines/machine-transition` throws; the sim handler catches and
+            `rf.machines/machine-transition` throws; the sim handler catches and
             synthesises a fail-Result so the user sees an error instead
             of a runtime crash."
     (setup-xray-frame!)
@@ -276,7 +276,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (with-redefs [machines/machine-transition (fn [_d _s _e]
+      (with-redefs [rf.machines/machine-transition (fn [_d _s _e]
                                             (throw (js/Error. "no artefact")))]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                            {:machine-id :auth/login
@@ -291,9 +291,9 @@
   (testing "rf2-u422r — register-xray-handlers! installs the on-chart
             sub family + the edge-click step event"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray.static.machines/sim-current-state)))
-    (is (some? (registrar/handler :sub :rf.xray.static.machines/sim-last-transition)))
-    (is (some? (registrar/handler :event :rf.xray.static.machines/sim-chart-edge-clicked)))))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-current-state)))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-last-transition)))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-chart-edge-clicked)))))
 
 (deftest sim-chart-edge-clicked-steps-via-engine
   (testing "rf2-u422r — an on-chart edge click folds ONE step through the
@@ -305,7 +305,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (with-redefs [machines/machine-transition (fn [_d _s _e] ok-result)]
+      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
                            {:machine-id :auth/login
                             :event-id   :start}]))
@@ -343,7 +343,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (with-redefs [machines/machine-transition (fn [_d _s _e] fail-result)]
+      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] fail-result)]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
                            {:machine-id :auth/login
                             :event-id   :start}]))
@@ -366,7 +366,7 @@
       (is (= :idle @(rf/subscribe [:rf.xray.static.machines/sim-current-state])))
       (is (nil? @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])))
       ;; After a step the chart subs reflect the advance.
-      (with-redefs [machines/machine-transition (fn [_d _s _e] ok-result)]
+      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
                            {:machine-id :auth/login :event-id :start}]))
       (is (= :authing @(rf/subscribe [:rf.xray.static.machines/sim-current-state])))
@@ -384,7 +384,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (with-redefs [machines/machine-transition (fn [_d _s _e] ok-result)]
+    (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:start]}]))
@@ -480,7 +480,7 @@
       (is (some? (find-by-testid
                    tree "rf-xray-static-machines-sim-audit-empty"))
           "empty audit message before any steps"))
-    (with-redefs [machines/machine-transition (fn [_d _s _e] ok-result)]
+    (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:start]}]))
@@ -500,7 +500,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (with-redefs [machines/machine-transition (fn [_d _s _e] fail-result)]
+    (with-redefs [rf.machines/machine-transition (fn [_d _s _e] fail-result)]
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:bad]}]))
@@ -573,7 +573,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (with-redefs [machines/machine-transition (fn [_d _s _e] ok-result)]
+      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
                            {:machine-id :auth/login :event-id :start}]))
       (let [tree        (sim/SimChart rf/dispatch
@@ -766,8 +766,8 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}]))
-    (let [xray-db   (frame/frame-app-db-value :rf/xray)
-          default-db (frame/frame-app-db-value :rf/default)]
+    (let [xray-db   (rf.frame/frame-app-db-value :rf/xray)
+          default-db (rf.frame/frame-app-db-value :rf/default)]
       (is (some? (:rf.xray.static.machines/sim-by-machine xray-db))
           "sim slot lands on Xray")
       (is (nil? (:rf.xray.static.machines/sim-by-machine default-db))
@@ -847,7 +847,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (with-redefs [machines/machine-transition (fn [_d _s _e] ok-result)]
+      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                            {:machine-id :auth/login :event [:start]}])
         (rf/dispatch-sync [:rf.xray.static.machines/sim-step

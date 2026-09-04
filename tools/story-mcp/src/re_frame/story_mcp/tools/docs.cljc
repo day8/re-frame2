@@ -14,12 +14,12 @@
   paginated — their return is a single record bounded by the
   registered body's size, not a function of registry size."
   (:require [clojure.set :as set]
-            [re-frame.mcp-base.args :as args]
-            [re-frame.story :as story]
-            [re-frame.story-mcp.tools.cursor :as cursor]
-            [re-frame.story-mcp.tools.args :as targs]
-            [re-frame.story-mcp.tools.result :as result]
-            [re-frame.story-mcp.tools.schemas :as s]))
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.story :as rf.story]
+            [re-frame.story-mcp.tools.cursor :as rf.story-mcp.tools.cursor]
+            [re-frame.story-mcp.tools.args :as rf.story-mcp.tools.args]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
+            [re-frame.story-mcp.tools.schemas :as rf.story-mcp.tools.schemas]))
 
 (defn tool-list-stories
   "Docs: all registered stories (with optional tag filters).
@@ -31,12 +31,12 @@
     :cursor  — optional opaque continuation token from a previous call.
 
   HOT PATH: agents spam this tool. The variant-id slot per
-  story is read from `story/variants-by-story` — a single O(V) pass
+  story is read from `rf.story/variants-by-story` — a single O(V) pass
   over the variant side-table — rather than calling `variants-of`
   once per story (an O(S × V) shape).
 
   Caller-supplied `:tags` entries route through
-  `args/safe-keyword` against the registered-tag set — unknown tag
+  `rf.mcp-base.args/safe-keyword` against the registered-tag set — unknown tag
   ids skip the intersection rather than interning a fresh JVM
   keyword.
 
@@ -52,29 +52,29 @@
   no-interning posture is preserved — `:ignored-tags` carries the raw
   supplied strings, the keyword table is untouched.
 
-  Pagination via `cursor/page`. The stable-sort key is the
+  Pagination via `rf.story-mcp.tools.cursor/page`. The stable-sort key is the
   story id (string projection). Small registries return the bare
   `{:stories [...]}` payload; once entries exceed `:limit` the
   response adds `:total :limit :has-more? :next-cursor`.
 
   A caller-supplied `:tags` that is a SCALAR (not an array) is
-  rejected up front via `targs/require-collection` — an `isError`
+  rejected up front via `rf.story-mcp.tools.args/require-collection` — an `isError`
   result, not a silent character-by-character walk of the string
   (`(seq \"docs\")` => `(\\d \\o \\c \\s)`, each single-char probe
   missing the tag-id allowlist and landing in `:ignored-tags`)."
   [args]
-  (or (targs/require-collection args :tags)
-      (let [stories      (story/registrations :story)
-            tag-set      (story/list-tags)
+  (or (rf.story-mcp.tools.args/require-collection args :tags)
+      (let [stories      (rf.story/registrations :story)
+            tag-set      (rf.story/list-tags)
             supplied     (:tags args)
             supplied?    (some? supplied)
             ;; Resolve each supplied entry against the registered-tag set
             ;; WITHOUT interning unknowns. Partition by whether
             ;; it resolved so the unknown names can ride the `:ignored-tags`
             ;; diagnostic as their raw string forms.
-            tags         (into #{} (keep #(args/safe-keyword % tag-set)) (or supplied []))
+            tags         (into #{} (keep #(rf.mcp-base.args/safe-keyword % tag-set)) (or supplied []))
             ignored      (when supplied?
-                           (into [] (remove #(args/safe-keyword % tag-set)) supplied))
+                           (into [] (remove #(rf.mcp-base.args/safe-keyword % tag-set)) supplied))
             ;; A SUPPLIED filter always filters — even when nothing resolved
             ;; (unknown-only ⇒ empty intersection ⇒ empty result), so a typo
             ;; never widens to the whole catalogue. Only the
@@ -85,7 +85,7 @@
                                            (seq (set/intersection tags (set (:tags body))))))
                                  stories)
                            stories)
-            index        (story/variants-by-story)
+            index        (rf.story/variants-by-story)
             ;; Build the full sorted entry vec FIRST; pagination slices it.
             ;; The sort is on string projection of the id for stable cross-
             ;; page ordering — the fingerprint depends on it.
@@ -97,7 +97,7 @@
                                   :tags (vec (:tags body))
                                   :variants (sort (get index sid #{}))})
                                sorted)]
-        (cursor/paged-result entries all-ids args "list-stories"
+        (rf.story-mcp.tools.cursor/paged-result entries all-ids args "list-stories"
                              (fn [page]
                                (cond-> {:stories page}
                                  (seq ignored) (assoc :ignored-tags ignored)))))))
@@ -105,23 +105,23 @@
 (defn tool-get-story
   "Docs: one story's full body.
 
-  `:story-id` is resolved through `args/safe-keyword`
+  `:story-id` is resolved through `rf.mcp-base.args/safe-keyword`
   against the registered-stories set — an unknown id returns the
   documented `Story not found` error without interning (via the shared
-  `targs/with-story-id` prelude)."
+  `rf.story-mcp.tools.args/with-story-id` prelude)."
   [args]
-  (targs/with-story-id args
+  (rf.story-mcp.tools.args/with-story-id args
     (fn [sk]
-      (result/edn-result {:id       sk
-                          :body     (story/handler-meta :story sk)
-                          :variants (sort (story/variants-of sk))}))))
+      (rf.story-mcp.tools.result/edn-result {:id       sk
+                          :body     (rf.story/handler-meta :story sk)
+                          :variants (sort (rf.story/variants-of sk))}))))
 
 (defn tool-get-variant
   "Docs: one variant's full body (`handler-meta :variant id`)."
   [args]
-  (targs/with-variant args
+  (rf.story-mcp.tools.args/with-variant args
     (fn [vk body]
-      (result/edn-result {:id vk :body body}))))
+      (rf.story-mcp.tools.result/edn-result {:id vk :body body}))))
 
 (defn tool-list-tags
   "Docs: canonical tags + custom tags.
@@ -139,9 +139,9 @@
   the `:has-more?` / `:next-cursor` cursor drives that one slot. Small
   registries see no pagination metadata."
   [args]
-  (let [registered (story/list-tags)
-        canonical  (vec (sort-by str (into story/canonical-tags
-                                           story/canonical-state-tags)))
+  (let [registered (rf.story/list-tags)
+        canonical  (vec (sort-by str (into rf.story/canonical-tags
+                                           rf.story/canonical-state-tags)))
         custom-set (set/difference (set registered) (set canonical))
         custom     (vec (sort-by str custom-set))
         ;; :all is the FULL catalogue (canonical ∪ ALL custom), computed once
@@ -151,7 +151,7 @@
         ;; full tag set. (canonical and custom-set are disjoint by
         ;; construction, so the union carries no duplicates.)
         all        (vec (sort-by str (into canonical custom-set)))]
-    (cursor/paged-result custom custom-set args "list-tags"
+    (rf.story-mcp.tools.cursor/paged-result custom custom-set args "list-tags"
                          (fn [page]
                            {:canonical canonical
                             :custom    page
@@ -163,12 +163,12 @@
 
   Paginated per spec/Principles.md §'Tight token budget'."
   [args]
-  (let [modes   (story/registrations :mode)
+  (let [modes   (rf.story/registrations :mode)
         sorted  (sort-by (comp str key) modes)
         all-ids (keys modes)
         entries (mapv (fn [[mid body]] {:id mid :doc (:doc body) :args (:args body)})
                       sorted)]
-    (cursor/paged-result entries all-ids args "list-modes"
+    (rf.story-mcp.tools.cursor/paged-result entries all-ids args "list-modes"
                          (fn [page] {:modes page}))))
 
 (defn- decorator-summary
@@ -211,7 +211,7 @@
 
   - `:kind` (string, optional) — narrow to one decorator kind. One
     of `\"hiccup\"`, `\"frame-setup\"`, `\"fx-override\"`. Resolved
-    through `args/safe-keyword` against the bounded `decorator-kinds`
+    through `rf.mcp-base.args/safe-keyword` against the bounded `decorator-kinds`
     set — no-intern: an unrecognised string never mints a
     fresh JVM keyword.
 
@@ -229,27 +229,27 @@
   cursor (different sig)."
   [args]
   (let [raw-kind    (:kind args)
-        kind-filter (some-> raw-kind (args/safe-keyword decorator-kinds))]
+        kind-filter (some-> raw-kind (rf.mcp-base.args/safe-keyword decorator-kinds))]
     ;; A present-but-unrecognised `:kind` is rejected rather
     ;; than widened to all. `(some? raw-kind)` distinguishes "no filter
     ;; requested" (absent slot ⇒ `raw-kind` nil) from "filter requested
     ;; with a bad value" (`raw-kind` present but `safe-keyword` ⇒ nil).
     (if (and (some? raw-kind) (nil? kind-filter))
-      (result/error-result
+      (rf.story-mcp.tools.result/error-result
        (str "Unknown decorator kind: " (pr-str raw-kind)
             ". Allowed: " (pr-str (mapv name (sort decorator-kinds)))
             ". (The :kind filter is an enum; fix the value or drop the key for the full catalogue.)")
        {:rf.error :rf.story-mcp/unknown-decorator-kind
         :kind     raw-kind
         :allowed  (mapv name (sort decorator-kinds))})
-      (let [decorators (story/registrations :decorator)
+      (let [decorators (rf.story/registrations :decorator)
             filtered   (cond->> decorators
                          kind-filter (into {} (filter (fn [[_ body]]
                                                         (= kind-filter (:kind body))))))
             sorted     (sort-by (comp str key) filtered)
             all-ids    (keys filtered)
             entries    (mapv (fn [[did body]] (decorator-summary did body)) sorted)]
-        (cursor/paged-result entries all-ids args "list-decorators"
+        (rf.story-mcp.tools.cursor/paged-result entries all-ids args "list-decorators"
                              (fn [page] {:decorators page}))))))
 
 (def canonical-assertion-docs
@@ -328,7 +328,7 @@
   not apply).
 
   `:registered` is the FULL vocabulary the Story plan compiler
-  accepts — `story/known-assertion-ids` (spec/017 §Assertions),
+  accepts — `rf.story/known-assertion-ids` (spec/017 §Assertions),
   the SAME set `plan.cljc` validates authored assertion atoms against via
   `assertion-id-known?`. That is the eight canonical ids PLUS the
   richer-runner families the canonical doc-vec does not cover: the DOM
@@ -340,9 +340,9 @@
   accepts rather than fall back to prose. `:registered` is paginated when
   the count exceeds `:limit`; small registries see no pagination metadata."
   [args]
-  (let [registered (sort-by str (story/known-assertion-ids))
+  (let [registered (sort-by str (rf.story/known-assertion-ids))
         reg-vec    (vec registered)]
-    (cursor/paged-result reg-vec (set reg-vec) args "list-assertions"
+    (rf.story-mcp.tools.cursor/paged-result reg-vec (set reg-vec) args "list-assertions"
                          (fn [page] {:canonical  canonical-assertion-docs
                                      :registered page}))))
 
@@ -365,7 +365,7 @@
   AUTHOR DATA — ships RAW, exactly like `get-variant` / `variant->edn`.
   `explain-variant` is a documented
   NO-RUN tool (spec/API.md: 'Plan-derived data, no run, no live :app-db
-  slice'): `story/explain` is a pure projection over the registry side-table
+  slice'): `rf.story/explain` is a pure projection over the registry side-table
   and allocates no frame. Every slot it returns — including the plan-RESOLVED
   value slots (`:effective-args` / `:args` / `:substitutions` / `:network`
   route replies / `:db-seed` / `:sub-overrides` override values /
@@ -387,10 +387,10 @@
   reasoning on top. No `:include-sensitive` knob — like `get-variant`, there
   is no sensitive value slot to gate."
   [args]
-  (targs/with-variant args
+  (rf.story-mcp.tools.args/with-variant args
     (fn [vk _body]
-      (result/edn-result {:variant-id vk
-                          :explain    (story/explain vk)}))))
+      (rf.story-mcp.tools.result/edn-result {:variant-id vk
+                          :explain    (rf.story/explain vk)}))))
 
 (defn tool-variant->edn
   "Docs: round-trippable EDN of a registered variant. Identical payload
@@ -404,9 +404,9 @@
   the same body map; the text slot remains the byte-stable EDN source of
   truth."
   [args]
-  (targs/with-variant args
+  (rf.story-mcp.tools.args/with-variant args
     (fn [_vk body]
-      (result/edn-result body))))
+      (rf.story-mcp.tools.result/edn-result body))))
 
 (defn- md-h1 [s] (str "# " s "\n\n"))
 (defn- md-h2 [s] (str "\n## " s "\n\n"))
@@ -453,7 +453,7 @@
     (if (seq variant-ids)
       (apply str
              (for [vid (sort variant-ids)
-                   :let [vbody (story/handler-meta :variant vid)]]
+                   :let [vbody (rf.story/handler-meta :variant vid)]]
                (str (md-h3 (str "`" vid "`"))
                     (when (:doc vbody)
                       (str (:doc vbody) "\n\n"))
@@ -475,15 +475,15 @@
   slot and as a `:markdown` structuredContent slot (paste-target for
   agent hosts that surface structured content)."
   [args]
-  (targs/with-story-id args
+  (rf.story-mcp.tools.args/with-story-id args
     (fn [sk]
-      (let [body     (story/handler-meta :story sk)
-            variants (sort (story/variants-of sk))
+      (let [body     (rf.story/handler-meta :story sk)
+            variants (sort (rf.story/variants-of sk))
             md       (render-story-markdown sk body variants)
             payload  {:story-id sk
                       :markdown md
                       :variants (vec variants)}]
-        (result/text-result md payload)))))
+        (rf.story-mcp.tools.result/text-result md payload)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
@@ -503,13 +503,13 @@
                          "5. Mixed known+unknown: {:tags [\":docs\" \":docz\"]} -> {:stories [...] :ignored-tags [\":docz\"]} — the known tag filters, the unknown name is reported.")
     :typicalTokens  1500
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens
-                                (s/with-pagination
-                                  {:tags {:type "array" :items s/kw-or-string
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens
+                                (rf.story-mcp.tools.schemas/with-pagination
+                                  {:tags {:type "array" :items rf.story-mcp.tools.schemas/kw-or-string
                                           :description "Optional tag filter; story `:tags` set must intersect."}}))
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-list-stories}
 
    {:name           "get-story"
@@ -521,11 +521,11 @@
                          "3. Miss: {:story-id \":story.no/such\"} -> {:isError true :content [{:text \"Story not found: :story.no/such\"}]}.")
     :typicalTokens  1500
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens {:story-id s/kw-or-string})
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens {:story-id rf.story-mcp.tools.schemas/kw-or-string})
                   :required ["story-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-get-story}
 
    {:name           "get-variant"
@@ -537,11 +537,11 @@
                          "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens {:variant-id s/kw-or-string})
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens {:variant-id rf.story-mcp.tools.schemas/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-get-variant}
 
    {:name           "list-tags"
@@ -554,10 +554,10 @@
                          "4. Large custom set — only :custom paginates: {:limit 25} -> {:canonical [...12...] :custom [...25 of 50...] :all [...62...] :total 50 :limit 25 :has-more? true :next-cursor \"<base64>\"} — :all carries all 12 canonical + all 50 custom, while :custom is the 25-entry page.")
     :typicalTokens  100
     :inputSchema    {:type "object"
-                     :properties (s/with-max-tokens (s/with-pagination {}))
+                     :properties (rf.story-mcp.tools.schemas/with-max-tokens (rf.story-mcp.tools.schemas/with-pagination {}))
                      :additionalProperties false}
-    :outputSchema   s/default-output-schema
-    :annotations    s/read-only-annotations
+    :outputSchema   rf.story-mcp.tools.schemas/default-output-schema
+    :annotations    rf.story-mcp.tools.schemas/read-only-annotations
     :handler        tool-list-tags}
 
    {:name           "list-modes"
@@ -570,10 +570,10 @@
                          "4. Large mode set — paginated: {:limit 10} -> {:modes [...10...] :total 47 :limit 10 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  200
     :inputSchema    {:type "object"
-                     :properties (s/with-max-tokens (s/with-pagination {}))
+                     :properties (rf.story-mcp.tools.schemas/with-max-tokens (rf.story-mcp.tools.schemas/with-pagination {}))
                      :additionalProperties false}
-    :outputSchema   s/default-output-schema
-    :annotations    s/read-only-annotations
+    :outputSchema   rf.story-mcp.tools.schemas/default-output-schema
+    :annotations    rf.story-mcp.tools.schemas/read-only-annotations
     :handler        tool-list-modes}
 
    {:name           "list-decorators"
@@ -594,14 +594,14 @@
                          "4. Paginated: {:limit 10} -> {:decorators [...10...] :total 23 :limit 10 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  500
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens
-                                (s/with-pagination
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens
+                                (rf.story-mcp.tools.schemas/with-pagination
                                   {:kind {:type "string"
                                           :description "Optional filter — only return decorators of this kind."
                                           :enum ["hiccup" "frame-setup" "fx-override"]}}))
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-list-decorators}
 
    {:name           "list-assertions"
@@ -614,10 +614,10 @@
                          "4. Paginated: {:limit 5} -> {:canonical [...10...] :registered [...5...] :total 16 :limit 5 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  500
     :inputSchema    {:type "object"
-                     :properties (s/with-max-tokens (s/with-pagination {}))
+                     :properties (rf.story-mcp.tools.schemas/with-max-tokens (rf.story-mcp.tools.schemas/with-pagination {}))
                      :additionalProperties false}
-    :outputSchema   s/default-output-schema
-    :annotations    s/read-only-annotations
+    :outputSchema   rf.story-mcp.tools.schemas/default-output-schema
+    :annotations    rf.story-mcp.tools.schemas/read-only-annotations
     :handler        tool-list-assertions}
 
    {:name           "variant->edn"
@@ -629,11 +629,11 @@
                          "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens {:variant-id s/kw-or-string})
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens {:variant-id rf.story-mcp.tools.schemas/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-variant->edn}
 
    {:name           "explain-variant"
@@ -645,11 +645,11 @@
                          "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1500
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens {:variant-id s/kw-or-string})
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens {:variant-id rf.story-mcp.tools.schemas/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-explain-variant}
 
    {:name           "get-docs-markdown"
@@ -668,9 +668,9 @@
                          "3. Miss: {:story-id \":story.no/such\"} -> {:isError true :content [{:text \"Story not found: :story.no/such\"}]}.")
     :typicalTokens  1500
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens {:story-id s/kw-or-string})
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens {:story-id rf.story-mcp.tools.schemas/kw-or-string})
                   :required ["story-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-get-docs-markdown}])

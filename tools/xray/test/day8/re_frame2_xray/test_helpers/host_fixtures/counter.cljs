@@ -20,7 +20,7 @@
   emit (which the test fixtures' `make-reset-runtime-fixture` rolls back
   via the captured registrar snapshot)."
   (:require [re-frame.core :as rf]
-            [re-frame.source-store :as source-store]))
+            [re-frame.source-store :as rf.source-store]))
 
 (defn install!
   "Register the counter app's events + subs. Matches the canonical
@@ -39,7 +39,7 @@
                      [:event :counter/inc]
                      [:event :counter/dec]
                      [:sub   :counter/value]]]
-    (source-store/forget-id! kind id))
+    (rf.source-store/forget-id! kind id))
   (rf/reg-event :counter/initialise
     (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
 

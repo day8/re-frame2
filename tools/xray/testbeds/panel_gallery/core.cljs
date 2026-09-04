@@ -95,8 +95,8 @@
   `implementation/scripts/test-bundle-isolation.sh`. Production app
   code never `:requires` anything under `tools/xray/testbeds/`."
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.story :as rf.story]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.registry :as xray-registry]
             ;; Xray's `:root` CSS-variable installer. Required
             ;; here because the panel-gallery embeds bare Xray widgets
@@ -147,7 +147,7 @@
             ;; bare per-`run` `addEventListener` (which stacks a duplicate
             ;; listener on every CLJS hot-reload, since reload rebinds the
             ;; `defn` to a fresh fn the browser cannot dedupe by identity).
-            [re-frame.testbed.story-host :as story-host]))
+            [re-frame.testbed.story-host :as rf.testbed.story-host]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
@@ -226,7 +226,7 @@
 ;; hot-reload re-`run` never stacks a duplicate.
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; Xray's :rf.xray/* events / subs / fxs land on the registry once.
   ;; The handlers operate on the current frame's app-db, so each
   ;; variant frame the Story canvas allocates becomes its own isolated
@@ -250,7 +250,7 @@
   ;; `gallery_<tab>.cljs` namespace also calls
   ;; `install-canonical-vocabulary!` defensively at registration so
   ;; ns reload after `:after-load` is safe.
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   ;; Defensive — register the gallery view-ids even if the gallery
   ;; namespaces loaded before this fn ran (CLJS reload order isn't
   ;; guaranteed at the application level).
@@ -260,4 +260,4 @@
   ;; installed via the helper's remove-then-add `defonce` handle rather than a
   ;; bare per-`run` `addEventListener` that stacks duplicates across hot-reload.
   ;; The helper renders `[landing-view]` for any non-`#/stories` hash.
-  (story-host/mount-with-hash-routing! landing-view))
+  (rf.testbed.story-host/mount-with-hash-routing! landing-view))

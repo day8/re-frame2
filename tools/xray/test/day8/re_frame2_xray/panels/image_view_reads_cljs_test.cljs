@@ -20,17 +20,17 @@
   the values `make-frame` / `assemble` actually produce."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set :as set]
-            [re-frame.image :as image]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.frame :as frame]
-            [re-frame.image-assembly :as image-assembly]
-            [re-frame.trace :as trace]
+            [re-frame.image :as rf.image]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.frame :as rf.frame]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.panels.image-view-reads :as reads]))
 
 ;; Each case starts from a clean frame registry so an `:id` from one case never
 ;; carries over to the next. EP-0024 (rf2-tu2vr7): the registries collapsed —
 ;; an image-loaded frame is a `re-frame.frame/frames` record carrying a
-;; `:generation`, so resetting `frame/frames` clears the image-loaded frames —
+;; `:generation`, so resetting `rf.frame/frames` clears the image-loaded frames —
 ;; the single reset is the whole clear (rf2-ji3tvy). The frame-no-emit
 ;; gate (rf2-2qaqh) lives in a persistent `re-frame.trace` set the registry
 ;; reset does NOT touch, so the seating cases also clear the shell ids they
@@ -40,13 +40,13 @@
 
 (use-fixtures :each
   {:before (fn []
-             (reset! frame/frames {})
+             (reset! rf.frame/frames {})
              (doseq [fid seat-test-frame-ids]
-               (trace/set-frame-no-emit! fid false)))
+               (rf.trace/set-frame-no-emit! fid false)))
    :after  (fn []
-             (reset! frame/frames {})
+             (reset! rf.frame/frames {})
              (doseq [fid seat-test-frame-ids]
-               (trace/set-frame-no-emit! fid false)))})
+               (rf.trace/set-frame-no-emit! fid false)))})
 
 ;; A target image + a target frame, built against an EXPLICIT descriptor pool
 ;; (so the test does not depend on the live source store carrying any host
@@ -54,12 +54,12 @@
 (def ^:private target-pool
   ;; The explicit descriptor pool `assemble`'s 2-arity selects from: a FLAT seq
   ;; of descriptor maps (each carrying :kind / :id / :rf.provenance/ns — the
-  ;; source store's output shape), matching `image/select-descriptors`'s input.
+  ;; source store's output shape), matching `rf.image/select-descriptors`'s input.
   [{:kind :event :id :counter/inc   :rf.provenance/ns "app.counter" :impl :inc}
    {:kind :sub   :id :counter/value :rf.provenance/ns "app.counter" :impl :val}])
 
 (def ^:private target-image
-  (image/image {:id :app/counter :select-ns {:include ["app.counter"]}}))
+  (rf.image/image {:id :app/counter :select-ns {:include ["app.counter"]}}))
 
 ;; ---- Xray's own image (the dogfooding) -----------------------------------
 
@@ -96,7 +96,7 @@
                 {:kind :event :id :counter/inc
                  :rf.provenance/ns "day8.re-frame2-xray.test-helpers.host-fixtures.counter"
                  :impl :fixture}]
-          sel  (image/select-descriptors (reads/xray-image) pool)]
+          sel  (rf.image/select-descriptors (reads/xray-image) pool)]
       ;; only the production :rf.xray.fx/open-in-editor survives; the test sibling +
       ;; test-helpers fixture are excluded.
       (is (= 1 (count sel)) "exactly one descriptor selected")
@@ -104,7 +104,7 @@
       (is (= "day8.re-frame2-xray.open-in-editor" (:rf.provenance/ns (first sel)))
           "the PRODUCTION descriptor, not the `*-cljs-test` sibling")
       ;; and assembly seals it WITHOUT a dup-id throw (the blocker is gone).
-      (let [gen (image-assembly/assemble [(reads/xray-image)] pool)]
+      (let [gen (rf.image-assembly/assemble [(reads/xray-image)] pool)]
         (is (contains? (reads/application-resolver-keyset gen) [:fx :rf.xray.fx/open-in-editor])
             "the production :rf.xray.fx/open-in-editor is in the sealed generation")))))
 
@@ -136,7 +136,7 @@
     ;; The negative: an image that DID select Xray's namespaces resolves Xray's
     ;; OWN ids, so the keysets OVERLAP → NOT isolated. The predicate is a real
     ;; keyset-disjointness check, not a constant true.
-    (let [leaky (image/image {:id :leaky/img
+    (let [leaky (rf.image/image {:id :leaky/img
                               :select-ns {:include ["day8.re-frame2-xray.**" "app.counter"]}})]
       (is (false? (reads/xray-image-isolated-from? leaky combined-pool))
           "an image selecting Xray's namespaces shares Xray's [kind id]s → NOT
@@ -153,7 +153,7 @@
     ;; descriptor under `day8.re-frame2-xray.panels.foo`, so their resolver
     ;; keysets SHARE [:event :rf.xray/refresh] → the keyset check correctly
     ;; reports NOT isolated.
-    (let [overlap-target (image/image {:id :overlap/img
+    (let [overlap-target (rf.image/image {:id :overlap/img
                                        :select-ns {:include ["day8.re-frame2-xray.panels.*"]}})
           xray-sel       (set (:rf.image/include-ns (reads/xray-image)))
           target-sel     (set (:rf.image/include-ns overlap-target))]
@@ -172,8 +172,8 @@
     ;; Assemble BOTH generations against the same combined pool, then compare
     ;; their resolver keysets directly (the invariant `xray-image-isolated-from?`
     ;; encodes), in BOTH directions.
-    (let [xray-gen    (image-assembly/assemble [(reads/xray-image)] combined-pool)
-          target-gen  (image-assembly/assemble [target-image] combined-pool)
+    (let [xray-gen    (rf.image-assembly/assemble [(reads/xray-image)] combined-pool)
+          target-gen  (rf.image-assembly/assemble [target-image] combined-pool)
           xray-keys   (reads/resolver-keyset xray-gen)
           target-keys (reads/resolver-keyset target-gen)
           ;; The APPLICATION-owned keysets exclude the framework standard the
@@ -210,7 +210,7 @@
             sealed generations end-to-end"
     ;; A target frame loaded with the target image against its explicit pool,
     ;; registered under an :id so it enters the live-frame registry.
-    (live-frame/make-frame {:id :app/main :images [target-image]} target-pool)
+    (rf.live-frame/make-frame {:id :app/main :images [target-image]} target-pool)
     (let [data (reads/image-view-data)
           row  (first (filter #(= :app/main (:frame-id %)) (:frames data)))
           kids (set (map (juxt :kind :id) (:descriptors (:image row))))]
@@ -225,7 +225,7 @@
       ;; seeding event standard; rf2-v1xzoo), and the EP-0026 machine runtime
       ;; standards (`:rf.machine/*` fx + `:rf/machine*` subs), when machines is
       ;; loaded into this test artefact.
-      (let [n-standards (count (image-assembly/standard-descriptors))]
+      (let [n-standards (count (rf.image-assembly/standard-descriptors))]
         (is (= (+ 2 n-standards) (:descriptor-count (:image row)))
             "the frame's resolved image carries its 2 app descriptors + every
              framework standard the assembly unions in"))
@@ -250,8 +250,8 @@
 (deftest resolve-descriptor-is-frame-derived
   (testing "resolving a [kind id] through a real frame's generation yields the
             frame's OWN descriptor (the frame-derived resolution path)"
-    (let [fval (live-frame/make-frame {:images [target-image]} target-pool)
-          gen   (live-frame/frame-generation fval)
+    (let [fval (rf.live-frame/make-frame {:images [target-image]} target-pool)
+          gen   (rf.live-frame/frame-generation fval)
           desc  (reads/resolve-descriptor gen :event :counter/inc)]
       (is (= :counter/inc (:id desc)))
       (is (= "app.counter" (:rf.provenance/ns desc))
@@ -273,7 +273,7 @@
             Xray's OWN registrations (the frame runs Xray's image, not the shared
             registrar) — the true runtime dogfood"
     (let [obj (reads/seat-xray-frame! :rf.xray/seat-a xray-pool)
-          kids (reads/application-resolver-keyset (live-frame/frame-generation obj))]
+          kids (reads/application-resolver-keyset (rf.live-frame/frame-generation obj))]
       (is (some? obj) "a fresh seat returns the live frame value")
       (is (= :rf.xray/seat-a (:rf.frame/id obj)) "registered under the shell id")
       (is (true? (reads/xray-frame-seated? :rf.xray/seat-a))
@@ -288,10 +288,10 @@
   (testing "seat-xray-frame! marks the shell frame trace-disabled (rf2-2qaqh) so
             Xray's own reactivity does not flood the ring it inspects — preserved
             across the make-frame seating that cannot carry the record-config flag"
-    (is (false? (trace/frame-trace-disabled? :rf.xray/seat-b))
+    (is (false? (rf.trace/frame-trace-disabled? :rf.xray/seat-b))
         "not gated before seating")
     (reads/seat-xray-frame! :rf.xray/seat-b xray-pool)
-    (is (true? (trace/frame-trace-disabled? :rf.xray/seat-b))
+    (is (true? (rf.trace/frame-trace-disabled? :rf.xray/seat-b))
         "seating sets the frame-no-emit gate")))
 
 (deftest seat-xray-frame-is-idempotent
@@ -305,5 +305,5 @@
         (is (nil? second-obj) "re-seat is a skip (returns nil), not a re-create")
         (is (true? (reads/xray-frame-seated? :rf.xray/seat-c))
             "the frame stays live")
-        (is (true? (trace/frame-trace-disabled? :rf.xray/seat-c))
+        (is (true? (rf.trace/frame-trace-disabled? :rf.xray/seat-c))
             "the trace gate is re-asserted on the re-seat")))))

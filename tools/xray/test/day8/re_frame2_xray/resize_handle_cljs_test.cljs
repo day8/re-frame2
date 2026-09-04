@@ -22,8 +22,8 @@
        localStorage (covered indirectly by config + effects)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
@@ -49,7 +49,7 @@
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid copies were
 ;; semantically identical to `re-frame.test-helpers`; tests call
-;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 ;; ---- mount on :inline / short-circuit on others ------------------------
 
@@ -83,7 +83,7 @@
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view {:mode :inline})]
-        (is (some? (th/find-by-testid tree "rf-xray-resize-handle"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-resize-handle"))
             "resize handle present in :inline mode")))))
 
 (deftest shell-omits-resize-handle-in-popout
@@ -91,7 +91,7 @@
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view {:mode :popout})]
-        (is (nil? (th/find-by-testid tree "rf-xray-resize-handle"))
+        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-resize-handle"))
             "resize handle absent in :popout mode")))))
 
 ;; ---- drag lifecycle ----------------------------------------------------

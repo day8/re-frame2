@@ -87,12 +87,12 @@
   isolation comes from the enclosing `[rf/frame-provider {:frame :rf/xray}]`
   in `shell.cljs`."
   (:require [re-frame.core :as rf]
-            [re-frame.derivation.graph :as dgraph]
-            [re-frame.flows.tooling :as flows-tooling]
-            [re-frame.machines.tooling :as machines-tooling]
-            [re-frame.resources.tooling :as resources-tooling]
-            [re-frame.routing.tooling :as routing-tooling]
-            [re-frame.subs.tooling :as subs-tooling]
+            [re-frame.derivation.graph :as rf.derivation.graph]
+            [re-frame.flows.tooling :as rf.flows.tooling]
+            [re-frame.machines.tooling :as rf.machines.tooling]
+            [re-frame.resources.tooling :as rf.resources.tooling]
+            [re-frame.routing.tooling :as rf.routing.tooling]
+            [re-frame.subs.tooling :as rf.subs.tooling]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.derivation-graph-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
@@ -114,22 +114,22 @@
   `:machines` are Xray hard deps (rf2-1fc459). The `:machines` contributor
   carries the `machine-selector-targets` extractor so the graph draws
   precise machine→selector edges (rf2-4qmiij)."
-  {:subs      {:static-fn  subs-tooling/sub-algebra-view
-               :live-fn    subs-tooling/sub-cache-algebra-view
+  {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
+               :live-fn    rf.subs.tooling/sub-cache-algebra-view
                :live-shape :map}
-   :flows     {:static-fn  flows-tooling/flow-algebra-view
-               :live-fn    flows-tooling/flow-algebra-view
+   :flows     {:static-fn  rf.flows.tooling/flow-algebra-view
+               :live-fn    rf.flows.tooling/flow-algebra-view
                :live-shape :map}
-   :resources {:static-fn  resources-tooling/resource-algebra-view
-               :live-fn    resources-tooling/resource-cache-algebra-view
+   :resources {:static-fn  rf.resources.tooling/resource-algebra-view
+               :live-fn    rf.resources.tooling/resource-cache-algebra-view
                :live-shape :map}
-   :routes    {:static-fn  routing-tooling/route-algebra-view
-               :live-fn    routing-tooling/route-slice-algebra-view
+   :routes    {:static-fn  rf.routing.tooling/route-algebra-view
+               :live-fn    rf.routing.tooling/route-slice-algebra-view
                :live-shape :node}
-   :machines  {:static-fn         machines-tooling/machine-algebra-view
-               :live-fn           machines-tooling/machine-instance-algebra-view
+   :machines  {:static-fn         rf.machines.tooling/machine-algebra-view
+               :live-fn           rf.machines.tooling/machine-instance-algebra-view
                :live-shape        :map
-               :selector-targets  machines-tooling/machine-selector-targets}})
+               :selector-targets  rf.machines.tooling/machine-selector-targets}})
 
 (def ^:private mode-accent (:magenta tokens))     ; violet — the algebra lens
 
@@ -379,8 +379,8 @@
   `derivation-graph` over `xray-contributors`."
   [mode target-frame]
   (if (= :live mode)
-    (dgraph/live-derivation-graph target-frame xray-contributors)
-    (dgraph/derivation-graph xray-contributors)))
+    (rf.derivation.graph/live-derivation-graph target-frame xray-contributors)
+    (rf.derivation.graph/derivation-graph xray-contributors)))
 
 ;; ---- registration entry --------------------------------------------------
 

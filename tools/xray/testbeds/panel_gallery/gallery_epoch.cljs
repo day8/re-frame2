@@ -55,7 +55,7 @@
   the under-test record alone; the multi-record
   `child-dispatches-history` puts the child epoch FIRST and the
   parent (focused) LAST."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures-epoch :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -67,16 +67,16 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-epoch
+  (rf.story/reg-tag :feature/xray-epoch
     {:axis :feature
      :doc  "Xray Epoch panel — the focused-epoch numbered cascade
             (per tools/xray/spec/021-Dynamic-Panel-Designs.md §9.1;
             rf2-sc3r1 + #2191 + #2193)."})
 
-  (story/reg-story :story.xray.epoch
+  (rf.story/reg-story :story.xray.epoch
     {:doc        "Visual gallery of the Xray Epoch panel — the
                  focused-epoch numbered cascade. Each variant seeds
                  its frame's :epoch-history via
@@ -88,7 +88,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 1. vanilla db-only cascade ----------------------------------
-  (story/reg-variant :story.xray.epoch/vanilla-db
+  (rf.story/reg-variant :story.xray.epoch/vanilla-db
     {:doc        "Vanilla `:db-only` cascade — counter-inc shape.
                  Exercises DISPATCH + COEFFECT + HANDLER (db FULL+DIFF
                  sub-section) + SIDE EFFECTS (flat ledger with a single
@@ -100,7 +100,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 2. SIDE EFFECTS flat ledger (rf2-j630b) ---------------------
-  (story/reg-variant :story.xray.epoch/side-effects
+  (rf.story/reg-variant :story.xray.epoch/side-effects
     {:doc        "SIDE EFFECTS flat per-effect ledger (rf2-j630b,
                  supersedes the rf2-kt6js 3-tier sub-steps) — handler
                  returns `:db` + a three-entry `:fx` vector + a stray
@@ -118,7 +118,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 3. machine-driven cascade -----------------------------------
-  (story/reg-variant :story.xray.epoch/machine-driven
+  (rf.story/reg-variant :story.xray.epoch/machine-driven
     {:doc        "Machine-handler cascade for a :ws/connection machine
                  (`:ws/open` transitions :connecting → :open).
                  Exercises the rich machine-handler section as a SINGLE
@@ -133,7 +133,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4. SIDE EFFECTS `:db` schema-fail rollback (rf2-j630b) ------
-  (story/reg-variant :story.xray.epoch/db-schema-fail
+  (rf.story/reg-variant :story.xray.epoch/db-schema-fail
     {:doc        "Cascade where the app-db boundary schema rejected the
                  handler's `:db` write and rolled the cascade back.
                  Exercises the flat ledger's `:db` ✗ schema-fail state
@@ -151,7 +151,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4a. handler-threw EXCEPTION (rf2-ahhgn · rf2-wnvid) ---------
-  (story/reg-variant :story.xray.epoch/exception
+  (rf.story/reg-variant :story.xray.epoch/exception
     {:doc        "Cascade where the event handler threw before returning
                  (`:rf.error/handler-exception`). Exercises the inline
                  'Exception Thrown' block (rf2-ahhgn / rf2-wnvid): the
@@ -167,7 +167,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4b. fx-handler-threw EXCEPTION (rf2-ahhgn · rf2-j630b) ------
-  (story/reg-variant :story.xray.epoch/fx-exception
+  (rf.story/reg-variant :story.xray.epoch/fx-exception
     {:doc        "`:effectful` cascade whose `:db` committed cleanly
                  but a post-commit `:fx` handler (`:email/send`) threw
                  (`:rf.error/fx-handler-exception`). Exercises the flat
@@ -182,7 +182,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4d. INTERCEPTOR step — :after throw (rf2-yz57h · rf2-mszrz) -
-  (story/reg-variant :story.xray.epoch/interceptor-exception
+  (rf.story/reg-variant :story.xray.epoch/interceptor-exception
     {:doc        "Cascade where a user interceptor (`:audit/trail`) threw
                  in its `:after` phase (`:rf.error/interceptor-exception`)
                  AFTER the handler ran cleanly. Exercises the NEW
@@ -199,7 +199,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4e. upstream :before throw — HANDLER SKIPPED (rf2-yz57h) ----
-  (story/reg-variant :story.xray.epoch/coeffect-throw-skipped
+  (rf.story/reg-variant :story.xray.epoch/coeffect-throw-skipped
     {:doc        "Cascade where a coeffect injector (`:session`) threw on
                  the way IN (`:rf.error/coeffect-exception`), so the event
                  handler never ran. Exercises the rf2-yz57h skip path: the
@@ -214,7 +214,7 @@
 
   ;; ----- 4f. subscriptions caused-by + input-signals ----------------
   ;;          (rf2-1cc03 · rf2-87c8a)
-  (story/reg-variant :story.xray.epoch/caused-by-subs
+  (rf.story/reg-variant :story.xray.epoch/caused-by-subs
     {:doc        "Cascade where `:cart/add` invalidates the layer-1
                  `:cart/items` sub which cascades to two derived subs.
                  Exercises the SUBSCRIPTIONS table's `caused by
@@ -228,7 +228,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4d. handler-`:db` vs flow-`:db`-diff (rf2-4wywy · rf2-48oc4)
-  (story/reg-variant :story.xray.epoch/handler-flow-db
+  (rf.story/reg-variant :story.xray.epoch/handler-flow-db
     {:doc        "Cascade where the handler writes `[:cart :items]` and a
                  downstream `:cart/total` flow then writes
                  `[:cart :total]`. Exercises the rf2-4wywy / rf2-48oc4
@@ -244,7 +244,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 5. child-dispatching cascade --------------------------------
-  (story/reg-variant :story.xray.epoch/child-dispatches
+  (rf.story/reg-variant :story.xray.epoch/child-dispatches
     {:doc        "Parent cascade that returns `:dispatch` +
                  `:dispatch-n` + `:dispatch-later` fx. The
                  CHILD DISPATCHES section renders one resolved row
@@ -256,7 +256,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 6. long-step cascade ----------------------------------------
-  (story/reg-variant :story.xray.epoch/long-step
+  (rf.story/reg-variant :story.xray.epoch/long-step
     {:doc        "Cascade with a 42ms handler + 28ms fx + 18ms view —
                  every duration over the 16ms `long-step-threshold-ms`.
                  Exercises the long-step warning chrome (`▲` glyph +
@@ -268,7 +268,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 7. flow-firing cascade --------------------------------------
-  (story/reg-variant :story.xray.epoch/flow-firing
+  (rf.story/reg-variant :story.xray.epoch/flow-firing
     {:doc        "Cascade triggering three downstream flows
                  (`:cart/total`, `:cart/item-count`, `:cart/badge`).
                  Exercises the FLOW step's per-row before/after
@@ -278,7 +278,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 8. empty (no epochs) ----------------------------------------
-  (story/reg-variant :story.xray.epoch/empty
+  (rf.story/reg-variant :story.xray.epoch/empty
     {:doc        "No epochs in history — drives the panel's
                  `:no-focus` empty-state line ('No epoch focused.')."
      :setup     [[:rf.xray/sync-epoch-history (fixtures/empty-history)]]
@@ -286,7 +286,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 9. cold pipeline (one epoch, no trace events) ---------------
-  (story/reg-variant :story.xray.epoch/no-events
+  (rf.story/reg-variant :story.xray.epoch/no-events
     {:doc        "One epoch whose `:trace-events` slice is empty —
                  the projection returns an empty step vector; the
                  panel renders its cold-pipeline empty-state without
@@ -296,7 +296,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 10. unmounted-views cascade (rf2-gmw1i) ---------------------
-  (story/reg-variant :story.xray.epoch/unmounted-views
+  (rf.story/reg-variant :story.xray.epoch/unmounted-views
     {:doc        "Route-change cascade where two view instances unmount
                  (modal + sidebar item) while a new view re-renders.
                  Exercises the VIEWS step's UNMOUNTED sub-section
@@ -307,7 +307,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 11. disposed-subs cascade (rf2-wpfjo) -----------------------
-  (story/reg-variant :story.xray.epoch/disposed-subs
+  (rf.story/reg-variant :story.xray.epoch/disposed-subs
     {:doc        "Route-change cascade where three sub-cache entries
                  evict (two `:no-more-derefers`, one `:hot-reload`)
                  while one sub recomputes. Exercises the SUBSCRIPTIONS
@@ -319,7 +319,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 12. :after-timer source enrichment (rf2-5qp4g) ----------------
-  (story/reg-variant :story.xray.epoch/after-timer-source
+  (rf.story/reg-variant :story.xray.epoch/after-timer-source
     {:doc        "Cascade dispatched by a machine `:after` timer firing
                  (rf2-ejtpd + rf2-5qp4g). The DISPATCH step renders
                  `from :after timer · 250ms on [:active :authenticating]` —
@@ -330,7 +330,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 13. :machine-spawn source enrichment (rf2-5qp4g) --------------
-  (story/reg-variant :story.xray.epoch/machine-spawn-source
+  (rf.story/reg-variant :story.xray.epoch/machine-spawn-source
     {:doc        "Cascade dispatched by a spawn fx (rf2-ejtpd +
                  rf2-5qp4g). The DISPATCH step renders
                  `from machine spawn · :checkout/worker` — the kind label
@@ -340,7 +340,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 14. :fx-dispatch source enrichment (rf2-5qp4g) ----------------
-  (story/reg-variant :story.xray.epoch/fx-dispatch-source
+  (rf.story/reg-variant :story.xray.epoch/fx-dispatch-source
     {:doc        "Multi-record history: a parent cascade emits a
                  `:dispatch` fx; the child cascade is the head record
                  (rf2-ejtpd + rf2-5qp4g). The DISPATCH step renders
@@ -352,7 +352,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 15. :fx-dispatch-later source enrichment (rf2-5qp4g) ----------
-  (story/reg-variant :story.xray.epoch/fx-dispatch-later-source
+  (rf.story/reg-variant :story.xray.epoch/fx-dispatch-later-source
     {:doc        "Multi-record history: a parent cascade emits a
                  `:dispatch-later` fx (500ms); the timer-fired child
                  cascade is the head record (rf2-ejtpd + rf2-5qp4g).
@@ -365,7 +365,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 16. :fx-dispatch orphan (parent aged out) (rf2-5qp4g) ---------
-  (story/reg-variant :story.xray.epoch/fx-dispatch-orphan
+  (rf.story/reg-variant :story.xray.epoch/fx-dispatch-orphan
     {:doc        "Defensive `:fx-dispatch` variant: the child cascade's
                  parent-dispatch-id has no matching epoch in the buffer
                  (the parent aged out of the ring). The DISPATCH step
@@ -377,7 +377,7 @@
      :substrates #{:reagent}})
 
   ;; ----- workspace ---------------------------------------------------
-  (story/reg-workspace :Workspace.xray.epoch/all
+  (rf.story/reg-workspace :Workspace.xray.epoch/all
     {:doc      "All twenty-two Epoch panel variants in one auto-grid.
                 Scroll to see the cascade across vanilla-db /
                 side-effects / machine-driven / db-schema-fail /

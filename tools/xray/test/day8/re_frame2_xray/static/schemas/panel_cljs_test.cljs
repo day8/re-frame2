@@ -3,8 +3,8 @@
   (rf2-o5f5f.4)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.schemas.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -21,7 +21,7 @@
 ;;
 ;; The private expand-tree / hiccup-seq / find-by-testid* copies this file
 ;; carried are semantically identical to `re-frame.test-helpers`; the tests
-;; below call `th/find-by-testid` / `th/find-by-testid-prefix` directly
+;; below call `rf.test-helpers/find-by-testid` / `rf.test-helpers/find-by-testid-prefix` directly
 ;; (rf2-vj80u8 — no Xray walker facade).
 
 (defn- setup-xray! []
@@ -208,7 +208,7 @@
       [:rf.xray.static.schemas/set-registry-override-for-test
        {:schemas-by-frame {} :events {} :subs {}}])
     (let [tree (panel/Panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-schemas-empty"))))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-schemas-empty"))))))
 
 (deftest panel-renders-rows-from-override
   (setup-xray!)
@@ -217,7 +217,7 @@
       [:rf.xray.static.schemas/set-registry-override-for-test
        sample-registry])
     (let [tree (panel/Panel)
-          rows (th/find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
+          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
       (is (= 3 (count rows)) "three row surfaces rendered"))))
 
 (deftest panel-renders-jump-to-source-chips
@@ -227,7 +227,7 @@
       [:rf.xray.static.schemas/set-registry-override-for-test
        sample-registry])
     (let [tree (panel/Panel)
-          chips (th/find-by-testid-prefix tree "xray-open-in-editor")]
+          chips (rf.test-helpers/find-by-testid-prefix tree "xray-open-in-editor")]
       ;; Every fixture row carries a :file slot, so every row should
       ;; have an open chip resolved through the editor config.
       (is (pos? (count chips))
@@ -245,8 +245,8 @@
         [:rf.xray.static.schemas/set-registry-override-for-test
          sample-registry])
       (let [tree (panel/Panel)
-            list-node (th/find-by-testid tree "rf-xray-static-schemas-list")
-            rows (th/find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
+            list-node (rf.test-helpers/find-by-testid tree "rf-xray-static-schemas-list")
+            rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
         (is (= "list" (:role (second list-node))) "<ul> carries role=list")
         (is (seq rows) "rows rendered")
         (is (every? #(= "listitem" (:role (second %))) rows)
@@ -268,6 +268,6 @@
         [:rf.xray.static.schemas/set-registry-override-for-test
          sample-registry])
       (let [tree (panel/Panel)
-            widget (th/find-by-testid-prefix
+            widget (rf.test-helpers/find-by-testid-prefix
                      tree "rf-xray-edn-inspector-")]
         (is (seq widget) "schema values render through the edn-inspector widget")))))

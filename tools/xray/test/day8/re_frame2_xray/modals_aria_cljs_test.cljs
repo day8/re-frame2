@@ -31,8 +31,8 @@
   `spine-filters-cljs-test` and `palette/aria-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.panels.app-db-segment-inspector
              :as segment-inspector]
@@ -57,8 +57,8 @@
 ;; ---- hiccup walk helpers ------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid / find-by-id / props
 ;; copies this file carried were semantically identical to
-;; `re-frame.test-helpers`; the assertions below call `th/find-by-testid`,
-;; `th/find-by-attr` (keyed on :id) and `th/attrs` directly (rf2-vj80u8 — no
+;; `re-frame.test-helpers`; the assertions below call `rf.test-helpers/find-by-testid`,
+;; `rf.test-helpers/find-by-attr` (keyed on :id) and `rf.test-helpers/attrs` directly (rf2-vj80u8 — no
 ;; Xray walker facade).
 
 (defn- assert-dialog-contract!
@@ -66,8 +66,8 @@
   and either aria-label or aria-labelledby resolving to a real id
   in the same tree."
   [tree dialog-testid label]
-  (let [dialog (th/find-by-testid tree dialog-testid)
-        attrs  (th/attrs dialog)]
+  (let [dialog (rf.test-helpers/find-by-testid tree dialog-testid)
+        attrs  (rf.test-helpers/attrs dialog)]
     (is (some? dialog) (str label ": dialog wrapper renders"))
     (is (= "dialog" (:role attrs))
         (str label ": role=\"dialog\""))
@@ -76,7 +76,7 @@
     (let [labelled-by (:aria-labelledby attrs)
           label-attr  (:aria-label attrs)]
       (is (or (and labelled-by
-                   (some? (th/find-by-attr tree :id labelled-by)))
+                   (some? (rf.test-helpers/find-by-attr tree :id labelled-by)))
               (and (string? label-attr) (seq label-attr)))
           (str label ": accessible name set — either aria-labelledby
                 points at a heading id rendered in the same tree, or
@@ -97,8 +97,8 @@
   requires. A renderer that shipped role/aria-modal but dropped the
   `:ref` would now fail here rather than staying green."
   [tree dialog-testid label]
-  (let [dialog (th/find-by-testid tree dialog-testid)
-        attrs  (th/attrs dialog)]
+  (let [dialog (rf.test-helpers/find-by-testid tree dialog-testid)
+        attrs  (rf.test-helpers/attrs dialog)]
     (is (some? dialog) (str label ": dialog wrapper renders"))
     (is (fn? (:ref attrs))
         (str label ": dialog node attaches a :ref (the a11y/dialog-ref
@@ -127,8 +127,8 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
     (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
-          close (th/find-by-testid tree "rf-xray-settings-close")]
-      (is (string? (:aria-label (th/attrs close)))
+          close (rf.test-helpers/find-by-testid tree "rf-xray-settings-close")]
+      (is (string? (:aria-label (rf.test-helpers/attrs close)))
           "Settings close ✕ carries an aria-label"))))
 
 ;; -------------------------------------------------------------------------

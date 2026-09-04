@@ -7,7 +7,7 @@
   the runtime. Every MCP tool that returns a tree-typed payload
   surfaces a scalar count of those substitutions on its response
   envelope (the unqualified `:elided-large` slot — see
-  `vocab/elided-large-key` and Conventions §Cross-MCP indicator-field
+  `rf.mcp-base.vocab/elided-large-key` and Conventions §Cross-MCP indicator-field
   vocabulary, MUST-level).
 
   ## Why this ns
@@ -30,7 +30,7 @@
   Pure-data tree walk; loads identically into JVM (story-mcp) and
   CLJS (re-frame2-pair-mcp). No transport, no runtime, no framework
   dep — the walker only inspects the wire shape."
-  (:require [re-frame.mcp-base.vocab :as vocab]))
+  (:require [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 (defn count-elided-markers
   "Walk `v` and count every `{:rf.size/large-elided ...}` marker it
@@ -48,7 +48,7 @@
   [v]
   (cond
     (map? v)
-    (if (contains? v vocab/large-elided-key)
+    (if (contains? v rf.mcp-base.vocab/large-elided-key)
       1
       (reduce-kv (fn [n _k child] (+ n (count-elided-markers child))) 0 v))
 

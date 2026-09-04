@@ -104,9 +104,9 @@
   resolution). Readers tracing a `:kind :snapshot-map` payload
   land here first (orchestrator + ordering invariant) and then
   jump to `snapshot-pipeline` for the slice-level transforms."
-  (:require [re-frame.mcp-base.dedup :as base-dedup]
-            [re-frame.mcp-base.diff-encode :as base-diff]
-            [re-frame.mcp-base.elision :as base-elision]
+  (:require [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
+            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
+            [re-frame.mcp-base.elision :as rf.mcp-base.elision]
             [re-frame2-pair-mcp.config :as config]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
@@ -149,7 +149,7 @@
         ;; Spec 009 §Indicator field.
         elided                (if (some? server-elided)
                                 server-elided
-                                (base-elision/count-elided-markers deduped))
+                                (rf.mcp-base.elision/count-elided-markers deduped))
         {summarised  :snapshot
          other-modes :resolved-modes} (pipeline/summarise-other-slices-in-snapshot
                                         deduped slice-modes slice-mode)
@@ -177,8 +177,8 @@
   envelope."
   [epochs {:keys [incl? mode dedup?]}]
   (let [[kept dropped] (sensitive/strip-sensitive epochs incl?)
-        encoded        (base-diff/diff-encode-epochs kept mode)
-        deduped        (base-dedup/dedup-value encoded dedup?)
+        encoded        (rf.mcp-base.diff-encode/diff-encode-epochs kept mode)
+        deduped        (rf.mcp-base.dedup/dedup-value encoded dedup?)
         ;; :elided-large counts upstream-pre-elided markers per
         ;; Spec 009 §Indicator field — shared by
         ;; `trace-window` and `watch-epochs`.
@@ -193,7 +193,7 @@
         ;; wire intact. Mirrors the `:snapshot-map` arm, which already
         ;; sidesteps this by using the server `:server-elided` count
         ;; taken before dedup.
-        elided         (base-elision/count-elided-markers encoded)]
+        elided         (rf.mcp-base.elision/count-elided-markers encoded)]
     {:value      deduped
      :indicators {:dropped dropped
                   :elided  elided
@@ -224,7 +224,7 @@
   {:value      v
    :indicators {:elided (if (some? server-elided)
                           server-elided
-                          (base-elision/count-elided-markers v))}})
+                          (rf.mcp-base.elision/count-elided-markers v))}})
 
 (defn run-wire-pipeline
   "Single named pipeline for every MCP tool that returns a tree-typed

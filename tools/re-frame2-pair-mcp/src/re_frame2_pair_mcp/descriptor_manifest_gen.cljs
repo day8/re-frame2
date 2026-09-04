@@ -31,7 +31,7 @@
   input key off behind an operator flag — its `eval-cljs` gate is
   default-ON and gates a whole TOOL, not an input property;
   the `max-tokens` / `cache` splices above are deterministic, not gated.
-  So this generator passes NO gated-key set to `dm/build-manifest`
+  So this generator passes NO gated-key set to `rf.mcp-base.descriptor-manifest/build-manifest`
   (defaulting to `#{}`), and every pair-mcp row carries
   `:gated-input-keys []` — the uniform empty slot. (Contrast story-mcp,
   which passes `#{\"include-sensitive\"}` for its six value-surfacing
@@ -61,7 +61,7 @@
     node scripts/descriptor-manifest-gen.cjs --check    ; drift-check (CI)"
   (:require ["fs" :as fs]
             ["path" :as path]
-            [re-frame.mcp-base.descriptor-manifest :as dm]
+            [re-frame.mcp-base.descriptor-manifest :as rf.mcp-base.descriptor-manifest]
             [re-frame2-pair-mcp.tools.descriptors :as descriptors]
             [re-frame2-pair-mcp.tools.registry :as registry]))
 
@@ -89,33 +89,33 @@
   (let [spliced (mapv (comp descriptors/with-cache-knob
                             descriptors/with-budget-knob)
                       registry/tool-descriptors)]
-    (dm/build-manifest server-id spliced)))
+    (rf.mcp-base.descriptor-manifest/build-manifest server-id spliced)))
 
 (defn generate! []
   (let [manifest (build)
         p        (manifest-path)
-        edn      (dm/render-edn manifest)]
+        edn      (rf.mcp-base.descriptor-manifest/render-edn manifest)]
     (.writeFileSync fs p edn)
     (println (str "Wrote " p " (" (-> manifest :meta :tool-count) " tools)."))
     manifest))
 
 (defn check! []
   (let [manifest  (build)
-        edn       (dm/render-edn manifest)
+        edn       (rf.mcp-base.descriptor-manifest/render-edn manifest)
         p         (manifest-path)
         committed (when (.existsSync fs p)
                     (.toString (.readFileSync fs p)))
-        {:keys [ok?] :as result} (dm/check manifest edn committed)]
+        {:keys [ok?] :as result} (rf.mcp-base.descriptor-manifest/check manifest edn committed)]
     (if ok?
       (do (println (str "OK: tool-descriptors.edn in sync ("
                         (-> manifest :meta :tool-count) " tools)."))
           true)
       ;; The drift report body (added / removed / changed / malformed) is
-      ;; formatted by the shared `dm/drift-report-lines`; this fn owns only
+      ;; formatted by the shared `rf.mcp-base.descriptor-manifest/drift-report-lines`; this fn owns only
       ;; the file lookup, the OK-path wording, its *print-err-fn* channel,
       ;; the two consumer wording strings, and the exit code (via `-main`).
       (do (binding [*print-fn* *print-err-fn*]
-            (doseq [line (dm/drift-report-lines
+            (doseq [line (rf.mcp-base.descriptor-manifest/drift-report-lines
                           result
                           {:regenerate-line   "Regenerate with: node scripts/descriptor-manifest-gen.cjs"
                            :missing-file-line "DRIFT: tool-descriptors.edn does not exist. Run the generator."})]

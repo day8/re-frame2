@@ -29,8 +29,8 @@
   tree by data-testid rather than mounting to a real DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
@@ -56,8 +56,8 @@
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid / find-all-by-testid-
 ;; prefix / text-nodes copies were semantically identical to
-;; `re-frame.test-helpers`; tests call `th/find-by-testid`,
-;; `th/find-by-testid-prefix` and `th/text-content` directly (rf2-vj80u8 — no
+;; `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid`,
+;; `rf.test-helpers/find-by-testid-prefix` and `rf.test-helpers/text-content` directly (rf2-vj80u8 — no
 ;; Xray walker facade).
 
 ;; ---- helpers ------------------------------------------------------------
@@ -99,10 +99,10 @@
     (seed-machines! [:m/a :m/b])
     (rf/with-frame :rf/xray
       (let [tree (static-shell/surface)]
-        (is (some? (th/find-by-testid tree "rf-xray-static-machines-panel"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-panel"))
             "panel mounts on default :machines tab")
         ;; Placeholder card MUST be gone now that the panel is live.
-        (is (nil? (th/find-by-testid tree "rf-xray-static-placeholder-machines"))
+        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-placeholder-machines"))
             "placeholder no longer mounts")))))
 
 ;; -------------------------------------------------------------------------
@@ -118,7 +118,7 @@
                         :bar/upload   {:states {:x {}}}})
     (rf/with-frame :rf/xray
       (let [tree (panel/panel)
-            rows (th/find-by-testid-prefix tree "rf-xray-static-machines-row-")
+            rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-machines-row-")
             ;; Filter rows-only — the row testid prefix matches the
             ;; per-row id chips too, so we keep only the outer row buttons
             ;; (they carry `:data-machine-id` on the attrs map).
@@ -131,10 +131,10 @@
     (seed-machines! [])
     (rf/with-frame :rf/xray
       (let [tree (panel/panel)]
-        (is (some? (th/find-by-testid tree "rf-xray-static-machines-empty"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-empty"))
             "empty-state card present")
         (is (re-find #"No machines registered"
-                     (th/text-content (th/find-by-testid tree
+                     (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree
                                                  "rf-xray-static-machines-empty"))))))))
 
 ;; -------------------------------------------------------------------------
@@ -204,14 +204,14 @@
   (seed-snapshots! {:m/a {:state :a}})
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-detail-header")))
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-detail-title")))
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-detail-source-coord")))
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-detail-state-count")))
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-detail-live-count")))
-      (let [text (th/text-content (th/find-by-testid tree "rf-xray-static-machines-detail-state-count"))]
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-header")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-title")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-source-coord")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-state-count")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-live-count")))
+      (let [text (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-state-count"))]
         (is (re-find #"3 states" text)))
-      (let [text (th/text-content (th/find-by-testid tree "rf-xray-static-machines-detail-live-count"))]
+      (let [text (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-live-count"))]
         (is (re-find #"1 live" text))))))
 
 (deftest detail-header-degrades-when-source-coord-missing
@@ -220,7 +220,7 @@
   (seed-definitions! {:m/a {:states {:a {}}}}) ;; no :source-coord
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)]
-      (is (nil? (th/find-by-testid tree "rf-xray-static-machines-detail-source-coord"))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-source-coord"))
           "source-coord chip is suppressed when the slot is missing"))))
 
 ;; -------------------------------------------------------------------------
@@ -232,17 +232,17 @@
   (seed-machines! [:m/a])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-pill-topology")))
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-pill-sim")))
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-pill-instances")))
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-pill-cascade"))))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-topology")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-sim")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-instances")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-cascade"))))))
 
 (deftest sub-strip-default-is-topology
   (xray-setup!)
   (seed-machines! [:m/a])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          pill (th/find-by-testid tree "rf-xray-static-machines-pill-topology")]
+          pill (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-topology")]
       (is (= "true" (:aria-selected (second pill)))
           "Topology is the default active pill"))))
 
@@ -252,8 +252,8 @@
   (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          sim  (th/find-by-testid tree "rf-xray-static-machines-pill-sim")
-          topo (th/find-by-testid tree "rf-xray-static-machines-pill-topology")]
+          sim  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-sim")
+          topo (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-topology")]
       (is (= "true"  (:aria-selected (second sim))))
       (is (= "false" (:aria-selected (second topo)))))))
 
@@ -266,7 +266,7 @@
   (seed-machines! [:m/a])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          pill (th/find-by-testid tree "rf-xray-static-machines-pill-cascade")
+          pill (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-cascade")
           attrs (second pill)]
       (is (= true (:disabled attrs))
           "Cascade button is disabled")
@@ -290,12 +290,12 @@
     (rf/with-frame :rf/xray
       (let [tree (panel/panel)]
         ;; The old placeholder is gone.
-        (is (nil? (th/find-by-testid
+        (is (nil? (rf.test-helpers/find-by-testid
                     tree "rf-xray-static-machines-sim-placeholder"))
             "old placeholder card no longer mounts")
         ;; The real Sim body is mounted; no-definition variant since
         ;; the test fixture seeds no :states map.
-        (is (some? (th/find-by-testid
+        (is (some? (rf.test-helpers/find-by-testid
                      tree "rf-xray-static-machines-sim-no-definition"))
             "real Sim body's no-definition hint mounts in :sim mode")))))
 
@@ -328,9 +328,9 @@
                                      :states  {:idle {:on {:start :running}}
                                                :running {}}}}])
       (let [tree (panel/panel)]
-        (is (some? (th/find-by-testid tree "rf-xray-static-machines-sim-body"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sim-body"))
             "real Sim body wrapper mounts")
-        (is (some? (th/find-by-testid tree "rf-xray-static-machines-sim-rail"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sim-rail"))
             "Sim rail mounts when sim-state is populated")))))
 
 ;; -------------------------------------------------------------------------
@@ -372,13 +372,13 @@
                             :states  {:idle {} :done {}}}})
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-topology"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology"))
           "Topology mode mounts as the default body")
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-topology-chart"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-chart"))
           "chart wrapper mounts")
       ;; The SVG itself is rendered by chart-svg/render with the testid
       ;; we passed in.
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-topology-svg"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-svg"))
           "SVG primitive mounts"))))
 
 (deftest topology-mode-shows-no-definition-hint-when-missing
@@ -388,7 +388,7 @@
   (seed-definitions! {})
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)]
-      (is (some? (th/find-by-testid tree
+      (is (some? (rf.test-helpers/find-by-testid tree
                                  "rf-xray-static-machines-topology-no-definition"))))))
 
 ;; -------------------------------------------------------------------------
@@ -404,14 +404,14 @@
                               :states  {:idle {} :done {}}}})
     (rf/with-frame :rf/xray
       (let [tree (panel/panel)]
-        (is (some? (th/find-by-testid tree "rf-xray-machine-canvas-host"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-machine-canvas-host"))
             "the chart is now wrapped in the interactive canvas-host")
         ;; rf2-gpzb4 (xyflow migration): the host-side controls toolbar
         ;; is gone — xyflow renders its own `<Controls>` component
         ;; inside the chart. The inner-testid still threads through
         ;; via the `:inner-testid` prop so existing static-panel
         ;; selectors keep working.
-        (is (some? (th/find-by-testid tree "rf-xray-static-machines-topology-svg"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-svg"))
             ":inner-testid forwards through Chart to the xyflow root")))))
 
 (deftest topology-mode-omits-view-mode-toggle-on-static
@@ -426,7 +426,7 @@
                               :states  {:idle {} :done {}}}})
     (rf/with-frame :rf/xray
       (let [tree (panel/panel)]
-        (is (nil? (th/find-by-testid tree
+        (is (nil? (rf.test-helpers/find-by-testid tree
                                   "rf-xray-machine-canvas-view-mode-toggle"))
             "the retired view-mode toggle never mounts on static")))))
 
@@ -442,10 +442,10 @@
                               :source-coord {:file "src/m_a.cljs" :line 12}}})
     (rf/with-frame :rf/xray
       (let [tree (panel/panel)]
-        (is (some? (th/find-by-testid tree
+        (is (some? (rf.test-helpers/find-by-testid tree
                                    "rf-xray-static-machines-topology-toolbar"))
             "static chart-toolbar still mounts above the canvas")
-        (is (some? (th/find-by-testid tree
+        (is (some? (rf.test-helpers/find-by-testid tree
                                    "rf-xray-static-machines-topology-popout"))
             "Pop-out affordance still present")))))
 

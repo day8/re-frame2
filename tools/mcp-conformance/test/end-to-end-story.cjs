@@ -121,8 +121,8 @@ const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 // result, and stdout is the JSON-RPC wire — an `rf/init!` return value echoed
 // there would corrupt the handshake before the first frame.
 const ADAPTER_BOOT =
-  "(do (require '[re-frame.core :as rf] '[re-frame.substrate.plain-atom :as plain-atom])" +
-  ' (rf/init! plain-atom/adapter) nil)';
+  "(do (require '[re-frame.core :as rf] '[re-frame.substrate.plain-atom :as rf.substrate.plain-atom])" +
+  ' (rf/init! rf.substrate.plain-atom/adapter) nil)';
 
 // Wire → semantic adapter (`structured`, _runner.cjs). Every assertion
 // below reaches for slots the SEMANTIC contract guarantees (e.g.

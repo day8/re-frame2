@@ -19,7 +19,7 @@
   CLJS-side wiring lock drives `collect-trace!` end-to-end."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.trace.projection :as projection]
+            [re-frame.trace.projection :as rf.trace.projection]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.self-noise :as self-noise]
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
@@ -309,7 +309,7 @@
                   (dispatched-event 2 101 [:rf.xray.static/select-tab] :rf/default)
                   (dispatched-event 3 102 [:user/click]               :below)]]
       (is (= (into [] (remove self-noise/xray-internal-event-bundle?)
-                   (projection/group-by-event buffer))
+                   (rf.trace.projection/group-by-event buffer))
              (self-noise/filtered-event-bundles buffer))))))
 
 (deftest filtered-event-bundles-empty-buffer

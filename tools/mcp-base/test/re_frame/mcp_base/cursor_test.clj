@@ -6,8 +6,8 @@
   consume; the JVM suite pins the `:clj` codec arm, the CLJS
   branches test (`cljs_branches_cljs_test`) pins the `js/Buffer` arm."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.mcp-base.cursor :as cursor]
-            [re-frame.mcp-base.vocab :as vocab]))
+            [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; A payload-shape predicate for the tests — mirrors story's cursor
 ;; shape closely enough to exercise the `valid?` parameterisation.
@@ -31,13 +31,13 @@
   Built from `b64-decode`, so the JVM and CLJS suites derive it the same
   way. (Mirrored verbatim in `cljs_branches_cljs_test`.)"
   [token]
-  (let [decoded (cursor/b64-decode token)
+  (let [decoded (rf.mcp-base.cursor/b64-decode token)
         i       (dec (count (re-find #"[^=]+" token)))
         orig    (nth token i)]
     (some (fn [c]
             (when (not= c orig)
               (let [cand (str (subs token 0 i) c (subs token (inc i)))]
-                (when (= decoded (cursor/b64-decode cand)) cand))))
+                (when (= decoded (rf.mcp-base.cursor/b64-decode cand)) cand))))
           b64-alphabet)))
 
 ;; ---------------------------------------------------------------------------
@@ -45,10 +45,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest b64-round-trips
-  (is (= "hello" (cursor/b64-decode (cursor/b64-encode "hello"))))
-  (is (= "" (cursor/b64-decode (cursor/b64-encode ""))))
+  (is (= "hello" (rf.mcp-base.cursor/b64-decode (rf.mcp-base.cursor/b64-encode "hello"))))
+  (is (= "" (rf.mcp-base.cursor/b64-decode (rf.mcp-base.cursor/b64-encode ""))))
   (testing "non-ASCII survives the UTF-8 round-trip"
-    (is (= "café — 日本" (cursor/b64-decode (cursor/b64-encode "café — 日本"))))))
+    (is (= "café — 日本" (rf.mcp-base.cursor/b64-decode (rf.mcp-base.cursor/b64-encode "café — 日本"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; encode-cursor / decode-cursor round-trip
@@ -56,34 +56,34 @@
 
 (deftest encode-decode-round-trips
   (let [payload {:v 1 :offset 25 :total 137 :sig "abc123"}
-        token   (cursor/encode-cursor payload)]
+        token   (rf.mcp-base.cursor/encode-cursor payload)]
     (is (string? token))
-    (is (= payload (cursor/decode-cursor token offset-cursor?))))
+    (is (= payload (rf.mcp-base.cursor/decode-cursor token offset-cursor?))))
   (testing "a different shape (pair-style) round-trips under its own valid?"
     (let [payload {:v 1 :after-id "ev-9" :ms 500 :until-ms 1000 :frame :app}
-          token   (cursor/encode-cursor payload)]
-      (is (= payload (cursor/decode-cursor token #(and (map? %) (string? (:after-id %)))))))))
+          token   (rf.mcp-base.cursor/encode-cursor payload)]
+      (is (= payload (rf.mcp-base.cursor/decode-cursor token #(and (map? %) (string? (:after-id %)))))))))
 
 (deftest encode-cursor-rejects-non-map
-  (is (nil? (cursor/encode-cursor nil)))
-  (is (nil? (cursor/encode-cursor 42)))
-  (is (nil? (cursor/encode-cursor "x"))))
+  (is (nil? (rf.mcp-base.cursor/encode-cursor nil)))
+  (is (nil? (rf.mcp-base.cursor/encode-cursor 42)))
+  (is (nil? (rf.mcp-base.cursor/encode-cursor "x"))))
 
 ;; ---------------------------------------------------------------------------
 ;; decode-cursor recovery contract
 ;; ---------------------------------------------------------------------------
 
 (deftest decode-cursor-absent-is-nil
-  (is (nil? (cursor/decode-cursor nil offset-cursor?)))
-  (is (nil? (cursor/decode-cursor "" offset-cursor?)))
-  (is (nil? (cursor/decode-cursor "   " offset-cursor?))))
+  (is (nil? (rf.mcp-base.cursor/decode-cursor nil offset-cursor?)))
+  (is (nil? (rf.mcp-base.cursor/decode-cursor "" offset-cursor?)))
+  (is (nil? (rf.mcp-base.cursor/decode-cursor "   " offset-cursor?))))
 
 (deftest decode-cursor-non-string-is-malformed
-  (is (= ::cursor/malformed (cursor/decode-cursor 42 offset-cursor?)))
-  (is (= ::cursor/malformed (cursor/decode-cursor {:offset 0} offset-cursor?))))
+  (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor 42 offset-cursor?)))
+  (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor {:offset 0} offset-cursor?))))
 
 (deftest decode-cursor-garbage-is-malformed
-  (is (= ::cursor/malformed (cursor/decode-cursor "!!!not-base64-edn!!!" offset-cursor?))))
+  (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor "!!!not-base64-edn!!!" offset-cursor?))))
 
 (deftest decode-cursor-rejects-noncanonical-base64-aliases
   ;; The host base64 DECODERS are lenient in DIFFERENT ways: `js/Buffer`
@@ -96,18 +96,18 @@
   ;; (Mirrored in `cljs_branches_cljs_test/cursor-rejects-noncanonical-
   ;; base64-aliases-cljs`.)
   (let [payload   "{:v 1 :after-id \"e\"}"     ; a valid pair-style payload
-        canonical (cursor/b64-encode payload)
+        canonical (rf.mcp-base.cursor/b64-encode payload)
         pair?     (fn [m] (and (map? m) (some? (:after-id m))))]
     (testing "sanity: the canonical token still decodes to its payload map"
-      (is (= {:v 1 :after-id "e"} (cursor/decode-cursor canonical pair?))))
+      (is (= {:v 1 :after-id "e"} (rf.mcp-base.cursor/decode-cursor canonical pair?))))
     (testing "non-alphabet char INSERTED into a valid token ⇒ ::malformed"
       (let [inserted (str (subs canonical 0 2) "!!" (subs canonical 2))]
         (is (not= inserted canonical))
-        (is (= ::cursor/malformed (cursor/decode-cursor inserted pair?)))))
+        (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor inserted pair?)))))
     (testing "non-alphabet chars APPENDED to a valid token ⇒ ::malformed"
-      (is (= ::cursor/malformed (cursor/decode-cursor (str canonical "!!!!") pair?))))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor (str canonical "!!!!") pair?))))
     (testing "malformed / extra padding ⇒ ::malformed"
-      (is (= ::cursor/malformed (cursor/decode-cursor (str canonical "==") pair?))))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor (str canonical "==") pair?))))
     (testing "noncanonical pad-bit spelling (a lexical grammar admits it) ⇒ ::malformed"
       ;; This is the alias family a regex-only check would MISS and the one
       ;; the OLD JVM decoder accepted (java.util.Base64 ignores pad bits):
@@ -115,13 +115,13 @@
       (let [alias (pad-bit-alias canonical)]
         (is (some? alias) "the canonical token has pad slack to alias")
         (is (not= alias canonical))
-        (is (= (cursor/b64-decode alias) (cursor/b64-decode canonical))
+        (is (= (rf.mcp-base.cursor/b64-decode alias) (rf.mcp-base.cursor/b64-decode canonical))
             "the alias decodes to the SAME bytes — a true logical alias")
-        (is (= ::cursor/malformed (cursor/decode-cursor alias pair?)))))))
+        (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor alias pair?)))))))
 
 (deftest decode-cursor-oversize-is-malformed-before-parse
-  (let [oversize (apply str (repeat (inc cursor/max-cursor-chars) "a"))]
-    (is (= ::cursor/malformed (cursor/decode-cursor oversize offset-cursor?)))))
+  (let [oversize (apply str (repeat (inc rf.mcp-base.cursor/max-cursor-chars) "a"))]
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor oversize offset-cursor?)))))
 
 (deftest decode-cursor-cap-is-characters-and-the-unit-is-unobservable
   ;; rf2-2rtt6.132 - the cap was named `max-cursor-bytes` while the guard
@@ -155,26 +155,26 @@
       ;; byte cap would refuse them AT THE GUARD while the character cap
       ;; lets them through to the decoder. Same verdict either way, which
       ;; is exactly why the relabel is a complete fix.
-      (is (<= (count dashes) cursor/max-cursor-chars))
-      (is (> (utf8-len dashes) cursor/max-cursor-chars))
-      (is (= ::cursor/malformed (cursor/decode-cursor dashes offset-cursor?))
+      (is (<= (count dashes) rf.mcp-base.cursor/max-cursor-chars))
+      (is (> (utf8-len dashes) rf.mcp-base.cursor/max-cursor-chars))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor dashes offset-cursor?))
           "non-base64 => ::malformed for a reason independent of the cap")
-      (is (<= (count astral) cursor/max-cursor-chars))
-      (is (> (utf8-len astral) cursor/max-cursor-chars))
-      (is (= ::cursor/malformed (cursor/decode-cursor astral offset-cursor?))))
+      (is (<= (count astral) rf.mcp-base.cursor/max-cursor-chars))
+      (is (> (utf8-len astral) rf.mcp-base.cursor/max-cursor-chars))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor astral offset-cursor?))))
     (testing "every legitimate cursor is base64, where the two rulers agree exactly"
-      (let [token (cursor/encode-cursor {:v 1 :offset 25 :total 137
+      (let [token (rf.mcp-base.cursor/encode-cursor {:v 1 :offset 25 :total 137
                                          :sig "abc\u2014123\uD834\uDD1E"})]
         (is (= (count token) (utf8-len token))
             "a cursor whose PAYLOAD carries an em-dash and an astral glyph still encodes to a pure-ASCII token")
-        (is (<= (count token) cursor/max-cursor-chars))))))
+        (is (<= (count token) rf.mcp-base.cursor/max-cursor-chars))))))
 
 (deftest decode-cursor-failing-payload-predicate-is-malformed
   ;; Valid base64+EDN map, but the consumer's shape predicate rejects it.
-  (let [token (cursor/encode-cursor {:v 1 :offset 0 :total 5 :sig "s"})]
-    (is (= ::cursor/malformed (cursor/decode-cursor token (constantly false))))
-    (is (= ::cursor/malformed
-           (cursor/decode-cursor (cursor/encode-cursor {:wrong :shape}) offset-cursor?)))))
+  (let [token (rf.mcp-base.cursor/encode-cursor {:v 1 :offset 0 :total 5 :sig "s"})]
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor token (constantly false))))
+    (is (= ::rf.mcp-base.cursor/malformed
+           (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor {:wrong :shape}) offset-cursor?)))))
 
 (deftest decode-cursor-non-map-edn-is-malformed-without-consulting-predicate
   ;; A cursor that base64+EDN-decodes to a well-formed but NON-MAP
@@ -187,17 +187,17 @@
   (let [strict-map-pred (fn [m]
                           ;; would explode on a non-map if reached
                           (and (map? m) (pos? (count m))))
-        num-token  (cursor/b64-encode "5")
-        vec-token  (cursor/b64-encode "[1 2 3]")
-        kw-token   (cursor/b64-encode ":some-keyword")
-        str-token  (cursor/b64-encode "\"a string\"")]
-    (is (= ::cursor/malformed (cursor/decode-cursor num-token strict-map-pred))
+        num-token  (rf.mcp-base.cursor/b64-encode "5")
+        vec-token  (rf.mcp-base.cursor/b64-encode "[1 2 3]")
+        kw-token   (rf.mcp-base.cursor/b64-encode ":some-keyword")
+        str-token  (rf.mcp-base.cursor/b64-encode "\"a string\"")]
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor num-token strict-map-pred))
         "numeric EDN cursor ⇒ ::malformed (map? guard, valid? not consulted)")
-    (is (= ::cursor/malformed (cursor/decode-cursor vec-token strict-map-pred))
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor vec-token strict-map-pred))
         "vector EDN cursor ⇒ ::malformed")
-    (is (= ::cursor/malformed (cursor/decode-cursor kw-token strict-map-pred))
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor kw-token strict-map-pred))
         "keyword EDN cursor ⇒ ::malformed")
-    (is (= ::cursor/malformed (cursor/decode-cursor str-token strict-map-pred))
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor str-token strict-map-pred))
         "string EDN cursor ⇒ ::malformed")))
 
 (deftest decode-cursor-at-inclusive-size-boundary-is-not-rejected
@@ -216,34 +216,34 @@
   ;; load-bearing assertion.
   (let [grow      (fn [n] {:v 1 :offset 0 :total 1
                            :sig (apply str (repeat n \s))})
-        token-len (fn [n] (count (cursor/encode-cursor (grow n))))
+        token-len (fn [n] (count (rf.mcp-base.cursor/encode-cursor (grow n))))
         ;; largest sig length whose token is still within the cap.
         max-n     (loop [n 0]
-                    (if (> (token-len (inc n)) cursor/max-cursor-chars)
+                    (if (> (token-len (inc n)) rf.mcp-base.cursor/max-cursor-chars)
                       n
                       (recur (inc n))))
         payload   (grow max-n)
-        token     (cursor/encode-cursor payload)]
-    (is (<= (count token) cursor/max-cursor-chars)
+        token     (rf.mcp-base.cursor/encode-cursor payload)]
+    (is (<= (count token) rf.mcp-base.cursor/max-cursor-chars)
         "constructed cursor sits AT or just under the inclusive boundary")
-    (is (> (token-len (inc max-n)) cursor/max-cursor-chars)
+    (is (> (token-len (inc max-n)) rf.mcp-base.cursor/max-cursor-chars)
         "one more sig char would push the token over the cap — boundary is tight")
-    (is (= payload (cursor/decode-cursor token offset-cursor?))
+    (is (= payload (rf.mcp-base.cursor/decode-cursor token offset-cursor?))
         "a cursor at the inclusive size boundary is NOT size-rejected (strict >)"))
   ;; Unconditional companion: a realistic small cursor is well under cap.
   (let [payload {:v 1 :offset 25 :total 137 :sig "abc123"}
-        token   (cursor/encode-cursor payload)]
-    (is (< (count token) cursor/max-cursor-chars)
+        token   (rf.mcp-base.cursor/encode-cursor payload)]
+    (is (< (count token) rf.mcp-base.cursor/max-cursor-chars)
         "a realistic cursor is well under the byte cap")
-    (is (= payload (cursor/decode-cursor token offset-cursor?)))))
+    (is (= payload (rf.mcp-base.cursor/decode-cursor token offset-cursor?)))))
 
 (deftest decode-cursor-rejects-tagged-literals
   ;; The hardening contract: a cursor smuggling a tagged literal must
   ;; be rejected by the reader → ::malformed, never evaluated.
-  (let [evil-inst (cursor/b64-encode "#inst \"2024-01-01\"")
-        evil-map  (cursor/b64-encode "{:v 1 :offset #foo/bar 0 :total 5 :sig \"s\"}")]
-    (is (= ::cursor/malformed (cursor/decode-cursor evil-inst offset-cursor?)))
-    (is (= ::cursor/malformed (cursor/decode-cursor evil-map offset-cursor?)))))
+  (let [evil-inst (rf.mcp-base.cursor/b64-encode "#inst \"2024-01-01\"")
+        evil-map  (rf.mcp-base.cursor/b64-encode "{:v 1 :offset #foo/bar 0 :total 5 :sig \"s\"}")]
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil-inst offset-cursor?)))
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil-map offset-cursor?)))))
 
 (deftest decode-cursor-rejects-builtin-tags-inside-valid-map
   ;; The BUILT-IN EDN tags `#inst` / `#uuid` have registered
@@ -261,24 +261,24 @@
   ;; and a pair-style permissive predicate; both expect ::malformed.
   (let [permissive? (fn [m] (and (map? m) (some? (:after-id m))))
         ;; pair-style permissive map with a built-in tag in a junk slot
-        pair-inst (cursor/b64-encode
+        pair-inst (rf.mcp-base.cursor/b64-encode
                     "{:v 1 :after-id 1 :junk #inst \"2024-01-01T00:00:00.000-00:00\"}")
-        pair-uuid (cursor/b64-encode
+        pair-uuid (rf.mcp-base.cursor/b64-encode
                     "{:v 1 :after-id 1 :junk #uuid \"00000000-0000-0000-0000-000000000000\"}")
         ;; story-style map with a built-in tag in a valid-shape slot
-        story-inst (cursor/b64-encode
+        story-inst (rf.mcp-base.cursor/b64-encode
                      "{:v 1 :offset 0 :total 5 :sig #inst \"2024-01-01\"}")
-        story-uuid (cursor/b64-encode
+        story-uuid (rf.mcp-base.cursor/b64-encode
                      "{:v 1 :offset 0 :total #uuid \"00000000-0000-0000-0000-000000000000\" :sig \"s\"}")]
     (testing "pair-style permissive predicate — #inst / #uuid in a valid map ⇒ ::malformed"
-      (is (= ::cursor/malformed (cursor/decode-cursor pair-inst permissive?)))
-      (is (= ::cursor/malformed (cursor/decode-cursor pair-uuid permissive?))))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor pair-inst permissive?)))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor pair-uuid permissive?))))
     (testing "story-style strict predicate — #inst / #uuid in a valid map ⇒ ::malformed"
-      (is (= ::cursor/malformed (cursor/decode-cursor story-inst offset-cursor?)))
-      (is (= ::cursor/malformed (cursor/decode-cursor story-uuid offset-cursor?))))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor story-inst offset-cursor?)))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor story-uuid offset-cursor?))))
     (testing "a clean pair-style cursor still passes the permissive predicate"
       (is (= {:v 1 :after-id "ev-9"}
-             (cursor/decode-cursor (cursor/encode-cursor {:v 1 :after-id "ev-9"})
+             (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor {:v 1 :after-id "ev-9"})
                                    permissive?))))))
 
 (deftest decode-cursor-rejects-trailing-forms
@@ -290,17 +290,17 @@
   ;; opacity / corruption guard. `read-edn-no-tags` requires the decoded
   ;; text to be exactly one form; any trailing form ⇒ ::malformed.
   (testing "valid map + trailing #inst ⇒ ::malformed (not the silently-accepted first form)"
-    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} #inst \"2024-01-01\"")]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+    (let [evil (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} #inst \"2024-01-01\"")]
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   (testing "valid map + trailing custom tag ⇒ ::malformed"
-    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} #foo/bar 1")]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+    (let [evil (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} #foo/bar 1")]
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   (testing "valid map + trailing ordinary EDN ⇒ ::malformed"
-    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} {:junk 1}")]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+    (let [evil (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} {:junk 1}")]
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   (testing "valid map + trailing scalar ⇒ ::malformed"
-    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} 42")]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+    (let [evil (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} 42")]
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   ;; `]`-injection. A naive wrap-in-`[…]` guard that accepted a
   ;; ONE-element vector would be bypassable: attacker text `{…}] <junk>`
   ;; wraps to `[{…}] <junk>]` where the injected `]` closes the wrapper
@@ -310,35 +310,35 @@
   ;; the read before the appended sentinel, so the result no longer ends
   ;; with the sentinel ⇒ ::malformed.
   (testing "valid map + injected ] + trailing map ⇒ ::malformed (not silently accepted)"
-    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] {:junk 1}")]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+    (let [evil (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] {:junk 1}")]
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   (testing "valid map + injected ] + trailing scalar ⇒ ::malformed"
-    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] 42")]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+    (let [evil (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] 42")]
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   (testing "valid map + injected ] + trailing tagged literal ⇒ ::malformed"
-    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] #foo/bar 1")]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+    (let [evil (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] #foo/bar 1")]
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   (testing "valid map + injected ] alone (no trailing form) ⇒ ::malformed"
-    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}]")]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+    (let [evil (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}]")]
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   (testing "attacker reproduces the eof sentinel keyword as a trailing form ⇒ ::malformed"
-    (let [evil (cursor/b64-encode
+    (let [evil (rf.mcp-base.cursor/b64-encode
                  (str "{:v 1 :offset 0 :total 1 :sig \"s\"} "
                       (pr-str :re-frame.mcp-base.cursor/cursor-eof-sentinel)))]
-      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
   (testing "a single clean cursor (incl. trailing whitespace) still round-trips"
-    (let [clean (cursor/encode-cursor {:v 1 :offset 0 :total 1 :sig "s"})]
+    (let [clean (rf.mcp-base.cursor/encode-cursor {:v 1 :offset 0 :total 1 :sig "s"})]
       (is (= {:v 1 :offset 0 :total 1 :sig "s"}
-             (cursor/decode-cursor clean offset-cursor?))))
-    (let [trailing-ws (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}   ")]
+             (rf.mcp-base.cursor/decode-cursor clean offset-cursor?))))
+    (let [trailing-ws (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}   ")]
       (is (= {:v 1 :offset 0 :total 1 :sig "s"}
-             (cursor/decode-cursor trailing-ws offset-cursor?))
+             (rf.mcp-base.cursor/decode-cursor trailing-ws offset-cursor?))
           "trailing whitespace is absorbed — one form, valid"))))
 
 (deftest malformed?-predicate
-  (is (true? (cursor/malformed? ::cursor/malformed)))
-  (is (false? (cursor/malformed? nil)))
-  (is (false? (cursor/malformed? {:offset 0}))))
+  (is (true? (rf.mcp-base.cursor/malformed? ::rf.mcp-base.cursor/malformed)))
+  (is (false? (rf.mcp-base.cursor/malformed? nil)))
+  (is (false? (rf.mcp-base.cursor/malformed? {:offset 0}))))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-limit-arg
@@ -346,16 +346,16 @@
 
 (deftest parse-limit-arg-defaults-and-clamps
   (testing "absent ⇒ default"
-    (is (= 25 (cursor/parse-limit-arg nil 25 200))))
+    (is (= 25 (rf.mcp-base.cursor/parse-limit-arg nil 25 200))))
   (testing "in-range ⇒ passthrough"
-    (is (= 50 (cursor/parse-limit-arg 50 25 200)))
-    (is (= 50 (cursor/parse-limit-arg "50" 25 200))))
+    (is (= 50 (rf.mcp-base.cursor/parse-limit-arg 50 25 200)))
+    (is (= 50 (rf.mcp-base.cursor/parse-limit-arg "50" 25 200))))
   (testing "above max ⇒ clamp down"
-    (is (= 200 (cursor/parse-limit-arg 5000 25 200))))
+    (is (= 200 (rf.mcp-base.cursor/parse-limit-arg 5000 25 200))))
   (testing "non-positive ⇒ clamp up to 1 (positive-int floor)"
-    (is (= 1 (cursor/parse-limit-arg 0 25 200))))
+    (is (= 1 (rf.mcp-base.cursor/parse-limit-arg 0 25 200))))
   (testing "trailing-garbage string ⇒ default (shared strict-parse)"
-    (is (= 25 (cursor/parse-limit-arg "50abc" 25 200)))))
+    (is (= 25 (rf.mcp-base.cursor/parse-limit-arg "50abc" 25 200)))))
 
 ;; ---------------------------------------------------------------------------
 ;; cursor-stale-result
@@ -367,14 +367,14 @@
   (let [captured (atom nil)
         builder  (fn [message data] (reset! captured {:message message :data data}) data)]
     (testing "default message + hint, cross-MCP reason slot"
-      (let [r (cursor/cursor-stale-result builder "list-stories" {})]
+      (let [r (rf.mcp-base.cursor/cursor-stale-result builder "list-stories" {})]
         (is (false? (:ok? r)))
-        (is (= vocab/cursor-stale-reason (:reason r)))
+        (is (= rf.mcp-base.vocab/cursor-stale-reason (:reason r)))
         (is (= "list-stories" (:tool r)))
         (is (string? (:hint r)))
         (is (string? (:message @captured)))))
     (testing "override message + hint + extra slots merge"
-      (let [r (cursor/cursor-stale-result builder "watch-epochs"
+      (let [r (rf.mcp-base.cursor/cursor-stale-result builder "watch-epochs"
                                           {:message "custom"
                                            :hint    "rewind"
                                            :extra   {:requested-id "ev-1" :head-id "ev-9"}})]
@@ -382,4 +382,4 @@
         (is (= "rewind" (:hint r)))
         (is (= "ev-1" (:requested-id r)))
         (is (= "ev-9" (:head-id r)))
-        (is (= vocab/cursor-stale-reason (:reason r)))))))
+        (is (= rf.mcp-base.vocab/cursor-stale-reason (:reason r)))))))

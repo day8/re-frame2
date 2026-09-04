@@ -33,13 +33,13 @@
   it OUTSIDE any `with-frame` binding — simulating the browser's
   click-fires-after-render reality. Click handlers use queued
   `rf/dispatch` (not `dispatch-sync`); the router drain is async via
-  `goog.async.nextTick`. Tests use `test-support/poll-until` to await
+  `goog.async.nextTick`. Tests use `rf.test-support/poll-until` to await
   the drain before asserting."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.palette :as palette]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -61,12 +61,12 @@
 
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq copies were semantically identical to
-;; `re-frame.test-helpers`; the walk delegates to `th/find-by-testid`
+;; `re-frame.test-helpers`; the walk delegates to `rf.test-helpers/find-by-testid`
 ;; (rf2-vj80u8 — no Xray walker facade). The `with-frame` wrapper is retained
 ;; deliberately (NOT a walker difference):
 (defn- find-by-testid [tree testid]
   ;; EP-0002 (rf2-bd4div): walking the rendered tree RE-INVOKES nested
-  ;; component fns (`th/expand-tree`), and those render-time `rf/subscribe`s
+  ;; component fns (`rf.test-helpers/expand-tree`), and those render-time `rf/subscribe`s
   ;; resolve through the surrounding frame. The palette mounts in the
   ;; `:rf/xray` own-frame, so the expansion must run under that scope —
   ;; ambient (no-scope) re-expansion would raise `:rf.error/no-frame-context`
@@ -74,7 +74,7 @@
   ;; click-time HANDLER is still invoked OUTSIDE any scope — that is the
   ;; real click-fires-after-render path under test.)
   (rf/with-frame :rf/xray
-    (th/find-by-testid tree testid)))
+    (rf.test-helpers/find-by-testid tree testid)))
 
 ;; ---- click-time helpers ------------------------------------------------
 
@@ -101,7 +101,7 @@
 (defn- await-xray-db
   "Poll until `pred` of `:rf/xray`'s app-db returns truthy."
   [pred label]
-  (test-support/poll-until
+  (rf.test-support/poll-until
     #(pred (rf/app-db-value :rf/xray))
     {:label label :timeout-ms 1000}))
 

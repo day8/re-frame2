@@ -74,7 +74,7 @@
   editable-element guard means even a future Xray-side input field
   (e.g. the filter-pill edit popup) doesn't fight the user typing."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.mount :as mount]))
@@ -203,13 +203,13 @@
 (defn- editor-hint-open?
   "True when the open-in-editor hint toast is currently open on the
   Xray shell frame. Read DIRECTLY off the `:rf/xray` frame's app-db
-  (`frame/frame-app-db-value`) rather than via a subscription — this
+  (`rf.frame/frame-app-db-value`) rather than via a subscription — this
   global keydown listener runs outside any frame/reaction context, so a
   plain app-db read is the correct seam. Returns false when the frame
   does not yet exist (shell never opened) so Esc falls through to the
   host untouched. Per rf2-wpvy6f."
   []
-  (boolean (:editor-hint-open? (frame/frame-app-db-value defaults/default-frame-id))))
+  (boolean (:editor-hint-open? (rf.frame/frame-app-db-value defaults/default-frame-id))))
 
 (defn- target-inside-xray?
   "True when `event.target` is a DOM node inside the Xray shell — the

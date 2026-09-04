@@ -54,9 +54,9 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs.tooling :as subs-tooling]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs.tooling :as rf.subs.tooling]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -942,14 +942,14 @@
   (testing "register-xray-handlers! resolves every :rf.xray/* sub"
     (registry/register-xray-handlers!)
     (doseq [sub-id all-sub-names]
-      (is (some? (registrar/handler :sub sub-id))
+      (is (some? (rf.registrar/handler :sub sub-id))
           (str "expected :sub handler for " sub-id)))))
 
 (deftest registry-installs-every-event
   (testing "register-xray-handlers! resolves every :rf.xray/* event"
     (registry/register-xray-handlers!)
     (doseq [event-id all-event-names]
-      (is (some? (registrar/handler :event event-id))
+      (is (some? (rf.registrar/handler :event event-id))
           (str "expected :event handler for " event-id)))))
 
 (deftest registry-registers-each-xray-event-once
@@ -959,8 +959,8 @@
             registrations that run at ns-load (NOT via the orchestrator)
             are excluded; the snapshot test covers the full surface."
     (let [registered        (atom [])
-          original-register! registrar/register!]
-      (with-redefs [registrar/register!
+          original-register! rf.registrar/register!]
+      (with-redefs [rf.registrar/register!
                     (fn [kind id metadata]
                       (when (and (= :event kind) (xray-id? id))
                         (swap! registered conj id))
@@ -984,7 +984,7 @@
   (testing "register-xray-handlers! resolves every :rf.xray.fx/* fx"
     (registry/register-xray-handlers!)
     (doseq [fx-id all-fx-names]
-      (is (some? (registrar/handler :fx fx-id))
+      (is (some? (rf.registrar/handler :fx fx-id))
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-snapshot-matches-expected-set
@@ -1002,15 +1002,15 @@
             set entries. No `(is (= N (count ...)))` line for the second
             PR to update."
     (registry/register-xray-handlers!)
-    (let [actual-subs   (->> (registrar/registrations :sub)
+    (let [actual-subs   (->> (rf.registrar/registrations :sub)
                              keys
                              (filter xray-id?)
                              set)
-          actual-events (->> (registrar/registrations :event)
+          actual-events (->> (rf.registrar/registrations :event)
                              keys
                              (filter xray-id?)
                              set)
-          actual-fxs    (->> (registrar/registrations :fx)
+          actual-fxs    (->> (rf.registrar/registrations :fx)
                              keys
                              (filter xray-id?)
                              set)]
@@ -1025,8 +1025,8 @@
   (testing "rf2-e8330v (xxo3zz F3) — register-xray-handlers! installs NO id
             ending in -for-test, and none of the `*-override` reader subs"
     (registry/register-xray-handlers!)
-    (let [actual-events (->> (registrar/registrations :event) keys (filter xray-id?))
-          actual-subs   (->> (registrar/registrations :sub) keys (filter xray-id?))
+    (let [actual-events (->> (rf.registrar/registrations :event) keys (filter xray-id?))
+          actual-subs   (->> (rf.registrar/registrations :sub) keys (filter xray-id?))
           for-test      (filter #(re-find #"-for-test$" (name %)) actual-events)
           override-subs (filter #(re-find #"-override$" (name %)) actual-subs)]
       (is (empty? for-test)
@@ -1039,8 +1039,8 @@
             test-override sub + event snapshot on top of production"
     (registry/register-xray-handlers!)
     (xray-test-support/install-test-overrides!)
-    (let [actual-events     (->> (registrar/registrations :event) keys (filter xray-id?) set)
-          actual-subs       (->> (registrar/registrations :sub) keys (filter xray-id?) set)
+    (let [actual-events     (->> (rf.registrar/registrations :event) keys (filter xray-id?) set)
+          actual-subs       (->> (rf.registrar/registrations :sub) keys (filter xray-id?) set)
           seam-events       (set (filter #(re-find #"-for-test$" (name %)) actual-events))
           seam-override-subs (set (filter #(re-find #"-override$" (name %)) actual-subs))]
       (is (= test-override-event-names seam-events)
@@ -1051,13 +1051,13 @@
 (deftest registry-is-idempotent
   (testing "calling register-xray-handlers! twice is a no-op (same handler instance)"
     (registry/register-xray-handlers!)
-    (let [h1 (registrar/handler :sub :rf.xray/target-frame)
-          e1 (registrar/handler :event :rf.xray/select-tab)
-          f1 (registrar/handler :fx :rf.xray.fx/copy-to-clipboard)]
+    (let [h1 (rf.registrar/handler :sub :rf.xray/target-frame)
+          e1 (rf.registrar/handler :event :rf.xray/select-tab)
+          f1 (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard)]
       (registry/register-xray-handlers!)
-      (is (identical? h1 (registrar/handler :sub :rf.xray/target-frame)))
-      (is (identical? e1 (registrar/handler :event :rf.xray/select-tab)))
-      (is (identical? f1 (registrar/handler :fx :rf.xray.fx/copy-to-clipboard))))))
+      (is (identical? h1 (rf.registrar/handler :sub :rf.xray/target-frame)))
+      (is (identical? e1 (rf.registrar/handler :event :rf.xray/select-tab)))
+      (is (identical? f1 (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard))))))
 
 (deftest registers-every-canonical-rf-xray-sub
   ;; Holistic subscribe-side smoke. The handler-resolution smokes above
@@ -1149,7 +1149,7 @@
   live `sub-topology` (each `[query-id args]` reduced to its head). `[]` when
   the sub is unregistered."
   []
-  (let [inputs (:inputs (get (subs-tooling/sub-topology) :rf.xray/reactive-data))]
+  (let [inputs (:inputs (get (rf.subs.tooling/sub-topology) :rf.xray/reactive-data))]
     (mapv #(if (vector? %) (first %) %) (or inputs []))))
 
 (deftest changed-reactive-data-migrates-as-a-schema-delta-rf2-sa8j3
@@ -1281,7 +1281,7 @@
 (defn- registered-ids
   "The subset of `ids` under `kind` the registrar currently resolves."
   [kind ids]
-  (into #{} (filter #(some? (registrar/handler kind %))) ids))
+  (into #{} (filter #(some? (rf.registrar/handler kind %))) ids))
 
 (defn- pose-donor-ownership-marker! []
   (gobj/set js/globalThis donor-ownership-marker-key
@@ -1301,7 +1301,7 @@
       (is (= (set schema-3-donor-sub-ids)
              (registered-ids :sub schema-3-donor-sub-ids))
           "all four donor-era subs are registered")
-      (is (some? (registrar/handler :event schema-3-donor-event-id))
+      (is (some? (rf.registrar/handler :event schema-3-donor-event-id))
           "the donor-era ownership event is registered")
       (is (= #{} (registered-ids :sub schema-4-sub-ids))
           "none of the three Freehand reads exists yet"))
@@ -1317,7 +1317,7 @@
     (testing "the five donor-era registrations are GONE — nothing else in the
               process would ever remove them"
       (is (= #{} (registered-ids :sub schema-3-donor-sub-ids)))
-      (is (nil? (registrar/handler :event schema-3-donor-event-id))))
+      (is (nil? (rf.registrar/handler :event schema-3-donor-event-id))))
     (testing "and the process is stamped current — no donor claim was held,
               so there is nothing a reload would add"
       (is (= registry/schema-version (registry/installed-schema-version))))))
@@ -1348,7 +1348,7 @@
               "the three Freehand reads are not installed (rf2-l86mm)")
           (is (= #{} (registered-ids :sub schema-3-donor-sub-ids))
               "the four donor-era subs were cleared")
-          (is (nil? (registrar/handler :event schema-3-donor-event-id))
+          (is (nil? (rf.registrar/handler :event schema-3-donor-event-id))
               "the donor-era ownership event was cleared"))
 
         (testing "the process is NOT stamped current — the donor projection
@@ -2062,7 +2062,7 @@
              :rf.xray.fx/open-in-editor can prefer the dev-server endpoint and fall
              back to the editor:// URI")
         (is (nil? (:last-open-in-editor-coord
-                    (frame/frame-app-db-value :rf/xray)))
+                    (rf.frame/frame-app-db-value :rf/xray)))
             "Xray's app-db is NOT written — the stub's
              `:last-open-in-editor-coord` slot is intentionally
              gone (rf2-g5q8d)")))))
@@ -2077,9 +2077,9 @@
       ;; override survives the dead-panel sweep. The flows / fxs /
       ;; routes overrides were retired with their panels.
       (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test [:m]])
-      (is (= [:m] (:registered-machines-override (frame/frame-app-db-value :rf/xray))))
+      (is (= [:m] (:registered-machines-override (rf.frame/frame-app-db-value :rf/xray))))
       (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test nil])
-      (is (nil? (:registered-machines-override (frame/frame-app-db-value :rf/xray)))))))
+      (is (nil? (:registered-machines-override (rf.frame/frame-app-db-value :rf/xray)))))))
 
 ;; ---- (6) reg-fx contracts -----------------------------------------------
 ;;
@@ -2171,8 +2171,8 @@
       (rf/dispatch-sync [:rf.xray/select-tab :event])
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (rf/dispatch-sync [:rf.xray/select-epoch :e]))
-    (let [xray-db   (frame/frame-app-db-value :rf/xray)
-          default-db (frame/frame-app-db-value :rf/default)]
+    (let [xray-db   (rf.frame/frame-app-db-value :rf/xray)
+          default-db (rf.frame/frame-app-db-value :rf/default)]
       (is (= :event (:selected-tab xray-db)))
       ;; rf2-ee38b.2 — :rf.xray/select-dispatch-id writes focus to the
       ;; spine `:focus` slot (the dead :selected-dispatch-id mirror is

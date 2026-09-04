@@ -54,7 +54,7 @@
     - `:rf.xray.static.interceptors/query`    — search input value."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.interceptor-registry :as icpt-reg]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
@@ -103,7 +103,7 @@
   (cond
     ;; INLINE interceptor value — a map. Checked FIRST: an inline value
     ;; is a map, never a keyword or [id arg] vector.
-    (icpt-reg/interceptor-value? entry)
+    (rf.interceptor-registry/interceptor-value? entry)
     {:id       (or (:id entry) ::unnamed)
      :ref?     false
      :authored nil
@@ -115,7 +115,7 @@
 
     ;; REFERENCE — bare keyword or [id arg] 2-vector. Surface the authored
     ;; form and enrich from the registered descriptor when resolvable.
-    (icpt-reg/interceptor-ref? entry)
+    (rf.interceptor-registry/interceptor-ref? entry)
     (let [vector-ref? (vector? entry)
           icpt-id     (if vector-ref? (first entry) entry)
           arg         (when vector-ref? (second entry))

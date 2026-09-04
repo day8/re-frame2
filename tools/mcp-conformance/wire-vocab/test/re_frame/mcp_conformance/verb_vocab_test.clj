@@ -8,7 +8,7 @@
   (:require [clojure.data.json :as json]
             [clojure.string    :as str]
             [clojure.test      :refer [deftest is testing]]
-            [re-frame.mcp-conformance.fixtures :as fx]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 (def ^:private verb-prefixes
   "Catalogued prefix verbs from NAMING.md §The verb table. Each entry
@@ -74,7 +74,7 @@
 
 (def ^:private tool-name-fixtures
   "Per-server `tool-names.json` fixture paths. Adding a new server
-  means adding a row here AND extending `fx/known-servers`."
+  means adding a row here AND extending `rf.mcp-conformance.fixtures/known-servers`."
   {:re-frame2-pair-mcp "tools/re-frame2-pair-mcp/test/fixtures/tool-names.json"
    :story-mcp          "tools/story-mcp/test/fixtures/tool-names.json"})
 
@@ -82,7 +82,7 @@
   "Slurp + JSON-parse the canonical tool-names fixture for `server`.
   Returns a vector of strings."
   [server]
-  (-> (fx/read-source (get tool-name-fixtures server))
+  (-> (rf.mcp-conformance.fixtures/read-source (get tool-name-fixtures server))
       (json/read-str)
       (get "names")
       vec))
@@ -143,9 +143,9 @@
                  " yielded zero tool names — fixture moved or empty?"))))))
 
 (deftest catalogue-covers-every-known-server
-  (testing "the verb-vocab linter knows about every server in fx/known-servers"
-    (doseq [server fx/known-servers]
+  (testing "the verb-vocab linter knows about every server in rf.mcp-conformance.fixtures/known-servers"
+    (doseq [server rf.mcp-conformance.fixtures/known-servers]
       (is (contains? tool-name-fixtures server)
-          (str "fx/known-servers carries " server " but the verb-vocab "
+          (str "rf.mcp-conformance.fixtures/known-servers carries " server " but the verb-vocab "
                "linter has no tool-names.json fixture path for it. Add "
                "a row to tool-name-fixtures.")))))

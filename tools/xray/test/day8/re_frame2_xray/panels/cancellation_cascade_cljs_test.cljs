@@ -25,8 +25,8 @@
   tree by `data-testid` rather than mounting to the DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -106,15 +106,15 @@
   (testing "register-xray-handlers! installs every sub + event the
             visualiser depends on"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray/cancellation-cascade-popover-open?)))
-    (is (some? (registrar/handler :sub :rf.xray/cancellation-cascade-popover-focus)))
-    (is (some? (registrar/handler :sub :rf.xray/cancellation-cascade-expanded?)))
-    (is (some? (registrar/handler :sub :rf.xray/cancellation-cascade-for-focused-machine)))
-    (is (some? (registrar/handler :sub :rf.xray/cancellation-cascade-for-focused-event)))
-    (is (some? (registrar/handler :event :rf.xray/cancellation-cascade-open)))
-    (is (some? (registrar/handler :event :rf.xray/cancellation-cascade-close)))
-    (is (some? (registrar/handler :event :rf.xray/cancellation-cascade-toggle-expand)))
-    (is (some? (registrar/handler :event :rf.xray/focus-trace-entry)))))
+    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-popover-open?)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-popover-focus)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-expanded?)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-for-focused-machine)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-for-focused-event)))
+    (is (some? (rf.registrar/handler :event :rf.xray/cancellation-cascade-open)))
+    (is (some? (rf.registrar/handler :event :rf.xray/cancellation-cascade-close)))
+    (is (some? (rf.registrar/handler :event :rf.xray/cancellation-cascade-toggle-expand)))
+    (is (some? (rf.registrar/handler :event :rf.xray/focus-trace-entry)))))
 
 ;; ---- (2) empty-state renders -------------------------------------------
 

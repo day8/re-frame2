@@ -22,8 +22,8 @@
   search by data-testid / role / attribute resolves each assertion."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.palette.view :as view]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -42,11 +42,11 @@
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid / find-all-by-testid-
 ;; prefix / props copies were semantically identical to
-;; `re-frame.test-helpers`; tests call `th/find-by-testid` /
-;; `th/find-by-testid-prefix` directly (rf2-vj80u8 — no Xray walker facade).
-;; `props` is a thin alias over `th/attrs`.
+;; `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid` /
+;; `rf.test-helpers/find-by-testid-prefix` directly (rf2-vj80u8 — no Xray walker facade).
+;; `props` is a thin alias over `rf.test-helpers/attrs`.
 
-(def ^:private props th/attrs)
+(def ^:private props rf.test-helpers/attrs)
 
 ;; ---- (1) dialog wrapper ARIA --------------------------------------------
 
@@ -57,7 +57,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
     (let [tree   (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
-          dialog (th/find-by-testid tree "rf-xray-palette-dialog")]
+          dialog (rf.test-helpers/find-by-testid tree "rf-xray-palette-dialog")]
       (is (some? dialog) "the dialog wrapper renders")
       (is (= "dialog" (:role (props dialog))))
       (is (= "true"   (:aria-modal (props dialog))))
@@ -75,7 +75,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
     (let [tree  (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
-          input (th/find-by-testid tree "rf-xray-palette-input")
+          input (rf.test-helpers/find-by-testid tree "rf-xray-palette-input")
           attrs (props input)]
       (is (some? input))
       (is (= "combobox" (:role attrs)))
@@ -93,8 +93,8 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
     (let [tree    (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
-          input   (th/find-by-testid tree "rf-xray-palette-input")
-          listbox (th/find-by-testid tree "rf-xray-palette-list")]
+          input   (rf.test-helpers/find-by-testid tree "rf-xray-palette-input")
+          listbox (rf.test-helpers/find-by-testid tree "rf-xray-palette-list")]
       (is (= (:aria-controls (props input))
              (:id (props listbox)))
           "aria-controls round-trips to listbox id"))))
@@ -109,7 +109,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
     (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
-          ul   (th/find-by-testid tree "rf-xray-palette-list")]
+          ul   (rf.test-helpers/find-by-testid tree "rf-xray-palette-list")]
       (is (some? ul) "the list wrapper renders")
       ;; Default palette open populates results (>0 commands registered)
       ;; so the listbox role should be set.
@@ -125,7 +125,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
     (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
-          rows (th/find-by-testid-prefix tree "rf-xray-palette-row-")]
+          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")]
       (is (seq rows) "the palette renders at least one row")
       (doseq [row rows]
         (let [attrs (props row)]
@@ -144,7 +144,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
     (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
-          rows (th/find-by-testid-prefix tree "rf-xray-palette-row-")
+          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
           ids  (mapv (comp :id props) rows)]
       (is (= (count ids) (count (set ids)))
           "every row id is unique within the rendered list"))))
@@ -157,7 +157,7 @@
       (rf/dispatch-sync [:rf.xray/palette-open])
       (rf/dispatch-sync [:rf.xray/palette-cursor-set 0]))
     (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
-          rows (th/find-by-testid-prefix tree "rf-xray-palette-row-")
+          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
           selected (filter #(= "true" (:aria-selected (props %))) rows)]
       (is (= 1 (count selected))
           "exactly one row carries aria-selected=true"))))
@@ -171,8 +171,8 @@
       (rf/dispatch-sync [:rf.xray/palette-open])
       (rf/dispatch-sync [:rf.xray/palette-cursor-set 0]))
     (let [tree     (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
-          input    (th/find-by-testid tree "rf-xray-palette-input")
-          rows     (th/find-by-testid-prefix tree "rf-xray-palette-row-")
+          input    (rf.test-helpers/find-by-testid tree "rf-xray-palette-input")
+          rows     (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
           active   (some (fn [row]
                            (when (= "true" (:aria-selected (props row)))
                              (:id (props row))))

@@ -27,14 +27,14 @@
   Xray/Story tests per the Xray/Story-as-CLJS-unit-test ruling."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.views.edn-inspector-popup :as edn-inspector-popup]))
 
 ;; Fresh re-frame runtime per test so dispatch-sync against the
 ;; registered popup handlers lands on a clean slot every time.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers -------------------------------------------------------------
 

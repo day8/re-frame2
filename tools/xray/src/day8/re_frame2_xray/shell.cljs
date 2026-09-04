@@ -123,7 +123,7 @@
   `mount.cljs`. No per-substrate switches in view code."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.filters :as filters]
@@ -742,7 +742,7 @@
 
 (defn event-bundle-dispatched-time-ms
   "Pluck the event-bundle's dispatched-time from `:dispatched :time` (every
-  trace event carries `:time (interop/now-ms)` per `re-frame.trace.cljc
+  trace event carries `:time (rf.interop/now-ms)` per `re-frame.trace.cljc
   build-event`). Returns nil when the event-bundle has no `:dispatched`
   slot or the slot's `:time` is not a number — defence-in-depth for
   event-bundles synthesised by tests that omit the field."
@@ -2097,13 +2097,13 @@
         ;; rf2-0s2at — one subscribe per render drives every chip's
         ;; relative-time text. The sub returns the dispatched-time of
         ;; the most recent event-bundle (the anchor flips on event arrival,
-        ;; not on a per-second tick). Falls back to `(interop/now-ms)`
+        ;; not on a per-second tick). Falls back to `(rf.interop/now-ms)`
         ;; when the buffer is empty / no event-bundle carries a stamp — at
         ;; that point there are no rows to render against the anchor
         ;; anyway, but the chip's render-time guard keeps the bucket
         ;; computation defined.
         now-ms         (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
-                           (interop/now-ms))
+                           (rf.interop/now-ms))
         focused-id     (:dispatch-id focus)
         ;; LIVE+head+not-paused = the auto-tracking branch from
         ;; spine/compose-focus. Only here do we want scroll-into-view

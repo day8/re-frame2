@@ -6,21 +6,21 @@
   decomposition Xray ships in its panel renderer, recast over patches
   so mcp-base stays free of the xray dep."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.mcp-base.diff-encode :as de]
-            [re-frame.mcp-base.section-grouping :as sg]))
+            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
+            [re-frame.mcp-base.section-grouping :as rf.mcp-base.section-grouping]))
 
 ;; ---------------------------------------------------------------------------
 ;; Trivial cases — empty, root replacement.
 ;; ---------------------------------------------------------------------------
 
 (deftest empty-patches-emit-no-sections
-  (is (= [] (sg/group-patches-into-sections [])))
-  (is (= [] (sg/group-patches-into-sections nil))))
+  (is (= [] (rf.mcp-base.section-grouping/group-patches-into-sections [])))
+  (is (= [] (rf.mcp-base.section-grouping/group-patches-into-sections nil))))
 
 (deftest root-replacement-projects-to-one-root-section
   (testing "single :assoc at root path is the replace-app-db! signature"
     (let [patches  [[[] :assoc {:new :db}]]
-          sections (sg/group-patches-into-sections patches)]
+          sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
       (is (= 1 (count sections)))
       (is (= [] (:section-path (first sections))))
       (is (= :modified (:section-kind (first sections))))
@@ -34,7 +34,7 @@
   ;; A single change at [:user :prefs :theme] heads as [:user :prefs] —
   ;; the parent gives container context.
   (let [patches  [[[:user :prefs :theme] :assoc :dark]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= 1 (count sections)))
     (is (= [:user :prefs] (:section-path (first sections))))
     (is (= patches (:patches (first sections))))))
@@ -43,7 +43,7 @@
   ;; [:flash] is already a useful breadcrumb at depth-1; don't promote
   ;; to [] (which would conflict with the whole-DB rule).
   (let [patches  [[[:flash] :assoc "Saved"]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= 1 (count sections)))
     (is (= [:flash] (:section-path (first sections))))))
 
@@ -57,7 +57,7 @@
   ;; the [:cart :items 0] head.
   (let [patches  [[[:cart :items 0 :qty] :assoc 2]
                   [[:cart :items 0 :discount] :assoc 0.1]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= 1 (count sections)))
     (let [s (first sections)]
       (is (= [:cart :items 0] (:section-path s)))
@@ -70,7 +70,7 @@
   ;; with its own root-key breadcrumb.
   (let [patches  [[[:flash] :assoc "Saved"]
                   [[:status] :assoc :ok]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= 2 (count sections)))
     (is (= [:flash] (:section-path (first sections))))
     (is (= [:status] (:section-path (second sections))))))
@@ -80,21 +80,21 @@
   ;; ancestor sits 4 levels away from both should NOT coalesce.
   (let [patches  [[[:a :b :c :d :leaf1] :assoc 1]
                   [[:a :b :c :d :leaf2] :assoc 2]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= 1 (count sections))
         "common ancestor [:a :b :c :d] sits 1 level from each leaf — within budget"))
   ;; But two patches with common ancestor [:a] and depth distance 5
   ;; each → outside budget; separate clusters.
   (let [patches  [[[:a :b :c :d :e :leaf1] :assoc 1]
                   [[:a :B :C :D :E :leaf2] :assoc 2]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= 2 (count sections))
         "common ancestor [:a] is 5 levels away from each leaf — out of budget")))
 
 (deftest tunable-max-depth-via-opts
   (let [patches [[[:a :b :c :d :e :leaf1] :assoc 1]
                  [[:a :B :C :D :E :leaf2] :assoc 2]]]
-    (is (= 1 (count (sg/group-patches-into-sections patches {:max-coalesce-depth 10})))
+    (is (= 1 (count (rf.mcp-base.section-grouping/group-patches-into-sections patches {:max-coalesce-depth 10})))
         "raising the budget admits the previously-rejected coalescence")))
 
 ;; ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@
                   [[:cart :totals :grand]     :assoc 33]
                   [[:user :last-edited-at]    :assoc 12345]
                   [[:flash]                   :assoc "Cart updated"]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= 3 (count sections)))
     (let [paths (mapv :section-path sections)]
       (is (some #(= [:cart] %) paths))
@@ -138,7 +138,7 @@
   ;; section — exactly 2.
   (let [patches  [[[:account-23 :balance] :assoc 500]
                   [[:account-71 :status]  :assoc :frozen]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= 2 (count sections)))
     (is (every? #(< (count (:section-path %)) 3) sections)
         "no spurious deeper aggregation — each singleton stays scoped")))
@@ -150,7 +150,7 @@
 (deftest all-dissoc-patches-classify-as-removed
   (let [patches  [[[:user :token] :dissoc]
                   [[:user :session-id] :dissoc]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= :removed (:section-kind (first sections))))))
 
 (deftest all-assoc-direct-children-classify-as-added-only-with-db-before-proof
@@ -161,15 +161,15 @@
   (let [patches  [[[:user :name]  :assoc "ada"]
                   [[:user :email] :assoc "ada@example.com"]]]
     (testing "without :db-before context → conservative :modified (no false :added)"
-      (is (= :modified (:section-kind (first (sg/group-patches-into-sections patches))))))
+      (is (= :modified (:section-kind (first (rf.mcp-base.section-grouping/group-patches-into-sections patches))))))
     (testing ":db-before proves [:user] is genuinely new → :added"
       (is (= :added (:section-kind
-                      (first (sg/group-patches-into-sections
+                      (first (rf.mcp-base.section-grouping/group-patches-into-sections
                                patches {:db-before {}}))))
           "container [:user] absent in db-before ⇒ newly-introduced subtree"))
     (testing ":db-before shows [:user] already existed (a sibling changed) → :modified, NOT a false :added"
       (is (= :modified (:section-kind
-                         (first (sg/group-patches-into-sections
+                         (first (rf.mcp-base.section-grouping/group-patches-into-sections
                                   patches {:db-before {:user {:name "bob"}}}))))
           "existing [:user] whose direct children changed is a modification, not an addition"))))
 
@@ -182,10 +182,10 @@
   (let [patches [[[:user :name]  :assoc "ada"]
                  [[:user :email] :assoc "ada@example.com"]]]
     (is (= :added (:section-kind
-                    (first (sg/group-patches-into-sections patches {:db-before {}}))))
+                    (first (rf.mcp-base.section-grouping/group-patches-into-sections patches {:db-before {}}))))
         "[:user] absent in db-before + all-:assoc direct children ⇒ :added")
     (is (= :added (:section-kind
-                    (first (sg/group-patches-into-sections patches {:db-before {:session :idle}}))))
+                    (first (rf.mcp-base.section-grouping/group-patches-into-sections patches {:db-before {:session :idle}}))))
         "[:user] still absent (only :session present) ⇒ :added")))
 
 (deftest db-before-with-stored-nil-counts-container-as-present
@@ -196,13 +196,13 @@
   (let [patches [[[:user :name]  :assoc "ada"]
                  [[:user :email] :assoc "ada@example.com"]]]
     (is (= :modified (:section-kind
-                       (first (sg/group-patches-into-sections patches {:db-before {:user nil}}))))
+                       (first (rf.mcp-base.section-grouping/group-patches-into-sections patches {:db-before {:user nil}}))))
         "[:user] present (stored nil) ⇒ :modified, not a false :added")))
 
 (deftest mixed-assoc-and-dissoc-classify-as-modified
   (let [patches  [[[:user :name]  :assoc "ada"]
                   [[:user :token] :dissoc]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= :modified (:section-kind (first sections))))))
 
 (deftest assoc-at-non-uniform-depth-classifies-as-modified
@@ -210,7 +210,7 @@
   ;; :modified (conservative; the cluster isn't a wholly-new container).
   (let [patches  [[[:user :name]              :assoc "ada"]
                   [[:user :prefs :theme]      :assoc :dark]]
-        sections (sg/group-patches-into-sections patches)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= :modified (:section-kind (first sections))))))
 
 ;; ---------------------------------------------------------------------------
@@ -227,10 +227,10 @@
                           :totals {:line 30 :grand 30}}
                    :user  {:id 7 :last-edited-at 12345}
                    :flash "Updated"}
-        patches  (de/collect-patches db-before db-after [])
-        sections (sg/group-patches-into-sections patches)
-        flat     (sg/sections->patches sections)
-        rebuilt  (de/apply-patches db-before flat)]
+        patches  (rf.mcp-base.diff-encode/collect-patches db-before db-after [])
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)
+        flat     (rf.mcp-base.section-grouping/sections->patches sections)
+        rebuilt  (rf.mcp-base.diff-encode/apply-patches db-before flat)]
     (is (= db-after rebuilt)
         "sections → flat patches → apply reconstructs db-after exactly")))
 
@@ -241,8 +241,8 @@
                   [[:b :p] :assoc 3]
                   [[:b :q] :dissoc]
                   [[:c]    :assoc :singleton]]
-        sections (sg/group-patches-into-sections patches)
-        flat     (sg/sections->patches sections)]
+        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)
+        flat     (rf.mcp-base.section-grouping/sections->patches sections)]
     (is (= (set patches) (set flat))
         "no patches dropped or duplicated")
     (is (= (count patches) (count flat))
@@ -259,8 +259,8 @@
         patches-b [[[:flash] :assoc "Saved"]
                    [[:cart :totals :grand] :assoc 30]
                    [[:cart :items 0 :qty] :assoc 2]]
-        sections-a (sg/group-patches-into-sections patches-a)
-        sections-b (sg/group-patches-into-sections patches-b)]
+        sections-a (rf.mcp-base.section-grouping/group-patches-into-sections patches-a)
+        sections-b (rf.mcp-base.section-grouping/group-patches-into-sections patches-b)]
     (is (= (mapv :section-path sections-a)
            (mapv :section-path sections-b))
         "input order doesn't alter section order — the sort makes it stable")))
@@ -293,7 +293,7 @@
     ;; prefix. The contract requires [:cart-summary] first.
     (let [patches  [[[:cart :qty] :assoc 5]
                     [[:cart-summary] :assoc :new]]
-          sections (sg/group-patches-into-sections patches)
+          sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)
           paths    (mapv :section-path sections)]
       (is (= [:cart] (:section-path (first (filter #(= [:cart] (:section-path %)) sections))))
           "sanity: [:cart :qty] promotes to the [:cart] ancestor")
@@ -309,7 +309,7 @@
       (doseq [ordering (list patches
                              (vec (reverse patches))
                              (shuffle patches))]
-        (let [sections (sg/group-patches-into-sections ordering)
+        (let [sections (rf.mcp-base.section-grouping/group-patches-into-sections ordering)
               paths    (mapv (comp pr-str :section-path) sections)]
           (is (= (sort paths) paths)
               (str "sections must be ascending by (pr-str :section-path); got " paths)))))))

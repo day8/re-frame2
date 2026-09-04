@@ -63,10 +63,10 @@
        depth lives in derivation-conformance."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.derivation-graph-helpers :as h]))
 
 ;; ---------------------------------------------------------------------------
@@ -87,10 +87,10 @@
 (defn- install-policy! []
   ;; EP-0025: durable app-db classification rides the commit-plane
   ;; classification effects. Write :sensitive / :large declarations directly
-  ;; via `elision/apply-classification-effects` (`:source :effect`) — the same
+  ;; via `rf.elision/apply-classification-effects` (`:source :effect`) — the same
   ;; registry write a reg-event returning `:sensitive` / `:large` performs.
-  (frame/swap-runtime-db! secure-frame
-    (fn [rt] (elision/apply-classification-effects rt
+  (rf.frame/swap-runtime-db! secure-frame
+    (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:current :params :token]]
                 :large     [[:cart :items]]}))))
 
@@ -100,8 +100,8 @@
   (install-policy!))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      ;; OPT OUT of the default `:rf/default` ambient scope: the fail-closed
      ;; arm asserts that egress against an unreachable frame redacts because
      ;; NO frame is resolvable. A bound ambient `:rf/default` would let the
@@ -273,7 +273,7 @@
             decl, so a borrow WOULD ship the token raw); a nil frame-id MUST
             redact the whole value-bearing field, not resolve :app/plain."
     (rf/with-frame plain-frame
-      (is (some? (frame/resolve-current-frame))
+      (is (some? (rf.frame/resolve-current-frame))
           "PRECONDITION — an ambient frame IS dynamically bound, so a frameless
            walk WOULD resolve it (the borrow this arm forbids)")
       (let [r     (h/redact-graph-for-egress live-graph nil)

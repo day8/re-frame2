@@ -16,8 +16,8 @@
        data-testid."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.panels.machine-canvas :as mc]))
@@ -100,7 +100,7 @@
 (deftest persist-chart-collapsed-fx-registered
   (setup-xray-frame!)
   (is (some?
-        (registrar/handler
+        (rf.registrar/handler
           :fx :rf.xray.machine-canvas/persist-chart-collapsed))
       "persist-chart-collapsed fx is in the registrar"))
 

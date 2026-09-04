@@ -37,7 +37,7 @@
   their `:each` fixture."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.static.machines.helpers :as h]))
@@ -180,7 +180,7 @@
      ;; be a pure no-op on empty slots, and Xray's own trace ring is the
      ;; surface it inspects; a boot-time write of nothing is noise.
      (when (and (or (some? selected-id) (seq sub-mode-by-id))
-                (some? (frame/frame frame-id)))
+                (some? (rf.frame/frame frame-id)))
        (rf/with-frame frame-id
          (rf/dispatch-sync [:rf.xray.static.machines/hydrate
                             {:selected-id    selected-id

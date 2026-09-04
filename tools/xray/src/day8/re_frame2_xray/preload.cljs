@@ -38,10 +38,10 @@
   Xray is dev-tier per tools/README.md's bundle-isolation contract.
   But if it does happen, the trace-callback registration is a no-op
   in production (the framework's trace surface elides via
-  `interop/debug-enabled?`). The right contract is to keep this preload
+  `rf.interop/debug-enabled?`). The right contract is to keep this preload
   in shadow-cljs's dev-only `:devtools` block; the remaining guards make
   an accidental production load inert rather than useful."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.interop :as rf.interop]
             ;; Time Travel requires the epoch listener and history API;
             ;; deps.edn makes the artefact part of every Xray build.
             [re-frame.epoch]
@@ -84,12 +84,12 @@
 ;; Loading this namespace runs the installation sequence. Each operation
 ;; is self-guarded, so reloads do not duplicate listeners or mounts.
 ;;
-;; The whole block is gated on `interop/debug-enabled?` so production
+;; The whole block is gated on `rf.interop/debug-enabled?` so production
 ;; bundles compiled with `(set! goog.DEBUG false)` strip the entire
 ;; preload's side-effects via Closure DCE. The keybinding listener,
 ;; collectors, registry, settings effects, and auto-open all elide together.
 
-(when interop/debug-enabled?
+(when rf.interop/debug-enabled?
   ;; Settings persistence — load BEFORE registry install
   ;; so the first sub read from the popup's events lands on the
   ;; persisted values, not on the defaults.

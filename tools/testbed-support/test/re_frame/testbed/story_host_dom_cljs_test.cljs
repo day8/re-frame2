@@ -15,8 +15,8 @@
             [clojure.string :as str]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
-            [re-frame.story :as story]
-            [re-frame.testbed.story-host :as host]))
+            [re-frame.story :as rf.story]
+            [re-frame.testbed.story-host :as rf.testbed.story-host]))
 
 (defn- browser? []
   (and (exists? js/document)
@@ -91,14 +91,14 @@
   page inherits them all."
   []
   (when (browser?)
-    (when-let [listener @@#'host/hash-listener*]
+    (when-let [listener @@#'rf.testbed.story-host/hash-listener*]
       (.removeEventListener js/window "hashchange" listener))))
 
 (defn- reset-host-handles! []
   (unregister-host-listener!)
-  (reset! @#'host/hash-listener* nil)
-  (reset! @#'host/root-view* nil)
-  (reset! @#'host/app-root nil))
+  (reset! @#'rf.testbed.story-host/hash-listener* nil)
+  (reset! @#'rf.testbed.story-host/root-view* nil)
+  (reset! @#'rf.testbed.story-host/app-root nil))
 
 (use-fixtures :each
   {:before (fn []
@@ -107,7 +107,7 @@
    :after  (fn []
              ;; Unmount held roots directly; the Story redefinitions are no
              ;; longer active during fixture teardown.
-             (when-let [r @@#'host/app-root]
+             (when-let [r @@#'rf.testbed.story-host/app-root]
                (try (rdc/unmount r) (catch :default _ nil)))
              (when-let [r @shell-root*]
                (try (rdc/unmount r) (catch :default _ nil)))
@@ -133,28 +133,28 @@
             warnings
             (with-captured-console
               (fn []
-                (with-redefs [story/mount-shell!   shell-mount!
-                              story/unmount-shell! shell-unmount!]
+                (with-redefs [rf.story/mount-shell!   shell-mount!
+                              rf.story/unmount-shell! shell-unmount!]
                   ;; Start with the live app.
                   (set-hash! "#/")
                   (react-dom/flushSync
-                   (fn [] (host/mount-with-hash-routing! live-view)))
+                   (fn [] (rf.testbed.story-host/mount-with-hash-routing! live-view)))
                   ;; Hand the same node to the shell.
                   (set-hash! "#/stories")
-                  (react-dom/flushSync (fn [] (#'host/on-hash-change!)))
+                  (react-dom/flushSync (fn [] (#'rf.testbed.story-host/on-hash-change!)))
                   ;; Hand the node back to the live app.
                   (set-hash! "#/")
-                  (react-dom/flushSync (fn [] (#'host/on-hash-change!)))
+                  (react-dom/flushSync (fn [] (#'rf.testbed.story-host/on-hash-change!)))
                   ;; Re-run the host as hot reload would.
                   (react-dom/flushSync
-                   (fn [] (host/mount-with-hash-routing! live-view)))
+                   (fn [] (rf.testbed.story-host/mount-with-hash-routing! live-view)))
                   ;; Repeat the handoff after the re-run.
                   (set-hash! "#/stories")
-                  (react-dom/flushSync (fn [] (#'host/on-hash-change!)))
+                  (react-dom/flushSync (fn [] (#'rf.testbed.story-host/on-hash-change!)))
                   (set-hash! "#/")
-                  (react-dom/flushSync (fn [] (#'host/on-hash-change!))))))]
+                  (react-dom/flushSync (fn [] (#'rf.testbed.story-host/on-hash-change!))))))]
         ;; The host retains the currently installed listener handle.
-        (is (some? @@#'host/hash-listener*)
+        (is (some? @@#'rf.testbed.story-host/hash-listener*)
             "the single installed hashchange handle is recorded")
         (is (= "LIVE" (marker-text "live-marker"))
             "after the final #/ the live view owns #app")
@@ -176,18 +176,18 @@
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (do
         (ensure-app-node!)
-        (with-redefs [story/mount-shell!   shell-mount!
-                      story/unmount-shell! shell-unmount!]
+        (with-redefs [rf.story/mount-shell!   shell-mount!
+                      rf.story/unmount-shell! shell-unmount!]
           (set-hash! "#/")
           (react-dom/flushSync
-           (fn [] (host/mount-with-hash-routing! live-view)))
-          (let [handle-1 @@#'host/hash-listener*]
+           (fn [] (rf.testbed.story-host/mount-with-hash-routing! live-view)))
+          (let [handle-1 @@#'rf.testbed.story-host/hash-listener*]
             (is (some? handle-1) "first run records a listener handle")
             ;; A new function identity simulates a recompile.
-            (with-redefs [host/on-hash-change! (fn [] nil)]
+            (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] nil)]
               (react-dom/flushSync
-               (fn [] (host/mount-with-hash-routing! live-view))))
-            (let [handle-2 @@#'host/hash-listener*]
+               (fn [] (rf.testbed.story-host/mount-with-hash-routing! live-view))))
+            (let [handle-2 @@#'rf.testbed.story-host/hash-listener*]
               (is (some? handle-2) "re-run records a (new) listener handle")
               (is (not (identical? handle-1 handle-2))
                   "the stored handle advanced to the recompiled listener fn — the
@@ -239,15 +239,15 @@
         (ensure-app-node!)
         (let [net (with-hashchange-census
                     (fn [net]
-                      (with-redefs [story/mount-shell!   shell-mount!
-                                    story/unmount-shell! shell-unmount!]
+                      (with-redefs [rf.story/mount-shell!   shell-mount!
+                                    rf.story/unmount-shell! shell-unmount!]
                         (set-hash! "#/")
                         (react-dom/flushSync
-                         (fn [] (host/mount-with-hash-routing! live-view))))
+                         (fn [] (rf.testbed.story-host/mount-with-hash-routing! live-view))))
                       ;; Non-vacuity: the census saw the real registration.
                       (is (= 1 @net)
                           "the mount registered exactly one hashchange listener")
-                      (is (some? @@#'host/hash-listener*)
+                      (is (some? @@#'rf.testbed.story-host/hash-listener*)
                           "and the host recorded its handle")
                       ;; The fixture teardown, run explicitly so its balance is
                       ;; observable inside the census window.

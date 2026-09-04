@@ -22,8 +22,8 @@
   non-head epoch to pin the popup==panel-body invariant."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.panels.app-db-segment-inspector
              :as segment-inspector]
             [day8.re-frame2-xray.registry :as registry]
@@ -66,8 +66,8 @@
 ;; ---- hiccup walk helpers ------------------------------------------------
 ;; The private expand-tree (form-2 aware) / hiccup-seq / find-by-testid /
 ;; text-content copies were semantically identical to `re-frame.test-helpers`
-;; (`th/expand-tree` handles the form-2 edn-inspector widget too); tests call
-;; `th/find-by-testid` / `th/text-content` directly (rf2-vj80u8 — no Xray
+;; (`rf.test-helpers/expand-tree` handles the form-2 edn-inspector widget too); tests call
+;; `rf.test-helpers/find-by-testid` / `rf.test-helpers/text-content` directly (rf2-vj80u8 — no Xray
 ;; walker facade).
 
 (defn- read-value-sub []
@@ -128,19 +128,19 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector [:user]]))
     (let [tree   (rf/with-frame :rf/xray (segment-inspector/Popup))
-          title  (th/find-by-testid tree "rf-xray-segment-inspector-title")
-          body   (th/find-by-testid tree "rf-xray-segment-inspector-body")]
+          title  (rf.test-helpers/find-by-testid tree "rf-xray-segment-inspector-title")
+          body   (rf.test-helpers/find-by-testid tree "rf-xray-segment-inspector-body")]
       (is (some? tree) "Popup renders when open")
       (is (some? title) "header title node renders")
       (is (some? body) "body node renders")
       ;; The header echoes the inspected path so the user knows what
       ;; they are looking at.
-      (let [title-text (th/text-content title)]
+      (let [title-text (rf.test-helpers/text-content title)]
         (is (re-find #":user" title-text)
             "header title did not echo the inspected path"))
       ;; The body renders the sliced value — the user's name appears
       ;; somewhere in the projected tree.
-      (let [body-text (th/text-content body)]
+      (let [body-text (rf.test-helpers/text-content body)]
         (is (re-find #"ada" body-text)
             "body did not render the sliced value's content")))))
 
@@ -152,8 +152,8 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector []]))
     (let [tree  (rf/with-frame :rf/xray (segment-inspector/Popup))
-          title (th/find-by-testid tree "rf-xray-segment-inspector-title")]
-      (is (re-find #"root" (th/text-content title))
+          title (rf.test-helpers/find-by-testid tree "rf-xray-segment-inspector-title")]
+      (is (re-find #"root" (rf.test-helpers/text-content title))
           "root-path header title did not read '(root)'"))))
 
 (deftest popup-closed-renders-nothing

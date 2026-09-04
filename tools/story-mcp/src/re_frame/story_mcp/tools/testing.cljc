@@ -19,20 +19,20 @@
   `:status` is the single verdict — it expresses the distinct
   `:cannot-run` third status that a flat green/red `:passing?` bit
   cannot, which is why the result vocabulary carries no such bit.
-  `story/run-variant` already assembles the unified shape through
+  `rf.story/run-variant` already assembles the unified shape through
   `result/run-result`; these handlers project its slots rather than
   re-deriving a parallel verdict.
 
   Wire-egress posture: `run-variant` and `read-failures` route their
   `:app-db` / `:assertions` slots through
   `re-frame.story-mcp.tools.egress`."
-  (:require [re-frame.story :as story]
-            [re-frame.story-mcp.tools.args :as targs]
-            [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
-            [re-frame.story-mcp.tools.egress :as egress]
-            [re-frame.story-mcp.tools.lifecycle :as lifecycle]
-            [re-frame.story-mcp.tools.result :as result]
-            [re-frame.story-mcp.tools.schemas :as s]))
+  (:require [re-frame.story :as rf.story]
+            [re-frame.story-mcp.tools.args :as rf.story-mcp.tools.args]
+            [re-frame.story-mcp.tools.cljs-resolve :as rf.story-mcp.tools.cljs-resolve]
+            [re-frame.story-mcp.tools.egress :as rf.story-mcp.tools.egress]
+            [re-frame.story-mcp.tools.lifecycle :as rf.story-mcp.tools.lifecycle]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
+            [re-frame.story-mcp.tools.schemas :as rf.story-mcp.tools.schemas]))
 
 (def failure-statuses
   "The unified assertion `:status` values `read-failures` filters to —
@@ -46,7 +46,7 @@
   "Testing: execute a variant, return the UNIFIED run-result
   (spec/017 §Run result — the same shape the human Story UI reads).
 
-  `story/run-variant` already assembles the unified result through
+  `rf.story/run-variant` already assembles the unified result through
   `re-frame.story.result/run-result`; this handler projects its slots
   (scrubbing the value-bearing ones at egress) — it does NOT re-derive a
   parallel verdict. The headline an agent reads is the top-level
@@ -75,7 +75,7 @@
                         value at a classified path -> :rf/redacted /
                         :rf.size/large-elided; a re-keyed copy ships raw).
                         Rendered output is NOT a run-variant slot — it is
-                        `story/render-variant`'s `:rendered`.
+                        `rf.story/render-variant`'s `:rendered`.
     :elapsed-ms         wall-clock run time
     :cannot-run         present iff the run carried :cannot-run refusals
 
@@ -91,10 +91,10 @@
     :include-sensitive optional — opt out of wire-egress redaction
                                   (default false)"
   [arguments]
-  (targs/with-variant arguments
+  (rf.story-mcp.tools.args/with-variant arguments
     (fn [vk _body]
-      (or (targs/run-opts-shape-error arguments)
-          (targs/substrate-arg-error arguments "run-variant")
+      (or (rf.story-mcp.tools.args/run-opts-shape-error arguments)
+          (rf.story-mcp.tools.args/substrate-arg-error arguments "run-variant")
           ;; Host PREREQUISITE, checked last among the guards and before any
           ;; lifecycle work: with no adapter installed the frame never obtains
           ;; its state substrate, and an inert run settles the ordinary
@@ -102,25 +102,25 @@
           ;; (rf2-c9t52). Story's vacuous-`:pass` rule for an EXECUTED
           ;; assertion-free variant is untouched; this refuses the state where
           ;; nothing executed at all.
-          (lifecycle/no-adapter-error "run-variant")
-          (let [opts     (targs/read-run-opts vk arguments)
+          (rf.story-mcp.tools.lifecycle/no-adapter-error "run-variant")
+          (let [opts     (rf.story-mcp.tools.args/read-run-opts vk arguments)
                 ;; Blocking invocation + timeout + canonical exception
                 ;; normalization are owned by `tools.lifecycle` — the ONE
                 ;; execution owner `preview-variant` shares, so their catch
                 ;; paths cannot drift (the error outcome always routes through
-                ;; `story/run-result`, filling the six `.4` evidence slots to
+                ;; `rf.story/run-result`, filling the six `.4` evidence slots to
                 ;; `[]` so the wire projection never ships a bare nil for an
                 ;; absent slot, rf2-5r6j96). Everything AFTER the outcome —
                 ;; projection, egress, indicator counts, wire shaping — stays
                 ;; run-variant-specific, below.
-                outcome  (lifecycle/run-variant-blocking
-                           vk opts (targs/resolve-timeout-ms arguments))
-                incl?    (targs/include-sensitive? arguments)
+                outcome  (rf.story-mcp.tools.lifecycle/run-variant-blocking
+                           vk opts (rf.story-mcp.tools.args/resolve-timeout-ms arguments))
+                incl?    (rf.story-mcp.tools.args/include-sensitive? arguments)
                 raw-db   (:app-db outcome)
-                [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
+                [assertions dropped] (rf.story-mcp.tools.egress/scrub-assertions+count (:assertions outcome) incl?)
                 payload  (cond-> {:status             (:status outcome)
                                   :frame              (:frame outcome vk)
-                                  :app-db             (egress/elide-app-db raw-db vk incl?)
+                                  :app-db             (rf.story-mcp.tools.egress/elide-app-db raw-db vk incl?)
                                   :assertions         assertions
                                   :checks             (vec (:checks outcome))
                                   :consumed-selectors (:consumed-selectors outcome #{})
@@ -149,19 +149,19 @@
                                   ;; the belt-and-suspenders guard at the
                                   ;; projection call site itself, independent of
                                   ;; how `outcome` was assembled.
-                                  :schema-violations  (egress/scrub-rendered (vec (:schema-violations outcome)) raw-db vk incl?)
-                                  :warnings           (egress/scrub-rendered (vec (:warnings outcome)) raw-db vk incl?)
-                                  :effects            (egress/scrub-rendered (vec (:effects outcome)) raw-db vk incl?)
-                                  :sub-runs           (egress/scrub-rendered (vec (:sub-runs outcome)) raw-db vk incl?)
-                                  :renders            (egress/scrub-rendered (vec (:renders outcome)) raw-db vk incl?)
-                                  :narrative          (egress/scrub-rendered (vec (:narrative outcome)) raw-db vk incl?)
+                                  :schema-violations  (rf.story-mcp.tools.egress/scrub-rendered (vec (:schema-violations outcome)) raw-db vk incl?)
+                                  :warnings           (rf.story-mcp.tools.egress/scrub-rendered (vec (:warnings outcome)) raw-db vk incl?)
+                                  :effects            (rf.story-mcp.tools.egress/scrub-rendered (vec (:effects outcome)) raw-db vk incl?)
+                                  :sub-runs           (rf.story-mcp.tools.egress/scrub-rendered (vec (:sub-runs outcome)) raw-db vk incl?)
+                                  :renders            (rf.story-mcp.tools.egress/scrub-rendered (vec (:renders outcome)) raw-db vk incl?)
+                                  :narrative          (rf.story-mcp.tools.egress/scrub-rendered (vec (:narrative outcome)) raw-db vk incl?)
                                   ;; Derived tree: PATH-projected. A value AT a
                                   ;; classified path redacts; a re-keyed copy ships
                                   ;; raw (EP-0025 fail-open). `run-variant` produces
                                   ;; no rendered output — rendering is
-                                  ;; `story/render-variant`'s (rf2-6r9j.13).
+                                  ;; `rf.story/render-variant`'s (rf2-6r9j.13).
                                   :elapsed-ms         (:elapsed-ms outcome)
-                                  :snapshot           (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)}
+                                  :snapshot           (rf.story-mcp.tools.egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)}
                            ;; Surface the :cannot-run refusals only when present —
                            ;; the run-result carries them iff the runner could not
                            ;; attempt some expectation.
@@ -171,18 +171,18 @@
             ;; dropped sensitive assertion records + elided over-threshold
             ;; leaves across every value-bearing slot. Omitted when zero
             ;; (Conventions §Cross-MCP indicator-field vocabulary).
-            (egress/result-with-indicators payload dropped))))))
+            (rf.story-mcp.tools.egress/result-with-indicators payload dropped))))))
 
 (defn tool-snapshot-identity
   "Testing: content-hash of the canonicalised variant (for external
   visual-regression). Returns
   `{:variant-id :active-modes :substrate :content-hash}`."
   [arguments]
-  (targs/with-variant arguments
+  (rf.story-mcp.tools.args/with-variant arguments
     (fn [vk _body]
-      (or (targs/run-opts-shape-error arguments)
-          (targs/substrate-arg-error arguments "snapshot-identity")
-          (result/edn-result (story/snapshot-identity vk (targs/read-run-opts vk arguments)))))))
+      (or (rf.story-mcp.tools.args/run-opts-shape-error arguments)
+          (rf.story-mcp.tools.args/substrate-arg-error arguments "snapshot-identity")
+          (rf.story-mcp.tools.result/edn-result (rf.story/snapshot-identity vk (rf.story-mcp.tools.args/read-run-opts vk arguments)))))))
 
 (defn tool-read-a11y-violations
   "Testing: READ the axe-core violations a variant's in-browser a11y
@@ -213,7 +213,7 @@
   attribute, a PII text node) lands verbatim in node `:html`. axe DOM nodes
   are an inherently RE-KEYED runtime payload class (the secret rides node
   `:html`, a non-app-db position), so `:violations` route through the NAMED
-  `egress/scrub-re-keyed-runtime` exception (rf2-jwggld). Under a LIVE variant frame
+  `rf.story-mcp.tools.egress/scrub-re-keyed-runtime` exception (rf2-jwggld). Under a LIVE variant frame
   EP-0025 FAIL-OPEN holds: a value rendered into a node `:html` is a RE-KEYED
   DOM position the classification path cannot reach, so it ships RAW
   (value-match removed; classify the app-db PATH to redact a value before it
@@ -224,22 +224,22 @@
   §Direct-read privacy posture). `read-a11y-violations` is `:readOnlyHint true`
   (agent hosts auto-approve it)."
   [arguments]
-  (targs/with-variant-id arguments
+  (rf.story-mcp.tools.args/with-variant-id arguments
     (fn [vk]
-      (if-not (cljs-resolve/a11y-provider-available?)
-        (result/capability-unavailable-result
+      (if-not (rf.story-mcp.tools.cljs-resolve/a11y-provider-available?)
+        (rf.story-mcp.tools.result/capability-unavailable-result
           {:tool       "read-a11y-violations"
            :capability "a11y-panel-state"
            :detail     (str "The axe-core run + `violations-by-frame` atom are "
                             "CLJS-in-browser only; a reached provider is required "
                             "before an empty result can mean 'zero violations'.")})
-        (let [incl?      (targs/include-sensitive? arguments)
-              by-frame   (cljs-resolve/a11y-violations-by-frame)
+        (let [incl?      (rf.story-mcp.tools.args/include-sensitive? arguments)
+              by-frame   (rf.story-mcp.tools.cljs-resolve/a11y-violations-by-frame)
               violations (get by-frame vk)
               payload    {:variant-id vk
-                          :violations (egress/scrub-re-keyed-runtime
+                          :violations (rf.story-mcp.tools.egress/scrub-re-keyed-runtime
                                         (vec (or violations [])) vk incl?)}]
-          (result/edn-result payload))))))
+          (rf.story-mcp.tools.result/edn-result payload))))))
 
 (defn tool-read-failures
   "Testing: the variant frame's current accumulated assertion records
@@ -276,17 +276,17 @@
   dropped sensitive failure doesn't quietly flip the verdict to `:pass`.
   Default off; opt out with `:include-sensitive true`."
   [arguments]
-  (targs/with-variant-id arguments
+  (rf.story-mcp.tools.args/with-variant-id arguments
     (fn [vk]
-      (let [incl?      (targs/include-sensitive? arguments)
-            raw        (story/read-assertions vk)
-            [scrubbed dropped] (egress/scrub-assertions+count raw incl?)
+      (let [incl?      (rf.story-mcp.tools.args/include-sensitive? arguments)
+            raw        (rf.story/read-assertions vk)
+            [scrubbed dropped] (rf.story-mcp.tools.egress/scrub-assertions+count raw incl?)
             ;; Stamp the derived :status on every record so the agent reads
             ;; the SAME unified record shape `run-variant` emits.
-            records    (story/assertion-records scrubbed)
+            records    (rf.story/assertion-records scrubbed)
             failures   (filterv #(contains? failure-statuses (:status %)) records)
             payload    {:variant-id vk
-                        :status     (story/aggregate-verdict records nil)
+                        :status     (rf.story/aggregate-verdict records nil)
                         :total      (count records)
                         :failures   failures
                         :assertions records}]
@@ -294,7 +294,7 @@
         ;; how many sensitive assertion records were dropped at egress
         ;; (+ any elided leaves). Omitted when zero (Conventions
         ;; §Cross-MCP indicator-field vocabulary).
-        (egress/result-with-indicators payload dropped)))))
+        (rf.story-mcp.tools.egress/result-with-indicators payload dropped)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
@@ -304,7 +304,7 @@
   "Testing-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "run-variant"
     :category       :testing
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`, and `:elapsed-ms`. Rendered output is NOT part of this result — `story/render-variant` owns rendering and returns it as `:rendered`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a `:snapshot` nested under `:db`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`, and `:elapsed-ms`. Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a `:snapshot` nested under `:db`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
@@ -318,18 +318,18 @@
     ;; `snapshot` / `trace-window` (descriptors_data.cljs).
     :dedup-eligible? true
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens
-                                (s/with-dedup
-                                  (s/with-include-sensitive
-                                    (s/with-timeout-ms
-                                      {:variant-id s/kw-or-string
-                                       :substrate s/kw-or-string
-                                       :active-modes {:type "array" :items s/kw-or-string}
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens
+                                (rf.story-mcp.tools.schemas/with-dedup
+                                  (rf.story-mcp.tools.schemas/with-include-sensitive
+                                    (rf.story-mcp.tools.schemas/with-timeout-ms
+                                      {:variant-id rf.story-mcp.tools.schemas/kw-or-string
+                                       :substrate rf.story-mcp.tools.schemas/kw-or-string
+                                       :active-modes {:type "array" :items rf.story-mcp.tools.schemas/kw-or-string}
                                        :cell-overrides {:type "object"}}))))
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/run-variant-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/run-variant-annotations
     :handler     tool-run-variant}
 
    {:name           "snapshot-identity"
@@ -342,15 +342,15 @@
                          "4. Use for cache key: build a visual-regression key as `(str variant-id \"@\" content-hash)`.")
     :typicalTokens  100
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens
-                                {:variant-id s/kw-or-string
-                                 :substrate s/kw-or-string
-                                 :active-modes {:type "array" :items s/kw-or-string}
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens
+                                {:variant-id rf.story-mcp.tools.schemas/kw-or-string
+                                 :substrate rf.story-mcp.tools.schemas/kw-or-string
+                                 :active-modes {:type "array" :items rf.story-mcp.tools.schemas/kw-or-string}
                                  :cell-overrides {:type "object"}})
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-snapshot-identity}
 
    {:name           "read-a11y-violations"
@@ -363,12 +363,12 @@
                          "3. Browser-local state, clean frame: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations []} — a reached provider that genuinely reported no violations.")
     :typicalTokens  500
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens
-                                (s/with-include-sensitive {:variant-id s/kw-or-string}))
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens
+                                (rf.story-mcp.tools.schemas/with-include-sensitive {:variant-id rf.story-mcp.tools.schemas/kw-or-string}))
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-read-a11y-violations}
 
    {:name           "read-failures"
@@ -380,11 +380,11 @@
                          "3. Registered but never-run variant: {:variant-id \":story.never/run\"} -> {:variant-id :story.never/run :status :pass :total 0 :failures [] :assertions []} (vacuously green — the id must be a REGISTERED variant that simply has no run yet; a genuinely unregistered id returns a `Variant not found` error, not an empty accumulator).")
     :typicalTokens  500
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens
-                                (s/with-include-sensitive
-                                  {:variant-id s/kw-or-string}))
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens
+                                (rf.story-mcp.tools.schemas/with-include-sensitive
+                                  {:variant-id rf.story-mcp.tools.schemas/kw-or-string}))
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    :annotations  rf.story-mcp.tools.schemas/read-only-annotations
     :handler     tool-read-failures}])

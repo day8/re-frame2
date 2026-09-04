@@ -48,8 +48,8 @@
   This is a deliberate factoring choice, not accidental drift:
   see `re-frame2-pair-mcp.tools.wire-pipeline` for the orchestrator
   + the other payload kinds (`:epoch-vector`, `:scalar-value`)."
-  (:require [re-frame.mcp-base.dedup :as base-dedup]
-            [re-frame.mcp-base.diff-encode :as base-diff]
+  (:require [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
+            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame2-pair-mcp.tools.summary :as summary]))
 
 (def summarisable-slices
@@ -238,7 +238,7 @@
       (fn [m fid fmap]
         (assoc m fid
                (if (and (map? fmap) (contains? fmap :epochs))
-                 (update fmap :epochs base-diff/diff-encode-epochs mode)
+                 (update fmap :epochs rf.mcp-base.diff-encode/diff-encode-epochs mode)
                  fmap)))
       {} snapshot)))
 
@@ -258,6 +258,6 @@
       (fn [m fid fmap]
         (assoc m fid
                (if (and (map? fmap) (contains? fmap :epochs))
-                 (update fmap :epochs base-dedup/dedup-value enabled?)
+                 (update fmap :epochs rf.mcp-base.dedup/dedup-value enabled?)
                  fmap)))
       {} snapshot)))

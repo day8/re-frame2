@@ -42,7 +42,7 @@
 
   ## The error listener is a TEST observer, not an Xray listener
 
-  `error-emit/register-error-listener!` below is registered BY THE TEST
+  `rf.error-emit/register-error-listener!` below is registered BY THE TEST
   to observe the always-on error channel, the same way the framework's
   own `*_conformance` suites use it. It is emphatically NOT Xray
   registering an `:errors` listener: rf2-fu75 ruled that Xray does not
@@ -57,7 +57,7 @@
   then assert they survive into app-db."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
+            [re-frame.error-emit :as rf.error-emit]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
@@ -99,7 +99,7 @@
     (runtime-fixture test-fn)
     (finally
       (uninstall-local-storage!)
-      (error-emit/clear-error-listeners!))))
+      (rf.error-emit/clear-error-listeners!))))
 
 (use-fixtures :each with-local-storage-stub)
 
@@ -132,7 +132,7 @@
   atom collecting every record emitted from here on."
   []
   (let [seen (atom [])]
-    (error-emit/register-error-listener!
+    (rf.error-emit/register-error-listener!
       ::hydrate-restore-observer
       (fn [record] (swap! seen conj record)))
     seen))

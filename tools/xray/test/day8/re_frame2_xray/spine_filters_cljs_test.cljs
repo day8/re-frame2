@@ -15,8 +15,8 @@
        mute-event-id → row disappears from the L2 list."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
@@ -57,7 +57,7 @@
 ;; ---- hiccup helpers -----------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid copies were
 ;; semantically identical to `re-frame.test-helpers`; tests call
-;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 ;; -------------------------------------------------------------------------
 ;; (1) Pure helpers
@@ -229,16 +229,16 @@
   (rf/with-frame :rf/xray
     ;; All three rows render pre-mute.
     (let [tree (shell/shell-view)]
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-1")))
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-2")))
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-3"))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))
     (rf/dispatch-sync [:rf.xray/mute-event-id :user/mouse-move])
     ;; Row 2 (:user/mouse-move) disappears.
     (let [tree (shell/shell-view)]
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-1")))
-      (is (nil? (th/find-by-testid tree "rf-xray-event-row-2"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2"))
           "muted row stripped from L2 list")
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-3"))))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Row context menu open / close state
@@ -272,9 +272,9 @@
                    {:event-id :user/mouse-move :x 100 :y 200}])
   (rf/with-frame :rf/xray
     (let [tree (shell/shell-view)
-          menu (th/find-by-testid tree "rf-xray-row-context-menu")
-          mute (th/find-by-testid tree "rf-xray-row-context-menu-mute")
-          hide (th/find-by-testid tree "rf-xray-row-context-menu-hide-event-type")]
+          menu (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu")
+          mute (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-mute")
+          hide (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-hide-event-type")]
       (is (some? menu) "menu mounts when slot is set")
       (is (some? mute) "menu carries 'Mute' item")
       (is (some? hide) "menu carries 'Always hide…' item")
@@ -301,10 +301,10 @@
   (frame-dispatch [:rf.xray/open-mute-manager])
   (rf/with-frame :rf/xray
     (let [tree (shell/shell-view)
-          dialog (th/find-by-testid tree "rf-xray-mute-manager-dialog")
-          list   (th/find-by-testid tree "rf-xray-mute-manager-list")
-          row-a  (th/find-by-testid tree "rf-xray-mute-manager-row-:a/x")
-          row-b  (th/find-by-testid tree "rf-xray-mute-manager-row-:b/y")]
+          dialog (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-dialog")
+          list   (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-list")
+          row-a  (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-row-:a/x")
+          row-b  (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-row-:b/y")]
       (is (some? dialog) "manager dialog mounts")
       (is (some? list) "manager renders the list section")
       (is (some? row-a) "row for :a/x")
@@ -315,8 +315,8 @@
   (frame-dispatch [:rf.xray/open-mute-manager])
   (rf/with-frame :rf/xray
     (let [tree  (shell/shell-view)
-          empty (th/find-by-testid tree "rf-xray-mute-manager-empty")
-          list  (th/find-by-testid tree "rf-xray-mute-manager-list")]
+          empty (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-empty")
+          list  (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-list")]
       (is (some? empty) "empty-state copy mounts when no ids muted")
       (is (nil? list) "list section absent when empty"))))
 
@@ -328,7 +328,7 @@
   (xray-setup!)
   (rf/with-frame :rf/xray
     (let [tree (shell/shell-view)
-          ind  (th/find-by-testid tree "rf-xray-ribbon-mute-indicator")]
+          ind  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-mute-indicator")]
       (is (nil? ind) "indicator absent when no event-ids muted"))))
 
 (deftest ribbon-mute-indicator-shows-when-mute-set-nonempty
@@ -337,8 +337,8 @@
   (frame-dispatch [:rf.xray/mute-event-id :b])
   (rf/with-frame :rf/xray
     (let [tree (shell/shell-view)
-          ind  (th/find-by-testid tree "rf-xray-ribbon-mute-indicator")
-          cnt  (th/find-by-testid tree "rf-xray-ribbon-mute-indicator-count")]
+          ind  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-mute-indicator")
+          cnt  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-mute-indicator-count")]
       (is (some? ind) "indicator mounts when mute set is non-empty")
       (is (some? cnt))
       (is (= "2" (nth cnt 2))
@@ -369,7 +369,7 @@
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
           (let [tree     (shell/shell-view)
-                mute-btn (th/find-by-testid tree "rf-xray-row-context-menu-mute")
+                mute-btn (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-mute")
                 handler  (:on-click (second mute-btn))]
             (is (fn? handler) "'Mute' button has on-click handler")
             (when handler (handler #js {:stopPropagation (fn [] nil)}))))
@@ -389,11 +389,11 @@
         (rf/dispatch-sync [:rf.xray/mute-event-id :user/mouse-move])
         (rf/dispatch-sync [:rf.xray/close-row-context-menu])
         (let [tree (shell/shell-view)]
-          (is (some? (th/find-by-testid tree "rf-xray-event-row-1")))
-          (is (nil? (th/find-by-testid tree "rf-xray-event-row-2"))
+          (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
+          (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2"))
               "muted row dropped from L2")
-          (is (nil? (th/find-by-testid tree "rf-xray-row-context-menu"))
+          (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu"))
               "menu closed after click"))
         (let [tree (shell/shell-view)
-              ind  (th/find-by-testid tree "rf-xray-ribbon-mute-indicator")]
+              ind  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-mute-indicator")]
           (is (some? ind) "ribbon mute indicator visible"))))))

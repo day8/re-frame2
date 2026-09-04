@@ -18,8 +18,8 @@
   on the assertion side."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.popup :as popup]
@@ -42,7 +42,7 @@
 ;; Thin alias over re-frame.test-helpers so call sites read identically
 ;; to before.
 
-(def ^:private find-by-testid th/find-by-testid)
+(def ^:private find-by-testid rf.test-helpers/find-by-testid)
 
 ;; ---- Modal short-circuit -----------------------------------------------
 

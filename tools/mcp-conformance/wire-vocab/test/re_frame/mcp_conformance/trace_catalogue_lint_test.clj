@@ -22,7 +22,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
-            [re-frame.mcp-conformance.fixtures :as fx]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 ;; ---------------------------------------------------------------------------
 ;; The one-name-per-fact key pairs. Each pair is
@@ -100,7 +100,7 @@
             its canonical :rf.reply/* spelling AND its bare duplicate
             (rf2-o6c2jr — Conventions §one name per fact)"
     (doseq [rel-path emitter-source-files]
-      (let [forms (read-all-forms (fx/read-source rel-path))
+      (let [forms (read-all-forms (rf.mcp-conformance.fixtures/read-source rel-path))
             hits  (duplicate-hits forms)]
         (is (empty? hits)
             (str rel-path " contains " (count hits) " map(s) carrying a fact "

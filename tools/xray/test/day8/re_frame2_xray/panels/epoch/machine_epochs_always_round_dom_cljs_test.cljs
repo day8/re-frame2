@@ -55,7 +55,7 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.preload :as preload]
@@ -68,7 +68,7 @@
 
 ;; Reagent adapter — a real React mount is the whole point of this file.
 (use-fixtures :each
-  (xray-test-support/make-xray-runtime-fixture {:adapter reagent-adapter/adapter}))
+  (xray-test-support/make-xray-runtime-fixture {:adapter rf.adapter.reagent/adapter}))
 
 (def ^:private machine-id :xray-test.always-round/par)
 

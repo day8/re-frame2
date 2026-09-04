@@ -56,9 +56,9 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-helpers :as th]
-            [re-frame.test-support :as test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-helpers :as rf.test-helpers]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
             [day8.re-frame2-xray.static.shell :as static-shell]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
@@ -66,7 +66,7 @@
              :as deep-machine]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -82,7 +82,7 @@
   []
   (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
   (rf/with-frame :rf/xray
-    (th/expand-tree [static-shell/surface])))
+    (rf.test-helpers/expand-tree [static-shell/surface])))
 
 (defn- row-buttons
   "Pull the per-row outer `<button>` nodes out of the expanded tree.
@@ -92,9 +92,9 @@
   source-coord chip, …) share the prefix without the attr. Filter on
   the attr to keep only the row buttons."
   [tree]
-  (->> (th/find-by-attr-prefix tree :data-testid
+  (->> (rf.test-helpers/find-by-attr-prefix tree :data-testid
                                "rf-xray-static-machines-row-")
-       (filterv #(some? (:data-machine-id (th/attrs %))))))
+       (filterv #(some? (:data-machine-id (rf.test-helpers/attrs %))))))
 
 (defn- name-of-machine-id-attr
   "The row button's `:data-machine-id` is a stringified keyword
@@ -123,12 +123,12 @@
       {:install-host deep-machine/install-and-init!}
       (fn []
         (let [tree    (render-static-surface)
-              panel   (th/find-by-attr tree :data-testid
+              panel   (rf.test-helpers/find-by-attr tree :data-testid
                                        "rf-xray-static-machines-panel")
               rows    (row-buttons tree)
-              chart   (th/find-by-attr tree :data-testid
+              chart   (rf.test-helpers/find-by-attr tree :data-testid
                                        "rf-xray-static-machines-topology-chart")
-              chart-inner (th/find-by-attr tree :data-testid
+              chart-inner (rf.test-helpers/find-by-attr tree :data-testid
                                            "rf-xray-static-machines-topology-svg")]
           (is (some? panel)
               "Static Machines L4 panel did not mount — :rf.xray/mode :static + default :machines sub-tab should yield the panel")
@@ -153,22 +153,22 @@
       {:install-host deep-machine/install-and-init!}
       (fn []
         (let [tree      (render-static-surface)
-              topology  (th/find-by-attr tree :data-testid
+              topology  (rf.test-helpers/find-by-attr tree :data-testid
                                          "rf-xray-static-machines-pill-topology")
-              sim       (th/find-by-attr tree :data-testid
+              sim       (rf.test-helpers/find-by-attr tree :data-testid
                                          "rf-xray-static-machines-pill-sim")
-              instances (th/find-by-attr tree :data-testid
+              instances (rf.test-helpers/find-by-attr tree :data-testid
                                          "rf-xray-static-machines-pill-instances")
-              cascade   (th/find-by-attr tree :data-testid
+              cascade   (rf.test-helpers/find-by-attr tree :data-testid
                                          "rf-xray-static-machines-pill-cascade")]
           (is (and (some? topology) (some? sim)
                    (some? instances) (some? cascade))
               "sub-strip missing one or more of the four pills")
-          (is (= "true" (:aria-selected (th/attrs topology)))
+          (is (= "true" (:aria-selected (rf.test-helpers/attrs topology)))
               "Topology pill should be aria-selected='true' on default mount")
-          (is (= "true" (:aria-disabled (th/attrs cascade)))
+          (is (= "true" (:aria-disabled (rf.test-helpers/attrs cascade)))
               "Cascade pill should carry aria-disabled='true' — Dynamic-only surface per rf2-o5f5f.2")
-          (is (true? (:disabled (th/attrs cascade)))
+          (is (true? (:disabled (rf.test-helpers/attrs cascade)))
               "Cascade pill should carry the HTML disabled attribute so the click is a no-op"))))))
 
 (deftest static-machines-first-row-jump-flips-mode-and-opens-dynamic-machines-tab
@@ -183,17 +183,17 @@
         (let [tree        (render-static-surface)
               rows        (row-buttons tree)
               first-row   (first rows)
-              machine-id-str (some-> first-row th/attrs :data-machine-id)
+              machine-id-str (some-> first-row rf.test-helpers/attrs :data-machine-id)
               ;; `:deep/main` → testid `rf-xray-static-machines-row-jump-main`.
               jump-testid (str "rf-xray-static-machines-row-jump-"
                                (some-> machine-id-str name-of-machine-id-attr))
-              jump-chip   (th/find-by-attr tree :data-testid jump-testid)]
+              jump-chip   (rf.test-helpers/find-by-attr tree :data-testid jump-testid)]
           (is (some? first-row) "no first row to JUMP from")
           (is (some? machine-id-str)
               "first row missing :data-machine-id — can't resolve jump testid")
           (is (some? jump-chip)
               (str "→ Dynamic jump chip missing at testid " (pr-str jump-testid)))
-          (is (fn? (th/extract-handler jump-chip :on-click))
+          (is (fn? (rf.test-helpers/extract-handler jump-chip :on-click))
               "jump chip carries no :on-click handler — the JUMP is wired but never fires")
           ;; Drive the production handler synchronously. The chip's own
           ;; on-click calls `dispatch-jump-via` (async); the test variant

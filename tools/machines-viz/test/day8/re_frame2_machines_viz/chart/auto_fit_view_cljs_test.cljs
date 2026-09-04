@@ -48,7 +48,7 @@
             [day8.re-frame2-machines-viz.chart :as chart]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.post-elk :as post-elk]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures ----------------------------------------------------------
 
@@ -168,13 +168,13 @@
       (with-fit-spy done
         (fn [spy finish]
           (let [orig-elk     chart/invoke-elk-layout!
-                orig-emit    trace/emit-error!
+                orig-emit    rf.trace/emit-error!
                 orig-console (.-error js/console)]
             (set! (.-error js/console) (fn [& _] nil))
             (set! chart/invoke-elk-layout!
                   (fn [_input]
                     (js/Promise.reject (js/Error. "elk: boom"))))
-            (set! trace/emit-error! (fn [_op _tags] nil))
+            (set! rf.trace/emit-error! (fn [_op _tags] nil))
             (chart/compute-layout!
               sample-parsed :tb nil :test/machine
               (fn [result]
@@ -194,7 +194,7 @@
                       "no .fitView call on a layout-error settle")
                   (finally
                     (set! chart/invoke-elk-layout! orig-elk)
-                    (set! trace/emit-error! orig-emit)
+                    (set! rf.trace/emit-error! orig-emit)
                     (set! (.-error js/console) orig-console)
                     (finish)))))))))))
 

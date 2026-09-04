@@ -23,7 +23,7 @@
   trace-buffer via `:rf.xray/sync-trace-buffer` +
   `:rf.xray/focus-event` (for the FROM/TO variant). Search +
   Simulate-URL variants set the UI-state events directly."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures-routing :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -35,10 +35,10 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-routing
+  (rf.story/reg-tag :feature/xray-routing
     {:axis :feature
      :doc  "Xray Routes tab — flat catalogue of registered routes with
             substring search + Simulate-URL plus HERE/FROM/TO markers
@@ -46,7 +46,7 @@
             spec/018 §5.6. Decorative URL-path tree dropped per
             rf2-lq0ef (audit verdict B)."})
 
-  (story/reg-story :story.xray.routing
+  (rf.story/reg-story :story.xray.routing
     {:doc        "Visual gallery of the Xray Routes tab under varying
                  registrar shapes + nav event-bundles + UI inputs. Each
                  variant seeds the registered-routes + current-slice
@@ -58,7 +58,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 1. no routes registered (silent) ----------------------------
-  (story/reg-variant :story.xray.routing/no-routes
+  (rf.story/reg-variant :story.xray.routing/no-routes
     {:doc        "Host app has no routes registered. Panel renders
                  the silent empty-state — terse one-liner, no list,
                  no search, no Simulate-URL. Honours silent-by-
@@ -69,7 +69,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 2. current route only (◆ HERE) ------------------------------
-  (story/reg-variant :story.xray.routing/current-route-only
+  (rf.story/reg-variant :story.xray.routing/current-route-only
     {:doc        "Routes registered + a current slice; focused
                  event-bundle did NOT navigate. The current row carries
                  the ◆ HERE marker — orientation only. Metadata
@@ -86,7 +86,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 3. FROM → TO transition (◆ FROM / ◆ TO) ---------------------
-  (story/reg-variant :story.xray.routing/from-to-transition
+  (rf.story/reg-variant :story.xray.routing/from-to-transition
     {:doc        "Focused event-bundle carried a nav-token allocation —
                  the panel renders ◆ FROM on the prior route and
                  ◆ TO on the destination. Params/query for the
@@ -105,7 +105,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4. search filter narrows the catalogue ----------------------
-  (story/reg-variant :story.xray.routing/search-filter
+  (rf.story/reg-variant :story.xray.routing/search-filter
     {:doc        "Larger registrar with the substring search input
                  populated — only routes whose route-id / path / doc
                  contains `api` render. Demonstrates the substring
@@ -122,7 +122,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 5. Simulate-URL surfaces ranked candidates ------------------
-  (story/reg-variant :story.xray.routing/simulate-url-winner
+  (rf.story/reg-variant :story.xray.routing/simulate-url-winner
     {:doc        "Paste a URL into Try URL; the panel ranks every
                  matching route by its 6-rule :rf.route/rank tuple
                  and highlights the winner. The load-bearing
@@ -138,7 +138,7 @@
      :substrates #{:reagent}})
 
   ;; ----- variants-grid workspace ------------------------------------
-  (story/reg-workspace :Workspace.xray.routing/all
+  (rf.story/reg-workspace :Workspace.xray.routing/all
     {:doc      "All five Routes tab variants in one auto-grid.
                 Scroll to see the panel's response across no-routes /
                 current-route-only / from-to-transition /

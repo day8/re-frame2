@@ -15,8 +15,8 @@
   frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
@@ -60,15 +60,15 @@
 ;; ---- hiccup helpers -----------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid / text-of copies were
 ;; semantically identical to `re-frame.test-helpers`; tests call
-;; `th/find-by-testid` / `th/text-content` directly (rf2-vj80u8 — no Xray
-;; walker facade). `count-by-testid` is a thin count over `th/find-all-by-testid`.
+;; `rf.test-helpers/find-by-testid` / `rf.test-helpers/text-content` directly (rf2-vj80u8 — no Xray
+;; walker facade). `count-by-testid` is a thin count over `rf.test-helpers/find-all-by-testid`.
 
 (defn- count-by-testid
   "How many nodes in the expanded tree carry `testid` — used to assert a
   committed pill renders EXACTLY once (rf2-ad7zx.18: the hidden-message
   no longer re-renders the pills as cause chips)."
   [tree testid]
-  (count (th/find-all-by-testid tree testid)))
+  (count (rf.test-helpers/find-all-by-testid tree testid)))
 
 ;; -------------------------------------------------------------------------
 ;; (1) sub composition
@@ -161,17 +161,17 @@
   (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
   (rf/with-frame :rf/xray
     (let [tree (shell/shell-view)
-          indicator (th/find-by-testid tree "rf-xray-filters-hidden-indicator")
-          count-node (th/find-by-testid tree "rf-xray-filters-hidden-count")]
+          indicator (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-indicator")
+          count-node (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-count")]
       (is (some? indicator) "banner renders when rows are hidden")
       ;; rf2-pjjwh — the Clear Filters button is retired; the warning
       ;; carries the count only.
-      (is (nil? (th/find-by-testid tree "rf-xray-filters-hidden-clear"))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-clear"))
           "Clear filters button is retired (rf2-pjjwh)")
       ;; rf2-3f2di A5 — the bar-2 warning reads `N events filtered out`
       ;; (authority reference events-ribbon), superseding the prior
       ;; `N events hidden by filters` copy.
-      (is (re-find #"1 event filtered out" (th/text-content count-node))))))
+      (is (re-find #"1 event filtered out" (rf.test-helpers/text-content count-node))))))
 
 (deftest hidden-message-does-not-duplicate-the-committed-pills
   (testing "rf2-ad7zx.18 — per the Figma EventsRibbon mock the hidden-state
@@ -190,14 +190,14 @@
         (is (= 1 (count-by-testid tree "rf-xray-filter-pill-out-0"))
             "the committed pill renders exactly once (left cluster)")
         ;; the duplicate cause-chip cluster is gone.
-        (is (nil? (th/find-by-testid tree "rf-xray-filters-hidden-causes"))
+        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-causes"))
             "no duplicate cause-chip cluster in the hidden-message")
-        (is (nil? (th/find-by-testid tree "rf-xray-filters-hidden-pill-0"))
+        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-pill-0"))
             "no duplicate pill chip in the hidden-message")
         ;; the count survives; Clear Filters is retired (rf2-pjjwh).
-        (is (some? (th/find-by-testid tree "rf-xray-filters-hidden-count"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-count"))
             "the hidden count is kept")
-        (is (nil? (th/find-by-testid tree "rf-xray-filters-hidden-clear"))
+        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-clear"))
             "Clear Filters is retired (rf2-pjjwh)")))))
 
 (deftest indicator-absent-when-nothing-hidden
@@ -206,7 +206,7 @@
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
   (rf/with-frame :rf/xray
     (let [tree (shell/shell-view)]
-      (is (nil? (th/find-by-testid tree "rf-xray-filters-hidden-indicator"))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-indicator"))
           "no banner when filtered == raw"))))
 
 ;; (The former section (3) — `:rf.xray/clear-all-filters` resets every

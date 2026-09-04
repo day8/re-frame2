@@ -20,8 +20,8 @@
        no armed timers are present."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -90,18 +90,18 @@
 (deftest registry-installs-rings-handlers
   (testing "register-xray-handlers! installs the rings sub + event family"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray/active-timers-for-focused-machine)))
-    (is (some? (registrar/handler :sub :rf.xray/now-ms)))
-    (is (some? (registrar/handler :sub :rf.xray/timer-hover)))
-    (is (some? (registrar/handler :event :rf.xray/timer-tick)))
-    (is (some? (registrar/handler :event :rf.xray/timer-hover))))
+    (is (some? (rf.registrar/handler :sub :rf.xray/active-timers-for-focused-machine)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/now-ms)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/timer-hover)))
+    (is (some? (rf.registrar/handler :event :rf.xray/timer-tick)))
+    (is (some? (rf.registrar/handler :event :rf.xray/timer-hover))))
   (testing "rf2-e8330v — the test-only now-ms override is NOT installed by
             production registration; the test seam installs it"
     (registry/register-xray-handlers!)
-    (is (nil? (registrar/handler :event :rf.xray/set-now-ms-override-for-test))
+    (is (nil? (rf.registrar/handler :event :rf.xray/set-now-ms-override-for-test))
         "production registration installs no -for-test ids")
     (xray-test-support/install-test-overrides!)
-    (is (some? (registrar/handler :event :rf.xray/set-now-ms-override-for-test))
+    (is (some? (rf.registrar/handler :event :rf.xray/set-now-ms-override-for-test))
         "install-test-overrides! installs the now-ms override event")))
 
 ;; ---- (2) active-timers composite ---------------------------------------
@@ -343,8 +343,8 @@
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/timer-tick 42]))
-  (let [xray-db   (frame/frame-app-db-value :rf/xray)
-        default-db (frame/frame-app-db-value :rf/default)]
+  (let [xray-db   (rf.frame/frame-app-db-value :rf/xray)
+        default-db (rf.frame/frame-app-db-value :rf/default)]
     (is (= 42 (:rings/now-ms xray-db)))
     (is (nil? (:rings/now-ms default-db))
         "host frame is untouched")))

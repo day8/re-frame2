@@ -31,8 +31,8 @@
   fire its real deferred handler frameless, so the leak reproduces."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.test-helpers :as th]
-            [re-frame.test-support :as test-support]
+            [re-frame.test-helpers :as rf.test-helpers]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.panels.reactive-panel :as facade]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -90,13 +90,13 @@
   (rf/with-frame frame-id (facade/Panel)))
 
 (defn- toggle-on-click [tree]
-  (:on-click (second (th/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))))
+  (:on-click (second (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))))
 
 (defn- fake-event []
   #js {:preventDefault (fn []) :stopPropagation (fn [])})
 
 (defn- await-xray-db [frame-id pred label]
-  (test-support/poll-until
+  (rf.test-support/poll-until
     #(pred (rf/app-db-value frame-id))
     {:label label :timeout-ms 1000}))
 
@@ -108,12 +108,12 @@
             toggle renders (2 memo-hit subs) but the dim row list does not."
     (seed-memo-hits! :rf/xray)
     (let [tree (render-panel :rf/xray)]
-      (is (some? (th/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))
           "the footer toggle renders")
       (is (re-find #"Show 2 unchanged subs"
-                   (th/text-content (th/find-by-testid tree "rf-xray-reactive-unchanged-toggle")))
+                   (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-toggle")))
           "collapsed label counts the memo-hit subs")
-      (is (nil? (th/find-by-testid tree "rf-xray-reactive-unchanged-list"))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-list"))
           "the dim row list is hidden while collapsed"))))
 
 ;; ---- local click expands (through the frame-bound dispatcher) ----------
@@ -140,9 +140,9 @@
                          ":rf/default's db was NOT polluted (no bare-dispatch leak)")
                      ;; Re-render: the composite now folds in the flipped axis.
                      (let [tree2 (render-panel :rf/xray)]
-                       (is (some? (th/find-by-testid tree2 "rf-xray-reactive-unchanged-list"))
+                       (is (some? (rf.test-helpers/find-by-testid tree2 "rf-xray-reactive-unchanged-list"))
                            "the dim memo-hit row list now renders")
-                       (is (seq (th/find-by-testid-prefix
+                       (is (seq (rf.test-helpers/find-by-testid-prefix
                                   tree2 "rf-xray-reactive-unchanged-row-__user_name_"))
                            "a memo-hit row renders after expand (readable slug stem, injective suffix)"))))
             (.catch (fn [e] (is false (.-message e)) nil))
@@ -161,10 +161,10 @@
     (let [tree (render-panel :rf/xray)]
       (is (false? (boolean (:reactive/show-unchanged? (rf/app-db-value :rf/xray))))
           "the panel-local quick-toggle is still OFF")
-      (is (some? (th/find-by-testid tree "rf-xray-reactive-unchanged-list"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-list"))
           "the Settings pin alone opens the disclosure")
       (is (= "true"
-             (get (second (th/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))
+             (get (second (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))
                   :aria-expanded))
           "the toggle reports expanded"))))
 

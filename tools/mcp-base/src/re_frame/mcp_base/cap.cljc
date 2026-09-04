@@ -20,7 +20,7 @@
      (`:content[*].text` PLUS any duplicated slot like
      `:structuredContent`), not only the `:content` vector.
   2. Compare against the per-call cap (`:max-tokens` MCP arg, default
-     `overflow/default-max-tokens`, `0` disables).
+     `rf.mcp-base.overflow/default-max-tokens`, `0` disables).
   3. Under-budget responses pass through unchanged; over-budget
      responses are replaced with a fresh result carrying the marker.
 
@@ -65,9 +65,9 @@
   reads the same way on both sides. mcp-base stays free of
   platform-specific deps (`js-interop`, JVM reflection, etc); those
   live in the consumer's IO instance."
-  (:require [re-frame.mcp-base.args :as args]
-            [re-frame.mcp-base.overflow :as overflow]
-            [re-frame.mcp-base.vocab :as vocab]))
+  (:require [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; ResultIO — the per-server specialisation hook.
@@ -110,7 +110,7 @@
     "Build a fresh result of the consumer's native shape carrying
     `marker` as its sole content payload. `marker` is the
     `{:rf.mcp/overflow {...}}` map built by
-    `overflow/overflow-payload`. `original-result` is provided for
+    `rf.mcp-base.overflow/overflow-payload`. `original-result` is provided for
     implementations that need to preserve sibling slots (e.g.
     `:isError` flags); the default-shape consumer ignores it. The
     returned result MUST itself be under any reasonable cap — the
@@ -142,7 +142,7 @@
   server crash or — in the negative-`:max-tokens` case — a silent
   lock-out where every response is replaced by the overflow marker."
   [arg value hint]
-  {vocab/invalid-arg-key {:arg   arg
+  {rf.mcp-base.vocab/invalid-arg-key {:arg   arg
                           :value value
                           :hint  hint}})
 
@@ -153,12 +153,12 @@
   an `isError: true` tool-result INSTEAD of feeding it to `apply-cap`
   as a `:cap` (a malformed cap must never reach the gate)."
   [x]
-  (and (map? x) (contains? x vocab/invalid-arg-key)))
+  (and (map? x) (contains? x rf.mcp-base.vocab/invalid-arg-key)))
 
 (defn max-tokens
   "Resolve the per-call cap from an ALREADY-EXTRACTED raw value.
   Returns the integer cap in tokens, `nil` when the cap is disabled
-  (caller passed `0`), `overflow/default-max-tokens` when absent or
+  (caller passed `0`), `rf.mcp-base.overflow/default-max-tokens` when absent or
   not a number, or — for an out-of-domain number (a NEGATIVE;
   a fractional positive in (0,1) that would floor to a 0-cap lockout;
   or a NON-FINITE / OUT-OF-RANGE value — `##Inf`, `##NaN`,
@@ -201,8 +201,8 @@
   about, not a value to paper over."
   [raw]
   (cond
-    (nil? raw)                       overflow/default-max-tokens
-    (not (number? raw))              overflow/default-max-tokens
+    (nil? raw)                       rf.mcp-base.overflow/default-max-tokens
+    (not (number? raw))              rf.mcp-base.overflow/default-max-tokens
     (zero? raw)                      nil
     (neg? raw)                       (invalid-arg-marker :max-tokens raw invalid-arg-hint)
     ;; A fractional positive in (0,1) — e.g. 0.5 — would `(long …)` floor
@@ -221,7 +221,7 @@
     ;; yields `nil` ⇒ reject honestly, identically on JVM and CLJS, rather
     ;; than crashing the tool or minting a 0-cap.
     :else
-    (if-let [n (args/coerce-finite-long raw)]
+    (if-let [n (rf.mcp-base.args/coerce-finite-long raw)]
       n
       (invalid-arg-marker :max-tokens raw invalid-arg-hint))))
 
@@ -246,7 +246,7 @@
              (wire-payload-strings io result)))
 
 (defn sum-payload-tokens
-  "Sum `overflow/token-estimate` across every wire payload string the
+  "Sum `rf.mcp-base.overflow/token-estimate` across every wire payload string the
   consumer's `wire-payload-strings` surfaces for `result` (every
   serialized payload-bearing slot, not only `:text`), accessed via `io`.
   The serialised response's wire size is dominated by these slots; the
@@ -256,7 +256,7 @@
   — a single oversize slot or an aggregate of many small slots both
   trip the cap."
   [io result]
-  (sum-payload-by io result overflow/token-estimate))
+  (sum-payload-by io result rf.mcp-base.overflow/token-estimate))
 
 (defn sum-payload-chars
   "Sum the character count across every wire payload string the
@@ -358,7 +358,7 @@
             `:max-tokens` arg.
     :hint — string next-step hint embedded in the marker. The
             consumer's per-tool hint table resolves this from `tool`;
-            absent ⇒ `overflow/overflow-hint-fallback`."
+            absent ⇒ `rf.mcp-base.overflow/overflow-hint-fallback`."
   [io result {:keys [tool cap hint]}]
   (cond
     (nil? cap)    result
@@ -374,13 +374,13 @@
           (transduce (filter string?)
                      (completing
                        (fn [{:keys [tokens chars]} s]
-                         {:tokens (+ tokens (overflow/token-estimate s))
+                         {:tokens (+ tokens (rf.mcp-base.overflow/token-estimate s))
                           :chars  (+ chars (count s))}))
                      {:tokens 0 :chars 0}
                      (wire-payload-strings io result))]
       (if-not (over-cap? tokens chars cap)
         result
-        (let [marker (overflow/overflow-payload
+        (let [marker (rf.mcp-base.overflow/overflow-payload
                        {:tool        tool
                         :token-count (reported-count tokens chars cap)
                         :cap         cap

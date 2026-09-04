@@ -119,8 +119,8 @@
   via Closure DCE. JVM consumers run validation unconditionally — JVM
   paths are dev/server-side, the cost is invisible against the
   surrounding tree-walk."
-  (:require [re-frame.mcp-base.section-grouping :as sg]
-            [re-frame.mcp-base.vocab :as vocab]))
+  (:require [re-frame.mcp-base.section-grouping :as rf.mcp-base.section-grouping]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; Patch grammar — the Malli schema pinned at the encoder boundary.
@@ -753,16 +753,16 @@
           ;; shape alone cannot (`:assoc` covers both insert and
           ;; change). Without this an existing parent whose direct
           ;; child changed would be mislabelled `:added` to the agent.
-          sections (sg/group-patches-into-sections
+          sections (rf.mcp-base.section-grouping/group-patches-into-sections
                      patches {:db-before (:db-before epoch)})
           _        (validate-sections! sections 'mcp-base/diff-encode-db-after)]
       (assoc epoch :db-after
-             {vocab/diff-from-key :db-before
+             {rf.mcp-base.vocab/diff-from-key :db-before
               :sections           sections}))))
 
 (defn- validate-diff-marker-body!
   "Enforce the CLOSED marker-body contract on a `:db-after` map that
-  carries `vocab/diff-from-key`. A structural check — pure
+  carries `rf.mcp-base.vocab/diff-from-key`. A structural check — pure
   Clojure, no Malli — so it fires on BOTH hosts regardless of Malli
   presence or the `validate-patches?` `goog-define` (mirroring
   `assoc-in-safe`'s replay guard, not the Malli `validate-sections!`
@@ -792,8 +792,8 @@
   payload, EP-0015)."
   [db-after where]
   (let [ks       (set (keys db-after))
-        expected #{vocab/diff-from-key :sections}
-        marker   (get db-after vocab/diff-from-key)]
+        expected #{rf.mcp-base.vocab/diff-from-key :sections}
+        marker   (get db-after rf.mcp-base.vocab/diff-from-key)]
     (when (or (not= ks expected)
               (not= :db-before marker))
       (throw (ex-info ":rf.error/bad-diff-marker"
@@ -868,7 +868,7 @@
     ;; full epoch it should pass through. A `:db-after` with NO marker key is
     ;; an already-full epoch and decodes to itself.
     (if-not (and (map? db-after)
-                 (contains? db-after vocab/diff-from-key))
+                 (contains? db-after rf.mcp-base.vocab/diff-from-key))
       epoch
       ;; The map intends to be a diff marker: enforce the CLOSED two-key body
       ;; contract + the supported `:db-before` marker value FIRST,
@@ -890,7 +890,7 @@
         ;; validates and replays to `:db-before` unchanged.
         (let [sections  (:sections db-after)
               _         (validate-sections! sections 'mcp-base/decode-db-after)
-              patches   (sg/sections->patches sections)
+              patches   (rf.mcp-base.section-grouping/sections->patches sections)
               db-before (:db-before epoch)
               rebuilt   (apply-patches* db-before patches 'mcp-base/decode-db-after)]
           (assoc epoch :db-after rebuilt))))))

@@ -6,7 +6,7 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.mcp-base.descriptor-manifest :as dm]))
+            [re-frame.mcp-base.descriptor-manifest :as rf.mcp-base.descriptor-manifest]))
 
 (def ^:private sample-descriptors
   "Two descriptors in the on-the-registry shape both servers emit —
@@ -35,7 +35,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest descriptor->row-projects-stable-shape
-  (let [row (dm/descriptor->row (first sample-descriptors))]
+  (let [row (rf.mcp-base.descriptor-manifest/descriptor->row (first sample-descriptors))]
     (is (= "beta" (:name row)))
     (is (= "Second tool." (:description row)))
     (is (= ["cursor" "limit"] (:input-keys row)) "input-keys sorted, stringified")
@@ -47,7 +47,7 @@
 
 (deftest descriptor->row-projects-required-and-typical-tokens
   ;; The two live API-semantics facets: :required + :typicalTokens.
-  (let [row (dm/descriptor->row (second sample-descriptors))] ; alpha
+  (let [row (rf.mcp-base.descriptor-manifest/descriptor->row (second sample-descriptors))] ; alpha
     (is (= ["event"] (:input-keys row)))
     (is (= ["event"] (:required row)) ":required projects the mandatory input subset")
     (is (= 300 (:typicalTokens row)))))
@@ -55,7 +55,7 @@
 (deftest descriptor->row-required-is-sorted-stringified
   ;; :required is sorted + stringified the same way :input-keys is, so a
   ;; keyword-shaped or out-of-order entry still renders byte-stably.
-  (let [row (dm/descriptor->row {:name "x" :description "d"
+  (let [row (rf.mcp-base.descriptor-manifest/descriptor->row {:name "x" :description "d"
                                  :inputSchema {:type "object"
                                                :properties {:b {} :a {}}
                                                :required [:b "a"]}})]
@@ -75,7 +75,7 @@
                 :inputSchema {:type "object"
                               :properties {:known {:type "string"}}
                               :required ["missing"]}}
-          data (ex-data (is (thrown? clojure.lang.ExceptionInfo (dm/descriptor->row bad))))]
+          data (ex-data (is (thrown? clojure.lang.ExceptionInfo (rf.mcp-base.descriptor-manifest/descriptor->row bad))))]
       (is (= "broken" (:tool data)) "the ex-data names the offending tool")
       (is (= ["missing"] (:missing data)) "and the keys absent from :properties")
       (is (= ["known"] (:input-keys data)) "and the actual advertised input keys")))
@@ -85,21 +85,21 @@
                :inputSchema {:type "object"
                              :properties {:event {:type "string"}}
                              :required ["event" "absent"]}}]
-      (is (thrown? clojure.lang.ExceptionInfo (dm/descriptor->row bad)))))
+      (is (thrown? clojure.lang.ExceptionInfo (rf.mcp-base.descriptor-manifest/descriptor->row bad)))))
   (testing "the same rejection holds via build-manifest (the consumer entry-point)"
     (let [bad {:name "broken" :description "d"
                :inputSchema {:type "object"
                              :properties {:known {:type "string"}}
                              :required ["missing"]}}]
       (is (thrown? clojure.lang.ExceptionInfo
-                   (dm/build-manifest :test [bad])))))
+                   (rf.mcp-base.descriptor-manifest/build-manifest :test [bad])))))
   (testing "a valid subset (and the empty-required case) still projects cleanly"
     ;; the happy path the original gate covered must keep passing.
-    (is (= ["event"] (:required (dm/descriptor->row (second sample-descriptors)))))
-    (is (= [] (:required (dm/descriptor->row (first sample-descriptors)))))))
+    (is (= ["event"] (:required (rf.mcp-base.descriptor-manifest/descriptor->row (second sample-descriptors)))))
+    (is (= [] (:required (rf.mcp-base.descriptor-manifest/descriptor->row (first sample-descriptors)))))))
 
 (deftest descriptor->row-handles-missing-optional-slots
-  (let [row (dm/descriptor->row {:name "x" :description "d"
+  (let [row (rf.mcp-base.descriptor-manifest/descriptor->row {:name "x" :description "d"
                                  :inputSchema {:type "object"}})]
     (is (= [] (:input-keys row)) "no :properties → empty input-keys")
     (is (= [] (:gated-input-keys row)) "no gated keys → empty")
@@ -109,7 +109,7 @@
     (is (nil? (:typicalTokens row)) "no :typicalTokens → nil (forward-compatible)")))
 
 (deftest build-rows-sorts-by-name
-  (let [rows (dm/build-rows sample-descriptors)]
+  (let [rows (rf.mcp-base.descriptor-manifest/build-rows sample-descriptors)]
     (is (= ["alpha" "beta"] (mapv :name rows))
         "rows sorted by name regardless of input order")))
 
@@ -141,7 +141,7 @@
    :typicalTokens 2000})
 
 (deftest gated-keys-marks-the-gated-subset
-  (let [row (dm/descriptor->row gated-descriptor #{"include-sensitive"})]
+  (let [row (rf.mcp-base.descriptor-manifest/descriptor->row gated-descriptor #{"include-sensitive"})]
     (is (= ["include-sensitive" "max-tokens" "variant-id"] (:input-keys row))
         ":input-keys stays the FULL union — the gate-open surface")
     (is (= ["include-sensitive"] (:gated-input-keys row))
@@ -150,7 +150,7 @@
 (deftest default-vs-gate-open-surfaces-are-derivable
   ;; The default profile excludes include-sensitive; the gate-open
   ;; profile includes it. Both are derivable from one byte-stable row.
-  (let [row          (dm/descriptor->row gated-descriptor #{"include-sensitive"})
+  (let [row          (rf.mcp-base.descriptor-manifest/descriptor->row gated-descriptor #{"include-sensitive"})
         gate-open    (:input-keys row)
         default-surf (remove (set (:gated-input-keys row)) gate-open)]
     (is (some #{"include-sensitive"} gate-open)
@@ -164,7 +164,7 @@
   ;; A gated key the descriptor does not actually carry is NOT invented
   ;; into the row — the gated subset is the intersection with the real
   ;; input keys, so a non-sensitive tool under the same set stays clean.
-  (let [row (dm/descriptor->row (second sample-descriptors) ; alpha — no include-sensitive
+  (let [row (rf.mcp-base.descriptor-manifest/descriptor->row (second sample-descriptors) ; alpha — no include-sensitive
                                 #{"include-sensitive"})]
     (is (= ["event"] (:input-keys row)))
     (is (= [] (:gated-input-keys row))
@@ -172,16 +172,16 @@
 
 (deftest one-arity-and-empty-set-gate-nothing
   ;; pair-mcp's path: no gated-key set → every row carries an empty slot.
-  (let [r1 (dm/descriptor->row gated-descriptor)
-        r2 (dm/descriptor->row gated-descriptor #{})
-        r3 (dm/descriptor->row gated-descriptor nil)]
+  (let [r1 (rf.mcp-base.descriptor-manifest/descriptor->row gated-descriptor)
+        r2 (rf.mcp-base.descriptor-manifest/descriptor->row gated-descriptor #{})
+        r3 (rf.mcp-base.descriptor-manifest/descriptor->row gated-descriptor nil)]
     (doseq [r [r1 r2 r3]]
       (is (= [] (:gated-input-keys r))
           "no gated set → :gated-input-keys [] (include-sensitive stays on :input-keys)")
       (is (some #{"include-sensitive"} (:input-keys r))))))
 
 (deftest build-manifest-threads-gated-keys
-  (let [m       (dm/build-manifest :story-mcp
+  (let [m       (rf.mcp-base.descriptor-manifest/build-manifest :story-mcp
                                    [gated-descriptor (second sample-descriptors)]
                                    #{"include-sensitive"})
         by-name (into {} (map (juxt :name identity)) (:tools m))]
@@ -193,13 +193,13 @@
 (deftest check-detects-gated-input-key-drift
   ;; A tool newly gating an input (or a gate lifted) must trip the drift
   ;; gate as a :changed row — the governance point of the slot.
-  (let [committed-m   (dm/build-manifest :story-mcp [gated-descriptor] #{"include-sensitive"})
-        committed-edn (dm/render-edn committed-m)
+  (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :story-mcp [gated-descriptor] #{"include-sensitive"})
+        committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
         ;; Same registry, but the gate is LIFTED (include-sensitive no
         ;; longer gated → it moves onto the default surface).
-        gen-m         (dm/build-manifest :story-mcp [gated-descriptor] #{})
-        gen-edn       (dm/render-edn gen-m)
-        res           (dm/check gen-m gen-edn committed-edn)]
+        gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :story-mcp [gated-descriptor] #{})
+        gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
+        res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)]
     (is (false? (:ok? res)))
     (is (= [] (:added res)))
     (is (= [] (:removed res)))
@@ -215,16 +215,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest render-edn-is-byte-stable
-  (let [m (dm/build-manifest :test sample-descriptors)
-        a (dm/render-edn m)
-        b (dm/render-edn m)]
+  (let [m (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+        a (rf.mcp-base.descriptor-manifest/render-edn m)
+        b (rf.mcp-base.descriptor-manifest/render-edn m)]
     (is (= a b) "same input → byte-identical output")
     (is (not (re-find #"\r\n" a)) "no CRLF — LF-pinned")
     (is (re-find #"GENERATED" a) "carries the do-not-hand-edit banner")))
 
 (deftest render-edn-round-trips-as-data
-  (let [m      (dm/build-manifest :test sample-descriptors)
-        parsed (edn/read-string (dm/render-edn m))
+  (let [m      (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+        parsed (edn/read-string (rf.mcp-base.descriptor-manifest/render-edn m))
         by-name (into {} (map (juxt :name identity)) (:tools parsed))]
     (is (= :test (-> parsed :meta :server)))
     (is (= 2 (-> parsed :meta :tool-count)))
@@ -241,16 +241,16 @@
 (deftest render-edn-round-trips-nil-typical-tokens
   ;; A tool that declares no :typicalTokens renders `nil` and reads back
   ;; as nil (not the symbol nil) — the forward-compatible slot is uniform.
-  (let [m      (dm/build-manifest :test [{:name "x" :description "d"
+  (let [m      (rf.mcp-base.descriptor-manifest/build-manifest :test [{:name "x" :description "d"
                                           :inputSchema {:type "object"}}])
-        parsed (edn/read-string (dm/render-edn m))
+        parsed (edn/read-string (rf.mcp-base.descriptor-manifest/render-edn m))
         row    (first (:tools parsed))]
     (is (contains? row :typicalTokens) "the slot always renders")
     (is (nil? (:typicalTokens row)) "nil round-trips as nil")))
 
 (deftest render-edn-one-row-per-line
-  (let [m     (dm/build-manifest :test sample-descriptors)
-        lines (str/split-lines (dm/render-edn m))
+  (let [m     (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+        lines (str/split-lines (rf.mcp-base.descriptor-manifest/render-edn m))
         rows  (filter #(str/includes? % "{:name ") lines)]
     (is (= 2 (count rows)) "one tool row per line — surgical diffs")))
 
@@ -259,40 +259,40 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest check-passes-when-in-sync
-  (let [m   (dm/build-manifest :test sample-descriptors)
-        edn (dm/render-edn m)
-        res (dm/check m edn edn)]
+  (let [m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+        edn (rf.mcp-base.descriptor-manifest/render-edn m)
+        res (rf.mcp-base.descriptor-manifest/check m edn edn)]
     (is (true? (:ok? res)))
     (is (empty? (:added res)))
     (is (empty? (:removed res)))
     (is (empty? (:changed res)) "an in-sync manifest reports no changed rows")))
 
 (deftest check-detects-missing-file
-  (let [m   (dm/build-manifest :test sample-descriptors)
-        edn (dm/render-edn m)
-        res (dm/check m edn nil)]
+  (let [m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+        edn (rf.mcp-base.descriptor-manifest/render-edn m)
+        res (rf.mcp-base.descriptor-manifest/check m edn nil)]
     (is (false? (:ok? res)))
     (is (true? (:missing-file? res)))
     (is (= ["alpha" "beta"] (:added res)))))
 
 (deftest check-detects-added-tool
   (testing "a tool present in the generated manifest but not the committed file is :added"
-    (let [committed-m   (dm/build-manifest :test [(second sample-descriptors)]) ; alpha only
-          committed-edn (dm/render-edn committed-m)
-          gen-m         (dm/build-manifest :test sample-descriptors)            ; alpha + beta
-          gen-edn       (dm/render-edn gen-m)
-          res           (dm/check gen-m gen-edn committed-edn)]
+    (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test [(second sample-descriptors)]) ; alpha only
+          committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
+          gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)            ; alpha + beta
+          gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
+          res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)]
       (is (false? (:ok? res)))
       (is (= ["beta"] (:added res)) "beta is new vs the committed file")
       (is (empty? (:removed res))))))
 
 (deftest check-detects-removed-tool
   (testing "a tool in the committed file the generator no longer produces is :removed"
-    (let [committed-m   (dm/build-manifest :test sample-descriptors)            ; alpha + beta
-          committed-edn (dm/render-edn committed-m)
-          gen-m         (dm/build-manifest :test [(second sample-descriptors)]) ; alpha only
-          gen-edn       (dm/render-edn gen-m)
-          res           (dm/check gen-m gen-edn committed-edn)]
+    (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)            ; alpha + beta
+          committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
+          gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test [(second sample-descriptors)]) ; alpha only
+          gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
+          res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)]
       (is (false? (:ok? res)))
       (is (empty? (:added res)))
       (is (= ["beta"] (:removed res)) "beta was dropped"))))
@@ -305,15 +305,15 @@
   ;; whole-manifest diff. `:changed` names the drifted tool and carries
   ;; old/new rows.
   (testing "an existing tool that gains an input key is :changed, not :added/:removed"
-    (let [committed-m   (dm/build-manifest :test sample-descriptors)
-          committed-edn (dm/render-edn committed-m)
+    (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+          committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
           ;; alpha gains a :force input property; beta is untouched.
           alpha+        (assoc-in (second sample-descriptors)
                                   [:inputSchema :properties :force]
                                   {:type "boolean"})
-          gen-m         (dm/build-manifest :test [(first sample-descriptors) alpha+])
-          gen-edn       (dm/render-edn gen-m)
-          res           (dm/check gen-m gen-edn committed-edn)]
+          gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test [(first sample-descriptors) alpha+])
+          gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
+          res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)]
       (is (false? (:ok? res)))
       (is (= [] (:added res)) "no tool entered the catalogue")
       (is (= [] (:removed res)) "no tool left the catalogue")
@@ -338,11 +338,11 @@
                             ["required"      #(update % :inputSchema dissoc :required)]
                             ["typicalTokens" #(assoc % :typicalTokens 999)]]]
       (testing (str "a changed :" label " trips :changed")
-        (let [committed-m   (dm/build-manifest :test sample-descriptors)
-              committed-edn (dm/render-edn committed-m)
-              gen-m         (dm/build-manifest :test [(first sample-descriptors) (mutate base)])
-              gen-edn       (dm/render-edn gen-m)
-              res           (dm/check gen-m gen-edn committed-edn)]
+        (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+              committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
+              gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test [(first sample-descriptors) (mutate base)])
+              gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
+              res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)]
           (is (false? (:ok? res)))
           (is (= [] (:added res)))
           (is (= [] (:removed res)))
@@ -350,10 +350,10 @@
 
 (deftest check-tolerates-crlf-committed
   (testing "a CRLF working-tree checkout does not trip a spurious drift"
-    (let [m       (dm/build-manifest :test sample-descriptors)
-          lf-edn  (dm/render-edn m)
+    (let [m       (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+          lf-edn  (rf.mcp-base.descriptor-manifest/render-edn m)
           crlf    (str/replace lf-edn "\n" "\r\n")
-          res     (dm/check m lf-edn crlf)]
+          res     (rf.mcp-base.descriptor-manifest/check m lf-edn crlf)]
       (is (true? (:ok? res)) "LF-normalised comparison ignores line-ending style"))))
 
 ;; ---------------------------------------------------------------------------
@@ -370,11 +370,11 @@
   ;; every slot descriptor->row emits EXCEPT :name (whose add/remove is
   ;; the :added/:removed diff). A slot added to the row but not here would
   ;; silently escape :changed reporting.
-  (let [row-slots (set (keys (dm/descriptor->row (first sample-descriptors))))]
-    (is (= (disj row-slots :name) (set dm/governed-slots))
+  (let [row-slots (set (keys (rf.mcp-base.descriptor-manifest/descriptor->row (first sample-descriptors))))]
+    (is (= (disj row-slots :name) (set rf.mcp-base.descriptor-manifest/governed-slots))
         "governed-slots = row slots minus :name")
     (is (= [:description :input-keys :gated-input-keys :required :output? :annotations :typicalTokens]
-           dm/governed-slots)
+           rf.mcp-base.descriptor-manifest/governed-slots)
         "canonical report order is stable")))
 
 (deftest row-slot-deltas-names-only-drifting-slots-in-canonical-order
@@ -383,9 +383,9 @@
         new (assoc old :input-keys ["event" "force"] :typicalTokens 999)]
     (is (= [[:input-keys ["event"] ["event" "force"]]
             [:typicalTokens 300 999]]
-           (dm/row-slot-deltas old new))
+           (rf.mcp-base.descriptor-manifest/row-slot-deltas old new))
         "only the two drifting slots, in governed-slots order")
-    (is (= [] (dm/row-slot-deltas old old))
+    (is (= [] (rf.mcp-base.descriptor-manifest/row-slot-deltas old old))
         "identical rows → no deltas")))
 
 (deftest drift-report-lines-missing-file
@@ -393,7 +393,7 @@
   ;; :added; the report leads with the consumer's missing-file header,
   ;; then the regenerate line, then the full tool list.
   (let [res   {:ok? false :added ["alpha" "beta"] :removed [] :changed [] :missing-file? true}
-        lines (dm/drift-report-lines res wording)]
+        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
     (is (= ["DRIFT: <file> does not exist. Run: <server command>"
             "Regenerate with: <server command>"
             "  Tools the registry has that the committed file lacks (new/renamed tool):"
@@ -403,7 +403,7 @@
 
 (deftest drift-report-lines-added
   (let [res   {:ok? false :added ["beta"] :removed [] :changed []}
-        lines (dm/drift-report-lines res wording)]
+        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
     (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
             "Regenerate with: <server command>"
             "  Tools the registry has that the committed file lacks (new/renamed tool):"
@@ -413,7 +413,7 @@
 
 (deftest drift-report-lines-removed
   (let [res   {:ok? false :added [] :removed ["beta"] :changed []}
-        lines (dm/drift-report-lines res wording)]
+        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
     (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
             "Regenerate with: <server command>"
             "  Tools in the committed file the registry no longer has (removed/renamed tool):"
@@ -428,7 +428,7 @@
         new   (assoc old :input-keys ["event" "force"] :typicalTokens 999)
         res   {:ok? false :added [] :removed []
                :changed [{:name "alpha" :old old :new new}]}
-        lines (dm/drift-report-lines res wording)]
+        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
     (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
             "Regenerate with: <server command>"
             "  Existing tools whose descriptor catalogue row changed (input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):"
@@ -441,10 +441,10 @@
   ;; An unparseable committed file: check cannot read its rows, so every
   ;; generated tool is reported as :added (whole catalogue absent) with no
   ;; :changed — the report lists them all under the differs header.
-  (let [m     (dm/build-manifest :test sample-descriptors)
-        edn   (dm/render-edn m)
-        res   (dm/check m edn "this is not { valid edn")
-        lines (dm/drift-report-lines res wording)]
+  (let [m     (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+        edn   (rf.mcp-base.descriptor-manifest/render-edn m)
+        res   (rf.mcp-base.descriptor-manifest/check m edn "this is not { valid edn")
+        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
     (is (false? (:ok? res)))
     (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
             "Regenerate with: <server command>"
@@ -458,7 +458,7 @@
   ;; drift): added / removed / changed are all empty, so the fallback
   ;; hint fires instead of an empty body.
   (let [res   {:ok? false :added [] :removed [] :changed []}
-        lines (dm/drift-report-lines res wording)]
+        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
     (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
             "Regenerate with: <server command>"
             "  (tool set identical; the committed file is structurally broken or its provenance banner/meta drifted — regenerate)"]
@@ -468,14 +468,14 @@
   ;; The formatter consumes a real `check` result unchanged: alpha gains
   ;; an input key, beta is dropped → one :changed + one :removed reported
   ;; together in canonical block order (added, removed, changed).
-  (let [committed-m   (dm/build-manifest :test sample-descriptors)
-        committed-edn (dm/render-edn committed-m)
+  (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+        committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
         alpha+        (assoc-in (second sample-descriptors)
                                 [:inputSchema :properties :force] {:type "boolean"})
-        gen-m         (dm/build-manifest :test [alpha+]) ; alpha changed, beta removed
-        gen-edn       (dm/render-edn gen-m)
-        res           (dm/check gen-m gen-edn committed-edn)
-        lines         (dm/drift-report-lines res wording)]
+        gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test [alpha+]) ; alpha changed, beta removed
+        gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
+        res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)
+        lines         (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
     (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
             "Regenerate with: <server command>"
             "  Tools in the committed file the registry no longer has (removed/renamed tool):"

@@ -67,8 +67,8 @@
   helper composed into the numbered cascade by `pipeline-view`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.schemas :as schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.schemas :as rf.schemas]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
@@ -4175,7 +4175,7 @@
   [{:keys [flow-id frame path before after duration-ms step-number
            db-pre-flow db-post-flow errors]}]
   (let [;; rf2-20359j — flows are FRAME-DIVERGENT-per-id (Spec 013), so the
-        ;; source-coord lookup reads the per-frame `flows/flow-meta-at`
+        ;; source-coord lookup reads the per-frame `rf.flows/flow-meta-at`
         ;; (the `(handler-meta :flow id)` replacement after rf2-en00bk
         ;; emptied the registrar `:flow` slot). The flow's OWN frame rides
         ;; the `:rf.flow/computed` event's `:frame` tag (threaded through
@@ -4184,7 +4184,7 @@
         ;; latter would resolve Xray's OWN `:rf/xray` frame, not the host
         ;; frame whose flow this is. nil frame degrades to no source link.
         flow-meta  (when (and (keyword? flow-id) (keyword? frame))
-                     (try (flows/flow-meta-at flow-id {:frame frame})
+                     (try (rf.flows/flow-meta-at flow-id {:frame frame})
                           (catch :default _ nil)))
         coord      (when (and flow-meta (string? (:file flow-meta)))
                      {:file (:file flow-meta) :line (:line flow-meta)})
@@ -5345,7 +5345,7 @@
         ;; via `handler-meta`. Both paths catch + return nil so missing
         ;; coords degrade the inline link to plain text.
         schema-coord    (or (when (and (= :app-db where) (sequential? path))
-                              (try (let [m (schemas/app-schema-meta-at path)]
+                              (try (let [m (rf.schemas/app-schema-meta-at path)]
                                      (when (and m (string? (:file m)))
                                        {:file (:file m) :line (:line m)}))
                                    (catch :default _ nil)))

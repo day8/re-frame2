@@ -42,9 +42,9 @@
   `:rf.xray/focus-event`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -78,13 +78,13 @@
 
 ;; ---- hiccup walkers ----------------------------------------------------
 
-(def ^:private find-by-testid th/find-by-testid)
+(def ^:private find-by-testid rf.test-helpers/find-by-testid)
 
 (defn- hiccup-seq
   "Expands fn components via the framework walker, then yields
   depth-first nodes."
   [tree]
-  (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree)))
+  (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
 
 (defn- node-attrs
   "The attribute map of the rendered node with the given data-testid."
@@ -159,31 +159,31 @@
   (testing "register-xray-handlers! installs the epoch-scoped composite
             sub + the row-expand event"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray/trace-feed))
+    (is (some? (rf.registrar/handler :sub :rf.xray/trace-feed))
         ":rf.xray/trace-feed sub registered")
-    (is (some? (registrar/handler :sub :rf.xray.trace/focused-event-bundle))
+    (is (some? (rf.registrar/handler :sub :rf.xray.trace/focused-event-bundle))
         ":rf.xray.trace/focused-event-bundle layer-3 sub registered (rf2-wcfsy)")
-    (is (some? (registrar/handler :sub :rf.xray/trace-expanded-row-ids))
+    (is (some? (rf.registrar/handler :sub :rf.xray/trace-expanded-row-ids))
         ":rf.xray/trace-expanded-row-ids sub registered")
-    (is (some? (registrar/handler :event :rf.xray/toggle-trace-row-expand))
+    (is (some? (rf.registrar/handler :event :rf.xray/toggle-trace-row-expand))
         ":rf.xray/toggle-trace-row-expand event registered")))
 
 (deftest band-collapse-handlers-are-gone
   (testing "rf2-aqusw — the flat list lost the phase-band hierarchy, so
             the band-collapse sub + event MUST NOT register"
     (registry/register-xray-handlers!)
-    (is (nil? (registrar/handler :sub :rf.xray/trace-collapsed-band-ids))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/trace-collapsed-band-ids))
         ":rf.xray/trace-collapsed-band-ids sub removed with the bands")
-    (is (nil? (registrar/handler :event :rf.xray/toggle-trace-band-collapse))
+    (is (nil? (rf.registrar/handler :event :rf.xray/toggle-trace-band-collapse))
         ":rf.xray/toggle-trace-band-collapse event removed with the bands")))
 
 (deftest filter-handlers-are-gone
   (testing "the chip-filter subs + events MUST NOT register"
     (registry/register-xray-handlers!)
-    (is (nil? (registrar/handler :sub :rf.xray/trace-filters)))
-    (is (nil? (registrar/handler :sub :rf.xray/trace-feed-state)))
-    (is (nil? (registrar/handler :event :rf.xray/set-trace-filter)))
-    (is (nil? (registrar/handler :event :rf.xray/clear-trace-filters)))))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/trace-filters)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/trace-feed-state)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/set-trace-filter)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/clear-trace-filters)))))
 
 (deftest trace-feed-defaults-no-focus
   (testing "with no focus + no epoch history the composite returns an
@@ -862,8 +862,8 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 5]))
-    (let [xray-db    (frame/frame-app-db-value :rf/xray)
-          default-db (frame/frame-app-db-value :rf/default)]
+    (let [xray-db    (rf.frame/frame-app-db-value :rf/xray)
+          default-db (rf.frame/frame-app-db-value :rf/default)]
       (is (= #{5} (:trace-expanded-row-ids xray-db)))
       (is (nil? (:trace-expanded-row-ids default-db))))))
 

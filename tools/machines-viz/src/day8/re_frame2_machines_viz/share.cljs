@@ -51,7 +51,7 @@
   [`DESIGN-RATIONALE.md`](../../spec/DESIGN-RATIONALE.md) Lock #3 +
   Lock #5."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
+            [re-frame.error :as rf.error]
             [cognitect.transit :as transit]
             [day8.re-frame2-machines-viz.grammar :as grammar]))
 
@@ -535,7 +535,7 @@
   it; `:message` carries the same human sentence for the viewer's
   `{:error {:reason … :message …}}` shape."
   [reason msg & [extra]]
-  (throw (ex-info (error/human-message :rf.machines-viz.share/decode-failed msg)
+  (throw (ex-info (rf.error/human-message :rf.machines-viz.share/decode-failed msg)
                   (merge {:rf.error/id :rf.machines-viz.share/decode-failed
                           :where       'machines-viz.share/decode-share-url
                           :recovery    :fix-the-share-url
@@ -625,7 +625,7 @@
                      "release machines-viz-viewer`, serve viewer.html + "
                      "viewer.js as static files, and pass "
                      "{:host \"https://your.example.com/viewer.html\"}.")]
-        (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
+        (throw (ex-info (rf.error/human-message :rf.machines-viz.share/encode-failed msg)
                         {:rf.error/id :rf.machines-viz.share/encode-failed
                          :where       'machines-viz.share/encode-share-url
                          :recovery    :supply-the-url-of-a-viewer-page-you-host
@@ -658,7 +658,7 @@
                      "because it stops at the first. Pass the viewer page URL "
                      "with no fragment; a query string is fine "
                      "(\"https://your.example.com/viewer.html?theme=dark\").")]
-        (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
+        (throw (ex-info (rf.error/human-message :rf.machines-viz.share/encode-failed msg)
                         {:rf.error/id :rf.machines-viz.share/encode-failed
                          :where       'machines-viz.share/encode-share-url
                          :recovery    :pass-a-viewer-page-url-with-no-fragment
@@ -679,7 +679,7 @@
                        ":definition is missing/malformed, :frame-id (optional) "
                        "is non-keyword, or :snapshot :state is malformed). Pass "
                        "a valid ChartState.")]
-          (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
+          (throw (ex-info (rf.error/human-message :rf.machines-viz.share/encode-failed msg)
                           {:rf.error/id :rf.machines-viz.share/encode-failed
                            :where       'machines-viz.share/encode-share-url
                            :recovery    :supply-a-valid-chart-state

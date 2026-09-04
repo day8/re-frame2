@@ -14,30 +14,30 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-helpers :as th]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-helpers :as rf.test-helpers]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.reactive-panel :as facade]
             [day8.re-frame2-xray.panels.reactive-panel-view :as view]))
 
 (defn- has-testid? [tree testid]
-  (some? (th/find-by-testid tree testid)))
+  (some? (rf.test-helpers/find-by-testid tree testid)))
 
 (defn- text-of
   "Concatenated text content under the node matching `testid`."
   [tree testid]
-  (some-> (th/find-by-testid tree testid) th/text-content))
+  (some-> (rf.test-helpers/find-by-testid tree testid) rf.test-helpers/text-content))
 
 (defn- unchanged-row-testids
   "Every unchanged-sub row's `data-testid`, in depth-first order."
   [tree]
-  (mapv #(:data-testid (th/attrs %))
-        (th/find-by-testid-prefix tree "rf-xray-reactive-unchanged-row-")))
+  (mapv #(:data-testid (rf.test-helpers/attrs %))
+        (rf.test-helpers/find-by-testid-prefix tree "rf-xray-reactive-unchanged-row-")))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest reactive-panel-mounts-with-root-testid
   (testing "the panel root surfaces `rf-xray-reactive` data-testid"
@@ -61,7 +61,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (let [tree (view/reactive-panel)
-          icon (th/find-by-testid tree "rf-xray-reactive-panel-icon")]
+          icon (rf.test-helpers/find-by-testid tree "rf-xray-reactive-panel-icon")]
       (is (nil? icon) "panel-icon span is gone (lived in the deleted h1)"))))
 
 (deftest reactive-panel-uses-views-display-label
@@ -104,9 +104,9 @@
       (is (has-testid? tree "rf-xray-reactive-node-l2-_cart_total") "Level-2 node renders")
       (is (has-testid? tree "rf-xray-reactive-view-node-_cart_Summary") "view node renders")
       ;; the retired three-table testids must be GONE
-      (is (nil? (th/find-by-testid tree "rf-xray-reactive-l1-table")) "no Level-1 table")
-      (is (nil? (th/find-by-testid tree "rf-xray-reactive-l2-table")) "no Level-2 table")
-      (is (nil? (th/find-by-testid tree "rf-xray-reactive-views-table")) "no Views table"))))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-l1-table")) "no Level-1 table")
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-l2-table")) "no Level-2 table")
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-views-table")) "no Views table"))))
 
 (deftest reactive-panel-section-label-is-reactive-flow
   (testing "rf2-ad7zx.6 — the graph section is headed `Reactive Flow`."
@@ -131,8 +131,8 @@
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views [] :destroyed-subs []})
     (let [tree (view/reactive-panel)
-          flow (th/find-by-testid tree "rf-xray-reactive-section-flow-label")
-          unmnt (th/find-by-testid tree
+          flow (rf.test-helpers/find-by-testid tree "rf-xray-reactive-section-flow-label")
+          unmnt (rf.test-helpers/find-by-testid tree
                                    "rf-xray-reactive-section-unmounted-label")]
       (is (not= "uppercase" (get-in flow [1 :style :text-transform]))
           "the `Reactive Flow` heading is NOT CSS-uppercased (title case)")
@@ -155,7 +155,7 @@
        :level-1-subs [{:sub-id :cart/state :changed? true}]
        :level-2-subs [] :view-rows []})
     (let [tree (view/reactive-panel)
-          card (th/find-by-testid tree "rf-xray-reactive-graph-card")
+          card (rf.test-helpers/find-by-testid tree "rf-xray-reactive-graph-card")
           border (get-in card [1 :style :border])]
       (is (some? card) "the graph card renders")
       (is (string? border) "the card carries a border")
@@ -173,7 +173,7 @@
        :counts {} :level-2-subs [] :view-rows []
        :level-1-subs [{:sub-id :cart/state :changed? true}]})
     (let [tree (view/reactive-panel)
-          node (th/find-by-testid tree "rf-xray-reactive-node-l1-_cart_state")]
+          node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-node-l1-_cart_state")]
       (is (some? node) "changed node renders")
       (is (= "true" (get-in node [1 :data-node-changed]))
           "changed node tagged data-node-changed=true")
@@ -190,7 +190,7 @@
        :counts {} :level-2-subs [] :view-rows []
        :level-1-subs [{:sub-id :cart/title :changed? false}]})
     (let [tree (view/reactive-panel)
-          node (th/find-by-testid tree "rf-xray-reactive-node-l1-_cart_title")]
+          node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-node-l1-_cart_title")]
       (is (= "false" (get-in node [1 :data-node-changed]))
           "unchanged node tagged data-node-changed=false"))))
 
@@ -277,11 +277,11 @@
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :structural}}]})
     (let [tree (view/reactive-panel)
-          node (th/find-by-testid tree "rf-xray-reactive-view-node-_cart_Summary")]
+          node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-view-node-_cart_Summary")]
       (is (some? node) "the view node renders")
-      (is (fn? (th/extract-handler node :on-mouse-enter))
+      (is (fn? (rf.test-helpers/extract-handler node :on-mouse-enter))
           "view node has an :on-mouse-enter handler (apply-highlight!)")
-      (is (fn? (th/extract-handler node :on-mouse-leave))
+      (is (fn? (rf.test-helpers/extract-handler node :on-mouse-leave))
           "view node has an :on-mouse-leave handler (clear-highlight!)"))))
 
 (deftest sparse-cascade-shows-graph-empty-placeholder
@@ -295,7 +295,7 @@
     (let [tree (view/reactive-panel)]
       (is (has-testid? tree "rf-xray-reactive-graph-empty")
           "sparse cascade shows the graph empty placeholder")
-      (is (nil? (th/find-by-testid tree "rf-xray-reactive-flow-svg"))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-flow-svg"))
           "no SVG canvas when the graph is empty"))))
 
 ;; ---- UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS (rf2-ad7zx.6) -----------
@@ -400,9 +400,9 @@
       (is (some? id1) "the [:item/derived 1] parameterization keeps its slug stem")
       (is (some? id2) "the [:item/derived 2] parameterization keeps its slug stem")
       (is (not= id1 id2) "the two rows carry DISTINCT test-ids")
-      (is (= 1 (count (th/find-all-by-testid tree id1)))
+      (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id1)))
           "row 1's test-id addresses exactly one node")
-      (is (= 1 (count (th/find-all-by-testid tree id2)))
+      (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id2)))
           "row 2's test-id addresses exactly one node")
       (is (re-find #"\[:item/derived 1\]" (text-of tree id1))
           "row 1 labels with its full concrete query vector")
@@ -433,7 +433,7 @@
       (is (= 2 (count (distinct testids)))
           "the injective selector gives the two rows DISTINCT test-ids")
       (doseq [id (distinct testids)]
-        (is (= 1 (count (th/find-all-by-testid tree id)))
+        (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id)))
             "each concrete query's test-id addresses exactly one node"))
       (let [joined (str/join " " (map #(text-of tree %) (distinct testids)))]
         (is (re-find #":a-b" joined) "the :a-b parameterization is labelled")
@@ -466,7 +466,7 @@
           "the injective selector gives the two rows DISTINCT test-ids (not the
            single shared hash suffix)")
       (doseq [id (distinct testids)]
-        (is (= 1 (count (th/find-all-by-testid tree id)))
+        (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id)))
             "each concrete query's test-id addresses exactly one node"))
       (let [joined (str/join " " (map #(text-of tree %) (distinct testids)))]
         (is (re-find #" @" joined) "the \" @\" parameterization is labelled")
@@ -538,7 +538,7 @@
           "RecA, RecB and the plain map each mint a DISTINCT selector — the
            record TYPE is preserved, not flattened into the entries")
       (doseq [id (distinct testids)]
-        (is (= 1 (count (th/find-all-by-testid tree id)))
+        (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id)))
             "each concrete query's test-id addresses exactly one row")))))
 
 (deftest unchanged-row-selector-canonical-across-record-extension-order
@@ -603,7 +603,7 @@
           "nested RecA, nested RecB and the nested plain map each mint a
            DISTINCT selector — the encoder is type-preserving at every depth")
       (doseq [id (distinct testids)]
-        (is (= 1 (count (th/find-all-by-testid tree id)))
+        (is (= 1 (count (rf.test-helpers/find-all-by-testid tree id)))
             "each nested-record query's test-id addresses exactly one row")))))
 
 (deftest unchanged-row-unparameterized-shows-plain-sub-id

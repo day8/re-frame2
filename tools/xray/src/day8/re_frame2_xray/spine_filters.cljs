@@ -66,7 +66,7 @@
   poisons boot."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
@@ -188,7 +188,7 @@
   []
   (let [loaded (load)]
     (when (and (seq loaded)
-               (some? (frame/frame :rf/xray)))
+               (some? (rf.frame/frame :rf/xray)))
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/hydrate-muted-event-ids loaded]))
       nil)))

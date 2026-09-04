@@ -4,18 +4,18 @@
 
   This namespace owns the shared PREREQUISITE check, blocking
   invocation, the common timeout, and canonical exception normalization
-  through `story/run-result`. That boundary guarantees settled and error
+  through `rf.story/run-result`. That boundary guarantees settled and error
   outcomes carry the same evidence slots. Each tool still owns its
   projection, egress scrubbing, annotations, indicators, and wire
   envelope."
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
-            [re-frame.story-mcp.tools.result :as result]
-            ;; JVM-only: `async/deref-blocking` is `#?(:clj …)` and is used
+            [re-frame.story :as rf.story]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
+            ;; JVM-only: `rf.story.async/deref-blocking` is `#?(:clj …)` and is used
             ;; solely by the JVM bounded-lifecycle blocker below. story-mcp
             ;; is a JVM stdio server (deps.edn), so the require is clj-only —
             ;; the CLJS branch of this ns never blocks.
-            #?(:clj [re-frame.story.async :as async])))
+            #?(:clj [re-frame.story.async :as rf.story.async])))
 
 (defn adapter-installed?
   "True iff a re-frame reactive-substrate adapter is installed in THIS
@@ -44,13 +44,13 @@
   KEPT. What this guard removes is a different state wearing the same
   answer: with no adapter installed the variant frame never obtains its
   state substrate, so `:setup` dispatches reach nothing, the `:script`
-  plays nothing, and `story/run-variant` still settles the ordinary
+  plays nothing, and `rf.story/run-variant` still settles the ordinary
   `:status :pass` envelope over `{}` and `[]` — a success-shaped NON-RUN
   indistinguishable on the wire from a genuine green (measured under
   rf2-3n3dk). Executed-and-silent and never-executed are different
   states; only the first may be green.
 
-  The check is a PRE-flight, before `story/run-variant` allocates, so the
+  The check is a PRE-flight, before `rf.story/run-variant` allocates, so the
   refusal costs no lifecycle work and cannot be confused with a run
   outcome: it carries `isError true`, never a `:status`.
 
@@ -61,7 +61,7 @@
   NOT guarded — it hashes the declared tuple and runs no lifecycle."
   [tool-name]
   (when-not (adapter-installed?)
-    (result/error-result
+    (rf.story-mcp.tools.result/error-result
       (str "Cannot run `" tool-name "`: no re-frame reactive-substrate adapter is "
            "installed in this JVM, so the variant frame has no state substrate to "
            "allocate — `rf/init!` has not run (or the installed adapter was "
@@ -80,11 +80,11 @@
 
 (defn error-outcome
   "Assemble the ONE canonical error run-result for a synchronous throw /
-  timeout out of `story/run-variant`, through the SAME `story/run-result`
+  timeout out of `rf.story/run-variant`, through the SAME `rf.story/run-result`
   boundary a settled run uses (spec/017 §Run result). Pure given the
   variant key `vk` + the thrown `e`.
 
-  Routing the failure through `story/run-result` fills every evidence
+  Routing the failure through `rf.story/run-result` fills every evidence
   slot with `[]`, so the wire projection never emits a bare `nil` where
   the run-result schema requires a sequence. Two extra slots are stamped
   so both consumers keep the fields they read off the outcome:
@@ -95,9 +95,9 @@
     canonical outcome is self-describing rather than relying on each
     caller's `(:frame outcome vk)` fallback)."
   [vk e]
-  (assoc (story/run-result
+  (assoc (rf.story/run-result
            {:variant/id vk
-            :assertions [(story/assertion-record
+            :assertions [(rf.story/assertion-record
                            {:assertion :rf.error/run-failed
                             :passed?   false
                             :error     true
@@ -141,7 +141,7 @@
            t)))))
 
 (defn run-variant-blocking
-  "Invoke `story/run-variant` for `vk` with `opts` and BLOCK for its
+  "Invoke `rf.story/run-variant` for `vk` with `opts` and BLOCK for its
   unified run-result, capped at `timeout-ms` (the single-threaded-stdio
   ceiling both lifecycle tools share via `targs/resolve-timeout-ms`). A
   synchronous throw, or a deadline that elapses before the run settles, is
@@ -151,7 +151,7 @@
 
   ## The deadline covers the SYNCHRONOUS work (rf2-j538f7.31)
 
-  On the JVM `story/run-variant` runs SYNCHRONOUSLY (a `[:wait ms]` step
+  On the JVM `rf.story/run-variant` runs SYNCHRONOUSLY (a `[:wait ms]` step
   is an inline `Thread/sleep`), so it returns an ALREADY-settled future.
   Deref'ing that settled future under `timeout-ms` is a no-op — the
   advertised ceiling never bounds the real work, an over-budget run
@@ -175,7 +175,7 @@
   which clj-kondo would otherwise flag on the `.cljc`'s cljs branch)."
   [vk opts timeout-ms]
   #?(:clj
-     (let [worker (future (async/deref-blocking (story/run-variant vk opts)))]
+     (let [worker (future (rf.story.async/deref-blocking (rf.story/run-variant vk opts)))]
        (try
          (let [settled (deref worker timeout-ms ::timeout)]
            (if (identical? settled ::timeout)
@@ -188,7 +188,7 @@
                (deadline-outcome vk timeout-ms))
              settled))
          (catch Throwable e
-           ;; A synchronous throw from `story/run-variant`, or a rejected
+           ;; A synchronous throw from `rf.story/run-variant`, or a rejected
            ;; Story future, surfaces here wrapped in the worker future's
            ;; `ExecutionException`. Unwrap to the underlying Story throwable
            ;; so the canonical error reason is honest.

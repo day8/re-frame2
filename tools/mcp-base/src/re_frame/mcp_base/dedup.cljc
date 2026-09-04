@@ -51,7 +51,7 @@
   ## Wire shape
 
   A deduped payload is wrapped in a top-level marker:
-  `{:rf.mcp/dedup-table <cache-map>}` (`vocab/dedup-table-key`). Agents
+  `{:rf.mcp/dedup-table <cache-map>}` (`rf.mcp-base.vocab/dedup-table-key`). Agents
   reconstruct by calling `expand` on the cache-map value — a cross-MCP
   key by construction, so an agent that learned the slot on one server
   sees the same slot key on the other.
@@ -137,7 +137,7 @@
   - story-mcp keeps it in `re-frame.story-mcp.test-support`
     (its JVM test corpus's shared test-helper ns)."
   (:require [clojure.string :as str]
-            [re-frame.mcp-base.vocab :as vocab])
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab])
   #?(:clj (:import [java.util HashMap])))
 
 ;; ---------------------------------------------------------------------------
@@ -574,7 +574,7 @@
 
 (defn dedup-value
   "Apply structural dedup to `v` and wrap the result in the cross-MCP
-  marker (`vocab/dedup-table-key`). Returns `v` unchanged when
+  marker (`rf.mcp-base.vocab/dedup-table-key`). Returns `v` unchanged when
   `enabled?` is false, when `v` is empty / scalar (no dedup opportunity),
   or when the `de-dupe-eq` cache made no substitutions (a non-empty
   collection with no repeated subtrees — `no-substitutions?`)."
@@ -584,4 +584,4 @@
     (let [cache (de-dupe-eq v)]
       (if (no-substitutions? cache)
         v
-        {vocab/dedup-table-key cache}))))
+        {rf.mcp-base.vocab/dedup-table-key cache}))))

@@ -75,7 +75,7 @@
        :meta       <map>               ;; full registrar meta (for click-to-expand)
        :marker     <:here :from :to nil>}"
   (:require [clojure.string :as str]
-            [re-frame.routing.match :as match]))
+            [re-frame.routing.match :as rf.routing.match]))
 
 ;; ---- route catalogue projection -----------------------------------------
 
@@ -239,7 +239,7 @@
   (or (:rf.route/compiled meta)
       (when-let [path (:path meta)]
         (try
-          (match/parse-pattern path)
+          (rf.routing.match/parse-pattern path)
           (catch #?(:clj Exception :cljs :default) _ nil)))))
 
 (defn simulate-url
@@ -273,7 +273,7 @@
             (->> routes-map
                  (keep (fn [[id meta]]
                          (when-let [compiled (compile-pattern-on-demand meta)]
-                           (when-let [params (match/match-against compiled path)]
+                           (when-let [params (rf.routing.match/match-against compiled path)]
                              {:route-id id
                               :path     (:path meta)
                               :rank     (or (:rf.route/rank meta)
@@ -348,7 +348,7 @@
                       (normalize-path (split-url (str/trim url))))
            compiled (compile-pattern-on-demand meta)
            params   (when (and sim-path compiled)
-                      (match/match-against compiled sim-path))
+                      (rf.routing.match/match-against compiled sim-path))
            matched? (some? params)
            slot     (cond-> {:id route-id}
                       (some? path)   (assoc :path path)

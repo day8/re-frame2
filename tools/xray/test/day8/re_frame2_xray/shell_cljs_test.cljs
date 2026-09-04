@@ -45,8 +45,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -77,16 +77,16 @@
 ;; `re-frame.test-helpers` and alias straight through (rf2-vj80u8 — no Xray
 ;; walker facade). `hiccup-seq` (depth-first nodes over the expanded tree) is
 ;; not exposed by test-helpers, so it is kept as a thin wrapper over
-;; `th/expand-tree` for the `:option`-node filter below. `text-nodes` is left
-;; bespoke: it collects STRING leaves only, whereas `th/text-content` also
+;; `rf.test-helpers/expand-tree` for the `:option`-node filter below. `text-nodes` is left
+;; bespoke: it collects STRING leaves only, whereas `rf.test-helpers/text-content` also
 ;; folds in numbers — shell asserts exact/empty text, so the distinction is
 ;; load-bearing.
 (defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree)))
+  (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
 
-(def ^:private find-by-testid            th/find-by-testid)
-(def ^:private find-all-by-testid        th/find-all-by-testid)
-(def ^:private find-all-by-testid-prefix th/find-by-testid-prefix)
+(def ^:private find-by-testid            rf.test-helpers/find-by-testid)
+(def ^:private find-all-by-testid        rf.test-helpers/find-all-by-testid)
+(def ^:private find-all-by-testid-prefix rf.test-helpers/find-by-testid-prefix)
 
 (defn- text-nodes
   "Flatten the rendered tree's string leaves into one concatenated

@@ -77,7 +77,7 @@
   This namespace lives under `tools/xray/`, which is bundle-isolated
   from production bundles (per the bundle-isolation contract — see
   `implementation/scripts/check-bundle-isolation.cjs`). Every public
-  fn in this file is also gated on `interop/debug-enabled?` as a
+  fn in this file is also gated on `rf.interop/debug-enabled?` as a
   second line of defence against accidental requires from a non-dev
   entry point — per Spec 006 §Production elision and Spec 009
   §Production builds.
@@ -95,8 +95,8 @@
   so consumer code is path-agnostic. `:node-key` substitutes for the
   Fiber-walker's `:fiber-key` — same role (stable React key for tree-row
   rendering across re-walks)."
-  (:require [re-frame.interop :as interop]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.source-coords :as rf.source-coords]))
 
 ;; ---- attribute parsing -----------------------------------------------------
 
@@ -117,7 +117,7 @@
   value format / Spec-Schemas §`:rf/view-id-attr`) and the Tool-Pair opacity
   caveat (downstream callers MUST NOT depend on the parsed shape's stability
   across re-frame2 versions)."
-  source-coords/parse-view-id)
+  rf.source-coords/parse-view-id)
 
 ;; ---- DOM walk --------------------------------------------------------------
 ;;
@@ -183,7 +183,7 @@
   contract (fallback path).
 
   Production-elision contract per Spec 009: the body is gated on
-  `interop/debug-enabled?` — under `:advanced` + `goog.DEBUG=false`
+  `rf.interop/debug-enabled?` — under `:advanced` + `goog.DEBUG=false`
   the entire walk DCEs and the fn returns nil. Bundle-isolation
   (the `tools/xray/` artefact is forbidden from production bundles)
   is the first line of defence; this gate is the second.
@@ -193,7 +193,7 @@
   tagged elements."
   ([] (walk! (when (exists? js/document) (.-body js/document))))
   ([root]
-   (when (and interop/debug-enabled? (some? root))
+   (when (and rf.interop/debug-enabled? (some? root))
      (let [matched (.querySelectorAll root "[data-rf-view]")
            n       (.-length matched)
            ;; depths is a JS Map keyed by DOM node → integer depth.
@@ -224,8 +224,8 @@
   consumers (e.g. element-resolvers for click-to-source) need the
   raw nodes too. Defaults to `js/document.body`.
 
-  Same `interop/debug-enabled?` gate as `walk!`."
+  Same `rf.interop/debug-enabled?` gate as `walk!`."
   ([] (tagged-elements (when (exists? js/document) (.-body js/document))))
   ([root]
-   (when (and interop/debug-enabled? (some? root))
+   (when (and rf.interop/debug-enabled? (some? root))
      (.querySelectorAll root "[data-rf-view]"))))

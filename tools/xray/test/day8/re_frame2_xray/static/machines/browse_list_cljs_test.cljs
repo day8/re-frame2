@@ -12,8 +12,8 @@
        clear-search."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.machines.browse-list :as browse-list]
@@ -36,13 +36,13 @@
                    (ls/clear!))}))
 
 ;; The private expand-tree / find-by-testid copies were semantically identical
-;; to `re-frame.test-helpers`; tests call `th/find-by-testid` directly
+;; to `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid` directly
 ;; (rf2-vj80u8 — no Xray walker facade). The unused find-all-by-testid was
 ;; dropped. `hiccup-seq` (depth-first nodes over the expanded tree) is not
 ;; exposed by test-helpers, so it is kept as a thin wrapper over
-;; `th/expand-tree` for the string-leaf extraction below.
+;; `rf.test-helpers/expand-tree` for the string-leaf extraction below.
 (defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree)))
+  (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)
@@ -75,7 +75,7 @@
   (seed-snapshots! {}) ;; no live instances
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)]
-      (is (nil? (th/find-by-testid tree "rf-xray-static-machines-row-pips"))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-row-pips"))
           "no pip cluster when live-count is zero"))))
 
 (deftest pip-cluster-renders-dots-for-one-live-instance
@@ -84,7 +84,7 @@
   (seed-snapshots! {:m/a {:state :idle}})
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          pips (th/find-by-testid tree "rf-xray-static-machines-row-pips")]
+          pips (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-row-pips")]
       (is (some? pips) "pip cluster mounts for live machine"))))
 
 ;; -------------------------------------------------------------------------
@@ -96,13 +96,13 @@
   (seed-machines! [:m/a])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          btn  (th/find-by-testid tree "rf-xray-static-machines-sort")
+          btn  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sort")
           text (->> btn hiccup-seq (filter string?) (apply str))]
       (is (re-find #"Name" text) "default sort axis is Name")))
   (frame-dispatch [:rf.xray.static.machines/cycle-sort])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          btn  (th/find-by-testid tree "rf-xray-static-machines-sort")
+          btn  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sort")
           text (->> btn hiccup-seq (filter string?) (apply str))]
       (is (re-find #"States" text)))))
 
@@ -137,7 +137,7 @@
   (seed-machines! [:m/a])
   (rf/with-frame :rf/xray
     (let [tree   (panel/panel)
-          rows-el (th/find-by-testid tree "rf-xray-static-machines-rows")
+          rows-el (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-rows")
           attrs  (second rows-el)]
       (is (= "listbox" (:role attrs)))
       (is (string? (:aria-label attrs))))))
@@ -148,7 +148,7 @@
   (frame-dispatch [:rf.xray.static.machines/select :m/a])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          row-a (th/find-by-testid tree "rf-xray-static-machines-row-a")
+          row-a (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-row-a")
           attrs (second row-a)]
       ;; Note: machine-id is :m/a so name = "a", testid suffix matches.
       (is (= "true" (:aria-selected attrs))))))
@@ -162,13 +162,13 @@
   (seed-machines! [:foo/a :foo/b :bar/c])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          count-el (th/find-by-testid tree "rf-xray-static-machines-count")
+          count-el (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-count")
           text (->> count-el hiccup-seq (filter string?) (apply str))]
       (is (re-find #"3 machines" text))))
   (frame-dispatch [:rf.xray.static.machines/set-search "foo"])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)
-          count-el (th/find-by-testid tree "rf-xray-static-machines-count")
+          count-el (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-count")
           text (->> count-el hiccup-seq (filter string?) (apply str))]
       (is (re-find #"2 / 3" text)))))
 
@@ -182,4 +182,4 @@
   (frame-dispatch [:rf.xray.static.machines/set-search "nonexistent"])
   (rf/with-frame :rf/xray
     (let [tree (panel/panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-machines-no-results"))))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-no-results"))))))

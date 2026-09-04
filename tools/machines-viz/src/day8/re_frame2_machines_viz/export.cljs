@@ -52,7 +52,7 @@
 
   Per [`API.md`](../../spec/API.md) §Exporters."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
+            [re-frame.error :as rf.error]
             [day8.re-frame2-machines-viz.mermaid :as mermaid]
             [day8.re-frame2-machines-viz.share :as share]))
 
@@ -133,7 +133,7 @@
   (let [^js root (chart-root chart-element)
         seam (some-> root .-_rfMvChartState)]
     (when-not (map? seam)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.machines-viz.export/no-chart-state
         'machines-viz.export
         (str "export expects a rendered MachineChart element; the element "
@@ -416,7 +416,7 @@
         cs       (chart-state-of chart-element)
         viewport (find-viewport root)]
     (when-not (and viewport (find-edge-svg root))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.machines-viz.export/no-svg
         'machines-viz.export/chart-as-svg
         (str "the MachineChart has no rendered viewport to serialise to SVG "
@@ -458,7 +458,7 @@
             item (js/ClipboardItem. #js {"image/svg+xml" blob})]
         (.write (.-clipboard js/navigator) #js [item]))
       (js/Promise.reject
-        (error/thrown-ex-info
+        (rf.error/thrown-ex-info
           :rf.machines-viz.export/no-clipboard
           'machines-viz.export/copy-svg-to-clipboard!
           (str "the browser clipboard API is unavailable; copy requires a "
@@ -511,7 +511,7 @@
                                  (fn [blob]
                                    (if blob
                                      (resolve blob)
-                                     (reject (error/thrown-ex-info
+                                     (reject (rf.error/thrown-ex-info
                                                :rf.machines-viz.export/png-failed
                                                'machines-viz.export/chart-as-png!
                                                (str "PNG export failed: canvas.toBlob "
@@ -522,7 +522,7 @@
                                  "image/png")))
                     (catch :default e (reject e)))))
           (set! (.-onerror img)
-                (fn [_] (reject (error/thrown-ex-info
+                (fn [_] (reject (rf.error/thrown-ex-info
                                   :rf.machines-viz.export/png-failed
                                   'machines-viz.export/chart-as-png!
                                   (str "PNG export failed: the serialised SVG image "
@@ -547,7 +547,7 @@
                                                  "text/plain" alt-blob})]
                 (.write (.-clipboard js/navigator) #js [item]))
               (js/Promise.reject
-                (error/thrown-ex-info
+                (rf.error/thrown-ex-info
                   :rf.machines-viz.export/no-clipboard
                   'machines-viz.export/copy-png-to-clipboard!
                   (str "the browser clipboard API is unavailable; copy requires a "
@@ -579,7 +579,7 @@
     (if (and js/navigator (.-clipboard js/navigator))
       (.writeText (.-clipboard js/navigator) md)
       (js/Promise.reject
-        (error/thrown-ex-info
+        (rf.error/thrown-ex-info
           :rf.machines-viz.export/no-clipboard
           'machines-viz.export/copy-mermaid-to-clipboard!
           (str "the browser clipboard API is unavailable; copy requires a "
@@ -641,7 +641,7 @@
     (if (and js/navigator (.-clipboard js/navigator))
       (.writeText (.-clipboard js/navigator) url)
       (js/Promise.reject
-        (error/thrown-ex-info
+        (rf.error/thrown-ex-info
           :rf.machines-viz.export/no-clipboard
           'machines-viz.export/copy-share-url-to-clipboard!
           (str "the browser clipboard API is unavailable; copy requires a "

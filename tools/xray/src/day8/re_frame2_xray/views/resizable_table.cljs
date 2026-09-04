@@ -53,7 +53,7 @@
             [cljs.reader :as reader]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]))
 
@@ -297,7 +297,7 @@
   ([frame-id]
    (let [loaded (load)]
      (when (and (seq loaded)
-                (some? (frame/frame frame-id)))
+                (some? (rf.frame/frame frame-id)))
        (rf/with-frame frame-id
          (rf/dispatch-sync [:rf.xray.column-widths/hydrate loaded]))
        nil))))

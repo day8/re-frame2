@@ -83,10 +83,10 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
             [day8.re-frame2-xray.panels.hicasso :as hicasso]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -97,8 +97,8 @@
 (rf/reg-event :hlive/seed (fn [_ [_ db]] {:db db}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
      :init-fn       (fn []
                       (xray-test-support/reset-all!)
@@ -106,7 +106,7 @@
                       ;; the core fixture knows nothing about; without this a
                       ;; neighbour's boundary is still in the entry cache and
                       ;; the empty arm of phase 1 is not empty.
-                      (collector/reset-runtime!))}))
+                      (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- browser?
   "True only under the real-DOM `:browser-test` build. The `:node-test`
@@ -125,7 +125,7 @@
   lag every phase below by a frame and the assertions would be about
   timing rather than about liveness."
   [thunk]
-  ((:flush-render! reagent-adapter/adapter) thunk))
+  ((:flush-render! rf.adapter.reagent/adapter) thunk))
 
 (defn- setup! []
   (registry/register-xray-handlers!)
@@ -155,8 +155,8 @@
   own seam — the same `subscribe` closure React calls. Returns the
   release fn."
   []
-  (collector/render-body app-frame (fn [_] (h/sub [:hlive/left]) nil) {})
-  (collector/commit-boundary! (collector/last-reads) (fn [])))
+  (rf.hicasso.impl.collector/render-body app-frame (fn [_] (rf.hicasso/sub [:hlive/left]) nil) {})
+  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
 
 (defn- tick-trace!
   "One trace-buffer tick, delivered the way the collector delivers it:

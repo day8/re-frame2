@@ -53,8 +53,8 @@
   iterating on the per-pipeline arm. A separate runner would
   duplicate the deps wiring for no information gain."
   (:require [cljs.test :refer-macros [deftest is]]
-            [re-frame.mcp-base.dedup :as base-dedup]
-            [re-frame.mcp-base.elision :as base-elision]
+            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
+            [re-frame.mcp-base.elision :as rf.mcp-base.elision]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
 ;; ---------------------------------------------------------------------------
@@ -226,9 +226,9 @@
   ;; the `:app-db` slice.
   (let [snap    (make-snapshot-with-markers)
         label   "count-elided-markers (2 frames / 40 markers / 1K-key db)"
-        samples (bench-times 100 #(base-elision/count-elided-markers snap))]
+        samples (bench-times 100 #(rf.mcp-base.elision/count-elided-markers snap))]
     (report-line label samples)
-    (let [actual (base-elision/count-elided-markers snap)]
+    (let [actual (rf.mcp-base.elision/count-elided-markers snap)]
       (is (= 40 actual)
           (str "Walker MUST find every marker; got " actual)))
     (is (< (median samples) 100)
@@ -241,9 +241,9 @@
   ;; future regression on the empty path doesn't sneak through.
   (let [snap    (make-snapshot)
         label   "count-elided-markers (no markers / 1K-key db / 3 frames)"
-        samples (bench-times 100 #(base-elision/count-elided-markers snap))]
+        samples (bench-times 100 #(rf.mcp-base.elision/count-elided-markers snap))]
     (report-line label samples)
-    (is (= 0 (base-elision/count-elided-markers snap)))
+    (is (= 0 (rf.mcp-base.elision/count-elided-markers snap)))
     (is (< (median samples) 100)
         (report-str label samples))))
 
@@ -261,7 +261,7 @@
                         :db-before big-map
                         :db-after  (assoc big-map :touched i)}))
         label   "dedup-value (50 epochs / 1K-key shared :db-before)"
-        samples (bench-times 20 #(base-dedup/dedup-value epochs true))]
+        samples (bench-times 20 #(rf.mcp-base.dedup/dedup-value epochs true))]
     (report-line label samples)
     (is (< (median samples) 5000)
         (str "50-epoch dedup median MUST stay under 5s on representative shapes  "
@@ -274,7 +274,7 @@
                   :db-before big-map
                   :db-after  (assoc big-map :touched 1)}]
         label   "dedup-value (1 epoch / 1K-key :db-before)"
-        samples (bench-times 50 #(base-dedup/dedup-value epochs true))]
+        samples (bench-times 50 #(rf.mcp-base.dedup/dedup-value epochs true))]
     (report-line label samples)
     (is (< (median samples) 500)
         (report-str label samples))))

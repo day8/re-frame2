@@ -25,7 +25,7 @@
   variant frame, so a variant seeds its pills + opens the popup with the
   CANONICAL Xray events directly — no `:rf/xray` literal, no re-dispatch
   indirection. Cells in the grid are fully isolated."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -56,15 +56,15 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-filters
+  (rf.story/reg-tag :feature/xray-filters
     {:axis :feature
      :doc  "Xray auto-filter pills — IN / OUT pill cluster +
             edit popup per spec/018-Event-Spine §7."})
 
-  (story/reg-story :story.xray.filters
+  (rf.story/reg-story :story.xray.filters
     {:doc        "Visual gallery of the auto-filter pill cluster
                  + edit popup. Variants exercise the empty ribbon,
                  a mixed-loaded ribbon, the edit popup in :add /
@@ -78,7 +78,7 @@
   ;; ----- 1. Empty ribbon — no pills, just the trailing [ + ] add.
   ;; The default first-session honest empty state per spec/018 §7
   ;; 'Empty defaults'.
-  (story/reg-variant :story.xray.filters/empty
+  (rf.story/reg-variant :story.xray.filters/empty
     {:doc        "Top ribbon with no filter pills — the default
                  first-session honest empty state. Only the
                  trailing `[ + ]` add affordance is visible
@@ -94,7 +94,7 @@
   ;; ----- 2. Mixed loaded — 3 IN + 5 OUT pills with diverse
   ;; pattern shapes (keyword, glob, substring). Exercises the
   ;; pill cluster's visual contract under realistic load.
-  (story/reg-variant :story.xray.filters/mixed-loaded
+  (rf.story/reg-variant :story.xray.filters/mixed-loaded
     {:doc        "Top ribbon with 3 IN pills (keyword, glob,
                  namespace) + 5 OUT pills spanning diverse
                  patterns (event-id, glob, substring). Pins the
@@ -119,7 +119,7 @@
   ;; ----- 3. Edit popup open via the trailing `[ + ]` add
   ;; affordance — `:source :add :mode :in` so the popup arrives
   ;; empty + IN default, no Delete button.
-  (story/reg-variant :story.xray.filters/edit-popup-add
+  (rf.story/reg-variant :story.xray.filters/edit-popup-add
     {:doc        "Edit popup open via the trailing `[ + ]` add
                  affordance. Trigger `{:source :add :mode :in}` —
                  popup arrives empty + IN default; no `[Delete]`."
@@ -134,7 +134,7 @@
 
   ;; ----- 4. Edit popup open via pill click — `:source :pill`
   ;; with pre-populated draft + `[Delete]` button visible.
-  (story/reg-variant :story.xray.filters/edit-popup-edit-existing
+  (rf.story/reg-variant :story.xray.filters/edit-popup-edit-existing
     {:doc        "Edit popup open via clicking an existing pill.
                  Trigger `{:source :pill :mode :in :idx 0 :pill
                  {:pattern :auth/*}}` — popup pre-populated with
@@ -156,7 +156,7 @@
   ;; ----- 5. Right-click context-menu shortcut — `:rf.xray/hide-
   ;; event-type` opens the popup with `:source :context :mode :out`
   ;; pre-populated with the row's event-id (OUT-filter draft).
-  (story/reg-variant :story.xray.filters/right-click-menu
+  (rf.story/reg-variant :story.xray.filters/right-click-menu
     {:doc        "Edit popup open via the right-click event-row
                  context-menu shortcut (`:rf.xray/hide-event-
                  type`). Trigger `{:source :context :mode :out
@@ -173,7 +173,7 @@
      :substrates #{:reagent}})
 
   ;; ----- workspace ---------------------------------------------------
-  (story/reg-workspace :Workspace.xray.filters/all
+  (rf.story/reg-workspace :Workspace.xray.filters/all
     {:doc      "All five auto-filter variants in one grid, each
                 mounting the shell in its own isolated frame — the
                 pill cluster + edit-popup states render side-by-side

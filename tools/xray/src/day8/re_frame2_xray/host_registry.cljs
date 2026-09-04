@@ -41,7 +41,7 @@
   pre-image-loaded behaviour. An inspector catalogue must never throw on a
   runtime that cannot answer."
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as rf.registrar]))
 
 (defn registrations
   "`(rf/registrations kind)` for the HOST app — the process-global registrar —
@@ -57,7 +57,7 @@
   Fail-soft: any throw degrades to the bare `(rf/registrations kind)`."
   [kind]
   (try
-    (get @registrar/kind->id->metadata kind {})
+    (get @rf.registrar/kind->id->metadata kind {})
     (catch :default _
       (try (rf/registrations kind) (catch :default _ {})))))
 
@@ -71,6 +71,6 @@
   degrades to the bare `(rf/handler-meta kind id)`."
   [kind id]
   (try
-    (-> @registrar/kind->id->metadata (get kind) (get id))
+    (-> @rf.registrar/kind->id->metadata (get kind) (get id))
     (catch :default _
       (try (rf/handler-meta kind id) (catch :default _ nil)))))

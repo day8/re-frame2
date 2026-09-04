@@ -27,7 +27,7 @@
   Live end-to-end coverage runs against a real shadow-cljs build via the
   existing stdio-roundtrip harness."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.mcp-base.dedup :as base-dedup]
+            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.test-utils :as tu]))
 
@@ -62,7 +62,7 @@
                                                  :section-kind :modified
                                                  :patches [[path :assoc (apply str (repeat 256 \y))]]}]}})))
         raw-size (count (pr-str epochs))
-        wrapped (base-dedup/dedup-value epochs true)
+        wrapped (rf.mcp-base.dedup/dedup-value epochs true)
         wrapped-size (count (pr-str wrapped))]
     (testing "wrapped payload is much smaller than the raw vector"
       ;; Silent-on-success: the measurement is folded into the

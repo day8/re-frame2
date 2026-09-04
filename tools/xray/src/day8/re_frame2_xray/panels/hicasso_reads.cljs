@@ -38,8 +38,8 @@
   Every read is `nil` in a production build: the Hicasso door nil-gates on
   `re-frame.interop/debug-enabled?`, and Xray itself never reaches a
   production bundle (the tools/README bundle-isolation contract)."
-  (:require [re-frame.hicasso.tool :as tool]
-            [re-frame.trace.tooling :as trace-tooling]))
+  (:require [re-frame.hicasso.tool :as rf.hicasso.tool]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (defn- soft
   "Call `f`, answering nil on any throw.
@@ -54,22 +54,22 @@
 (defn mounted-boundaries
   "The producer's `:mounted-boundaries` envelope, verbatim, or nil."
   []
-  (soft tool/read-mounted-boundaries))
+  (soft rf.hicasso.tool/read-mounted-boundaries))
 
 (defn read-attribution
   "The producer's `:read-attribution` envelope, verbatim, or nil."
   []
-  (soft tool/read-read-attribution))
+  (soft rf.hicasso.tool/read-read-attribution))
 
 (defn intents
   "The producer's `:intents` envelope, verbatim, or nil."
   []
-  (soft tool/read-intents))
+  (soft rf.hicasso.tool/read-intents))
 
 (defn explain-render
   "The producer's `:explain-render` envelope, verbatim, or nil."
   []
-  (soft tool/explain-render))
+  (soft rf.hicasso.tool/explain-render))
 
 (defn evidence
   "All four envelopes in ONE turn, keyed by read.
@@ -125,4 +125,4 @@
       (let [frames (or (get-in envelopes [:explain-render :window :frames])
                        (get-in envelopes [:intents :frames])
                        [])]
-        (into {} (map (fn [fid] [fid (trace-tooling/trace-buffer fid)])) frames)))))
+        (into {} (map (fn [fid] [fid (rf.trace.tooling/trace-buffer fid)])) frames)))))

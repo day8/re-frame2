@@ -32,7 +32,7 @@
   the suite never reaches the real elkjs runtime. No DOM needed."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [day8.re-frame2-machines-viz.chart :as chart]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures ----------------------------------------------------------
 
@@ -59,14 +59,14 @@
          (finally (set! (.-error js/console) orig)))))
 
 (defn- capture-trace-emits
-  "Run `f` with `trace/emit-error!` rebound to capture the (operation,
+  "Run `f` with `rf.trace/emit-error!` rebound to capture the (operation,
   tags) calls into the returned atom, AND with `js/console.error`
   silenced. Returns the atom."
   [f]
   (let [captured (atom [])]
     (silence-console!
       (fn []
-        (with-redefs [trace/emit-error! (fn [op tags]
+        (with-redefs [rf.trace/emit-error! (fn [op tags]
                                           (swap! captured conj [op tags]))]
           (f captured))))
     captured))
@@ -86,7 +86,7 @@
           (with-redefs [chart/invoke-elk-layout!
                         (fn [_input]
                           (throw (js/Error. "elk: malformed input")))
-                        trace/emit-error! (fn [_op _tags] nil)]
+                        rf.trace/emit-error! (fn [_op _tags] nil)]
             (chart/compute-layout! sample-parsed :tb nil :test/machine
                                    (fn [r] (reset! result-promise r))))))
       (let [r @result-promise]
@@ -111,12 +111,12 @@
             microtask boundary the rejection rides."
     (async done
       (let [orig-elk     chart/invoke-elk-layout!
-            orig-emit    trace/emit-error!
+            orig-emit    rf.trace/emit-error!
             orig-console (.-error js/console)]
         (set! (.-error js/console) (fn [& _args] nil))
         (set! chart/invoke-elk-layout!
               (fn [_input] (js/Promise.reject (js/Error. "elk: rejected"))))
-        (set! trace/emit-error! (fn [_op _tags] nil))
+        (set! rf.trace/emit-error! (fn [_op _tags] nil))
         (chart/compute-layout!
           sample-parsed :tb nil :test/machine
           (fn [r]
@@ -126,14 +126,14 @@
             (is (= "elk: rejected"
                    (get-in r [:layout-error :error :message])))
             (set! chart/invoke-elk-layout! orig-elk)
-            (set! trace/emit-error! orig-emit)
+            (set! rf.trace/emit-error! orig-emit)
             (set! (.-error js/console) orig-console)
             (done)))))))
 
 ;; ---- trace event emit --------------------------------------------------
 
 (deftest compute-layout-sync-throw-emits-rf-error-trace
-  (testing "On sync ELK failure, `trace/emit-error!` fires ONCE with
+  (testing "On sync ELK failure, `rf.trace/emit-error!` fires ONCE with
             operation = :rf.error/machines-viz-elk-layout-failed,
             tags = {:elk-error … :machine-id … :input-summary …}.
             This is the contract tools (Xray Issues panel, off-box
@@ -177,12 +177,12 @@
     (async done
       (let [captured     (atom [])
             orig-elk     chart/invoke-elk-layout!
-            orig-emit    trace/emit-error!
+            orig-emit    rf.trace/emit-error!
             orig-console (.-error js/console)]
         (set! (.-error js/console) (fn [& _args] nil))
         (set! chart/invoke-elk-layout!
               (fn [_input] (js/Promise.reject (js/Error. "async-boom"))))
-        (set! trace/emit-error!
+        (set! rf.trace/emit-error!
               (fn [op tags] (swap! captured conj [op tags])))
         (chart/compute-layout!
           sample-parsed :tb nil :test/machine
@@ -198,7 +198,7 @@
             ;; Restore — async tests must clean up their globals so
             ;; following tests start from a clean slate.
             (set! chart/invoke-elk-layout! orig-elk)
-            (set! trace/emit-error! orig-emit)
+            (set! rf.trace/emit-error! orig-emit)
             (set! (.-error js/console) orig-console)
             (done)))))))
 
@@ -213,7 +213,7 @@
     (async done
       (let [captured  (atom [])
             orig-elk  chart/invoke-elk-layout!
-            orig-emit trace/emit-error!
+            orig-emit rf.trace/emit-error!
             ;; Build a minimally-shaped elk JS result (.children +
             ;; .edges) so `elk-result->positions` walks it without
             ;; throwing — we don't care about positions here, only
@@ -227,7 +227,7 @@
                                                :children #js []}]
                            :edges #js []}]
         (set! chart/invoke-elk-layout! (fn [_input] (js/Promise.resolve ok-result)))
-        (set! trace/emit-error! (fn [op tags] (swap! captured conj [op tags])))
+        (set! rf.trace/emit-error! (fn [op tags] (swap! captured conj [op tags])))
         (chart/compute-layout!
           sample-parsed :tb nil :test/machine
           (fn [r]
@@ -237,5 +237,5 @@
             (is (zero? (count @captured))
                 "happy path → no :rf.error/* emits")
             (set! chart/invoke-elk-layout! orig-elk)
-            (set! trace/emit-error! orig-emit)
+            (set! rf.trace/emit-error! orig-emit)
             (done)))))))

@@ -28,19 +28,19 @@
   documented at `tools/mcp-base/spec/handler-arity.md`; a phase-2
   unification awaits a third server instance and lands as a separate
   bead."
-  (:require [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.tools.dev :as dev]
-            [re-frame.story-mcp.tools.docs :as docs]
-            [re-frame.story-mcp.tools.testing :as testing]
-            [re-frame.story-mcp.tools.write :as write]))
+  (:require [re-frame.story-mcp.config :as rf.story-mcp.config]
+            [re-frame.story-mcp.tools.dev :as rf.story-mcp.tools.dev]
+            [re-frame.story-mcp.tools.docs :as rf.story-mcp.tools.docs]
+            [re-frame.story-mcp.tools.testing :as rf.story-mcp.tools.testing]
+            [re-frame.story-mcp.tools.write :as rf.story-mcp.tools.write]))
 
 (def tool-registry
   "Canonical ordered vector of every tool the server exposes. Dev →
   docs → testing → write."
-  (into [] cat [dev/descriptors
-                docs/descriptors
-                testing/descriptors
-                write/descriptors]))
+  (into [] cat [rf.story-mcp.tools.dev/descriptors
+                rf.story-mcp.tools.docs/descriptors
+                rf.story-mcp.tools.testing/descriptors
+                rf.story-mcp.tools.write/descriptors]))
 
 ;; Load-time invariant: every registry entry MUST carry a positive-integer
 ;; `:typicalTokens` hint. The same shape is asserted by
@@ -123,7 +123,7 @@
   ## Sensitive-read gate
 
   The `:include-sensitive` slot is stripped from every tool's input
-  schema when the operator-only gate (`config/sensitive-reads-allowed?`)
+  schema when the operator-only gate (`rf.story-mcp.config/sensitive-reads-allowed?`)
   is closed — agents shouldn't see an opt-in they can't exercise. The
   affected tools — the four that surface live or plan-resolved frame
   VALUES (`preview-variant`, `run-variant`, `read-failures`,
@@ -134,7 +134,7 @@
   like `get-variant` and carries no gate knob), so the descriptor
   strip is purely a UX improvement and a defence-in-depth signal."
   []
-  (let [strip? (not (config/sensitive-reads-allowed?))]
+  (let [strip? (not (rf.story-mcp.config/sensitive-reads-allowed?))]
     (mapv (fn [{:keys [name description inputSchema outputSchema annotations typicalTokens]}]
             (cond-> {:name          name
                      :description   description

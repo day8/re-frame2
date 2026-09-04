@@ -20,13 +20,13 @@
             [re-frame.core :as rf]
             ;; rf2-20359j — load-time hook so `reg-flow` / `flows-snapshot`
             ;; resolve. The Static Flows panel reads the PRODUCTION data
-            ;; source `flows/flows-snapshot` (the per-frame flows atom is the
+            ;; source `rf.flows/flows-snapshot` (the per-frame flows atom is the
             ;; sole store after rf2-en00bk; the registrar `:flow` slot is
             ;; reserved-but-empty), so the live-source regression below
             ;; registers real flows through `rf/reg-flow`.
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.flows.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -44,7 +44,7 @@
 ;;
 ;; The private expand-tree / hiccup-seq / find-by-testid* copies this file
 ;; carried are semantically identical to `re-frame.test-helpers`; the tests
-;; below call `th/find-by-testid` / `th/find-by-testid-prefix` directly
+;; below call `rf.test-helpers/find-by-testid` / `rf.test-helpers/find-by-testid-prefix` directly
 ;; (rf2-vj80u8 — no Xray walker facade).
 
 (defn- setup-xray! []
@@ -221,7 +221,7 @@
     (rf/dispatch-sync
       [:rf.xray.static.flows/set-registered-flows-override-for-test {}])
     (let [tree (panel/Panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-flows-empty"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-flows-empty"))
           "empty-state surface mounts"))))
 
 (deftest panel-renders-rows-from-override
@@ -231,9 +231,9 @@
       [:rf.xray.static.flows/set-registered-flows-override-for-test
        sample-flows])
     (let [tree (panel/Panel)
-          rows (th/find-by-testid-prefix tree "rf-xray-static-flows-row-")]
+          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-flows-row-")]
       (is (= 2 (count rows)) "two row surfaces rendered")
-      (is (some? (th/find-by-testid tree "rf-xray-static-flows-search"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-flows-search"))
           "search box rendered"))))
 
 (deftest panel-renders-filtered-state
@@ -244,7 +244,7 @@
        sample-flows])
     (rf/dispatch-sync [:rf.xray.static.flows/set-query "no-such-flow"])
     (let [tree (panel/Panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-flows-empty-filtered"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-flows-empty-filtered"))
           "empty-filtered surface mounts when query removes every row"))))
 
 ;; -------------------------------------------------------------------------
@@ -259,8 +259,8 @@
         [:rf.xray.static.flows/set-registered-flows-override-for-test
          sample-flows])
       (let [tree (panel/Panel)
-            list-node (th/find-by-testid tree "rf-xray-static-flows-list")
-            rows      (th/find-by-testid-prefix
+            list-node (rf.test-helpers/find-by-testid tree "rf-xray-static-flows-list")
+            rows      (rf.test-helpers/find-by-testid-prefix
                         tree "rf-xray-static-flows-row-")]
         (is (= "list" (:role (second list-node))) "<ul> carries role=list")
         (is (seq rows) "rows rendered")
@@ -282,7 +282,7 @@
         [:rf.xray.static.flows/set-registered-flows-override-for-test
          sample-flows])
       (let [tree (panel/Panel)
-            widget-nodes (th/find-by-testid-prefix
+            widget-nodes (rf.test-helpers/find-by-testid-prefix
                            tree "rf-xray-edn-inspector-")]
         (is (seq widget-nodes)
             "at least one edn-inspector widget container present")))))
@@ -304,7 +304,7 @@
 ;; registrar `:flow` slot RESERVED-but-empty. Before this PR the panel read
 ;; `(host-registry/registrations :flow)` (→ now `{}`), so the production
 ;; data source returned an EMPTY catalogue against real flows; after the
-;; repoint it reads `flows/flows-snapshot` and surfaces them. Reverting the
+;; repoint it reads `rf.flows/flows-snapshot` and surfaces them. Reverting the
 ;; `registered-flows-value` body back to the registrar read fails the first
 ;; assertion below (empty catalogue) while every override-based test above
 ;; stays green — proving the gap this regression closes.
@@ -320,7 +320,7 @@
 
 (deftest live-source-reads-flows-snapshot-not-empty-registrar-slot
   (testing "rf2-20359j — the PRODUCTION Static Flows data source reads
-            `flows/flows-snapshot` (the per-frame flows store) and surfaces
+            `rf.flows/flows-snapshot` (the per-frame flows store) and surfaces
             real `reg-flow` registrations. Pre-repoint it read the now-empty
             registrar `:flow` slot and returned an empty catalogue (the panel
             degraded silently); the override-based tests above could not see
@@ -360,7 +360,7 @@
   (testing "rf2-20359j / Spec 013 — the SAME flow-id registered against two
             frames carries each frame's OWN divergent definition in the
             production data source. The old frame-blind registrar slot could
-            only ever show the last registrant; `flows/flows-snapshot` shows
+            only ever show the last registrant; `rf.flows/flows-snapshot` shows
             both, and the panel scopes per frame."
     (production-setup-xray!)
     (let [derive-a (fn [first* last*] (str first* " " last*))
@@ -395,9 +395,9 @@
               "frame B keeps its OWN :output-path — divergent per frame")))
       ;; Cross-check the introspection surface the Epoch panel's source link
       ;; reads (`flow-meta-at` with an explicit :frame) agrees, frame-by-frame.
-      (is (= derive-a (:derive (flows/flow-meta-at :user/full-name
+      (is (= derive-a (:derive (rf.flows/flow-meta-at :user/full-name
                                                    {:frame :flows-test/frame-a})))
           "flow-meta-at resolves frame A's divergent definition")
-      (is (= derive-b (:derive (flows/flow-meta-at :user/full-name
+      (is (= derive-b (:derive (rf.flows/flow-meta-at :user/full-name
                                                    {:frame :flows-test/frame-b})))
           "flow-meta-at resolves frame B's divergent definition"))))
