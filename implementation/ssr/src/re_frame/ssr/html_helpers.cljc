@@ -577,13 +577,17 @@
                `re-frame.ssr.ui-tree`'s handling of that special form from
                here, which is 004B's call and not this ns's.
     `ismap`  — kept `:presence` on 004B §Booleans and their neighbours,
-               which names it explicitly. react-dom 19.2.0 does NOT accept a
-               boolean `ismap` (it warns \"Received `true` for a non-boolean
-               attribute\" and emits nothing), so this row is a measured
-               divergence from React, filed for 004B's owner rather than
-               resolved here. `ismap` IS a real HTML boolean attribute, so
-               presence is the HTML-correct rendering; what is unsettled is
-               whether this grammar tracks HTML or react-dom where they part.
+               which names it explicitly and, since rf2-u6zw, carries the
+               divergence and its reason in the row itself. react-dom 19.2.0
+               accepts NO boolean `ismap` in any spelling — the name is absent
+               from its `possibleStandardNames` altogether, so a boolean warns
+               \"Received `true` for a non-boolean attribute\" and emits
+               nothing — which is why it can never appear in the evidence
+               fixture. `ismap` IS a real HTML boolean attribute on `<img>`,
+               so presence is the HTML-correct rendering, and 004B has ruled
+               that the grammar tracks HTML where the two part on a genuine
+               HTML boolean attribute. The class here is unchanged by that
+               ruling; only the spec's stated provenance for it was wrong.
 
   Names are matched hyphen-collapsed and lowercased, so `:content-editable`
   and `:contentEditable` classify alike. Only the CLASS is decided here — the
