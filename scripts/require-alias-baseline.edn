@@ -14,7 +14,7 @@
 ;; observes. It is not a style rule: it is what stops the checker
 ;; reporting a confident zero over a corpus it has stopped being able
 ;; to read.
-{:min-edges 9692
+{:min-edges 9695
 
  :surfaces
  {
@@ -24,20 +24,20 @@
   "examples"                              65
   "implementation/adapters"               339
   "implementation/core"                   0
-  "implementation/derivation-conformance" 19
+  "implementation/derivation-conformance" 0
   "implementation/epoch"                  196
-  "implementation/event-conformance"      21
+  "implementation/event-conformance"      0
   "implementation/flows"                  155
   "implementation/hicasso"                1017
   "implementation/http"                   0
   "implementation/machines"               0
-  "implementation/reply-conformance"      13
+  "implementation/reply-conformance"      0
   "implementation/resources"              0
   "implementation/routing"                0
   "implementation/schemas"                112
   "implementation/scripts"                46
   "implementation/security"               45
-  "implementation/spec-resource"          1
+  "implementation/spec-resource"          0
   "implementation/ssr"                    399
   "implementation/ssr-ring"               129
   "implementation/test-quiet"             5

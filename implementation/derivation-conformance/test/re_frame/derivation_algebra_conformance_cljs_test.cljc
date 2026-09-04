@@ -20,34 +20,34 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.derivation.graph :as graph]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.derivation.graph :as rf.derivation.graph]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
             ;; The graph-wide egress projection lives in core so conformance
             ;; can test the same implementation used by tool consumers without
             ;; introducing a dependency on `tools/`.
-            [re-frame.derivation.egress :as egress]
-            [re-frame.privacy :as privacy]
-            [re-frame.elision :as elision]
+            [re-frame.derivation.egress :as rf.derivation.egress]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.elision :as rf.elision]
             ;; Load-bearing requires: each facade installs its framework
             ;; registrations before the graph contributors are exercised.
             [re-frame.routing]
-            [re-frame.routing.tooling :as routing-tooling]
+            [re-frame.routing.tooling :as rf.routing.tooling]
             [re-frame.resources]
-            [re-frame.resources.tooling :as resources-tooling]
-            [re-frame.resources.state :as resources-state]
-            [re-frame.resources.work-ledger :as work-ledger]
-            [re-frame.machines.tooling :as machines-tooling]
-            [re-frame.machines.paths :as machine-paths]
+            [re-frame.resources.tooling :as rf.resources.tooling]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+            [re-frame.machines.tooling :as rf.machines.tooling]
+            [re-frame.machines.paths :as rf.machines.paths]
             ;; The CLJS lifecycle arm drives the cache through the internal
             ;; subscribe/unsubscribe operations.
-            [re-frame.subs :as subs]
-            [re-frame.subs.tooling :as subs-tooling]
-            [re-frame.flows.tooling :as flows-tooling]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.subs :as rf.subs]
+            [re-frame.subs.tooling :as rf.subs.tooling]
+            [re-frame.flows.tooling :as rf.flows.tooling]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Closed vocabularies from `spec/Derivations.md` and `spec/Spec-Schemas.md`.
@@ -89,17 +89,17 @@
 ;; plain-atom substrate into later React-backed suites. `:init-fn` reloads the
 ;; optional family registrations after the baseline has been restored.
 (defn- refresh-families! []
-  (flows/reset-flows!)
-  (flows/reset-last-inputs!)
-  (schemas/clear-schemas-by-frame!)
+  (rf.flows/reset-flows!)
+  (rf.flows/reset-last-inputs!)
+  (rf.schemas/clear-schemas-by-frame!)
   #?(:clj (do (require 're-frame.routing :reload)
               (require 're-frame.resources :reload)
               (require 're-frame.machines :reload)))
-  (frame/ensure-default-frame!))
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn refresh-families!}))
 
 ;; ---------------------------------------------------------------------------
@@ -108,22 +108,22 @@
 ;; ---------------------------------------------------------------------------
 
 (def all-contributors
-  {:subs      {:static-fn  subs-tooling/sub-algebra-view
-               :live-fn    subs-tooling/sub-cache-algebra-view
+  {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
+               :live-fn    rf.subs.tooling/sub-cache-algebra-view
                :live-shape :map}
-   :flows     {:static-fn  flows-tooling/flow-algebra-view
-               :live-fn    flows-tooling/flow-algebra-view
+   :flows     {:static-fn  rf.flows.tooling/flow-algebra-view
+               :live-fn    rf.flows.tooling/flow-algebra-view
                :live-shape :map}
-   :resources {:static-fn  resources-tooling/resource-algebra-view
-               :live-fn    resources-tooling/resource-cache-algebra-view
+   :resources {:static-fn  rf.resources.tooling/resource-algebra-view
+               :live-fn    rf.resources.tooling/resource-cache-algebra-view
                :live-shape :map}
-   :routes    {:static-fn  routing-tooling/route-algebra-view
-               :live-fn    routing-tooling/route-slice-algebra-view
+   :routes    {:static-fn  rf.routing.tooling/route-algebra-view
+               :live-fn    rf.routing.tooling/route-slice-algebra-view
                :live-shape :node}
-   :machines  {:static-fn         machines-tooling/machine-algebra-view
-               :live-fn           machines-tooling/machine-instance-algebra-view
+   :machines  {:static-fn         rf.machines.tooling/machine-algebra-view
+               :live-fn           rf.machines.tooling/machine-instance-algebra-view
                :live-shape        :map
-               :selector-targets  machines-tooling/machine-selector-targets}})
+               :selector-targets  rf.machines.tooling/machine-selector-targets}})
 
 ;; ---------------------------------------------------------------------------
 ;; The subscription and flow share one whole-value function and differ only in
@@ -203,7 +203,7 @@
 
 (deftest a-every-source-form-lowers-to-a-node-of-the-right-superkind
   (register-one-of-each!)
-  (let [nodes (:nodes (graph/derivation-graph all-contributors))]
+  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))]
     (testing "all five families lowered into the assembled graph"
       (is (= #{:subs :flows :resources :routes :machines}
              (->> nodes vals (map :rf/family) set))
@@ -264,7 +264,7 @@
 
 (deftest b-storage-evaluation-lifecycle-classified-per-family
   (register-one-of-each!)
-  (let [nodes (:nodes (graph/derivation-graph all-contributors))
+  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))
         sub   (node-by-family nodes :subs      :cart/total)
         flow  (node-by-family nodes :flows     :cart/materialized-total)
         res   (node-by-family nodes :resources :article/by-slug)
@@ -305,7 +305,7 @@
 
 (deftest b-every-classification-is-in-its-closed-vocabulary
   (register-one-of-each!)
-  (let [nodes (:nodes (graph/derivation-graph all-contributors))]
+  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))]
     (testing "every classification is in its closed set"
       (doseq [[node-id node] nodes]
         ;; Storage is one local class; authority is checked separately.
@@ -327,7 +327,7 @@
 (deftest b-external-authority-names-its-local-storage-separately
   ;; Authority names the source of truth; storage still names the local home.
   (register-one-of-each!)
-  (let [nodes (:nodes (graph/derivation-graph all-contributors))
+  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))
         res   (node-by-family nodes :resources :article/by-slug)]
     (is (= :remote     (get-in res [:authority :kind])))
     (is (= :runtime-db (:storage res))
@@ -342,7 +342,7 @@
 
 (deftest c-static-edges-span-input-param-selector
   (register-one-of-each!)
-  (let [edges (:edges (graph/derivation-graph all-contributors))
+  (let [edges (:edges (rf.derivation.graph/derivation-graph all-contributors))
         roles (->> edges (map :role) set)]
     (testing "an :input edge follows the static `:<-` chain (cart/items → cart/total)"
       (is (some #(= % {:from [:sub :cart/items] :to [:sub :cart/total] :role :input})
@@ -368,7 +368,7 @@
   ;; input-fn, so a parametric sub reports the :parametric marker and
   ;; contributes no static :input edge. Its realized edges are live-only.
   (register-one-of-each!)
-  (let [g    (graph/derivation-graph all-contributors)
+  (let [g    (rf.derivation.graph/derivation-graph all-contributors)
         node (get (:nodes g) [:sub :article/page])]
     (is (some? node) "the parametric sub node is present")
     (is (= :parametric (:inputs node)) "its declared inputs are the :parametric marker")
@@ -389,7 +389,7 @@
                     :params-schema [:map [:page :int]]}
                    (fn [{:keys [page]} _ctx]
                      {:request {:method :get :url "/api/feed" :params {:page page}}}))
-  (let [nodes (:nodes (graph/derivation-graph all-contributors))
+  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))
         res   (node-by-family nodes :resources :tenant/feed)]
     (is (some? res) "the {:from-db} resource composed into the umbrella cross-family graph")
     (testing "the named-resolver reference remains a static scope input"
@@ -409,7 +409,7 @@
   ;; matched route id, its params, and the route owner (nav-token), facts
   ;; that exist only after a navigation commits to runtime-db.
   (register-one-of-each!)
-  (let [g0 (graph/live-derivation-graph :rf/default all-contributors)]
+  (let [g0 (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)]
     (testing "the live graph always carries the :mode :live + :frame shape"
       (is (= :live (:mode g0)))
       (is (= :rf/default (:frame g0)))
@@ -417,7 +417,7 @@
       (is (vector? (:edges g0)))))
   ;; Drive a navigation so the route slice is materialized in runtime-db.
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
-  (let [g     (graph/live-derivation-graph :rf/default all-contributors)
+  (let [g     (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g) :rf/route)]
     ;; Assert setup explicitly so the remaining checks cannot pass vacuously.
     (testing "the navigation materialized the live route slice"
@@ -517,7 +517,7 @@
                    :storage :runtime-db :evaluation :on-route :lifecycle :frame})}})
 
 (deftest cplus-live-graph-realizes-non-route-nodes-and-edges
-  (let [g     (graph/live-derivation-graph :rf/default (live-composition-contributors))
+  (let [g     (rf.derivation.graph/live-derivation-graph :rf/default (live-composition-contributors))
         nodes (:nodes g)
         edges (:edges g)]
     (testing "realized sub nodes are wrapped by their concrete query vector
@@ -654,7 +654,7 @@
    {:from [:sub :a] :to [:sub :c] :role :input}])
 
 (deftest cplusplus-edge-order-is-canonical-across-registration-permutations
-  (let [baseline (graph/derivation-graph (permutation-contributors [:a :b :c] [:r1 :r2] true))]
+  (let [baseline (rf.derivation.graph/derivation-graph (permutation-contributors [:a :b :c] [:r1 :r2] true))]
     (testing "the de-duplicated edge SET is the four expected edges (the
               duplicated `[:sub [:a]]` input on `:b` collapsed to ONE edge —
               distinct runs BEFORE canonicalization)"
@@ -683,7 +683,7 @@
       (doseq [sub-order   (permutations-of [:a :b :c])
               route-order (permutations-of [:r1 :r2])
               slug-first? [true false]]
-        (let [g (graph/derivation-graph
+        (let [g (rf.derivation.graph/derivation-graph
                   (permutation-contributors sub-order route-order slug-first?))]
           (is (= permutation-expected-edges (:edges g))
               (str "edges must equal the canonical order for sub-order "
@@ -698,7 +698,7 @@
       (doseq [slug-first? [true false]]
         (let [serials (for [sub-order   (permutations-of [:a :b :c])
                             route-order (permutations-of [:r1 :r2])]
-                        (pr-str (:edges (graph/derivation-graph
+                        (pr-str (:edges (rf.derivation.graph/derivation-graph
                                           (permutation-contributors sub-order route-order slug-first?)))))]
           (is (= 1 (count (distinct serials)))
               (str "all permutations must serialize `:edges` identically (slug-first? "
@@ -718,7 +718,7 @@
   ;; Seed the flow input. The flow runs :after-event (same-commit
   ;; materialization), so after this dispatch the output path is settled.
   (rf/dispatch-sync [::seed-cart cart-items])
-  (let [app-db        (frame/frame-app-db-value :rf/default)
+  (let [app-db        (rf.frame/frame-app-db-value :rf/default)
         materialized  (get-in app-db [:cart :total])
         whole-value   (sum-cart (get-in app-db [:cart :items]))]
     (is (= whole-value materialized)
@@ -736,7 +736,7 @@
   ;; `:derive` tokens are distinct objects through the registrar. The graph
   ;; treats those executable tokens as opaque.
   (register-one-of-each!)
-  (let [nodes (:nodes (graph/derivation-graph all-contributors))
+  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))
         sub   (node-by-family nodes :subs  :cart/total)
         flow  (node-by-family nodes :flows :cart/materialized-total)]
     (testing "both carry an opaque :derive whole-value token (never serialized)"
@@ -765,7 +765,7 @@
   ;; The optional delta law applies only when an executable delta protocol is
   ;; present. The current implementation remains whole-value only.
   (register-one-of-each!)
-  (let [nodes (:nodes (graph/derivation-graph all-contributors))]
+  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))]
     (doseq [[node-id node] nodes]
       (is (not (contains? node :step-delta))
           (str node-id " carries a :step-delta — slice-1 ships no delta protocol")))))
@@ -788,7 +788,7 @@
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}]
                     {:frame :checkout/frame})
   (rf/dispatch-sync [:upload/main [:upload/start]] {:frame :checkout/frame})
-  (let [g-before (graph/live-derivation-graph :checkout/frame all-contributors)
+  (let [g-before (rf.derivation.graph/live-derivation-graph :checkout/frame all-contributors)
         nodes    (:nodes g-before)]
     ;; Assert setup before teardown so absence afterwards cannot pass vacuously.
     (testing "the setup dispatches materialized both frame-owned nodes"
@@ -800,8 +800,8 @@
       (let [slice (get nodes :rf/route)]
         (is (= :frame (:lifecycle slice)))
         (is (= [:route :route/article (:nav-token slice)] (:owner slice)))))
-    (frame/destroy-frame! :checkout/frame)
-    (let [g-after (graph/live-derivation-graph :checkout/frame all-contributors)]
+    (rf.frame/destroy-frame! :checkout/frame)
+    (let [g-after (rf.derivation.graph/live-derivation-graph :checkout/frame all-contributors)]
       (testing "destroy-frame! releases every frame-owned graph node"
         (is (= :live (:mode g-after)) "the live graph shape survives a destroyed frame")
         (is (= {} (:nodes g-after))
@@ -818,7 +818,7 @@
   (register-one-of-each!)
   (rf/reg-route :route/about {} "/about")
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
-  (let [g-a   (graph/live-derivation-graph :rf/default all-contributors)
+  (let [g-a   (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g-a) :rf/route)]
     (testing "the first navigation materialized the route-A slice"
       (is (some? slice)
@@ -830,7 +830,7 @@
         (is (= [:route :route/article nav-token-a] owner-a)))
       ;; Supersede: a second navigation commits a new slice.
       (rf/dispatch-sync [:rf.route/navigate {:to :route/about}])
-      (let [g-b      (graph/live-derivation-graph :rf/default all-contributors)
+      (let [g-b      (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
             slice-b  (get (:nodes g-b) :rf/route)]
         (testing "the superseding navigation materialized the route-B slice"
           (is (some? slice-b)
@@ -880,8 +880,8 @@
   ;; the GENUINE live nav-token owner minted by the real navigation, and the
   ;; RELEASE is driven entirely by the real supersession hook — never by editing
   ;; the post-state.
-  (fx/reg-fx :rf.http/managed       (fn [_ctx _args] nil))
-  (fx/reg-fx :rf.http/managed-abort (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.http/managed       (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx _args] nil))
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
                     :params-schema [:map [:slug :string]]}
@@ -896,40 +896,40 @@
   (rf/reg-route :route/about {} "/about")
   ;; --- Navigate to route A: the real navigation mints the route owner. ---
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
-  (let [owner-a    (:owner (routing-tooling/route-slice-algebra-view :rf/default))
+  (let [owner-a    (:owner (rf.routing.tooling/route-slice-algebra-view :rf/default))
         scope      :rf.scope/global
         params     {:slug "welcome"}
-        scoped-key (resources-state/scoped-resource-key scope :article/by-slug params)
-        k-id       (resources-state/key-id scoped-key)
-        work-id    (work-ledger/resource-work-id scoped-key 1)
-        entry      (-> (resources-state/empty-entry :article/by-slug scoped-key)
-                       (resources-state/attach-owner owner-a)
+        scoped-key (rf.resources.state/scoped-resource-key scope :article/by-slug params)
+        k-id       (rf.resources.state/key-id scoped-key)
+        work-id    (rf.resources.work-ledger/resource-work-id scoped-key 1)
+        entry      (-> (rf.resources.state/empty-entry :article/by-slug scoped-key)
+                       (rf.resources.state/attach-owner owner-a)
                        (assoc :status :fetching :current-work work-id))]
-    (is (= [:route :route/article (:nav-token (routing-tooling/route-slice-algebra-view :rf/default))]
+    (is (= [:route :route/article (:nav-token (rf.routing.tooling/route-slice-algebra-view :rf/default))]
            owner-a)
         "the real navigation minted the route-A owner [:route route-A nav-token]")
     ;; Materialize the route-owned cache row with the canonical constructors
     ;; (resource entry + its reverse owner-index member + the in-flight work
     ;; record) — the shape a real route-owned fetch produces. This is test setup,
     ;; NOT the release under grade.
-    (frame/swap-runtime-db!
+    (rf.frame/swap-runtime-db!
       :rf/default
       (fn [rdb]
         (-> (or rdb {})
-            (assoc-in (resources-state/entry-path scoped-key) entry)
-            (assoc-in (conj (resources-state/owner-index-path) owner-a) #{k-id})
-            (work-ledger/put-record
+            (assoc-in (rf.resources.state/entry-path scoped-key) entry)
+            (assoc-in (conj (rf.resources.state/owner-index-path) owner-a) #{k-id})
+            (rf.resources.work-ledger/put-record
               work-id
-              (work-ledger/work-record {:work-id      work-id
+              (rf.resources.work-ledger/work-record {:work-id      work-id
                                         :frame-id     :rf/default
                                         :resource/key scoped-key
                                         :generation   1
                                         :transport    :rf.http/managed
                                         :owner        owner-a
                                         :cause        :test/materialize})))))
-    (let [entry-a       (get-in (frame/frame-runtime-db-value :rf/default)
-                                (resources-state/entry-path scoped-key))
-          g-a           (graph/live-derivation-graph :rf/default all-contributors)
+    (let [entry-a       (get-in (rf.frame/frame-runtime-db-value :rf/default)
+                                (rf.resources.state/entry-path scoped-key))
+          g-a           (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
           res-a         (->> (:nodes g-a)
                              (filter (fn [[_ n]] (= :resources (:rf/family n))))
                              first)
@@ -963,9 +963,9 @@
       ;; `:rf.resource/release-owner {:owner owner-A}`, which drops owner A from
       ;; the entry + owner-index + work record — the genuine release path.
       (rf/dispatch-sync [:rf.route/navigate {:to :route/about}])
-      (let [entry-b        (get-in (frame/frame-runtime-db-value :rf/default)
-                                   (resources-state/entry-path scoped-key))
-            g-b            (graph/live-derivation-graph :rf/default all-contributors)
+      (let [entry-b        (get-in (rf.frame/frame-runtime-db-value :rf/default)
+                                   (rf.resources.state/entry-path scoped-key))
+            g-b            (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
             slice-b        (get (:nodes g-b) :rf/route)
             owner-b        (:owner slice-b)
             res-owner-sets (->> (:nodes g-b) vals
@@ -1012,22 +1012,22 @@
   ;; Materialize the live singleton snapshot.
   (rf/dispatch-sync [:job/runner [:job/finish-noop]]) ;; no-op event: stays :running, installs snapshot
   ;; Prove the instance exists before driving its release boundary.
-  (let [g-before    (graph/live-derivation-graph :rf/default all-contributors)
+  (let [g-before    (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
         node-before (get (:nodes g-before) [:machine :job/runner])
-        rt-before   (frame/frame-runtime-db-value :rf/default)]
+        rt-before   (rf.frame/frame-runtime-db-value :rf/default)]
     (testing "the machine instance materialized a live snapshot before destroy"
       (is (some? node-before)
           "the no-op dispatch must materialize the [:machine :job/runner] live snapshot node — absence is a failure")
-      (is (some? (get-in rt-before (machine-paths/snapshot-path :job/runner)))
+      (is (some? (get-in rt-before (rf.machines.paths/snapshot-path :job/runner)))
           "the machine-owned snapshot must be live before the final event")))
   (rf/dispatch-sync [:job/runner [:job/finish]])      ;; → :done (:final?) → auto-destroy
-  (let [g-after (graph/live-derivation-graph :rf/default all-contributors)
+  (let [g-after (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
         node    (get (:nodes g-after) [:machine :job/runner])
-        rt      (frame/frame-runtime-db-value :rf/default)]
+        rt      (rf.frame/frame-runtime-db-value :rf/default)]
     (testing "the machine instance node is released from the live graph on destroy"
       (is (nil? node)
           "the :machine-instance-owned snapshot node is gone after final-state auto-destroy")
-      (is (nil? (get-in rt (machine-paths/snapshot-path :job/runner)))
+      (is (nil? (get-in rt (rf.machines.paths/snapshot-path :job/runner)))
           "the machine-owned snapshot is released from runtime-db (machine destroy releases its owners)"))))
 
 #?(:cljs
@@ -1044,12 +1044,12 @@
                  (fn [[items] [_ sku]] (some #(when (= sku (:sku %)) (:qty %)) items)))
      (rf/dispatch-sync [::seed-cart cart-items])
      (let [q [:cart/item-qty "b"]
-           r (subs/subscribe q {:frame :rf/default})]
+           r (rf.subs/subscribe q {:frame :rf/default})]
        (is (= 3 @r)
            "sanity: the parametric sub computes its whole value from the realized input")
        ;; Live cache entries use the concrete query vector in their node id.
        ;; Assert presence before disposal to avoid a vacuous release check.
-       (let [g-before (graph/live-derivation-graph :rf/default all-contributors)
+       (let [g-before (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
              node     (get (:nodes g-before) [:sub q])]
          (testing "the live subscribe materialized the cache-entry node"
            (is (some? node)
@@ -1060,12 +1060,12 @@
            (is (= 1 (:ref-count node))
                "one live reader keeps the cache entry alive — the :ref-count lifecycle evidence")))
        ;; The sole reader drops the ref-count to zero and triggers eviction.
-       (subs/unsubscribe :rf/default q)
-       (let [g-after (graph/live-derivation-graph :rf/default all-contributors)]
+       (rf.subs/unsubscribe :rf/default q)
+       (let [g-after (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)]
          (testing "subscription disposal releases the cache-entry node from the live graph"
            (is (nil? (get (:nodes g-after) [:sub q]))
                 "the :subscription-cache-entry node left the live graph at ref-count zero")
-           (is (not (contains? (set (keys @(:sub-cache (frame/frame :rf/default)))) q))
+           (is (not (contains? (set (keys @(:sub-cache (rf.frame/frame :rf/default)))) q))
                "and the underlying :sub-cache entry is evicted — the release the node absence reflects"))))))
 
 ;; ===========================================================================
@@ -1081,7 +1081,7 @@
   ;; First, pin the algebra classification the read is exercising: the sub is
   ;; the canonical :on-demand node; the resource selectors are the
   ;; read-fact surface of an :on-demand-readable process.
-  (let [nodes (:nodes (graph/derivation-graph all-contributors))
+  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))
         sub   (node-by-family nodes :subs      :cart/items)
         res   (node-by-family nodes :resources :article/by-slug)]
     (is (= :on-demand (:evaluation sub))
@@ -1089,8 +1089,8 @@
     (is (contains? (set (:selectors res)) :rf/resource)
         "the resource exposes the :rf/resource read selector"))
   ;; Snapshot both durable partitions, read the on-demand nodes, re-snapshot.
-  (let [app-before (frame/frame-app-db-value :rf/default)
-        rt-before  (frame/frame-runtime-db-value :rf/default)
+  (let [app-before (rf.frame/frame-app-db-value :rf/default)
+        rt-before  (rf.frame/frame-runtime-db-value :rf/default)
         ;; Read the ordinary subscription. The value is deliberately
         ;; discarded — it may be nil (no cart seeded); the point is that the
         ;; read RAN, between the two durable-state snapshots.
@@ -1100,8 +1100,8 @@
         ;; cache entry / work-ledger record.
         sel-val    @(rf/subscribe [:rf/resource
                                    {:resource :article/by-slug :params {:slug "welcome"}}])
-        app-after  (frame/frame-app-db-value :rf/default)
-        rt-after   (frame/frame-runtime-db-value :rf/default)]
+        app-after  (rf.frame/frame-app-db-value :rf/default)
+        rt-after   (rf.frame/frame-runtime-db-value :rf/default)]
     (testing "the reads return values (the reads actually happened)"
       ;; The subscription read above is unasserted by design (see its comment);
       ;; the selector read carries the observable claim.
@@ -1120,7 +1120,7 @@
 ;; (g) TOOL REDACTION — off-box graph egress.
 ;;
 ;; The composer assembles an internal graph; it does not apply a graph-wide
-;; wire policy. `egress/project-graph` owns that boundary: it walks value
+;; wire policy. `rf.derivation.egress/project-graph` owns that boundary: it walks value
 ;; summaries under the named frame's elision policy and remaps every
 ;; identity-bearing resource position consistently so edges still connect.
 ;;
@@ -1221,8 +1221,8 @@
   ;; non-sensitive resource id remains visible, all identity positions use the
   ;; same stable opaque scoped key, and edges still connect.
   (rf/make-frame {:id egress-frame :doc "off-box egress conformance frame"})
-  (let [raw      (graph/live-derivation-graph egress-frame (egress-live-contributors))
-        redacted (egress/project-graph raw egress-frame)]
+  (let [raw      (rf.derivation.graph/live-derivation-graph egress-frame (egress-live-contributors))
+        redacted (rf.derivation.egress/project-graph raw egress-frame)]
 
     (testing "the raw fixture exposes the sensitive identity to the projection"
       (is (contains? (:nodes raw) [:resource egress-scoped-key])
@@ -1323,8 +1323,8 @@
   "Install the `[:cart :items]` sensitive classification on `egress-frame`
   through the same runtime-db effect the commit plane uses."
   []
-  (frame/swap-runtime-db! egress-frame
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:cart :items]]}))))
+  (rf.frame/swap-runtime-db! egress-frame
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:cart :items]]}))))
 
 (deftest g-graph-egress-for-unknown-frame-fails-closed
   ;; An unreachable frame has no usable value policy, so value-bearing fields
@@ -1332,31 +1332,31 @@
   (rf/make-frame {:id egress-frame})
   (classify-egress-frame-sensitive!)
   (let [contributors (egress-sensitive-value-contributors)
-        raw (graph/live-derivation-graph egress-frame contributors)]
+        raw (rf.derivation.graph/live-derivation-graph egress-frame contributors)]
     (testing "the raw graph carries the secret in value and identity positions"
       (is (contains-secret? raw)))
     (testing "egress under an unknown frame fails closed"
-      (let [redacted (egress/project-graph raw :app/does-not-exist)
+      (let [redacted (rf.derivation.egress/project-graph raw :app/does-not-exist)
             sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
-        (is (= privacy/redacted-sentinel (:value sub))
+        (is (= rf.privacy/redacted-sentinel (:value sub))
             "the whole value-bearing field is redacted under no reachable policy")
         (is (not (contains-secret? redacted))
             "no raw secret survives — value-path fail-closed + frame-independent
              identity projection cover both leak channels")))
     (testing "a nil frame does not borrow an ambient frame's policy"
       (rf/with-frame :rf/default
-        (is (some? (frame/resolve-current-frame))
+        (is (some? (rf.frame/resolve-current-frame))
             "an ambient frame is bound, making policy borrowing observable")
-        (let [redacted (egress/project-graph raw nil)
+        (let [redacted (rf.derivation.egress/project-graph raw nil)
               sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
-          (is (= privacy/redacted-sentinel (:value sub))
+          (is (= rf.privacy/redacted-sentinel (:value sub))
               "nil frame redacts rather than using the ambient frame")
           (is (not (contains-secret? redacted))
               "no raw secret survives a nil-frame egress under an ambient binding"))))
     (testing "egress under the known frame applies its classified value path"
-      (let [redacted (egress/project-graph raw egress-frame)
+      (let [redacted (rf.derivation.egress/project-graph raw egress-frame)
             sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
-        (is (= privacy/redacted-sentinel (get-in sub [:value :cart :items]))
+        (is (= rf.privacy/redacted-sentinel (get-in sub [:value :cart :items]))
             "the classified [:cart :items] leaf is redacted")
         (is (= :derivation (:kind sub)) "the sub node is still present + classified")
         (is (not (contains-secret? redacted)))))))
@@ -1382,18 +1382,18 @@
   ;; registry is what makes the leak observable.
   (rf/make-frame {:id :re-frame.derivation.egress/no-egress-frame})
   (try
-    (let [raw (graph/live-derivation-graph egress-frame
+    (let [raw (rf.derivation.graph/live-derivation-graph egress-frame
                                            (egress-sensitive-value-contributors))]
       (is (contains-secret? raw)
           "the raw graph carries the secret in value and identity positions")
       ;; An ambient frame is bound as well, so a pass here cannot be an
       ;; accident of there being nothing to borrow.
       (rf/with-frame :rf/default
-        (is (some? (frame/resolve-current-frame))
+        (is (some? (rf.frame/resolve-current-frame))
             "an ambient frame is bound, making policy borrowing observable")
-        (let [redacted (egress/project-graph raw nil)
+        (let [redacted (rf.derivation.egress/project-graph raw nil)
               sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
-          (is (= privacy/redacted-sentinel (:value sub))
+          (is (= rf.privacy/redacted-sentinel (:value sub))
               "a nil governing frame must redact the whole value-bearing field
                even with a live frame registered under the dead-frame
                sentinel's former keyword id")
@@ -1409,9 +1409,9 @@
   ;; catches fresh handles in any identity-bearing position, including realized
   ;; inputs that would not be detected by node-key checks alone.
   (rf/make-frame {:id egress-frame})
-  (let [raw   (graph/live-derivation-graph egress-frame (egress-live-contributors))
-        once  (egress/project-graph raw egress-frame)
-        twice (egress/project-graph once egress-frame)
+  (let [raw   (rf.derivation.graph/live-derivation-graph egress-frame (egress-live-contributors))
+        once  (rf.derivation.egress/project-graph raw egress-frame)
+        twice (rf.derivation.egress/project-graph once egress-frame)
         node1 (-> once :nodes vals first)
         node2 (-> twice :nodes vals first)]
     (is (not (contains-secret? twice)) "still no secret after double projection")
@@ -1445,7 +1445,7 @@
 ;; ===========================================================================
 ;; (g+) RESOURCE-CONTRIBUTOR EGRESS THROUGH THE COMPOSER.
 ;;
-;; The synthetic g arms isolate `egress/project-graph`. This arm instead uses
+;; The synthetic g arms isolate `rf.derivation.egress/project-graph`. This arm instead uses
 ;; the actual resource contributor, which applies resource classification and
 ;; scoped-key projection before the composer receives its nodes. The cache row
 ;; is a direct fixture because this artefact intentionally has no HTTP
@@ -1471,32 +1471,32 @@
   (rf/reg-route :route/secure-article {} "/secure")
   (rf/dispatch-sync [:rf.route/navigate {:to :route/secure-article}]
                     {:frame real-egress-frame})
-  (let [nav-token   (:nav-token (get (:nodes (graph/live-derivation-graph real-egress-frame all-contributors))
+  (let [nav-token   (:nav-token (get (:nodes (rf.derivation.graph/live-derivation-graph real-egress-frame all-contributors))
                                      :rf/route))
         owner       [:route :route/secure-article nav-token]
         scope       :rf.scope/global
         params      {:auth-token secret-token}
-        scoped-key  (resources-state/scoped-resource-key scope :secret/tenant-article params)
-        work-id     (work-ledger/resource-work-id scoped-key 1)
-        entry       (assoc (resources-state/empty-entry :secret/tenant-article scoped-key)
+        scoped-key  (rf.resources.state/scoped-resource-key scope :secret/tenant-article params)
+        work-id     (rf.resources.work-ledger/resource-work-id scoped-key 1)
+        entry       (assoc (rf.resources.state/empty-entry :secret/tenant-article scoped-key)
                            :status :fetching :active-owners #{owner} :current-work work-id)]
     (is (some? nav-token) "the navigation minted a nav-token")
     ;; Materialize with the resource and work-ledger constructors. This is test
     ;; setup, not the resource request/write path under test.
-    (frame/swap-runtime-db!
+    (rf.frame/swap-runtime-db!
       real-egress-frame
       (fn [rdb]
-        (-> (assoc-in (or rdb {}) (resources-state/entry-path scoped-key) entry)
-            (work-ledger/put-record
+        (-> (assoc-in (or rdb {}) (rf.resources.state/entry-path scoped-key) entry)
+            (rf.resources.work-ledger/put-record
               work-id
-              (work-ledger/work-record {:work-id      work-id
+              (rf.resources.work-ledger/work-record {:work-id      work-id
                                         :frame-id     real-egress-frame
                                         :resource/key scoped-key
                                         :generation   1
                                         :transport    :rf.http/managed
                                         :owner        owner
                                         :cause        :test/materialize}))))))
-  (let [g              (graph/live-derivation-graph real-egress-frame all-contributors)
+  (let [g              (rf.derivation.graph/live-derivation-graph real-egress-frame all-contributors)
         resource-entry (->> (:nodes g)
                              (filter (fn [[_ n]] (= :resources (:rf/family n))))
                              first)]

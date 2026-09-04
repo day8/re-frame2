@@ -35,7 +35,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.build.spec-resource :as spec-resource]))
+            [re-frame.build.spec-resource :as rf.build.spec-resource]))
 
 (def ^:private cold-load-iterations
   "Iterations per shape. Each one generates and cold-loads a fresh
@@ -206,7 +206,7 @@
             finished loading"
     (dotimes [_ cold-load-iterations]
       (let [{:keys [probe-var-symbol during-load observer-result loader-result]}
-            (observe-resolver-during-load spec-resource/resolve-after-require)]
+            (observe-resolver-during-load rf.build.spec-resource/resolve-after-require)]
         (is (= ::blocked during-load)
             (str probe-var-symbol
                  ": the observer must WAIT on the require lock rather than "
@@ -223,5 +223,5 @@
                                     (doto (promise) (deliver :go)))
           fixture-ns-symbol (write-blocked-fixture-namespace! release-gate-name)]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"is not defined after loading"
-            (spec-resource/resolve-after-require
+            (rf.build.spec-resource/resolve-after-require
              (symbol (name fixture-ns-symbol) "absent")))))))

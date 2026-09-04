@@ -34,16 +34,16 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.privacy :as privacy]
-            [re-frame.reply :as reply]
-            [re-frame.reply-conformance-fixtures :as fixtures]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.reply :as rf.reply]
+            [re-frame.reply-conformance-fixtures :as rf.reply-conformance-fixtures]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; The frame's elision registry classifies paths within each reply wire slot.
@@ -67,8 +67,8 @@
 (defn- mk-frame! []
   (rf/make-frame {:id frame-id})
   ;; Seed the same runtime registry that classification effects update.
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:token] [:secret-big]]
                 :large     [[:blob] [:secret-big]]}))))
 
@@ -82,7 +82,7 @@
 (def ^:private work-id
   [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1])
 
-(def ^:private completed-at-ms fixtures/completion-time-ms)
+(def ^:private completed-at-ms rf.reply-conformance-fixtures/completion-time-ms)
 
 (defn- ok-reply []
   ;; A complete canonical envelope keeps the projection assertions realistic.
@@ -106,7 +106,7 @@
    :rf.reply/work-status :failed
    :rf.frame/id frame-id})
 
-(defn- redacted? [value] (= privacy/redacted-sentinel value))
+(defn- redacted? [value] (= rf.privacy/redacted-sentinel value))
 (defn- large-marker? [value] (and (map? value) (contains? value :rf.size/large-elided)))
 
 ;; ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@
     (let [reply   (assoc (ok-reply)
                          :correlation {:token "corr-SECRET"}
                          :meta        {:blob big-string})
-          summary (reply/trace-summary reply {:frame frame-id})]
+          summary (rf.reply/trace-summary reply {:frame frame-id})]
       (testing "the sensitive reply-value leaf is redacted"
         (is (redacted? (get-in summary [:value :token]))
             ":value sensitive leaf redacted"))
@@ -199,7 +199,7 @@
 (deftest trace-summary-projects-the-error-failure-payload
   (testing "the :error payload is projected like the :value payload"
     (mk-frame!)
-    (let [summary (reply/trace-summary (error-reply) {:frame frame-id})]
+    (let [summary (rf.reply/trace-summary (error-reply) {:frame frame-id})]
       (is (redacted? (get-in summary [:error :token]))
           "a sensitive leaf inside the :error response body is redacted")
       (is (large-marker? (get-in summary [:error :blob]))
@@ -225,7 +225,7 @@
 (deftest sensitive-wins-over-large-at-a-both-marked-reply-slot
   (testing "a both-marked reply value redacts rather than large-elides"
     (mk-frame!)
-    (let [summary (reply/trace-summary (ok-reply) {:frame frame-id})]
+    (let [summary (rf.reply/trace-summary (ok-reply) {:frame frame-id})]
       (is (redacted? (get-in summary [:value :secret-big]))
           "the both-marked leaf is REDACTED, not large-elided")
       (is (not (large-marker? (get-in summary [:value :secret-big])))
@@ -240,11 +240,11 @@
   (testing "an explicit live frame applies policy and an unresolved frame fails closed"
     (mk-frame!)
     ;; A live explicit frame applies its classification policy.
-    (let [known (reply/trace-summary (ok-reply) {:frame frame-id})]
+    (let [known (rf.reply/trace-summary (ok-reply) {:frame frame-id})]
       (is (redacted? (get-in known [:value :token]))
           "a KNOWN :frame opt applies its sensitive policy"))
     ;; A never-registered frame cannot supply policy, so the whole slot redacts.
-    (let [unresolved (reply/trace-summary (ok-reply) {:frame :reply-egress/ghost})]
+    (let [unresolved (rf.reply/trace-summary (ok-reply) {:frame :reply-egress/ghost})]
       (is (redacted? (:value unresolved))
           "an UNRESOLVED :frame opt fails closed — the whole :value slot redacts")
       (is (not (embeds-raw-token? unresolved))
@@ -258,10 +258,10 @@
 (deftest carried-frame-stamp-auto-resolves-into-the-egress-policy
   (mk-frame!)
   ;; Remove ambient scope so the carried stamp is the only frame source.
-  (binding [frame/*current-frame* nil]
+  (binding [rf.frame/*current-frame* nil]
     (testing "a live carried frame supplies the wire-slot policy"
       (let [reply   (ok-reply)
-            summary (reply/trace-summary reply nil)]
+            summary (rf.reply/trace-summary reply nil)]
         (is (= frame-id (:rf.frame/id reply))
             "precondition: reply carries the live frame stamp")
         (is (redacted? (get-in summary [:value :token]))
@@ -278,14 +278,14 @@
             ":rf.reply/work-id still rides verbatim")))
     (testing "an unresolved carried frame fails closed"
       (let [reply   (assoc (ok-reply) :rf.frame/id :reply-egress/ghost)
-            summary (reply/trace-summary reply nil)]
+            summary (rf.reply/trace-summary reply nil)]
         (is (redacted? (:value summary))
             "an unresolved carried stamp still fails closed under nil opts")
         (is (= :reply-egress/ghost (:rf.frame/id summary))
             "the carried (unresolved) :rf.frame/id rides verbatim as identity")))
     (testing "an explicit frame takes precedence over the carried stamp"
       (let [reply   (ok-reply)
-            summary (reply/trace-summary reply {:frame :reply-egress/ghost})]
+            summary (rf.reply/trace-summary reply {:frame :reply-egress/ghost})]
         (is (redacted? (:value summary))
             "the explicit unresolved frame wins and fails closed")))))
 
@@ -345,22 +345,22 @@
 
 (deftest a-mapped-reply-target-has-a-data-only-durable-representation
   (testing "durable-target strips a mapped target's ephemeral accumulator"
-    (let [relayed (reply/map-completed-event (fn [event] [:parent/relay event])
+    (let [relayed (rf.reply/map-completed-event (fn [event] [:parent/relay event])
                                     [:article/loaded {:id 42}])]
-      (is (false? (reply/data-only-target? relayed))
+      (is (false? (rf.reply/data-only-target? relayed))
           "a mapped target is not data-only while it carries ::post")
-      (let [durable (reply/durable-target relayed)]
-        (is (true? (reply/data-only-target? durable))
+      (let [durable (rf.reply/durable-target relayed)]
+        (is (true? (rf.reply/data-only-target? durable))
             "the durable projection strips the accumulator")))))
 
 (deftest a-completed-reply-event-can-be-summarized-for-egress
   (testing "a completed event is raw in memory and its reply can be summarized for egress"
     (mk-frame!)
     (let [target    [:article/loaded {:id 42}]
-          completed (reply/complete target (ok-reply))
+          completed (rf.reply/complete target (ok-reply))
           ;; Completion appends the raw reply; trace-summary creates the egress view.
           delivered (peek completed)
-          summary   (reply/trace-summary delivered {:frame frame-id})]
+          summary   (rf.reply/trace-summary delivered {:frame frame-id})]
       (is (= [:article/loaded {:id 42} (ok-reply)] completed)
           "the completed event carries the raw reply as its final arg in-memory")
       (is (redacted? (get-in summary [:value :token]))
@@ -390,7 +390,7 @@
       (is (embeds-raw-blob? reply)
           "the sentinel predicate finds the raw blob in the pre-projection reply")
       ;; The direct walker provides the expected projection result.
-      (let [direct (elision/elide-wire-value (:value reply) {:frame frame-id})]
+      (let [direct (rf.elision/elide-wire-value (:value reply) {:frame frame-id})]
         (is (redacted? (get-in direct [:token]))
             "the shared walker redacts the token")))))
 
@@ -414,7 +414,7 @@
           "the sentinel predicate FINDS the raw blob the leaking marker embeds")))
   (testing "a LEGITIMATE large-elided marker carries no raw value, so the
             sentinel predicate does not false-positive on it"
-    (let [clean (elision/->marker big-string [:blob] {})]
+    (let [clean (rf.elision/->marker big-string [:blob] {})]
       (is (large-marker? clean) "a real marker is still a marker")
       (is (not (embeds-raw-blob? clean))
           "the real marker carries only a byte-count / type / handle — no raw blob"))))

@@ -19,29 +19,29 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
-            [re-frame.events         :as events]
-            [re-frame.frame          :as frame]
-            [re-frame.image          :as image]
-            [re-frame.registrar      :as registrar]
-            [re-frame.live-frame     :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support   :as test-support]))
+            [re-frame.events         :as rf.events]
+            [re-frame.frame          :as rf.frame]
+            [re-frame.image          :as rf.image]
+            [re-frame.registrar      :as rf.registrar]
+            [re-frame.live-frame     :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support   :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter       plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture {:adapter       rf.substrate.plain-atom/adapter
                                             :ambient-frame nil}))
 
 ;; Image resolution stores the registration descriptor plus its selection keys.
 (defn- event-desc
   [provenance-ns id handler-fn]
-  (merge (events/event-handler-meta handler-fn)
+  (merge (rf.events/event-handler-meta handler-fn)
          {:rf.provenance/ns provenance-ns
           :kind             :event
           :id               id}))
 
 ;; A framework-authority variant of `event-desc`: stamps the reserved
 ;; `:rf/framework-authority? true` registration-meta key (EP-0001 —
-;; `events/framework-authority?`) onto the image descriptor. Because `lookup`
+;; `rf.events/framework-authority?`) onto the image descriptor. Because `lookup`
 ;; resolves the descriptor verbatim through the frame's generation and the
 ;; router feeds it in as `handler-meta`, the resolved handler carries legitimate
 ;; write-authority over the reserved `:rf.db/runtime` partition — so an
@@ -67,18 +67,18 @@
           [(event-desc "examples.counter" :boot/init
              (fn [{:keys [db]} _] {:db (assoc db :booted-by :counter)}))]
           todo-image
-          (image/image {:id :examples/todo
+          (rf.image/image {:id :examples/todo
                         :select-ns {:include ["examples.todo"]}})
           counter-image
-          (image/image {:id :examples/counter
+          (rf.image/image {:id :examples/counter
                         :select-ns {:include ["examples.counter"]}})
           todo-frame
-          (lf/make-frame {:id :todo/main :images [todo-image]}
+          (rf.live-frame/make-frame {:id :todo/main :images [todo-image]}
                          todo-registrations)
           counter-frame
-          (lf/make-frame {:id :counter/main :images [counter-image]}
+          (rf.live-frame/make-frame {:id :counter/main :images [counter-image]}
                          counter-registrations)]
-      (is (some? (registrar/lookup :event :boot/init))
+      (is (some? (rf.registrar/lookup :event :boot/init))
           "the same-id global sentinel is genuinely armed on the default registrar
            (so the `not= :global` rows below are not vacuous)")
       (rf/dispatch-sync [:boot/init] {:frame :todo/main})
@@ -99,12 +99,12 @@
         (is (= {:booted-by :counter} (rf/app-db-value :counter/main))
             "the counter frame's app-db holds ONLY the counter handler's write"))
       (testing "the generation binding did NOT leak past either cascade"
-        (is (nil? registrar/*generation*)
+        (is (nil? rf.registrar/*generation*)
             "after the dispatches, no generation is bound (the seam unwound)"))
       (testing "the two frames carry genuinely different resolved generations for
                 the same id (no shared generation)"
-        (is (not= (lf/frame-generation todo-frame)
-                  (lf/frame-generation counter-frame))
+        (is (not= (rf.live-frame/frame-generation todo-frame)
+                  (rf.live-frame/frame-generation counter-frame))
             "the two image-loaded frames resolve the SAME id through DIFFERENT generations")))))
 
 (deftest two-image-frames-same-id-isolate-the-runtime-db-partition
@@ -154,61 +154,61 @@
                {:rf.db/runtime
                 (assoc runtime-db :rf.runtime/conf-writer :sibling)}))]
           todo-image
-          (image/image {:id :conf.rt/todo
+          (rf.image/image {:id :conf.rt/todo
                         :select-ns {:include ["conf.rt.todo"]}})
           counter-image
-          (image/image {:id :conf.rt/counter
+          (rf.image/image {:id :conf.rt/counter
                         :select-ns {:include ["conf.rt.counter"]}})
           sibling-image
-          (image/image {:id :conf.rt/sibling
+          (rf.image/image {:id :conf.rt/sibling
                         :select-ns {:include ["conf.rt.sibling"]}})
-          _ (lf/make-frame {:id :conf.rt/todo :images [todo-image]}
+          _ (rf.live-frame/make-frame {:id :conf.rt/todo :images [todo-image]}
                            todo-registrations)
-          _ (lf/make-frame {:id :conf.rt/counter :images [counter-image]}
+          _ (rf.live-frame/make-frame {:id :conf.rt/counter :images [counter-image]}
                            counter-registrations)
-          _ (lf/make-frame {:id :conf.rt/sibling :images [sibling-image]}
+          _ (rf.live-frame/make-frame {:id :conf.rt/sibling :images [sibling-image]}
                            sibling-registrations)]
       ;; Seed each frame's runtime-db partition with a UNIQUE marker (the
       ;; framework-authority runtime-db write surface — Spec 002 §Write
       ;; authority). The seed is what each handler reads back as its
       ;; `:rf.db/runtime` coeffect.
-      (frame/replace-runtime-db! :conf.rt/todo    {:rf.runtime/conf-seed :todo-seed})
-      (frame/replace-runtime-db! :conf.rt/counter {:rf.runtime/conf-seed :counter-seed})
-      (frame/replace-runtime-db! :conf.rt/sibling {:rf.runtime/conf-seed :sibling-seed})
+      (rf.frame/replace-runtime-db! :conf.rt/todo    {:rf.runtime/conf-seed :todo-seed})
+      (rf.frame/replace-runtime-db! :conf.rt/counter {:rf.runtime/conf-seed :counter-seed})
+      (rf.frame/replace-runtime-db! :conf.rt/sibling {:rf.runtime/conf-seed :sibling-seed})
       ;; Dispatch ONCE to each explicit target — the sibling is left alone.
       (rf/dispatch-sync [:boot/rt-init] {:frame :conf.rt/todo})
       (rf/dispatch-sync [:boot/rt-init] {:frame :conf.rt/counter})
       (testing "the same-id GLOBAL runtime sentinel is genuinely armed (not a
                 vacuous `not= :global`)"
-        (is (some? (registrar/lookup :event :boot/rt-init))
+        (is (some? (rf.registrar/lookup :event :boot/rt-init))
             "the same-id global runtime handler is live on the default registrar"))
       (testing "each handler read ITS OWN frame's runtime-db seed as the
                 `:rf.db/runtime` coeffect — not a sibling's or the default's"
-        (is (= :todo-seed (:rf.runtime/conf-observed (frame/frame-runtime-db-value :conf.rt/todo)))
+        (is (= :todo-seed (:rf.runtime/conf-observed (rf.frame/frame-runtime-db-value :conf.rt/todo)))
             "the todo handler observed the TODO frame's runtime-db seed")
-        (is (= :counter-seed (:rf.runtime/conf-observed (frame/frame-runtime-db-value :conf.rt/counter)))
+        (is (= :counter-seed (:rf.runtime/conf-observed (rf.frame/frame-runtime-db-value :conf.rt/counter)))
             "the counter handler observed the COUNTER frame's runtime-db seed"))
       (testing "each runtime-db effect committed ONLY to its own frame — exact
                 per-frame runtime-db, no cross-frame commit bleed"
         (is (= {:rf.runtime/conf-seed     :todo-seed
                 :rf.runtime/conf-observed :todo-seed
                 :rf.runtime/conf-writer   :todo}
-               (frame/frame-runtime-db-value :conf.rt/todo))
+               (rf.frame/frame-runtime-db-value :conf.rt/todo))
             "the todo frame's runtime-db is EXACTLY the todo handler's write over the todo seed")
         (is (= {:rf.runtime/conf-seed     :counter-seed
                 :rf.runtime/conf-observed :counter-seed
                 :rf.runtime/conf-writer   :counter}
-               (frame/frame-runtime-db-value :conf.rt/counter))
+               (rf.frame/frame-runtime-db-value :conf.rt/counter))
             "the counter frame's runtime-db is EXACTLY the counter handler's write over the counter seed"))
       (testing "neither frame fell back to the same-id GLOBAL runtime handler"
-        (is (not= :global (:rf.runtime/conf-writer (frame/frame-runtime-db-value :conf.rt/todo)))
+        (is (not= :global (:rf.runtime/conf-writer (rf.frame/frame-runtime-db-value :conf.rt/todo)))
             "the todo frame did NOT resolve the global runtime handler")
-        (is (not= :global (:rf.runtime/conf-writer (frame/frame-runtime-db-value :conf.rt/counter)))
+        (is (not= :global (:rf.runtime/conf-writer (rf.frame/frame-runtime-db-value :conf.rt/counter)))
             "the counter frame did NOT resolve the global runtime handler"))
       (testing "the un-dispatched SIBLING frame's runtime-db is UNCHANGED — no
                 todo / counter / global runtime write leaked into it"
         (is (= {:rf.runtime/conf-seed :sibling-seed}
-               (frame/frame-runtime-db-value :conf.rt/sibling))
+               (rf.frame/frame-runtime-db-value :conf.rt/sibling))
             "the sibling frame's runtime-db is EXACTLY its seed (untouched)"))
       (testing "the runtime-only event left the app-db partition untouched —
                 the two partitions commit independently (EP-0001)"
@@ -217,7 +217,7 @@
         (is (= {} (rf/app-db-value :conf.rt/counter))
             "the counter frame's app-db partition saw no write from the runtime-only event"))
       (testing "the generation binding did NOT leak past either cascade"
-        (is (nil? registrar/*generation*)
+        (is (nil? rf.registrar/*generation*)
             "after the dispatches, no generation is bound (the resolution seam unwound)")))))
 
 (deftest child-dispatch-stays-in-the-frames-image-and-commits-only-that-frame
@@ -237,13 +237,13 @@
                        (fn [{:keys [db]} _] {:db (assoc db :inc :sibling)}))
            (event-desc "examples.todo" :counter/step
                        (fn [{:keys [db]} _] {:db (assoc db :step :sibling)}))]
-          target-image (image/image {:id :examples/counter
+          target-image (rf.image/image {:id :examples/counter
                                      :select-ns {:include ["examples.counter"]}})
-          sibling-image (image/image {:id :examples/todo
+          sibling-image (rf.image/image {:id :examples/todo
                                       :select-ns {:include ["examples.todo"]}})
-          _ (lf/make-frame {:id :counter/main :images [target-image]}
+          _ (rf.live-frame/make-frame {:id :counter/main :images [target-image]}
                            target-registrations)
-          _ (lf/make-frame {:id :sibling/main :images [sibling-image]}
+          _ (rf.live-frame/make-frame {:id :sibling/main :images [sibling-image]}
                            sibling-registrations)]
       (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
       (let [target-db (rf/app-db-value :counter/main)]
