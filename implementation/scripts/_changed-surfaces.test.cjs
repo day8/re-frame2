@@ -18,6 +18,52 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
+// ---------------------------------------------------------------------------
+// rf2-e30e — THE ROSTER GUARD.
+//
+// A roster pin naming a file that does not exist CANNOT FAIL, and that is the
+// whole hazard. The classifier arms these tiers on a DIRECTORY-prefix glob, so
+// a phantom path classifies byte-identically to the real file beside it: the
+// row passes, the suite reports coverage of a tier it never reached, and
+// nothing on screen tells an inert row from a satisfied one. It is fail-OPEN.
+//
+// It has now happened three times in this one file:
+//   - `implementation/security/src/re_frame/security.cljc`, which has never
+//     existed at any point in history (rf2-qxg24);
+//   - `reply_vocabulary_conformance_cljs_test.cljc`, where the tracked file is
+//     `reply_vocab_conformance_cljs_test.cljc` — "vocab", not "vocabulary", so
+//     it too was wrong when written rather than drift from a rename (rf2-z23f);
+//   - and both were found BY ACCIDENT, in passing, rather than by any check.
+//
+// PR #9133 closed the second with an `fs.existsSync` assertion written inline
+// in the CONFORMANCE_TIERS loop. This is that guard generalised, and it is
+// deliberately ONE mechanism rather than an assertion each new roster's author
+// must remember to copy — two different guards in one file is exactly how the
+// third occurrence happened. Declaring a roster through `pinnedRoster` IS
+// arming the guard for it; there is no second step to forget.
+//
+// WHAT THIS GUARD IS NOT FOR. Not every path literal in this file is a roster
+// pin. A GLOB PROBE — a synthetic path whose point is the SHAPE the classifier
+// matches (a nested depth, an extension, a sibling tree) rather than any file
+// on disk — is legitimately untracked, and asserting its existence would be a
+// category error that reds the suite over a working test. Probes are therefore
+// named as single values at their use site and never folded into a roster, so
+// the distinction lives in the source rather than in somebody's memory.
+function pinnedRoster(name, files) {
+  test(`${name}: every pinned path exists (roster guard, rf2-e30e)`, () => {
+    for (const file of files) {
+      assert.ok(
+        fs.existsSync(path.join(REPO_ROOT, file)),
+        `${name} pins ${file}, which does not exist. A pin on a phantom path ` +
+          'cannot fail, so it reports coverage the suite never reached ' +
+          '(rf2-qxg24, rf2-z23f, rf2-e30e). Correct the path — or, if it is a ' +
+          'synthetic glob probe, name it at its use site instead of in a roster.',
+      );
+    }
+  });
+  return files;
+}
+
 // Relative POSIX path, resolved against REPO_ROOT as the child's cwd — the same
 // form every other suite in this directory uses, and the one that works
 // unchanged on Windows, macOS and Linux.
@@ -986,6 +1032,13 @@ const NEW_TOOLS_JVM_LANES = [
     armed: 'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
   },
 ];
+
+// rf2-e30e — the roster guard reaching rows that are OBJECTS. Two of the four
+// fields are repo paths and two (`job`, `output`) are CI identifiers that would
+// never resolve, so the path fields are projected out rather than the row
+// walked wholesale. `dir` is a directory and `armed` a file; `fs.existsSync`
+// answers for both, which is why the guard tests existence rather than tracking.
+pinnedRoster('NEW_TOOLS_JVM_LANES', NEW_TOOLS_JVM_LANES.flatMap((lane) => [lane.dir, lane.armed]));
 
 test('the new tools JVM jobs are gated on their own output and run their artefact (rf2-wq17m)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
@@ -2310,12 +2363,22 @@ test('NON-preload re-frame2-pair skill file does NOT arm examples_compile (scope
 // false-green). These assertions pin all four positive outputs (incl. a nested
 // path), the non-preload negative, and the two job-level gate wirings.
 
-const PRELOAD_RUNTIME_FILES = [
+const PRELOAD_RUNTIME_FILES = pinnedRoster('PRELOAD_RUNTIME_FILES', [
   'skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs',
   'skills/re-frame2-pair/preload/re_frame2_pair/pure.cljc',
-  'skills/re-frame2-pair/preload/re_frame2_pair/nested/deep.cljs',
-];
-for (const file of PRELOAD_RUNTIME_FILES) {
+]);
+
+// rf2-e30e — a GLOB PROBE, and the reason the roster guard has that concept at
+// all. This path is SYNTHETIC and deliberately untracked: what it establishes
+// is that the classifier's preload arm matches at DEPTH, a property of the
+// glob rather than of any file, and a real nested file would prove it no
+// better. It therefore sits outside `PRELOAD_RUNTIME_FILES` — folding it back
+// in would red the roster guard over a test that is working exactly as
+// intended, which is the category error the guard's own comment warns about.
+const PRELOAD_RUNTIME_DEPTH_PROBE =
+  'skills/re-frame2-pair/preload/re_frame2_pair/nested/deep.cljs';
+
+for (const file of [...PRELOAD_RUNTIME_FILES, PRELOAD_RUNTIME_DEPTH_PROBE]) {
   test(`${file} arms cljs_browser + mcp_live (owning behavioral gates) (rf2-11yjq)`, () => {
     const result = classify(file);
     assert.equal(
@@ -2375,7 +2438,7 @@ test('NON-preload re-frame2-pair skill file does NOT arm cljs_browser / mcp_live
 // `/` straight after `pair`, and `skills/re-frame2-pair-retro/...` has a `-`
 // there, so it never matches. The negative assertions pin that boundary from
 // the other side — retro paths must not arm the PAIR tree's expensive gates.
-const SKILLS_STRUCTURAL_ONLY_FILES = [
+const SKILLS_STRUCTURAL_ONLY_FILES = pinnedRoster('SKILLS_STRUCTURAL_ONLY_FILES', [
   'skills/re-frame2-pair-retro/SKILL.md',
   'skills/re-frame2-pair-retro/tests/duplicate_search_test.clj',
   'skills/re-frame2-pair-retro/references/known-frictions.md',
@@ -2383,7 +2446,7 @@ const SKILLS_STRUCTURAL_ONLY_FILES = [
   'skills/reagent-migration/references/procedure.md',
   'skills/reagent-migration/tests/fixture/test/reagent_migration/mig23_cold_start_test.cljs',
   'skills/reagent-migration/tests/fixture/shadow-cljs.edn',
-];
+]);
 for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
   test(`${file} arms skills_structural (rf2-g1m2q)`, () => {
     const result = classify(file);
@@ -2430,12 +2493,12 @@ for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
 // assertion passes while pinning a route no diff can ever take. That is the
 // same defect rf2-qxg24 removes from the examples_compile fixture list in this
 // file, and it is why the negative half below uses tracked paths too.
-const MIG23_FIXTURE_LOCAL_ROOTS = [
+const MIG23_FIXTURE_LOCAL_ROOTS = pinnedRoster('MIG23_FIXTURE_LOCAL_ROOTS', [
   'implementation/core/src/re_frame/core.cljc',
   'implementation/ssr/src/re_frame/ssr.cljc',
   'implementation/hicasso/src/re_frame/hicasso/server.cljs',
   'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
-];
+]);
 for (const file of MIG23_FIXTURE_LOCAL_ROOTS) {
   test(`${file} arms skills_structural — MIG-23 cold-start reverse edge (rf2-bbe91)`, () => {
     const result = classify(file);
@@ -2473,7 +2536,7 @@ for (const file of MIG23_FIXTURE_LOCAL_ROOTS) {
 // a real one and the assertion passes while pinning a route no diff can take.
 // The extensions are again the tell — the three added roots are `.cljc` and the
 // Reagent adapter is `.cljs`.
-const PAIR_FIXTURE_LOCAL_ROOTS = [
+const PAIR_FIXTURE_LOCAL_ROOTS = pinnedRoster('PAIR_FIXTURE_LOCAL_ROOTS', [
   'implementation/core/src/re_frame/core.cljc',
   'implementation/core/deps.edn',
   'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
@@ -2484,7 +2547,7 @@ const PAIR_FIXTURE_LOCAL_ROOTS = [
   'implementation/schemas/deps.edn',
   'implementation/machines/src/re_frame/machines.cljc',
   'implementation/machines/deps.edn',
-];
+]);
 for (const file of PAIR_FIXTURE_LOCAL_ROOTS) {
   test(`${file} arms skills_structural — Pair fixture reverse edge (rf2-f9f3p)`, () => {
     assert.equal(
@@ -3361,11 +3424,11 @@ test('Adapter source change fires adapter_testbed_smokes (rf2-t5slp regression g
 // harness-script edit fires ONLY adapter_testbed_smokes (its dedicated case),
 // not the broad adapter-source fan-out the rest of implementation/adapters/*
 // triggers.
-const ADAPTER_HARNESS_FILES = [
+const ADAPTER_HARNESS_FILES = pinnedRoster('ADAPTER_HARNESS_FILES', [
   'implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs',
   'implementation/adapters/scripts/run-adapter-smokes.cjs',
   'implementation/adapters/scripts/adapter-smoke-filter.cjs',
-];
+]);
 for (const file of ADAPTER_HARNESS_FILES) {
   test(`${file} (adapter-smoke harness) fires adapter_testbed_smokes`, () => {
     const result = classify(file);
@@ -3580,10 +3643,10 @@ test('the local spine consumes test_react_jvm for its JVM tier (rf2-6r9j.87)', (
 // always-on JS harness path (cljs_browser only) — they have always-on
 // .test.cjs coverage under test:scripts and drive no browser gate.
 
-const ADAPTER_SMOKE_GATE_FILES = [
+const ADAPTER_SMOKE_GATE_FILES = pinnedRoster('ADAPTER_SMOKE_GATE_FILES', [
   'examples/scripts/spec-helpers.cjs',
   'examples/scripts/examples-port.cjs',
-];
+]);
 for (const file of ADAPTER_SMOKE_GATE_FILES) {
   test(`${file} fires adapter_testbed_smokes (rf2-y9o5e3)`, () => {
     const result = classify(file);
@@ -3598,10 +3661,10 @@ for (const file of ADAPTER_SMOKE_GATE_FILES) {
 // tests.cjs are reachable from `npm run test:story-feature-load` and nothing
 // else. They move to the story_full_gate roster below, where the output
 // schedules the step that actually runs them.
-const STORY_SMOKE_GATE_FILES = [
+const STORY_SMOKE_GATE_FILES = pinnedRoster('STORY_SMOKE_GATE_FILES', [
   'examples/scripts/serve-and-run-story-play-scripts.cjs',
   'examples/scripts/story-feature-load-port.cjs',
-];
+]);
 for (const file of STORY_SMOKE_GATE_FILES) {
   test(`${file} fires story_xray_browser (rf2-y9o5e3)`, () => {
     const result = classify(file);
@@ -3614,13 +3677,13 @@ for (const file of STORY_SMOKE_GATE_FILES) {
 // job story_xray_browser schedules ran neither command that loads those files.
 // These rows pin the first half; the workflow rows above pin the second.
 
-const STORY_FULL_GATE_FILES = [
+const STORY_FULL_GATE_FILES = pinnedRoster('STORY_FULL_GATE_FILES', [
   'tools/story/test/story_feature_load.cjs',
   'tools/story/test/story_browser_scenarios.cjs',
   'examples/scripts/serve-and-run-story-feature-load-tests.cjs',
   'examples/scripts/run-story-feature-load-tests.cjs',
   'examples/scripts/story-feature-load-port.cjs',
-];
+]);
 for (const file of STORY_FULL_GATE_FILES) {
   test(`${file} fires story_full_gate (rf2-65ajl)`, () => {
     const result = classify(file);
@@ -3913,8 +3976,8 @@ test('implementation/resources/deps.edn arms implementation_jvm + cljs_node_test
   assert.equal(result.cljs_node_test, 'true');
 });
 
-// rf2-z23f — EVERY PATH HERE IS TRACKED, and the `fs.existsSync` guard below
-// is what keeps it that way. The row this list replaces named
+// rf2-z23f — EVERY PATH HERE IS TRACKED, and the `pinnedRoster` guard is what
+// keeps it that way. The row this list replaces named
 // `reply_vocabulary_conformance_cljs_test.cljc`; the tracked file is
 // `reply_vocab_conformance_cljs_test.cljc` — "vocab", not "vocabulary". That
 // spelling was never a tracked path at any point in history (`git log --all
@@ -3930,26 +3993,27 @@ test('implementation/resources/deps.edn arms implementation_jvm + cljs_node_test
 //
 // The SECURITY_TIER_FILES block below is the same bug, found and fixed one tier
 // over (rf2-qxg24, whose row asserted from a `security.cljc` that has never
-// existed). This list now carries that block's discipline AND the executable
-// guard the prose alone could not supply.
+// existed). Under rf2-e30e the executable guard PR #9133 wrote inline here is
+// no longer this block's private property: it is `pinnedRoster`, and every path
+// roster in this file — that block included — now declares through it.
 //
 // The reply tier contributes BOTH of its live suites — the vocabulary suite and
 // the egress-projection suite — because the tier owns two guarantees and a
 // prefix glob is exactly the thing that would hide a future arm narrowing to
 // one of them.
-const CONFORMANCE_TIERS = [
+const CONFORMANCE_TIERS = pinnedRoster('CONFORMANCE_TIERS', [
   'implementation/reply-conformance/test/re_frame/reply_vocab_conformance_cljs_test.cljc',
   'implementation/reply-conformance/test/re_frame/reply_egress_projection_conformance_cljs_test.cljc',
   'implementation/derivation-conformance/test/re_frame/derivation_algebra_conformance_cljs_test.cljc',
   'implementation/event-conformance/test/re_frame/event_model_conformance_cljs_test.cljc',
-];
+]);
 for (const file of CONFORMANCE_TIERS) {
   test(`${file} arms implementation_jvm + cljs_node_test (cross-conformance tier, rf2-dxndhc)`, () => {
-    assert.ok(
-      fs.existsSync(path.join(REPO_ROOT, file)),
-      `${file} must exist — a tier pin on a phantom path cannot fail, so it ` +
-        'reports coverage the suite never reached (rf2-z23f)',
-    );
+    // The existence half of this test moved to `pinnedRoster` (rf2-e30e). It is
+    // not weaker for having moved — the same `fs.existsSync` still runs against
+    // the same four paths, and it now runs against the other thirteen rosters
+    // too. What is gone is the SECOND mechanism, which is what let the security
+    // tier below sit unguarded while this one was fixed.
     const result = classify(file);
     assert.equal(
       result.implementation_jvm,
@@ -3991,12 +4055,12 @@ test('a src-less conformance tier does NOT widen production bundles (no bundle_i
 // of this bead: the row this replaces asserted from
 // `implementation/security/src/re_frame/security.cljc`, which has never
 // existed.
-const SECURITY_TIER_FILES = [
+const SECURITY_TIER_FILES = pinnedRoster('SECURITY_TIER_FILES', [
   'implementation/security/deps.edn',
   'implementation/security/test/re_frame/security/mcp_egress_security_cljs_test.cljc',
   'implementation/security/test/re_frame/security/schema_redaction_security_cljs_test.cljc',
   'implementation/security/test/re_frame/security/gen.cljc',
-];
+]);
 for (const file of SECURITY_TIER_FILES) {
   test(`${file} arms implementation_jvm + cljs_node_test ONLY (src-less security tier, rf2-qxg24)`, () => {
     const result = classify(file);
@@ -4119,13 +4183,13 @@ test('all-required-passed aggregator needs the four new implementation_jvm jobs 
 // only) the sole insufficient verifier. These assertions lock the new
 // routing onto implementation_jvm + cljs_node_test.
 
-const TEST_QUIET_FILES = [
+const TEST_QUIET_FILES = pinnedRoster('TEST_QUIET_FILES', [
   'implementation/test-quiet/src/re_frame/test_quiet/runner.clj',
   'implementation/test-quiet/src/re_frame/test_quiet/shadow_node.cljs',
   'implementation/test-quiet/deps.edn',
   'implementation/test-quiet/test/re_frame/test_quiet_runner_contract_test.clj',
   'implementation/test-quiet/test/re_frame/test_quiet_shadow_node_cljs_test.cljs',
-];
+]);
 for (const file of TEST_QUIET_FILES) {
   test(`${file} arms implementation_jvm + cljs_node_test (quiet reporter, rf2-am7grp)`, () => {
     const result = classify(file);
@@ -4259,11 +4323,11 @@ test('serve-and-run-tenant-switcher-testbed.cjs still arms the generic static-sc
   assert.equal(result.bundle_isolation, 'true');
 });
 
-const TENANT_SWITCHER_TESTBED_FILES = [
+const TENANT_SWITCHER_TESTBED_FILES = pinnedRoster('TENANT_SWITCHER_TESTBED_FILES', [
   'testbeds/tenant_switcher/spec.cjs',
   'testbeds/tenant_switcher/core.cljs',
   'testbeds/tenant_switcher/index.html',
-];
+]);
 for (const file of TENANT_SWITCHER_TESTBED_FILES) {
   test(`${file} fires tenant_switcher_smoke + cljs_browser (rf2-h5e3v7)`, () => {
     const result = classify(file);
@@ -4704,11 +4768,11 @@ test('the hicasso HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () 
 // same namespaces and reported each DOM row as a STATED GREEN SKIP. The
 // surface passed having executed none of its DOM assertions.
 
-const HICASSO_DOM_TESTS = [
+const HICASSO_DOM_TESTS = pinnedRoster('HICASSO_DOM_TESTS', [
   'implementation/hicasso/test/re_frame/hicasso/kernel_commit_owns_dom_cljs_test.cljs',
   'implementation/hicasso/test/re_frame/hicasso/roots_frames_hydration_dom_cljs_test.cljs',
   'implementation/hicasso/test/re_frame/hicasso/roots_frames_isolation_dom_cljs_test.cljs',
-];
+]);
 
 test('a hicasso DOM-test diff lights the browser job (rf2-8a6s)', () => {
   for (const file of HICASSO_DOM_TESTS) {
@@ -5746,6 +5810,17 @@ const PROSE_PINS_ARMING_JVM = [
   ['spec/Tool-Pair.md', 'spec_elision_registry_tense_conformance_test.clj', 'jvm-core'],
 ];
 
+// rf2-e30e — the same roster guard, reaching a roster whose rows are TRIPLES.
+// Only column 0 is a path; columns 1 and 2 are a suite filename and a job name,
+// and neither is resolvable against the repo root (`six suites in five
+// artefacts` and `jvm-core/-epoch/-machines/-ui` are prose). Projecting the
+// column before guarding it is what keeps that distinction honest — a guard
+// that walked every string in this roster would fail on the documentation.
+pinnedRoster(
+  'PROSE_PINS_ARMING_JVM',
+  PROSE_PINS_ARMING_JVM.map(([file]) => file),
+);
+
 test('every measured prose pin arms the JVM tier that runs its suite (rf2-61ar)', () => {
   for (const [file, suite, job] of PROSE_PINS_ARMING_JVM) {
     assert.equal(
@@ -6475,6 +6550,103 @@ test('every DECLARED tree still exists, and its named coverage does (rf2-skvce)'
       }
     }
   }
+  assert.deepEqual(problems, [], problems.join('\n  '));
+});
+
+// ---------------------------------------------------------------------------
+// rf2-e30e — THE GUARD'S OWN GUARD.
+//
+// `pinnedRoster` covers the rosters that exist today. It cannot, by itself,
+// cover the NEXT one: a roster added by someone who has never read that comment
+// and declared as a bare array literal is precisely the silent fourth
+// occurrence this bead exists to prevent. Three times now the bug has been
+// caught by accident, so a guard that still depends on an author remembering it
+// has not changed the thing that failed.
+//
+// So this test reads THIS FILE'S OWN SOURCE and refuses a path-shaped roster
+// that never reached the guard. Parsing a roster out of source to keep it
+// honest is an idiom this suite already uses one tier over — `every spec module
+// the full-gate runner loads is armed` parses `ALL_SPEC_FILES` out of the story
+// runner for exactly this reason. The only thing new here is that the file
+// being parsed is this one, which is the only way to reach a roster that has
+// not been written yet.
+const ROSTERS_EXEMPT_FROM_PATH_PINNING = new Set([
+  // Empty, and that is the intended steady state. An entry belongs here only
+  // when a roster holds path-SHAPED strings that are not repo paths — glob
+  // patterns, or synthetic probes that must stay untracked — and it carries a
+  // reason on the line. Never add one to silence a red you have not understood:
+  // the red normally means a pin has gone phantom, which is the bug itself
+  // rather than the guard misfiring.
+]);
+
+test('every path-shaped roster in this file is declared through pinnedRoster (rf2-e30e)', () => {
+  const source = fs.readFileSync(__filename, 'utf8');
+  const isPathShaped = (s) => /^[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@*-]+)+$/.test(s);
+  const problems = [];
+  const declaration = /(?:^|\n)const ([A-Z][A-Z0-9_]*) = \[/g;
+  let scanned = 0;
+  let match;
+
+  while ((match = declaration.exec(source)) !== null) {
+    const name = match[1];
+    scanned += 1;
+
+    // Quote-aware bracket matching: a roster entry may itself contain a
+    // bracket, and a naive search for the next `]` would truncate the array.
+    const open = source.indexOf('[', match.index);
+    let depth = 0;
+    let end = -1;
+    let quote = null;
+    for (let i = open; i < source.length; i += 1) {
+      const character = source[i];
+      if (quote !== null) {
+        if (character === '\\') { i += 1; continue; }
+        if (character === quote) quote = null;
+        continue;
+      }
+      if (character === "'" || character === '"' || character === '`') { quote = character; continue; }
+      if (character === '[') depth += 1;
+      else if (character === ']') {
+        depth -= 1;
+        if (depth === 0) { end = i; break; }
+      }
+    }
+    assert.ok(end > 0, `${name}: the self-parse could not find the end of the array literal`);
+
+    const entries = [...source.slice(open + 1, end).matchAll(/'([^'\n]*)'|"([^"\n]*)"/g)]
+      .map((entry) => (entry[1] === undefined ? entry[2] : entry[1]));
+    const paths = entries.filter(isPathShaped);
+
+    // A roster counts as guarded however it reaches `pinnedRoster` — wrapped at
+    // its declaration, or (where the rows are tuples or objects rather than
+    // bare paths) passed as a projected column afterwards.
+    //
+    // Tolerate whitespace between the call and its first argument, because a
+    // formatter will break a long call across lines and a contiguous-substring
+    // search cannot see across one. That is not hypothetical: this very check
+    // was written as `source.includes("pinnedRoster('" + name + "'")` and
+    // reported PROSE_PINS_ARMING_JVM unguarded when it was guarded three lines
+    // below, purely because prettier had wrapped the argument onto its own
+    // line. A detector that answers "not found" for a formatting reason is the
+    // same fail-open shape as the phantom pin it is here to catch.
+    const guarded = new RegExp(`pinnedRoster\\(\\s*'${name}'`).test(source);
+    if (paths.length > 0 && !guarded && !ROSTERS_EXEMPT_FROM_PATH_PINNING.has(name)) {
+      problems.push(
+        `${name} holds ${paths.length} path-shaped entry/entries (e.g. ${paths[0]}) ` +
+          'but is declared as a bare array, so a phantom path in it would be inert ' +
+          `rather than red. Declare it as \`const ${name} = pinnedRoster('${name}', [...])\`, ` +
+          'or pass its path column to pinnedRoster if the rows are tuples (rf2-e30e).',
+      );
+    }
+  }
+
+  // The parse itself is an instrument that can answer "nothing here" when it is
+  // simply broken, so pin that it still finds the bare declarations it should.
+  assert.ok(
+    scanned > 0,
+    'the self-parse matched no bare roster declarations at all — the parse has rotted, ' +
+      'and a rotted parse reports a clean file (rf2-e30e)',
+  );
   assert.deepEqual(problems, [], problems.join('\n  '));
 });
 
