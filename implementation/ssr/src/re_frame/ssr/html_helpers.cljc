@@ -492,20 +492,54 @@
 ;; emitters' PIPELINES stay separate (004B) because only the rosters and the
 ;; name→class function are shared; each emitter keeps its own attribute-name
 ;; handling and its own escape.
+;;
+;; WHAT CHECKS THESE ROSTERS, AND WHY IT CANNOT BE A PARITY TEST (the
+;; rf2-r9kf audit's finding). Sharing one roster between two serialisers
+;; removed the drift between them and, with it, the only check that had been
+;; watching: two consumers of one table agree with each other whatever the
+;; table says. The first version of these rosters was internally consistent
+;; and still missing eight names — four presence, four stringifying — and
+;; every in-repo test stayed green, because every test compared re-frame with
+;; re-frame.
+;;
+;; So the rosters are pinned against something OUTSIDE them:
+;; `re-frame.ssr-boolean-attr-react-parity-test` reads
+;; `react_dom_probe/boolean_attr_classes.edn` — react-dom's own markup for
+;; every boolean-valued attribute React accepts, measured from the installed
+;; package by `react_dom_probe/boolean_attr_classes.cjs` — derives the class
+;; from those bytes, and fails when `boolean-attr-class` disagrees IN EITHER
+;; DIRECTION. Adding a name here without React's evidence reds that test just
+;; as omitting one does. Two names are deliberate, documented exceptions;
+;; the test names them and says why.
 
 (def boolean-attrs
   "HTML boolean attributes: `true` → presence, `false`/absent → omitted.
   Tracks react-dom 19.2.0 (004B §Booleans and their neighbours); keyed by
-  the hyphen-collapsed lowercase author name."
+  the hyphen-collapsed lowercase author name.
+
+  Pinned against react-dom's measured output, not against a restatement of
+  it — see the roster note above and
+  `re-frame.ssr-boolean-attr-react-parity-test`."
   #{"allowfullscreen" "async" "autofocus" "autoplay" "checked" "controls"
-    "default" "defer" "disabled" "formnovalidate" "hidden" "inert" "ismap"
+    "default" "defer" "disabled" "disablepictureinpicture"
+    "disableremoteplayback" "formnovalidate" "hidden" "inert" "ismap"
     "itemscope" "loop" "multiple" "muted" "nomodule" "novalidate" "open"
-    "playsinline" "readonly" "required" "reversed" "selected"})
+    "playsinline" "readonly" "required" "reversed" "scoped" "seamless"
+    "selected"})
 
 (def booleanish-attrs
   "`true`/`false` → `\"true\"`/`\"false\"`, never omitted. Tracks react-dom
-  19.2.0."
-  #{"contenteditable" "draggable" "spellcheck"})
+  19.2.0.
+
+  Beyond the three HTML names, react-dom stringifies four SVG attributes the
+  same way — `autoReverse`, `externalResourcesRequired`, `focusable`,
+  `preserveAlpha` — whose SVG value space is literally the STRINGS
+  `\"true\"`/`\"false\"`, so an omitted `false` is a different document rather
+  than a tidier one: `focusable=\"false\"` says the element is not focusable,
+  and no attribute says nothing at all. That is the same shape as the ARIA
+  case, and it is why these four cannot ride the presence class."
+  #{"contenteditable" "draggable" "spellcheck"
+    "autoreverse" "externalresourcesrequired" "focusable" "preservealpha"})
 
 (def overloaded-boolean-attrs
   "`true` → bare presence, `false` → omitted, any other value stringifies.
@@ -517,7 +551,8 @@
   how a BOOLEAN value for it serialises:
 
     `:stringify`  — `aria-*`, `data-*`, and the booleanish family
-                    (`contentEditable` / `draggable` / `spellCheck`):
+                    (`contentEditable` / `draggable` / `spellCheck` plus the
+                    four SVG names in `booleanish-attrs`):
                     `true`/`false` → `\"true\"`/`\"false\"`, NEVER omitted.
     `:presence`   — the true HTML boolean attributes (`disabled`, `checked`,
                     …) and the overloaded booleans (`download`, `capture`):
@@ -527,6 +562,28 @@
     `:ordinary`   — everything else: a boolean never reaches markup at all
                     (react-dom drops it rather than inventing a bare
                     attribute).
+
+  TWO NAMES ARE DELIBERATELY NOT WHAT REACT DOES, and both are recorded
+  rather than left to be rediscovered (rf2-r9kf, second pass):
+
+    `value`  — react-dom stringifies a BOOLEAN `value` (`value=\"true\"`)
+               because `value` shares the code branch with the booleanish
+               names, not because it is one. Here it stays `:ordinary`: a
+               boolean `value` on a form control is an author error, not a
+               state, and `value` is a 004B form-control special form whose
+               meaning already differs per element (`<input>` attribute,
+               `<textarea>` text child, `<select>` → `selected` on an
+               option). Classifying it in this shared roster would change
+               `re-frame.ssr.ui-tree`'s handling of that special form from
+               here, which is 004B's call and not this ns's.
+    `ismap`  — kept `:presence` on 004B §Booleans and their neighbours,
+               which names it explicitly. react-dom 19.2.0 does NOT accept a
+               boolean `ismap` (it warns \"Received `true` for a non-boolean
+               attribute\" and emits nothing), so this row is a measured
+               divergence from React, filed for 004B's owner rather than
+               resolved here. `ismap` IS a real HTML boolean attribute, so
+               presence is the HTML-correct rendering; what is unsettled is
+               whether this grammar tracks HTML or react-dom where they part.
 
   Names are matched hyphen-collapsed and lowercased, so `:content-editable`
   and `:contentEditable` classify alike. Only the CLASS is decided here — the
