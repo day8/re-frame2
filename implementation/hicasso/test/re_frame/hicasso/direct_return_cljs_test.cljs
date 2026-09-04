@@ -155,7 +155,7 @@
             [re-frame.hicasso.impl.controlled :as controlled]
             [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.roots-frames-support :as sup]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
             [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
@@ -297,10 +297,10 @@
   and it is the same sentence: they are keyed to the DECLARATION, so the
   arms below — which are the same page written three ways — carry three
   different view names and would part on the one difference this file's
-  every comparison exists to exclude. `sup/without-view-annotations`
+  every comparison exists to exclude. `rf.hicasso.roots-frames-support/without-view-annotations`
   carries the argument in full."
   [view]
-  (sup/without-view-annotations
+  (rf.hicasso.roots-frames-support/without-view-annotations
     (react-dom-server/renderToStaticMarkup
       (mount/provider frame-id (codec/root-element frame-id [view {:id 1}])))))
 

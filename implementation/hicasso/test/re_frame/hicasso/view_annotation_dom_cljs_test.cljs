@@ -6,8 +6,8 @@
   contract requires `data-rf-view` beside it on the same element and the
   same gate, and §Cross-host binds every in-scope React-binding adapter to
   both. Hicasso is one — Mike's 2026-07-31 ruling, and its own
-  `re-frame.hicasso.substrate/adapter` — and a `h/defview` is a registered
-  view: `collector/publish-view-alias!` writes it into re-frame's `:view`
+  `re-frame.hicasso.substrate/adapter` — and a `rf.hicasso/defview` is a registered
+  view: `rf.hicasso.impl.collector/publish-view-alias!` writes it into re-frame's `:view`
   registrar under the id `rf/reg-view` would have derived from the same
   symbol.
 
@@ -36,13 +36,13 @@
   its OWN."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::view-annotation)
 
@@ -53,48 +53,48 @@
   "re-frame.hicasso.view-annotation-dom-cljs-test")
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The declarations — one per shape Spec 006 distinguishes
 ;; ---------------------------------------------------------------------------
 
-(h/defview plain-root
+(rf.hicasso/defview plain-root
   "A DOM-tag root with NO attrs map: the splice branch."
   [_]
   [:p.plain "plain"])
 
-(h/defview attrs-root
+(rf.hicasso/defview attrs-root
   "A DOM-tag root that already carries attrs: the merge branch."
   [_]
   [:p {:class "attrs" :id "keep-me"} "attrs"])
 
-(h/defview author-wins
+(rf.hicasso/defview author-wins
   "A body that writes `:data-rf-view` itself; the author's value stands."
   [_]
   [:p {:class "wins" :data-rf-view "author-set"} "wins"])
 
-(h/defview inner-view
+(rf.hicasso/defview inner-view
   "The inner half of a boundary-rooted pair — it tags its OWN root."
   [_]
   [:p.inner "inner"])
 
-(h/defview boundary-root
+(rf.hicasso/defview boundary-root
   "A root that is another declared view: Spec 006's component-head
   exemption, and Hicasso's most ordinary composition."
   [_]
   [inner-view {}])
 
-(h/defview fragment-root
+(rf.hicasso/defview fragment-root
   "A fragment root: Spec 006's fragment exemption — no element to carry an
   attribute."
   [_]
   [:<> [:p.frag "fragment"]])
 
-(h/defview screen
+(rf.hicasso/defview screen
   "One mount carrying every shape above."
   [_]
   [:div.screen
@@ -112,7 +112,7 @@
   (is true (str "a DOM claim needs a real DOM — " why)))
 
 (defn- fresh! []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   frame-id)
 
@@ -126,14 +126,14 @@
 
 (defn- mounted! []
   (fresh!)
-  (mount/root! (mount/fresh-container!) frame-id [screen {}]))
+  (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [screen {}]))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the annotated shapes
 ;; ---------------------------------------------------------------------------
 
 (deftest a-dom-rooted-boundary-carries-both-annotations
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -157,10 +157,10 @@
         (testing "the mount's own outer view is annotated too — the stamp is
                   per boundary, not per tree"
           (is (= (str ":" view-ns "/screen") (view-attr handle ".screen"))))
-        (finally (mount/release! handle))))))
+        (finally (rf.hicasso.impl.mount/release! handle))))))
 
 (deftest the-author-wins-a-collision
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -171,14 +171,14 @@
         (is (str/starts-with? (coord-attr handle ".wins")
                               (str view-ns ":author-wins:"))
             "and the attribute it did NOT write is still stamped")
-        (finally (mount/release! handle))))))
+        (finally (rf.hicasso.impl.mount/release! handle))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the exemptions, asserted as absences
 ;; ---------------------------------------------------------------------------
 
 (deftest a-boundary-rooted-body-is-exempt-and-its-child-tags-itself
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -191,10 +191,10 @@
                   view's element"
           (is (nil? (q handle (str "[data-rf-view='" ":" view-ns "/boundary-root']")))
               "no element claims to be boundary-root"))
-        (finally (mount/release! handle))))))
+        (finally (rf.hicasso.impl.mount/release! handle))))))
 
 (deftest a-fragment-rooted-body-is-exempt
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -206,14 +206,14 @@
               "and carries no view id — it is the fragment's child, not a
                registered view's root")
           (is (nil? (coord-attr handle ".frag"))))
-        (finally (mount/release! handle))))))
+        (finally (rf.hicasso.impl.mount/release! handle))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the forward/backward join a tool actually walks
 ;; ---------------------------------------------------------------------------
 
 (deftest the-attribute-resolves-back-through-the-view-registrar
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -227,4 +227,4 @@
             (is (some? (rf/handler-meta :view id))
                 "and that id has a `:view` registrar entry, so the coordinate
                  is recoverable even for the exempt shapes above")))
-        (finally (mount/release! handle))))))
+        (finally (rf.hicasso.impl.mount/release! handle))))))
