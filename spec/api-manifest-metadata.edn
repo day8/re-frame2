@@ -334,6 +334,68 @@
   ;; (spec/API.md §Open in editor). A documented panel-author surface — `tooling`.
   {:namespace "day8.re-frame2-xray.open-in-editor" :var "open-chip" :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
 
+  ;; ---- re-frame.story — the CLJS ARM of a SPLIT-HOST FACADE (rf2-i6kh) ----
+  ;;
+  ;; The rf2-i6kh sweep classified the 116 JVM-visible `re-frame.story`
+  ;; exports and left these FIVE unrowed, which its own post-merge audit
+  ;; caught: `re-frame.story` is a split-host `.cljc` exactly like
+  ;; `re-frame.hicasso` below, and its `#?(:cljs …)` arm publishes five more
+  ;; facade fns the JVM `ns-publics` cannot see. Four of them
+  ;; (`registered-substrates`, `mount-shell!`, `unmount-shell!`,
+  ;; `active-shell`) were merely SILENCED on the
+  ;; `:story-spec-known-unmanifested` allowlist above; `register-substrate!`
+  ;; was not even that, because it is not a var-row of
+  ;; tools/story/spec/API.md, so the projection check never asked about it.
+  ;; The rows below end both, and this PR adds the missing var-row too.
+  ;;
+  ;; `:facade? true` is carried PER ROW, the same second route the Xray block
+  ;; above uses and for a related but not identical reason: `gen/facade?`
+  ;; DOES name `re-frame.story`, but it is consulted only on the
+  ;; JVM-introspected path (`build-rows`), so a CLJS-arm row never reaches
+  ;; it. Blank these five flags and the facade-audit invariants stop seeing
+  ;; the five vars while `--check` stays green — which is precisely the gap
+  ;; the audit found.
+  ;;
+  ;; `:tier :tooling` and `:owner "007"` throughout, matching the 116 rows
+  ;; these five belong beside: Story is a tooling PRODUCT, so per
+  ;; spec/Conventions.md §Story / Xray nuance tooling legitimately IS its
+  ;; front porch and the discriminator is the user's workflow.
+  ;;
+  ;; ALL FIVE ARE `:action :keep`, and no move was available to rule.
+  ;; The audit's own wording left the branch open ("add register-substrate!
+  ;; to the Story API projection OR otherwise explicitly classify/move it"),
+  ;; so it was tested rather than assumed: the move discriminator asks
+  ;; whether an existing owning namespace is already a clearer door AND
+  ;; ordinary users do not need the name. The doors exist
+  ;; (`re-frame.story.ui.multi-substrate`, `re-frame.story.ui.shell`) but the
+  ;; second half fails on every one of the five — each is called by ordinary
+  ;; HOST BOOT code, through the facade, in this repo's own testbeds and
+  ;; docs. Moving them would also split two pairs (register/query,
+  ;; mount/unmount+read) across a door boundary, which is the incoherence
+  ;; §Keep product facades coherent forbids.
+  ;;
+  ;; `:runtime-verified? true` on all five is honest as of this PR and not a
+  ;; hand-set boolean: the CLJS enumeration probe now `:require`s
+  ;; `re-frame.story` and holds it `:fully-rowed`, so a rename or removal of
+  ;; any of the five turns `npm run test:cljs` RED, and
+  ;; `runtime-verified-rows-are-actually-covered` fails if this flag is ever
+  ;; true without that coverage.
+  {:namespace "re-frame.story" :var "register-substrate!" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "The host-boot verb of the multi-substrate feature: a host calls it once per substrate it wants Story to render against, which is ordinary consumer workflow rather than chrome-internal plumbing. tools/story/spec/002-Runtime.md §Substrate hooks and 005-SOTA-Features.md §Multi-substrate side-by-side rendering are its normative home; the hicasso_counter testbed calls it through the facade at boot; story_multi_substrate_cljs_test pins rf.story/register-substrate! as THE public form (the sub-namespace call is the internal one); and skills/re-frame2 names the same qualified spelling when explaining why story-mcp list-substrates is browser-only. It is also the WRITE half of the pair whose READ half (registered-substrates) already sat on the facade -- keeping the reader and moving the writer is the split §Keep product facades coherent forbids."}
+  {:namespace "re-frame.story" :var "registered-substrates" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "The READ half of the substrate pair: the set of registered substrate ids, which is how a custom shell or a tooling caller enumerates what a variant's :substrates opt-in may legally name. Already a var-row of tools/story/spec/API.md §Registry queries and of docs/story/api/reference.md, so it was documented as a facade surface while carrying no manifest row at all -- the exact accretion the facade audit exists to stop. Kept with register-substrate! as one workflow: register at boot, enumerate later."}
+  {:namespace "re-frame.story" :var "mount-shell!" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch for a tooling product: the one call that puts Story on screen, and for most hosts the second line of their Story entry namespace after configure!. tools/story/spec/003-Render-Shell.md §Shell lifecycle is its normative home; tools/story/spec/API.md §Shell lifecycle and docs/story/api/reference.md row it; docs/story/index.md shows it in the host entry point and Tutorial-Playwright.md assumes it as the page-root mount. CLJS-only because mounting a Reagent tree at a DOM node has no JVM equivalent -- that reader conditional is why the JVM generator never saw it, and says nothing about its status."}
+  {:namespace "re-frame.story" :var "unmount-shell!" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "The teardown half of the mount pair Conventions §Lifecycle-verb law names, and idempotent by contract: what a host calls when it leaves Story mode, and what a test fixture calls between shell mounts. Rowed in tools/story/spec/API.md §Shell lifecycle. Splitting it from mount-shell! would split one two-call workflow across two requires."}
+  {:namespace "re-frame.story" :var "active-shell" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "The READ of the shell pair -- the live shell handle or nil. Load-bearing rather than cosmetic: 003-Render-Shell.md §Shell lifecycle makes v1 a singleton in which a second mount-shell! tears the first down, so a host or fixture that must not clobber an existing shell has to ask first, and this is the only way to ask. Rowed in tools/story/spec/API.md §Shell lifecycle and docs/story/api/reference.md."}
+
   ;; ---- re-frame.hicasso — the CLJS ARM of a SPLIT-HOST door (rf2-phm7g) ----
   ;;
   ;; Unlike every block above, this namespace IS JVM-loadable: it sits in the
@@ -547,17 +609,30 @@
  ;; --------------------------------------------------------------------------
 
  ;; tools/story/spec/API.md var-rows that resolve to a Story surface the
- ;; manifest does not carry: CLJS-only facade vars the JVM generator cannot
- ;; `ns-publics`, and sub-namespace surfaces outside the manifest's
- ;; whole-namespace introspection set (re-frame.story.theme.* / ui.* /
- ;; xray-preset/* — public-but-chrome-internal per the doc's facade
+ ;; manifest does not carry: sub-namespace surfaces outside the manifest's
+ ;; whole-namespace introspection set (re-frame.story.test-support/*,
+ ;; re-frame.story.ui.* — public-but-not-on-the-facade per the doc's facade
  ;; re-export discipline). See re-frame.api-manifest.story-spec-check.
+ ;;
+ ;; THE FOUR CLJS-ONLY FACADE VARS ARE GONE FROM THIS SET (rf2-i6kh
+ ;; post-merge audit). `mount-shell!` / `unmount-shell!` / `active-shell` /
+ ;; `registered-substrates` were silenced here because the JVM generator
+ ;; cannot `ns-publics` a `#?(:cljs …)` arm — but silencing a FACADE export
+ ;; is not the same problem as silencing a sub-namespace one. It kept four
+ ;; documented `re-frame.story` facade surfaces out of the manifest entirely,
+ ;; so the facade-audit invariants (tier / action / justification) could not
+ ;; police them. They now carry real `:cljs-only` rows above, the projection
+ ;; check resolves them against those rows like any other var-row, and the
+ ;; CLJS probe holds `re-frame.story` fully-rowed so a rename cannot pass.
+ ;;
+ ;; EVERY REMAINING ENTRY IS OFF THE FACADE, which is why they stay. Each
+ ;; names a var of a SUB-NAMESPACE (`re-frame.story.test-support`,
+ ;; `re-frame.story.ui.xray-embed`) that tools/story/spec/API.md legitimately
+ ;; documents in its own section while `re-frame.story` re-exports none of
+ ;; them — verified by grepping `story.cljc` for each: zero hits. Nothing
+ ;; here is a facade export awaiting classification.
  :story-spec-known-unmanifested
- #{"mount-shell!"            ; CLJS-only shell lifecycle (re-frame.story.shell), JVM-unloadable
-   "unmount-shell!"          ; CLJS-only shell lifecycle
-   "active-shell"            ; CLJS-only shell lifecycle
-   "registered-substrates"   ; CLJS-only facade var (reader-conditional :cljs branch)
-   "use-fixtures"            ; re-frame.story.test-support — direct-require, not on the facade (pulls cljs.test)
+ #{"use-fixtures"            ; re-frame.story.test-support — direct-require, not on the facade (pulls cljs.test)
    "with-clean-registry"     ; re-frame.story.test-support — direct-require, not on the facade
    "xray-embed-panel"        ; re-frame.story.ui.xray-embed sub-ns (chrome-host surface)
    "mount-fn-for"            ; re-frame.story.ui.xray-embed sub-ns

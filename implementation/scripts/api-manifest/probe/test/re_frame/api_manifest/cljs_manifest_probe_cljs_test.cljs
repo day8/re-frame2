@@ -30,6 +30,16 @@
     the probe holds the whole door to full completeness. This is the
     case `:jvm-only-classification` mirrors from the other side, and
     the reason that key needs no entry here.
+  - `re-frame.story` (rf2-i6kh post-merge audit) — fully-rowed, and the
+    SECOND split-host `.cljc` door: the same shape as Hicasso at
+    product-façade scale. Its `#?(:clj …)` arm is the nine `reg-*`
+    macros and its `.cljc` body ~107 fns, all JVM-introspected and rowed
+    under `:classification`; its `#?(:cljs …)` arm is five more facade
+    fns (`register-substrate!`, `registered-substrates`, `mount-shell!`,
+    `unmount-shell!`, `active-shell`) rowed under `:cljs-only`. The
+    macros are `:require-macros`-referred by the door's own `:cljs` arm,
+    so all of it lands on ONE live analyzer surface and `reconcile-rows`
+    carries both row sets.
   - `day8.re-frame2-xray.core` (rf2-ar67) — fully-rowed, and the ONLY
     Xray namespace held to completeness. It is the Xray FAÇADE, the third
     of the three spec/Conventions.md §Facade policy names, and all
@@ -83,6 +93,7 @@
             [re-frame.adapter.reagent]
             [re-frame.adapter.uix]
             [re-frame.hicasso]
+            [re-frame.story]
             [day8.re-frame2-xray.core]
             [day8.re-frame2-xray.mount]
             [day8.re-frame2-xray.panels]
@@ -118,6 +129,16 @@
    ;; JVM introspects them). `reconcile-rows` below carries both sets, so
    ;; the two arms reconcile against one live surface.
    "re-frame.hicasso"          (emit-ns-publics re-frame.hicasso)
+   ;; The Story FAÇADE (rf2-i6kh post-merge audit) — the SECOND split-host
+   ;; `.cljc` door here, and the second namespace the JVM generator also
+   ;; owns. Its `#?(:clj …)` arm is the nine `reg-*` macros (self-referred
+   ;; by the door's own `:require-macros`, so the analyzer carries them) and
+   ;; ~107 `.cljc` fns the JVM introspects, all rowed under
+   ;; `:classification`; its `#?(:cljs …)` arm is five more facade fns the
+   ;; JVM cannot see, rowed under `:cljs-only`. Both sets land on ONE live
+   ;; analyzer surface, exactly as Hicasso's do, so `reconcile-rows` carries
+   ;; both and the door is held to full completeness.
+   "re-frame.story"            (emit-ns-publics re-frame.story)
    ;; The Xray FAÇADE (rf2-ar67) — fully-rowed, unlike every other Xray
    ;; namespace here. See `fully-rowed` below for why the postures differ.
    "day8.re-frame2-xray.core"  (emit-ns-publics day8.re-frame2-xray.core)
@@ -159,6 +180,20 @@
    `:justification` and `:action` spec/Conventions.md §Facade policy demands
    at diff time.
 
+   `re-frame.story` joins them last (rf2-i6kh post-merge audit), and it is
+   the case that shows why direction 2 is the half that matters. The Story
+   sweep classified the 116 exports the JVM generator can `ns-publics` and
+   read as complete; five more facade fns live on the door's `#?(:cljs …)`
+   arm, and NOTHING enumerated them — four were silenced by name on a
+   projection allowlist, the fifth was not even documented as a var-row, and
+   every gate stayed green over the omission. Direction 1 could never have
+   found them: there were no rows to go stale. Holding the whole door to
+   completeness is what makes a sixth CLJS-only export impossible to add
+   unclassified. The façade re-exports its sub-namespaces' surfaces rather
+   than being a subset of them (`re-frame.story.ui.*` / `.theme.*` are the
+   chrome-internal doors, deliberately NOT re-exported), so its entire public
+   surface is the documented API and it earns the stricter check.
+
    The OTHER Xray namespaces stay curated subsets (direction 1 only) and are
    deliberately absent: `mount`, `panels`, `config` and the panel leaves are
    implementation namespaces that publish a few documented vars, so full
@@ -166,6 +201,7 @@
   #{"re-frame.adapter.reagent"
     "re-frame.adapter.uix"
     "re-frame.hicasso"
+    "re-frame.story"
     "day8.re-frame2-xray.core"})
 
 (def cljs-only-rows
@@ -187,10 +223,28 @@
    report three live publics with no row."
   (emit-classification-rows "re-frame.hicasso"))
 
+(def story-classification-rows
+  "The `re-frame.story` `:classification` rows — the Story façade's
+   JVM-introspected arm (rf2-i6kh post-merge audit).
+
+   The same split-host case as `hicasso-classification-rows` above, at the
+   scale of a whole product façade rather than three macros. `re-frame.story`
+   is on the generator's `jvm-namespaces`, so its `.cljc` fns and its nine
+   `#?(:clj (defmacro …))` `reg-*` forms are curated under `:classification`
+   and the JVM owns their tier and kind. They still need reconciling HERE:
+   the macros are `:require-macros`-referred into the door's own
+   ClojureScript arm and the fns compile on both hosts, so all of them appear
+   on the live analyzer surface — and without them the `fully-rowed`
+   completeness check would report ~116 live publics with no row."
+  (emit-classification-rows "re-frame.story"))
+
 (def reconcile-rows
   "Every row the probe reconciles: the `:cljs-only` surfaces, plus the
-   Hicasso door's JVM-owned `:classification` rows."
-  (into (vec cljs-only-rows) hicasso-classification-rows))
+   JVM-owned `:classification` rows of the two SPLIT-HOST doors (the
+   Hicasso door and the Story façade)."
+  (-> (vec cljs-only-rows)
+      (into hicasso-classification-rows)
+      (into story-classification-rows)))
 
 ;; ---------------------------------------------------------------------------
 ;; The probe.
