@@ -9,13 +9,15 @@
    `:local/root` paths into the in-repo source tree, compiles the `:app`
    and `:test` builds, runs `out/node-test.js`, loads the REAL emitted
    `index.html` in Chromium and proves it paints the counter and moves it
-   0 → 1, and (Reagent) builds the `:advanced` release.
+   0 → 1, then builds the `:advanced` release and loads the REAL emitted
+   page a SECOND time over that optimised bundle.
 
-   ## The two consumer-realism teeth
+   ## The three consumer-realism teeth
 
-   A compile-and-run tier that resolves everything from the monorepo is
-   blind in two specific ways, and real defects shipped GREEN through it
-   because of them. Both masks are closed here:
+   A compile-and-run tier that resolves everything from the monorepo, and
+   stops at the bundle the fast loop happens to build, is blind in three
+   specific ways — real defects shipped GREEN through the first two. All
+   three masks are closed here:
 
      * NODE_MODULES JUNCTION. `link-node-modules!` junctions
        `implementation/node_modules` into every emitted project, so the
@@ -25,26 +27,47 @@
        build's own `manifest.edn` and asserts every npm package the build
        resolved is one `npm install` would have produced from the EMITTED
        `package.json`.
-     * NO DEV-PAGE BOOT PROOF. Nothing loaded the emitted `index.html` in
-       a browser. Closed by `run-dev-page-boot-proof!` + its
-       `test-support/dev-page-boot-proof.cjs` driver, which serves the
+     * NO PAGE BOOT PROOF. Nothing loaded the emitted `index.html` in
+       a browser. Closed by `run-page-boot-proof!` + its
+       `test-support/page-boot-proof.cjs` driver, which serves the
        emitted `resources/public`, loads the real page and proves it
        mounts, increments, and raises zero uncaught pageerrors — and by
        `run-broken-boot-witness!`, which breaks the page's mount node and
        requires that same driver to go RED, so a green proof is never the
        inert kind.
+     * NO OPTIMISED-BUNDLE PROOF. `npm run release` is one of the three
+       commands the emitted README documents, and the dev bundle proves
+       nothing about it: under `:advanced` Closure renames every
+       un-inferrable property access and eliminates code behind
+       `goog.DEBUG`, so an interop defect ships green from the dev
+       compile and appears only in the artefact the user deploys. Closed
+       by running the SAME driver a second time over the release build,
+       in `:release` mode — see `run-release-proof!`.
 
-   Both must run BEFORE the optional `:advanced` release build, which
+   The first two must run BEFORE the `:advanced` release build, which
    overwrites the dev bundle and its manifest.
+
+   ## Keeping the two boot verdicts apart
+
+   Both boot proofs load the same URL out of the same directory, so a
+   release build that silently failed to replace the dev bundle could be
+   certified by the verdict the DEV bundle earned. Two independent checks
+   forbid that: this file requires the release `js/main.js` to differ in
+   length from the dev one it recorded before the release ran, and the
+   driver requires the globals it observes in the page to be the ones
+   that mode's bundle has (`goog` / `cljs` are objects in the dev bundle
+   and renamed away under `:advanced`). Each reads the opposite way on
+   the other mode's artefact, so neither is vacuous.
 
    ## Gating
 
    Default off (opt-in via `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`): a cold
-   shadow-cljs compile + Chromium per substrate is ~30–60 s, and the tier
-   needs a populated `implementation/node_modules` (`npm ci` there) plus a
-   Playwright Chromium. CI's `jvm-tools-template` job provides both. When
-   the env var is unset every deftest records a single documented skip
-   assertion and exits.
+   shadow-cljs compile + an `:advanced` release + Chromium per substrate
+   is ~1–2 min, and the tier needs a populated
+   `implementation/node_modules` (`npm ci` there) plus a Playwright
+   Chromium. CI's `jvm-tools-template` job provides both. When the env
+   var is unset every deftest records a single documented skip assertion
+   and exits.
 
    ## The setup skill's default scaffold
 
@@ -70,6 +93,17 @@
 
 (def ^:private emitted-tests-enabled?
   (delay (= "1" (System/getenv "RF2_TEMPLATE_RUN_EMITTED_TESTS"))))
+
+;; --- The scaffolded name ----------------------------------------------------
+
+(def ^:private emitted-project-name
+  "The `:name` every fixture in this tier scaffolds under — and, because the
+  emitted `views.cljs` paints it, the exact `<h1>` text each browser proof
+  pins via `RF2_TEMPLATE_EXPECT_H1`. That coupling is the point: a heading
+  match is positive evidence the browser rendered THIS emission's source and
+  not something left in the output directory. It is also the name the setup
+  skill's shipped leaf is derived for."
+  "acme/my-app")
 
 ;; --- deps.edn local-root rewrite ------------------------------------------
 
@@ -332,48 +366,63 @@
             (println (str "  [" echo-tag "] " (string/trim line)))))
         (is (zero? exit) failure-msg))))
 
-;; --- emitted dev-page boot proof ------------------------------------------
+;; --- emitted page boot proof ----------------------------------------------
 
 (def ^:private boot-proof-driver-rel
-  "tools/template/test-support/dev-page-boot-proof.cjs")
+  "tools/template/test-support/page-boot-proof.cjs")
+
+(def ^:private bundle-mode-blurb
+  "How each mode's page reaches a user — quoted into the failure message so
+  the verdict names the command whose output just broke."
+  {:dev     "the page a newcomer opens after `npx shadow-cljs watch app`"
+   :release (str "the page a newcomer DEPLOYS after `npm run release` — the "
+                 ":advanced bundle, where Closure renames un-inferrable "
+                 "property access and drops code behind `goog.DEBUG`, so a "
+                 "defect invisible in dev surfaces only here")})
 
 (defn- run-boot-proof-driver!
   "Serve the emitted `resources/public` and drive Chromium over the real
-  `index.html` + dev bundle. Returns the driver's {:exit :out}."
-  [^java.io.File root ^java.io.File proj label env-overrides]
+  `index.html` + whichever bundle `mode` (`:dev` / `:release`) says is
+  currently built there. Returns the driver's {:exit :out}."
+  [^java.io.File root ^java.io.File proj label mode env-overrides]
   (let [driver    (.getCanonicalPath (io/file root boot-proof-driver-rel))
         pub-root  (.getCanonicalPath (io/file proj "resources/public"))
         impl-root (.getCanonicalPath (io/file root "implementation"))
         node-path (.getCanonicalPath (io/file root "implementation/node_modules"))]
     (run-process! ["node" driver pub-root impl-root label]
-                  proj (merge {"NODE_PATH" node-path} env-overrides))))
+                  proj (merge {"NODE_PATH"                (str node-path)
+                               "RF2_TEMPLATE_BUNDLE_MODE" (name mode)}
+                              env-overrides))))
 
-(defn- run-dev-page-boot-proof!
-  "The positive proof: the page a newcomer opens after `npx shadow-cljs
-  watch app` mounts the counter, moves it 0 → 1 on click, and raises zero
-  uncaught pageerrors. Assumes `shadow compile app` already built the dev
-  bundle, so it must run BEFORE any `release` build replaces it. Returns
-  the driver's exit code, or nil when `node` is unavailable."
-  [^java.io.File root ^java.io.File proj label]
-  (testing (str label " — Chromium dev-page boot proof (emitted index.html + "
-                "dev bundle mounts, zero pageerror)")
-    (if-not @node-available?
-      (do (announce-browser-skip! (str "dev-page boot proof -- " label)
-                                  "`node` is not on PATH")
-          (is true "`node` unavailable — skipping the emitted dev-page boot proof")
-          nil)
-      (let [{:keys [exit out]} (run-boot-proof-driver! root proj label {})]
-        (check-browser-proof!
-          (str "dev-page boot proof -- " label)
-          "dev-page boot"
-          exit out
-          (str "the emitted dev-page boot proof exited " exit " for " label
-               " — the page a newcomer opens after `npx shadow-cljs watch app` "
-               "did not boot cleanly: either #app never painted (a broken "
-               ":init-fn, a namespace that throws on load, a bundle that did "
-               "not load), the counter did not move 0 -> 1, or Chromium raised "
-               "an uncaught pageerror. Output:\n" out))
-        exit))))
+(defn- run-page-boot-proof!
+  "The positive proof for one bundle: the emitted page mounts the counter,
+  moves it 0 → 1 on click, raises zero uncaught pageerrors, AND is running
+  the bundle `mode` names (the driver's third tooth). Assumes the matching
+  build has just been produced into `resources/public`. Returns the
+  driver's exit code, or nil when `node` is unavailable."
+  [^java.io.File root ^java.io.File proj label mode env-overrides]
+  (let [what (str (name mode) "-bundle boot proof -- " label)]
+    (testing (str label " — Chromium " (name mode) "-bundle boot proof (emitted "
+                  "index.html + " (name mode) " bundle mounts, zero pageerror)")
+      (if-not @node-available?
+        (do (announce-browser-skip! what "`node` is not on PATH")
+            (is true (str "`node` unavailable — skipping the emitted "
+                          (name mode) "-bundle boot proof"))
+            nil)
+        (let [{:keys [exit out]} (run-boot-proof-driver! root proj label mode
+                                                         env-overrides)]
+          (check-browser-proof!
+            what
+            (str (name mode) "-bundle boot")
+            exit out
+            (str "the emitted " (name mode) "-bundle boot proof exited " exit
+                 " for " label " — " (bundle-mode-blurb mode)
+                 " did not boot cleanly: either #app never painted (a broken "
+                 ":init-fn, a namespace that throws on load, a bundle that did "
+                 "not load), the counter did not move 0 -> 1, Chromium raised "
+                 "an uncaught pageerror, or the page was not running the "
+                 (name mode) " bundle at all. Output:\n" out))
+          exit)))))
 
 (defn- run-broken-boot-witness!
   "The red witness for the boot proof: rename the page's mount node so
@@ -392,13 +441,13 @@
       (try
         (spit index broken)
         (let [{:keys [exit out]}
-              (run-boot-proof-driver! root proj (str label " (broken)")
+              (run-boot-proof-driver! root proj (str label " (broken)") :dev
                                       ;; The driver waits this long for #app
                                       ;; to paint before failing; keep the
                                       ;; deliberate failure cheap.
                                       {"RF2_TEMPLATE_BROWSER_PROOF_TIMEOUT_MS" "8000"})]
           (is (= 1 exit)
-              (str "the dev-page boot proof must go RED (exit 1) on a page with "
+              (str "the dev-bundle boot proof must go RED (exit 1) on a page with "
                    "no #app mount node; it exited " exit
                    ". A green here means the proof is inert. Output:\n" out))
           ;; Say so on the green path too: a witness that speaks only when
@@ -412,6 +461,67 @@
       (is (= original (slurp index))
           "index.html is restored byte-for-byte after the witness"))))
 
+;; --- the :advanced release proof -------------------------------------------
+
+(defn- run-release-proof!
+  "`npm run release` is one of the three commands the emitted README
+  documents, and the scaffold tells every substrate's user the resulting
+  `resources/public` is deployable. Prove that: build the `:advanced`
+  release, then load the REAL emitted page over the optimised bundle with
+  the same Chromium driver the dev proof used.
+
+  `dev-bundle-length` is `js/main.js`'s length recorded BEFORE this ran.
+  The release overwrites that file in place, so requiring the length to
+  change is the cheap on-disk half of keeping the two boot verdicts apart;
+  the driver's `:release` mode is the runtime half. A compile that exits 0
+  is NOT the deliverable here — `resources/public/js/main.js` being
+  non-empty was the whole of the old assertion, and a non-empty optimised
+  bundle can still throw at load or paint nothing."
+  [^java.io.File root ^java.io.File proj label env dev-bundle-length]
+  (let [bundle    (io/file proj "resources/public/js/main.js")
+        released?
+        (testing (str label " — clojure -M:shadow release app (:advanced)")
+          (let [{:keys [exit out]}
+                (run-process! ["clojure" "-M:shadow" "-m" "shadow.cljs.devtools.cli"
+                               "release" "app"]
+                              proj env)]
+            (is (zero? exit)
+                (str "`clojure -M:shadow release app` exited " exit " for "
+                     label ". An :advanced-only break (Closure DCE/externs, "
+                     "^:export munging) ships green from the dev compile and "
+                     "surfaces only on a newcomer's `npm run release`. "
+                     "Output:\n" out))
+            (when (zero? exit)
+              (let [emitted? (and (.isFile bundle) (pos? (.length bundle)))
+                    replaced? (and emitted? (not= dev-bundle-length (.length bundle)))]
+                (is emitted?
+                    (str "`shadow release app` must emit a non-empty "
+                         "resources/public/js/main.js for " label ". Bundle: "
+                         (if (.isFile bundle)
+                           (str (.length bundle) " bytes")
+                           "absent")))
+                ;; The release writes over the dev bundle. If it did not, the
+                ;; browser half below would be grading the artefact the dev
+                ;; proof already passed.
+                (is replaced?
+                    (str "the `:advanced` release did not replace the dev bundle for "
+                         label ": resources/public/js/main.js is still "
+                         dev-bundle-length " bytes. Everything after this point "
+                         "would be proving the DEV bundle a second time."))
+                (when replaced?
+                  (println (str "  [release bundle] " label ": dev " dev-bundle-length
+                                " bytes -> :advanced " (.length bundle) " bytes")))
+                replaced?))))]
+    ;; The browser half — the actual "boots" claim, and the deliverable. Only
+    ;; when the release genuinely produced a new bundle: run it over a failed
+    ;; release and every verdict below is about the dev artefact instead, which
+    ;; is the confusion this whole function exists to prevent. Pinning the
+    ;; heading is positive evidence the optimised bundle rendered the emitted
+    ;; `views.cljs` rather than anything left in the output directory.
+    (when released?
+      (run-page-boot-proof! root proj label :release
+                            {"RF2_TEMPLATE_EXPECT_H1" emitted-project-name}))))
+
 ;; --- The orchestration -----------------------------------------------------
 
 (defn- compile-and-run-emitted-test!
@@ -419,19 +529,23 @@
   link node_modules, `clojure -M:shadow compile app test`, prove the
   emitted package.json is complete, boot the real page in Chromium (and,
   when `boot-witness?`, prove that proof bites), run `node
-  out/node-test.js`, and when `release?` build the `:advanced` release.
+  out/node-test.js`, then build the `:advanced` release and boot the real
+  page over THAT.
 
   Every substrate compiles BOTH the `:app` build — the only build that
   pulls its `core.cljs` and views onto the compile classpath — and the
-  `:test` build that runs `events_test.cljs`. No other gate compiles the
-  generated app under `:advanced`, so the Reagent variant runs the release
-  too; the `:app` module + `^:export init` shape is substrate-invariant."
-  [substrate {:keys [release? boot-witness?]}]
+  `:test` build that runs `events_test.cljs`, and every substrate runs the
+  release arm. The release arm was Reagent-only until rf2-eiev, on the
+  rationale that the `:app` module + `^:export init` shape is
+  substrate-invariant; but `deps.edn`, `core.cljs` and `views.cljs` are
+  swapped per substrate and all three are source Closure compiles, so UIx's
+  advertised `npm run release` was never executed by any gate."
+  [substrate {:keys [boot-witness?]}]
   (let [root  (repo-root)
         label (name substrate)
         tmp   (tmp-dir (str "rf2-template-run-" label "-"))]
     (try
-      (let [proj (run-template! tmp "acme/my-app" substrate)]
+      (let [proj (run-template! tmp emitted-project-name substrate)]
         (rewrite-deps-for-local-run! root proj substrate)
         (let [linked?   (link-node-modules! root proj)
               node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
@@ -454,9 +568,10 @@
                   (str "`clojure -M:shadow compile app test` exited " exit
                        " for " label ". Output:\n" out))))
 
-          ;; --- the two teeth, before any release overwrites the dev bundle
+          ;; --- the two teeth, before the release overwrites the dev bundle
           (assert-emitted-package-json-complete! root proj label)
-          (let [proof-exit (run-dev-page-boot-proof! root proj label)]
+          (let [proof-exit (run-page-boot-proof! root proj label :dev
+                                                 {"RF2_TEMPLATE_EXPECT_H1" emitted-project-name})]
             (when (and boot-witness? (= 0 proof-exit))
               (run-broken-boot-witness! root proj label)))
 
@@ -478,26 +593,11 @@
                   (is (re-find #"0 failures, 0 errors" out)
                       (str "expected '0 failures, 0 errors'. Got:\n" out))))))
 
-          ;; --- :advanced release build ---------------------------------------
-          (when release?
-            (testing (str label " — clojure -M:shadow release app (:advanced)")
-              (let [{:keys [exit out]}
-                    (run-process! ["clojure" "-M:shadow" "-m" "shadow.cljs.devtools.cli"
-                                   "release" "app"]
-                                  proj env)]
-                (is (zero? exit)
-                    (str "`clojure -M:shadow release app` exited " exit " for "
-                         label ". An :advanced-only break (Closure DCE/externs, "
-                         "^:export munging) ships green from the dev compile and "
-                         "surfaces only on a newcomer's `npm run release`. "
-                         "Output:\n" out))
-                (let [bundle (io/file proj "resources/public/js/main.js")]
-                  (is (and (.isFile bundle) (pos? (.length bundle)))
-                      (str "`shadow release app` must emit a non-empty "
-                           "resources/public/js/main.js for " label ". Bundle: "
-                           (if (.isFile bundle)
-                             (str (.length bundle) " bytes")
-                             "absent")))))))))
+          ;; --- :advanced release build + its own boot proof -------------------
+          ;; Last, and only here: it overwrites the dev bundle and its
+          ;; manifest, which everything above reads.
+          (run-release-proof! root proj label env
+                              (.length (io/file proj "resources/public/js/main.js")))))
       (finally
         (delete-recursively tmp)))))
 
@@ -513,10 +613,18 @@
 
 ;; --- Tests -----------------------------------------------------------------
 
+;; One deftest per substrate the generator can emit. That set is DERIVED —
+;; `hooks.clj`'s `substrate-registry` is the single roster, `valid-substrates`
+;; is `(set (keys …))` of it, and `template-fn`'s `case` names each entry's
+;; `_<substrate>/` tree — so a third substrate lands here as a third deftest.
+;; `template_test.clj` holds the roster itself to the registry; these two are
+;; the behavioural arms of it. (Hicasso and reagent-slim are reserved, not
+;; emitted — see spec/001-Substrate-Variants.md §Future substrates.)
+
 (deftest reagent-emitted-tests-run-test
   (testing "the emitted Reagent app compiles, its focused test runs green, the
             real page boots and moves 0 -> 1 (and the proof bites), and the
-            :advanced release build is clean"
+            :advanced release build boots the same way"
     (if-not @emitted-tests-enabled?
       (skip-if-disabled! :reagent)
       (do (is @clojure-cli-available?
@@ -524,11 +632,12 @@
           (is @node-available?
               "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when (and @clojure-cli-available? @node-available?)
-            (compile-and-run-emitted-test! :reagent {:release? true :boot-witness? true}))))))
+            (compile-and-run-emitted-test! :reagent {:boot-witness? true}))))))
 
 (deftest uix-emitted-tests-run-test
-  (testing "the emitted UIx app compiles, its focused test runs green, and the
-            real page boots and moves 0 -> 1"
+  (testing "the emitted UIx app compiles, its focused test runs green, the real
+            page boots and moves 0 -> 1, and the :advanced release build boots
+            the same way"
     (if-not @emitted-tests-enabled?
       (skip-if-disabled! :uix)
       (do (is @clojure-cli-available?
@@ -617,7 +726,7 @@
   [substrate]
   (let [tmp (tmp-dir (str "rf2-setup-emit-" (name substrate) "-"))]
     (try
-      (project-files (run-template! tmp "acme/my-app" substrate))
+      (project-files (run-template! tmp emitted-project-name substrate))
       (finally (delete-recursively tmp)))))
 
 (defn- assert-leaf-equals-emission! [leaf files expected]
@@ -702,10 +811,10 @@
                    "event id is a runtime miss, not a compile error; exited " exit
                    ". Output:\n" out)))
         (let [{:keys [exit out]}
-              (run-boot-proof-driver! root proj (str label " (broken click)")
+              (run-boot-proof-driver! root proj (str label " (broken click)") :dev
                                       {"RF2_TEMPLATE_BROWSER_PROOF_TIMEOUT_MS" "8000"})]
           (is (= 1 exit)
-              (str "the dev-page boot proof must go RED (exit 1) when the +1 button "
+              (str "the dev-bundle boot proof must go RED (exit 1) when the +1 button "
                    "dispatches an unregistered event; it exited " exit
                    ". A green here means the click tooth is inert. Output:\n" out))
           (when (= 1 exit)
@@ -785,16 +894,16 @@
           ;; evidence that the leaf's source — not a stale bundle — is what
           ;; the browser rendered.
           (let [proof-exit
-                (testing (str label " — Chromium dev-page boot proof (heading acme/my-app "
+                (testing (str label " — Chromium dev-bundle boot proof (heading acme/my-app "
                               "painted, counter 0 -> 1, zero pageerror)")
                   (let [{:keys [exit out]}
-                        (run-boot-proof-driver! root proj label
-                                                {"RF2_TEMPLATE_EXPECT_H1" "acme/my-app"})]
+                        (run-boot-proof-driver! root proj label :dev
+                                                {"RF2_TEMPLATE_EXPECT_H1" emitted-project-name})]
                     (check-browser-proof!
-                      (str "dev-page boot proof -- " label)
-                      "dev-page boot"
+                      (str "dev-bundle boot proof -- " label)
+                      "dev-bundle boot"
                       exit out
-                      (str "the shipped scaffold's dev-page boot proof exited " exit
+                      (str "the shipped scaffold's dev-bundle boot proof exited " exit
                            " — the page an author opens after `npx shadow-cljs watch app` "
                            "did not paint the heading `acme/my-app` with the counter at 0, "
                            "or the click did not move it to 1, or Chromium raised an "

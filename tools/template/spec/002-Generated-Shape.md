@@ -107,7 +107,7 @@ tools/template/
 ├── src/day8/re_frame2_template/
 │   └── hooks.clj                         ; data-fn / template-fn / post-process-fn
 ├── test/day8/re_frame2_template/         ; the suite (see Principles §P7)
-├── test-support/dev-page-boot-proof.cjs  ; the Chromium driver the behavioural tier runs
+├── test-support/page-boot-proof.cjs      ; the Chromium driver the behavioural tier runs (dev + release)
 └── resources/day8/re_frame2_template/
     ├── template.edn                      ; declarative entrypoint
     ├── root/                             ; bulk-copied, default placement

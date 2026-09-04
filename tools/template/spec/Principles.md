@@ -173,15 +173,30 @@ is exercised end-to-end across the layers:
    `:app` and `:test` builds, runs the focused test under Node, loads
    the real emitted `index.html` in Chromium and proves it paints the
    counter and moves it 0 → 1 with zero uncaught pageerrors, then
-   breaks the page's mount node and proves that same proof goes red;
-   builds the `:advanced` release. Gated behind
-   `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets it; off locally for the
-   fast loop). Its one convenience — junctioning
+   breaks the page's mount node and proves that same proof goes red.
+   Gated behind `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets it; off
+   locally for the fast loop). Its one convenience — junctioning
    `implementation/node_modules` into the emitted project instead of
    an `npm install` per variant — is what would let an undeclared npm
    package compile green, so the tier reads the `:browser` build's own
    `manifest.edn` and requires every resolved package to be reachable
    from the emitted `package.json`.
+
+   **The `:advanced` release is proven the same way, for every
+   substrate.** `npm run release` is one of the three commands the
+   emitted README documents, and the scaffold tells its user the
+   resulting `resources/public` is deployable — so the tier finishes
+   each substrate by running `shadow-cljs release app` and loading the
+   emitted page a second time, over that optimised bundle, through the
+   same Chromium driver. A compile that exits 0 is not the claim: under
+   `:advanced` Closure renames un-inferrable property access and drops
+   code behind `goog.DEBUG`, so a non-empty optimised `main.js` can
+   still throw at load or paint nothing. The two verdicts are held
+   apart by construction — the release must change `js/main.js`'s
+   length, and the driver requires the globals it observes (`goog` /
+   `cljs`, objects in the dev bundle and renamed away under
+   `:advanced`) to be the ones that mode's bundle has — so neither
+   bundle can be credited with the other's boot.
 
    The Chromium proof treats an unlaunchable browser asymmetrically,
    and deliberately. Every CI job that enables the tier also installs a

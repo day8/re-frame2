@@ -326,8 +326,10 @@ run and boot the emitted app.
 The behavioural compile+run+boot slice (`emitted_test_run_test.clj`) is
 opt-in via `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets this; local
 fast-loop default-off). It is the tier that proves the scaffold a
-newcomer opens actually paints; the manifest equality, the static-parse
-audit and the lockstep guards are the cheap contract underneath it.
+newcomer opens actually paints — and, since rf2-eiev, that the
+`:advanced` bundle they then deploy paints too, for every substrate; the
+manifest equality, the static-parse audit and the lockstep guards are the
+cheap contract underneath it.
 
 ## §8 — Strict substrate coercion (keyword-only)
 
