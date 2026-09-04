@@ -38,12 +38,12 @@
             ;; the JVM arm uses clojure.core/read-string.
             #?(:cljs [cljs.reader])
             [clojure.string :as string]
-            [re-frame.reply :as reply]
-            [re-frame.reply-conformance-fixtures :as fixtures]
-            [re-frame.http.reply :as http-reply]
-            [re-frame.resources.reply :as rreply]
-            [re-frame.machines.reply :as m-reply]
-            [re-frame.routing.reply :as route-reply]))
+            [re-frame.reply :as rf.reply]
+            [re-frame.reply-conformance-fixtures :as rf.reply-conformance-fixtures]
+            [re-frame.http.reply :as rf.http.reply]
+            [re-frame.resources.reply :as rf.resources.reply]
+            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.routing.reply :as rf.routing.reply]))
 
 ;; ---------------------------------------------------------------------------
 ;; Work ids are portable data, so both readers must reconstruct an equal value.
@@ -59,7 +59,7 @@
 
 ;; This tier checks only reply-map `:completed-at` propagation. Router and
 ;; family lowering suites own live dispatch-envelope `:rf.cofx` coverage.
-(def ^:private completion-time-ms fixtures/completion-time-ms)
+(def ^:private completion-time-ms rf.reply-conformance-fixtures/completion-time-ms)
 
 (def ^:private http-ctx
   {:request-id   :article/by-id
@@ -115,10 +115,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- machine-stale-reply []
-  (m-reply/stale-spawn-reply (assoc machine-ctx :current-generation nil)))
+  (rf.machines.reply/stale-spawn-reply (assoc machine-ctx :current-generation nil)))
 
 (defn- after-stale-reply []
-  (m-reply/after-stale-reply
+  (rf.machines.reply/after-stale-reply
     {:actor-id        :a/multi
      :state           :loading
      :delay           30000
@@ -129,7 +129,7 @@
 
 ;; The paired timer builders exercise presence and omission of `:completed-at`.
 (defn- after-fired-reply []
-  (m-reply/after-fired-reply
+  (rf.machines.reply/after-fired-reply
     {:actor-id   :a/multi
      :state      :loading
      :delay      30000
@@ -138,7 +138,7 @@
      :frame      :app/main}))
 
 (defn- after-fired-reply-with-time []
-  (m-reply/after-fired-reply
+  (rf.machines.reply/after-fired-reply
     {:actor-id     :a/multi
      :state        :loading
      :delay        30000
@@ -157,10 +157,10 @@
    :completed-at completion-time-ms})
 
 (defn- route-live-reply []
-  (route-reply/live-reply route-ctx {:title "Welcome"}))
+  (rf.routing.reply/live-reply route-ctx {:title "Welcome"}))
 
 (defn- route-success-no-time []
-  (route-reply/live-reply (dissoc route-ctx :completed-at) {:title "Welcome"}))
+  (rf.routing.reply/live-reply (dissoc route-ctx :completed-at) {:title "Welcome"}))
 
 ;; ---------------------------------------------------------------------------
 ;; Companion builders omit the completion time so the matrix can distinguish
@@ -168,18 +168,18 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- http-success-no-time []
-  (http-reply/success-reply (dissoc http-ctx :completed-at) {:title "Welcome"}))
+  (rf.http.reply/success-reply (dissoc http-ctx :completed-at) {:title "Welcome"}))
 
 (defn- resource-success-no-time []
-  (rreply/success-reply resource-vp {:title "Welcome"}
-                        {:work-kind rreply/work-kind-resource}))
+  (rf.resources.reply/success-reply resource-vp {:title "Welcome"}
+                        {:work-kind rf.resources.reply/work-kind-resource}))
 
 (defn- mutation-success-no-time []
-  (rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
-                        {:work-kind rreply/work-kind-mutation}))
+  (rf.resources.reply/success-reply mutation-vp {:slug "w" :title "Welcome"}
+                        {:work-kind rf.resources.reply/work-kind-mutation}))
 
 (defn- machine-success-no-time []
-  (m-reply/success-reply (dissoc machine-ctx :completed-at) {:user-id "u-42"}))
+  (rf.machines.reply/success-reply (dissoc machine-ctx :completed-at) {:user-id "u-42"}))
 
 ;; ---------------------------------------------------------------------------
 ;; HTTP, resource, mutation, and route delegate stale classification to a
@@ -192,7 +192,7 @@
 
 (defn- http-stale-out []
   ;; The current work id names the superseding HTTP attempt.
-  (http-reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))
+  (rf.http.reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))
 
 ;; The stale-suppression outcomes are parameterized by an optional `extra-more`
 ;; (resource / mutation) or `ctx-more` (route) map so the non-success stale
@@ -202,7 +202,7 @@
 (defn- resource-stale-out
   ([] (resource-stale-out nil))
   ([extra-more]
-   (rreply/stale-reply
+   (rf.resources.reply/stale-reply
      {:carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
       :current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
       :extra   (merge {:rf.reply/work-id      [:rf.work/resource [:rf.scope/global :r {}] 4]
@@ -214,7 +214,7 @@
 (defn- mutation-stale-out
   ([] (mutation-stale-out nil))
   ([extra-more]
-   (rreply/stale-reply
+   (rf.resources.reply/stale-reply
      {:carried {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2] :generation 2}
       :current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}
       :extra   (merge {:rf.reply/work-id      [:rf.work/resource [:rf.mutation :form/save-1] 2]
@@ -226,7 +226,7 @@
 (defn- route-stale-out
   ([] (route-stale-out nil))
   ([ctx-more]
-   (route-reply/suppress (merge {:route-id  :route/article
+   (rf.routing.reply/suppress (merge {:route-id  :route/article
                                  :nav-token "nav-1"
                                  :loader-id :article/loaded
                                  :frame     :app/main}
@@ -243,7 +243,7 @@
 ;; omission.
 ;;
 ;; Terminals EXCLUDED from the gate (see `time-pair-exclusions`): HTTP stale
-;; (`http-reply/suppress` hard-codes its stale `:extra` — no completion-time
+;; (`rf.http.reply/suppress` hard-codes its stale `:extra` — no completion-time
 ;; slot), machine cancel (`cancelled-actor-reply`) and timer cancel
 ;; (`cancelled-timer-reply`) take no `:completed-at` parameter — an
 ;; actor-destroy / timer-cancel terminal is a correlation row, not a causal
@@ -252,35 +252,35 @@
 ;; ---------------------------------------------------------------------------
 
 ;; HTTP failure/abort lower through `base-reply`, which threads `:completed-at`.
-(defn- http-error-with-time  [] (http-reply/failure-reply http-ctx a-failure))
-(defn- http-error-no-time    [] (http-reply/failure-reply (dissoc http-ctx :completed-at) a-failure))
-(defn- http-cancel-with-time [] (http-reply/failure-reply http-ctx an-abort))
-(defn- http-cancel-no-time   [] (http-reply/failure-reply (dissoc http-ctx :completed-at) an-abort))
+(defn- http-error-with-time  [] (rf.http.reply/failure-reply http-ctx a-failure))
+(defn- http-error-no-time    [] (rf.http.reply/failure-reply (dissoc http-ctx :completed-at) a-failure))
+(defn- http-cancel-with-time [] (rf.http.reply/failure-reply http-ctx an-abort))
+(defn- http-cancel-no-time   [] (rf.http.reply/failure-reply (dissoc http-ctx :completed-at) an-abort))
 
 ;; Resource/mutation failure/abort thread `:completed-at` from the opts map —
 ;; the causal fact closed bug rf2-rl27r2 / PR #4473 repaired (pinned only
 ;; family-locally before; this closes the umbrella gap Finding 1 names).
 (defn- resource-error-with-time []
-  (rreply/failure-reply resource-vp a-failure
-                        {:work-kind rreply/work-kind-resource :completed-at completion-time-ms}))
+  (rf.resources.reply/failure-reply resource-vp a-failure
+                        {:work-kind rf.resources.reply/work-kind-resource :completed-at completion-time-ms}))
 (defn- resource-error-no-time []
-  (rreply/failure-reply resource-vp a-failure {:work-kind rreply/work-kind-resource}))
+  (rf.resources.reply/failure-reply resource-vp a-failure {:work-kind rf.resources.reply/work-kind-resource}))
 (defn- resource-cancel-with-time []
-  (rreply/failure-reply resource-vp an-abort
-                        {:work-kind rreply/work-kind-resource :completed-at completion-time-ms}))
+  (rf.resources.reply/failure-reply resource-vp an-abort
+                        {:work-kind rf.resources.reply/work-kind-resource :completed-at completion-time-ms}))
 (defn- resource-cancel-no-time []
-  (rreply/failure-reply resource-vp an-abort {:work-kind rreply/work-kind-resource}))
+  (rf.resources.reply/failure-reply resource-vp an-abort {:work-kind rf.resources.reply/work-kind-resource}))
 
 (defn- mutation-error-with-time []
-  (rreply/failure-reply mutation-vp a-failure
-                        {:work-kind rreply/work-kind-mutation :completed-at completion-time-ms}))
+  (rf.resources.reply/failure-reply mutation-vp a-failure
+                        {:work-kind rf.resources.reply/work-kind-mutation :completed-at completion-time-ms}))
 (defn- mutation-error-no-time []
-  (rreply/failure-reply mutation-vp a-failure {:work-kind rreply/work-kind-mutation}))
+  (rf.resources.reply/failure-reply mutation-vp a-failure {:work-kind rf.resources.reply/work-kind-mutation}))
 (defn- mutation-cancel-with-time []
-  (rreply/failure-reply mutation-vp an-abort
-                        {:work-kind rreply/work-kind-mutation :completed-at completion-time-ms}))
+  (rf.resources.reply/failure-reply mutation-vp an-abort
+                        {:work-kind rf.resources.reply/work-kind-mutation :completed-at completion-time-ms}))
 (defn- mutation-cancel-no-time []
-  (rreply/failure-reply mutation-vp an-abort {:work-kind rreply/work-kind-mutation}))
+  (rf.resources.reply/failure-reply mutation-vp an-abort {:work-kind rf.resources.reply/work-kind-mutation}))
 
 ;; Resource/mutation stale thread `:completed-at` via the suppress `:extra`.
 (defn- resource-stale-with-time [] (:reply (resource-stale-out {:completed-at completion-time-ms})))
@@ -290,18 +290,18 @@
 
 ;; Machine spawn-error threads `:completed-at` through `base-reply`; `machine-ctx`
 ;; already carries one, so the with-time builder reuses it directly.
-(defn- machine-error-with-time [] (m-reply/error-reply machine-ctx {:reason :bad-creds}))
-(defn- machine-error-no-time   [] (m-reply/error-reply (dissoc machine-ctx :completed-at) {:reason :bad-creds}))
+(defn- machine-error-with-time [] (rf.machines.reply/error-reply machine-ctx {:reason :bad-creds}))
+(defn- machine-error-no-time   [] (rf.machines.reply/error-reply (dissoc machine-ctx :completed-at) {:reason :bad-creds}))
 
 ;; Machine spawn-stale threads `:completed-at` when the ctx supplies one
 ;; (`machine-stale-reply` already carries it; this is its no-time companion).
 (defn- machine-stale-no-time []
-  (m-reply/stale-spawn-reply (assoc (dissoc machine-ctx :completed-at) :current-generation nil)))
+  (rf.machines.reply/stale-spawn-reply (assoc (dissoc machine-ctx :completed-at) :current-generation nil)))
 
 ;; Timer `:after`-stale threads `:completed-at` when the firing dispatch
 ;; supplied it (`after-stale-reply` above is its no-time companion).
 (defn- after-stale-reply-with-time []
-  (m-reply/after-stale-reply
+  (rf.machines.reply/after-stale-reply
     {:actor-id        :a/multi
      :state           :loading
      :delay           30000
@@ -318,10 +318,10 @@
 (def ^:private families
   [{:family          :http
     :work-head       :rf.work/http
-    :success         #(http-reply/success-reply http-ctx {:title "Welcome"})
+    :success         #(rf.http.reply/success-reply http-ctx {:title "Welcome"})
     :success-no-time http-success-no-time
-    :error           #(http-reply/failure-reply http-ctx a-failure)
-    :cancel          #(http-reply/failure-reply http-ctx an-abort)
+    :error           #(rf.http.reply/failure-reply http-ctx a-failure)
+    :cancel          #(rf.http.reply/failure-reply http-ctx an-abort)
     ;; Non-success completion-time pairs (HTTP stale excluded — `suppress`
     ;; hard-codes its `:extra` with work-id facts only).
     :error-with-time  http-error-with-time
@@ -334,14 +334,14 @@
 
    {:family          :resource
     :work-head       :rf.work/resource
-    :success         #(rreply/success-reply resource-vp {:title "Welcome"}
-                                            {:work-kind rreply/work-kind-resource
+    :success         #(rf.resources.reply/success-reply resource-vp {:title "Welcome"}
+                                            {:work-kind rf.resources.reply/work-kind-resource
                                              :completed-at completion-time-ms})
     :success-no-time resource-success-no-time
-    :error           #(rreply/failure-reply resource-vp a-failure
-                                            {:work-kind rreply/work-kind-resource})
-    :cancel          #(rreply/failure-reply resource-vp an-abort
-                                            {:work-kind rreply/work-kind-resource})
+    :error           #(rf.resources.reply/failure-reply resource-vp a-failure
+                                            {:work-kind rf.resources.reply/work-kind-resource})
+    :cancel          #(rf.resources.reply/failure-reply resource-vp an-abort
+                                            {:work-kind rf.resources.reply/work-kind-resource})
     :error-with-time  resource-error-with-time
     :error-no-time    resource-error-no-time
     :cancel-with-time resource-cancel-with-time
@@ -353,14 +353,14 @@
 
    {:family          :mutation
     :work-head       :rf.work/resource ;; mutation reuses the resource head with a [:rf.mutation …] key
-    :success         #(rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
-                                            {:work-kind rreply/work-kind-mutation
+    :success         #(rf.resources.reply/success-reply mutation-vp {:slug "w" :title "Welcome"}
+                                            {:work-kind rf.resources.reply/work-kind-mutation
                                              :completed-at completion-time-ms})
     :success-no-time mutation-success-no-time
-    :error           #(rreply/failure-reply mutation-vp a-failure
-                                            {:work-kind rreply/work-kind-mutation})
-    :cancel          #(rreply/failure-reply mutation-vp an-abort
-                                            {:work-kind rreply/work-kind-mutation})
+    :error           #(rf.resources.reply/failure-reply mutation-vp a-failure
+                                            {:work-kind rf.resources.reply/work-kind-mutation})
+    :cancel          #(rf.resources.reply/failure-reply mutation-vp an-abort
+                                            {:work-kind rf.resources.reply/work-kind-mutation})
     :error-with-time  mutation-error-with-time
     :error-no-time    mutation-error-no-time
     :cancel-with-time mutation-cancel-with-time
@@ -372,11 +372,11 @@
 
    {:family          :machine
     :work-head       :rf.work/machine
-    :success         #(m-reply/success-reply machine-ctx {:user-id "u-42"})
+    :success         #(rf.machines.reply/success-reply machine-ctx {:user-id "u-42"})
     :success-no-time machine-success-no-time
-    :error           #(m-reply/error-reply machine-ctx {:reason :bad-creds})
+    :error           #(rf.machines.reply/error-reply machine-ctx {:reason :bad-creds})
     ;; Destroying an actor closes its work attempt with cancellation data.
-    :cancel          #(m-reply/cancelled-actor-reply
+    :cancel          #(rf.machines.reply/cancelled-actor-reply
                         (assoc machine-ctx :reason :explicit))
     ;; Spawn-error + spawn-stale carry completion time; actor-destroy cancel
     ;; does not (see `time-pair-exclusions`).
@@ -395,7 +395,7 @@
     :success-no-time after-fired-reply
     :error           nil
     ;; State exit closes an outstanding timer with cancellation data.
-    :cancel          #(m-reply/cancelled-timer-reply
+    :cancel          #(rf.machines.reply/cancelled-timer-reply
                         {:actor-id  :a/multi
                          :state     :loading
                          :delay     30000
@@ -448,10 +448,10 @@
   each builder is fed an input context that DOES carry a completion time, so the
   companion test proves the builder omits `:completed-at` regardless."
   [[:http    :stale  #(:reply (http-stale-out))
-    "http-reply/suppress hard-codes its stale :extra map (work-id facts only)"]
-   [:machine :cancel #(m-reply/cancelled-actor-reply (assoc machine-ctx :reason :explicit))
+    "rf.http.reply/suppress hard-codes its stale :extra map (work-id facts only)"]
+   [:machine :cancel #(rf.machines.reply/cancelled-actor-reply (assoc machine-ctx :reason :explicit))
     "cancelled-actor-reply takes no :completed-at parameter"]
-   [:timer   :cancel #(m-reply/cancelled-timer-reply
+   [:timer   :cancel #(rf.machines.reply/cancelled-timer-reply
                         {:actor-id     :a/multi
                          :state        :loading
                          :delay        30000
@@ -571,21 +571,21 @@
           :when builder
           :let [reply (builder)]]
     (testing (str family " / " situation)
-      (is (reply/valid-reply? reply)
+      (is (rf.reply/valid-reply? reply)
           (str family " " situation " reply MUST validate against the shared "
-               "re-frame.reply/validate-reply: " (reply/validate-reply reply)))
+               "re-frame.reply/validate-reply: " (rf.reply/validate-reply reply)))
       (testing ":status is in the closed status vocabulary"
-        (is (contains? reply/statuses (:status reply))
+        (is (contains? rf.reply/statuses (:status reply))
             (str family " " situation " :status " (:status reply)
-                 " is not in the closed " reply/statuses)))
+                 " is not in the closed " rf.reply/statuses)))
       (testing ":rf.reply/work-status is in the closed work-status vocabulary"
         (when (contains? reply :rf.reply/work-status)
-          (is (contains? reply/work-statuses (:rf.reply/work-status reply))
+          (is (contains? rf.reply/work-statuses (:rf.reply/work-status reply))
               (str family " " situation " :rf.reply/work-status " (:rf.reply/work-status reply)
-                   " is not in the closed " reply/work-statuses))))
+                   " is not in the closed " rf.reply/work-statuses))))
       (testing "the reply contains no host handles"
         (is (not-any? #(= :rf.reply/host-handle (:rf.reply/problem %))
-                      (reply/validate-reply reply))
+                      (rf.reply/validate-reply reply))
             (str family " " situation " reply carries a host handle"))))))
 
 ;; ---------------------------------------------------------------------------
@@ -675,7 +675,7 @@
   ;; their work ids share the actor-prefixed logical id.
   (let [fired  (:rf.reply/work-id (after-fired-reply))
         stale  (:rf.reply/work-id (after-stale-reply))
-        cancel (:rf.reply/work-id (m-reply/cancelled-timer-reply
+        cancel (:rf.reply/work-id (rf.machines.reply/cancelled-timer-reply
                            {:actor-id  :a/multi
                             :state     :loading
                             :delay     30000
@@ -761,9 +761,9 @@
                  "sentinel would let a reducer derive a bogus durable "
                  "timestamp). Got " (pr-str (:completed-at reply))))
         ;; Omitting the optional fact must not invalidate the envelope.
-        (is (reply/valid-reply? reply)
+        (is (rf.reply/valid-reply? reply)
             (str family " no-time success reply still validates: "
-                 (reply/validate-reply reply)))
+                 (rf.reply/validate-reply reply)))
         (is (= :ok (:status reply))
             (str family " no-time success is still :status :ok"))))))
 
@@ -866,12 +866,12 @@
                  "would let a reducer derive a bogus durable timestamp). Got "
                  (pr-str (:completed-at no-reply)))))
       (testing (str family " / " situation " → both replies still validate")
-        (is (reply/valid-reply? with-reply)
+        (is (rf.reply/valid-reply? with-reply)
             (str family " " situation " with-time reply must validate: "
-                 (reply/validate-reply with-reply)))
-        (is (reply/valid-reply? no-reply)
+                 (rf.reply/validate-reply with-reply)))
+        (is (rf.reply/valid-reply? no-reply)
             (str family " " situation " no-time reply must validate: "
-                 (reply/validate-reply no-reply)))))))
+                 (rf.reply/validate-reply no-reply)))))))
 
 (deftest excluded-terminals-omit-completion-time-even-when-supplied
   (testing "a terminal whose builder does not accept a causal completion time
@@ -885,9 +885,9 @@
                reason ") — its reply MUST NOT carry :completed-at even when the "
                "input context supplies one; got " (pr-str (:completed-at reply))))
       ;; The excluded terminal is still a canonical, valid reply.
-      (is (reply/valid-reply? reply)
+      (is (rf.reply/valid-reply? reply)
           (str family " " situation " excluded terminal still validates: "
-               (reply/validate-reply reply))))))
+               (rf.reply/validate-reply reply))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Error shape: :status :error, a terminal failure work status, and a
@@ -911,11 +911,11 @@
 
 (deftest http-timeout-is-error-plus-timed-out-work-status
   (testing "timeout is an error reply with :timed-out work status"
-    (let [reply (http-reply/failure-reply http-ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
-      (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+    (let [reply (rf.http.reply/failure-reply http-ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
+      (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
       (is (= :error (:status reply)) "timeout is NOT a top-level :status")
       (is (= :timed-out (:rf.reply/work-status reply)))
-      (is (contains? reply/work-statuses (:rf.reply/work-status reply))
+      (is (contains? rf.reply/work-statuses (:rf.reply/work-status reply))
           ":timed-out is in the closed work-status vocabulary"))))
 
 ;; ---------------------------------------------------------------------------
@@ -953,8 +953,8 @@
           :when stale
           :let [reply (stale)]]
     (testing (str family " stale → canonical :stale / :suppressed")
-      (is (reply/valid-reply? reply)
-          (str family " stale reply must validate: " (reply/validate-reply reply)))
+      (is (rf.reply/valid-reply? reply)
+          (str family " stale reply must validate: " (rf.reply/validate-reply reply)))
       (is (= :stale (:status reply))
           (str family " stale :status must be :stale (NOT a bespoke shape), got "
                (:status reply)))
@@ -1050,8 +1050,8 @@
       ;; The reply remains a valid :ok envelope because completion time is optional.
       (is (= :ok (:status bad))
           (str family " control reply is still :status :ok"))
-      (is (reply/valid-reply? bad)
-          (str family " control reply still validates: " (reply/validate-reply bad)))
+      (is (rf.reply/valid-reply? bad)
+          (str family " control reply still validates: " (rf.reply/validate-reply bad)))
       ;; The teeth: the propagation predicate the primary asserts TRUE must go
       ;; FALSE on the dropped fact. Gutting the predicate reddens this control.
       (is (not (completion-time-propagated? bad completion-time-ms))
@@ -1076,8 +1076,8 @@
     (doseq [{:keys [family situation with-builder]} time-paired-rows
             :let [bad (drop-completion-time (with-builder))]]
       ;; Completion time is optional, so the reply is otherwise still valid.
-      (is (reply/valid-reply? bad)
-          (str family " " situation " control still validates: " (reply/validate-reply bad)))
+      (is (rf.reply/valid-reply? bad)
+          (str family " " situation " control still validates: " (rf.reply/validate-reply bad)))
       ;; The teeth: the SHARED propagation predicate must go FALSE on the drop.
       (is (not (completion-time-propagated? bad completion-time-ms))
           (str family " " situation " control DROPPED :completed-at, yet the "

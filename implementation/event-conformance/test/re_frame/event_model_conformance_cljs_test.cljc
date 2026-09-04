@@ -20,20 +20,20 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.cofx :as cofx]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.event-emit :as event-emit]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (defn- clear-observation-state! []
-  (error-emit/clear-error-listeners!)
-  (event-emit/clear-event-listeners!))
+  (rf.error-emit/clear-error-listeners!)
+  (rf.event-emit/clear-event-listeners!))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [test-fn]
     (clear-observation-state!)
     (test-fn)
@@ -353,16 +353,16 @@
 (deftest supplied-recordable-value-failing-schema-is-cofx-value-invalid-in-production
   (testing "recordable-coeffect schemas are enforced at the durable boundary"
     ;; Exercise the schema hook without taking a dependency on the schemas artefact.
-    (let [previous-validator (late-bind/get-fn :schemas/validate-with-registered-fn)
-          previous-explainer (late-bind/get-fn :schemas/explain-with-registered-fn)]
+    (let [previous-validator (rf.late-bind/get-fn :schemas/validate-with-registered-fn)
+          previous-explainer (rf.late-bind/get-fn :schemas/explain-with-registered-fn)]
       (try
-        (late-bind/set-fn! :schemas/validate-with-registered-fn
+        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
           (fn [schema value]
             ;; schema shape `[:enum a b …]` → membership check.
             (and (vector? schema)
                  (= :enum (first schema))
                  (contains? (set (rest schema)) value))))
-        (late-bind/set-fn! :schemas/explain-with-registered-fn
+        (rf.late-bind/set-fn! :schemas/explain-with-registered-fn
           (fn [schema value] {:schema schema :value value :failed true}))
         (let [delivered-fact (atom ::unset)]
           (rf/reg-cofx :evt-conf/graded-fact
@@ -387,13 +387,13 @@
         (finally
           ;; Restore the prior hooks (nil = no validator) so no leak.
           (if previous-validator
-            (late-bind/set-fn! :schemas/validate-with-registered-fn previous-validator)
-            (swap! late-bind/hooks dissoc :schemas/validate-with-registered-fn))
+            (rf.late-bind/set-fn! :schemas/validate-with-registered-fn previous-validator)
+            (swap! rf.late-bind/hooks dissoc :schemas/validate-with-registered-fn))
           (if previous-explainer
-            (late-bind/set-fn! :schemas/explain-with-registered-fn previous-explainer)
-            (swap! late-bind/hooks dissoc :schemas/explain-with-registered-fn))
-          (late-bind/invalidate-cache! :schemas/validate-with-registered-fn)
-          (late-bind/invalidate-cache! :schemas/explain-with-registered-fn))))))
+            (rf.late-bind/set-fn! :schemas/explain-with-registered-fn previous-explainer)
+            (swap! rf.late-bind/hooks dissoc :schemas/explain-with-registered-fn))
+          (rf.late-bind/invalidate-cache! :schemas/validate-with-registered-fn)
+          (rf.late-bind/invalidate-cache! :schemas/explain-with-registered-fn))))))
 
 (deftest reg-event-declared-rf-time-ms-is-delivered-flat-from-the-token
   (testing "a declared :rf/time-ms fact is delivered flat from the causal token"
@@ -484,9 +484,9 @@
            "there is NO public re-frame.core/inject-cofx var — the facade surface is removed"))
     ;; Leg 2 — the surviving private thrower is the always-on hard error.
     (is (= :rf.error/inject-cofx-removed
-           (thrown-error-id #(cofx/inject-cofx :evt-conf/anything)))
+           (thrown-error-id #(rf.cofx/inject-cofx :evt-conf/anything)))
         "the surviving inject-cofx thrower raises :rf.error/inject-cofx-removed")
-    (let [reason (thrown-error-reason #(cofx/inject-cofx :evt-conf/anything))]
+    (let [reason (thrown-error-reason #(rf.cofx/inject-cofx :evt-conf/anything))]
       (is (string? reason)
           "the removal stub raises an ex-info carrying a :reason string")
       (is (re-find #":rf.cofx/requires" reason)
@@ -801,11 +801,11 @@
     (thrown-error-id #(rf/reg-event-db  :evt-conf/db-noreg  (fn [_ _] nil)))
     (thrown-error-id #(rf/reg-event-fx  :evt-conf/fx-noreg  (fn [_ _] nil)))
     (thrown-error-id #(rf/reg-event-ctx :evt-conf/ctx-noreg (fn [_ _] nil)))
-    (is (nil? (registrar/lookup :event :evt-conf/db-noreg))
+    (is (nil? (rf.registrar/lookup :event :evt-conf/db-noreg))
         "reg-event-db registered nothing")
-    (is (nil? (registrar/lookup :event :evt-conf/fx-noreg))
+    (is (nil? (rf.registrar/lookup :event :evt-conf/fx-noreg))
         "reg-event-fx registered nothing")
-    (is (nil? (registrar/lookup :event :evt-conf/ctx-noreg))
+    (is (nil? (rf.registrar/lookup :event :evt-conf/ctx-noreg))
         "reg-event-ctx registered nothing")
     (rf/dispatch-sync [:evt-conf/live])
     (is (= [:reg-event] @(rf/subscribe [:evt-conf/tally]))

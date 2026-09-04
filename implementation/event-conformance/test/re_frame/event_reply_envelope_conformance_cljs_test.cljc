@@ -36,16 +36,16 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.events :as events]
-            [re-frame.image :as image]
-            [re-frame.live-frame :as lf]
-            [re-frame.registrar :as registrar]
-            [re-frame.reply :as reply]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.events :as rf.events]
+            [re-frame.image :as rf.image]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.reply :as rf.reply]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private completed-at-ms 1781078400456)
 
@@ -66,7 +66,7 @@
 ;; handler resolution (the write is `:global`, not `:image`).
 (defn- event-desc
   [provenance-ns id handler-fn]
-  (merge (events/event-handler-meta handler-fn)
+  (merge (rf.events/event-handler-meta handler-fn)
          {:rf.provenance/ns provenance-ns
           :kind             :event
           :id               id}))
@@ -82,13 +82,13 @@
 ;; lowering (and never app-delivers a stale reply); this invents no production API.
 (defn- observe-stale-reply!
   [{stale-reply :reply} reply-target dispatch-options]
-  (rf/dispatch-sync (reply/complete reply-target stale-reply) dispatch-options))
+  (rf/dispatch-sync (rf.reply/complete reply-target stale-reply) dispatch-options))
 
 (deftest reply-completion-is-an-ordinary-reg-event-dispatch
   (testing "a completed reply target is an ordinary event with the reply last"
-    (is (reply/valid-reply? canonical-reply)
+    (is (rf.reply/valid-reply? canonical-reply)
         (str "the fixture reply must be a canonical uniform envelope: "
-             (reply/validate-reply canonical-reply)))
+             (rf.reply/validate-reply canonical-reply)))
     (let [seen-event      (atom ::unset)
           seen-coeffects  (atom ::unset)
           reply-target    [:article/loaded {:id 42}]]
@@ -102,7 +102,7 @@
                         :title
                         (get-in delivered-reply [:value :article :title]))})))
 
-      (let [completed-event (reply/complete reply-target canonical-reply)]
+      (let [completed-event (rf.reply/complete reply-target canonical-reply)]
         (is (= [:article/loaded {:id 42} canonical-reply] completed-event)
             "complete appends the reply map as the FINAL event argument")
         (rf/dispatch-sync completed-event))
@@ -127,9 +127,9 @@
             (is (= :rf/default (:rf.frame/id delivered-reply)) ":rf.frame/id preserved")
             (is (= completed-at-ms (:completed-at delivered-reply))
                 ":completed-at (EP-0017) preserved")
-            (is (contains? reply/statuses (:status delivered-reply))
+            (is (contains? rf.reply/statuses (:status delivered-reply))
                 ":status is in the ONE closed status vocabulary")
-            (is (contains? reply/work-statuses (:rf.reply/work-status delivered-reply))
+            (is (contains? rf.reply/work-statuses (:rf.reply/work-status delivered-reply))
                 ":rf.reply/work-status is in the ONE closed work-status vocabulary"))))
 
       (testing "the reply event got ORDINARY event-model semantics — a coeffects
@@ -153,7 +153,7 @@
     ;; explicit one) runs THIS handler and stamps `:global`.
     (rf/reg-event :article/loaded
       (fn [{:keys [db]} _] {:db (assoc db :delivered-by :global)}))
-    (is (some? (registrar/lookup :event :article/loaded))
+    (is (some? (rf.registrar/lookup :event :article/loaded))
         "the same-id global sentinel is genuinely armed on the default registrar")
     (let [seen-event         (atom ::unset)
           handler-call-count (atom 0)
@@ -165,9 +165,9 @@
                (reset! seen-event event)
                {:db (assoc db :delivered-by :image)}))]
           event-image
-          (image/image {:id :evt.reply/stale-img
+          (rf.image/image {:id :evt.reply/stale-img
                         :select-ns {:include ["evt.reply.stale"]}})
-          _ (lf/make-frame {:id :evt.reply/frame :images [event-image]}
+          _ (rf.live-frame/make-frame {:id :evt.reply/frame :images [event-image]}
                            image-registrations)
           ;; A PLAIN app-shaped target — nothing capability-bearing rides it.
           reply-target [:article/loaded {:id 42}]
@@ -178,7 +178,7 @@
           {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5]
            :generation 5}
           suppression-outcome
-          (reply/suppress reply-target carried-correlation current-correlation
+          (rf.reply/suppress reply-target carried-correlation current-correlation
             {:rf.reply/work-id (:work/id carried-correlation)
                      :work/kind        :resource
                      :rf.frame/id      :evt.reply/frame})]
@@ -187,9 +187,9 @@
                 is a deliberate observer self-dispatch"
         (is (false? (:deliver? suppression-outcome))
             "the suppress boundary never authorises app delivery of a stale reply")
-        (is (reply/valid-reply? (:reply suppression-outcome))
+        (is (rf.reply/valid-reply? (:reply suppression-outcome))
             (str "the suppressed reply must be a canonical stale envelope: "
-                 (reply/validate-reply (:reply suppression-outcome))))
+                 (rf.reply/validate-reply (:reply suppression-outcome))))
         (is (zero? @handler-call-count) "nothing has been dispatched yet"))
       (testing "TOOTH — authorised observation: the observer self-dispatches the
                 stale reply on its OWN authority (explicit complete + dispatch)"
@@ -210,7 +210,7 @@
               "a :rf.reply/stale-reason rides")
           (is (not (contains? delivered-reply :value))
               "a stale reply carries NO :value — it mutates no app state")
-          (is (contains? reply/statuses (:status delivered-reply))
+          (is (contains? rf.reply/statuses (:status delivered-reply))
               ":stale is in the ONE closed status vocabulary")))
       (testing "the observer's dispatch was routed to the EXPLICIT frame via ITS
                 OWN image — not the ambient default frame, nor the default registrar"
@@ -220,5 +220,5 @@
             "resolution did NOT fall through to the same-id default-registrar sentinel")
         (is (nil? (:delivered-by (rf/app-db-value :rf/default)))
             "targeting did NOT fall through to the ambient default frame")
-        (is (nil? registrar/*generation*)
+        (is (nil? rf.registrar/*generation*)
             "the image generation binding unwound after the dispatch")))))
