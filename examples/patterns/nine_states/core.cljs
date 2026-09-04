@@ -109,6 +109,38 @@
    :errors   {}
    :touched  #{}})
 
+(def data-load-request-id
+  "The page has exactly one data-load slot, and this is its name. Every
+   request that fills that slot — `:nine-states.demo/load` and
+   `:nine-states.demo/load-with-failure` alike — issues
+   `:rf.http/managed` under this one `:request-id`, and that is what
+   makes the page *newest-intent-wins*: issuing a request under an id
+   that is already in flight supersedes the earlier attempt, and the
+   superseded attempt's reply is suppressed before it can reach a
+   handler.
+
+   That matters here because nothing else in the page stops two loads
+   from racing. The control panel stays live while the `:data` region is
+   `:loading`, so a second click starts a second load; `:loading` then
+   has no `:fetch-started` of its own to notice, and accepts whichever
+   `:fetch-succeeded` / `:fetch-failed` lands *first* and leaves for a
+   bucket that has no completion handler at all — so without the shared
+   id, a nearly-finished old load would choose the visible bucket and the
+   newer one's result would be dropped on the floor. One field, and the
+   arbitration lives in the managed-HTTP boundary instead of in a
+   hand-rolled ownership check.
+
+   So read it as ownership, not as tracing metadata. It is deliberately
+   the same id for the succeeding and the failing load, because they
+   compete for the same slot — an old failure must not be able to park
+   the page at `:error` while a newer success is still in flight. And it
+   is safe to keep it a plain, reusable constant: supersession is scoped
+   to the issuing frame, so two frames running this example (the Story
+   shell mounts one per variant) never supersede each other's requests.
+   See [cancellation and supersession]
+   (../../../docs/async/http.md#cancellation-supersession-and-abort)."
+  :nine-states.data/load)
+
 ;; ============================================================================
 ;; SCHEMAS
 ;; ============================================================================
@@ -200,6 +232,16 @@
 ;; framework's canned-success / canned-failure fxs. That's what lets the
 ;; control panel conjure Empty / One / Some / Too Many on demand, no
 ;; backend required. See [managed HTTP](../../../docs/async/http.md).
+;;
+;; Worth knowing while you read the load events below: an `:fx-overrides`
+;; entry REPLACES `:rf.http/managed` outright, so under this stub the
+;; framework's in-flight registry — and with it the `:request-id`
+;; supersession the load events rely on — never runs, and the canned
+;; replies land synchronously anyway, one at a time. The requests are
+;; still written the way a real one must be, because swapping this
+;; override out for the real transport is the moment the id starts
+;; earning its keep and is exactly the copy-and-adapt step this example
+;; exists to guide.
 
 (defn- generate-todos [todo-count]
   (vec (for [index (range todo-count)]
@@ -342,6 +384,16 @@
       ;; fetch: the region drops to :nothing and :reset-domain wipes :data.
       ;; A late reply from the abandoned load is then inert — :nothing has no
       ;; :fetch-succeeded handler, so it can't resurrect the reset state.
+      ;;
+      ;; Note :loading deliberately has no :fetch-started of its own — a
+      ;; second load while one is in flight is not a state change, so
+      ;; there is nothing here to arbitrate the two replies. That job
+      ;; belongs to the request itself, and `data-load-request-id` does
+      ;; it: the second request supersedes the first and the first's
+      ;; reply is suppressed before it can arrive. The same one id also
+      ;; closes the reset-then-reload window, where :reset alone would
+      ;; leave the abandoned request live and :loading would accept its
+      ;; reply once the reload put the region back here.
       {:tags #{:data/loading :data/transient}
        :on   {:fetch-succeeded {:target :resolving
                                 :action :set-items}
@@ -465,7 +517,11 @@
          folds back through :nine-states.demo/loaded into the machine's
          :fetch-succeeded event, and from there the :data region's
          :always-cascade reads the count and picks the cardinality bucket.
-         Ask for n items, get the matching state."}
+         Ask for n items, get the matching state.
+
+         The request rides the page's one `data-load-request-id`, so
+         clicking a second load while the first is still in flight
+         supersedes it rather than racing it — see that def."}
   (fn handler-demo-load [_ [_ {:keys [n]}]]
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
@@ -473,17 +529,21 @@
                          :url    "/api/todos"
                          :query  {:n (or n 0)}}
             :decode     :json
+            :request-id data-load-request-id
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
 
 (rf/reg-event :nine-states.demo/load-with-failure
   {:doc "Same idea, but the fetch is rigged to fail — the :data region
-         lands in :error."}
+         lands in :error. Same `data-load-request-id` as the succeeding
+         load, deliberately: both fill the one data-load slot, so either
+         kind of newer intent supersedes either kind of older attempt."}
   (fn handler-demo-load-with-failure [_ _]
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
            {:request    {:method :get :url "/api/todos/fail"}
             :decode     :json
+            :request-id data-load-request-id
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
 

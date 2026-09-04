@@ -127,6 +127,16 @@
            {:request    {:method :get :url "/api/todos" :query {:n (or n 0)}}
             :value      (generate-todos (or n 0))
             :decode     :json
+            ;; The twin carries the live example's ownership field too, so
+            ;; the envelope a reader inspects in Xray is the real one. It
+            ;; reaches for `nine-states.core`'s constant rather than
+            ;; copying the keyword — a story that drifted onto its own id
+            ;; would be teaching the exact mistake the id exists to
+            ;; prevent. (`generate-todos` above is copied because it is
+            ;; private; this is public, and shared on purpose.) Story runs
+            ;; each variant in its own frame and supersession is
+            ;; frame-scoped, so one shared id costs the variants nothing.
+            :request-id nine-states.core/data-load-request-id
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
 
@@ -155,6 +165,9 @@
             :kind       :rf.http/transport
             :tags       {:message "Network unreachable."}
             :decode     :json
+            ;; Same slot, same id as the succeeding twin — see the live
+            ;; example's `data-load-request-id`.
+            :request-id nine-states.core/data-load-request-id
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
 

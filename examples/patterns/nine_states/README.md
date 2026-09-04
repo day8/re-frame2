@@ -128,8 +128,14 @@ beats which, you edit one table, not 10 views.
   ([the uniform reply](../../../docs/core/glossary.md#the-uniform-reply)),
   which the demo events forward into the machine as `:fetch-succeeded` /
   `:fetch-failed`. No promise-threading glue between the network and the
-  state graph. See
-  [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md).
+  state graph. Both load events also name the page's one data-load slot
+  with a shared `:request-id`, so a newer load supersedes an older one
+  still in flight instead of racing it — newest intent wins, and the
+  arbitration stays in the managed-HTTP boundary rather than in a
+  hand-written ownership check. See
+  [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md)
+  and [cancellation and
+  supersession](../../../docs/async/http.md#cancellation-supersession-and-abort).
 - A form, the data-oriented way. The `{:draft :errors :touched}`
   slice in app-db holds the form's working state; a pure validator decides
   correct-vs-incorrect; the form region tracks the lifecycle. See
