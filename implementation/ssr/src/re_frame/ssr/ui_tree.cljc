@@ -467,23 +467,25 @@
   #{:area :base :br :col :embed :hr :img :input :link :meta :param
     :keygen :source :track :wbr})
 
+;; The three boolean-value rosters live in `re-frame.ssr.html-helpers` —
+;; ONE roster read by both SSR serialisers, so this one and the hiccup
+;; emitter cannot drift apart on which names are which class (rf2-r9kf).
+;; The two PIPELINES stay separate per 004B: only the rosters travel, and
+;; each serialiser keeps its own attribute-name handling and escape.
 (def boolean-attrs
   "HTML boolean attributes: true -> presence (attr=\"\"), false/absent ->
   omitted. Tracks react-dom 19.2.0; keyed by the hyphen-collapsed
   lowercase author name."
-  #{"allowfullscreen" "async" "autofocus" "autoplay" "checked" "controls"
-    "default" "defer" "disabled" "formnovalidate" "hidden" "inert" "ismap"
-    "itemscope" "loop" "multiple" "muted" "nomodule" "novalidate" "open"
-    "playsinline" "readonly" "required" "reversed" "selected"})
+  html/boolean-attrs)
 
 (def booleanish-attrs
   "true/false -> \"true\"/\"false\", never omitted. Tracks react-dom 19.2.0."
-  #{"contenteditable" "draggable" "spellcheck"})
+  html/booleanish-attrs)
 
 (def overloaded-boolean-attrs
   "true -> bare presence, false -> omitted, other values stringify.
   Tracks react-dom 19.2.0."
-  #{"download" "capture"})
+  html/overloaded-boolean-attrs)
 
 (def property-only-attrs
   "Names React never serialises to markup on NON-custom elements. Tracks

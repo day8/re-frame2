@@ -1162,3 +1162,181 @@
           "sync emit prefers the exact fixed arm")
       (is (= "<p>mx1|a</p>" (:shell-html (streaming/render-shell [mixed "a"])))
           "streaming prefers the exact fixed arm"))))
+
+;; ===========================================================================
+;; rf2-r9kf — BOOLEAN ATTRIBUTE-VALUE CLASSES through both hiccup SSR modes.
+;;
+;; `html-helpers/attr-string` used to branch on the VALUE alone — `true` → a
+;; bare attribute name, `false`/`nil` → omitted — one rule applied to
+;; attributes that do not share one. HTML/React carries three classes, pinned
+;; by Spec 004B §Booleans and their neighbours from a row-by-row react-dom
+;; 19.2.0 probe:
+;;
+;;   stringify  `aria-*`, `data-*`, and the booleanish family
+;;              (`contentEditable` / `draggable` / `spellCheck`) — `true` AND
+;;              `false` both reach markup as `="true"` / `="false"`. ARIA is
+;;              not boolean HTML: `aria-expanded="false"` is a DIFFERENT state
+;;              from the attribute being absent, so dropping the `false` made
+;;              server markup assert the OPPOSITE of what the author wrote,
+;;              and assistive technology read a different UI than the client
+;;              render shows.
+;;   presence   the true boolean attributes (`disabled`, `checked`, …) and the
+;;              overloaded booleans (`download`, `capture`) — presence IS
+;;              truth and `disabled="false"` is still TRUTHY to a browser, so
+;;              `false` MUST stay omitted. Emitting it in the other direction
+;;              would disable the control.
+;;   ordinary   everything else — a boolean never reaches markup at all,
+;;              rather than becoming an arbitrary bare attribute.
+;;
+;; Neither direction is caught downstream: the render-tree hash is computed
+;; over the TREE, so server and client agree on it while the HTML differs, and
+;; 011 §What React-native adoption does not catch records that React neither
+;; patches nor reports attribute-only hydration mismatches.
+;;
+;; These drive the classes through BOTH hiccup SSR modes — `emit/
+;; render-to-string` and `streaming/render-shell` — because both call the one
+;; shared `attr-string`, so neither mode can drift on its own.
+;; ===========================================================================
+
+(deftest render-to-string-aria-and-data-booleans-stringify
+  (testing "rf2-r9kf — an `aria-*` boolean stringifies in BOTH directions;
+            `false` is a state, never an omission"
+    (is (= "<button aria-expanded=\"true\">x</button>"
+           (emit/render-to-string [:button {:aria-expanded true} "x"] {}))
+        "aria-expanded true → aria-expanded=\"true\", never a bare name")
+    (is (= "<button aria-expanded=\"false\">x</button>"
+           (emit/render-to-string [:button {:aria-expanded false} "x"] {}))
+        "aria-expanded false → aria-expanded=\"false\", never absent")
+    (is (= "<div aria-hidden=\"false\"></div>"
+           (emit/render-to-string [:div {:aria-hidden false}] {}))
+        "aria-hidden false survives — absent would mean the opposite")
+    (is (= "<div aria-checked=\"false\"></div>"
+           (emit/render-to-string [:div {:aria-checked false}] {}))
+        "aria-checked false survives")
+    (is (= "<div aria-disabled=\"false\"></div>"
+           (emit/render-to-string [:div {:aria-disabled false}] {}))
+        "aria-disabled false survives"))
+
+  (testing "rf2-r9kf — `data-*` booleans stringify the same way"
+    (is (= "<div data-open=\"true\"></div>"
+           (emit/render-to-string [:div {:data-open true}] {}))
+        "data-* true → data-open=\"true\"")
+    (is (= "<div data-open=\"false\"></div>"
+           (emit/render-to-string [:div {:data-open false}] {}))
+        "data-* false → data-open=\"false\"")))
+
+(deftest render-to-string-booleanish-attrs-stringify-both-ways
+  (testing "rf2-r9kf — the nested editable-parent regression: an explicit
+            `false` on a child is how it opts OUT of an editable ancestor, so
+            dropping it silently makes the child editable"
+    (is (= (str "<div contentEditable=\"true\">"
+                "<section contentEditable=\"false\">locked</section>"
+                "</div>")
+           (emit/render-to-string
+            [:div {:contentEditable true}
+             [:section {:contentEditable false} "locked"]]
+            {}))
+        "the child keeps its explicit contentEditable=\"false\" marker"))
+
+  (testing "rf2-r9kf — every booleanish family member stringifies true AND
+            false (the whole roster, table-driven)"
+    (doseq [attribute-key [:contentEditable :draggable :spellCheck]
+            [value expected] [[true "true"] [false "false"]]]
+      (is (= (str "<div " (name attribute-key) "=\"" expected "\"></div>")
+             (emit/render-to-string [:div {attribute-key value}] {}))
+          (str "booleanish " attribute-key " " value
+               " → " (name attribute-key) "=\"" expected "\"")))))
+
+(deftest render-to-string-presence-classes-are-preserved
+  (testing "rf2-r9kf CONTROL — true boolean attributes keep PRESENCE
+            semantics. `disabled=\"false\"` is truthy to a browser, so
+            emitting the false value here would disable the control"
+    (is (= "<input disabled required>"
+           (emit/render-to-string [:input {:disabled true :required true}] {}))
+        "true boolean attrs stay bare names")
+    (is (= "<input>"
+           (emit/render-to-string [:input {:disabled false :hidden nil}] {}))
+        "a false boolean attr stays OMITTED — never disabled=\"false\"")
+    (is (= "<input>"
+           (emit/render-to-string [:input {:checked false :readonly false}] {}))
+        "checked/readonly false stay omitted"))
+
+  (testing "rf2-r9kf CONTROL — overloaded booleans keep their own shape:
+            true → presence, false → omitted, any other value stringifies"
+    (is (= "<a download>d</a>"
+           (emit/render-to-string [:a {:download true} "d"] {}))
+        "download true → bare presence")
+    (is (= "<a>d</a>"
+           (emit/render-to-string [:a {:download false} "d"] {}))
+        "download false → omitted")
+    (is (= "<a download=\"report.pdf\">d</a>"
+           (emit/render-to-string [:a {:download "report.pdf"} "d"] {}))
+        "a string download stringifies"))
+
+  (testing "rf2-r9kf CONTROL — a boolean on an ORDINARY attribute never
+            becomes a bare attribute (react-dom drops it)"
+    (is (= "<div>x</div>"
+           (emit/render-to-string [:div {:title true} "x"] {}))
+        "true on an ordinary attribute is dropped, not emitted bare")
+    (is (= "<div>x</div>"
+           (emit/render-to-string [:div {:role false} "x"] {}))
+        "false on an ordinary attribute is dropped")))
+
+(deftest render-shell-applies-the-same-boolean-classes
+  (testing "rf2-r9kf — the streaming shell walker re-derives attrs through the
+            SAME `attr-string`, so the classes must hold there too; a fix
+            landing on one hiccup mode only is the drift this pins"
+    (let [tree [:div {:aria-expanded false :contentEditable false}
+                [:button {:disabled true :aria-disabled false} "go"]]
+          {:keys [shell-html]} (streaming/render-shell tree)]
+      (is (str/includes? shell-html "aria-expanded=\"false\"")
+          "streaming keeps a false aria-* value")
+      (is (str/includes? shell-html "contentEditable=\"false\"")
+          "streaming keeps a false booleanish value")
+      (is (str/includes? shell-html "aria-disabled=\"false\"")
+          "streaming keeps a false aria-* value on a nested element")
+      (is (str/includes? shell-html "<button disabled aria-disabled=\"false\">")
+          "streaming still emits a true boolean attr as a bare presence name"))))
+
+(defn- boolean-attr-class-signature
+  "Reduce an emitted element string to WHICH boolean class the serialiser
+  applied to `attribute-name` — the comparable across the two SSR
+  serialisers, whose presence SPELLINGS differ by design (the hiccup emitter
+  writes a bare `disabled`, the structural-tree serialiser `disabled=\"\"`;
+  011 §Hash-based mismatch detection tolerates exactly that difference)."
+  [attribute-name html]
+  (let [lower (str/lower-case html)
+        nm    (str/lower-case attribute-name)]
+    (cond
+      (str/includes? lower (str nm "=\"true\""))  :stringified-true
+      (str/includes? lower (str nm "=\"false\"")) :stringified-false
+      (str/includes? lower (str nm "=\"\""))      :presence
+      (str/includes? lower (str " " nm ">"))      :presence
+      (str/includes? lower (str " " nm " "))      :presence
+      :else                                       :absent)))
+
+(deftest boolean-classes-agree-with-the-structural-tree-serialiser
+  (testing "rf2-r9kf — the hiccup emitter and `emit-ui-tree` reach the SAME
+            class verdict for every row of 004B §Booleans and their
+            neighbours. Compared as CLASSES, not bytes: the two pipelines stay
+            separate (004B) and differ in presence spelling and name mapping;
+            what must not differ is which class an attribute is in"
+    (doseq [[attribute-key value] [[:aria-hidden true]     [:aria-hidden false]
+                                   [:aria-expanded false]
+                                   [:data-open true]       [:data-open false]
+                                   [:contentEditable true] [:contentEditable false]
+                                   [:draggable false]
+                                   [:spellCheck false]
+                                   [:disabled true]        [:disabled false]
+                                   [:checked false]        [:hidden true]
+                                   [:download true]        [:download false]
+                                   [:title true]           [:role false]]]
+      (let [attribute-name (name attribute-key)
+            hiccup-html    (emit/render-to-string [:div {attribute-key value}] {})
+            tree-html      (ui-tree/emit-ui-tree
+                            (v1 {:tag :div :attrs {attribute-key value}}))]
+        (is (= (boolean-attr-class-signature attribute-name tree-html)
+               (boolean-attr-class-signature attribute-name hiccup-html))
+            (str attribute-key " " value
+                 " — hiccup emitted " (pr-str hiccup-html)
+                 ", the structural-tree serialiser " (pr-str tree-html)))))))
