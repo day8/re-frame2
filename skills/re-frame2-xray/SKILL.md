@@ -29,7 +29,11 @@ question to the one visible Xray mode/tab to open first, says why it is
 the first stop, and names the first interaction. Xray is the human-facing
 in-app devtools panel for re-frame2 — preloaded into dev builds via
 shadow-cljs `:preloads`, auto-opening into the host's
-`[data-rf-xray-host]` column, elided entirely from production builds.
+`[data-rf-xray-host]` column. **The preload is the only thing that keeps
+Xray out of a production build** — the programmatic `init!` path carries no
+`goog.DEBUG` gate of its own, so a host that installs Xray from app code
+owns its exclusion. See
+[`references/launch-lifecycle.md` §Production posture](references/launch-lifecycle.md#production-posture).
 
 ## First fork — who is looking?
 
@@ -127,7 +131,7 @@ Four launch surfaces ship: one mount facade with three open verbs
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-xray-host]` column in the app layout. Xray auto-opens on page load. |
 | Mount where the host can't give Xray a layout column (full-screen canvas, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body`. The supported fallback — **not** the default path. |
 | Put Xray on a second monitor | **Pop-out window** | Click the visible **`⛶` pop-out button** in the panel top-bar's right-icons cluster (the canonical chrome path). Secondary programmatic path: `(xray/popout!)` from CLJS / `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from a console. |
-| Install Xray from code (no preload) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
+| Install Xray from code (no preload) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. **Ungated** — no verb on this path checks `goog.DEBUG`, so put the `:require` *and* the calls in a dev-only namespace your release build never loads ([§Keeping the manual path out of production](references/launch-programmatic.md#keeping-the-manual-path-out-of-production)). |
 | Deep-link Xray to a tab / epoch / app-db path from code | **`focus!`** | `(xray/focus! {:panel :trace})`, or the fuller `{:frame :panel :epoch-id/:dispatch-id :path}` command. **Navigates an already-installed Xray — it does not install or mount** (preload / `init!` + a mount verb first). The only programmatic tab jump. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. |
 | Have an AI agent inspect the runtime | **re-frame2-pair** | Out of scope here — see §First fork above. |

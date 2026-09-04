@@ -15,6 +15,12 @@ Alternative to the preload's **foundation block** — call `(xray/init! opts)`
 from app code after `rf/init!`. Idempotent; each underlying side-effect is
 `defonce`-guarded so a second call is a no-op.
 
+> **This path carries no production gate.** The preload's `goog.DEBUG` check
+> is the only one Xray has, and `init!` does not traverse it — so wiring the
+> sequence below into a namespace your release build loads ships Xray to
+> production. Read [§Keeping the manual path out of
+> production](#keeping-the-manual-path-out-of-production) before you wire it.
+
 `init!` installs the foundation and applies config; it does **not** show a
 panel. It registers the `:rf.xray/*` handlers, the trace + epoch collectors,
 the `window.day8.re_frame2_xray.*` browser-API exports, and the keybinding
@@ -35,8 +41,13 @@ Unlike the preload it does **not** schedule the page-load auto-open, so after
 (`Ctrl+Shift+C` also mounts the shell on first press — so init!-then-hotkey
 works too.)
 
+Put both the `:require` and the calls in a **dev-only namespace** — one your
+dev build's entry point loads and your release build never names:
+
 ```clojure
-(require '[day8.re-frame2-xray.core :as xray])
+;; src_dev/myapp/xray_dev.cljs — loaded only by the dev build.
+(ns myapp.xray-dev
+ (:require [day8.re-frame2-xray.core :as xray]))
 
 (xray/init!
  {:target-frame :app/main ; observed frame for the spine
@@ -63,6 +74,46 @@ that worked against a newer Xray won't break an older one. (There is **no**
 `:ai-provider` opt — AI access is the separate `re-frame2-pair-mcp` MCP
 server (Node/npm), not an `init!` knob.) See the `core.cljs` `init!` docstring for the
 authoritative per-opt contract.
+
+## Keeping the manual path out of production
+
+**The preload's `(when rf.interop/debug-enabled? …)` block is the only
+`goog.DEBUG` gate in Xray.** `init!`, `open!`, `open-overlay!`, `toggle!`
+and `popout!` carry none of their own:
+
+- `init!` registers the `:rf.xray/*` handlers, the trace + epoch collectors,
+ the browser-API exports and the keybinding listener **unconditionally**.
+- `open!` gates only on a substrate adapter being installed — which every
+ app that called `rf/init!` has, in production exactly as in dev. Adapter
+ presence is not a production discriminator.
+
+So on the manual path **exclusion is the host's job**. Two ways to discharge
+it:
+
+- **Preferred — use the preload instead.** `:devtools/preloads` is dev-build
+ configuration, so the release build never loads the namespace at all. That
+ is why the default path asks nothing of you
+ ([`launch-modes.md` §Install the preload](launch-modes.md#install-the-preload)).
+- **If you need programmatic control** — because your build tool has no
+ preload equivalent, or you must sequence `init!` yourself — keep the
+ `:require` and the calls in a dev-only namespace, as the sample above does,
+ and load it only from the dev build's entry point.
+
+**Guarding the calls alone is not enough.** Wrapping `(xray/init!)` in
+`(when ^boolean goog.DEBUG …)` inside a namespace your release build still
+requires leaves the *load-time* work in place: requiring
+`day8.re-frame2-xray.core` transitively loads `mount.cljs`, whose bottom runs
+seven top-level `register-first-mount-hook!` calls at namespace-load time,
+before any call of yours. Guard the `:require`, not just the call.
+
+**And no gate proves Xray's absence from an optimised bundle.**
+`npm run test:elision` compiles `re-frame.elision-probe` under `:advanced`
+twice (`goog.DEBUG` false and true) and greps for dev-only string sentinels
+drawn from `re-frame.*` namespaces. It roots and greps no Xray namespace, so
+a green `test:elision` attests the *framework's* elision and says nothing
+about whether Xray reached your bundle. If you need certainty, grep your own
+release output for `rf-xray-root` or `rf.xray` — both survive Closure as
+string literals.
 
 ## Programmatic focus (focus!)
 
