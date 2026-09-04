@@ -215,8 +215,8 @@ implementation/
                              reader is a cold-load race that two independent resolvers lose
                              to each other.
     deps.edn                 No runtime deps, and none on shadow-cljs; build/test-time only.
-    src/re_frame/build/spec_resource.clj  Recording read + walk-up fallback + the
-                             require-before-resolve that makes the reader cold-load-safe.
+    src/re_frame/build/spec_resource.clj  Recording read + the require-before-resolve
+                             that makes the reader cold-load-safe.
     test/re_frame/build/           The deterministic race control: it holds the
                              interned-but-unbound window open and drives two independent
                              resolver sites into it.

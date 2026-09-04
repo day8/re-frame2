@@ -97,9 +97,11 @@
 ;; namespace docstring. The JVM lanes were never affected: the manifest
 ;; generator re-reads the sidecar on every `clojure -M -m
 ;; re-frame.api-manifest.gen --check`, so it has no cache to invalidate,
-;; and the reader's non-ClojureScript path locates the same file by
-;; walking up from the compile CWD rather than requiring `spec/` on that
-;; classpath.
+;; and it does not go through this reader at all — it locates the same
+;; file by walking up from its own deps.edn directory rather than
+;; requiring `spec/` on that classpath. The reader itself has a
+;; ClojureScript lane and no other: `slurp-resource` requires an `&env`
+;; carrying `:ns` and rejects anything else.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private sidecar-resource
