@@ -105,7 +105,7 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.overlay :as overlay]
-            [re-frame.hicasso.roots-frames-support :as sup]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
             [re-frame.hicasso.test.forms :as tf]
             [re-frame.test-support :as test-support]
             ["react" :as react]
@@ -163,9 +163,9 @@
   those matches a view's own name, which the annotation puts in the
   bytes on purpose. Left in, they would turn a real guard into a row that
   reds on the framework doing exactly what Spec 006 requires.
-  `sup/without-view-annotations` carries the argument in full."
+  `rf.hicasso.roots-frames-support/without-view-annotations` carries the argument in full."
   [hiccup]
-  (sup/without-view-annotations
+  (rf.hicasso.roots-frames-support/without-view-annotations
     (react-dom-server/renderToString
       (mount/provider frame-id (codec/root-element frame-id hiccup)))))
 
