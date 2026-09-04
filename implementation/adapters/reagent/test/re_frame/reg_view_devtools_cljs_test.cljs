@@ -34,8 +34,7 @@
             [re-frame.core :as rf]
             [re-frame.performance :as performance]
             [re-frame.test-support :as test-support]
-            [re-frame.views])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.views]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture

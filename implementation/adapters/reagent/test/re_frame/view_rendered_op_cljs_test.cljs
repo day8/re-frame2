@@ -25,8 +25,7 @@
             [re-frame.frame :as frame]
             [re-frame.test-support :as test-support]
             [re-frame.epoch]) ;; load so :epoch/run-cause hook is bound
-  (:require-macros [re-frame.core :refer [reg-view]]
-                   [re-frame.test-support :refer [with-trace-recorder!]]))
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
