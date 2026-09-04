@@ -39,12 +39,16 @@ no re-frame2 loaded, no files touched.
 
 - **The census (`:census`)** tells you how big the job is — every `r/atom`,
   `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`,
-  `r/reactify-component` and root mount, plus re-frame2's own substrate
-  adapters under `re-frame.adapter.`, classified `:human-decision` or
-  `:runtime-blocker`. Two rosters, because a re-frame2 application on the
-  Reagent adapter calls no Reagent API of its own and a Reagent-only census
-  scored it at zero. Map each class onto a MIG rule and you have the D/R
-  gating for the whole codebase before you open a file.
+  `r/reactify-component`, `render-to-string` and root mount, plus re-frame2's
+  own substrate adapters under `re-frame.adapter.`, classified
+  `:human-decision` or `:runtime-blocker`. Two rosters, because a re-frame2
+  application on the Reagent adapter calls no Reagent API of its own and a
+  Reagent-only census scored it at zero. Most classes map onto a MIG rule, and
+  that mapping is the D/R gating for the whole codebase before you open a file.
+  Three do not: `:static-markup` lands on MIG-23's SSR leaf, and
+  `:reactive-graph-control` and `:cell-disposal` have no catalogue rule at all —
+  the census carries a recovery note for every class it emits, so read the note
+  for the class and decide from that.
 - **The fixer (`:entries`)** covers only `[:> …]`-family crossings into React.
   A codebase that crosses into React nowhere gets **zero** entries — which is
   not a clean bill of health, it is a different population. Never read one half

@@ -79,9 +79,10 @@ sees 88 files the report never mentions.
 So the same run also emits a **census**, under `:census`, whose population is
 the view-substrate API **call site**: `r/atom`, `r/with-let`, `r/create-class`,
 `r/as-element`, `r/cursor`, `r/reactify-component`, root mounting, and the rest
-of the two rosters. On that same corpus it reports **59 sites across 28 files**.
-Both figures are measurements of a corpus that keeps growing; these were taken
-at `e337a1d`.
+of the two rosters. On that same corpus it reports many, in files the fixer half
+never named. No count is quoted here on purpose: the census figure moves whenever
+the corpus grows *or* the rosters widen, and a figure pinned to a commit goes
+stale on a change neither of those announces. Run it and read your own.
 
 There are two rosters, because a re-frame2 application on the Reagent adapter
 calls no Reagent API of its own and a Reagent-only census scored it at zero.
@@ -102,12 +103,13 @@ pruned: a macro's template emits real call sites at every expansion.
 | census (`:census`) | view-substrate API call sites | the call | `:mechanical`, `:human-decision`, `:runtime-blocker` |
 
 The two halves measure different things and neither is a denominator for the
-other. Most census classes are a shape §2's translation tables already teach:
+other. §2's translation tables teach some of these shapes and not others; the
+census carries a recovery note for every class it emits:
 
 | Verdict | Named classes | Meaning |
 | --- | --- | --- |
-| Human decision | `:with-let`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam` | A Hicasso translation exists, but which one depends on intent the source does not carry |
-| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Hicasso has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
+| Human decision | `:with-let`, `:cell-disposal`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:static-markup`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam`, `:substrate-test-harness` | A Hicasso translation exists, but which one depends on intent the source does not carry |
+| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:reactive-graph-control`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Hicasso has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
 | Mechanical | none | The bucket is always emitted, at `:mechanical 0`. Every mechanical rewrite this tool family knows is a W-rule and every W-rule sits at a crossing, so the zero is a measurement rather than an omission |
 
 Two further classes report a resolution failure rather than a translation, both
@@ -226,8 +228,8 @@ screen is ported, the Reagent root and its `frame-root` wrapper give way to one
 | `r/as-element` inside a render prop | `h/as-element` inside an `h/event` at the render prop |
 | `r/reactify-component` | `h/as-component`, the outward bridge |
 
-The same table for the second starting point. Every row is a spelling change;
-none of them is a change of shape:
+The same table for the second starting point. Every row but the last is a
+spelling change; none of those is a change of shape:
 
 | re-frame2 on the Reagent adapter | Hicasso |
 | --- | --- |
@@ -236,7 +238,21 @@ none of them is a change of shape:
 | `dispatch`, injected into a `reg-view` body | the intent vector itself, or `h/event` when the event matters |
 | `#(do (.preventDefault %) (dispatch [:e]))` | `[::h/prevent [:e]]` at the same prop |
 | `[rf/route-link {...}]`, a Hiccup head | `(h/route-link {...})`, a plain call |
-| `[rf/frame-root {:id :app ...}]` around the tree | `h/mount!`'s `{:frame :app ...}` root configuration, once the whole application is ported |
+| `[rf/frame-root {:id :app ...}]` around the tree | `h/mount!`'s `{:frame :app ...}` root configuration, once the whole application is ported. Not a rename when the `frame-root` carries frame options — see below |
+
+That last row is the exception, and it fails silently. `rf/frame-root` passes
+every `rf/make-frame` option through — `:url-bound?`, `:fx-overrides`, `:images`,
+`:preset` and the rest of the record config — while `h/mount!`'s config is closed
+at `:frame`, `:initial-events` and `:identifier-prefix`, and ensures the frame as
+an id plus that seed. Every other key in the mount config is ignored without
+complaint, so a `frame-root` carrying more than an id and a seed does not survive
+being respelled as one. Create the frame with `rf/make-frame` and its full
+options first, and let the mount join it — that is what mounting does whenever
+the frame is already live.
+[Installation](00-installation.md#a-frame-that-needs-more-than-a-seed) shows the
+shape; a routed application needs `:url-bound? true`, so this is the common path
+rather than an edge
+([Routing and navigation](07-routing-and-navigation.md#boot-a-routed-application)).
 
 A `reg-view` body's `subscribe` and `dispatch` are lexical bindings the macro
 installs. `h/defview` installs none, so the same source text means something

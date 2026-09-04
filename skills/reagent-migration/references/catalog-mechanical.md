@@ -349,18 +349,21 @@ the repair is to *add* a direct `reagent/reagent` entry, not remove one.
 
 So decide 2 on a measurement rather than an inference from 1. Re-run the
 reporter (step 0) over the **whole** repository, not the subtree this migration
-touched, and read its census half — it counts Reagent API call sites across
-`reagent.core`, `reagent.dom`, `reagent.dom.client` and `reagent.ratom`, and
+touched, and read its census half — it counts view-substrate API call sites
+across the nine recognised Reagent namespaces (`reagent.core`, `reagent.dom`,
+`reagent.dom.client`, `reagent.ratom`, `reagent.dom.server`, and their four
+`reagent2.*` siblings) plus everything under the `re-frame.adapter.` prefix, and
 reports what it cannot resolve instead of skipping it:
 
 ```
-0 Reagent API call site(s) across 0 file(s) that name Reagent — 0 mechanical, …
+0 view-substrate API call site(s) across 0 file(s) that name Reagent and 0 that name a re-frame2 adapter — 0 mechanical, … — ZERO ENTRIES: bounded by the ROSTER, not by the corpus; read :census :summary :caveat
 ```
 
 **Read the second number, not the first.** The reporter says what it measures:
-its estimand is *Reagent API call sites, addressed at the CALL*. A call-site
-count is the wrong instrument for a dependency question, because a dependency
-is created by a **reference**, not by a call. This is not a hypothetical gap —
+its estimand is *rostered view-substrate API call sites, addressed at the CALL*.
+A call-site count is the wrong instrument for a dependency question, because a
+dependency is created by a **reference**, not by a call. This is not a
+hypothetical gap —
 
 ```clojure
 (ns app.core (:require [reagent.core :as r]))
