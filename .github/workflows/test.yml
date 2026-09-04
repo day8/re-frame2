@@ -1208,11 +1208,11 @@ jobs:
       - name: Self-test the guide-sample rules
         run: python implementation/hicasso/scripts/check_guide_samples.py --self-test
 
-      # The live run PRINTS what it inspected — how many fenced blocks it pinned
-      # across how many pages, how many verb use-sites it resolved, and how many
-      # declared divergences are still live. A gate that cannot say what it
-      # covered is how this class of hole survives a green badge.
-      - name: Verify every fenced guide sample against its pin and the sources
+      # The live run PRINTS what it inspected — how many distinct hicasso verbs
+      # it resolved, at how many use-sites, across how many guide pages. A gate
+      # that cannot say what it covered is how this class of hole survives a
+      # green badge. It pins nothing, so there is no roster to regenerate.
+      - name: Verify every verb a fenced guide sample names against the sources
         run: python implementation/hicasso/scripts/check_guide_samples.py
 
 
