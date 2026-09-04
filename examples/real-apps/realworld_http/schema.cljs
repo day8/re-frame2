@@ -46,7 +46,14 @@
    outcome is a NAVIGATION asks the route instead — `article-route-for-slug?`,
    same file: THIS slug outlives a walk to a non-article page, the route's
    does not.) Optional because only the `/article/:slug`-driven slices
-   (`:article`, `:comments`) carry it."
+   (`:article`, `:comments`) carry it.
+
+   `:username` is the same fact for the `/profile/:username`-driven slices
+   (`:profile`, `:profile.articles`, `:profile.favorites`) — the correlation
+   identity `reply-for-current-profile?` (profile.cljs) gates every banner,
+   list and follow settle against, so a late reply for a profile the reader has
+   left can't overwrite the current one's data, status, error, timestamp or
+   machine presentation. Same law as `:slug`, different route param."
   [:map
    [:status         [:enum :idle :loading :fetching :loaded :error]]
    [:data           {:default nil} :any]
@@ -55,6 +62,7 @@
    [:attempt        {:default 0}   :int]
    [:articles-count {:optional true} :int]
    [:slug           {:optional true} [:maybe :string]]
+   [:username       {:optional true} [:maybe :string]]
    [:stale-after-ms {:optional true} [:maybe :int]]])
 
 (def AuthSlice

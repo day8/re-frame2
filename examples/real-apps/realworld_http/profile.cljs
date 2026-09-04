@@ -46,6 +46,78 @@
   (get-in runtime-db [:rf.runtime/routing :current :params :username]))
 
 ;; ============================================================================
+;; THE CORRELATION GATE — the profile the page is on owns every settle
+;; ============================================================================
+;;
+;; Walking `/profile/alice` → `/profile/bob` puts up to four requests in flight
+;; and cancels none of them. The per-username `:request-id`s
+;; (`[:profile/load "alice"]` vs `[:profile/load "bob"]`) are deliberately
+;; DISTINCT, so managed HTTP's same-id supersede never fires between them and
+;; alice's replies are delivered in full, however late.
+;;
+;; That is the framework doing exactly what it promises rather than falling
+;; short of it. Supersede retires a re-issue of the SAME read — a route
+;; re-match, a `?page=` step; both DO reuse the id here, so both are handled
+;; for you, and a suppressed reply cannot clobber fresh data no matter how late
+;; it arrives. Correlating a reply with the SCREEN is the app's correctness
+;; boundary (Spec 014: navigation staleness for a plain managed request is the
+;; app's, not the fx's). See ../../../docs/async/http.md#cancellation-supersession-and-abort.
+;;
+;; And no id scheme closes the gap, which is worth knowing before reaching for
+;; one. Collapse the reads onto a page-slot id (`:request-id :profile/load`)
+;; and bob's issuance would indeed supersede alice's — but the two FOLLOW
+;; settles below are superseded by nothing, because arriving at bob issues no
+;; new follow. `:profile/followed` re-seeds the WHOLE banner map from its
+;; reply, so a late alice success would put alice's name, bio and avatar under
+;; bob's URL. One law wants one mechanism, so every settle in this file carries
+;; the username it was issued for and asks the question below before writing.
+;;
+;; Each slice records WHICH profile it is loading (`[:profile :username]`,
+;; `[:profile.articles :username]`, `[:profile.favorites :username]`, stamped
+;; by the load handler in the same write that starts the load). The nine
+;; settles that follow — three successes, three failures, the two follow
+;; settles and the follow rollback — carry that username and gate on it. A late
+;; alice settle while the slice targets bob is dropped whole: no data, no
+;; status, no error, no timestamp, no machine broadcast.
+;;
+;; The MACHINE is why "no broadcast" is in that list. `:profile/load-failed`
+;; sends `:fetch-failed`, which puts the `:data` region in `:error` — a state
+;; with no `fetch-succeeded` edge — so an ungated late alice failure could
+;; strand a perfectly good bob banner in an error presentation for as long as
+;; the reader stayed on it. Gated, no cross-identity broadcast reaches the
+;; machine at all, and every path to `:loaded` for the identity the page IS on
+;; passes through `:fetch-started` first. The missing edge is unreachable
+;; rather than merely unused, so it stays missing.
+;;
+;; Retention follows the same law: a SAME-username re-entry is a refresh that
+;; keeps the loaded data up while `:fetching` (never blank a page to reload
+;; it), while a username CHANGE is a new identity that resets the slice, so
+;; alice is never renderable under `/profile/bob`. The two list subs ask once
+;; more at READ time — a list belongs to the page only while its username
+;; matches the banner's — because the tabs load on separate routes, so
+;; `/profile/alice` → `/profile/bob/favorites` reloads the banner and the
+;; favorited list and leaves the AUTHORED list still holding alice's.
+;;
+;; comments.cljs spells the identical law against `:slug`, with the two-owners
+;; refinement this page does not need: every settle here writes a slice, none
+;; navigates, so the slice's own identity is the only question to ask.
+;;
+;; The `realworld_resources/` twin needs none of this, and the contrast is the
+;; real lesson. Its state is keyed by resource identity — `[scope
+;; :realworld/profile {:username …}]`, and its follow/unfollow mutations
+;; `:populates` and `:invalidates` that same keyed entry — so alice and bob are
+;; simply different cache entries and a late reply has nowhere wrong to land.
+;; Here the page owns one shared slice per region, and a shared slice has to
+;; carry its identity by hand.
+(defn reply-for-current-profile?
+  "Does a reply REQUESTED for `username` still belong to the slice at
+   `slice-key` (`:profile` / `:profile.articles` / `:profile.favorites`)? True
+   exactly when the username the reply carries equals the one the slice
+   currently targets."
+  [db slice-key username]
+  (= username (get-in db [slice-key :username])))
+
+;; ============================================================================
 ;; THE MACHINE — :ui/profile  (one machine, two regions)
 ;; ============================================================================
 ;;
@@ -160,15 +232,25 @@
   {:doc "Fetch the public profile banner — username, bio, image, following.
          Public endpoint, so the house data-fetch retry applies. Broadcasts
          `:fetch-started` into the `:ui/profile` machine, nudging the `:data`
-         region to `:loading` (or `:refreshing`, if a banner's already up)."
+         region to `:loading` (or `:refreshing`, if a banner's already up).
+
+         Stamps the username the slice is loading and CARRIES it on both reply
+         targets, so a settle for a profile the reader has left writes nothing
+         — see THE CORRELATION GATE above. A same-username re-entry is a
+         refresh (keep the banner up, `:fetching`); a different username is a
+         new identity, so the slice resets and alice's banner is never
+         renderable under `/profile/bob`."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [username (username-from-db rt)]
-      {:db (-> db
-               (assoc-in [:profile :status]
-                         (if (get-in db [:profile :data]) :fetching :loading))
-               (assoc-in [:profile :error] nil)
-               (update-in [:profile :attempt] (fnil inc 0)))
+    (let [username (username-from-db rt)
+          refresh? (reply-for-current-profile? db :profile username)
+          slice    (if refresh? (:profile db) (request-slice))]
+      {:db (assoc db :profile
+                  (-> slice
+                      (assoc :username username
+                             :status   (if (and refresh? (:data slice)) :fetching :loading)
+                             :error    nil)
+                      (update :attempt (fnil inc 0))))
        :fx [[:dispatch [:ui/profile [:fetch-started]]]
             [:rf.http/managed
              (rh/request {:method     :get
@@ -176,42 +258,63 @@
                           :decode     schema/ProfileResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:profile/load username]
-                          :on-success [:profile/loaded]
-                          :on-failure [:profile/load-failed]})]]})))
+                          :on-success [:profile/loaded username]
+                          :on-failure [:profile/load-failed username]})]]})))
 
 (rf/reg-event :profile/loaded
-  {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
-    {:db (-> db
-             (assoc-in [:profile :status] :loaded)
-             (assoc-in [:profile :data] (:profile value))
-             (assoc-in [:profile :error] nil)
-             (assoc-in [:profile :loaded-at] time-ms))
-     :fx [[:dispatch [:ui/profile [:fetch-succeeded]]]]}))
+  {:doc "The banner GET's `:on-success`, carrying the username it was requested
+         for. Correlation-gated: a late reply for a profile the slice no longer
+         targets writes nothing — not data, not status, not the timestamp — and
+         broadcasts nothing into the machine."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ username {:keys [value]}]]
+    (when (reply-for-current-profile? db :profile username)
+      {:db (-> db
+               (assoc-in [:profile :status] :loaded)
+               (assoc-in [:profile :data] (:profile value))
+               (assoc-in [:profile :error] nil)
+               (assoc-in [:profile :loaded-at] time-ms))
+       :fx [[:dispatch [:ui/profile [:fetch-succeeded]]]]})))
 
 (rf/reg-event :profile/load-failed
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    (let [message (rh/failure->message error)]
-      {:db (-> db
-               (assoc-in [:profile :status] :error)
-               (assoc-in [:profile :error] message))
-       :fx [[:dispatch [:ui/profile [:fetch-failed {:failure message}]]]]})))
+  {:doc "The banner GET's `:on-failure`, correlated exactly as `:profile/loaded`
+         is — and this is the gate that keeps the MACHINE honest. An ungated
+         late failure sends the `:data` region to `:error`, which has no
+         `fetch-succeeded` edge, so it would strand the current profile's page
+         in an error presentation even after that profile's own load succeeded."}
+  (fn [{:keys [db]} [_ username {:keys [error]}]]
+    (when (reply-for-current-profile? db :profile username)
+      (let [message (rh/failure->message error)]
+        {:db (-> db
+                 (assoc-in [:profile :status] :error)
+                 (assoc-in [:profile :error] message))
+         :fx [[:dispatch [:ui/profile [:fetch-failed {:failure message}]]]]}))))
 
 (rf/reg-event :profile.articles/load
   {:doc "Fetch the articles this user wrote. Public; house retry. Also
          broadcasts `:show-articles` so the `:ui/profile` :tab region knows
          which tab is live. `?page=` paginates via `rh/paginate-path` (the
          official RealWorld limit/offset shape), which also URL-encodes the
-         `:author` filter."
+         `:author` filter.
+
+         Same correlation law as the banner: the slice records the username it
+         is loading, both reply targets carry it, and a username change resets
+         the list. The `?page=` step does NOT — it reuses `:request-id`, so
+         managed HTTP supersedes the previous page's reply for you, and the
+         rows stay up while `:fetching`."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
           page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
-          path     (rh/paginate-path "/articles" {:author username} page)]
-      {:db (-> db
-               (assoc-in [:profile.articles :status] :loading)
-               (assoc-in [:profile.articles :error] nil)
-               (update-in [:profile.articles :attempt] (fnil inc 0)))
+          path     (rh/paginate-path "/articles" {:author username} page)
+          refresh? (reply-for-current-profile? db :profile.articles username)
+          slice    (if refresh? (:profile.articles db) (assoc (request-slice) :data []))]
+      {:db (assoc db :profile.articles
+                  (-> slice
+                      (assoc :username username
+                             :status   (if (and refresh? (seq (:data slice))) :fetching :loading)
+                             :error    nil)
+                      (update :attempt (fnil inc 0))))
        :fx [[:dispatch [:ui/profile [:show-articles]]]
             [:rf.http/managed
              (rh/request {:method     :get
@@ -219,40 +322,56 @@
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:profile.articles/load username]
-                          :on-success [:profile.articles/loaded]
-                          :on-failure [:profile.articles/load-failed]})]]})))
+                          :on-success [:profile.articles/loaded username]
+                          :on-failure [:profile.articles/load-failed username]})]]})))
 
 (rf/reg-event :profile.articles/loaded
-  {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
-    {:db (-> db
-             (assoc-in [:profile.articles :status] :loaded)
-             (assoc-in [:profile.articles :data] (vec (:articles value)))
-             (assoc-in [:profile.articles :articles-count]
-                       (or (:articlesCount value) (count (:articles value))))
-             (assoc-in [:profile.articles :loaded-at] time-ms))}))
+  {:doc "The authored-list GET's `:on-success`, carrying the username it was
+         requested for and gated on it — see THE CORRELATION GATE above."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ username {:keys [value]}]]
+    (when (reply-for-current-profile? db :profile.articles username)
+      {:db (-> db
+               (assoc-in [:profile.articles :status] :loaded)
+               (assoc-in [:profile.articles :data] (vec (:articles value)))
+               (assoc-in [:profile.articles :articles-count]
+                         (or (:articlesCount value) (count (:articles value))))
+               (assoc-in [:profile.articles :loaded-at] time-ms))})))
 
 (rf/reg-event :profile.articles/load-failed
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (-> db
-        (assoc-in [:profile.articles :status] :error)
-        (assoc-in [:profile.articles :error] (rh/failure->message error)))}))
+  {:doc "The authored-list GET's `:on-failure`, correlated exactly as
+         `:profile.articles/loaded` is — a late failure for the previous
+         profile must not mark the current one's list errored."}
+  (fn [{:keys [db]} [_ username {:keys [error]}]]
+    (when (reply-for-current-profile? db :profile.articles username)
+      {:db (-> db
+          (assoc-in [:profile.articles :status] :error)
+          (assoc-in [:profile.articles :error] (rh/failure->message error)))})))
 
 (rf/reg-event :profile.favorites/load
   {:doc "Fetch the articles this user favorited. Public; house retry. Also
          broadcasts `:show-favorites` so the `:ui/profile` :tab region knows
          which tab is live. `?page=` paginates via `rh/paginate-path` (the
          official RealWorld limit/offset shape), which also URL-encodes the
-         `:favorited` filter."
+         `:favorited` filter.
+
+         Correlated exactly as the authored list is — the slice records the
+         username it is loading, both reply targets carry it, a username change
+         resets the list, and a `?page=` step is left to managed HTTP's same-id
+         supersede."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
           page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
-          path     (rh/paginate-path "/articles" {:favorited username} page)]
-      {:db (-> db
-               (assoc-in [:profile.favorites :status] :loading)
-               (assoc-in [:profile.favorites :error] nil)
-               (update-in [:profile.favorites :attempt] (fnil inc 0)))
+          path     (rh/paginate-path "/articles" {:favorited username} page)
+          refresh? (reply-for-current-profile? db :profile.favorites username)
+          slice    (if refresh? (:profile.favorites db) (assoc (request-slice) :data []))]
+      {:db (assoc db :profile.favorites
+                  (-> slice
+                      (assoc :username username
+                             :status   (if (and refresh? (seq (:data slice))) :fetching :loading)
+                             :error    nil)
+                      (update :attempt (fnil inc 0))))
        :fx [[:dispatch [:ui/profile [:show-favorites]]]
             [:rf.http/managed
              (rh/request {:method     :get
@@ -260,28 +379,55 @@
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:profile.favorites/load username]
-                          :on-success [:profile.favorites/loaded]
-                          :on-failure [:profile.favorites/load-failed]})]]})))
+                          :on-success [:profile.favorites/loaded username]
+                          :on-failure [:profile.favorites/load-failed username]})]]})))
 
 (rf/reg-event :profile.favorites/loaded
-  {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
-    {:db (-> db
-             (assoc-in [:profile.favorites :status] :loaded)
-             (assoc-in [:profile.favorites :data] (vec (:articles value)))
-             (assoc-in [:profile.favorites :articles-count]
-                       (or (:articlesCount value) (count (:articles value))))
-             (assoc-in [:profile.favorites :loaded-at] time-ms))}))
+  {:doc "The favorited-list GET's `:on-success`, carrying the username it was
+         requested for and gated on it — see THE CORRELATION GATE above."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ username {:keys [value]}]]
+    (when (reply-for-current-profile? db :profile.favorites username)
+      {:db (-> db
+               (assoc-in [:profile.favorites :status] :loaded)
+               (assoc-in [:profile.favorites :data] (vec (:articles value)))
+               (assoc-in [:profile.favorites :articles-count]
+                         (or (:articlesCount value) (count (:articles value))))
+               (assoc-in [:profile.favorites :loaded-at] time-ms))})))
 
 (rf/reg-event :profile.favorites/load-failed
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (-> db
-        (assoc-in [:profile.favorites :status] :error)
-        (assoc-in [:profile.favorites :error] (rh/failure->message error)))}))
+  {:doc "The favorited-list GET's `:on-failure`, correlated exactly as
+         `:profile.favorites/loaded` is."}
+  (fn [{:keys [db]} [_ username {:keys [error]}]]
+    (when (reply-for-current-profile? db :profile.favorites username)
+      {:db (-> db
+          (assoc-in [:profile.favorites :status] :error)
+          (assoc-in [:profile.favorites :error] (rh/failure->message error)))})))
 
 ;; ============================================================================
 ;; FOLLOW / UNFOLLOW
 ;; ============================================================================
+;;
+;; Button-driven rather than route-driven, but they write the ROUTE-OWNED
+;; `[:profile ...]` slice, so their settles carry the username they were issued
+;; on and gate on it exactly as the loads do. This pair is why the gate is the
+;; mechanism and a request-id scheme is not: arriving at bob issues no new
+;; follow, so nothing supersedes an alice follow still in flight, and
+;; `:profile/followed` re-seeds the WHOLE banner map from its reply. See THE
+;; CORRELATION GATE above.
+;;
+;; The issuing username comes from `[:profile :username]` — the identity the
+;; slice recorded and the settle will be gated against — rather than from the
+;; route, so the URL written, the flag flipped and the question asked on the
+;; way back are all one fact. It is the same move comments.cljs's
+;; `:article/toggle-follow-author` makes with `[:article :slug]`.
+;;
+;; No `:request-id` here, deliberately, and the same for every other mutation
+;; in this app. It WOULD make a rapid Follow→Unfollow supersede its
+;; predecessor, but supersede aborts the request as well as suppressing the
+;; reply, and abort-mid-write is a decision a POST deserves to have made about
+;; it on purpose. The gate below already covers the race this file is about,
+;; and the last click's own settle is authoritative regardless.
 
 (rf/reg-event :profile/follow
   {:doc "Mark the profile followed right away, then reconcile when the reply
@@ -290,45 +436,58 @@
          so a logged-out click heads to login instead of flipping `:following`
          optimistically only to walk it back after the backend 401s."
    :rf.http/decode-schemas [schema/ProfileResponse]}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
+  (fn [{:keys [db]} _]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
-      (let [username (username-from-db rt)]
+      (let [username (get-in db [:profile :username])]
         {:db (assoc-in db [:profile :data :following] true)
          :fx [[:rf.http/managed
                (rh/request {:method     :post
                             :path       (str "/profiles/" username "/follow")
                             :decode     schema/ProfileResponse
-                            :on-success [:profile/followed]
-                            :on-failure [:profile/follow-rollback false]})]]}))))
+                            :on-success [:profile/followed username]
+                            :on-failure [:profile/follow-rollback username false]})]]}))))
 
 (rf/reg-event :profile/followed
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    {:db (assoc-in db [:profile :data] (:profile value))}))
+  {:doc "The follow POST's `:on-success`, carrying the username the flip was
+         issued on. This is the write that most needs the gate: it re-seeds the
+         whole banner map, so a late reply for a profile the reader has left
+         would put that profile's name, bio and avatar under the current URL."}
+  (fn [{:keys [db]} [_ username {:keys [value]}]]
+    (when (reply-for-current-profile? db :profile username)
+      {:db (assoc-in db [:profile :data] (:profile value))})))
 
 (rf/reg-event :profile/unfollow
   {:doc "Clear the followed flag right away, then reconcile on the reply.
          Auth-gated, same as `:profile/follow` above."
    :rf.http/decode-schemas [schema/ProfileResponse]}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
+  (fn [{:keys [db]} _]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
-      (let [username (username-from-db rt)]
+      (let [username (get-in db [:profile :username])]
         {:db (assoc-in db [:profile :data :following] false)
          :fx [[:rf.http/managed
                (rh/request {:method     :delete
                             :path       (str "/profiles/" username "/follow")
                             :decode     schema/ProfileResponse
-                            :on-success [:profile/unfollowed]
-                            :on-failure [:profile/follow-rollback true]})]]}))))
+                            :on-success [:profile/unfollowed username]
+                            :on-failure [:profile/follow-rollback username true]})]]}))))
 
 (rf/reg-event :profile/unfollowed
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    {:db (assoc-in db [:profile :data] (:profile value))}))
+  {:doc "The unfollow DELETE's `:on-success`, correlated exactly as
+         `:profile/followed` is."}
+  (fn [{:keys [db]} [_ username {:keys [value]}]]
+    (when (reply-for-current-profile? db :profile username)
+      {:db (assoc-in db [:profile :data] (:profile value))})))
 
 (rf/reg-event :profile/follow-rollback
-  (fn [{:keys [db]} [_ previous-value _failure-payload]]
-    {:db (assoc-in db [:profile :data :following] previous-value)}))
+  {:doc "The shared `:on-failure` for both, correlated the same way. Refusing a
+         stale rollback strands nothing: the optimistic flip it would undo went
+         with the slice when `:profile/load` reset it for the new username, and
+         returning to that profile re-reads the true flag from the server."}
+  (fn [{:keys [db]} [_ username previous-value _failure-payload]]
+    (when (reply-for-current-profile? db :profile username)
+      {:db (assoc-in db [:profile :data :following] previous-value)})))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -338,11 +497,32 @@
 (rf/reg-sub :profile/data    :<- [:profile/slice] (fn [s _] (:data s)))
 (rf/reg-sub :profile/error   :<- [:profile/slice] (fn [s _] (:error s)))
 
+;; The read-time half of THE CORRELATION GATE. The gate on the settles keeps a
+;; stale reply from LANDING in a slice; this keeps an already-landed list from
+;; being RENDERED under the wrong profile — a different question, because the
+;; two tabs load on separate routes. `/profile/alice` → `/profile/bob/favorites`
+;; reloads the banner and the favorited list, and never touches the authored
+;; one, which goes on holding alice's articles quite legitimately. What it must
+;; not do is show them, or count them, under bob's URL.
+;;
+;; Asking here rather than leaning on the `:tab` region is deliberate: the tab
+;; broadcast (`:show-articles` / `:show-favorites`) rides in the load handler's
+;; `:fx`, so it lands a beat after the route does, and an invariant this plain
+;; should not depend on which of two dispatches wins.
+(defn list-for-current-profile
+  "The list slice at `slice-key`, but only while it belongs to the profile the
+   BANNER is on. `nil` when the identities disagree, which every caller reads
+   as empty."
+  [db slice-key]
+  (when (= (get-in db [slice-key :username])
+           (get-in db [:profile :username]))
+    (get db slice-key)))
+
 (rf/reg-sub :profile.articles/data
-  (fn [db _] (get-in db [:profile.articles :data])))
+  (fn [db _] (:data (list-for-current-profile db :profile.articles))))
 
 (rf/reg-sub :profile.favorites/data
-  (fn [db _] (get-in db [:profile.favorites :data])))
+  (fn [db _] (:data (list-for-current-profile db :profile.favorites))))
 
 (rf/reg-sub :profile/own-profile?
   (fn [db _]
@@ -391,10 +571,10 @@
 ;; ---- pagination (official RealWorld limit/offset) ----
 
 (rf/reg-sub :profile.articles/count
-  (fn [db _] (get-in db [:profile.articles :articles-count] 0)))
+  (fn [db _] (:articles-count (list-for-current-profile db :profile.articles) 0)))
 
 (rf/reg-sub :profile.favorites/count
-  (fn [db _] (get-in db [:profile.favorites :articles-count] 0)))
+  (fn [db _] (:articles-count (list-for-current-profile db :profile.favorites) 0)))
 
 (rf/reg-sub :profile/current-count
   {:doc "Grand article count for the active profile tab — drives the page
