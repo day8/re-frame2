@@ -165,13 +165,12 @@
                 ;; (day8/re-frame2-spec-resource). Both macros named under
                 ;; the `../spec` root below go through it, and it is on
                 ;; this classpath so they can: it owns the shadow-cljs
-                ;; recording read, the non-ClojureScript walk-up fallback,
-                ;; and — the reason it is ONE namespace rather than a
-                ;; helper copied into each consumer — the cold-load
-                ;; resolution of `shadow.resource/slurp-resource`, which
-                ;; two independent resolvers race however carefully each
-                ;; one guards itself. JVM-only source; nothing compilable
-                ;; into a bundle.
+                ;; recording read and — the reason it is ONE namespace
+                ;; rather than a helper copied into each consumer — the
+                ;; cold-load resolution of
+                ;; `shadow.resource/slurp-resource`, which two independent
+                ;; resolvers race however carefully each one guards itself.
+                ;; JVM-only source; nothing compilable into a bundle.
                 "spec-resource/src"
                 ;; `spec/` as a classpath ROOT — the one root under which
                 ;; every committed spec-side DATA file a build inlines is
