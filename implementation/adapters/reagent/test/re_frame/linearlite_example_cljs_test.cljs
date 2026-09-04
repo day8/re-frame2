@@ -4,14 +4,14 @@
    ROLLBACK composition it teaches — route entry ensures the `:linearlite/board`
    resource, the view reads it passively via `[:rf.resource/data …]`, and every
    write is a `reg-mutation` with an `:optimistic` exact-target patch over the
-   board entry that COMMITS on `:ok` (`:populates`) and ROLLS BACK on `:error`
+   board entry that COMMITS on `:ok` (`:patches`) and ROLLS BACK on `:error`
    (the runtime-recorded snapshot inverse). Closes the false-green gap the
    test-free examples policy (rf2-8cevm) leaves: `test:examples-compile` catches
    a missing namespace / init-fn and the resources artefact suites catch the
    generic optimistic-mutation runtime contract, but neither pins the
    EXAMPLE-SPECIFIC composition — its board resource + route ensure, its three
    `:optimistic` forward patches (create / edit-title / change-status), the
-   `:populates` commit, and the failure rollback as the view reads them.
+   `:patches` commit, and the failure rollback as the view reads them.
 
    The fixture fns + the deterministic transport stub live HERE (the adapter
    test tree), not under examples/capabilities/resources/linearlite/ — the example source stays
@@ -380,13 +380,13 @@
         "the change-status instance is :optimistic? while pending")))
 
 ;; ============================================================================
-;; 3. SUCCESS COMMIT — the :ok reply re-seeds the board with the server's value
+;; 3. SUCCESS COMMIT — the :ok reply folds in the value the server saved
 ;; ============================================================================
 
-(deftest successful-write-commits-the-server-board-via-populates
+(deftest successful-create-commits-the-servers-row-via-patches
   (testing "examples/capabilities/resources/linearlite — an accepted :ok reply COMMITS: the
-            mutation's `:populates` overwrites the optimistic board with the
-            server's authoritative value (the temp id is replaced by the server
+            mutation's `:patches` folds the server's own row over the
+            optimistic card (the temp id is replaced by the server
             id, the optimistic marker clears), and the instance settles :success"
     (load-board!)
     (rf/dispatch-sync [:linearlite/create-issue "Gamma"])
@@ -395,10 +395,10 @@
           srv-board {:issues (conj (:issues demo-board)
                                    {:id "srv-3" :title "Gamma" :status :backlog})}]
       (is (string? tmp-id))
-      ;; settle the write with the server board (the :populates payload).
+      ;; settle the write with the server board (the :patches payload).
       (reply-success! srv-board)
       (is (= srv-board (board-data))
-          "the board is re-seeded with the server's authoritative value (commit)")
+          "the server's row is folded into the board (commit)")
       (is (nil? (issue-by-id tmp-id)) "the temporary optimistic id is gone after commit")
       (is (some? (issue-by-id "srv-3")) "the committed issue carries the server id")
       (is (not-any? :optimistic? (issues)) "no card carries the optimistic marker after commit")
@@ -408,7 +408,7 @@
 
 (deftest successful-edit-title-commits-the-new-title
   (testing "examples/capabilities/resources/linearlite — a successful :linearlite/edit-title
-            commits the new title via :populates (the optimistic title is
+            commits the new title via :patches (the optimistic title is
             confirmed by the server's authoritative board)"
     (load-board!)
     (rf/dispatch-sync [:linearlite/commit-edit "srv-2" "Beta!"])
@@ -626,10 +626,140 @@
           "a success reply carries no failure classification")
       (is (= target (:status (server-issue (:value args) "srv-1")))
           "the authoritative board it returns carries the write applied — the
-           value that becomes the mutation's :populates payload")
+           value that becomes the mutation's :patches payload")
       ;; Compensating write: the demo stub *is* the server and its board is a
       ;; module-level `defonce` shared across the bundle, so put the issue back
       ;; the way this test found it.
       (ask-the-demo-stub! (change-status-request "srv-1" original))
       (is (= original (:status (server-issue (server-board) "srv-1")))
           "the compensating write restored the canonical board"))))
+
+
+;; ============================================================================
+;; 6. OVERLAPPING WRITES (rf2-9man) — independent instances must not clobber
+;; ============================================================================
+;;
+;; The board's three writes run under SEPARATE mutation instances
+;; (`[:create tmp-id]`, `[:edit id]`, `[:status id]`) and the controls stay live
+;; while a write is in flight, so two of them are routinely outstanding over the
+;; ONE board entry at once. The runtime's stale-reply suppression does not order
+;; them: it is scoped to a single instance's re-execute, which is a different
+;; question from two instances writing the same entry. Nothing on the client can
+;; order those, so keeping their consequences disjoint is the example's job.
+;;
+;; THE DEFECT THESE PIN (rf2-9man). All three mutations used to commit with
+;; `:populates`, seeding the whole board entry from that write's reply. A reply
+;; is a snapshot of the server as it stood when THAT write landed and knows
+;; nothing of a write that started a moment later, so committing it threw the
+;; other write's change away — and the board settled on whichever reply arrived
+;; last, which is exactly what the example's README promises it does not do.
+;;
+;; DETERMINISM — THERE IS NO TIMING IN THESE TESTS. The example's demo backend
+;; defers every reply 220 ms (`:after-ms` -> `:dispatch-later`), which would make
+;; an overlap a race. The seam that removes it is the one `init!` already
+;; installs for the whole suite: `:rf.http/managed` is overridden with a
+;; CAPTURING NO-OP that records the lowered args and delivers nothing. So a write
+;; can never settle itself. Both writes are dispatched first and park their
+;; requests; the test then replays each reply itself through `reply-success!`, a
+;; synchronous `dispatch-sync`, in whichever order it is testing. The overlap is
+;; structural rather than temporal — no timers, no `async`, no polling, and the
+;; settle order is chosen by the test rather than observed. `last-managed-args`
+;; is read and cleared between the two dispatches so each captured request is
+;; unambiguously its own write's.
+;;
+;; The replies are deliberately WHOLE-BOARD envelopes — the coarse shape a server
+;; that only answers with snapshots returns, and the shape the pre-fix example
+;; seeded the entry from. A commit that patches only what it wrote picks its own
+;; row out of that envelope and leaves every other card alone; a commit that
+;; seeds from it swallows the whole stale snapshot. That difference is what these
+;; two tests measure, and they measure it through the example's own passive
+;; `:rf.resource/data` board — the value the view renders — not through the
+;; mutation's registration shape, so they stay honest across a re-spelling.
+
+(deftest settling-one-write-leaves-another-instances-change-standing
+  (testing "examples/capabilities/resources/linearlite — two writes under
+            DISTINCT instances are outstanding over the one board entry, and the
+            first to settle carries a reply built BEFORE the second was
+            dispatched. Committing it must not erase the second write's
+            still-pending optimistic change, and once both have settled both
+            accepted changes must stand (rf2-9man)"
+    (load-board!)
+    ;; A — retitle srv-1. Lowered, captured, and left unsettled.
+    (rf/dispatch-sync [:linearlite/commit-edit "srv-1" "Alpha!"])
+    (let [args-a @last-managed-args]
+      (reset! last-managed-args nil)
+      ;; B — move srv-2, dispatched while A is still in flight.
+      (rf/dispatch-sync [:linearlite/change-status "srv-2" :done])
+      (let [args-b  @last-managed-args
+            ;; A's reply: the server as it stood when A landed. B had not reached
+            ;; it, so srv-2 is still :in-progress in this snapshot.
+            reply-a {:issues [{:id "srv-1" :title "Alpha!" :status :backlog}
+                              {:id "srv-2" :title "Beta"   :status :in-progress}]}
+            ;; B's reply: the server with both writes applied.
+            reply-b {:issues [{:id "srv-1" :title "Alpha!" :status :backlog}
+                              {:id "srv-2" :title "Beta"   :status :done}]}]
+        (is (some? args-a) "A lowered a request")
+        (is (some? args-b) "B lowered a request")
+        ;; POSITIVE CONTROL: the overlap is REAL. Both instances are pending with
+        ;; their optimistic values showing, so the assertion below is about a
+        ;; genuine cross-instance overlap rather than about a board on which B
+        ;; had already settled independently. Without this the test would still
+        ;; pass if a refactor made a write settle at dispatch — and would then be
+        ;; pinning nothing.
+        (is (true? (:optimistic? (mutation-state [:edit "srv-1"])))
+            "CONTROL: A is still in flight, its optimistic title on screen")
+        (is (true? (:optimistic? (mutation-state [:status "srv-2"])))
+            "CONTROL: B is still in flight, its optimistic move on screen")
+        (reply-success! args-a reply-a)
+        ;; THE REGRESSION. Pre-fix, committing A seeded the whole board entry
+        ;; from A's snapshot, reverting srv-2 to :in-progress on screen while B's
+        ;; instance was still pending and still deriving :optimistic? — the
+        ;; visible optimistic regression rf2-9man describes.
+        (is (= :done (:status (issue-by-id "srv-2")))
+            "settling A must not erase B's still-pending optimistic move: A's
+             reply predates B, so committing the whole of it reverts srv-2")
+        (is (= "Alpha!" (:title (issue-by-id "srv-1")))
+            "…while A's own accepted title is committed")
+        (reply-success! args-b reply-b)
+        (is (= "Alpha!" (:title (issue-by-id "srv-1"))) "A's accepted title survives")
+        (is (= :done (:status (issue-by-id "srv-2"))) "B's accepted move survives")))))
+
+(deftest an-older-reply-landing-last-does-not-revert-an-accepted-change
+  (testing "examples/capabilities/resources/linearlite — the same two independent
+            writes, but their replies arrive in the REVERSE of the order the
+            server applied them (an ordinary transport reordering). Both
+            successes are accepted, so the older snapshot lands LAST; it must not
+            permanently revert the change the other write already committed —
+            the last-reply-wins cache state rf2-9man was filed for"
+    (load-board!)
+    (rf/dispatch-sync [:linearlite/commit-edit "srv-1" "Alpha!"])
+    (let [args-a @last-managed-args]
+      (reset! last-managed-args nil)
+      (rf/dispatch-sync [:linearlite/change-status "srv-2" :done])
+      (let [args-b  @last-managed-args
+            reply-a {:issues [{:id "srv-1" :title "Alpha!" :status :backlog}
+                              {:id "srv-2" :title "Beta"   :status :in-progress}]}
+            reply-b {:issues [{:id "srv-1" :title "Alpha!" :status :backlog}
+                              {:id "srv-2" :title "Beta"   :status :done}]}]
+        (is (some? args-a) "A lowered a request")
+        (is (some? args-b) "B lowered a request")
+        ;; POSITIVE CONTROL, as above: both are genuinely in flight, so the
+        ;; reordering below is a reordering of two live replies.
+        (is (true? (:optimistic? (mutation-state [:edit "srv-1"])))
+            "CONTROL: A is still in flight")
+        (is (true? (:optimistic? (mutation-state [:status "srv-2"])))
+            "CONTROL: B is still in flight")
+        ;; B settles first and is ACCEPTED — srv-2's move is committed, not
+        ;; merely optimistic.
+        (reply-success! args-b reply-b)
+        (is (= :done (:status (issue-by-id "srv-2")))
+            "B's move is committed by its own accepted reply")
+        (is (false? (:optimistic? (mutation-state [:status "srv-2"])))
+            "CONTROL: B has SETTLED — what follows can only revert an accepted
+             change, never a merely-optimistic one")
+        ;; …then A's older snapshot lands. It is accepted too, and it predates B.
+        (reply-success! args-a reply-a)
+        (is (= :done (:status (issue-by-id "srv-2")))
+            "A's older snapshot landing last must not revert B's ACCEPTED move —
+             pre-fix this was permanent last-reply-wins in the client cache")
+        (is (= "Alpha!" (:title (issue-by-id "srv-1"))) "A's accepted title survives")))))
