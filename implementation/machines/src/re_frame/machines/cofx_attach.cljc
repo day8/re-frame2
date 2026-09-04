@@ -343,13 +343,13 @@
   (rf.machines.grammar/node-at states (vec path)))
 
 (defn- resolve-target-path
-  "Resolve a candidate `:target` (declared at `decl-path`) to an absolute
-  path within `states`, or nil. A keyword is a sibling (direct child of the
+  "Normalise a candidate `:target` (declared at `decl-path`) to an absolute
+  path coordinate, or nil. A keyword is a sibling (direct child of the
   declaring state's PARENT compound); a vector is absolute; `:same-state` is
   the declaring state; nil / internal contributes the declaring state itself
   (the `:always` on the unchanged state still runs). Mirrors the runtime
   target resolution closely enough for the static closure."
-  [states decl-path target]
+  [decl-path target]
   (cond
     (or (nil? target) (= :same-state target)) (vec decl-path)
     (keyword? target) (conj (vec (drop-last decl-path)) target)
@@ -406,7 +406,7 @@
         (doseq [e (always-entries node)]
           (doseq [d (entry-diet by-entry :guards  (:guard e))]  (conj! diet d))
           (doseq [d (entry-diet by-entry :actions (:action e))] (conj! diet d))
-          (when-let [tgt (resolve-target-path states prefix (:target e))]
+          (when-let [tgt (resolve-target-path prefix (:target e))]
             (conj! targets tgt)))))
     (persistent! targets)))
 
@@ -521,7 +521,7 @@
             (doseq [cand (candidate-maps (:on-done node))]
               (add! (entry-diet by-entry :guards  (:guard cand)))
               (add! (entry-diet by-entry :actions (:action cand)))
-              (when-let [tgt (resolve-target-path states done-path (:target cand))]
+              (when-let [tgt (resolve-target-path done-path (:target cand))]
                 (add-always! tgt)))))))))
 
 (defn- after-diet-for-event
@@ -563,7 +563,7 @@
             (doseq [cand (candidate-maps (get-in node [:after delay-key]))]
               (add! (entry-diet by-entry :guards  (:guard cand)))
               (add! (entry-diet by-entry :actions (:action cand)))
-              (when-let [tgt (resolve-target-path states decl-path (:target cand))]
+              (when-let [tgt (resolve-target-path decl-path (:target cand))]
                 (add-always! tgt)))))))))
 
 (defn- ensure-set-in-scope
@@ -636,7 +636,7 @@
           ;; entered descending the target's `:initial` chain, since entering a
           ;; compound target cascades into its initial leaf. The active-state
           ;; `:exit` diet is added once below (it is candidate-independent).
-          (when-let [tgt (resolve-target-path states prefix (:target cand))]
+          (when-let [tgt (resolve-target-path prefix (:target cand))]
             (add-lifecycle! states (initial-descent-path states tgt) :entry)
             ;; (b) :always closure reachable from this candidate's target.
             (add! (always-diet-for-state by-entry states tgt))))))

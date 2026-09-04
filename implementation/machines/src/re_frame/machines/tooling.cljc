@@ -390,10 +390,9 @@
                    ;; else the actor-id itself for a singleton). An inline
                    ;; `:definition` spawn has no registered type — key its
                    ;; source-form by the actor-id.
-                   source-id    (cond
-                                  (keyword? machine-type) machine-type
-                                  spawned?                actor-id
-                                  :else                   actor-id)]
+                   source-id    (if (keyword? machine-type)
+                                  machine-type
+                                  actor-id)]
                (if spec
                  (assoc acc actor-id
                         (-> (node-for actor-id source-id spec

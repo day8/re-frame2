@@ -804,7 +804,7 @@
   tags lack `:frame`). The caller threads `frame-id` (resolved from
   `(:rf/frame machine)` at the interceptor's entry) so the per-survivor
   cancellation traces reach the cascade's `:trace-events` slot."
-  [frame-id parent-id invoke-id spec join-state'' child-id child-extra
+  [frame-id parent-id invoke-id join-state'' child-id child-extra
    {:keys [resolved? resolution-event join-event-kw]}]
   (let [destroy-fx
         (when resolved?
@@ -1214,7 +1214,7 @@
       (emit-child-fold-terminal! frame-id parent-id invoke-id join-state''
                                  child-id work-generation kind child-extra
                                  completed-at))
-    (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
+    (let [fx (build-resolution-fx frame-id parent-id invoke-id join-state''
                                   child-id child-extra resolution)]
       {:rf.db/runtime (assoc-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id) join-state'')
        :fx fx})))
