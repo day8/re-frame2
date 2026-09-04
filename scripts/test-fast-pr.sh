@@ -947,12 +947,12 @@ run "skill eval-docs match evals.json" "python scripts/check_skill_eval_docs.py 
 # is printed on every run instead of failed on and the overshoot is never lost
 # behind a tick.  Paired with test.yml's steps of the same ids and moves with
 # them: check_fast_pr_gap.py derives its required set from that job and reports
-# a required checker with no local lane as unrun.  Sub-second, and the footprint
-# it ratchets moves on any SKILL.md edit, so it sits in the always-on block
-# rather than the docs tier.  NOT pure stdlib: it reads SKILL.md front-matter
-# with PyYAML and exits 2 with an install message without it, which is why
-# test.yml runs it in a job that installs requirements.txt.  Self-test first
-# (proves both rules fire in both directions), then the live scan.
+# a required checker with no local lane as unrun.  Cheap, and the footprint it
+# ratchets moves on any SKILL.md edit, so it sits in the always-on block rather
+# than the docs tier.  NOT pure stdlib: it reads SKILL.md front-matter with
+# PyYAML and exits 2 with an install message without it, which is why test.yml
+# runs it in a job that installs requirements.txt.  Self-test first (proves
+# both rules fire in both directions), then the live scan.
 run "SKILL.md description-budget self-test" "python scripts/check_skill_description_budget.py --self-test" \
   python "$spine_root/scripts/check_skill_description_budget.py" --self-test
 
