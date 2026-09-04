@@ -823,9 +823,13 @@ correction is invisible to it and an edited description can be the newest field 
 bead. Use `bd history <id>`, which lists real mutation times newest-first, and
 `bd comments <id> --json` for comment `created_at`. THE PLAIN LISTING TELLS YOU A NEWER
 MUTATION EXISTS, NOT WHAT IT SAYS — it names no changed field, so for the change itself
-use `bd history <id> --json`, which carries a full snapshot per commit. WALK ADJACENT
-PAIRS NEWEST-FIRST UNTIL THE FIRST CHANGE TO A TEXT-BEARING FIELD (description, notes,
-acceptance, design): the history holds duplicate checkpoint snapshots and status-only
+use `bd history <id> --json`, which carries a full snapshot per commit. EACH ENTRY
+NESTS THE ITEM'S FIELDS UNDER `.Issue`; the top level carries only commit metadata, so
+a walk keyed at the top level matches nothing in every snapshot and reports “no change”
+without erroring. WALK ADJACENT PAIRS NEWEST-FIRST UNTIL THE FIRST CHANGE TO A
+TEXT-BEARING FIELD (`.Issue.description`, `.Issue.notes`, `.Issue.acceptance_criteria`
+— the update flag is spelled `--acceptance` but the field is not — and
+`.Issue.design`): the history holds duplicate checkpoint snapshots and status-only
 mutations, so the newest pair alone can truthfully say nothing changed while a live
 instruction change sits behind it. AND A WALK THAT ENDS WITHOUT FINDING ONE HAS FOUND
 NOTHING, NOT “NO CHANGE” — say which of the two you have. Histories accumulate
@@ -834,6 +838,23 @@ machine-written no-ops, so a walk bounded anywhere short of the item’s beginni
 signature whose remedy is to re-close. On a long history, search the text for the marker
 you expect rather than walking to it. If the bead has children, re-enumerate them too: a
 ruling is sometimes recorded as a NEW CHILD BEAD rather than as a note.
+
+AND THE SNAPSHOT OMITS EMPTY FIELDS, so a key's ABSENCE means “empty on this item”, NOT
+“not tracked”. The key set is per-item and reflects exactly what that item populates, so
+there is no schema to read off one item's snapshot — do not derive one. Treat absent and
+null as the same thing, and never read “no change” off a field the item never populated:
+null hashes constant across every adjacent pair, so an empty field reports a clean walk
+in the very same words as a genuinely unchanged one, and the two are indistinguishable
+in the output. That makes the walk INTERMITTENTLY wrong rather than reliably wrong — the
+identical expression works perfectly on an item that DOES populate the field — which is
+why it survives casual use. `notes` is the field that matters most here, because
+rulings, sequencing fences and audit reopenings are appended there.
+
+SO CONTROL THE WALK AGAINST A FIELD YOU KNOW VARIES ON THE ITEM IN FRONT OF YOU before
+you believe any “no change”; a control on a different item proves nothing about this
+one. That control is the only reason this paragraph is right: a field list asserted from
+a single item's key set was refuted only when somebody ran the same walk on a second
+item, where the field it called untracked was populated and had changed seven times.
 
 TIMESTAMP ORDER DOES NOT ESTABLISH CURRENCY, so a perfect walk can still hand you
 superseded text: the newest note by mutation time can be a faithful re-derivation of a
