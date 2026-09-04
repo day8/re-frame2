@@ -7,6 +7,9 @@
   - `run-variant`     — allocate frame; run four-phase lifecycle;
                         return a promise/future of the result map.
   - `reset-variant`   — tear down and re-run.
+  - `prepare-variant` — re-run phases 0-2 ONLY (loaders + setup, no
+                        script), for a caller that owns the script itself
+                        — the `:test` pane's step-debugger.
   - `watch-variant`   — subscribe to lifecycle transitions.
   - `snapshot-identity` — re-export of `re-frame.story.identity/snapshot-identity`.
 
@@ -1726,6 +1729,58 @@
      (reset-run-owner! variant-id)
      (rf.story.frames/destroy! variant-id))
    (run-variant variant-id opts)))
+
+;; ---- prepare-variant -----------------------------------------------------
+
+(defn prepare-variant
+  "Re-run the PREPARE half of the four-phase lifecycle for `variant-id` —
+  phases 0-2 (fresh-frame boundary, allocation, `:db-seed`, `:loaders`,
+  `:setup`) — and STOP. The play script (phase 4) is left ENTIRELY pending.
+
+  `reset-variant`'s pre-play counterpart. Where `reset-variant` composes
+  both halves (the `:test` pane's Re-run button wants exactly that), this
+  one hands back a frame parked at the variant's documented initial state
+  with every script step still to run — the position a step-debugger's
+  Start must present (`009-Test-Mode.md` §Start semantics). Reaching that
+  position through `reset-variant` ran the whole script first, so the
+  debugger showed cursor 0 over a POST-script app-db and re-ran every step
+  and every effect it had already issued (rf2-k6y2).
+
+  Reuses `prepare-ctx!`, the SAME prepare half `run-variant` and
+  `prepare-run!` already drive, so there is no second lifecycle here. The
+  frame is reset IN PLACE by phase 0's `ensure-fresh-frame!` rather than
+  destroyed, so a canvas already mounted over this variant keeps its live
+  reactions while its app-db returns to the initial state.
+
+  Drops the one-run-owner attempt for `variant-id` (as `reset-variant`
+  does, and for the same reason): a generation that was prepared but not
+  yet resumed would otherwise let a later `resume-run!` run the whole
+  script over the frame the caller is about to step through.
+
+  Returns a promise/future that resolves to `nil` once phases 0-2 have
+  settled, and REJECTS when preparation fails — an unknown variant, a
+  `:db-seed` that violates a registered schema, a throwing loader or
+  `:setup` handler. Rejecting (rather than resolving an error result, as
+  `run-variant` does) is what lets the caller return its UI to an honest
+  inactive state instead of presenting controls over a frame that never
+  reached `:ready`.
+
+  `opts` is the standard `run-variant` opts (`:active-modes` /
+  `:cell-overrides` / `:substrate`)."
+  ([variant-id] (prepare-variant variant-id nil))
+  ([variant-id opts]
+   (if-not rf.story.config/enabled?
+     (rf.story.async/resolved nil)
+     (rf.story.async/promise
+       (fn [resolve]
+         ;; `rf.story.async/promise` rejects when this body throws, which is
+         ;; the honest settle for every prepare-half failure — including an
+         ;; unknown variant, which `prepare-context`'s plan compile already
+         ;; refuses with `:rf.error/story-unknown-variant`. Phases 0-2 are
+         ;; synchronous, so the promise has settled by the time this returns.
+         (reset-run-owner! variant-id)
+         (prepare-ctx! variant-id (rf.story.frames/variant-body variant-id) opts)
+         (resolve nil))))))
 
 ;; ---- watch-variant -------------------------------------------------------
 

@@ -298,3 +298,44 @@
         (is (= [77] @cleared))
         (is (nil? (get @rf.story.ui.test-mode.stepper-state/results-atom vid))
             "the slot is removed from the local atom")))))
+
+;; ---- begin! ---------------------------------------------------------------
+
+(deftest begin-reaches-its-start-position-through-the-pre-play-lifecycle
+  (testing "begin! prepares the variant through
+            `rf.story.runtime/prepare-variant` — phases 0-2, script left
+            pending — and NEVER through `reset-variant`, whose promise
+            settles only once phase 4 has run the whole script, so the
+            section would show cursor 0 over a post-script app-db (rf2-k6y2).
+
+            Synchronous by construction: `begin!` calls the seam before it
+            returns its promise, and the redefined seam never settles, so
+            the continuation cannot run outside the redef scope. The
+            behaviour behind the seam — Start parks at the `:setup` state,
+            each Step is 1:1 with the cursor, Rewind restores the pre-play
+            epoch — is pinned on both runtimes by
+            `re-frame.story.stepper-start-test`."
+    (let [vid      :story.unit/begin-seam
+          prepared (atom [])
+          reset    (atom [])
+          ended    (atom [])]
+      (with-redefs [rf.story.runtime/prepare-variant
+                    (fn [v]
+                      (swap! prepared conj v)
+                      ;; A promise that never settles: the assertions below
+                      ;; are about what `begin!` CALLS, and a pending
+                      ;; promise keeps the continuation out of the way.
+                      (js/Promise. (fn [_ _] nil)))
+
+                    rf.story.runtime/reset-variant
+                    (fn [v] (swap! reset conj v) (js/Promise.resolve nil))
+
+                    rf.story.play/end-stepper!
+                    (fn [v] (swap! ended conj v))]
+        (rf.story.ui.test-mode.stepper-state/begin! vid)
+        (is (= [vid] @prepared)
+            "Start prepares the variant through the pre-play lifecycle")
+        (is (= [] @reset)
+            "Start never runs the full reset/run path")
+        (is (= [vid] @ended)
+            "any prior stepper session is torn down first")))))

@@ -103,8 +103,20 @@
 
 (defn begin!
   "Initialise a step-by-step run for `variant-id`. Tears down any prior
-  stepper state, then re-allocates the variant frame (so the run starts
-  fresh) and primes the substrate via `rf.story.play/begin-stepper!`.
+  stepper state, re-allocates the variant frame through the PRE-PLAY
+  lifecycle only, and primes the substrate via
+  `rf.story.play/begin-stepper!`.
+
+  Pre-play is the whole point (spec/009 §Start semantics). `begin!` used
+  to reach its start position through `rf.story.runtime/reset-variant`,
+  which is a FULL run — phases 0-2 AND phase 4 — so a bare `:script`
+  (`:auto-run?` defaults to true) executed end to end before cursor 0 was
+  ever published: the section read \"ready · N steps\" over a POST-script
+  app-db, the first Step re-ran step 1, and Rewind's bottom-of-stack epoch
+  captured the post-script state rather than the specified initial one
+  (rf2-k6y2). `rf.story.runtime/prepare-variant` runs phases 0-2 and
+  stops, so the frame the user is shown at cursor 0 is the one the
+  variant's `:setup` describes and every step is still to run.
 
   Asynchronous: the caller may await the returned promise to drive a
   follow-up auto-resume, but the UI does not need to — the slot's
@@ -115,8 +127,8 @@
     (swap! results-atom update variant-id clear-interval!))
   (rf.story.play/end-stepper! variant-id)
   ;; Re-allocate the variant frame so the stepper starts from the
-  ;; documented initial state.
-  (-> (rf.story.runtime/reset-variant variant-id)
+  ;; documented initial state — WITHOUT running the script.
+  (-> (rf.story.runtime/prepare-variant variant-id)
       (.then  (fn [_]
                 ;; The stepper walks the FULL coerced :script
                 ;; (every step type), not just the dispatch-bearing
@@ -141,8 +153,11 @@
                   (swap! results-atom update variant-id recompute-statuses)
                   nil)))
       (.catch (fn [_]
-                ;; If reset-variant rejects we still leave the slot
-                ;; cleared so the UI returns to the inactive state.
+                ;; A preparation failure (unknown variant, an invalid
+                ;; `:db-seed`, a throwing loader / `:setup` handler) rejects.
+                ;; Leave the slot cleared so the section returns to its
+                ;; honest inactive state rather than offering step controls
+                ;; over a frame that never reached `:ready`.
                 (swap! results-atom dissoc variant-id)
                 nil))))
 
