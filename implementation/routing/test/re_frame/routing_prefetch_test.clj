@@ -4,9 +4,9 @@
 
   The always-on prefetch-address structural gate (`rf.routing.address/prefetch-address-
   error`) and the pure `[:rf.route/prefetch …]` payload synthesis
-  (`rf.routing.link/prefetch-payload`) the `rf/route-link` intent handlers + the substrate-
-  neutral `:routing/prefetch-payload` seam are built on. The event's warm-plan
-  behaviour (isolation, dedupe, reuse, planning failure) is proven end-to-end by
+  (`rf.routing.link/prefetch-payload`) the `rf/route-link` intent handlers are
+  built on. The event's warm-plan behaviour (isolation, dedupe, reuse, planning
+  failure) is proven end-to-end by
   the `ep-0037-r3-prefetch-*` conformance fixtures; the DOM intent arm (hover /
   focus / touch → dispatch) is proven by the CLJS route-link tests. Per Spec 012
   §Route-plan prefetch.
