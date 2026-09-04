@@ -1794,21 +1794,32 @@
 
 (defn as-component
   "Hand a hiccup head to React: a real React function component a React
-  parent (UIx or plain JavaScript) renders without a second root, a
-  second frame, or a sight of the internal `rfProps` ABI.
+  parent (UIx, Reagent or plain JavaScript) renders without a second
+  root, a second frame, or a sight of the internal `rfProps` ABI.
 
       (def article-card* (h/as-component article-card))
       ;; on the React side: <ArticleCard articleId={7} />
 
   The parent's props arrive as the view's ordinary props map (`prop-key`
-  on each slot, values by identity) and React's `children` at `:children`
-  as the vector a hiccup caller's would be (`outward-children`). The
-  element is built by `vec->element` from `[head props]`, so the view
-  keeps its memo wrapper, its reads, its teardown and its refusals; the
-  frame is the surrounding React context's, and outside every Hicasso
-  root the shell refuses with `:rf.error/no-frame-context`. Neither
-  `*frame*` nor `*dispatch*` is bound — this is not a boundary body, so
-  an intent vector in a `[:div]` handed through here stays the loud
+  on each slot) and React's `children` at `:children` as the vector a
+  hiccup caller's would be (`outward-children`). That decode is SHALLOW:
+  it reverses the camelCasing on each key and takes each value as it
+  finds it. Values therefore cross BY IDENTITY here, which is a fact
+  about this decode rather than a promise about what arrives — a Reagent
+  parent's `[:>]` runs its own `convert-prop-value` first, so a keyword
+  reaches the body as its name and a map as a camelCased object. Names
+  round-trip across a crossing; values do not.
+
+  The element is built by `vec->element` from `[head props]`, so the
+  view keeps its memo wrapper, its reads, its teardown and its refusals;
+  the frame is the surrounding React context's — the one
+  `re-frame.adapter.context/frame-context` that `h/mount!`,
+  `rf/frame-provider` and `rf/frame-root` all write — so what is
+  required is a frame from any React-shaped adapter, not a Hicasso root,
+  and outside every frame the shell refuses with
+  `:rf.error/no-frame-context`. Neither `*frame*` nor `*dispatch*` is
+  bound — this is not a boundary body, so an intent vector in a `[:div]`
+  handed through here stays the loud
   `:rf.error/hicasso-intent-outside-boundary`. Call it ONCE, at top
   level: it allocates a component, and a fresh one per render is a fresh
   element type that remounts the subtree, `React.memo`'s own law."
