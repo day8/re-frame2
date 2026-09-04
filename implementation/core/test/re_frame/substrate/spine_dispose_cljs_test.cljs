@@ -97,6 +97,159 @@
         (is (nil? @set-tick-ref)
             "the after-render set-tick slot still cleared past the rethrow")))))
 
+;; ---- layered React-hook teardown: the singleton driver root (rf2-ss8x) ----
+;;
+;; `make-dispose-adapter!` layers warn-cache + singleton after-render DRIVER
+;; ROOT + set-tick teardown on top of the shared drain. The driver root is a
+;; host-specific resource this spine owns ALONE — it lives outside
+;; `active-roots-cell` — and its unmount used to sit under a bare
+;; `(catch :default _ nil)`, so a failure there was discarded outright.
+;;
+;; The fix threads ONE accumulator across both layers, which makes the primacy
+;; rule ASYMMETRIC, and the asymmetry is the substance:
+;;
+;;   * driver-root failure is the ONLY failure  -> it is the PRIMARY and must
+;;     surface, or `destroy-adapter!` reports a clean nil over a React root
+;;     that never released.
+;;   * something earlier already failed         -> it is a SECONDARY on the
+;;     primary's `rfAdapterTeardownSecondaryErrors`, because the earlier
+;;     failure names the real fault and attachment never replaces it.
+;;
+;; The old catch got the second case right by accident and the first wrong
+;; every time. The two tests below pin the two cases, and within each one the
+;; DRAIN assertions and the RETHROW assertions are separated deliberately: a
+;; swallow regression fails only the RETHROW group, a throw-early regression
+;; fails only the DRAIN group, so neither test can pass a defect the other
+;; would catch.
+;;
+;; Node-runtime, no DOM: the spine only ever invokes `.unmount` on whatever
+;; occupies the cell, so a plain JS object with an `unmount` slot exercises
+;; the exact path a real `react-dom-client` root takes.
+
+(deftest dispose-surfaces-a-driver-root-only-unmount-failure-as-the-primary
+  (testing "when the singleton after-render driver root's unmount is the ONLY
+  teardown failure it becomes the PRIMARY and reaches the caller, after every
+  other layer has been attempted and finalized (rf2-ss8x; Spec 006 §Adapter
+  disposal lifecycle MUST 2 + the first-failure rule)"
+    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
+          warn-cache        (rf.substrate.spine/make-warn-once-cache)
+          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
+          sentinel          (js/Error. "driver root unmount failed")
+          driver-root-cell  (atom #js {:unmount #(throw sentinel)})
+          set-tick-ref      (atom :stale-setter)
+          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
+                              {:active-roots-cell             active-roots-cell
+                               :warn-cache                    warn-cache
+                               :emitter-cell                  emitter-cell
+                               :after-render-driver-root-cell driver-root-cell
+                               :after-render-set-tick-ref     set-tick-ref})
+          healthy           (fake-root)]
+      (swap! active-roots-cell conj (:root healthy))
+      (reset! warn-cache #{:some-stale-warn-key})
+      (reset! emitter-cell (fn fake-emit [_ _] "<html/>"))
+      (let [thrown (try (dispose-fn)
+                        ::returned-normally
+                        (catch :default e e))]
+        ;; ---- DRAIN half. Stays green under a swallow regression; fails only
+        ;; if the driver-root throw is allowed to abandon a later step.
+        (is (= 1 @(:unmount-count healthy))
+            "the healthy app root was unmounted by the shared drain")
+        (is (empty? @active-roots-cell)
+            "active-roots cell drained to empty")
+        (is (nil? @emitter-cell)
+            "hiccup-emitter cell cleared")
+        (is (empty? @warn-cache)
+            "warn-once cache cleared past the driver-root throw")
+        (is (nil? @driver-root-cell)
+            "driver-root cell released even though its unmount threw — a
+            retained root would leak the very host resource being reported")
+        (is (nil? @set-tick-ref)
+            "after-render set-tick slot cleared so a fresh init! re-arms
+            against the new adapter rather than bumping a stale setter")
+        ;; ---- RETHROW half. The ONLY half a swallow regression fails, and the
+        ;; half the pre-fix `(catch :default _ nil)` failed every time.
+        (is (identical? sentinel thrown)
+            "the identical driver-root unmount failure reached the caller as
+            the primary; ::returned-normally here is the silent success over a
+            failed teardown that rf2-ss8x exists to close")))))
+
+(deftest dispose-attaches-a-driver-root-failure-behind-an-earlier-primary
+  (testing "when the shared drain ALREADY failed, the later driver-root
+  unmount failure rides the rethrown primary as secondary evidence instead of
+  displacing it or being discarded — one accumulator spanning the shared drain
+  and the layered React-hook teardown (rf2-ss8x)"
+    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
+          warn-cache        (rf.substrate.spine/make-warn-once-cache)
+          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
+          root-boom         (js/Error. "app root unmount failed")
+          driver-boom       (js/Error. "driver root unmount failed")
+          driver-root-cell  (atom #js {:unmount #(throw driver-boom)})
+          set-tick-ref      (atom :stale-setter)
+          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
+                              {:active-roots-cell             active-roots-cell
+                               :warn-cache                    warn-cache
+                               :emitter-cell                  emitter-cell
+                               :after-render-driver-root-cell driver-root-cell
+                               :after-render-set-tick-ref     set-tick-ref})
+          healthy           (fake-root)]
+      ;; Exactly one app root throws, so the shared drain's failure is the
+      ;; first recorded regardless of the set's traversal order, and the
+      ;; driver root's is unambiguously the later one.
+      (swap! active-roots-cell conj (:root healthy) #js {:unmount #(throw root-boom)})
+      (let [thrown (try (dispose-fn)
+                        ::returned-normally
+                        (catch :default e e))]
+        ;; ---- DRAIN half.
+        (is (= 1 @(:unmount-count healthy))
+            "the healthy app root was still unmounted despite two failures")
+        (is (empty? @active-roots-cell)
+            "active-roots cell drained to empty")
+        (is (nil? @driver-root-cell)
+            "driver-root cell released")
+        (is (nil? @set-tick-ref)
+            "after-render set-tick slot cleared")
+        ;; ---- RETHROW half: primacy, then attachment.
+        (is (identical? root-boom thrown)
+            "the EARLIER shared-drain failure stayed the primary — a later
+            driver-root failure must never displace the error that names the
+            real fault, and the primary keeps its identity and stack")
+        (let [secondary (when (instance? js/Object thrown)
+                          (aget thrown "rfAdapterTeardownSecondaryErrors"))]
+          (is (some? secondary)
+              "secondary evidence was attached to the rethrown primary")
+          (is (= 1 (if secondary (alength secondary) 0))
+              "exactly one secondary — the driver-root failure")
+          (is (identical? driver-boom (when secondary (aget secondary 0)))
+              "the driver-root failure rides the primary as secondary evidence
+              rather than being discarded, which is what threading one
+              accumulator through the layered teardown buys"))))))
+
+(deftest dispose-captures-a-falsey-driver-root-throw-by-presence
+  (testing "a driver root that throws `false` still surfaces: the layered
+  teardown records by PRESENCE against `capture-none`, never by truthiness, so
+  the legal-but-falsey CLJS throw is not re-swallowed by the fix's own
+  accumulator (rf2-ss8x)"
+    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
+          warn-cache        (rf.substrate.spine/make-warn-once-cache)
+          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
+          driver-root-cell  (atom #js {:unmount #(throw false)})
+          set-tick-ref      (atom :stale-setter)
+          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
+                              {:active-roots-cell             active-roots-cell
+                               :warn-cache                    warn-cache
+                               :emitter-cell                  emitter-cell
+                               :after-render-driver-root-cell driver-root-cell
+                               :after-render-set-tick-ref     set-tick-ref})
+          thrown            (try (dispose-fn)
+                                 ::returned-normally
+                                 (catch :default e e))]
+      (is (nil? @driver-root-cell)
+          "driver-root cell still released after a falsey throw")
+      (is (false? thrown)
+          "the falsey driver-root throw reached the caller instead of being
+          read as 'nothing failed' — a truthiness accumulator here would
+          rebuild the exact silent hole the bare catch had"))))
+
 (deftest dispose-clears-warn-cache-and-emitter
   (testing "dispose-adapter! also empties the warn-once cache and the hiccup-emitter cell"
     (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
