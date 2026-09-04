@@ -807,11 +807,42 @@
       (when-not (identical? new-db db)
         (frame/swap-frame-db-exact! frame-id owner-token (constantly new-db))))))
 
+;; ---- direct-clear settle seam --------------------------------------------
+;;
+;; Spec 013 §Sequencing requires that when a clear returns, no remaining flow
+;; still publishes a value derived from the slot the clear removed. In a drain
+;; the pending-`:db` flow pass establishes that. OUT of a drain there is no
+;; such pass, so `clear-flow` runs one itself before returning — through the
+;; ORDINARY engine, not a second implementation of it.
+;;
+;; That engine (`re-frame.flows/run-flows-on-db`) lives in the facade, which
+;; `:require`s THIS namespace, so the call cannot be a direct one. The facade
+;; installs it here at load, mirroring the shape core already uses to reach
+;; this optional artefact through `re-frame.late-bind`. An uninstalled seam is
+;; inert: `clear-flow` keeps its pre-settle behaviour rather than failing.
+
+(defonce ^:private settle-frame-flows-fn (atom nil))
+
+(defn ^:no-doc set-settle-fn!
+  "Install the facade's exact-owner settle, `(fn [frame-id owner-token])`.
+  Called once by `re-frame.flows` at load."
+  [f]
+  (reset! settle-frame-flows-fn f)
+  nil)
+
 (defn clear-flow
   "Deregister a flow and remove its output leaf from the selected frame.
 
   Without an explicit `:frame`, the ambient frame is required. Vacation is
-  leaf-only: empty ancestors remain because the flow does not own them."
+  leaf-only: empty ancestors remain because the flow does not own them.
+
+  Called OUTSIDE an event drain, this settles the frame's remaining flows
+  before returning, so a dependent cannot still publish a value derived from
+  the slot just removed (Spec 013 §Sequencing). A remaining flow whose
+  `:derive` throws during that settle propagates the ordinary
+  `:rf.error/flow-eval-exception` to this caller; the deregistration and
+  vacation — already committed, and what the caller asked for — stand, and the
+  settle's candidate db is discarded unwritten."
   ([id] (clear-flow id {}))
   ([id {:keys [frame] :as _opts}]
    (let [;; Normalize frame values before registry access.
@@ -838,11 +869,17 @@
            ;; linearized before that loss stands, and every later registry /
            ;; cache / trace action is fenced by the exact-owner postcheck /
            ;; continuation below.
-           (let [pinned (frame/frame-incarnation-token frame-id)
-                 path   (:output-path flow)]
+           (let [pinned    (frame/frame-incarnation-token frame-id)
+                 path      (:output-path flow)
+                 ;; ONE reading of the drain marker for BOTH the vacation
+                 ;; branch and the settle below, so the two halves of one
+                 ;; lifecycle boundary can never disagree about which pass owns
+                 ;; the repair. It is a thread marker for this frame and this
+                 ;; thread, so it cannot change across the serialized body.
+                 in-drain? (frame/in-drain? frame-id)]
              ;; In-drain vacation must modify the pending db, not the live
              ;; app-db that the deferred commit will replace.
-             (if (frame/in-drain? frame-id)
+             (if in-drain?
                (record-abandoned-output-path! frame-id path)
                (vacate-output-path! frame-id pinned path))
              ;; rf2-rxsldx: the output-mark clear below is itself exact-
@@ -887,7 +924,34 @@
                      (trace/emit! :flow :rf.flow/cleared
                                   {:flow-id id
                                    :path    path
-                                   :frame   frame-id})))))))))
+                                   :frame   frame-id}))))
+               ;; SETTLE the frame's remaining flows before this synchronous
+               ;; call returns, so a dependent cannot outlive its input.
+               ;;
+               ;; Placement is load-bearing on three counts. It is INSIDE the
+               ;; `when-let` on the flow row, so an unknown id still settles
+               ;; nothing. It is INSIDE the exact-owner postcheck, so a stale
+               ;; A's settle tail cannot recompute a same-id successor B. And
+               ;; it is INSIDE the serialized region, which closes the window
+               ;; entirely rather than narrowing it: no drain can observe the
+               ;; frame between the row's removal and the dependents' repair.
+               ;;
+               ;; Holding the lock across the pass is safe by the same argument
+               ;; that makes the ordinary drain safe — a drainer runs this exact
+               ;; engine holding this exact lock, `call-serialized-with-drain!`
+               ;; runs `f` directly for a thread that already owns the region
+               ;; rather than re-taking the non-reentrant cell, and the cold
+               ;; region defers trace-listener delivery past the release, so no
+               ;; listener runs arbitrary code underneath it.
+               ;;
+               ;; IN-DRAIN is deliberately excluded: there the vacation is
+               ;; queued for the pending-`:db` pass and that pass performs the
+               ;; settle, which is where `:rf.fx/clear-flow`'s already-correct
+               ;; one-settle/topological behaviour comes from. Settling here
+               ;; too would write the live app-db that the deferred commit is
+               ;; about to replace, and count a second pass.
+               (when-let [settle! (and (not in-drain?) @settle-frame-flows-fn)]
+                 (settle! frame-id pinned)))))))
      nil)))
 
 ;; ---- frame-destroy teardown ---------------------------------------------
