@@ -134,12 +134,37 @@
                  (apply str))]
     [:span raw]))
 
+;; ---------------------------------------------------------------------------
+;; Tight-list children (React key hygiene)
+;; ---------------------------------------------------------------------------
+
+(defn- plain->fragment
+  "Render a `:plain` node as a hiccup FRAGMENT rather than a bare seq.
+
+   markdown-it marks the paragraph inside a tight list item `hidden`, which
+   nextjournal maps to the `:plain` node type. Its default renderer returns
+   `(seq ...)`, and `:list-item` is `(partial into-markup [:li])`, which
+   conj's that single value in — so an ordinary `- item` bullet carrying any
+   inline markup emits `[:li (\"Full CommonMark via \" [:code \"…\"])]`. That
+   inner seq reaches React as an ARRAY child, and every element in an array
+   needs a key, so React warns: \"Each child in a list should have a unique
+   `key` prop. Check the render method of `li`.\"
+
+   A fragment carries exactly the same children in the same order, but
+   positionally — React sees ordinary siblings, not a list, and no key is
+   required. Keys would be the wrong remedy here anyway: these children are
+   prose runs with no stable identity to key on (rf2-sefb)."
+  [ctx {:keys [content]}]
+  (into [:<>] (map (partial md.transform/->hiccup ctx)) content))
+
 (def ^:private hiccup-renderers
   "The default nextjournal renderers, plus explicit inert handlers for raw
-   HTML node types so attacker HTML degrades to escaped text (never markup)."
+   HTML node types so attacker HTML degrades to escaped text (never markup),
+   and a `:plain` renderer that emits a fragment instead of a bare seq."
   (assoc md.transform/default-hiccup-renderers
          :html-inline raw-html->text
-         :html-block  raw-html->text))
+         :html-block  raw-html->text
+         :plain       plain->fragment))
 
 ;; ---------------------------------------------------------------------------
 ;; Public entry point

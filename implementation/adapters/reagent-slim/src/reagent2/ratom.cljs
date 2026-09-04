@@ -151,8 +151,21 @@
   ;; print). The "private" tag is a CLJS-packaging artefact, not an
   ;; API contract — silence kondo's private-call check at the one
   ;; call site rather than blanket-excluding the linter.
+  ;; The nil `*ratom-context*` must wrap the `pr-writer` CALL, not `body`:
+  ;; `body` is an already-computed local, so binding around it pops before
+  ;; any printing happens. The derefs worth guarding are the ones `pr-writer`
+  ;; makes as it recurses — a nested ratom's own `-pr-writer` derefs it — and
+  ;; capturing those would subscribe whatever is currently tracking to a
+  ;; value it merely printed (rf2-3hqm).
+  ;;
+  ;; The receiver's own deref stays visible: both call sites build
+  ;; `{:val (-deref a)}` before entering here, and that is deliberate. A
+  ;; Reaction's `-deref` branches on `*ratom-context*`, so reading it under a
+  ;; nil context would additionally force a `flush!` and an on-demand
+  ;; recompute — a behaviour change well beyond suppressing capture.
   #_:clj-kondo/ignore
-  (pr-writer (binding [*ratom-context* nil] body) writer opts)
+  (binding [*ratom-context* nil]
+    (pr-writer body writer opts))
   (-write writer "]"))
 
 ;; ---------------------------------------------------------------------------

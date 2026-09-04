@@ -2,6 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <!-- Conduit routes three segments deep ("/profile/:username/favorites"), and
+       a page's relative URLs resolve against the DOCUMENT url — which, under
+       the default history strategy, is the route. Without this, deep-linking or
+       refreshing on /profile/bob/favorites would resolve every asset below
+       against /profile/bob/, so the page would load with no stylesheet, no
+       favicon and no main.js. One <base> fixes all of them; see the Hicasso
+       routing guide, "A route deeper than one segment moves what relative URLs
+       resolve against". -->
+  <base href="/">
   <title>re-frame2 example: realworld (Conduit)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#1A1814">
