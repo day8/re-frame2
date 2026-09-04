@@ -43,7 +43,7 @@
     "test:hicasso-compile": "node hicasso/scripts/check_modules_compile.cjs",
     "test:hicasso-invariants": "python hicasso/scripts/check_optional_module_reachability.py --self-test && python hicasso/scripts/check_optional_module_reachability.py && python hicasso/scripts/check_guide_samples.py --self-test && python hicasso/scripts/check_guide_samples.py",
     "test:hicasso-lint": "python hicasso/scripts/check_lint_export.py --self-test && python hicasso/scripts/check_lint_export.py",
-    "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-reagent-slim-bundle-isolation.cjs",
+    "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast reagent-slim-ssr-isolation-fixture && node scripts/check-reagent-slim-bundle-isolation.cjs",
     "test:reagent-slim:smoke": "node scripts/serve-and-run-reagent-slim-smoke.cjs",
     "test:adapter-smokes": "node adapters/scripts/serve-and-run-adapter-smokes.cjs",
     "test:testbed-tenant-switcher": "node scripts/serve-and-run-tenant-switcher-testbed.cjs",
