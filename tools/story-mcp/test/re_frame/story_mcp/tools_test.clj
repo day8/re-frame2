@@ -1289,6 +1289,132 @@
                (-> r :structuredContent :rf.error))
             "a stable :rf.error id rides the structuredContent")))))
 
+;; ---- rf2-sw1d: unknown run-option IDENTIFIERS are refused ----------------
+;;
+;; The shape guards above reject a WRONGLY-TYPED run option. These reject a
+;; correctly-shaped one carrying an identifier the server does not know.
+;; Before rf2-sw1d `read-run-opts`' bounded-allowlist coercion DROPPED the
+;; unknown id and the handler ran on: an agent that typo'd a mode or an
+;; override key got `:status :pass`, a share URL, or a visual-regression
+;; `:content-hash` for a DIFFERENT tuple than it asked for — a
+;; successful-looking WRONG result, the same class the substrate
+;; (rf2-3fc89f.21) and unknown-top-level-knob (rf2-ovmc5e) guards already
+;; refuse. The no-intern posture that introduced the drop is preserved:
+;; only the success is withdrawn (see the wire probes further down).
+
+(deftest run-opts-unknown-active-mode-rejected
+  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
+    (testing (str tool-name " refuses an unknown :active-modes id (rf2-sw1d)")
+      (let [r (invoke tool-name {:variant-id   "story.button/primary"
+                                 :active-modes ["Mode.theme/darkk"]})
+            s (:structuredContent r)]
+        (is (error? r) (str tool-name " must refuse an unknown mode, not drop it and run on"))
+        (is (re-find #"Mode\.theme/darkk" (-> r :content first :text))
+            "the diagnostic names the OFFENDING raw id, so the agent need not guess which one")
+        (is (re-find #"Mode\.theme/dark\"" (-> r :content first :text))
+            "and enumerates the accepted set (derived live from the registry)")
+        (is (= :rf.error/story-mcp-unknown-active-mode (:rf.error s))
+            "a stable :rf.error id rides the structuredContent")
+        (is (= ["Mode.theme/darkk"] (:active-modes s))
+            "the rejected id rides structured, as the RAW string the caller sent")
+        (is (some #{":Mode.theme/dark"} (:registered s))
+            "the registered set rides structured too — one round trip to recover")
+        ;; No lifecycle / hash / share work happened.
+        (is (nil? (:status s)) "no run settled a status")
+        (is (nil? (:content-hash s)) "no identity hash was computed")
+        (is (nil? (:share-url s)) "no share URL was built for the wrong tuple")))))
+
+(deftest run-opts-mixed-known-unknown-modes-reject-atomically
+  ;; The partial-execution case: running the KNOWN subset is precisely the
+  ;; "different scenario" this guard exists to refuse, so a mixed list must
+  ;; reject whole rather than proceeding under the modes it recognised.
+  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
+    (testing (str tool-name " rejects a mixed known+unknown mode list atomically (rf2-sw1d)")
+      (let [r (invoke tool-name {:variant-id   "story.button/primary"
+                                 :active-modes [":Mode.theme/dark" "Mode.theme/nope"]})
+            s (:structuredContent r)]
+        (is (error? r) "a known mode alongside an unknown one must NOT run the known subset")
+        (is (= ["Mode.theme/nope"] (:active-modes s))
+            "only the unresolved id is reported — the known one is not maligned")
+        (is (nil? (:status s)) "and nothing executed")))))
+
+(deftest run-opts-unknown-cell-override-key-rejected
+  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
+    (testing (str tool-name " refuses an unknown :cell-overrides key (rf2-sw1d)")
+      (let [r (invoke tool-name {:variant-id     "story.button/primary"
+                                 :cell-overrides {"lable" "Override"}})
+            s (:structuredContent r)]
+        (is (error? r) (str tool-name " must refuse an unknown override key, not hash/run without it"))
+        (is (re-find #"lable" (-> r :content first :text))
+            "the diagnostic names the offending raw key")
+        (is (re-find #":effective-args" (-> r :content first :text))
+            "and gives a bounded recovery path rather than only a refusal")
+        (is (= :rf.error/story-mcp-unknown-cell-override-key (:rf.error s))
+            "a stable :rf.error id rides the structuredContent")
+        (is (= ["lable"] (:cell-overrides s))
+            "the rejected key rides structured as the RAW string")
+        (is (some #{":label"} (:allowed s))
+            "the allowed key set is derived from the variant's effective args, not hard-coded")
+        (is (nil? (:content-hash s)) "no identity hash was computed for the reduced tuple")))))
+
+(deftest run-opts-valid-identifiers-still-run
+  ;; The other half of the witness: the guard must not be over-broad. A
+  ;; VALID mode and a VALID override still execute end-to-end on all three
+  ;; tools. Without this, a fix that rejected everything would pass the
+  ;; rejection tests above.
+  (testing "a known mode + known override still runs / hashes (rf2-sw1d)"
+    (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
+      (let [r (invoke tool-name {:variant-id     "story.button/primary"
+                                 :active-modes   [":Mode.theme/dark"]
+                                 :cell-overrides {"label" "Override"}})]
+        (is (success? r) (str tool-name " must still accept valid identifiers"))))
+    (let [r (invoke "snapshot-identity" {:variant-id     "story.button/primary"
+                                         :active-modes   [":Mode.theme/dark"]
+                                         :cell-overrides {"label" "Override"}})]
+      (is (some? (-> r :structuredContent :content-hash))
+          "and the identity hash is actually computed for the accepted tuple"))))
+
+(deftest run-opts-mode-introduced-override-key-accepted-at-handler
+  ;; The handler-level peer of `read-run-opts-allows-active-mode-introduced-
+  ;; cell-override-key` (rf2-to3q7): :theme is NOT a base arg of
+  ;; story.button/primary but IS contributed by :Mode.theme/dark, and Story
+  ;; merges mode args before cell-local overrides — so with that mode active
+  ;; a :theme override is legitimate and must NOT be rejected as unknown.
+  ;; This is why the guard validates modes FIRST and derives the override
+  ;; allowlist under them.
+  (testing "an override for a MODE-INTRODUCED arg key is accepted (rf2-sw1d × rf2-to3q7)"
+    (let [r (invoke "snapshot-identity" {:variant-id     "story.button/primary"
+                                         :active-modes   [":Mode.theme/dark"]
+                                         :cell-overrides {"theme" ":light"}})]
+      (is (success? r)
+          "the mode-introduced :theme override must not be refused as an unknown key")))
+  (testing "and WITHOUT the mode it is correctly unknown — the widening is scoped"
+    (let [r (invoke "snapshot-identity" {:variant-id     "story.button/primary"
+                                         :cell-overrides {"theme" ":light"}})]
+      (is (error? r)
+          "with no active mode :theme is not an effective arg, so the override is refused")
+      (is (= ["theme"] (-> r :structuredContent :cell-overrides))))))
+
+(deftest run-opts-rejection-does-not-intern-over-the-wire
+  ;; The security invariant that motivated the original DROP is preserved by
+  ;; the REJECT: reporting a raw string does not intern it. Wire-level, so
+  ;; the no-intern ingress (rf2-3luf3) is exercised end to end.
+  (testing "a rejected unknown mode / override key never interns a keyword (rf2-sw1d)"
+    (let [mode-probe (str "Mode.rf2-sw1d/unknown-" (System/nanoTime))
+          co-probe   (str "rf2-sw1d-co-" (System/nanoTime))]
+      (is (nil? (find-keyword mode-probe)) "precondition: mode probe uninterned")
+      (is (nil? (find-keyword co-probe)) "precondition: override probe uninterned")
+      (let [r1 (invoke "run-variant" {:variant-id   "story.button/primary"
+                                      :active-modes [mode-probe]})
+            r2 (invoke "snapshot-identity" {:variant-id     "story.button/primary"
+                                            :cell-overrides {co-probe "x"}})]
+        (is (error? r1) "the unknown mode is refused")
+        (is (error? r2) "the unknown override key is refused")
+        (is (nil? (find-keyword mode-probe))
+            "rf2-sw1d: refusing an unknown mode MUST NOT intern it")
+        (is (nil? (find-keyword co-probe))
+            "rf2-sw1d: refusing an unknown override key MUST NOT intern it")))))
+
 ;; `snapshot-identity` forwards `:cell-overrides`
 ;; into `rf.story/snapshot-identity`, where it perturbs the `:content-hash`
 ;; via the resolved `:effective-args`. The descriptor + API advertise

@@ -34,6 +34,52 @@ All tools dispatch through `re-frame.story-mcp.server`'s `tools/call`
 handler; their definitions live in
 `re-frame.story-mcp.tools.registry/tool-registry`.
 
+## Run options (rf2-sw1d)
+
+`preview-variant`, `run-variant` and `snapshot-identity` share one
+run-option tuple — `:substrate`, `:active-modes`, `:cell-overrides` —
+and one rule about it:
+
+> An **absent** run option defaults. A **present** run option carrying an
+> identifier the server does not know is **refused**, never silently
+> dropped.
+
+Refusing costs the agent one round trip; a silently different run costs
+it the whole chain of inference built on the result. These values are
+semantically material — `:cell-overrides` is identity-bearing (it
+perturbs `snapshot-identity`'s `:content-hash` via the resolved
+`:effective-args`) and a mode change likewise produces a different hash —
+so a dropped identifier does not degrade the answer, it answers a
+different question while still looking successful: a `:status :pass`, a
+share URL, or a visual-regression key for a tuple nobody asked for.
+
+| Slot | Unknown identifier | `:rf.error` |
+|---|---|---|
+| `:substrate` | refused | `:rf.error/story-mcp-unknown-substrate` (or `:rf.error/story-mcp-capability-unavailable` when no substrate registry is reachable) |
+| `:active-modes` | refused | `:rf.error/story-mcp-unknown-active-mode` |
+| `:cell-overrides` (KEYS) | refused | `:rf.error/story-mcp-unknown-cell-override-key` |
+
+Each diagnostic names the offending **raw** identifier and enumerates the
+accepted set, both read live from the registry rather than from a
+second, driftable copy — so one round trip is enough to recover. A mixed
+known+unknown `:active-modes` list rejects **atomically**: running the
+known subset is itself the "different scenario" the rule exists to
+prevent. Modes are validated before `:cell-overrides` keys, because the
+override allowlist is the variant's effective arg keys *under the active
+modes* (an arg introduced only by an active mode is a legitimate
+override target, rf2-to3q7).
+
+Rejection preserves the no-intern posture that motivated the original
+drop: unknown identifiers are reported as raw strings and the membership
+probe resolves through `find-keyword`, so a caller streaming unique
+identifiers still interns nothing. Only the success is withdrawn.
+
+This is an **MCP-boundary** rule. Story's own runtime resolution stays
+deliberately tolerant so the UI shell and play runner can ignore a stale
+persisted mode (`re-frame.story.args`); passive hydration may discard
+stale state, but an explicit agent command must not certify another
+tuple.
+
 ## Dev tools
 
 ### `get-story-instructions`
@@ -117,7 +163,11 @@ not the verdict (the retired `:passing?` boolean is gone).
 **Errors.** `isError: true` when `:variant-id` is not registered, and on
 the same no-adapter-installed host prerequisite `run-variant` carries
 (`:rf.error :rf.error/no-adapter-installed` — see §Host boundary):
-preview runs the SAME lifecycle, so it refuses in the same state.
+preview runs the SAME lifecycle, so it refuses in the same state. Also
+on an unknown `:substrate` / `:active-modes` id / `:cell-overrides` key
+— see [§Run options](#run-options-rf2-sw1d). Preview builds `:share-url`
+from that same tuple, so a dropped identifier would hand out a link to a
+scenario that was never requested.
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Dev.
 
@@ -397,6 +447,9 @@ no-adapter-installed host prerequisite (`:rf.error
 :rf.error/no-adapter-installed` — see §Host boundary), which refuses
 before the lifecycle runs and carries no `:status`. The four-verdict
 `:status :error` covers in-run failures within a successful envelope.
+An unknown `:substrate` / `:active-modes` id / `:cell-overrides` key
+likewise refuses before the lifecycle runs — see
+[§Run options](#run-options-rf2-sw1d).
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Testing.
 
@@ -416,6 +469,12 @@ via the resolved `:effective-args` (Story's `resolve-args` merges
 overrides after mode args). Two cells differing only by an override
 produce distinct hashes — the same tuple input `run-variant` /
 `preview-variant` / `variant-share-url` accept.
+
+Because both `:active-modes` and `:cell-overrides` are identity-bearing
+here, an unknown identifier in either is refused rather than hashed
+without — otherwise the returned `:content-hash` would key a
+visual-regression baseline against a different tuple than the caller
+believes. See [§Run options](#run-options-rf2-sw1d).
 
 **Output.**
 

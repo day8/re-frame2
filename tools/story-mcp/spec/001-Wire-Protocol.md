@@ -106,7 +106,13 @@ before the bounded allowlists run.** Concretely:
   - `:cell-overrides` KEYS are resolved through `safe-keyword` against
     the variant's **effective** arg-key set under the request's
     `:active-modes` (`read-run-opts`) — a finite, registry-derived
-    allowlist; an override key outside it is dropped. The allowlist is
+    allowlist. An override key outside it — like an `:active-modes` id
+    outside the registered-mode set — is **refused** at the handler
+    boundary (`run-opts-semantic-error`, rf2-sw1d) rather than dropped:
+    the coercer's drop is retained as the no-intern floor, but the tool
+    returns `isError` naming the raw identifier and the accepted set
+    instead of executing a different scenario. See
+    [`API.md`](API.md#run-options-rf2-sw1d) §Run options. The allowlist is
     the effective set (variant args ∪ the active modes' contributed
     keys) rather than the bare variant's declared keys because Story's
     args precedence merges mode args *before* cell-local overrides, so
