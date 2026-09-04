@@ -168,7 +168,7 @@
             — the throw is what turns generation / --check red"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"Implementation-only rows exported from the facade"
+          #"Implementation-only rows exported from a facade"
           (gen/build-manifest (live-sidecar-with-demoted-facade-var))))))
 
 (deftest build-manifest-implementation-facade-ex-data-lists-the-key
@@ -352,6 +352,32 @@
           "precondition: facade rows exist")
       (is (empty? (gen/implementation-facade-rows rows))
           "the committed manifest must not carry an implementation-only facade row"))))
+
+;; ---------------------------------------------------------------------------
+;; The facade roster (rf2-i6kh). `facade?` is a SET of façade namespaces, not
+;; a `re-frame.core` equality test, so the three facade-audit invariants above
+;; reach every façade rather than only the framework one.
+;; ---------------------------------------------------------------------------
+
+(deftest facade-namespaces-carries-both-enrolled-facades
+  (testing "the façade roster names re-frame.core AND re-frame.story, and does
+            NOT name day8.re-frame2-xray.core — which carries no manifest rows
+            yet, so naming it would be a claim the generator cannot check"
+    (is (contains? gen/facade-namespaces 're-frame.core))
+    (is (contains? gen/facade-namespaces 're-frame.story))
+    (is (not (contains? gen/facade-namespaces 'day8.re-frame2-xray.core)))))
+
+(deftest live-manifest-has-facade-rows-in-every-enrolled-facade
+  (testing "each namespace in `facade-namespaces` actually contributes
+            :facade? true rows to the committed manifest — the non-vacuity
+            guard that would catch `facade?` silently narrowing back to one
+            namespace while --check stayed green (both sides would agree)"
+    (let [facade-rows (filter :facade? (:vars (gen/read-committed-manifest)))
+          by-ns       (set (map :namespace facade-rows))]
+      (is (seq facade-rows) "precondition: the manifest carries facade rows")
+      (doseq [ns-sym gen/facade-namespaces]
+        (is (contains? by-ns (name ns-sym))
+            (str "no :facade? true row for enrolled façade " ns-sym))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Roster non-vacuity — every enrolled namespace actually contributes rows.
