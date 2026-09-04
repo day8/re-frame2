@@ -211,7 +211,7 @@ Public symbols (the audit-binding fourteen surfaces, per Stage 2 §2.7 — thirt
 | `atom` | `[x]`, `[x & {:keys [meta validator]}]` | Re-export of `reagent2.ratom/atom` (the `RAtom` constructor). |
 | `create-class` | `[spec]` | Form-3 entry point. Validates `spec` against the 7-key cap; throws `:rf.error/create-class-key-unsupported` on miss. Delegates to `reagent2.impl.component/create-class*`. |
 | `current-component` | `[]` | Returns the in-flight component instance via `reagent2.impl.component/*current-component*`. |
-| `after-render` | `[f]` | Schedule `f` to run after the next React commit. Routes through `reagent2.impl.batching/after-render`. The `re-frame.interop/after-render` alias (`interop.cljs:19`) re-exports this. |
+| `after-render` | `[f]` | Schedule `f` to run after the next React commit — `f` observes the COMMITTED DOM (rf2-cdoo, §4.1). Routes through `reagent2.impl.batching/do-after-render`. The `re-frame.interop/after-render` alias (`interop.cljs:19`) re-exports this. |
 | `as-element` | `[form]` | Convert hiccup form to React element. Delegates to `reagent2.impl.template/as-element`. |
 | `props` | `[this]` | Form-3 accessor. Delegates to `reagent2.impl.component/get-props`. |
 | `children` | `[this]` | Form-3 accessor. |
@@ -364,14 +364,17 @@ Vars:
 - `queue-render!` `[component]` — enqueue a component for re-render; schedules a microtask if one is not already scheduled.
 - `schedule` `[]` — arm the microtask without enqueueing.
 - `flush!` `[]` — synchronous drain: `ratom/flush!` first (Reaction recomputes may enqueue further component renders), then the component queue's `forceUpdate` pass, then the after-render queue. The implementation hook for `reagent2.dom.client/flush-views!` and `flush-render!`.
-- `do-after-render` `[f]` — schedule `f` after the next render. The public ABI behind `reagent2.core/after-render`.
+- `do-after-render` `[f]` — schedule `f` after the next React COMMIT. The public ABI behind `reagent2.core/after-render`.
 - `mark-rendered` `[component]` — clear a component's dirty flag.
 - `installed?` — the `defonce` guard for late-bind hook installation.
+- `render-commit` — an atom holding the INJECTED host commit boundary, `(fn [drain] …)`, or nil (rf2-cdoo). `reagent2.dom.client` installs `react-dom/flushSync` into it at ns-load; this ns requires no react-dom of its own, so a Node / SSR consumer that never loads the DOM client keeps the bare drain. The injection direction mirrors `reagent2.ratom/rea-schedule`, which this ns fills in the other direction.
 
-Two properties of the shipped queue are contract, not incidental: a Reaction
+Three properties of the shipped queue are contract, not incidental: a Reaction
 that fires DURING a flush is held for the NEXT turn rather than flattened into
-the current drain, and the after-render pass swallows a per-callback throw so
-one misbehaving callback cannot strand the rest of the queue (rf2-p27yih).
+the current drain; the after-render pass swallows a per-callback throw so
+one misbehaving callback cannot strand the rest of the queue (rf2-p27yih); and
+an after-render callback observes the COMMITTED DOM, not merely a DOM whose
+`forceUpdate` has been REQUESTED (rf2-cdoo — see §4.1).
 
 See §4 for the scheduler's full design.
 
@@ -469,12 +472,31 @@ back to `js/Promise.resolve().then`). The microtask body (`run-queues`):
 
 1. Clears `scheduled?`.
 2. Drains the REACTIVE queue first (`ratom/flush!`) — Reaction recomputes can enqueue further component renders, which step 3 then picks up.
-3. Takes the component queue, replaces it with nil, and for each still-dirty component marks it rendered and calls its React `forceUpdate`.
+3. Takes the component queue, replaces it with nil, and for each still-dirty component marks it rendered and calls its React `forceUpdate`. When step 4 has callbacks waiting AND a host commit boundary is installed (`render-commit`, §2.9), this whole pass runs INSIDE that boundary.
 4. Takes the after-render queue, replaces it with nil, and runs each callback inside a per-callback `try` (rf2-p27yih), so one throw cannot strand the rest.
 
 Each queue is taken-and-nilled before it is walked, which is what makes a
 Reaction that fires DURING the drain land on the NEXT turn rather than being
 flattened into this one — the ordering §4.6 and the Suspense test depend on.
+
+**Why step 3 needs a commit boundary at all (rf2-cdoo).** "After the next
+React commit" is what `after-render` promises, and calling `forceUpdate` is
+not committing. Under React 19 `createRoot` an update originating outside
+React's batching context — which a microtask drain is — is SCHEDULED, and the
+DOM still holds the old value when the call returns. This is the same fact
+`flush-render!` (§2.4) documents for the explicit synchronous path; on the
+ordinary microtask path it meant a callback promised the new DOM read the old
+one. Measured on the real-DOM ordinary path before the repair: a dispatch to
+`n=2` handed the callback `n=1`
+(`test/re_frame/adapter/reagent_slim_after_render_dom_cljs_test.cljs`).
+
+The boundary is **injected, not required**, so `reagent2.impl.batching` stays
+host-neutral, and it is **gated on there being a callback to keep the promise
+to**: a turn with an empty after-render queue takes the bare drain and keeps
+React 19's concurrent scheduling rather than being promoted to discrete
+priority because the scheduler happened to run. Stock Reagent reaches the same
+place by the same shape — `reagent.impl.batching/run-queue` brackets its dirty
+pass in an injected react-flush that `reagent.dom.client` installs.
 
 The microtask boundary is universal across React 19's host platforms (browser, server-component runtimes, React Native via Hermes). No `requestAnimationFrame` fallback is required; React 19 itself does not target environments without microtask support.
 
@@ -1126,7 +1148,7 @@ Per the bead description and Stage 2 §5 risk register R-001..R-007.
 | `reagent2.dom.server` | `dom/server_cljs_test.cljs` + `dom/parity_cljs_test.cljs` + `dom/server_subscribe_ssr_cljs_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7; the SSR non-reactive deref branch. |
 | `reagent2.impl.template` | `impl/template_cljs_test.cljs` (+ the reserved-head and keyword-prop-warn-once siblings) | hiccup → React-element shapes; narrowed convert-prop-value (R-001); kebab-camel cache; tag parsing; sequence-children handling; `:>` / `:<>` / `:r>` / `:f>` interop. |
 | `reagent2.impl.component` | `impl/component_cljs_test.cljs` (runtime) + `impl/component_test.clj` (the compile-time classifiers, §5.2) | create-class 7-key cap (R-002); throw-on-unsupported-key per banned key; lifecycle method mapping per §6.4; `:component-did-catch` error-boundary integration per §6.5; `:get-snapshot-before-update` pairing per §6.6; and, on the CLJ side, `classify-form-body` / `tag-form-meta` — including that there is no separate `defview` macro. |
-| `reagent2.impl.batching` | `impl/batching_cljs_test.cljs` | microtask scheduling; dirty-flag dedup; flush! synchronous drain; after-render queue; React 19 transition cooperation (R-005). |
+| `reagent2.impl.batching` | `impl/batching_cljs_test.cljs` (+ `re_frame/adapter/reagent_slim_after_render_dom_cljs_test.cljs` for the real-DOM half) | microtask scheduling; dirty-flag dedup; flush! synchronous drain; after-render queue; React 19 transition cooperation (R-005). The focused file drives fake components whose `forceUpdate` body is synchronous, so it can pin call ORDER but not commit timing; the `-dom-` sibling reads `textContent` from INSIDE the callback on a real React 19 root and is what pins the post-COMMIT promise (rf2-cdoo). |
 | `reagent2.impl.diag` | `impl/diag_cljs_test.cljs` | the EP-0015-safe value summary (§2.10) — shape only, never the value. |
 | `re-frame.adapter.reagent-slim` | `re_frame/adapter/*_cljs_test.cljs` | the adapter-Var surface: slot parity, client roots, dispose drains, flush-render!/flush-views!, source-coord stamping, StrictMode. |
 

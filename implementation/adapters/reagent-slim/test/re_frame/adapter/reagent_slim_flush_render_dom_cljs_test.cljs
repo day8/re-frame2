@@ -24,15 +24,22 @@
   `:flush-render!` actually services — is exercised here directly, exactly as
   the Reagent-bridge twin does for stock `reagent.dom.client`.
 
-  THE PREMISE THIS VERIFIES (rf2-0bz5ah). reagent-slim's adapter `:flush-render!`
-  is `(f)` then `reagent2.impl.batching/flush!` — a synchronous drain that
-  class-`forceUpdate`s every dirty component, with NO `react-dom/flushSync`
-  boundary. Under React 19 `createRoot`, an update originating OUTSIDE React's
-  batching (a bare `forceUpdate` from the flush! drain) commits synchronously
-  by default — so the contract HOLDS without an explicit `flushSync`. This test
-  is the empirical proof of that guarantee: if the bare `forceUpdate` did NOT
-  commit synchronously, the post-`flush-render!` assertion would read the OLD
-  value and fail, surfacing the need for a `flushSync` boundary.
+  THE PREMISE THIS VERIFIES (rf2-0bz5ah). reagent-slim's adapter
+  `:flush-render!` is `(f)` then `reagent2.impl.batching/flush!`, and it wraps
+  BOTH in a `react-dom/flushSync` boundary. That boundary is load-bearing:
+  under React 19 `createRoot` a bare `forceUpdate` issued from outside React's
+  batching context is SCHEDULED rather than committed, so without it the DOM
+  still holds the OLD value when `flush!` returns. (This docstring previously
+  claimed the opposite — that the bare `forceUpdate` commits synchronously and
+  the boundary is redundant. It does not: `3d89c29c61` added the boundary after
+  a browser run read the old value, and rf2-cdoo measured the same fact again
+  on the ordinary microtask path, where a callback promised the new DOM was
+  handed `n=1` after a dispatch to `n=2`. The prose is corrected here rather
+  than left contradicting its own source.)
+
+  So this test is the empirical proof that the boundary does its job: if the
+  drain did NOT commit before returning, the post-`flush-render!` assertion
+  would read the OLD value and fail.
 
   HOW THE PROOF IS RIGOROUS. After the initial mount commits (wrapped in
   `react-dom/flushSync` so React 19's otherwise-async `root.render` first pass
@@ -110,11 +117,11 @@
             (rf/dispatch-sync [::inc] {:frame frame-kw})
             ;; THE PROOF: flush-render! commits the enqueued re-render
             ;; synchronously. The DOM must reflect n=2 on the next line — no
-            ;; microtask wait, no manual flush-views!. (The bare class
-            ;; forceUpdate the batching drain issues commits synchronously
-            ;; under React 19's default-flush-for-non-batched-updates rule;
-            ;; if it did not, this assertion would read n=1 and fail —
-            ;; surfacing the need for a flushSync boundary.)
+            ;; microtask wait, no manual flush-views!. (What makes that so is
+            ;; flush-render!'s own react-dom/flushSync boundary; the bare
+            ;; class forceUpdate the batching drain issues is only SCHEDULED
+            ;; by React 19, so without the boundary this assertion would read
+            ;; n=1 and fail.)
             (flush!)
             (is (= "n=2" (.-textContent mount-node))
                 "DOM reflects the dispatched change SYNCHRONOUSLY after

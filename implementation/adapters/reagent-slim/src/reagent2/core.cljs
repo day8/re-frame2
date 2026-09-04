@@ -154,8 +154,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defn after-render
-  "Schedule `f` to run after the next React commit. Routes through
-  `reagent2.impl.batching/do-after-render`."
+  "Schedule `f` to run after the next React commit — `f` observes the
+  COMMITTED DOM, not a DOM whose re-render has merely been REQUESTED
+  (rf2-cdoo). Routes through `reagent2.impl.batching/do-after-render`.
+
+  Never synchronous: `f` runs on the scheduler's own turn even when no
+  component is dirty."
   [f]
   (batching/do-after-render f))
 

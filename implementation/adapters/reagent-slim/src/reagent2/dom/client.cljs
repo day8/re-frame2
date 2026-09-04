@@ -67,6 +67,37 @@
             ["react-dom/client" :as react-dom-client]))
 
 ;; ---------------------------------------------------------------------------
+;; Host commit boundary for the ORDINARY scheduled queue (rf2-cdoo)
+;; ---------------------------------------------------------------------------
+;;
+;; `reagent2.core/after-render` promises to run its callback after the next
+;; React commit, and the slim adapter publishes it at `:adapter/after-render`,
+;; so `re-frame.interop/after-render` lands on that queue. But
+;; `reagent2.impl.batching`'s microtask drain called each dirty component's
+;; bare `forceUpdate` and then ran the callbacks immediately — and under React
+;; 19 `createRoot` a bare `forceUpdate` from outside React's batching context
+;; is SCHEDULED, not committed (the same fact `flush-render!` below documents
+;; and relies on). The callback therefore read the OLD DOM. Measured on the
+;; real-DOM ordinary path: the callback saw `n=1` after a dispatch to `n=2`.
+;;
+;; The repair is the seam stock Reagent already uses — the queue asks the HOST
+;; to bracket its dirty-component pass — with the direction of the dependency
+;; kept as it was: `batching` requires nothing of react-dom, and this ns, which
+;; is the DOM host by definition, installs the boundary into it at ns-load.
+;; A consumer that never loads this ns (Node, SSR through
+;; `reagent2.dom.server`) keeps the bare drain and pulls no react-dom.
+;;
+;; `batching` applies it only on turns with a pending after-render callback, so
+;; an ordinary reactive re-render keeps React 19's concurrent scheduling and is
+;; not silently promoted to discrete priority.
+
+(defonce ^:private render-commit-installed?
+  (do
+    (reset! batching/render-commit
+            (fn commit-render [drain] (react-dom/flushSync drain)))
+    true))
+
+;; ---------------------------------------------------------------------------
 ;; flush-views! — test-flush primitive (Stage 4-B)
 ;; ---------------------------------------------------------------------------
 ;;
