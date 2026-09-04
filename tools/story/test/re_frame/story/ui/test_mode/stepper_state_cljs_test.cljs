@@ -319,16 +319,36 @@
           prepared (atom [])
           reset    (atom [])
           ended    (atom [])]
+      ;; Each stub carries EVERY arity of the fn it stands in for.
+      ;; `prepare-variant` and `reset-variant` are both `([variant-id]
+      ;; [variant-id opts])`, so ClojureScript compiles `begin!`'s call site
+      ;; to the arity-specialised entry point
+      ;; `…prepare_variant.cljs$core$IFn$_invoke$arity$1`, and `with-redefs`
+      ;; assigns the stub straight over that fn object. A single-arity stub
+      ;; carries no such property, so the seam dies with `… is not a
+      ;; function` instead of being exercised. Clojure hides this — it
+      ;; dispatches through the var on argument count at run time — so a
+      ;; double must mirror the SHAPE of the fn it replaces, not merely the
+      ;; arity its caller happens to use.
       (with-redefs [rf.story.runtime/prepare-variant
-                    (fn [v]
-                      (swap! prepared conj v)
-                      ;; A promise that never settles: the assertions below
-                      ;; are about what `begin!` CALLS, and a pending
-                      ;; promise keeps the continuation out of the way.
-                      (js/Promise. (fn [_ _] nil)))
+                    (fn stub-prepare
+                      ([v] (stub-prepare v nil))
+                      ([v _opts]
+                       (swap! prepared conj v)
+                       ;; A promise that never settles: the assertions below
+                       ;; are about what `begin!` CALLS, and a pending
+                       ;; promise keeps the continuation out of the way.
+                       (js/Promise. (fn [_ _] nil))))
 
+                    ;; Never called — that is what `@reset` asserts. Giving it
+                    ;; the real shape anyway is what makes that negative
+                    ;; control REPORT: a regression that reached for the full
+                    ;; run would fail the assertion honestly rather than
+                    ;; erroring out before it.
                     rf.story.runtime/reset-variant
-                    (fn [v] (swap! reset conj v) (js/Promise.resolve nil))
+                    (fn stub-reset
+                      ([v] (stub-reset v nil))
+                      ([v _opts] (swap! reset conj v) (js/Promise.resolve nil)))
 
                     rf.story.play/end-stepper!
                     (fn [v] (swap! ended conj v))]
