@@ -96,7 +96,9 @@ What `react-window` does lack is the third property, and it lacks it in both API
 
 `examples.ledger.vendor` is a real windowing component written in raw React: it renders only a window, owns its own scroll offset in `useState`, and recycles nothing by itself. It is a stand-in for the npm package for the reason `imperative_sdk_dom_cljs_test` states about its own vendor — the artefact may not take an npm dependency for a witness.
 
-Its foreignness is mechanical rather than claimed. `ledger.surface-cljs-test` reads its dependency edges off the ClojureScript analyzer and asserts that not one of them names anything of ours: no public door, no core, no native tier, no test kit. It could be lifted into an npm package without changing a character, which is what a consumer needs before believing a declaration is all their own virtualizer will need.
+Its foreignness **was** mechanical rather than claimed. `ledger.surface-cljs-test` read its dependency edges off the ClojureScript analyzer and asserted that not one of them names anything of ours: no public door, no core, no native tier, no test kit. It could be lifted into an npm package without changing a character, which is what a consumer needs before believing a declaration is all their own virtualizer will need.
+
+**[2026-09-04, `rf2-60jv`: the vendor's foreignness is now a reviewed claim, and it is the sharpest of the losses.]** `rf2-6c12m.10` deleted `ledger.surface-cljs-test` with the rest of the per-package `*surface-cljs-test*` suites. Its successor, `re-frame.hicasso.examples.fence-cljs-test`, is a **four-family blocklist** — no Hicasso internal, no benchmark tree, no development tool, no test kit — and *names nothing of ours* is a strictly stronger claim than that: `re-frame.hicasso` and `re-frame.core` are exactly the namespaces the blocklist is written to let through, so a vendor edge onto the public door would pass it. The vendor names nothing of ours as at this page's date, verified by reading its `ns` forms; a later edit that reached for the public door would not redden. The positive roster is deliberately not re-asserted ([`specification.md` §13](specification.md#13-definition-of-done)).
 
 ## The evidence
 
@@ -104,7 +106,7 @@ Its foreignness is mechanical rather than claimed. `ledger.surface-cljs-test` re
 |---|---|---|
 | `ledger.l0-cljs-test` | `:node-test` | the model through a real frame, and the window arithmetic every DOM count below is derived from |
 | `ledger.a11y-cljs-test` | `:node-test` | roles, resolved names, `aria-rowindex`, the moving `aria-pressed`, and the unnamed-control sweep with its sabotage |
-| `ledger.surface-cljs-test` | `:node-test` | the import discipline, the four-door roster, and the vendor's own foreignness |
+| `examples.fence-cljs-test` | `:node-test` | the import discipline for this package and every other, as a four-family blocklist — **not** the four-door roster, and **not** the vendor's own foreignness |
 | `ledger.virtualized-dom-cljs-test` | `:browser-test` | the mounted claims: windowing, keyed identity across a scroll, focus continuity, announced position under scroll, body counts at two model sizes, teardown |
 
 Two claims a reader must not conflate, and the DOM suite reports them separately so that a failure says which half moved:
