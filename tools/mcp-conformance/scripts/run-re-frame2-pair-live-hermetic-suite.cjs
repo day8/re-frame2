@@ -78,6 +78,11 @@ const CLEANUP_SHADOW_SIGTERM_GRACE_MS =
   Number(process.env.HERMETIC_CLEANUP_SHADOW_GRACE_MS) || 5_000;
 const CLEANUP_SHADOW_SIGKILL_GRACE_MS =
   Number(process.env.HERMETIC_CLEANUP_SHADOW_KILL_MS) || 5_000;
+// How long the owned-descendant reap waits for a tree-kill to actually drain
+// the process table. A JVM under `taskkill /F` dies promptly; this is the
+// bound past which we report the survivors as DIRTY rather than wait forever.
+const CLEANUP_SHADOW_TREE_GRACE_MS =
+  Number(process.env.HERMETIC_CLEANUP_SHADOW_TREE_MS) || 10_000;
 // Signal/watchdog paths race cleanup against this final bound.
 const CLEANUP_HARD_CAP_MS =
   Number(process.env.HERMETIC_CLEANUP_HARD_CAP_MS) || 30_000;
@@ -169,6 +174,223 @@ function waitForChildExit(child, hasExited) {
   return new Promise((resolve) => {
     child.once('exit', () => resolve());
   });
+}
+
+// ---------------------------------------------------------------------------
+// Owned-process-tree teardown (rf2-kzbf)
+//
+// THE DEFECT THIS EXISTS TO CLOSE. On Windows the handle `crossSpawn` returns
+// is NOT shadow-cljs. cross-spawn 7.0.6 rewrites the trusted absolute `npx`
+// into `C:\Windows\system32\cmd.exe /d /s /c "...npx.CMD shadow-cljs watch
+// app"`, so the child we hold — and whose `exit` event drives
+// `hasShadowExited()` — is the COMMAND WRAPPER. The shadow-cljs Node process
+// and the JVM it boots are its DESCENDANTS. Node's own child_process docs are
+// explicit that killing a shell child does not terminate the processes it
+// launched, and `child.kill()` on Windows terminates only the direct child.
+//
+// So `hasShadowExited() === true` proves the WRAPPER is gone and says nothing
+// about the JVM still holding the fixture's port 8030. Grading teardown on
+// that flag alone certifies a run GREEN while its residue survives — measured
+// exactly so: wrapper `exit` code=0 observed, `report.clean === true`, pass
+// sentinel emitted, grandchild still alive.
+//
+// The repair grades on the OWNED DESCENDANTS themselves. It is scoped to the
+// subtree rooted at the exact PID this runner spawned — the same discipline
+// as `scripts/test-core-jvm-windows.ps1`'s `Stop-OurSubtree` — so unrelated
+// Node/JVM processes (peer workers, other MCP servers) are never targeted.
+
+// Is `pid` still alive? Signal 0 performs the permission/existence check
+// without delivering a signal. EPERM means the pid EXISTS but is not ours to
+// signal, which is still ALIVE; only ESRCH proves it is gone.
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return Boolean(e) && e.code === 'EPERM';
+  }
+}
+
+// Epoch-ms of the .NET/CIM `CreationDate` a process reports, used ONLY as an
+// ownership guard: Windows recycles PIDs, so a process that predates our spawn
+// cannot be our descendant even if it currently names our root as its parent.
+const WINDOWS_PROCESS_TABLE_PS =
+  'Get-CimInstance Win32_Process | ForEach-Object { ' +
+  '$c = 0; ' +
+  'if ($_.CreationDate) { $c = [int64](($_.CreationDate.ToUniversalTime() - ' +
+  "[datetime]'1970-01-01').TotalMilliseconds) } " +
+  "'{0},{1},{2}' -f $_.ProcessId, $_.ParentProcessId, $c }";
+
+// Read the Windows process table as [{ pid, ppid, createdMs }]. `wmic` is
+// removed on current Windows 11 builds, so this goes through PowerShell CIM.
+// Parameterised on its runner so the unit test can drive the parse without a
+// real process table.
+function readWindowsProcessTable({ runPs } = {}) {
+  const run =
+    runPs ||
+    (() =>
+      require('node:child_process').execFileSync(
+        path.join(
+          process.env.SystemRoot || 'C:\\Windows',
+          'System32',
+          'WindowsPowerShell',
+          'v1.0',
+          'powershell.exe',
+        ),
+        ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_PROCESS_TABLE_PS],
+        { encoding: 'utf8', windowsHide: true, maxBuffer: 32 * 1024 * 1024 },
+      ));
+  const rows = [];
+  for (const raw of String(run() || '').split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const parts = line.split(',');
+    if (parts.length < 3) continue;
+    const pid = Number(parts[0]);
+    const ppid = Number(parts[1]);
+    const createdMs = Number(parts[2]);
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    rows.push({
+      pid,
+      ppid: Number.isInteger(ppid) ? ppid : 0,
+      createdMs: Number.isFinite(createdMs) ? createdMs : 0,
+    });
+  }
+  return rows;
+}
+
+// Breadth-first descendant closure of `rootPid` over `table`, EXCLUDING any
+// process created before `notBeforeMs` (a recycled PID wearing our root's
+// number). The root itself is included when still present.
+function ownedDescendants(table, rootPid, notBeforeMs) {
+  const childrenOf = new Map();
+  for (const row of table) {
+    if (!childrenOf.has(row.ppid)) childrenOf.set(row.ppid, []);
+    childrenOf.get(row.ppid).push(row);
+  }
+  const byPid = new Map(table.map((r) => [r.pid, r]));
+  const owned = [];
+  const seen = new Set([rootPid]);
+  const queue = [rootPid];
+  if (byPid.has(rootPid)) owned.push(rootPid);
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const child of childrenOf.get(current) || []) {
+      if (seen.has(child.pid)) continue;
+      // A descendant created before we spawned our root is not ours.
+      if (child.createdMs > 0 && child.createdMs < notBeforeMs) continue;
+      seen.add(child.pid);
+      owned.push(child.pid);
+      queue.push(child.pid);
+    }
+  }
+  return owned;
+}
+
+// Build the teardown seam `makeCleanup` grades on. Returns an async
+// `reapShadowTree()` resolving to:
+//   { supported, owned, survivors, error }
+// `supported:false` (non-Windows) is the identity: no owned set, no
+// survivors, no error — POSIX grading is left exactly as it was, since no
+// equivalent defect was demonstrated there (a POSIX `npx` is exec'd directly,
+// not behind a `cmd.exe` shim).
+function makeShadowTreeReaper({
+  rootPid,
+  spawnedAtMs,
+  platform = process.platform,
+  readTable = readWindowsProcessTable,
+  treeKill = defaultWindowsTreeKill,
+  graceMs = CLEANUP_SHADOW_TREE_GRACE_MS,
+  pollMs = 200,
+  isAlive = pidAlive,
+  log: logFn = log,
+  logErr: logErrFn = logErr,
+} = {}) {
+  const inert = async () => ({
+    supported: false,
+    owned: [],
+    survivors: [],
+    error: null,
+  });
+  if (platform !== 'win32') return inert;
+  if (!Number.isInteger(rootPid) || rootPid <= 0) {
+    // No PID to own means no tree we can honestly claim to have reaped.
+    return async () => ({
+      supported: true,
+      owned: [],
+      survivors: [],
+      error: 'no shadow root pid was recorded — owned-descendant teardown ' +
+        'could not be attempted',
+    });
+  }
+  return async function reapShadowTree() {
+    let owned;
+    try {
+      owned = ownedDescendants(readTable(), rootPid, spawnedAtMs);
+    } catch (e) {
+      return {
+        supported: true,
+        owned: [],
+        survivors: [],
+        error: `could not enumerate the process table (${e && e.message})`,
+      };
+    }
+    if (owned.length === 0) {
+      logFn(`owned shadow tree (root pid ${rootPid}) is already empty`);
+      return { supported: true, owned: [], survivors: [], error: null };
+    }
+    logFn(
+      `owned shadow tree rooted at pid ${rootPid}: ${owned.join(', ')} — ` +
+        'tree-killing OUR subtree only',
+    );
+    let killError = null;
+    try {
+      // Kill the root's subtree first; then any orphan we attributed to the
+      // root but whose own parent link died with the wrapper.
+      treeKill(rootPid);
+      for (const pid of owned) {
+        if (pid !== rootPid && isAlive(pid)) treeKill(pid);
+      }
+    } catch (e) {
+      killError = `tree-kill failed (${e && e.message})`;
+    }
+    const deadline = Date.now() + graceMs;
+    let survivors = owned.filter((pid) => isAlive(pid));
+    while (survivors.length > 0 && Date.now() < deadline) {
+      await new Promise((r) => {
+        const t = setTimeout(r, pollMs);
+        if (typeof t.unref === 'function') t.unref();
+      });
+      survivors = survivors.filter((pid) => isAlive(pid));
+    }
+    if (survivors.length > 0) {
+      logErrFn(
+        `owned shadow descendants SURVIVED tree-kill after ${graceMs}ms: ` +
+          survivors.join(', '),
+      );
+    }
+    return { supported: true, owned, survivors, error: killError };
+  };
+}
+
+// `taskkill /T` walks descendants, `/F` forces. Scoped to the pid we own —
+// the pattern already proven in scripts/test-core-jvm-windows.ps1.
+function defaultWindowsTreeKill(pid) {
+  try {
+    require('node:child_process').execFileSync(
+      path.join(
+        process.env.SystemRoot || 'C:\\Windows',
+        'System32',
+        'taskkill.exe',
+      ),
+      ['/pid', String(pid), '/T', '/F'],
+      { stdio: 'ignore', windowsHide: true },
+    );
+  } catch {
+    // taskkill exits non-zero when the pid is already gone — the survivor
+    // poll below is what actually grades the outcome, so this is not fatal.
+  }
 }
 
 // Race a `browser.close()` thunk against `ms`, PRESERVING the outcome —
@@ -285,6 +507,11 @@ function spawnAndGradeInnerTest({
 //   getBrowser()      -> the Playwright Browser or null (promise-returning `close()`)
 //   getShadow()       -> the shadow-cljs child or null (`kill(sig)` + `'exit'` event)
 //   hasShadowExited() -> boolean: has the shadow child already emitted `exit`
+//   reapShadowTree()  -> async: terminate the OWNED descendant subtree and
+//                        report `{ supported, owned, survivors, error }`.
+//                        On Windows `getShadow()` is the `cmd.exe`/npx WRAPPER,
+//                        not shadow-cljs, so its `exit` says nothing about the
+//                        JVM below it (rf2-kzbf). Defaults to an inert reaper.
 //   log / logErr      -> structured loggers (default to the module ones)
 //   timeouts          -> overridable caps (default to the module constants;
 //                        the harness shrinks them so the test runs fast)
@@ -303,11 +530,14 @@ function spawnAndGradeInnerTest({
 //
 // Resolves to `{ clean, browser, shadow, issues }`:
 //   clean   — true ⇔ the browser is proven closed/disconnected (or absent)
-//             AND shadow is proven exited (or absent/already-exited).
+//             AND shadow is proven exited (or absent/already-exited) AND no
+//             process we spawned survived the owned-tree reap.
 //   browser — `{ attempted, state, clean, ... }` where state is one of
 //             'none' | 'closed' | 'disconnected' | 'dirty'.
-//   shadow  — `{ attempted, state, clean, signals }` where state is one of
-//             'none' | 'exited' | 'alive'.
+//   shadow  — `{ attempted, state, clean, signals, tree }` where `state` is the
+//             WRAPPER's state ('none' | 'exited' | 'alive') and `tree` is the
+//             owned-descendant reap report. `clean` requires BOTH: a wrapper
+//             that exited AND a subtree with no survivors (rf2-kzbf).
 //   issues  — human-readable strings naming each dirty resource, the signals
 //             attempted, the timeouts, and the final observed state.
 // Idempotent: repeat/concurrent calls return the SAME in-flight promise and
@@ -318,6 +548,16 @@ function makeCleanup(deps) {
     getBrowser,
     getShadow,
     hasShadowExited,
+    // Default is the INERT reaper: `makeCleanup` itself stays platform-neutral
+    // and knows no PIDs. The real Windows reaper is built at the spawn site,
+    // where the root pid exists, and injected. That keeps this factory (and
+    // every test that drives it) identical on Windows, macOS and Linux.
+    reapShadowTree = async () => ({
+      supported: false,
+      owned: [],
+      survivors: [],
+      error: null,
+    }),
     log: logFn = log,
     logErr: logErrFn = logErr,
     browserCloseMs = CLEANUP_BROWSER_CLOSE_TIMEOUT_MS,
@@ -372,15 +612,16 @@ function makeCleanup(deps) {
       //     especially on Windows.
       const shadow = getShadow();
       let shadowReport;
+      let attempted = false;
+      let signals = [];
+      let wrapperState;
+      let wrapperClean;
       if (!shadow || hasShadowExited()) {
-        shadowReport = {
-          attempted: false,
-          state: hasShadowExited() ? 'exited' : 'none',
-          clean: true,
-          signals: [],
-        };
+        wrapperState = hasShadowExited() ? 'exited' : 'none';
+        wrapperClean = true;
       } else {
-        const signals = [];
+        attempted = true;
+        signals = [];
         try { shadow.kill('SIGTERM'); signals.push('SIGTERM'); } catch {}
         const exitedOnTerm = await settledWithin(
           waitForChildExit(shadow, hasShadowExited),
@@ -398,16 +639,51 @@ function makeCleanup(deps) {
           );
         }
         if (hasShadowExited()) {
-          shadowReport = { attempted: true, state: 'exited', clean: true, signals };
+          wrapperState = 'exited';
+          wrapperClean = true;
         } else {
           const msg =
             `shadow-cljs still has NOT reported exit after ${signals.join('+')} ` +
             `+ ${shadowKillGraceMs}ms grace — child left ALIVE (no observed exit)`;
           logErrFn(msg);
           issues.push(`shadow: ${msg}`);
-          shadowReport = { attempted: true, state: 'alive', clean: false, signals };
+          wrapperState = 'alive';
+          wrapperClean = false;
         }
       }
+
+      // (3b) OWNED DESCENDANTS (rf2-kzbf). The wrapper's `exit` proves only
+      //      that the `cmd.exe`/npx shim is gone. On Windows the shadow-cljs
+      //      Node process and its JVM are GRANDCHILDREN that outlive it and
+      //      keep holding the fixture's port. Reap and grade the subtree
+      //      rooted at the pid we spawned; a survivor — or an inability to
+      //      prove there is none — is DIRTY however clean the wrapper looked.
+      const tree = await reapShadowTree();
+      let treeClean = true;
+      if (tree.error) {
+        const msg =
+          'owned-descendant teardown could NOT be proven ' +
+          `(${tree.error}) — refusing to call the shadow tree reaped`;
+        logErrFn(msg);
+        issues.push(`shadow-tree: ${msg}`);
+        treeClean = false;
+      } else if (tree.survivors.length > 0) {
+        const msg =
+          `${tree.survivors.length} process(es) we spawned SURVIVED teardown ` +
+          `(pids ${tree.survivors.join(', ')}) — the run is NOT hermetic even ` +
+          `though the shadow wrapper reported '${wrapperState}'`;
+        logErrFn(msg);
+        issues.push(`shadow-tree: ${msg}`);
+        treeClean = false;
+      }
+
+      shadowReport = {
+        attempted,
+        state: wrapperState,
+        clean: wrapperClean && treeClean,
+        signals,
+        tree,
+      };
 
       const clean = browserReport.clean && shadowReport.clean;
       logFn(clean ? 'cleanup complete (clean)' : 'cleanup complete (DIRTY)');
@@ -1010,11 +1286,18 @@ async function main() {
   // that ever landed in the checkout can never be executed.
   const npxBin = trustedExe('npx');
   log(`spawning shadow-cljs watch app in ${FIXTURE_DIR} (npx=${npxBin})`);
+  // Record the spawn instant BEFORE the spawn: it is the ownership floor for
+  // the descendant walk, so it must not be later than our own root's creation.
+  const shadowSpawnedAtMs = Date.now();
   const shadow = crossSpawn(npxBin, ['shadow-cljs', 'watch', 'app'], {
     cwd: FIXTURE_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, FORCE_COLOR: '0' },
   });
+  // On Windows `shadow.pid` is the `cmd.exe` wrapper cross-spawn interposed;
+  // shadow-cljs and its JVM hang below it. This is the root of the subtree we
+  // own, and the ONLY subtree teardown is allowed to touch (rf2-kzbf).
+  const shadowRootPid = shadow.pid;
   let shadowExited = false;
   shadow.on('exit', (code, sig) => {
     shadowExited = true;
@@ -1042,6 +1325,11 @@ async function main() {
     getBrowser: () => browser,
     getShadow: () => shadow,
     hasShadowExited: () => shadowExited,
+    // The wrapper's `exit` is not the JVM's. Grade the subtree we spawned.
+    reapShadowTree: makeShadowTreeReaper({
+      rootPid: shadowRootPid,
+      spawnedAtMs: shadowSpawnedAtMs,
+    }),
   });
   // Expose the teardown to the module-scope hard watchdog
   // so a watchdog-elapse kills shadow-cljs + Chromium rather than
@@ -1431,6 +1719,13 @@ if (require.main === module) {
 // grading through `makeCleanup`, the dirty-report prose through
 // `finalizeConformance`. Exporting them would advertise a test seam that
 // invites coupling to the helper instead of the decision it serves.
+// `makeShadowTreeReaper` + `ownedDescendants` + `pidAlive` are exported for the
+// owned-tree regression harness (`runner-cleanup.test.cjs`, rf2-kzbf). The
+// factory is driven with injected `readTable`/`treeKill`/`isAlive` fakes so the
+// ownership walk, the recycled-PID guard and the survivor grading are pinned on
+// EVERY platform, and additionally against a REAL cross-spawn'd `cmd.exe`
+// wrapper whose grandchild outlives it on Windows — the exact shape that
+// previously certified a leaked JVM as a clean, GREEN, exit-0 run.
 module.exports = {
   runTrusted,
   SETUP_COMMAND_TIMEOUT_MS,
@@ -1442,4 +1737,7 @@ module.exports = {
   waitForChildExit,
   spawnAndGradeInnerTest,
   wipeStalePortFileCandidate,
+  makeShadowTreeReaper,
+  ownedDescendants,
+  pidAlive,
 };
