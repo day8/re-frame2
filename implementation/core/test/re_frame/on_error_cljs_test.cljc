@@ -819,7 +819,7 @@
 ;; coord). The captured-frame stale-op seam stamps the
 ;; exact failing `:op` onto the always-on record; `rf.error-emit/error-source-coord`
 ;; now pivots on it — `:dispatch` / `:dispatch-sync` → the EVENT coord,
-;; `:subscribe` → the SUBSCRIPTION coord, `:capture` → NEITHER. The `:op` is a
+;; `:subscribe` → the SUBSCRIPTION coord. The `:op` is a
 ;; PRIVATE steering input (read from the record's attribution, never promoted to
 ;; a public schema slot).
 ;;
@@ -848,8 +848,8 @@
                            (fn [record] (swap! seen conj record)))
     (rf.error-emit/emit-error-both!
       :rf.error/frame-destroyed
-      (when id [id])   ;; attempted event/query vector (nil for :capture)
-      id               ;; event-id / sub-id — the vector head (nil for :capture)
+      (when id [id])   ;; attempted event/query vector
+      id               ;; event-id / sub-id — the vector head
       :rf/default      ;; a live frame — no fail-closed :event noise
       nil              ;; no exception — an invalid op, not a caught throw
       0                ;; elapsed-ms — not a timed path
@@ -896,20 +896,14 @@
       (is (= xgkgx-sub-coord (:source-coord (first records)))
           ":subscribe resolves the SUB coord, not the same-keyword event's"))))
 
-(deftest frame-destroyed-capture-fabricates-no-coord
-  (testing "rf2-xgkgx — the `:capture` arm (a `(frame)` read that resolved a
-            dead incarnation BEFORE any op ran) fabricates NEITHER coord: no id
-            rides the record, and no `:source-coord` slot appears even with
-            same-keyword registrations present."
-    (rf.source-coords/forget-error-coords!)
-    (rf.source-coords/remember-error-coords! :event :xgkgx.collide/d xgkgx-event-coord)
-    (rf.source-coords/remember-error-coords! :sub   :xgkgx.collide/d xgkgx-sub-coord)
-    (let [records (xgkgx-frame-destroyed-records :capture nil)]
-      (is (= 1 (count records)))
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (not (contains? r :source-coord))
-            ":capture never fabricates a source-coord")))))
+;; The fourth arm, `:capture`, was covered here until 2026-09-04 (rf2-xtqs).
+;; The realm was the retired ui `(frame)` read's alone (rf2-0yp7w) and its enum
+;; value is gone from `FrameDestroyedTags`, so the arm no longer exists to pin.
+;; The deleted case was also VACUOUS about `:capture`: it passed a nil id, and
+;; `error-source-coord` short-circuits on a nil id before it ever reaches the
+;; realm `case`, so the assertion held for every op keyword alike. What it
+;; actually pinned — an absent `:source-coord` slot rather than a nil one — is
+;; the next deftest's subject, which keeps it under a live realm.
 
 (deftest frame-destroyed-programmatic-registration-omits-the-coord
   (testing "rf2-xgkgx — a `:dispatch` frame-destroyed for an id with NO captured

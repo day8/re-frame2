@@ -136,16 +136,14 @@
         "frame-destroyed :dispatch-sync dev-trace :event keeps its registration redaction")))
 
 ;; ---------------------------------------------------------------------------
-;; 3. Capture — payload-free (WHAT-STAYS): the capture arm ran no op, so its
-;;    dev-trace :event is nil; projection leaves it nil.
+;; 3. Capture — REMOVED 2026-09-04 (rf2-xtqs). This section pinned the `:capture`
+;;    realm's payload-free dev trace. That realm was the retired ui `(frame)`
+;;    read's alone (rf2-0yp7w) and its enum value is gone from
+;;    `FrameDestroyedTags`, so there is no realm left to pin. The assertion was
+;;    also VACUOUS about `:capture`: `project-trace-event` special-cases only
+;;    `:subscribe` (see `classification.cljc`), so a nil `:event` projects to nil
+;;    under EVERY op keyword — the test would have passed against any of them.
 ;; ---------------------------------------------------------------------------
-
-(deftest frame-destroyed-capture-devtrace-stays-payload-free
-  (testing "the `:capture` realm carries no op payload — its dev-trace :event is
-            nil, and projection is a no-op even with the colliding registration."
-    (register-colliding-event!)
-    (is (nil? (project-event :capture nil))
-        "frame-destroyed :capture dev-trace :event stays payload-free (nil)")))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. Guard scope — the skip requires BOTH conjuncts. A NON-frame-destroyed
