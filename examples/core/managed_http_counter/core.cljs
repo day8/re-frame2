@@ -224,6 +224,14 @@
       (rf.http.registry/record-in-flight!
         request-id nil
         {:url      long-pending-url
+         ;; The same carried frame, stamped onto the handle — which is what the
+         ;; live transport does on every request it registers. It is not
+         ;; decoration: a `:request-id` is frame-LOCAL, so the registry keys
+         ;; cancellation on (frame, request-id) and `:rf.http/managed-abort`
+         ;; resolves only its own frame's handle (Spec 014 §Frame scope — a
+         ;; `:request-id` is frame-local). A handle seeded without `:frame`
+         ;; would sit in a scope no dispatch can reach.
+         :frame    frame
          ;; The :abort-fn is the request's cancellation hook — the thing that
          ;; actually runs when someone pulls the plug. The live
          ;; :rf.http/managed-abort handler looks this handle up by request-id
