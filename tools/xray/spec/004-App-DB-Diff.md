@@ -660,8 +660,15 @@ The user can:
 
 - Click a breadcrumb segment → opens the segment-inspector popup
   (rf2-e9tb0)
-- Click the Copy value / Copy path / Show me when this changed
-  affordance buttons in the section header
+
+That is the whole list. The section-header affordance buttons this
+bullet list once also named were dropped when the panel became a
+current-state inspector (rf2-okvit, recorded in the
+`panels/app_db_diff.cljs` namespace docstring); the universal
+value-copy gesture on the renderer itself was retired separately under
+rf2-6r9j.24, honouring the
+[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §10.5
+B.9 lock rather than reopening it.
 
 Not present:
 

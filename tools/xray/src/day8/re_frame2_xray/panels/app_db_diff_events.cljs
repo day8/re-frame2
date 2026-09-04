@@ -7,9 +7,22 @@
   `:rf.xray/reorder-pinned-slices` events were removed when the
   pinned-watches strip was superseded by the path-segment inspector
   popup (Mike 2026-05-19 Q13). The matching `pin-path` / `unpin-path`
-  / `reorder-paths` helpers were pulled in lockstep."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.egress :as egress]))
+  / `reorder-paths` helpers were pulled in lockstep.
+
+  ## rf2-6r9j.24 — the two copy EVENTS dropped; the fx stays
+
+  `:rf.xray/copy-value-to-clipboard` and `:rf.xray/copy-path-to-clipboard`
+  were retired on 2026-09-04 with the universal EDN-widget `⎘` affordance
+  that was their only intended dispatcher — neither had a dispatcher
+  anywhere in `tools/xray/src`. The `:rf.xray.fx/copy-to-clipboard` fx
+  below SURVIVES: Static Machines' reachable `Copy Mermaid` gesture
+  rides it (`static/machines/panel.cljs`), and that text is value-free
+  static topology rather than a value egress.
+
+  The fail-closed egress proofs those events carried (rf2-7htk7) now sit
+  directly on `egress/egress-value` in
+  `test/day8/re_frame2_xray/panels/app_db_diff_cljs_test.cljs`."
+  (:require [re-frame.core :as rf]))
 
 (defn install!
   "Install the App-DB Diff events and effects."
@@ -59,47 +72,16 @@
             (notify! on-failure))
           (catch :default _ (notify! on-failure))))))
 
-  ;; ---- universal copy-to-clipboard — OFF-BOX EGRESS (rf2-uo0rc.2) ----------
+  ;; ---- no value-copy EVENT here (rf2-6r9j.24) ------------------------------
   ;;
-  ;; The system clipboard is an OFF-BOX SINK (Security.md §Off-box egress,
-  ;; palette/events.cljs §Off-box egress): whatever lands there can be
-  ;; pasted into a teammate's chat or scraped. So the COPIED VALUE must
-  ;; cross it through Xray's single named fail-closed panel-local
-  ;; safe-egress fn `egress/egress-value` — the SAME projection the
-  ;; palette snapshot uses (rf2-mxzgg). On the
-  ;; bare call the off-box defaults are baked in: `:sensitive?` slots ⇒
-  ;; `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`. The earlier
-  ;; copy fx wrote the RAW `(pr-str value)` — a `[:auth :token]
-  ;; {:sensitive? true}` slot or a large blob leaked verbatim.
-  ;;
-  ;; The egress is pinned to the OBSERVED frame (the frame Xray is
-  ;; inspecting — `[:focus :frame]`, falling back to the legacy
-  ;; `:target-frame` slot) by naming it as `egress-value`'s `:frame` opt,
-  ;; so THAT frame's own schema declarations govern the redaction —
-  ;; mirroring the palette's `snapshot-app-db!`, which pins to the focused
-  ;; frame for the same reason (the displayed value's `:sensitive?` / size
-  ;; declarations live on the inspected frame, not the Xray chrome frame
-  ;; the affordance dispatches from).
-  ;;
-  ;; rf2-7htk7 — NAMING the frame is what makes the no-target and
-  ;; stale-target cases fail closed, and the earlier `(rf/with-frame …)`
-  ;; form could not: this handler runs UNDER the live `:rf/xray` frame, so
-  ;; a bare `(egress/egress-value value)` fallback resolved that ambient
-  ;; frame, applied Xray's (empty) declaration registry, and shipped the
-  ;; value RAW to the clipboard. `:frame` is forwarded even when
-  ;; `observed` is nil, and `elide-wire-value` validates it against the
-  ;; live registry — so an unselected picker AND a host frame destroyed
-  ;; between render and click both take the walker's frameless arm and
-  ;; egress `:rf/redacted`. No liveness branch here: the walker owns that
-  ;; test, and duplicating it is how the hole opened.
-  (rf/reg-event :rf.xray/copy-value-to-clipboard
-    (fn [{:keys [db]} [_ value]]
-      (let [observed (or (get-in db [:focus :frame]) (get db :target-frame))
-            elided   (egress/egress-value value {:frame observed})]
-        {:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str elided)}]]})))
-
-  ;; The path-copy variant copies ONLY the path vector (key names, no
-  ;; values) so there is nothing to elide — it is not a value-egress site.
-  (rf/reg-event :rf.xray/copy-path-to-clipboard
-    (fn [_ctx [_ path]]
-      {:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str path)}]]})))
+  ;; Anything that puts a VALUE on this fx must first cross Xray's single
+  ;; named fail-closed projection `egress/egress-value`, NAMING the observed
+  ;; frame so the no-target and stale-target cases redact whole rather than
+  ;; resolving the ambient `:rf/xray` chrome frame and shipping raw
+  ;; (rf2-7htk7). It must also carry the value's absolute app-db `:path`,
+  ;; because the framework keys `:sensitive` / `:large` declarations by
+  ;; absolute path and a slice egress'd without one matches nothing
+  ;; (rf2-a96xq). The retired value-copy event (see the ns docstring)
+  ;; satisfied the first requirement and not the second — it received only
+  ;; `[_ value]` — which is why it could not simply be rewired.
+  )

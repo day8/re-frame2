@@ -413,8 +413,6 @@ epoch-history; the body shows the focused epoch's `:db-after`
 |---|---|---|
 | `:rf.xray/focus-slice-path` | `[_ path]` | Sets the "Show me when this changed" focused path. |
 | `:rf.xray/clear-slice-focus` | `[_]` | Drops the focus. |
-| `:rf.xray/copy-value-to-clipboard` | `[_ value]` | `event-fx` — routes `value` through `egress/egress-value` **before** the clipboard write, then emits `{:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str <elided>)}]]}`. The clipboard is an off-box sink, so sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-elided`, fail-closed (rf2-uo0rc.2; same class as the palette snapshot rf2-mxzgg). No raw opt-in. The observed frame (`[:focus :frame]` ⇒ `:target-frame`) is passed as the `:frame` opt **unconditionally**, including when it is absent or names a destroyed frame — that is what makes the no-target / stale-target cases redact the whole value instead of resolving the ambient `:rf/xray` chrome frame and shipping it raw (rf2-7htk7). |
-| `:rf.xray/copy-path-to-clipboard` | `[_ path]` | `event-fx` — emits `{:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str path)}]]}`. The path vector carries only key names (no values), so it is not a value-egress site and is not elided. |
 | `:rf.xray/open-segment-inspector` | `[_ path]` | rf2-e9tb0 — opens the segment-inspector popup at `path` (vector). |
 | `:rf.xray/close-segment-inspector` | `[_]` | rf2-e9tb0 — closes the popup. |
 
@@ -423,6 +421,20 @@ epoch-history; the body shows the focused epoch's `:db-after`
 > and the `:rf.xray/pinned-slices-store` + `:rf.xray/pinned-slices`
 > subs were dropped when the pinned-watches strip was superseded by
 > the segment-inspector popup. Catalogued here for the audit trail.
+
+> **rf2-6r9j.24 (2026-09-04) — the two clipboard copy events removed.**
+> `:rf.xray/copy-value-to-clipboard` (`[_ value]`, which routed the
+> value through `egress/egress-value` before the clipboard write) and
+> `:rf.xray/copy-path-to-clipboard` (`[_ path]`, value-free and never
+> elided) were dropped with the universal EDN-widget `⎘` affordance
+> that was their only intended dispatcher. Neither had a dispatcher
+> anywhere in `tools/xray/src`: the affordance's only call site went in
+> the rf2-oqa60 phase-1 rebuild and was never re-wired, and the design
+> lock at [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+> §10.5 (super-prompt B.9) puts copy-value and copy-path explicitly OUT
+> on that renderer. The `:rf.xray.fx/copy-to-clipboard` fx below
+> SURVIVES — Static Machines' `Copy Mermaid` is its reachable consumer.
+> Catalogued here for the audit trail.
 
 ### Effects
 

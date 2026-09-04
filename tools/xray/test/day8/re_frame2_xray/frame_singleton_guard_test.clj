@@ -35,8 +35,10 @@
   then migrated EVERY remaining surface — filters, palette, the static
   shell + machines + routes surfaces, the machine / cancellation /
   trace / issues / app-db-segment panels, the epoch pipeline, the share
-  + settings + spine-filter modals, the edn-widget copy affordance, and
-  the resize handles. The `pending-migration` allowlist below is now
+  + settings + spine-filter modals, and the resize handles. (The
+  edn-widget copy affordance was also migrated by that sweep; it has
+  since been retired outright under rf2-6r9j.24.) The
+  `pending-migration` allowlist below is now
   EMPTY: every file is LOCKED clean by this guard, as is any NEW file.
   Re-introducing a bare `{:frame :rf/xray}` literal or a global
   `rf/dispatch` in an `:on-*` handler trips the guard immediately.

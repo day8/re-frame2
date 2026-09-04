@@ -37,10 +37,10 @@
   former browse/diff modes into the single path). The legacy
   `edn-inspector.render` engine is gone.
 
-  The widget has NO ⎘ copy affordance (deferred to follow-on beads —
-  the popup phase, D6=a). The old EDN widget's copy gesture is
-  unaffected on surfaces still wired to it (Trace, segment-inspector,
-  Static panels) until subsequent phases migrate them.
+  The renderer carries NO copy affordance (`spec/021-Dynamic-Panel-
+  Designs.md` §10.5, the B.9 lock). The universal EDN-widget copy
+  gesture that once rode the other surfaces was retired under
+  rf2-6r9j.24.
 
   ## Inspector-card layout (rf2-63ie5 + rf2-okq7p, post-rf2-jcdvo)
 

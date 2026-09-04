@@ -545,8 +545,9 @@
    :rf.xray/clear-trace-expand
    :rf.xray/close-edit-popup
    :rf.xray/close-shell
-   :rf.xray/copy-path-to-clipboard
-   :rf.xray/copy-value-to-clipboard
+   ;; rf2-6r9j.24 — the two dispatcher-less clipboard copy events were
+   ;; retired with the universal EDN-widget affordance that was their only
+   ;; intended caller. The fx they rode survives (see the reg-fx section).
    ;; First-class edn-inspector widget events (sticky-expansion +
    ;; reset). Per `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10.4.
    ;; The pre-rf2-q3dzw flat-shape sibling events
@@ -2083,65 +2084,34 @@
 
 ;; ---- (6) reg-fx contracts -----------------------------------------------
 ;;
-;; The three :rf.xray.fx/* handlers each follow re-frame v2's
-;; `(fn [ctx args] ...)` signature. We replace each registered fx with
-;; a capture stub (same pattern as time_travel_cljs_test.cljs) and
-;; dispatch the corresponding event-fx so the captured args round-trip.
-
-(defonce ^:private captured-fx (atom []))
-
-(defn- install-capture-fx!
-  "rf2-h1vqa4: the capture rides the `:rf/xray` frame's `:fx-overrides`
-  (fn-value form); re-`make-frame` is a surgical config update on the
-  live frame the fixture created."
-  []
-  (reset! captured-fx [])
-  (rf/make-frame {:id :rf/xray
-                  :fx-overrides {:rf.xray.fx/copy-to-clipboard
-                                 (fn [_ctx args]
-                                   (swap! captured-fx conj
-                                          [:rf.xray.fx/copy-to-clipboard args]))}}))
-
-(deftest fx-copy-value-to-clipboard-fires-with-pr-str
-  (testing ":rf.xray/copy-value-to-clipboard routes through the clipboard fx"
-    (setup-xray-frame!)
-    ;; rf2-7htk7 — a LIVE observed frame is what lets a value round-trip at
-    ;; all: with none selected the egress fails closed and the fx receives
-    ;; `:rf/redacted` (pinned in app_db_diff_cljs_test §7c). This test is
-    ;; about the fx wiring, so it selects one.
-    (rf/make-frame {:id :rf/default})
-    (install-capture-fx!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
-      (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard {:a 1}]))
-    (is (= 1 (count @captured-fx)))
-    (let [[fx-id args] (first @captured-fx)]
-      (is (= :rf.xray.fx/copy-to-clipboard fx-id))
-      (is (= "{:a 1}" (:text args))
-          "the value is pr-str'd before reaching the fx"))))
-
-(deftest fx-copy-path-to-clipboard-fires-with-pr-str
-  (testing ":rf.xray/copy-path-to-clipboard routes through the clipboard fx"
-    (setup-xray-frame!)
-    (install-capture-fx!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/copy-path-to-clipboard [:users :count]]))
-    (is (= 1 (count @captured-fx)))
-    (let [[fx-id args] (first @captured-fx)]
-      (is (= :rf.xray.fx/copy-to-clipboard fx-id))
-      (is (= "[:users :count]" (:text args))))))
+;; The :rf.xray.fx/* handlers each follow re-frame v2's `(fn [ctx args] ...)`
+;; signature.
+;;
+;; rf2-6r9j.24 — the two event-level clipboard round-trip tests went with
+;; the dispatcher-less events they drove, and the `:fx-overrides` capture
+;; stub they shared went with them. The fx itself keeps its pins: its
+;; node-target contract directly below, and its full reachable gesture (the
+;; Static Machines `Copy Mermaid` action, including the REAL registered fx
+;; on this node target) in `static/machines/copy_mermaid_cljs_test.cljs`.
 
 (deftest fx-copy-to-clipboard-handles-non-browser-target
   (testing ":rf.xray.fx/copy-to-clipboard does not throw on a node-test
-            target (no js/navigator.clipboard); contract is best-effort"
+            target (no js/navigator.clipboard); contract is best-effort.
+
+            rf2-6r9j.24 — driven by invoking the REGISTERED fx handler
+            directly rather than through a retired event, so the contract
+            keeps its pin without depending on any particular caller."
     (setup-xray-frame!)
     ;; Re-register the LIVE handler (the registry's, not our capture).
     (registry/reset-for-test!)
     (registry/register-xray-handlers!)
-    (rf/with-frame :rf/xray
-      ;; Should not throw — the registry's reg-fx wraps the navigator
-      ;; access in a try / catch :default _ nil.
-      (is (nil? (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard :hi]))))))
+    (let [handler (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard)]
+      (is (some? handler) "the fx stays registered")
+      (rf/with-frame :rf/xray
+        ;; Should not throw — the reg-fx wraps the navigator access in a
+        ;; try / catch :default, and with no `:on-failure` there is nothing
+        ;; to dispatch on the unavailable-clipboard branch.
+        (is (nil? (handler {:frame :rf/xray} {:text ":hi"})))))))
 
 ;; ---- (7) override-aware reader semantics --------------------------------
 

@@ -258,11 +258,11 @@
   ;; event / guard / action NAMES from the registered definition, never
   ;; runtime or definition `:data` values (`mermaid/emit` is value-free
   ;; by contract; its invalid-definition diagnostic is value-free too,
-  ;; rf2-8nzxib). Like `:rf.xray/copy-path-to-clipboard`, this is NOT a
-  ;; value-egress site, so the text rides the fx directly rather than
-  ;; through `egress/egress-value` — routing it there would `pr-str` the
-  ;; block (breaking the exact-emit contract) without ever finding a
-  ;; value to elide.
+  ;; rf2-8nzxib). This is therefore NOT a value-egress site, so the text
+  ;; rides the fx directly rather than through `egress/egress-value` —
+  ;; routing it there would `pr-str` the block (breaking the exact-emit
+  ;; contract) without ever finding a value to elide. Since rf2-6r9j.24
+  ;; this is the only gesture in Xray that reaches the clipboard fx.
   ;;
   ;; `emit` throws on a definition it cannot project. The header already
   ;; gates the control on `grammar/valid-definition?` (whose truth means

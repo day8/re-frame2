@@ -261,9 +261,12 @@ force-disable in dev.
 Xray exposes no agent seam. An agent driving a running re-frame2 app
 uses `re-frame2-pair.runtime` + `tools/re-frame2-pair-mcp/` — the
 second snippet under [Enable](#enable). Xray's only value-egress
-surfaces are the two human copy affordances (the `Snapshot app-db`
-palette verb and the `⎘` copy button), both fail-closed with no
-raw-value opt-in; see [`spec/API.md`](./spec/API.md) §Off-box egress.
+surface is the one human copy affordance — the `Snapshot app-db`
+palette verb — fail-closed with no raw-value opt-in. Static Machines'
+`Copy Mermaid` also writes to the clipboard, but it emits value-free
+topology (state / event / guard / action names from the registered
+definition, never `:data` values), so it is not a value-egress site.
+See [`spec/API.md`](./spec/API.md) §Off-box egress.
 
 ## Spec
 

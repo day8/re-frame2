@@ -187,14 +187,12 @@
         (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
             "absent route → no placeholder card")))))
 
-;; ---- affordance strip (rf2-kbxgj + rf2-ilubp) ---------------------------
+;; ---- affordance strip (rf2-kbxgj) ---------------------------------------
 ;;
 ;; rf2-kbxgj removed the dead per-section "⤴ subs" downstream-subs hover
-;; trigger; rf2-ilubp opted the app-db inspect renders out of the EDN
-;; widget's universal ⎘ copy gesture (`:copy? false`). The current-state
-;; inspector is now a clean sectioned view with no per-block affordances.
-;; These tests pin the negative: neither affordance appears anywhere in
-;; the rendered tree.
+;; trigger. The current-state inspector is a clean sectioned view with no
+;; per-block affordances. This test pins the negative: the trigger appears
+;; nowhere in the rendered tree.
 
 (defn- all-testids
   "Every `:data-testid` in the rendered tree (no fn-component expansion
@@ -217,17 +215,13 @@
                     ids)
           "no path-keyed downstream-subs trigger on any section"))))
 
-(deftest no-copy-button-on-app-db-blocks
-  (testing "rf2-ilubp — the app-db inspect renders opt out of the EDN
-            widget's universal ⎘ copy button (`:copy? false`); no
-            `…-copy` testid appears on any value block"
-    (let [model (sections {:counter 5 :user {:name "ada"}}
-                          {:rf/route    {:id :home}
-                           :rf/machines {:title/flow {:state :playing}}})
-          tree  (state/state-body model)
-          ids   (all-testids tree)]
-      (is (not-any? #(.endsWith % "-copy") ids)
-          "no copy affordance on any app-db section value block"))))
+;; rf2-6r9j.24 — the rf2-ilubp negative (`no-copy-button-on-app-db-blocks`)
+;; is DELETED. It asserted that no testid ended in `-copy`, which held
+;; because the app-db renders opted out of the EDN widget's universal
+;; affordance; that affordance is now retired everywhere, so nothing in the
+;; tool can produce such a testid and the assertion was vacuously green
+;; forever. rf2-ilubp's App-DB outcome survives — App-DB carries no copy
+;; control — and is now enforced by construction rather than by this test.
 
 ;; ---- section-shell chrome (rf2-jcdvo) ------------------------------------
 ;;
