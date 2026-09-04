@@ -2071,9 +2071,9 @@ test('the RETENTION ladder is not moved by any of this', () => {
   // this file has moved rather than gone. Its CONTENT is that the published
   // write is `(vec (repeat cells-n v))` at the literal published width, and
   // that content is unchanged to the byte. What the handler now also carries
-  // is `(wc/event!)`, the work census `rf2-n1b9h` reads to split
+  // is a census call, the work census `rf2-n1b9h` reads to split
   // `rf2-77gz8`'s two surviving candidates — and the reason that does not
-  // weaken this pin is the pin immediately below it: `wc/event!` is a MACRO
+  // weaken this pin is the pin immediately below it: `event!` is a MACRO
   // behind a `goog-define` that is FALSE by default, so under `:advanced`
   // Closure constant-folds the gate and eliminates the branch, and the
   // compiled write path of an unarmed build is the one every published
@@ -2081,9 +2081,50 @@ test('the RETENTION ladder is not moved by any of this', () => {
   //
   // Byte-identity of the SOURCE was only ever a proxy for constancy of the
   // COMPILED path. Where the two now differ, this file pins both.
+  //
+  // AMENDED A FOURTH TIME (rf2-eexx), and the amendment is why the census
+  // term above is no longer spelled out. This pin used to read the census
+  // call as the literal text `(wc/event!)`, so `1db71eac77` — the
+  // rf2-6r9j.161 require-alias campaign, which moved the fixture's alias for
+  // `re-frame.bench.p0-workcount` from `wc` to the canonical dotted
+  // `rf.bench.p0-workcount` of `spec/Conventions.md` §Require-alias dialect —
+  // reddened it. THE FIXTURE MOVED AND THE PIN WAS STALE, which is the one
+  // reading that permits a change here at all: an alias is COMPILE-TIME
+  // VOCABULARY, binding no var, changing no call target and emitting no
+  // different code, so the retention property this pin guards had not moved
+  // by so much as a byte. Only the word for it had.
+  //
+  // So the alias is DERIVED from the fixture's own `:require` instead of
+  // restated here, and this asks no less than the literal did: the handler
+  // must still be this form to the byte and carry nothing else. The single
+  // term that is pure vocabulary is now read from the fixture rather than
+  // restated, and that `:require` is itself asserted — which the literal
+  // never looked at. It matters here more than it would elsewhere: this lane
+  // is off every per-PR gate by ruling (rf2-6c12m.1), so a pin that rots on a
+  // rename rots UNSEEN until somebody runs `npm run check` by hand, which is
+  // exactly how this one went red on trunk for days.
+  //
+  // MUTATION-PROVED, four plants in the fixture, this suite alone:
+  //   `repeat cells-n v` -> `cells-nx`            RED (retention content bites)
+  //   alias renamed throughout to `wcx`           GREEN (vocabulary is free)
+  //   `:as` dropped from the `:require`           RED (derivation is load-bearing)
+  //   `(<alias>/event!)` dropped from the handler RED (census still pinned)
+  const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const CENSUS_ALIAS = (FIXTURE.match(/\[re-frame\.bench\.p0-workcount :as ([^\s\]]+)\]/) || [])[1];
+  assert.ok(
+    CENSUS_ALIAS,
+    'the fixture requires the work census, under whatever alias its `:require` declares'
+  );
   assert.match(
     FIXTURE,
-    /\(rf\/reg-event :p0\/write-all\s+\(fn \[\{:keys \[db\]\} \[_ v\]\] \(wc\/event!\) \{:db \(assoc db :cells \(vec \(repeat cells-n v\)\)\)\}\)\)/,
+    new RegExp(
+      reEsc('(rf/reg-event :p0/write-all') +
+        '\\s+' +
+        reEsc(
+          `(fn [{:keys [db]} [_ v]] (${CENSUS_ALIAS}/event!) {:db (assoc db :cells (vec (repeat cells-n v)))})`
+        ) +
+        reEsc(')')
+    ),
     '`:p0/write-all` still rebuilds at the literal `cells-n`, behind the census macro'
   );
   const WORKCOUNT = fs.readFileSync(path.join(CORE_BENCH, 'p0_workcount.cljc'), 'utf8');
