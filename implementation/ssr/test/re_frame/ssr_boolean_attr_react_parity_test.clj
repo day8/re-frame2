@@ -44,13 +44,13 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.ssr.emit :as emit]
-            [re-frame.ssr.html-helpers :as html]
-            [re-frame.ssr.streaming :as streaming]
-            [re-frame.ssr.test-fixture :as tf]
-            [re-frame.ssr.ui-tree :as ui-tree]))
+            [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
+            [re-frame.ssr.streaming :as rf.ssr.streaming]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
+            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; The external evidence.
@@ -202,7 +202,7 @@
       (let [attribute (:attribute row)
             react     (react-class row)]
         (is (= (expected-class attribute react)
-               (html/boolean-attr-class attribute))
+               (rf.ssr.html-helpers/boolean-attr-class attribute))
             (str attribute " — react-dom " (:react-dom-version @react-evidence)
                  " renders " (pr-str (:true-markup row)) " / "
                  (pr-str (:false-markup row))))))))
@@ -216,7 +216,7 @@
       (is (some? row) "react-dom's evidence still carries a `value` row")
       (is (= :stringify (react-class row))
           "react-dom stringifies a boolean `value`")
-      (is (= :ordinary (html/boolean-attr-class "value"))
+      (is (= :ordinary (rf.ssr.html-helpers/boolean-attr-class "value"))
           "re-frame leaves `value` ordinary — see `divergences`")))
 
   (testing "rf2-r9kf — `ismap` is the divergence in the OTHER direction: the
@@ -224,7 +224,7 @@
             `ismap` and so cannot appear in the evidence at all"
     (is (not (contains? (set (map (comp collapse :attribute) (rows))) "ismap"))
         "react-dom accepts no boolean `ismap`, so no row can exist for it")
-    (is (= :presence (html/boolean-attr-class "ismap"))
+    (is (= :presence (rf.ssr.html-helpers/boolean-attr-class "ismap"))
         "the roster follows 004B here; the divergence is recorded, not fixed")))
 
 (deftest every-roster-name-is-backed-by-react-evidence
@@ -236,10 +236,10 @@
     (let [evidenced (into {} (map (juxt (comp collapse :attribute) react-class))
                           (rows))
           excused   (set (map collapse (keys divergences)))]
-      (doseq [[roster-name roster] [["boolean-attrs" html/boolean-attrs]
-                                    ["booleanish-attrs" html/booleanish-attrs]
+      (doseq [[roster-name roster] [["boolean-attrs" rf.ssr.html-helpers/boolean-attrs]
+                                    ["booleanish-attrs" rf.ssr.html-helpers/booleanish-attrs]
                                     ["overloaded-boolean-attrs"
-                                     html/overloaded-boolean-attrs]]
+                                     rf.ssr.html-helpers/overloaded-boolean-attrs]]
               attribute roster]
         (when-not (contains? excused attribute)
           (is (contains? evidenced attribute)
@@ -278,7 +278,7 @@
       (let [attribute (:attribute row)
             klass     (expected-class attribute (react-class row))]
         (is (= (expected-hiccup-markup klass attribute value)
-               (emit/render-to-string [:div {(keyword attribute) value}] {}))
+               (rf.ssr.emit/render-to-string [:div {(keyword attribute) value}] {}))
             (str attribute " " value " (" klass ")"))))))
 
 (deftest render-shell-follows-react-for-every-evidenced-attribute
@@ -291,7 +291,7 @@
             klass     (expected-class attribute (react-class row))]
         (is (= (expected-hiccup-markup klass attribute value)
                (:shell-html
-                (streaming/render-shell [:div {(keyword attribute) value}])))
+                (rf.ssr.streaming/render-shell [:div {(keyword attribute) value}])))
             (str attribute " " value " (" klass ")"))))))
 
 (defn- observed-class
@@ -318,7 +318,7 @@
                      :false-html false-html}))))
 
 (defn- tree-html [attrs]
-  (ui-tree/emit-ui-tree {:rf.ui/tree-version 1 :tag :div :attrs attrs}))
+  (rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version 1 :tag :div :attrs attrs}))
 
 (deftest structural-tree-serialiser-follows-react-for-every-evidenced-attribute
   (testing "rf2-r9kf AC5 — the structural-tree serialiser is the parity
