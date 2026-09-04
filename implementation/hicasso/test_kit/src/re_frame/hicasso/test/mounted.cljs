@@ -1500,12 +1500,21 @@
 (defn- node-tag [el] (str/lower-case (.-tagName el)))
 
 (defn- attrs-of
+  "`el`'s attributes as a name → de-addressed-value map, with Spec 006's
+  dev-mode view annotations dropped —
+  `runtime/annotation-attributes` carries the argument.
+
+  This is the one door both the difference search and the red's element
+  description read through, so neither can see them."
   [el frame-kw]
   (persistent!
     (reduce (fn [attributes attribute]
-              (assoc! attributes
-                      (.-name attribute)
-                      (de-address-text frame-kw (.-value attribute))))
+              (let [attribute-name (.-name attribute)]
+                (if (contains? runtime/annotation-attributes attribute-name)
+                  attributes
+                  (assoc! attributes
+                          attribute-name
+                          (de-address-text frame-kw (.-value attribute))))))
             (transient {})
             (array-seq (.-attributes el)))))
 

@@ -35,6 +35,30 @@
             [re-frame.hicasso.impl.generation :as generation]))
 
 ;; ---------------------------------------------------------------------------
+;; What a DOM comparison must not see
+;; ---------------------------------------------------------------------------
+
+(def annotation-attributes
+  "Spec 006's two dev-mode view annotations, which no comparison in this
+  kit may take into account.
+
+  `data-rf2-source-coord` and `data-rf-view` are stamped on every
+  `defview` boundary's rendered root in a dev build — the only build this
+  kit runs in — and they name the DECLARATION rather than anything the
+  page said. A reference tree and a candidate tree are routinely two
+  differently-named views rendering the SAME page, so left in they differ
+  on every compared boundary. `canonical-dom` would then answer *not
+  equal* for two pages that are identical, and `mounted/shadow!` would
+  report `data-rf-view` as the first difference while the drift the
+  author planted goes unmentioned — a red that is worse than a miss,
+  because it looks like an answer.
+
+  It lives HERE, in the namespace both comparison doors already require,
+  because the same two names spelled in two files is the drift this kit
+  exists to catch in other people's code."
+  #{"data-rf2-source-coord" "data-rf-view"})
+
+;; ---------------------------------------------------------------------------
 ;; The census
 ;; ---------------------------------------------------------------------------
 
