@@ -819,11 +819,17 @@
 ;; coord). The captured-frame stale-op seam stamps the
 ;; exact failing `:op` onto the always-on record; `rf.error-emit/error-source-coord`
 ;; now pivots on it — `:dispatch` / `:dispatch-sync` → the EVENT coord,
-;; `:subscribe` → the SUBSCRIPTION coord. The `:op` is a
-;; PRIVATE steering input (read from the record's attribution, never promoted to
-;; a public schema slot).
+;; `:subscribe` → the SUBSCRIPTION coord. That coord steering is the INTERNAL
+;; use this namespace exercises — `:op` read back out of the record's
+;; attribution. It is not the whole of the slot's status: `:op` is RATIFIED
+;; PUBLIC on this category wherever the emit site knows the realm (rf2-a2x2w —
+;; see `router/emit-frame-destroyed!`, the Spec 009 `:rf.error/frame-destroyed`
+;; row, and `FrameDestroyedTags` in Spec-Schemas, which declares it), so it is
+;; NOT a hidden slot. This header stated the narrow reading as a global claim,
+;; contradicting all three; corrected under rf2-6g6e.
 ;;
-;; These drive the exact seam the frame-bundle uses (`emit-error-both!` with the
+;; These drive the exact seam `capture-frame`'s superseded-op fence uses
+;; (`emit-error-both!` with the
 ;; `:op` in the trailing record-attrs) against `[:event id]` / `[:sub id]` coords
 ;; seeded directly into the always-on `error-coords-by-id` registry, and assert
 ;; the delivered record's resolved `:source-coord` names the correct realm. Both
