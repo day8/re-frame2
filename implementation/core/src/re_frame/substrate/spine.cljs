@@ -1488,15 +1488,24 @@
 ;; truthiness — `nil` and `false` are legal CLJS throws, and a truthiness
 ;; accumulator would rebuild the exact silent-failure hole this replaces.
 
+(def ^:private teardown-secondary-errors-key
+  "Expando property carrying a teardown's later cleanup failures on the
+  rethrown primary. A STRING key, deliberately: `:advanced` never renames
+  one, so the name a consumer reads in a devtools console or a `catch` is
+  the name written here. Same idiom, and same reason, as the Reagent
+  adapter's `disposed-marker-key`."
+  "rfAdapterTeardownSecondaryErrors")
+
 (defn- make-teardown-failures
-  "Mutable presence-keyed cleanup-failure accumulator for one adapter
-  teardown. `primary` holds the first thrown value (`capture-none` until
-  something throws); `secondary` collects every later one in traversal order.
-  A JS object rather than a CLJS collection: teardown runs on the single-
-  threaded event loop, allocates one of these per dispose, and hands the
-  `secondary` array to the thrown primary as-is."
+  "Presence-keyed cleanup-failure accumulator for one adapter teardown.
+  `:primary` holds the first thrown value (`capture-none` until something
+  throws); `:secondary` collects every later one in traversal order. Two
+  `volatile!`s, matching the scheduler's `:escaped` earliest-escape cell:
+  teardown runs on the single-threaded JS event loop and the cells never
+  escape this drain, so there is no CAS to pay for."
   []
-  #js {:primary capture-none :secondary #js []})
+  {:primary   (volatile! capture-none)
+   :secondary (volatile! [])})
 
 (defn- record-teardown-failure!
   "Record one cleanup failure and return nil so the drain continues. The
@@ -1505,9 +1514,10 @@
   direct/test callers that have no adapter boundary to rethrow at."
   [failures e]
   (when failures
-    (if (identical? capture-none (.-primary failures))
-      (set! (.-primary failures) e)
-      (.push (.-secondary failures) e)))
+    (let [primary (:primary failures)]
+      (if (identical? capture-none @primary)
+        (vreset! primary e)
+        (vswap! (:secondary failures) conj e))))
   nil)
 
 (defn- rethrow-teardown-failure!
@@ -1526,17 +1536,19 @@
 
   Two values cannot carry the attachment, and both are handled by dropping
   the EVIDENCE rather than the FAILURE: a thrown `nil` / `false` / string /
-  number is not a JS object, and a frozen object rejects the write. Either
-  way the primary is still rethrown with full identity — the cheaper loss."
+  number is not a JS object, and a frozen or sealed object rejects the write.
+  Either way the primary is still rethrown with full identity — the cheaper
+  loss of the two."
   [failures]
-  (let [primary (.-primary failures)]
+  (let [primary @(:primary failures)]
     (when-not (identical? capture-none primary)
-      (let [secondary (.-secondary failures)]
-        (when (and (pos? (alength secondary))
+      (let [secondary @(:secondary failures)]
+        (when (and (seq secondary)
                    (instance? js/Object primary))
           ;; A throw from the attachment itself would replace the primary —
           ;; the precise defect this whole seam exists to prevent.
-          (try (set! (.-rfAdapterTeardownSecondaryErrors primary) secondary)
+          (try (unchecked-set primary teardown-secondary-errors-key
+                              (into-array secondary))
                (catch :default _ nil))))
       (throw primary)))
   nil)

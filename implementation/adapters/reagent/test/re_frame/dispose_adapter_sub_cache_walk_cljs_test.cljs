@@ -271,8 +271,12 @@
             ;; Traversal order over a CLJS map is not a contract, so the
             ;; primary is "whichever the drain met first", identified by
             ;; membership rather than by index.
+            ;;
+            ;; Read through `unchecked-get` on the same string key the spine
+            ;; writes: `:advanced` renames neither, so this assertion holds in
+            ;; a release build too.
             secondary (when (instance? js/Object thrown)
-                        (.-rfAdapterTeardownSecondaryErrors thrown))]
+                        (unchecked-get thrown "rfAdapterTeardownSecondaryErrors"))]
         (is (= 3 @attempts)
             "every poison entry was attempted — one failure did not abandon the rest")
         (is (some #(identical? % thrown) poisons)
