@@ -284,8 +284,10 @@
 ;; takes its LIVE-frame branch, and that frame's (empty) declaration registry
 ;; ships the value RAW: the fail-CLOSED stamp becomes fail-OPEN.
 ;;
-;; Modelled on `copy-value-with-no-observed-frame-fails-closed-under-id-collision`
-;; in `app_db_diff_cljs_test.cljs`.
+;; Modelled on `egress-value-with-nil-frame-fails-closed-under-id-collision`
+;; in `app_db_diff_cljs_test.cljs` (renamed under rf2-6r9j.24 when that proof
+;; was re-pointed from the retired copy event onto `egress/egress-value`
+;; directly; the sentinel it models is unchanged).
 ;; ---------------------------------------------------------------------------
 
 (def ^:private colliding-sentinel-id

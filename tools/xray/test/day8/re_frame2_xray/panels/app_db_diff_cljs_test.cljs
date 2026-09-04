@@ -49,6 +49,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [day8.re-frame2-xray.egress :as egress]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
@@ -231,12 +232,11 @@
   (testing "register-xray-handlers! installs the Phase 5 events.
             Pin / unpin / reorder events were removed under rf2-e9tb0;
             the segment-inspector open / close events landed in their
-            place."
+            place. The two dispatcher-less clipboard copy events retired
+            under rf2-6r9j.24 — the fx they rode survives, pinned below."
     (registry/register-xray-handlers!)
     (is (some? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
     (is (some? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))
-    (is (some? (rf.registrar/handler :event :rf.xray/copy-value-to-clipboard)))
-    (is (some? (rf.registrar/handler :event :rf.xray/copy-path-to-clipboard)))
     ;; rf2-e9tb0 — segment-inspector events registered.
     (is (some? (rf.registrar/handler :event :rf.xray/open-segment-inspector)))
     (is (some? (rf.registrar/handler :event :rf.xray/close-segment-inspector)))
@@ -368,42 +368,26 @@
   (rf/with-frame :rf/xray
     (is (= [] @(rf/subscribe [:rf.xray/show-me-when-this-changed-result])))))
 
-;; ---- (7) clipboard fx is wired (fires without crashing) -----------------
-
-(deftest copy-events-fire-clipboard-fx
-  (testing ":rf.xray/copy-value-to-clipboard + :rf.xray/copy-path-to-
-            clipboard route through :rf.xray.fx/copy-to-clipboard; the
-            fx is best-effort (no-op on non-browser targets).
-
-            rf2-7htk7 — the value copy needs a LIVE observed frame to
-            round-trip a value at all: with none selected the egress
-            fails closed (see copy-value-with-no-observed-frame-*
-            below), so this wiring test selects :rf/default."
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/default})
-    (let [captured (atom [])]
-      ;; rf2-h1vqa4: capture via the frame's :fx-overrides seam (fn-value
-      ;; form) instead of re-registering the xray-owned fx id — a cross-ns
-      ;; re-registration fails the frame's default-image assembly loud.
-      (rf/make-frame {:id :rf/xray
-                      :fx-overrides {:rf.xray.fx/copy-to-clipboard
-                                     (fn [_ctx args] (swap! captured conj args))}})
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
-        (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard {:a 1}])
-        (rf/dispatch-sync [:rf.xray/copy-path-to-clipboard [:cart :items]]))
-      (is (= 2 (count @captured)))
-      (is (= "{:a 1}" (:text (first @captured))))
-      (is (= "[:cart :items]" (:text (second @captured)))))))
-
-;; ---- (7b) clipboard copy is an OFF-BOX EGRESS site (rf2-uo0rc.2) ---------
+;; ---- (7) the off-box safe-egress projection (rf2-uo0rc.2 + rf2-7htk7) ----
 ;;
-;; The system clipboard is an off-box sink. The copy fx wrote the RAW
-;; (pr-str value) — a `{:sensitive? true}` slot or a large blob leaked
-;; verbatim. The value-copy event now routes through egress/egress-value
-;; (fail-closed: sensitive ⇒ :rf/redacted, large ⇒ :rf.size/large-elided),
-;; pinned to the observed frame so that frame's schema declarations govern
-;; — the same fix class as the palette snapshot (rf2-mxzgg).
+;; These are the fail-closed proofs for `egress/egress-value`, Xray's single
+;; named panel-local off-box projection. They used to reach it THROUGH the
+;; value-copy event that rode the universal `⎘` affordance; rf2-6r9j.24
+;; retired both, so they now call `egress-value` directly and assert on its
+;; RETURN VALUE rather than on a captured fx.
+;;
+;; Re-pointing rather than deleting is deliberate. The projection SURVIVES
+;; the retraction — `egress.cljs` prescribes it as the MUST-use gesture any
+;; future panel affordance inherits, and the palette's `Snapshot app-db`
+;; verb uses it today — so its invariants still need pins. A green suite
+;; that lost them is exactly the fail-open this bead was filed about.
+;;
+;; The invariants, in the same order the copy-event tests proved them:
+;; sensitive slot ⇒ :rf/redacted · large slot ⇒ :rf.size/large-elided ·
+;; undeclared value passes through · nil :frame ⇒ whole value redacted ·
+;; destroyed frame id ⇒ redacted · a LIVE frame registered under the
+;; keyword the second pass used as its explicit-nil substitute ⇒ still
+;; redacted (the third-pass collision regression).
 ;;
 
 (defn- seed-sensitive-schema! []
@@ -421,194 +405,114 @@
   (rf.frame/swap-runtime-db! :rf/default
     (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]}))))
 
-(defn- capture-copy!
-  "rf2-h1vqa4: the capture rides the `:rf/xray` frame's `:fx-overrides`
-  (fn-value form) — call AFTER the frame exists; re-`make-frame` is a
-  surgical config update on the live frame."
-  []
-  (let [captured (atom [])]
-    (rf/make-frame {:id :rf/xray
-                    :fx-overrides {:rf.xray.fx/copy-to-clipboard
-                                   (fn [_ctx args] (swap! captured conj args))}})
-    captured))
-
-(deftest copy-value-redacts-sensitive-slot
-  (testing "rf2-uo0rc.2 — a copied value carrying a frame-declared
-            sensitive slot is REDACTED before it reaches the clipboard fx;
-            the raw secret never crosses the off-box boundary"
-    (registry/register-xray-handlers!)
+(deftest egress-value-redacts-sensitive-slot
+  (testing "rf2-uo0rc.2 — a value carrying a frame-declared sensitive slot
+            is REDACTED by the projection; the raw secret never reaches an
+            off-box sink"
     (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :rf/xray})
     ;; Declare the sensitive path on the OBSERVED frame (:rf/default) so the
-    ;; egress, pinned to the observed frame, matches the declaration.
+    ;; egress, pinned to that frame by name, matches the declaration.
     (rf/with-frame :rf/default (seed-sensitive-schema!))
-    (let [captured (capture-copy!)]
-      ;; Pin the spine focus at the observed frame so the event resolves it.
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
-        (rf/dispatch-sync
-          [:rf.xray/copy-value-to-clipboard
-           {:auth {:username "ada" :password "shh"}}]))
-      (is (= 1 (count @captured)))
-      (let [text (:text (first @captured))]
-        (is (re-find #":rf/redacted" text)
-            (str "the sensitive slot must be redacted on the clipboard text. "
-                 "text: " (pr-str text)))
-        (is (not (re-find #"shh" text))
-            (str "the RAW secret leaked to the clipboard — off-box egress "
-                 "fail-open (rf2-uo0rc.2). text: " (pr-str text)))
-        (is (re-find #"ada" text)
-            "non-sensitive sibling survives the copy")))))
+    (let [out (egress/egress-value {:auth {:username "ada" :password "shh"}}
+                                   {:frame :rf/default})
+          text (pr-str out)]
+      (is (re-find #":rf/redacted" text)
+          (str "the sensitive slot must be redacted. text: " (pr-str text)))
+      (is (not (re-find #"shh" text))
+          (str "the RAW secret survived the projection — off-box egress "
+               "fail-open (rf2-uo0rc.2). text: " (pr-str text)))
+      (is (re-find #"ada" text)
+          "non-sensitive sibling survives the projection"))))
 
-(deftest copy-value-size-elides-large-slot
-  (testing "rf2-uo0rc.2 — a copied value carrying a frame-declared
-            :large slot is size-elided before it reaches the clipboard fx"
-    (registry/register-xray-handlers!)
+(deftest egress-value-size-elides-large-slot
+  (testing "rf2-uo0rc.2 — a value carrying a frame-declared :large slot is
+            size-elided by the projection"
     (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/default (seed-large-schema!))
-    (let [captured (capture-copy!)]
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
-        (rf/dispatch-sync
-          [:rf.xray/copy-value-to-clipboard
-           {:blob {:payload {:big "value"}}}]))
-      (is (= 1 (count @captured)))
-      (let [text (:text (first @captured))]
-        (is (re-find #":rf.size/large-elided" text)
-            (str "the large slot must be size-elided on the clipboard text. "
-                 "text: " (pr-str text)))
-        (is (not (re-find #"\"value\"" text))
-            (str "the RAW large value leaked to the clipboard. text: "
-                 (pr-str text)))))))
+    (let [out  (egress/egress-value {:blob {:payload {:big "value"}}}
+                                    {:frame :rf/default})
+          text (pr-str out)]
+      (is (re-find #":rf.size/large-elided" text)
+          (str "the large slot must be size-elided. text: " (pr-str text)))
+      (is (not (re-find #"\"value\"" text))
+          (str "the RAW large value survived the projection. text: "
+               (pr-str text))))))
 
-(deftest copy-value-non-sensitive-passes-through
-  (testing "rf2-uo0rc.2 — egress is a no-op for a value with no
-            sensitive/large declarations: the copy still round-trips the
-            full value (fail-closed only bites declared slots)"
-    (registry/register-xray-handlers!)
+(deftest egress-value-non-sensitive-passes-through
+  (testing "rf2-uo0rc.2 — the projection is a no-op for a value with no
+            sensitive/large declarations: the full value round-trips
+            (fail-closed only bites declared slots)"
     (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :rf/xray})
-    (let [captured (capture-copy!)]
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
-        (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard {:a 1 :b [2 3]}]))
-      (is (= "{:a 1, :b [2 3]}" (:text (first @captured)))
-          "an undeclared value copies verbatim"))))
+    (is (= "{:a 1, :b [2 3]}"
+           (pr-str (egress/egress-value {:a 1 :b [2 3]} {:frame :rf/default})))
+        "an undeclared value projects verbatim")))
 
-;; ---- (7c) no-target / stale-target copy FAILS CLOSED (rf2-7htk7) ---------
+;; ---- (7b) no-target / stale-target egress FAILS CLOSED (rf2-7htk7) -------
 ;;
-;; The copy handler runs UNDER the live `:rf/xray` chrome frame. The
-;; pre-fix fallback — a bare `(egress/egress-value value)` whenever the
-;; observed frame was nil or no longer live — therefore resolved
-;; `:rf/xray`, applied its normally-EMPTY declaration registry, and shipped
-;; the value RAW to the clipboard. The comment on that branch claimed it was
-;; "still fail-closed"; it was not. `elide-wire-value`'s frameless arm can
-;; only be reached by NAMING a frame that does not resolve, which is what
-;; the handler now does by forwarding `:frame observed` unconditionally.
+;; A panel affordance runs UNDER the live `:rf/xray` chrome frame. A bare
+;; `(egress/egress-value value)` whenever the observed frame is nil or no
+;; longer live therefore resolves `:rf/xray`, applies its normally-EMPTY
+;; declaration registry, and passes the value through RAW. An earlier
+;; comment on that branch claimed it was "still fail-closed"; it was not.
+;; `elide-wire-value`'s frameless arm can only be reached by NAMING a frame
+;; that does not resolve — which is why `egress.cljs` requires a caller to
+;; forward `:frame` unconditionally, including when it is nil.
 
-(deftest copy-value-with-no-observed-frame-fails-closed
-  (testing "rf2-7htk7 — with NO frame selected in the picker, the copied
-            value is redacted whole rather than shipped under the Xray
-            chrome frame's empty policy"
-    (registry/register-xray-handlers!)
-    (let [captured (atom [])]
-      (rf/make-frame {:id :rf/xray
-                      :fx-overrides {:rf.xray.fx/copy-to-clipboard
-                                     (fn [_ctx args] (swap! captured conj args))}})
-      ;; No :rf.xray/set-target-frame — `[:focus :frame]` and
-      ;; `:target-frame` are both absent, which is the unselected picker.
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync
-          [:rf.xray/copy-value-to-clipboard {:auth {:token "shh"}}]))
-      (is (= 1 (count @captured)))
-      (let [text (:text (first @captured))]
-        (is (= ":rf/redacted" text)
-            (str "no resolvable observed frame must egress the whole-value "
-                 "redaction sentinel. text: " (pr-str text)))
-        (is (not (re-find #"shh" text))
-            (str "the RAW value leaked to the clipboard with no frame policy "
-                 "in force (rf2-7htk7). text: " (pr-str text)))))))
+(deftest egress-value-with-nil-frame-fails-closed
+  (testing "rf2-7htk7 — an explicitly-nil :frame (the unselected picker)
+            redacts the value whole rather than projecting it under the
+            Xray chrome frame's empty policy"
+    (let [out (egress/egress-value {:auth {:token "shh"}} {:frame nil})]
+      (is (= :rf/redacted out)
+          (str "no resolvable frame must egress the whole-value redaction "
+               "sentinel. got: " (pr-str out)))
+      (is (not (re-find #"shh" (pr-str out)))
+          (str "the RAW value survived with no frame policy in force "
+               "(rf2-7htk7). got: " (pr-str out))))))
 
-(deftest copy-value-with-destroyed-observed-frame-fails-closed
-  (testing "rf2-7htk7 — a host frame destroyed between render and click
-            leaves a STALE observed id; a frame-id that no longer
-            resolves fails closed exactly like the frameless case"
-    (registry/register-xray-handlers!)
+(deftest egress-value-with-destroyed-frame-fails-closed
+  (testing "rf2-7htk7 — a host frame destroyed between render and use
+            leaves a STALE observed id; a frame-id that no longer resolves
+            fails closed exactly like the nil case"
     (rf/make-frame {:id :rf/default})
-    (let [captured (atom [])]
-      (rf/make-frame {:id :rf/xray
-                      :fx-overrides {:rf.xray.fx/copy-to-clipboard
-                                     (fn [_ctx args] (swap! captured conj args))}})
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
-      ;; The inspected frame goes away while the picker still names it.
-      (rf/destroy-frame! :rf/default)
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync
-          [:rf.xray/copy-value-to-clipboard {:auth {:token "shh"}}]))
-      (is (= 1 (count @captured)))
-      (let [text (:text (first @captured))]
-        (is (= ":rf/redacted" text)
-            (str "a stale observed frame must egress the whole-value "
-                 "redaction sentinel. text: " (pr-str text)))
-        (is (not (re-find #"shh" text))
-            (str "the RAW value leaked to the clipboard under a destroyed "
-                 "frame (rf2-7htk7). text: " (pr-str text)))))))
+    ;; The inspected frame goes away while the caller still names it.
+    (rf/destroy-frame! :rf/default)
+    (let [out (egress/egress-value {:auth {:token "shh"}} {:frame :rf/default})]
+      (is (= :rf/redacted out)
+          (str "a stale frame id must egress the whole-value redaction "
+               "sentinel. got: " (pr-str out)))
+      (is (not (re-find #"shh" (pr-str out)))
+          (str "the RAW value survived under a destroyed frame (rf2-7htk7). "
+               "got: " (pr-str out))))))
 
-(deftest copy-value-with-no-observed-frame-fails-closed-under-id-collision
+(deftest egress-value-with-nil-frame-fails-closed-under-id-collision
   (testing "rf2-7htk7 (third pass) — an app registers a LIVE frame under the
             public keyword the earlier explicit-nil substitute expanded to,
-            :day8.re-frame2-xray.egress/no-frame. With the picker unselected
-            the copy must still redact whole: a substitute that is itself a
+            :day8.re-frame2-xray.egress/no-frame. An explicitly-nil :frame
+            must STILL redact whole: a substitute that is itself a
             registrable frame id resolved to that live frame, took the
             walker's live-frame branch, and its empty declaration registry
-            shipped the value RAW"
-    (registry/register-xray-handlers!)
+            passed the value through RAW"
     ;; The app's own frame holds the secret and declares it sensitive — but
-    ;; the picker never selects it, so its policy is not what governs here.
+    ;; it is not the frame named here, so its policy is not what governs.
     (rf/make-frame {:id :rf/default})
     (rf/with-frame :rf/default (seed-sensitive-schema!))
     ;; The colliding frame: an ordinary public keyword any app can spell.
     (rf/make-frame {:id :day8.re-frame2-xray.egress/no-frame})
     (try
-      (let [captured (atom [])]
-        (rf/make-frame {:id :rf/xray
-                        :fx-overrides {:rf.xray.fx/copy-to-clipboard
-                                       (fn [_ctx args] (swap! captured conj args))}})
-        ;; No :rf.xray/set-target-frame — the unselected picker.
-        (rf/with-frame :rf/xray
-          (rf/dispatch-sync
-            [:rf.xray/copy-value-to-clipboard
-             {:auth {:username "ada" :password "shh"}}]))
-        (is (= 1 (count @captured)))
-        (let [text (:text (first @captured))]
-          (is (= ":rf/redacted" text)
-              (str "no observed frame must egress the whole-value redaction "
-                   "sentinel even with a live frame registered under the "
-                   "explicit-nil substitute's id. text: " (pr-str text)))
-          (is (not (re-find #"shh" text))
-              (str "the RAW secret leaked to the clipboard through a live "
-                   "frame colliding with the explicit-nil substitute "
-                   "(rf2-7htk7). text: " (pr-str text)))))
+      (let [out (egress/egress-value {:auth {:username "ada" :password "shh"}}
+                                     {:frame nil})]
+        (is (= :rf/redacted out)
+            (str "an explicitly-nil frame must egress the whole-value "
+                 "redaction sentinel even with a live frame registered under "
+                 "the substitute's id. got: " (pr-str out)))
+        (is (not (re-find #"shh" (pr-str out)))
+            (str "the RAW secret survived through a live frame colliding "
+                 "with the explicit-nil substitute (rf2-7htk7). got: "
+                 (pr-str out))))
       (finally
         ;; Never leave the colliding id live for a sibling test.
         (rf/destroy-frame! :day8.re-frame2-xray.egress/no-frame)))))
-
-(deftest copy-path-is-not-a-value-egress
-  (testing "rf2-uo0rc.2 — the path-copy variant copies only the path
-            vector (key names, no values); it is not a value-egress site
-            and must NOT redact path segments"
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/default})
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/default (seed-sensitive-schema!))
-    (let [captured (capture-copy!)]
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
-        (rf/dispatch-sync [:rf.xray/copy-path-to-clipboard [:auth :password]]))
-      (is (= "[:auth :password]" (:text (first @captured)))
-          "the path vector copies verbatim — it carries no values to elide"))))
 
 ;; ---- (8) view renders — current-state inspector (rf2-okvit) -------------
 ;;

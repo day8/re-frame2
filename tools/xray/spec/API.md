@@ -681,19 +681,30 @@ Xray is the human surface, AI belongs in the separate Pair tool — and
 [`018-Event-Spine.md`](./018-Event-Spine.md) with it, which has the
 agent read raw instrumentation rather than an Xray-curated facade.
 
-## Off-box egress — the two panel copy paths
+## Off-box egress — the one panel copy path
 
-Xray's own value-egress surface is small and closed. Two HUMAN
-affordances put a value the developer is looking at onto an off-box
+Xray's own value-egress surface is small and closed. ONE HUMAN
+affordance puts a value the developer is looking at onto an off-box
 sink (Tool-Pair §Privacy egress,
 [`Security.md`](../../../spec/Security.md) §Off-box egress):
 
 | Affordance | Sink | Source |
 |---|---|---|
 | The `Snapshot app-db` command-palette verb | JS console + system clipboard | `palette/events.cljs` |
-| The `⎘` copy button riding every value inspector (`:rf.xray/copy-value-to-clipboard`) | System clipboard | `panels/app_db_diff_events.cljs` |
 
-Both route the value through Xray's single named panel-local safe-egress
+> **rf2-6r9j.24 (2026-09-04) — the universal `⎘` copy button is
+> retired.** A second row here once claimed a copy button riding every
+> value inspector. It had been unreachable since the rf2-oqa60 phase-1
+> rebuild dropped its only call site, and it was out of contract under
+> the [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+> §10.1 / §10.5 B.9 lock, which puts copy-value and copy-path
+> explicitly OUT on that renderer. The inventory is corrected rather
+> than the button restored: an enumeration of where values can leave
+> Xray is worse wrong than short. A future FOCUSED copy affordance must
+> reopen B.9 with the mayor first, and must carry provenance — see the
+> `:path` paragraph below.
+
+It routes the value through Xray's single named panel-local safe-egress
 fn — `day8.re-frame2-xray.egress/egress-value` — BEFORE it reaches the
 sink. That fn is a thin wrapper over the framework's normative
 wire-elision walker (`re-frame.core/elide-wire-value`) with the off-box
@@ -702,17 +713,25 @@ defaults BAKED IN, so the shortest call is the safe one (rf2-rcogp):
 frame-declared sensitive slot egresses as `:rf/redacted`, and a large
 slot as the `:rf.size/large-elided` marker.
 
-**Neither affordance exposes a raw-value opt-in.** Xray's copy paths are
+Static Machines' `Copy Mermaid` action also writes to the system
+clipboard, and is deliberately NOT in the table above: `mermaid/emit`
+is value-free by contract — state / event / guard / action NAMES from
+the registered definition, never runtime or definition `:data` values —
+so it is not a value-egress site and rides
+`:rf.xray.fx/copy-to-clipboard` directly.
+
+**The affordance exposes no raw-value opt-in.** Xray's copy path is
 ALWAYS the redacted, size-elided projection — there is no
-`{:include-sensitive? true}` gesture reachable from the UI.
+`{:include-sensitive? true}` gesture reachable from the UI, and any
+future affordance inherits that.
 
 The egress is pinned to the frame being INSPECTED, not the frame the
 affordance dispatches in. The palette resolves and validates the focused
 frame before it reads the db, then wraps the snapshot in
-`(rf/with-frame tf …)` (rf2-mxzgg); the copy event NAMES the observed
-frame (`[:focus :frame]`, falling back to `:target-frame` — rf2-uo0rc.2)
-as `egress-value`'s `:frame` opt. That frame's own `:sensitive` /
-`:large` declarations then govern the redaction rather than the (empty)
+`(rf/with-frame tf …)` (rf2-mxzgg). A panel affordance that has NOT
+already established the frame that way MUST instead name it as
+`egress-value`'s `:frame` opt, so that frame's own `:sensitive` /
+`:large` declarations govern the redaction rather than the (empty)
 Xray-chrome frame's.
 
 **A value with no resolvable frame fails closed, and NAMING the frame is
@@ -720,11 +739,12 @@ what delivers that** (rf2-7htk7). The walker resolves the ambient frame
 when no `:frame` is supplied, and for a panel affordance the ambient
 frame is the LIVE `:rf/xray` chrome frame — which resolves, so its
 normally-empty declaration registry applies and the value egresses RAW.
-The copy event therefore forwards `:frame` even when the picker has
-selected nothing: `elide-wire-value` validates the id against the live
-registry, so an unselected picker and a host frame destroyed between
-render and click both take the walker's frameless arm and egress the
-whole-value `:rf/redacted` sentinel. `egress-value` substitutes a
+Such an affordance must therefore forward `:frame` even when the picker
+has selected nothing: `elide-wire-value` validates the id against the
+live registry, so an unselected picker and a host frame destroyed
+between render and click both take the walker's frameless arm and
+egress the whole-value `:rf/redacted` sentinel. `egress-value`
+substitutes a
 private identity value for an explicitly-passed `nil` to make that so —
 an identity, not a keyword: the registry is keyed by whatever `:id`
 `make-frame` is handed, so any keyword, however it is namespaced, is a
@@ -742,13 +762,20 @@ isolation must tell the walker where it lives or the declaration will
 not match (rf2-a96xq). The whole-db snapshot passes no `:path` — the
 value IS the walked root.
 
-The sibling `:rf.xray/copy-path-to-clipboard` copies only the path
-vector (key names, no values), so it is not a value-egress site and is
-not elided.
+That `:path` requirement is why the retired copy button could not simply
+be rewired, and it binds any replacement. The canonical value inspector
+is handed SLICES at a path, raw managed-fx request / response values
+that [`Security.md`](../../../spec/Security.md) says are not rooted at
+app-db at all, raw before / after trace values, and registry values. An
+affordance that walked whatever a shared renderer was handed, as if it
+were an app-db root, would be fail-OPEN on most of its consumers. A
+focused copy design therefore starts from the data owner outward, with
+a per-call-site projection that can state the value's provenance.
 
 `day8.re-frame2-xray.egress` is **internal**: no api-manifest row, not
 part of Xray's published surface, and not a seam for out-of-process
-callers. It exists because the two affordances above need it.
+callers. It exists because the affordance above needs it, and it stays
+the prescribed fail-closed gesture for any future one.
 
 Panel-local RENDER elision is a separate, weaker concern with its own
 knob — the `:rf.xray/egress-profile` config key (see

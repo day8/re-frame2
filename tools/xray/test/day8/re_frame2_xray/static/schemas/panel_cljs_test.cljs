@@ -253,15 +253,15 @@
             "every row carries role=listitem")))))
 
 ;; -------------------------------------------------------------------------
-;; (5) schema EDN renders through the shared widget (rf2-2kwhw + rf2-f026h)
+;; (5) schema EDN renders through the shared widget (rf2-2kwhw)
 ;; -------------------------------------------------------------------------
 
-(deftest schema-edn-renders-through-widget-with-copy
+(deftest schema-edn-renders-through-widget
   (testing "rf2-2kwhw + rf2-oqa60 — the Malli schema renders via the
-            shared EDN widget; phase 1 delegates to the first-class
-            edn-inspector widget. The copy affordance is deferred to
-            the popup phase (D6=a) — phase 1 has no copy chrome on
-            the new widget."
+            shared EDN widget, which delegates to the first-class
+            edn-inspector widget. The renderer carries no copy chrome
+            (rf2-6r9j.24 retired the universal affordance; spec/021
+            §10.5, B.9)."
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync

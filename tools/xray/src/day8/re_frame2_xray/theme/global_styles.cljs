@@ -680,22 +680,11 @@
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-static-shell\"] a {\n"
     "  color: LinkText !important;\n"
     "}\n"
-    ;; rf2-f026h — universal EDN-widget copy affordance hover-reveal. The
-    ;; `⎘` copy button (widget/copy-affordance) rides on every browse /
-    ;; inspect render's `position:relative` root. It paints recessed
-    ;; (low opacity) at rest so it doesn't clutter the dense value tree,
-    ;; and lifts to full opacity when the operator hovers the value
-    ;; container or tabs into the button (`:focus-within` covers the
-    ;; keyboard path). Like re-frame-10x, the copy gesture is present on
-    ;; every value but stays out of the way until reached for.
-    "[data-testid^=\"rf-xray-edn-widget-browse-\"] .rf-xray-edn-widget-copy {\n"
-    "  opacity: 0.18;\n"
-    "  transition: opacity 120ms ease-out;\n"
-    "}\n"
-    "[data-testid^=\"rf-xray-edn-widget-browse-\"]:hover .rf-xray-edn-widget-copy,\n"
-    "[data-testid^=\"rf-xray-edn-widget-browse-\"]:focus-within .rf-xray-edn-widget-copy {\n"
-    "  opacity: 1;\n"
-    "}\n"
+    ;; rf2-6r9j.24 — the rf2-f026h hover-reveal rules for the universal
+    ;; EDN-widget `⎘` copy button are DELETED with the affordance itself.
+    ;; They had been unmatchable as well as unused: their selector prefix
+    ;; `rf-xray-edn-widget-browse-` named a render container the rf2-oqa60
+    ;; rebuild replaced with `rf-xray-edn-inspector-…`.
     ;; rf2-8l03l — view-row hover-highlight (supersedes the flat grey
     ;; :bg-3 inline tint). When the operator hovers a view-row in the
     ;; Views / Reactive panel, `apply-highlight!` toggles this class on

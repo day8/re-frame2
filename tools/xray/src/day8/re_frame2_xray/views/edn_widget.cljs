@@ -32,7 +32,6 @@
   Pre-alpha · NO back-compat shims · dev-only · bundle-isolated.
   zprint stays for `code-block` source-text rendering."
   (:require [clojure.string :as str]
-            [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
             ;; The first-class edn-inspector widget owns the WHOLE
@@ -47,69 +46,25 @@
 ;; `:rf.xray.edn-inspector/expansion` slot + toggle/reset events; this
 ;; facade simply delegates to it.
 
-;; ---- universal copy-to-clipboard affordance -----------------------------
+;; ---- no value-copy affordance on this renderer (rf2-6r9j.24) -------------
 ;;
-;; re-frame-10x makes every value copyable. Rather than thread a copy
-;; button into each panel, the affordance rides on the WIDGET ROOT so
-;; it lands on every `browse` (and therefore `inspect`) call — Trace's
-;; `edn/browse`, the segment-inspector + Static panels' `edn/inspect`,
-;; all at once.
+;; The universal `⎘` copy button this facade once carried was RETIRED
+;; on 2026-09-04 (rf2-6r9j.24). It had been unreachable since the
+;; rf2-oqa60 phase-1 rebuild removed its only call site, and the
+;; canonical renderer's own design lock — `spec/021-Dynamic-Panel-
+;; Designs.md` §10.1 / §10.5, the polished super-prompt B.9 — says
+;; copy-value and copy-path are explicitly OUT here. The retraction
+;; honours that lock rather than reopening it, so spec, published
+;; skill, and runtime agree again: no copy-value on this renderer.
 ;;
-;; The `:rf.xray/copy-value-to-clipboard` event + the
-;; `:rf.xray.fx/copy-to-clipboard` fx are registered process-globally
-;; by `app-db-diff-events/install!` (always called from
-;; `registry.cljs`), so the dispatch resolves on every surface.
-;;
-;; The affordance captures the SURROUNDING frame at render time via
-;; `(rf/current-frame-id)` and dispatches into it on click. The
-;; click-handler fires after React pops the frame context, so the
-;; render-time capture is what keeps the dispatch on the right instance
-;; frame (N parallel shells stay isolated). The widget root threads
-;; everywhere through plain fns, so a render-time `current-frame-id`
-;; capture is cleaner than plumbing a `dispatch-fn` through the whole
-;; inspect/browse/diff/mini tree.
-
-(defn copy-affordance
-  "A hover-revealed `⎘` copy button that copies `value` to the
-  clipboard via `:rf.xray/copy-value-to-clipboard`. Pure hiccup —
-  positioned `absolute` top-right of a `position:relative` parent. The
-  `testid` is derived from the widget's render container id so tests can
-  target the per-render affordance. The `⎘` glyph is the same
-  click-to-copy mark spec 007:668 uses for the namespace-fade keyword
-  copy."
-  [value testid]
-  ;; Capture the surrounding instance frame at RENDER time so the
-  ;; deferred copy click dispatches back to it (not a `:rf/xray`
-  ;; literal). The widget renders inside the panels' `reg-view`s, so
-  ;; `current-frame-id` resolves through the React-context tier here.
-  (let [frame (rf/current-frame-id)]
-   [:button {:data-testid testid
-            :aria-label  "Copy value to clipboard"
-            :title       "Copy value"
-            :on-click    (fn [^js e]
-                           (.stopPropagation e)
-                           (rf/dispatch [:rf.xray/copy-value-to-clipboard value]
-                                        {:frame frame}))
-            :class       "rf-xray-edn-widget-copy"
-            :style       {:position      "absolute"
-                          :top           "2px"
-                          :right         "2px"
-                          :z-index       1
-                          :background    (:bg-3 tokens)
-                          :color         (:text-secondary tokens)
-                          :border        (str "1px solid " (:border-subtle tokens))
-                          :border-radius "3px"
-                          :cursor        "pointer"
-                          :font-family   mono-stack
-                          :font-size     "11px"
-                          :line-height   1
-                          :padding       "2px 5px"
-                          ;; Recede until the parent is hovered. The
-                          ;; in-bundle stylesheet (theme/css) reveals it
-                          ;; on `:hover` / `:focus-within`; tests assert
-                          ;; on presence + dispatch, not the CSS reveal.
-                          :opacity       0.55}}
-    "⎘"]))
+;; A FOCUSED copy affordance remains possible as a NEW design, but it
+;; must reopen B.9 with the mayor first, and it has to carry
+;; provenance: `egress/egress-value` keys the framework's `:sensitive`
+;; / `:large` declarations by ABSOLUTE app-db path, and this facade's
+;; call sites hand it slices, raw fx request/response values, and
+;; registry values that are not rooted at app-db at all. A default-on
+;; root button walking whatever it was handed as if it were an app-db
+;; root would be fail-OPEN on most of them.
 
 ;; ---- panel-facing facade — inspect / inspect-inline ----------------------
 ;;
@@ -127,16 +82,13 @@
   including the spec/015 sentinels (`:rf/redacted` and
   `:rf.size/large-elided`) as first-class chip chrome.
 
-  Single-arg form picks a default panel-id; two-arg / three-arg forms
-  accept a node-key string (passed through as a stable per-mount
-  qualifier) and an opts map. The `:copy?` key is accepted but ignored
-  — copy chrome rides on the widget root instead.
+  Single-arg form picks a default panel-id; the two-arg form accepts a
+  node-key string, passed through as a stable per-mount qualifier.
 
   Diff rendering also routes through the widget (an opt-in `:before`
   mode on `ei/edn-inspector`)."
-  ([v] (inspect v "root" nil))
-  ([v node-key] (inspect v node-key nil))
-  ([v node-key _opts]
+  ([v] (inspect v "root"))
+  ([v node-key]
    [ei/edn-inspector v
     {:panel-id (keyword (str "rf.xray.inspect/" node-key))
      :default-expanded-depth 3}]))

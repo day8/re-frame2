@@ -2,16 +2,22 @@
   "Xray's panel-local off-box safe-egress projection.
 
   INTERNAL to Xray. This namespace is not part of Xray's published API and
-  carries no api-manifest row: it exists because two PANEL affordances put a
-  value the developer is looking at onto an off-box sink, and both need the
+  carries no api-manifest row: it exists because a PANEL affordance puts a
+  value the developer is looking at onto an off-box sink, and needs the
   framework's wire-elision walker with the off-box defaults already applied.
 
-  The two sinks (Security.md §Off-box egress):
+  ONE human value-egress affordance today (Security.md §Off-box egress): the
+  command-palette `Snapshot app-db` verb — JS console + system clipboard
+  (`palette/events.cljs`).
 
-  - the command-palette `Snapshot app-db` verb — JS console + system
-    clipboard (`palette/events.cljs`);
-  - the universal `⎘` copy-value affordance that rides every value
-    inspector — system clipboard (`panels/app_db_diff_events.cljs`).
+  The universal `⎘` copy-value affordance that once rode every value
+  inspector was RETIRED on 2026-09-04 (rf2-6r9j.24) — unreachable since the
+  rf2-oqa60 rebuild, and out of contract under the `spec/021` §10.5 B.9 lock.
+  This namespace stays the MUST-use gesture any FUTURE affordance inherits,
+  so its fail-closed arms are kept and pinned by tests rather than deleted
+  with it. Static Machines' `Copy Mermaid` also writes to the clipboard but
+  is NOT a value-egress site — `mermaid/emit` is value-free by contract, so
+  that text rides `:rf.xray.fx/copy-to-clipboard` directly.
 
   Programmer/AI inspection of a running app is NOT this namespace's job and
   never was: that seam is `re-frame2-pair.runtime` plus
@@ -47,8 +53,8 @@
   Off-box defaults: `:include-sensitive?` and `:include-large?` are both
   `false`, so a frame-declared sensitive slot egresses as `:rf/redacted` and
   a large slot as the `:rf.size/large-elided` marker. Xray's panel
-  affordances expose no opt-in argument — the copy and snapshot paths are
-  ALWAYS the redacted, size-elided projection.
+  affordances expose no opt-in argument — the snapshot path is ALWAYS the
+  redacted, size-elided projection, and any future affordance inherits that.
 
   Optional `:path` — the ABSOLUTE app-db path the value sits at. The
   framework's `:sensitive` / `:large` declarations (EP-0025 commit-plane
@@ -64,7 +70,8 @@
   its (normally empty) declaration registry and ships the value RAW. Passing
   the inspected frame — even when it is `nil` or has since been destroyed —
   routes the nil/dead case to the walker's frameless arm, which redacts the
-  whole value to `:rf/redacted` (rf2-7htk7):
+  whole value to `:rf/redacted` (rf2-7htk7). The contract — no live caller
+  today, and the shape any future panel affordance MUST take:
 
       (egress/egress-value v {:frame observed})   ; nil / dead ⇒ :rf/redacted
 

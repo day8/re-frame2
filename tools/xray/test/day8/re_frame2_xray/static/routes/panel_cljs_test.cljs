@@ -427,15 +427,14 @@
             (on-key (mk-ev "a" prevented))
             (is (false? @prevented))))))))
 
-;; ---- (11) expand-surface EDN renders via the shared widget (2kwhw+f026h) --
+;; ---- (11) expand-surface EDN renders via the shared widget (rf2-2kwhw) ----
 
-(deftest expand-meta-renders-through-edn-widget-with-copy
+(deftest expand-meta-renders-through-edn-widget
   (testing "rf2-2kwhw + rf2-oqa60 — the registrar-meta block routes
-            through the shared EDN widget; phase 1 delegates to the
-            first-class edn-inspector widget. The copy affordance is
-            deferred to the popup phase (D6=a) — phase 1 has no copy
-            chrome on the new widget, so this test now smokes the
-            widget wiring only."
+            through the shared EDN widget, which delegates to the
+            first-class edn-inspector widget. This test smokes that
+            wiring. The renderer carries no copy chrome (rf2-6r9j.24
+            retired the universal affordance; spec/021 §10.5, B.9)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
