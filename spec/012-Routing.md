@@ -620,7 +620,7 @@ credible **user intent** — pointer hover, focus, or touch-start — by dispatc
 render-time-captured frame (see [§Route-plan prefetch](#route-plan-prefetch--warm-mode-intent-preload)).
 
 ```clojure
-[v/route-link {:to :route/article :params {:slug slug} :prefetch :intent} title]
+[rf/route-link {:to :route/article :params {:slug slug} :prefetch :intent} title]
 ```
 
 `:intent` is the **only** accepted value; there is no render mode, viewport mode,
@@ -637,16 +637,28 @@ from another router (`:render`, `:viewport`), a boolean, an explicit `nil` or
 [`:rf.error/route-link-bad-prefetch`](009-Instrumentation.md#error-event-catalogue)
 at the render site. Stripping it instead would render a link indistinguishable from a
 working one: nothing on screen, nothing in the log, and the warm-up the author
-asked for silently absent until someone measured. The check lives in routing's one
-shared link calculation and runs on **both hosts**, so `rf/route-link`,
-`ui/route-link`, and `v/route-link` reject the same values the same way — the SSR
-shell included, which must not accept a mode the hydrated client rejects. The installed
-intent handlers **compose with**, rather than replace, a caller-supplied
+asked for silently absent until someone measured. The check is ONE shared
+validation, reached by every link calculation routing runs and on **both hosts** —
+`rf/route-link`'s CLJS render, its SSR shell, and the `:routing/link-model` seam a
+view substrate consumes for its own spelling — so all three reject the same values
+the same way, the SSR shell included, which must not accept a mode the hydrated
+client rejects. The installed intent handlers **compose with**, rather than replace, a caller-supplied
 `:on-mouse-enter` / `:on-focus` / `:on-touch-start`, and dispatch to the same
 render-time-captured frame the click handler targets — so a prefetch warms the
 frame that rendered the link, never a sibling. A caller who wants prefetch on a
 non-link intent (a search result becoming the keyboard selection) dispatches
 `:rf.route/prefetch` directly; the link opt is sugar over that event.
+
+**Validation is shared; wiring the triggers is the substrate's own call.** Rejecting a
+bad value and installing the hover / focus / touch-start handlers are separate
+obligations: the first is routing's and reaches every surface through the check
+above, the second belongs to whichever surface renders the anchor. `rf/route-link`
+wires the triggers. `re-frame.hicasso/route-link` does **not** in v0 — it owns
+`:prefetch` as a routing control key and keeps it off the emitted `<a>`, but installs
+no prefetch handler — so `:prefetch :intent` on a Hicasso link is validated and then
+inert, warming nothing. That is a deliberate v0 decline rather than an oversight, and
+this spec does not promise otherwise; on that substrate an author spells the warm-up
+directly, dispatching `:rf.route/prefetch` from an `:on-mouse-enter`.
 
 **Why the runtime doesn't auto-intercept.** A global `click` listener that calls `match-url` on every link is a host concern (DOM-bound, browser-only, conflicts with non-routed `<a>` tags inside iframes / shadow DOM / third-party widgets). The host adapter has the context to install or skip it; the runtime stays portable.
 
@@ -803,7 +815,7 @@ A registered destination is one closed, ordinary EDN map — caller *intent* for
 
 Its schema id is `:rf/route-address` ([Spec-Schemas §`:rf/route-address`](Spec-Schemas.md#rfroute-address)): a closed `[:map {:closed true} [:to :keyword] [:params {:optional true} :map] [:query {:optional true} :map] [:fragment {:optional true} [:maybe :string]]]`. `:to` is required; omitted `:params` / `:query` normalise to `{}`, an omitted or `nil` `:fragment` to no fragment. There is no record, constructor, builder, relative-address language, or redirect object — an application names address constants and pure functions with ordinary Clojure values.
 
-The same four fields are consumed wherever an address is stored, printed, linked, navigated to, denied, returned to, or prefetched: `rf.routing/route-url`, `rf/route-link` / `v/route-link` (as control fields inside the larger props map), the destination branch of `:rf.route/navigate`, the named destination carried by entry-denied and pending-leave data, application redirect / return-to state, and `:rf.route/prefetch`. Two companion values complete the vocabulary (EP-0037 §Terms):
+The same four fields are consumed wherever an address is stored, printed, linked, navigated to, denied, returned to, or prefetched: `rf.routing/route-url`, `rf/route-link` and a view substrate's own spelling of it (as control fields inside the larger props map), the destination branch of `:rf.route/navigate`, the named destination carried by entry-denied and pending-leave data, application redirect / return-to state, and `:rf.route/prefetch`. Two companion values complete the vocabulary (EP-0037 §Terms):
 
 - **`RouteDestination`** ([`:rf/route-destination`](Spec-Schemas.md#rfroute-destination)) — the closed replay union of a `RouteAddress` and the raw-URL escape, used where runtime state must replay a destination that may have no named spelling. It never absorbs navigation policy.
 - **`ResolvedTarget`** — planner output (`:route-id`, `:params`, `:query`, `:fragment`, `:url`) after matching, defaults, and validation. It is a *fact*, not another accepted input spelling; facts say `:route-id`, intent says `:to`.
