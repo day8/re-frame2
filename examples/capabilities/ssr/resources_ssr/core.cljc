@@ -25,9 +25,12 @@
      `:rf/runtime-db`). Fetch handles and the tag/owner indexes stay home;
      the indexes recompute from `:entries` the moment the client installs them.
    - On the client the framework's `:rf/hydrate` event drops those entries
-     into the frame's `:rf.runtime/resources` slice. A fresh entry renders
-     immediately and serves from cache. Stale, redacted, or omitted entries
-     refetch — because for those the client has nothing usable in hand.
+     into the frame's `:rf.runtime/resources` slice — and that is all it
+     does. Hydration reconciles and classifies; it never causes work, and
+     neither does reading. The `[:ssr …]` owner is dropped with the request
+     that minted it, so what lands is a renderable entry that nothing holds.
+     Acquiring it on the client is the app's job, and on a page with no route
+     the app has to do it by hand — see CLIENT-SIDE ACQUISITION below.
 
    This drives the real server path, not a stand-in. It blocks on the
    preloaded page resource before rendering (`await-resource-loaded!`,
@@ -148,17 +151,94 @@
                        :cause    :ssr-preload}]]]}))
 
 ;; ============================================================================
+;; CLIENT-SIDE ACQUISITION — the app-minted page owner
+;; ============================================================================
+;;
+;; Hydration is not acquisition, and this is the section that says so out loud.
+;; `:rf/hydrate` installs the server's entries, and the resource reconcile then
+;; DROPS the `[:ssr request-id nav-token]` owner — that hold belonged to a
+;; server request which has already finished. What arrives on the client is a
+;; `:loaded` entry with no live owner: renderable, but held by nothing. An
+;; ownerless entry is not a consumer. Tag invalidation passes it by, focus and
+;; reconnect revalidation skip it, and no GC clock is armed for it. Reading it
+;; through a subscription changes none of that — reads are passive by contract.
+;; So without an explicit client command the page would render the server's data
+;; once and then quietly stop being a cache.
+;;
+;; A ROUTED page never writes this section. `reg-route`'s `:resources` plan
+;; ensures under a `[:route route-id nav-token]` owner on route entry and
+;; releases it on route leave; the framework mints and retires the hold for you.
+;; This page is deliberately route-free — the simplest SSR shape there is — so
+;; there is no route entry to hang that off, and the app owns the lifecycle.
+;;
+;; The framework's answer for exactly that case is the APP-MINTED EVENT OWNER
+;; (Spec 016 §The scoped-cache owner lifecycle, the App/event owner row): an
+;; event that opens a view mints an owner named after itself, and a matching
+;; event releases it. The framework does not auto-release an app-minted owner —
+;; that pairing is the app's, and Xray lints an app owner it never sees dropped.
+;;
+;; `:resources-ssr.app/page-opened` is this page's one acquisition, and it is
+;; the SAME `ensure` the server ran, under a client owner. What it costs is not
+;; decided here — the resource runtime decides it from what hydration left:
+;;
+;;   - hydrated fresh (what the checked-in payload bakes) — `ensure` takes its
+;;     fresh-skip cache-hit path: attaches the owner, arms the entry's timers,
+;;     issues ZERO requests. The first paint still adopts the server's markup.
+;;   - hydrated stale — the entry keeps rendering its last-known-good data while
+;;     exactly one background refetch goes out.
+;;   - nothing hydrated (a plain client-only load with no `__rf_payload`) — one
+;;     first-load request, and the view shows its `:loading` skeleton until that
+;;     settles, rather than an empty list that looks like a successful answer.
+;;
+;; One event, three outcomes, none of them branched on here. That is the whole
+;; argument for a managed resource over a hand-rolled fetch.
+;; See docs/resources/glossary.md#owner--cause.
+
+(def ^:private page-owner
+  "This page's app-minted liveness owner, named after the event that mints it
+   (Spec 016's App/event owner row). The owner value IS an event id, so an Xray
+   owner row or a trace points straight back at the code holding the entry."
+  [:resources-ssr.app/page-opened])
+
+(rf/reg-event :resources-ssr.app/page-opened
+  {:doc       "The page's one client-side acquisition — take a live hold on
+               :articles/list under this page's app-minted owner. `run`
+               dispatches it AFTER hydrate! and BEFORE the first render, so the
+               entry the first render reads is already the one this owner holds."
+   :platforms #{:client}}
+  (fn [_ _]
+    {:fx [[:dispatch [:rf.resource/ensure
+                      {:resource :articles/list
+                       :params   {}
+                       :owner    page-owner
+                       :cause    [:event :resources-ssr.app/page-opened]}]]]}))
+
+(rf/reg-event :resources-ssr.app/page-closed
+  {:doc       "The matching release, and it is not optional: whatever mints an
+               owner must also drop it, or the entry is pinned alive forever and
+               the cache never GCs. This demo is a single page whose lifetime is
+               its frame's, so nothing here dispatches it — a page that can be
+               unmounted dispatches it on the way out, and a routed app gets the
+               equivalent for free when route-leave releases the route owner."
+   :platforms #{:client}}
+  (fn [_ _]
+    {:fx [[:dispatch [:rf.resource/release-owner {:owner page-owner}]]]}))
+
+;; ============================================================================
 ;; VIEWS — passive reads, server and client alike
 ;; ============================================================================
 ;;
 ;; The view does the simplest possible thing: it reads the resource through a
 ;; subscription and renders whatever's there. Reading never kicks off a fetch —
-;; the preload (server) and the hydration (client) already warmed the cache, so
-;; the data is just sitting there waiting. `:rf/resource` is the
-;; runtime's own subscription; it turns a cache entry into a tidy view-model —
-;; a status flag and the data. Either side, the data is present by first render,
-;; so there's no skeleton to flash. The same view code runs on both — the "one
-;; app, runs twice" promise, now over a managed resource.
+;; that is the contract, not an accident of this page. What warmed the cache is
+;; a command on each side: the server's `:rf/server-init` preload, and the
+;; client's `:resources-ssr.app/page-opened` acquisition below. `:rf/resource`
+;; is the runtime's own subscription; it turns a cache entry into a tidy
+;; view-model — a status flag and the data. On the documented run the data is
+;; present by first render on both sides, so there's no skeleton to flash; the
+;; `:loading` branch is what a cold client-only load shows while its one request
+;; is in flight. The same view code runs on both — the "one app, runs twice"
+;; promise, now over a managed resource.
 ;; See docs/ssr/glossary.md#render-to-string.
 
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
@@ -355,13 +435,19 @@
 ;; CLIENT ENTRY POINT
 ;; ============================================================================
 ;;
-;; The browser's side of the handoff. `rf.ssr/hydrate!` reads the payload,
-;; dispatch-syncs `[:rf/hydrate payload]` to install the resource projection
-;; into the frame's `:rf.runtime/resources` slice, then verifies the render
-;; hash to confirm client and server agree on what the page should look like.
-;; A fresh hydrated entry renders its data on the first paint and serves it
-;; straight from cache — no second fetch, which is exactly what preloading was
-;; for. A stale entry quietly refetches in the background, per its policy.
+;; The browser's side of the handoff, in three beats: HYDRATE, ACQUIRE, RENDER.
+;;
+;; `rf.ssr/hydrate!` reads the payload, dispatch-syncs `[:rf/hydrate payload]`
+;; to install the resource projection into the frame's `:rf.runtime/resources`
+;; slice, then verifies the render hash to confirm client and server agree on
+;; what the page should look like. That is a state install and a check: it
+;; issues nothing and leaves no owner behind.
+;;
+;; `:resources-ssr.app/page-opened` is the beat that does cause something. For
+;; the fresh hydrated entry it causes a cache hit — the owner attaches, the
+;; timers arm, and no request leaves the browser, which is exactly what
+;; preloading was for. For a cold or stale entry it causes the one load the page
+;; actually needs. Then the adapter renders, once.
 ;; See docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
 
 #?(:cljs (defonce app-root (rf.adapter.reagent/client-root)))
@@ -401,13 +487,26 @@
      (let [el      (and (exists? js/document) (js/document.getElementById "app"))
            payload (rf.ssr/hydrate! {:frame          app-frame
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
+           ;; ACQUIRE — after the hydrate, before the first render, and the
+           ;; order is load-bearing in both directions. Ahead of `hydrate!` this
+           ;; would fetch a list the payload is about to hand us; after the
+           ;; first render it would paint an idle empty list and then correct
+           ;; itself. It is `dispatch-sync` because the first render must read a
+           ;; settled entry: a sync dispatch drains the `ensure` it enqueues to
+           ;; fixed point before returning, so a cold load's first paint is the
+           ;; `:loading` skeleton rather than an empty `<ul>`.
+           _       (rf/dispatch-sync [:resources-ssr.app/page-opened]
+                                     {:frame app-frame})
            tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
        (when el
          ;; The whole adopt-vs-fresh decision is one option. With a payload the
          ;; server painted the page, so the first render HYDRATES: React
          ;; reconciles against the server markup — same nodes, listeners
-         ;; attached, no re-paint. Without one it is a plain first load and the
-         ;; adapter mounts a fresh root; a fresh entry serves from cache, a
-         ;; stale or absent one refetches per its policy. Either way the root
-         ;; is created exactly once, here, and `render!` above reuses it.
+         ;; attached, no re-paint. The acquisition above cannot disturb that:
+         ;; on a fresh hydrated entry `ensure` fresh-skips, so the tree the
+         ;; adapter adopts is the one the server rendered. Without a payload it
+         ;; is a plain first load and the adapter mounts a fresh root against
+         ;; the loading state that same acquisition just established. Either way
+         ;; the root is created exactly once, here, and `render!` above reuses
+         ;; it.
          (rf.adapter.reagent/render! app-root tree el {:hydrate? (some? payload)})))))
