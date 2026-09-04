@@ -310,6 +310,43 @@
       (is (= [{:n 2} {:n 3} {:n 4}] dbs)
           "the three most-recent records are kept; oldest two are evicted FIFO"))))
 
+(deftest lowering-depth-prunes-the-live-ring-cljs
+  ;; rf2-f8wu — the cross-target half of the JVM suite's
+  ;; `lowering-depth-prunes-every-live-ring-immediately` /
+  ;; `depth-zero-drops-retained-history-and-refuses-time-travel` pair. The
+  ;; enforcement lives in `re-frame.epoch.state/merge-config!`, a `.cljc`
+  ;; shared with the JVM, so this pins that the depth bound reaches the
+  ;; live ring under CLJS too — on BOTH axes, since a fix that closed the
+  ;; query surface without the restore surface would look green on either
+  ;; one alone.
+  (testing "a depth reduction prunes the live ring at the configure!
+            boundary, and depth 0 empties it — the dropped records are
+            afterwards neither queryable nor restorable"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+
+    (rf/dispatch-sync [:n/init])
+    (dotimes [_ 4] (rf/dispatch-sync [:n/inc]))
+    (is (= 5 (count (rf/epoch-history :rf/default)))
+        "precondition: the ring holds five records")
+
+    ;; Lowering the depth bites now — no further dispatch appends.
+    (rf/configure! {:epoch-history {:depth 2}})
+    (is (= [{:n 3} {:n 4}] (mapv :db-after (rf/epoch-history :rf/default)))
+        "the newest two are retained, still oldest-first")
+
+    (let [saved-id (:epoch-id (first (rf/epoch-history :rf/default)))]
+      (rf/configure! {:epoch-history {:depth 0}})
+      (is (= [] (rf/epoch-history :rf/default))
+          "depth 0 empties the ring, records retained beforehand included")
+      (is (= [] (rf/projected-history :rf/default))
+          "the off-box projection reads the same pruned ring")
+      (is (false? (rf/restore-epoch! :rf/default saved-id))
+          "a retired id is no longer a valid restore target")
+      (is (= {:n 4} (rf/app-db-value :rf/default))
+          "and the refused restore left app-db untouched"))))
+
 ;; ---- 4. Per-dispatch fan-out — register-epoch-listener! + snapshotted trace ----
 
 (deftest epoch-cb-fires-per-dispatch-cljs
