@@ -153,8 +153,11 @@
 
 (def ^:private presence-attributes
   "PRESENCE class: `true` emits the bare (lowercased) name, `false`
-  omits it, and any other truthy value also emits the bare name
-  (react-dom collapses `{:disabled \"yes\"}` to `disabled=\"\"`).
+  omits it, and any other JAVASCRIPT-truthy value also emits the bare
+  name (react-dom collapses `{:disabled \"yes\"}` to `disabled=\"\"`).
+  JS-falsey non-booleans — `\"\"` and `0`, both of which are logically
+  TRUE in ClojureScript — are omitted, as react-dom omits them; see
+  `presence-value-truthy?` (rf2-owml).
 
   Keyed on the LOWERCASE name so all three hiccup spellings of a
   camelCase attribute reach the same row — `:read-only`, `:readOnly`
@@ -698,6 +701,27 @@
                          (<= (.charCodeAt ch 0) 90)))) ; 'Z'
              (contains? event-handler-allowlist (str/lower-case n))))))
 
+(defn- ^boolean presence-value-truthy?
+  "True when react-dom would treat this NON-boolean, non-nil attribute
+  value as present (rf2-owml).
+
+  react-dom collapses a presence attribute on JavaScript truthiness, so
+  `{:disabled \"\"}` and `{:disabled 0}` render NOTHING while
+  `{:disabled \"yes\"}` renders `disabled=\"\"`. ClojureScript disagrees:
+  `\"\"` and `0` are logically TRUE in CLJS, so the obvious `(when v ...)`
+  emits a bare `disabled` here where React emits no attribute at all.
+
+  Only strings and numbers can be JS-falsey once `nil`, `false` and
+  `js/undefined` have been handled upstream — keywords, collections and
+  objects are all truthy — so the two cases are spelled out rather than
+  reaching for a `js*` truthiness cast. Note that the STRING `\"0\"` is
+  truthy (it is a non-empty string); only the NUMBER `0` is not."
+  [v]
+  (cond
+    (string? v) (not= "" v)
+    (number? v) (not (or (zero? v) (js/isNaN v)))
+    :else       true))
+
 (defn- emit-boolean-attribute
   "Emit one attribute whose VALUE is a boolean, per react-dom's three
   boolean classes (`boolean-attr-class`). A name in no class emits
@@ -780,14 +804,18 @@
     (let [n      (attribute-name k)
           bool-n (str/lower-case n)]
       (if (contains? presence-attributes bool-n)
-        ;; Presence attribute with a non-boolean truthy value: emit the
-        ;; (lowercase HTML5) name. react-dom collapses the same way —
-        ;; `{:disabled "yes"}` → `disabled=""`. Overloaded and
-        ;; stringifying names deliberately fall through to the ordinary
-        ;; path, which is what keeps `{:download "report.pdf"}` and
+        ;; Presence attribute with a non-boolean value: emit the
+        ;; (lowercase HTML5) name when react-dom would. react-dom
+        ;; collapses on JS TRUTHINESS — `{:disabled "yes"}` →
+        ;; `disabled=""`, but `{:disabled ""}` and `{:disabled 0}` emit
+        ;; nothing, and those two are logically true in CLJS
+        ;; (rf2-owml). Overloaded and stringifying names deliberately
+        ;; fall through to the ordinary path, which is what keeps
+        ;; `{:download "report.pdf"}` and
         ;; `{:contentEditable "plaintext-only"}` intact.
-        (do (.append sb " ")
-            (.append sb bool-n))
+        (when (presence-value-truthy? v)
+          (.append sb " ")
+          (.append sb bool-n))
         (do (.append sb " ")
             (.append sb n)
             (.append sb "=\"")
