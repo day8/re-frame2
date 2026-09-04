@@ -20,13 +20,13 @@
   assertion (`[aria-pressed=\"true\"]` count → 0 after reset) is never
   tripped by background state."
   (:require [reagent.core :as r]
-            [re-frame.story.backgrounds      :as backgrounds]
-            [re-frame.story.config           :as config]
-            [re-frame.story.predicates       :as pred]
-            [re-frame.story.registrar        :as registrar]
-            [re-frame.story.ui.state         :as state]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.backgrounds      :as rf.story.backgrounds]
+            [re-frame.story.config           :as rf.story.config]
+            [re-frame.story.predicates       :as rf.story.predicates]
+            [re-frame.story.registrar        :as rf.story.registrar]
+            [re-frame.story.ui.state         :as rf.story.ui.state]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- dropdown state ------------------------------------------------------
 
@@ -47,17 +47,17 @@
   chrome-wide background. nil clears the selection back to the
   default. Writes through to localStorage."
   [sel]
-  (when config/enabled?
-    (let [normalised (backgrounds/coerce sel)]
-      (state/swap-state! assoc :background normalised)
-      (backgrounds/save-to-storage! normalised)
+  (when rf.story.config/enabled?
+    (let [normalised (rf.story.backgrounds/coerce sel)]
+      (rf.story.ui.state/swap-state! assoc :background normalised)
+      (rf.story.backgrounds/save-to-storage! normalised)
       (close!))))
 
 (defn submit-custom!
   "Validate the custom colour-input value + persist if usable."
   []
   (let [cand @custom-input-atom]
-    (when (backgrounds/valid-custom? cand)
+    (when (rf.story.backgrounds/valid-custom? cand)
       (select! cand))))
 
 ;; ---- hydration -----------------------------------------------------------
@@ -65,10 +65,10 @@
 (defn hydrate!
   "Seed `:background` on shell mount from localStorage. Idempotent."
   []
-  (when (and config/enabled?
-             (nil? (:background @state/shell-state-atom)))
-    (when-some [persisted (backgrounds/load-from-storage)]
-      (state/swap-state! assoc :background persisted))))
+  (when (and rf.story.config/enabled?
+             (nil? (:background @rf.story.ui.state/shell-state-atom)))
+    (when-some [persisted (rf.story.backgrounds/load-from-storage)]
+      (rf.story.ui.state/swap-state! assoc :background persisted))))
 
 ;; ---- per-story override lookup -------------------------------------------
 
@@ -76,42 +76,42 @@
   "Resolve the effective background preset for the currently-focused
   variant. Returns the preset map `{:label :color}`."
   []
-  (let [shell      @state/shell-state-atom
+  (let [shell      @rf.story.ui.state/shell-state-atom
         variant-id (:selected-variant shell)
         var-body   (when variant-id
-                     (registrar/handler-meta :variant variant-id))
-        story-id   (some-> variant-id pred/parent-story-id)
+                     (rf.story.registrar/handler-meta :variant variant-id))
+        story-id   (some-> variant-id rf.story.predicates/parent-story-id)
         story-body (when story-id
-                     (registrar/handler-meta :story story-id))
+                     (rf.story.registrar/handler-meta :story story-id))
         override   (or (:background var-body)
                        (:background story-body))]
-    (backgrounds/resolve override (:background shell))))
+    (rf.story.backgrounds/resolve override (:background shell))))
 
 (defn effective-id
   "Resolved id (preset keyword or `:custom`) for the focused variant."
   []
-  (let [shell      @state/shell-state-atom
+  (let [shell      @rf.story.ui.state/shell-state-atom
         variant-id (:selected-variant shell)
         var-body   (when variant-id
-                     (registrar/handler-meta :variant variant-id))
-        story-id   (some-> variant-id pred/parent-story-id)
+                     (rf.story.registrar/handler-meta :variant variant-id))
+        story-id   (some-> variant-id rf.story.predicates/parent-story-id)
         story-body (when story-id
-                     (registrar/handler-meta :story story-id))
+                     (rf.story.registrar/handler-meta :story story-id))
         override   (or (:background var-body)
                        (:background story-body))]
-    (backgrounds/resolve-id override (:background shell))))
+    (rf.story.backgrounds/resolve-id override (:background shell))))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private styles
   {:chip        {:padding         "3px 10px"
-                 :background      (:bg-3 colors/tokens)
-                 :color           (:text-primary colors/tokens)
+                 :background      (:bg-3 rf.story.theme.colors/tokens)
+                 :color           (:text-primary rf.story.theme.colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :user-select     "none"
                  :display         "inline-flex"
                  :align-items     "center"
@@ -138,24 +138,24 @@
                  :flex-direction  "column"
                  :gap             "2px"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)}
+                 :font-size       (:caption rf.story.theme.typography/type-scale)}
    :item        {:display         "flex"
                  :align-items     "center"
                  :gap             "8px"
                  :padding         "5px 8px"
                  :background      "transparent"
-                 :color           (:text-primary colors/tokens)
+                 :color           (:text-primary rf.story.theme.colors/tokens)
                  :border          "none"
                  :border-radius   "3px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :text-align      "left"
                  :width           "100%"}
-   :item-active {:background (:accent-amber colors/tokens)
+   :item-active {:background (:accent-amber rf.story.theme.colors/tokens)
                  :color      "white"}
    :divider     {:height          "1px"
-                 :background      (:border-subtle colors/tokens)
+                 :background      (:border-subtle rf.story.theme.colors/tokens)
                  :margin          "4px 0"}
    :custom-row  {:display "flex"
                  :gap "6px"
@@ -166,16 +166,16 @@
                   :padding      "0"
                   :border       "1px solid #444"
                   :border-radius "3px"
-                  :background   (:bg-2 colors/tokens)
+                  :background   (:bg-2 rf.story.theme.colors/tokens)
                   :cursor       "pointer"}
    :custom-go   {:padding         "3px 8px"
-                 :background      (:accent-amber colors/tokens)
+                 :background      (:accent-amber rf.story.theme.colors/tokens)
                  :color           "white"
                  :border          "none"
                  :border-radius   "3px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:micro typography/type-scale)}
+                 :font-size       (:micro rf.story.theme.typography/type-scale)}
    :backdrop    {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
                  :z-index 1499
@@ -200,13 +200,13 @@
     [:span {:style (merge (:swatch styles) checkerboard-mini)}]
 
     (and (keyword? id-or-color) (= :checkerboard
-                                   (:color (get backgrounds/presets id-or-color))))
+                                   (:color (get rf.story.backgrounds/presets id-or-color))))
     [:span {:style (merge (:swatch styles) checkerboard-mini)}]
 
     (keyword? id-or-color)
     [:span {:style (merge (:swatch styles)
                           {:background-color
-                           (:color (get backgrounds/presets id-or-color)
+                           (:color (get rf.story.backgrounds/presets id-or-color)
                                    "#888888")})}]
 
     (string? id-or-color)
@@ -219,7 +219,7 @@
 
 (defn- preset-row
   [id active-id]
-  (let [{:keys [label]} (get backgrounds/presets id)
+  (let [{:keys [label]} (get rf.story.backgrounds/presets id)
         active? (= id active-id)]
     [:button
      {:style       (merge (:item styles)
@@ -283,7 +283,7 @@
        [:div {:style     (:menu styles)
               :role      "menu"
               :data-test "story-backgrounds-menu"}
-        (for [id backgrounds/preset-order]
+        (for [id rf.story.backgrounds/preset-order]
           ^{:key id} [preset-row id active-id])
         [:div {:style (:divider styles)}]
         (custom-row)])]))
@@ -291,4 +291,4 @@
 (defn chip-when-enabled
   "Render the chip only when Story is enabled."
   []
-  (when config/enabled? [chip]))
+  (when rf.story.config/enabled? [chip]))

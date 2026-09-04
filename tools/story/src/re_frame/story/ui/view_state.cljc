@@ -72,7 +72,7 @@
   collection, opaque predicate, registry ref, or simply no schema) drops
   to the raw-EDN escape hatch, which is ALWAYS present — the form never
   blocks a value. Either path emits the SAME copy-paste `:sub-overrides`
-  scaffold (`schema-form/override-snippet`, source never written
+  scaffold (`rf.story.ui.schema-form/override-snippet`, source never written
   directly), exactly as the upgrade path does.
 
   ## Pure / CLJS split
@@ -89,9 +89,9 @@
   `config/enabled?`-gated controls panel mount, so production builds
   never invoke it and closure DCEs the lot (same contract as the rest of
   the Story UI). The pure `.cljc` helpers carry no DOM / Reagent dep."
-  (:require [re-frame.story.plan :as plan]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.ui.schema-validation :as schema-validation]
+  (:require [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
             ;; `clojure.string` is consumed ONLY by the `:cljs` render
             ;; helpers (`str/join` in the provenance lines); the pure
             ;; `.cljc` projection needs no string lib, so it rides the
@@ -99,12 +99,12 @@
             ;; (the `author_expectations.cljc` idiom).
             #?@(:cljs [[clojure.string :as str]
                        [reagent.core :as r]
-                       [re-frame.registrar :as rf-registrar]
-                       [re-frame.story.review-dialog :as review-dialog]
-                       [re-frame.story.ui.schema-form :as schema-form]
-                       [re-frame.story.ui.trace-buffer :as trace-buffer]
-                       [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
-                       [re-frame.story.theme.colors :as colors]])))
+                       [re-frame.registrar :as rf.registrar]
+                       [re-frame.story.review-dialog :as rf.story.review-dialog]
+                       [re-frame.story.ui.schema-form :as rf.story.ui.schema-form]
+                       [re-frame.story.ui.trace-buffer :as rf.story.ui.trace-buffer]
+                       [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack sans-stack]]
+                       [re-frame.story.theme.colors :as rf.story.theme.colors]])))
 
 ;; ===========================================================================
 ;; PURE: the fidelity ladder
@@ -282,7 +282,7 @@
   Pure data → data."
   [plan]
   (let [overrides (-> (get-in plan [:world :frame :fx-overrides])
-                      (dissoc plan/managed-fx-id))]
+                      (dissoc rf.story.plan/managed-fx-id))]
     {:present? (boolean (seq overrides))
      :fx-count (count overrides)
      :fx-ids   (vec (sort-by str (keys overrides)))}))
@@ -329,13 +329,13 @@
   "Filter `trace-events` (raw rows from the variant's trace buffer) to the
   `:rf.error/schema-validation-failure` events whose `:where` is
   `:sub-override`, projected through the SAME
-  `schema-validation/project-failures` the schema-validation panel uses
+  `rf.story.ui.schema-validation/project-failures` the schema-validation panel uses
   (no second projector). Returns a vector of failure rows (oldest first).
   Pure data → data; JVM-testable."
   [trace-events]
   (into []
         (filter #(= :sub-override (:where %)))
-        (schema-validation/project-failures trace-events)))
+        (rf.story.ui.schema-validation/project-failures trace-events)))
 
 ;; ===========================================================================
 ;; PURE: the upgrade path (no artifact-kind change)
@@ -392,7 +392,7 @@
                  ":setup   [[:dispatch [:your/setup-event {}]]] ; real events — proves handlers + app-db"
                  :db-seed
                  ":db-seed {} ; schema-checked direct app-db seed — fill the validated state shape")]
-    (str (pred/reg-variant-envelope
+    (str (rf.story.predicates/reg-variant-envelope
            "story" new-id
            (str ":extends " (pr-str source-variant-id) "\n"
                 "   " slot))
@@ -443,15 +443,15 @@
   [variant-id trace-events]
   #?(:clj
      (try
-       (view-state-model (plan/variant-plan variant-id)
-                         (plan/explain variant-id)
+       (view-state-model (rf.story.plan/variant-plan variant-id)
+                         (rf.story.plan/explain variant-id)
                          trace-events)
        (catch Throwable e
          {:error (or (.getMessage e) (str e))}))
      :cljs
      (try
-       (view-state-model (plan/variant-plan variant-id)
-                         (plan/explain variant-id)
+       (view-state-model (rf.story.plan/variant-plan variant-id)
+                         (rf.story.plan/explain variant-id)
                          trace-events)
        (catch :default e
          {:error (or (.-message e) (str e))}))))
@@ -466,28 +466,28 @@
      border/accent colour. `:real` reads healthy-green, `:mid`
      informational-blue, `:low` calm-amber (the 'work in progress' /
      low-fidelity tone — calm during exploration, not a red failure)."
-     {:real (:success colors/tokens)
-      :mid  (:info colors/tokens)
-      :low  (:warning colors/tokens)}))
+     {:real (:success rf.story.theme.colors/tokens)
+      :mid  (:info rf.story.theme.colors/tokens)
+      :low  (:warning rf.story.theme.colors/tokens)}))
 
 #?(:cljs
    (def ^:private tone->bg
-     {:real (:success-bg colors/tokens)
-      :mid  (:info-bg colors/tokens)
-      :low  (:warning-bg colors/tokens)}))
+     {:real (:success-bg rf.story.theme.colors/tokens)
+      :mid  (:info-bg rf.story.theme.colors/tokens)
+      :low  (:warning-bg rf.story.theme.colors/tokens)}))
 
 #?(:cljs
    (def ^:private styles
      {:section      {:margin-bottom "12px"}
       :section-h    {:font-weight "bold"
-                     :color (:text-secondary colors/tokens)
+                     :color (:text-secondary rf.story.theme.colors/tokens)
                      :text-transform "uppercase"
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :letter-spacing "0.5px"
                      :margin-bottom "4px"}
-      :blurb        {:color (:text-tertiary colors/tokens)
+      :blurb        {:color (:text-tertiary rf.story.theme.colors/tokens)
                      :font-style "italic"
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :margin-bottom "6px"}
       :ladder       {:display "flex"
                      :flex-direction "column"
@@ -502,123 +502,123 @@
                      :border-left "3px solid transparent"}
       :rung-rank    {:font-family mono-stack
                      :font-weight "bold"
-                     :color (:text-tertiary colors/tokens)}
+                     :color (:text-tertiary rf.story.theme.colors/tokens)}
       :rung-label   {:font-weight "bold"}
-      :rung-note    {:color (:text-tertiary colors/tokens)
-                     :font-size (:micro typography/type-scale)
+      :rung-note    {:color (:text-tertiary rf.story.theme.colors/tokens)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :grid-column "2 / 4"}
       :rung-state   {:font-family mono-stack
-                     :font-size (:nano typography/type-scale)
+                     :font-size (:nano rf.story.theme.typography/type-scale)
                      :text-transform "uppercase"
                      :letter-spacing "0.5px"
                      :align-self "center"}
       :prov         {:margin "2px 0 0 0"
                      :padding "3px 6px"
-                     :background (:bg-3 colors/tokens)
+                     :background (:bg-3 rf.story.theme.colors/tokens)
                      :border-radius "3px"
-                     :font-size (:micro typography/type-scale)
-                     :color (:text-secondary colors/tokens)}
-      :prov-label   {:color (:info colors/tokens)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
+                     :color (:text-secondary rf.story.theme.colors/tokens)}
+      :prov-label   {:color (:info rf.story.theme.colors/tokens)
                      :font-weight "bold"
                      :margin-right "6px"}
       :guardrail    {:padding "5px 7px"
                      :margin "4px 0"
-                     :background (:warning-bg colors/tokens)
-                     :border-left (str "3px solid " (:warning colors/tokens))
+                     :background (:warning-bg rf.story.theme.colors/tokens)
+                     :border-left (str "3px solid " (:warning rf.story.theme.colors/tokens))
                      :border-radius "3px"
-                     :color (:text-primary colors/tokens)
-                     :font-size (:micro typography/type-scale)
+                     :color (:text-primary rf.story.theme.colors/tokens)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :line-height "1.5"}
       :override-row {:display "grid"
                      :grid-template-columns "1fr 1fr"
                      :gap "6px"
                      :padding "2px 0"
-                     :border-bottom (str "1px dotted " (:border-subtle colors/tokens))
+                     :border-bottom (str "1px dotted " (:border-subtle rf.story.theme.colors/tokens))
                      :font-family mono-stack
-                     :font-size (:micro typography/type-scale)}
-      :ovr-query    {:color (:warning colors/tokens)}
-      :ovr-value    {:color (:info colors/tokens)}
+                     :font-size (:micro rf.story.theme.typography/type-scale)}
+      :ovr-query    {:color (:warning rf.story.theme.colors/tokens)}
+      :ovr-value    {:color (:info rf.story.theme.colors/tokens)}
       :fail         {:padding "4px 6px"
                      :margin "2px 0"
-                     :background (:danger-bg colors/tokens)
-                     :border-left (str "3px solid " (:danger colors/tokens))
-                     :color (:danger colors/tokens)
-                     :font-size (:micro typography/type-scale)}
-      :empty        {:color (:text-tertiary colors/tokens)
+                     :background (:danger-bg rf.story.theme.colors/tokens)
+                     :border-left (str "3px solid " (:danger rf.story.theme.colors/tokens))
+                     :color (:danger rf.story.theme.colors/tokens)
+                     :font-size (:micro rf.story.theme.typography/type-scale)}
+      :empty        {:color (:text-tertiary rf.story.theme.colors/tokens)
                      :font-style "italic"
-                     :font-size (:micro typography/type-scale)}
+                     :font-size (:micro rf.story.theme.typography/type-scale)}
       :upgrade-row  {:display "flex"
                      :gap "6px"
                      :align-items "center"
                      :flex-wrap "wrap"
                      :margin-top "4px"}
       :upgrade-btn  {:padding "3px 8px"
-                     :background (:bg-3 colors/tokens)
-                     :color (:text-primary colors/tokens)
-                     :border (str "1px solid " (:border-default colors/tokens))
+                     :background (:bg-3 rf.story.theme.colors/tokens)
+                     :color (:text-primary rf.story.theme.colors/tokens)
+                     :border (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                      :border-radius "3px"
                      :cursor "pointer"
                      :font-family sans-stack
-                     :font-size (:micro typography/type-scale)}
-      :error        {:color (:danger colors/tokens)
-                     :background (:danger-bg colors/tokens)
-                     :border (str "1px solid " (:danger colors/tokens))
+                     :font-size (:micro rf.story.theme.typography/type-scale)}
+      :error        {:color (:danger rf.story.theme.colors/tokens)
+                     :background (:danger-bg rf.story.theme.colors/tokens)
+                     :border (str "1px solid " (:danger rf.story.theme.colors/tokens))
                      :border-radius "3px"
                      :padding "6px"
                      :font-family mono-stack
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :white-space "pre-wrap"}
       ;; rf2-xon7j — the schema-generated value-entry surface.
       :pin-btn      {:padding "2px 8px"
-                     :background (:bg-3 colors/tokens)
-                     :color (:text-primary colors/tokens)
-                     :border (str "1px solid " (:border-default colors/tokens))
+                     :background (:bg-3 rf.story.theme.colors/tokens)
+                     :color (:text-primary rf.story.theme.colors/tokens)
+                     :border (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                      :border-radius "3px"
                      :cursor "pointer"
                      :font-family sans-stack
-                     :font-size (:nano typography/type-scale)
+                     :font-size (:nano rf.story.theme.typography/type-scale)
                      :margin-left "6px"}
       :tab-row      {:display "flex" :gap "4px" :margin-bottom "8px"}
       :tab          {:padding "3px 10px"
-                     :background (:bg-2 colors/tokens)
-                     :color (:text-secondary colors/tokens)
-                     :border (str "1px solid " (:border-subtle colors/tokens))
+                     :background (:bg-2 rf.story.theme.colors/tokens)
+                     :color (:text-secondary rf.story.theme.colors/tokens)
+                     :border (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                      :border-radius "3px"
                      :cursor "pointer"
                      :font-family sans-stack
-                     :font-size (:micro typography/type-scale)}
-      :tab-active   {:background (:info-bg colors/tokens)
-                     :color (:info colors/tokens)
-                     :border (str "1px solid " (:info colors/tokens))}
+                     :font-size (:micro rf.story.theme.typography/type-scale)}
+      :tab-active   {:background (:info-bg rf.story.theme.colors/tokens)
+                     :color (:info rf.story.theme.colors/tokens)
+                     :border (str "1px solid " (:info rf.story.theme.colors/tokens))}
       :form-grid    {:display "grid"
                      :grid-template-columns "auto 1fr"
                      :gap "6px 10px"
                      :align-items "baseline"
                      :margin-bottom "8px"}
       :form-key     {:font-family mono-stack
-                     :font-size (:micro typography/type-scale)
-                     :color (:warning colors/tokens)}
+                     :font-size (:micro rf.story.theme.typography/type-scale)
+                     :color (:warning rf.story.theme.colors/tokens)}
       :form-input   {:padding "3px 6px"
-                     :background (:bg-2 colors/tokens)
-                     :color (:text-primary colors/tokens)
-                     :border (str "1px solid " (:border-default colors/tokens))
+                     :background (:bg-2 rf.story.theme.colors/tokens)
+                     :color (:text-primary rf.story.theme.colors/tokens)
+                     :border (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                      :border-radius "3px"
                      :font-family mono-stack
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :width "100%"
                      :box-sizing "border-box"}
       :edn-area     {:padding "6px"
                      :background "#0e0e10"
-                     :color (:warning colors/tokens)
-                     :border (str "1px solid " (:border-default colors/tokens))
+                     :color (:warning rf.story.theme.colors/tokens)
+                     :border (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                      :border-radius "3px"
                      :font-family mono-stack
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :width "100%"
                      :min-height "60px"
                      :box-sizing "border-box"}
-      :edn-err      {:color (:danger colors/tokens)
-                     :font-size (:micro typography/type-scale)
+      :edn-err      {:color (:danger rf.story.theme.colors/tokens)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :margin-top "4px"}}))
 
 ;; ---- schema-generated value entry (rf2-xon7j) ----------------------------
@@ -642,7 +642,7 @@
      [query-v]
      (when (vector? query-v)
        (try
-         (:schema (rf-registrar/lookup :sub (first query-v)))
+         (:schema (rf.registrar/lookup :sub (first query-v)))
          (catch :default _ nil)))))
 
 #?(:cljs
@@ -650,10 +650,10 @@
      "Resolve the field-shape for the sub-override `query-v` — the flat
       form descriptor derived from the target sub's output schema, or the
       EDN-escape-hatch descriptor when the sub has no schema / a non-flat
-      one. Returns a `schema-form/field-shape` map. CLJS-only (reaches the
+      one. Returns a `rf.story.ui.schema-form/field-shape` map. CLJS-only (reaches the
       framework registrar); pure once the schema is resolved."
      [query-v]
-     (schema-form/field-shape (sub-output-schema query-v))))
+     (rf.story.ui.schema-form/field-shape (sub-output-schema query-v))))
 
 ;; ---- the value-entry dialog ratom (reuses the shared review-dialog) ------
 ;;
@@ -665,7 +665,7 @@
 
 #?(:cljs
    (defonce ^:private value-entry-dialog
-     (r/atom (assoc review-dialog/initial-state
+     (r/atom (assoc rf.story.review-dialog/initial-state
                     :form    nil
                     :edn     ""
                     :edn?    false
@@ -683,9 +683,9 @@
      (let [shape (override-field-shape query-v)
            form  (if (some? current-value)
                    current-value
-                   (schema-form/default-form-value shape))]
+                   (rf.story.ui.schema-form/default-form-value shape))]
        (reset! value-entry-dialog
-               (-> review-dialog/initial-state
+               (-> rf.story.review-dialog/initial-state
                    (assoc :open?     true
                           :source-id variant-id
                           :query-v   query-v
@@ -698,14 +698,14 @@
 #?(:cljs
    (defn- close-value-entry-dialog! []
      (reset! value-entry-dialog
-             (assoc review-dialog/initial-state
+             (assoc rf.story.review-dialog/initial-state
                     :form nil :edn "" :edn? false :shape nil :query-v nil))))
 
 ;; ---- the upgrade dialog ratom (reuses the shared review-dialog) ----------
 
 #?(:cljs
    (defonce ^:private upgrade-dialog
-     (r/atom review-dialog/initial-state)))
+     (r/atom rf.story.review-dialog/initial-state)))
 
 #?(:cljs
    (defn- open-upgrade-dialog!
@@ -716,7 +716,7 @@
      [source-variant-id target-rung]
      (let [snippet (upgrade-snippet source-variant-id target-rung)]
        (reset! upgrade-dialog
-               (-> review-dialog/initial-state
+               (-> rf.story.review-dialog/initial-state
                    (assoc :open?     true
                           :source-id source-variant-id
                           :context   {:target-rung target-rung
@@ -724,7 +724,7 @@
 
 #?(:cljs
    (defn- close-upgrade-dialog! []
-     (reset! upgrade-dialog review-dialog/initial-state)))
+     (reset! upgrade-dialog rf.story.review-dialog/initial-state)))
 
 ;; ---- schema-generated value-entry render (rf2-xon7j) ---------------------
 ;;
@@ -738,12 +738,12 @@
    (defn- field-widget
      "Render one flat field widget for `field` (`{:key :widget}`) against
       the form `value` map, writing typed edits back through `on-edit`
-      `(fn [k typed-value])` (the value is coerced via `schema-form/
+      `(fn [k typed-value])` (the value is coerced via `rf.story.ui.schema-form/
       coerce-input` before it lands). Closed scalar vocabulary —
       `:text` / `:number` / `:boolean` / `:select`."
      [{fk :key {:keys [widget options] :as wspec} :widget} value on-edit]
      (let [v     (get value fk)
-           emit! (fn [raw] (on-edit fk (schema-form/coerce-input wspec raw)))]
+           emit! (fn [raw] (on-edit fk (rf.story.ui.schema-form/coerce-input wspec raw)))]
        (case widget
          :boolean
          [:input {:type      "checkbox"
@@ -821,11 +821,11 @@
       a placeholder so the preview still renders honestly)."
      [{:keys [source-id query-v form edn edn?]}]
      (if edn?
-       (let [[ok? v] (schema-form/read-edn-value edn)]
-         (schema-form/override-snippet source-id query-v
+       (let [[ok? v] (rf.story.ui.schema-form/read-edn-value edn)]
+         (rf.story.ui.schema-form/override-snippet source-id query-v
                                        (if ok? v :rf.story/fill-this-value)
                                        true))
-       (schema-form/override-snippet source-id query-v form false))))
+       (rf.story.ui.schema-form/override-snippet source-id query-v form false))))
 
 #?(:cljs
    (defn- value-entry-dialog-view
@@ -841,11 +841,11 @@
          (let [{:keys [query-v shape edn edn? form]} dialog
                renderable? (:renderable? shape)
                edn-tab?    (boolean edn?)
-               [edn-ok? edn-err] (when edn-tab? (schema-form/read-edn-value edn))
+               [edn-ok? edn-err] (when edn-tab? (rf.story.ui.schema-form/read-edn-value edn))
                snippet     (value-entry-snippet dialog)
                set-tab!    (fn [to-edn?]
                              (swap! value-entry-dialog assoc :edn? to-edn?))]
-           (review-dialog/review-dialog dialog
+           (rf.story.review-dialog/review-dialog dialog
              {:title (str "Pin value for " (pr-str query-v))
               :hint
               [:div {:data-test "story-view-state-value-entry"
@@ -904,7 +904,7 @@
                                   (keyword (namespace (:source-id dialog))
                                            (str (name (:source-id dialog)) "-pinned")))
               :on-edit-id       (fn [_])
-              :on-copy          (fn [] (review-dialog/copy-to-clipboard! snippet))
+              :on-copy          (fn [] (rf.story.review-dialog/copy-to-clipboard! snippet))
               :on-close         close-value-entry-dialog!
               :data-test-prefix "story-view-state-value"}))))))
 
@@ -1027,7 +1027,7 @@
                        :data-failing-id (when failing-id (str failing-id))}
                  (str "⚠ override on " (if failing-id (pr-str failing-id) "a sub")
                       " violates its output schema — surfaced nil, not the pinned value"
-                      (let [expl (schema-validation/format-explain explain)]
+                      (let [expl (rf.story.ui.schema-validation/format-explain explain)]
                         (when (seq expl) (str " (" expl ")"))))])))]))
 
 #?(:cljs
@@ -1088,7 +1088,7 @@
        (when (:open? dialog)
          (let [{:keys [source-id context]} dialog
                {:keys [target-rung snippet]} context]
-           (review-dialog/review-dialog dialog
+           (rf.story.review-dialog/review-dialog dialog
              {:title            (str "Upgrade " (pr-str source-id)
                                      " to " (name target-rung) " fidelity")
               :hint             [:div
@@ -1104,7 +1104,7 @@
               ;; value entry is the separate rf2-xon7j surface).
               :placeholder-id   (upgraded-variant-id source-id)
               :on-edit-id       (fn [_])
-              :on-copy          (fn [] (review-dialog/copy-to-clipboard! snippet))
+              :on-copy          (fn [] (rf.story.review-dialog/copy-to-clipboard! snippet))
               :on-close         close-upgrade-dialog!
               :data-test-prefix "story-view-state-upgrade"}))))))
 
@@ -1129,9 +1129,9 @@
      channel, not a fidelity rung (spec/019 §5 — 'view args are explicit
      controls, not a state-fidelity rung')."
      [_variant-id]
-     (let [_buf (when _variant-id (trace-buffer/ensure-buffer! _variant-id))]
+     (let [_buf (when _variant-id (rf.story.ui.trace-buffer/ensure-buffer! _variant-id))]
        (fn [variant-id]
-         (let [events (when variant-id @(trace-buffer/ensure-buffer! variant-id))
+         (let [events (when variant-id @(rf.story.ui.trace-buffer/ensure-buffer! variant-id))
                model  (compile-model variant-id events)]
            [:div {:style     (:section styles)
                   :data-test "story-view-state-section"

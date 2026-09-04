@@ -41,18 +41,18 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                        :as rf]
-            [re-frame.frame                       :as frame]
-            [re-frame.router                      :as router]
-            [re-frame.registrar                   :as registrar]
-            [re-frame.substrate.plain-atom        :as plain-atom]
-            [re-frame.story                       :as story]
-            [re-frame.story.determinism           :as determinism]
-            [re-frame.story.late-bind             :as late-bind]
-            [re-frame.story.plan                  :as plan]
-            [re-frame.story.play.presence         :as story-presence]
-            [re-frame.story.play.runner           :as runner]
-            [re-frame.story.play.runner-events    :as re]
-            [re-frame.story.requirements          :as requirements]))
+            [re-frame.frame                       :as rf.frame]
+            [re-frame.router                      :as rf.router]
+            [re-frame.registrar                   :as rf.registrar]
+            [re-frame.substrate.plain-atom        :as rf.substrate.plain-atom]
+            [re-frame.story                       :as rf.story]
+            [re-frame.story.determinism           :as rf.story.determinism]
+            [re-frame.story.late-bind             :as rf.story.late-bind]
+            [re-frame.story.plan                  :as rf.story.plan]
+            [re-frame.story.play.presence         :as rf.story.play.presence]
+            [re-frame.story.play.runner           :as rf.story.play.runner]
+            [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
+            [re-frame.story.requirements          :as rf.story.requirements]))
 ;; NO SUBSTRATE :require, and that is the point of the rung (rf2-5gka): the
 ;; seam under test reaches its advance through the late-bind registry, so
 ;; every test here drives it with a stub host and Story's test classpath
@@ -64,44 +64,44 @@
 
 (deftest flush-presence-is-a-known-step
   (testing "the one tagged grammar recognises :flush-presence"
-    (is (contains? runner/step-types :flush-presence))
-    (is (= :flush-presence (runner/step-type [:flush-presence])))
-    (is (= :flush-presence (runner/step-type [:flush-presence 300])))
-    (is (true? (runner/known-step? [:flush-presence])))
-    (is (true? (runner/known-step? [:flush-presence 300])))))
+    (is (contains? rf.story.play.runner/step-types :flush-presence))
+    (is (= :flush-presence (rf.story.play.runner/step-type [:flush-presence])))
+    (is (= :flush-presence (rf.story.play.runner/step-type [:flush-presence 300])))
+    (is (true? (rf.story.play.runner/known-step? [:flush-presence])))
+    (is (true? (rf.story.play.runner/known-step? [:flush-presence 300])))))
 
 (deftest flush-presence-arity-mirrors-the-framework-verb
   (testing "the two arities are exactly flush-presence!'s: bare (to
             quiescence) and a non-negative ms (partial advance)"
-    (is (true?  (runner/step-arity-ok? [:flush-presence])))
-    (is (true?  (runner/step-arity-ok? [:flush-presence 0])))
-    (is (true?  (runner/step-arity-ok? [:flush-presence 300])))
-    (is (false? (runner/step-arity-ok? [:flush-presence -1])))
-    (is (false? (runner/step-arity-ok? [:flush-presence "300"])))
-    (is (false? (runner/step-arity-ok? [:flush-presence 100 200])))))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:flush-presence])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:flush-presence 0])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:flush-presence 300])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:flush-presence -1])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:flush-presence "300"])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:flush-presence 100 200])))))
 
 (deftest step-presence-ms-reads-the-advance
   (testing "nil means the no-arg arity (to quiescence), NOT 'absent'"
-    (is (nil? (runner/step-presence-ms [:flush-presence])))
-    (is (= 300 (runner/step-presence-ms [:flush-presence 300])))
-    (is (nil? (runner/step-presence-ms [:wait 300]))
+    (is (nil? (rf.story.play.runner/step-presence-ms [:flush-presence])))
+    (is (= 300 (rf.story.play.runner/step-presence-ms [:flush-presence 300])))
+    (is (nil? (rf.story.play.runner/step-presence-ms [:wait 300]))
         "the tag, never the nil, distinguishes the step")))
 
 (deftest flush-presence-summary
-  (is (= "flush-presence" (runner/step-summary [:flush-presence])))
-  (is (= "flush-presence 300ms" (runner/step-summary [:flush-presence 300]))))
+  (is (= "flush-presence" (rf.story.play.runner/step-summary [:flush-presence])))
+  (is (= "flush-presence 300ms" (rf.story.play.runner/step-summary [:flush-presence 300]))))
 
 (deftest flush-presence-yields-a-tick
   (testing "the framework verb is Promise-backed on CLJS — the driver yields
             one tick so the retained subtree's removal COMMIT lands before
             the next step reads it"
-    (is (contains? runner/async-yield-step-types :flush-presence))
-    (is (true? (runner/async-yield? [:flush-presence])))))
+    (is (contains? rf.story.play.runner/async-yield-step-types :flush-presence))
+    (is (true? (rf.story.play.runner/async-yield? [:flush-presence])))))
 
 (deftest flush-presence-round-trips-through-coercion
   (testing "a tagged step is never mistaken for a bare event vector"
     (let [tagged [[:dispatch [:e]] [:flush-presence 100] [:flush-presence]]]
-      (is (= tagged (runner/coerce-script tagged))))))
+      (is (= tagged (rf.story.play.runner/coerce-script tagged))))))
 
 ;; ===========================================================================
 ;; PURE: capabilities + determinism (both hosts)
@@ -110,11 +110,11 @@
 (deftest flush-presence-requires-no-capability
   (testing "the presence clock is a process-global registry — advancing it
             needs no :dom (the ASSERTION that follows carries that)"
-    (is (= #{} (get requirements/step-capabilities :flush-presence)))
-    (is (= #{} (requirements/step-tokens [:flush-presence])))
-    (is (= #{} (requirements/step-tokens [:flush-presence 300]))))
+    (is (= #{} (get rf.story.requirements/step-capabilities :flush-presence)))
+    (is (= #{} (rf.story.requirements/step-tokens [:flush-presence])))
+    (is (= #{} (rf.story.requirements/step-tokens [:flush-presence 300]))))
   (testing "a presence-bearing script does not lift :required-runner to :dom"
-    (let [p (plan/variant-plan
+    (let [p (rf.story.plan/variant-plan
               {:variant/id :story.presence/headless
                :script [[:dispatch [:e]]
                         [:flush-presence 100]
@@ -130,9 +130,9 @@
                                         [:flush-presence 100]
                                         [:flush-presence]]}
           wait-art     {:event-program [[:dispatch [:e]] [:wait 300]]}]
-      (is (= [] (determinism/wait-steps presence-art)))
-      (is (false? (determinism/has-wall-clock-wait? presence-art)))
-      (is (true?  (determinism/has-wall-clock-wait? wait-art))
+      (is (= [] (rf.story.determinism/wait-steps presence-art)))
+      (is (false? (rf.story.determinism/has-wall-clock-wait? presence-art)))
+      (is (true?  (rf.story.determinism/has-wall-clock-wait? wait-art))
           "the wall-clock opt-out is still refused — this rung is its
            deterministic alternative, not a loophole"))))
 
@@ -143,40 +143,40 @@
 (deftest install-presence-flush-registers-the-hook
   (let [calls (atom [])]
     (try
-      (is (nil? (story-presence/presence-flush-fn))
+      (is (nil? (rf.story.play.presence/presence-flush-fn))
           "no host installed by default")
-      (story-presence/install-presence-flush! #(swap! calls conj %))
-      (is (some? (story-presence/presence-flush-fn)))
-      (is (identical? (story-presence/presence-flush-fn)
-                      (late-bind/get-fn :flush-presence!))
+      (rf.story.play.presence/install-presence-flush! #(swap! calls conj %))
+      (is (some? (rf.story.play.presence/presence-flush-fn)))
+      (is (identical? (rf.story.play.presence/presence-flush-fn)
+                      (rf.story.late-bind/get-fn :flush-presence!))
           "the hook lives in the shared late-bind registry")
       (testing "advance! threads the ms through, nil meaning 'to quiescence'"
-        (is (= {:status :advanced :ms 100} (story-presence/advance! 100)))
-        (is (= {:status :advanced :ms nil} (story-presence/advance! nil)))
-        (is (= {:status :advanced :ms 0}   (story-presence/advance! 0))
+        (is (= {:status :advanced :ms 100} (rf.story.play.presence/advance! 100)))
+        (is (= {:status :advanced :ms nil} (rf.story.play.presence/advance! nil)))
+        (is (= {:status :advanced :ms 0}   (rf.story.play.presence/advance! 0))
             "0 is a LEGAL advance, not an absent one — a host distinguishes
              the two on `some?`, so the seam must hand it 0 rather than
              collapsing it into the quiescence arity")
         (is (= [100 nil 0] @calls)))
-      (finally (swap! late-bind/hooks dissoc :flush-presence!)))))
+      (finally (swap! rf.story.late-bind/hooks dissoc :flush-presence!)))))
 
 (deftest advance-with-no-host-reports-no-host
   (testing "with no host installed the advance DID NOT HAPPEN, and `advance!`
             says so faithfully — the executor projects `:no-host` into a
             `:cannot-run` refusal (rf2-36biz). `advance!` itself stays pure
             data → data: it reports, the executor judges"
-    (is (nil? (story-presence/presence-flush-fn)))
-    (is (= {:status :no-host :ms nil} (story-presence/advance! nil)))
-    (is (= {:status :no-host :ms 250} (story-presence/advance! 250)))))
+    (is (nil? (rf.story.play.presence/presence-flush-fn)))
+    (is (= {:status :no-host :ms nil} (rf.story.play.presence/advance! nil)))
+    (is (= {:status :no-host :ms 250} (rf.story.play.presence/advance! 250)))))
 
 (deftest advance-surfaces-a-throwing-host
   (let [boom (ex-info "presence host exploded" {})]
     (try
-      (story-presence/install-presence-flush! (fn [_] (throw boom)))
-      (let [res (story-presence/advance! nil)]
+      (rf.story.play.presence/install-presence-flush! (fn [_] (throw boom)))
+      (let [res (rf.story.play.presence/advance! nil)]
         (is (= :error (:status res)) "a throwing host is never swallowed")
         (is (string? (:error res))))
-      (finally (swap! late-bind/hooks dissoc :flush-presence!)))))
+      (finally (swap! rf.story.late-bind/hooks dissoc :flush-presence!)))))
 
 ;; ===========================================================================
 ;; PLAYBACK against a live frame
@@ -185,7 +185,7 @@
 (def exec-step!
   "The private single-step executor, reached via var-quote — the established
   Story-test seam."
-  @#'re/exec-step!)
+  @#'rf.story.play.runner-events/exec-step!)
 
 (def presence-frame :story.presence/frame)
 
@@ -193,21 +193,21 @@
   "Fresh registrar + runtime + variant frame. Shared with the real-clock
   companion so both halves of the rung test the same harness."
   []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
   ;; Start every test HOOK-FREE, symmetrically with `teardown!`. The hook
   ;; registry is process-global and any namespace may install into it at load
   ;; time, so the no-host tests must not depend on ns-load order to see an
   ;; empty slot.
-  (swap! late-bind/hooks dissoc :flush-presence!)
-  (try (rf/init! plain-atom/adapter)
+  (swap! rf.story.late-bind/hooks dissoc :flush-presence!)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-  (reset! re/run-state {})
+  (reset! rf.story.play.runner-events/run-state {})
   ;; The canonical `:rf.assert/*` handlers must be installed so the
   ;; `[:assert-db …]` steps below record onto the assertion slot.
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (rf/make-frame {:id presence-frame :doc "presence rung test frame"})
   ;; `:presence/tick` stands in for "the toast is on screen and has just been
   ;; dismissed" — the source list dropped the key, so the boundary RETAINS the
@@ -227,7 +227,7 @@
   []
   ;; The late-bind hook registry is process-global — a leaked presence host
   ;; would silently arm every LATER test's `[:flush-presence]` step.
-  (swap! late-bind/hooks dissoc :flush-presence!)
+  (swap! rf.story.late-bind/hooks dissoc :flush-presence!)
   nil)
 
 ;; The cross-platform FN form (`meta-fixtures-test`): the map form silently
@@ -254,7 +254,7 @@
   Returns the atom holding its logical state."
   [timeout-ms]
   (let [state (atom {:now 0 :pending? true :advances []})]
-    (story-presence/install-presence-flush!
+    (rf.story.play.presence/install-presence-flush!
       (fn [ms]
         (swap! state update :advances conj ms)
         (let [now (if (nil? ms)
@@ -264,7 +264,7 @@
           (swap! state assoc :now now)
           (when (and (:pending? @state) (>= now timeout-ms))
             (swap! state assoc :pending? false)
-            (router/dispatch-sync! [:presence/exited] {:frame presence-frame})))))
+            (rf.router/dispatch-sync! [:presence/exited] {:frame presence-frame})))))
     state))
 
 (deftest presence-step-drives-the-host-verb
@@ -324,7 +324,7 @@
 ;; the seam's duty is only to hand `0` through as `0`.
 
 (deftest presence-step-surfaces-a-throwing-host-as-an-exception
-  (story-presence/install-presence-flush! (fn [_] (throw (ex-info "boom" {}))))
+  (rf.story.play.presence/install-presence-flush! (fn [_] (throw (ex-info "boom" {}))))
   (let [res (exec-step! presence-frame 0 [:flush-presence])]
     (is (some? (:exception res)) "a throwing host fails the step loudly")
     (is (false? (:passed? res)))))
@@ -341,7 +341,7 @@
                exit pending, so the assertion on its terminal removal FAILS.
                This is the race the rung exists to close"
        (let [done  (atom nil)
-             _     (re/run! presence-frame "no-presence"
+             _     (rf.story.play.runner-events/run! presence-frame "no-presence"
                             {:name   "no-presence"
                              :script [[:dispatch [:presence/tick]]
                                       [:assert-db [:toast] :removed]]}
@@ -359,7 +359,7 @@
                the child still RETAINED below :timeout-ms and then its
                terminal removal, with no wall-clock sleep anywhere"
        (let [done  (atom nil)
-             _     (re/run! presence-frame "presence"
+             _     (rf.story.play.runner-events/run! presence-frame "presence"
                             {:name   "presence"
                              :script [[:dispatch [:presence/tick]]
                                       [:flush-presence 100]
@@ -395,7 +395,7 @@
                assertion cannot tell those two worlds apart, so the STEP must:
                the run is `:cannot-run`, never `:pass`"
        (let [done  (atom nil)
-             _     (re/run! presence-frame "no-host"
+             _     (rf.story.play.runner-events/run! presence-frame "no-host"
                             {:name   "no-host"
                              :script [[:dispatch [:presence/tick]]
                                       [:flush-presence 100]
@@ -414,7 +414,7 @@
                bug. The IDENTICAL script, `:assert-db` its only assertion,
                still passes once a host is properly installed"
        (let [done  (atom nil)
-             _     (re/run! presence-frame "with-host"
+             _     (rf.story.play.runner-events/run! presence-frame "with-host"
                             {:name   "with-host"
                              :script [[:dispatch [:presence/tick]]
                                       [:flush-presence 100]

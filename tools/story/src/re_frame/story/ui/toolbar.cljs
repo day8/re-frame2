@@ -62,18 +62,18 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [re-frame.story.local-storage :refer [safe-local-storage]]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.share :as share]
-            [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
-            [re-frame.story.ui.element-inspector :as element-inspector]
-            [re-frame.story.ui.play-status :as play-status]
-            [re-frame.story.ui.recorder :as ui-recorder]
-            [re-frame.story.ui.share :as ui-share]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.motion :as motion]
-            [re-frame.story.ui.viewport-switcher :as viewport-switcher]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.share :as rf.story.share]
+            [re-frame.story.ui.backgrounds-switcher :as rf.story.ui.backgrounds-switcher]
+            [re-frame.story.ui.element-inspector :as rf.story.ui.element-inspector]
+            [re-frame.story.ui.play-status :as rf.story.ui.play-status]
+            [re-frame.story.ui.recorder :as rf.story.ui.recorder]
+            [re-frame.story.ui.share :as rf.story.ui.share]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.theme.motion :as rf.story.theme.motion]
+            [re-frame.story.ui.viewport-switcher :as rf.story.ui.viewport-switcher]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- localStorage --------------------------------------------------------
 
@@ -110,12 +110,12 @@
 (defn prune-unregistered
   "Drop mode ids from `modes` that no longer resolve at the live
   registrar (stale localStorage after a `reg-mode` rename). Delegates
-  to the CLJC production helper `share/prune-unregistered-modes` with
+  to the CLJC production helper `rf.story.share/prune-unregistered-modes` with
   the live registrar predicate injected — the pure logic is JVM-tested
-  against `share/prune-unregistered-modes` directly, not a copy here."
+  against `rf.story.share/prune-unregistered-modes` directly, not a copy here."
   [modes]
-  (share/prune-unregistered-modes
-    modes (fn [mid] (registrar/registered? :mode mid))))
+  (rf.story.share/prune-unregistered-modes
+    modes (fn [mid] (rf.story.registrar/registered? :mode mid))))
 
 ;; ---- hydration -----------------------------------------------------------
 ;;
@@ -134,16 +134,16 @@
   fixture) is never clobbered. Stale ids are pruned against the live
   registrar. Spec/010 §Persistence — chrome-wide localStorage.
 
-  Mirrors the `viewport-switcher/hydrate!` / `backgrounds-switcher/
+  Mirrors the `rf.story.ui.viewport-switcher/hydrate!` / `rf.story.ui.backgrounds-switcher/
   hydrate!` shape: a localStorage-only seed that the URL hydrator may
   later override."
   []
-  (let [shell @state/shell-state-atom]
+  (let [shell @rf.story.ui.state/shell-state-atom]
     (when (empty? (:active-modes shell))
       (when-let [persisted (load-modes-from-storage)]
         (let [pruned (prune-unregistered persisted)]
           (when (seq pruned)
-            (state/swap-state! state/set-active-modes pruned)))))))
+            (rf.story.ui.state/swap-state! rf.story.ui.state/set-active-modes pruned)))))))
 
 ;; ---- programmatic toggle -------------------------------------------------
 
@@ -152,15 +152,15 @@
   / programmatic callers can drive the toolbar without going through
   the DOM."
   [mode-id]
-  (state/swap-state!
+  (rf.story.ui.state/swap-state!
     (fn [s]
-      (state/set-active-modes s (state/toggle-mode (:active-modes s) mode-id))))
-  (save-modes-to-storage! (:active-modes (state/get-state))))
+      (rf.story.ui.state/set-active-modes s (rf.story.ui.state/toggle-mode (:active-modes s) mode-id))))
+  (save-modes-to-storage! (:active-modes (rf.story.ui.state/get-state))))
 
 (defn reset-modes!
   "Clear every active mode + persist. The toolbar's `[reset]` action."
   []
-  (state/swap-state! state/clear-active-modes)
+  (rf.story.ui.state/swap-state! rf.story.ui.state/clear-active-modes)
   (save-modes-to-storage! []))
 
 ;; ---- styling -------------------------------------------------------------
@@ -186,20 +186,20 @@
                  :align-items    "center"
                  :gap            "6px"
                  :padding        "6px 10px"
-                 :background     (:bg-2 colors/tokens)
-                 :border-bottom  (str "1px solid " (:border-default colors/tokens))
+                 :background     (:bg-2 rf.story.theme.colors/tokens)
+                 :border-bottom  (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                  :font-family    mono-stack
-                 :font-size      (:caption typography/type-scale)
+                 :font-size      (:caption rf.story.theme.typography/type-scale)
                  :min-height     "32px"
                  :box-sizing     "border-box"
                  :flex-wrap      "wrap"
                  :row-gap        "6px"}
-   :axis-label  {:font-family     typography/sans-stack
-                 :font-size       (:micro typography/type-scale)
-                 :font-weight     (str (:semibold typography/weights))
+   :axis-label  {:font-family     rf.story.theme.typography/sans-stack
+                 :font-size       (:micro rf.story.theme.typography/type-scale)
+                 :font-weight     (str (:semibold rf.story.theme.typography/weights))
                  :text-transform  "uppercase"
-                 :color           (:text-tertiary colors/tokens)
-                 :letter-spacing  (:label-wide typography/letter-spacing)
+                 :color           (:text-tertiary rf.story.theme.colors/tokens)
+                 :letter-spacing  (:label-wide rf.story.theme.typography/letter-spacing)
                  :margin-right    "6px"}
    :axis-group  {:display     "flex"
                  :align-items "center"
@@ -208,22 +208,22 @@
                  :gap       "4px"
                  :flex-wrap "wrap"}
    :chip        {:padding         "3px 9px"
-                 :background      (:bg-3 colors/tokens)
-                 :color           (:text-primary colors/tokens)
-                 :border          (str "1px solid " (:border-subtle colors/tokens))
+                 :background      (:bg-3 rf.story.theme.colors/tokens)
+                 :color           (:text-primary rf.story.theme.colors/tokens)
+                 :border          (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :max-width       "20em"
                  :overflow        "hidden"
                  :text-overflow   "ellipsis"
                  :white-space     "nowrap"
                  :user-select     "none"
-                 :transition      (:chip motion/transitions)}
-   :chip-active {:background (:accent-amber colors/tokens)
-                 :color      (:text-on-accent colors/tokens)
-                 :border     (str "1px solid " (:accent-amber-deep colors/tokens))}
+                 :transition      (:chip rf.story.theme.motion/transitions)}
+   :chip-active {:background (:accent-amber rf.story.theme.colors/tokens)
+                 :color      (:text-on-accent rf.story.theme.colors/tokens)
+                 :border     (str "1px solid " (:accent-amber-deep rf.story.theme.colors/tokens))}
    :spacer      {:flex "1"}
    ;; rf2-v58dm — a `:cluster` is a self-contained flex-item carrying
    ;; one logical group of affordances. The strip composes ~5 clusters
@@ -235,12 +235,12 @@
    ;; rf2-v58dm — left-edge upper-cased label per cluster. Mirrors the
    ;; existing axis-label vocabulary so MODES / DATA / VIEW / DEBUG /
    ;; REC all share the same small-caps grammar.
-   :cluster-label {:font-family    typography/sans-stack
-                   :font-size      (:micro typography/type-scale)
-                   :font-weight    (str (:semibold typography/weights))
+   :cluster-label {:font-family    rf.story.theme.typography/sans-stack
+                   :font-size      (:micro rf.story.theme.typography/type-scale)
+                   :font-weight    (str (:semibold rf.story.theme.typography/weights))
                    :text-transform "uppercase"
-                   :color          (:text-tertiary colors/tokens)
-                   :letter-spacing (:label-wide typography/letter-spacing)
+                   :color          (:text-tertiary rf.story.theme.colors/tokens)
+                   :letter-spacing (:label-wide rf.story.theme.typography/letter-spacing)
                    :margin-right   "6px"}
    ;; rf2-v58dm — vertical divider between clusters. Token-driven
    ;; hairline; carries an inline height so the rule sits centred on
@@ -248,20 +248,20 @@
    :divider     {:width        "1px"
                  :align-self   "stretch"
                  :margin       "2px 4px"
-                 :background   (:border-subtle colors/tokens)
+                 :background   (:border-subtle rf.story.theme.colors/tokens)
                  :flex-shrink  "0"}
    :reset       {:padding       "3px 9px"
                  :background    "transparent"
-                 :color         (:text-secondary colors/tokens)
-                 :border        (str "1px solid " (:border-default colors/tokens))
+                 :color         (:text-secondary rf.story.theme.colors/tokens)
+                 :border        (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                  :border-radius "10px"
                  :cursor        "pointer"
                  :font-family   mono-stack
-                 :font-size     (:micro typography/type-scale)
-                 :transition    (:chip motion/transitions)}
-   :empty       {:color       (:text-tertiary colors/tokens)
+                 :font-size     (:micro rf.story.theme.typography/type-scale)
+                 :transition    (:chip rf.story.theme.motion/transitions)}
+   :empty       {:color       (:text-tertiary rf.story.theme.colors/tokens)
                  :font-style  "italic"
-                 :font-size   (:caption typography/type-scale)}})
+                 :font-size   (:caption rf.story.theme.typography/type-scale)}})
 
 ;; ---- chip rendering ------------------------------------------------------
 
@@ -318,7 +318,7 @@
 
 (defn toolbar-strip
   "Render the chrome-level toolbar strip. Reads
-  `(registrar/registrations :mode)` per render — newly-registered modes
+  `(rf.story.registrar/registrations :mode)` per render — newly-registered modes
   appear immediately. Renders an empty-state placeholder when the
   registry has no `:mode` entries.
 
@@ -334,11 +334,11 @@
   Each cluster carries a small-caps label so the strip reads as a
   set of named groups rather than a flat chip row."
   []
-  (let [shell    @state/shell-state-atom
+  (let [shell    @rf.story.ui.state/shell-state-atom
         active   (set (:active-modes shell))
-        modes    (registrar/registrations :mode)
+        modes    (rf.story.registrar/registrations :mode)
         variant  (:selected-variant shell)
-        {:keys [axes unaxed]} (state/group-modes-by-axis modes)
+        {:keys [axes unaxed]} (rf.story.ui.state/group-modes-by-axis modes)
         vis-flag (get-in shell [:panel-visibility :dispatch-console])
         dc-effective? (cond
                         (true?  vis-flag) true
@@ -396,12 +396,12 @@
                        "Hide dispatch console"
                        "Show dispatch console")
           :on-click  (fn [_]
-                       (state/swap-state!
+                       (rf.story.ui.state/swap-state!
                          (fn [s]
                            (assoc-in s [:panel-visibility :dispatch-console]
                                      (not dc-effective?)))))}
          (if dc-effective? "Dispatch ▾" "Dispatch ▸")]
-        [play-status/chip-when-enabled variant]])
+        [rf.story.ui.play-status/chip-when-enabled variant]])
      (when variant [divider])
      ;; ── VIEW cluster (framing chips) ──────────────────────────────
      ;; rf2-zll4h — viewport + backgrounds switchers (Storybook addon-
@@ -414,8 +414,8 @@
              :data-test   "story-toolbar-cluster"
              :data-cluster "view"}
       [cluster-label "View"]
-      [viewport-switcher/chip-when-enabled]
-      [backgrounds-switcher/chip-when-enabled]]
+      [rf.story.ui.viewport-switcher/chip-when-enabled]
+      [rf.story.ui.backgrounds-switcher/chip-when-enabled]]
      [divider]
      ;; ── DEBUG cluster (pick-mode) ─────────────────────────────────
      ;; rf2-h0jc0 — element-level click-to-code inspector chip. Toggles
@@ -427,7 +427,7 @@
              :data-test   "story-toolbar-cluster"
              :data-cluster "debug"}
       [cluster-label "Debug"]
-      [element-inspector/inspect-chip]]
+      [rf.story.ui.element-inspector/inspect-chip]]
      [divider]
      ;; ── SHARE cluster (egress) ────────────────────────────────────
      ;; rf2-ba86n.16 — human share / export / copy egress. Opens the
@@ -442,7 +442,7 @@
              :data-test   "story-toolbar-cluster"
              :data-cluster "share"}
       [cluster-label "Share"]
-      [ui-share/share-chip]]
+      [rf.story.ui.share/share-chip]]
      [divider]
      ;; ── REC cluster (actions) ─────────────────────────────────────
      ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset
@@ -452,7 +452,7 @@
              :data-test   "story-toolbar-cluster"
              :data-cluster "rec"}
       [cluster-label "Rec"]
-      [ui-recorder/rec-chip]
+      [rf.story.ui.recorder/rec-chip]
       (when (seq (:active-modes shell))
         [:button
          {:style     (:reset styles)

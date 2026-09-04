@@ -57,7 +57,7 @@
      event-vector error).
 
   The `[:rf/redacted]` placeholder still bumps the suppressed-events
-  counter (`config/note-suppressed!`) so the UI's redaction-indicator
+  counter (`rf.story.config/note-suppressed!`) so the UI's redaction-indicator
   hint stays accurate — the user sees an N-redacted-rows hint
   alongside the placeholders themselves. Hosts that want the
   unscrubbed payload in the recording (their own machine, dev loop)
@@ -72,7 +72,7 @@
   Story's local-render EGRESS PROFILE — `:rf.egress/local-redacted`
   (the fail-closed default) redacts; `:rf.egress/local-raw` (the
   trusted-local opt-in) passes — resolved through the framework's
-  centralized projection table (`config/suppress-sensitive?` →
+  centralized projection table (`rf.story.config/suppress-sensitive?` →
   `project-egress`'s `:rf.size/include-sensitive?` floor), NOT a
   process-global boolean. EP-0015 defines this named-boundary,
   frame-owned model.
@@ -121,13 +121,13 @@
   - `append-assertion`        — pure: state → state with assertion appended.
   - `insert-assertion!`       — impure entrypoint for the picker UI."
   (:require [clojure.string :as str]
-            [re-frame.story.config :as config]
-            [re-frame.story.late-bind :as late-bind]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.review-dialog :as review-dialog]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.late-bind :as rf.story.late-bind]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.review-dialog :as rf.story.review-dialog]
             ;; The listener surface lives in `re-frame.trace.tooling`
             ;; (production-DCE split).
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: recordable event predicate
@@ -143,7 +143,7 @@
   not appear in a recorded `:script` body."
   [ns-str]
   (and (string? ns-str)
-       (or (= pred/reserved-assertion-ns ns-str)   ; "rf.assert"
+       (or (= rf.story.predicates/reserved-assertion-ns ns-str)   ; "rf.assert"
            (= "rf.story" ns-str)
            (str/starts-with? ns-str "re-frame.story")
            (str/starts-with? ns-str "rf.story."))))
@@ -277,7 +277,7 @@
                         events)
         script-str    (if (seq steps)
                         (str "["
-                             (str/join (pred/indent-after script-prefix)
+                             (str/join (rf.story.predicates/indent-after script-prefix)
                                        (map pr-str steps))
                              "]")
                         "[]")
@@ -289,7 +289,7 @@
                       doc     (conj [:doc (pr-str doc)])
                       extends (conj [:extends (pr-str extends)])
                       true    (conj [:script script-map-str]))]
-    (pred/reg-variant-form alias (or variant-id :story.recorded/example) body-keys)))
+    (rf.story.predicates/reg-variant-form alias (or variant-id :story.recorded/example) body-keys)))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: canonical assertion vocabulary
@@ -470,7 +470,7 @@
    (cond-> state
      (and (:recording? state)
           (vector? event)
-          (pred/assertion-event? event))
+          (rf.story.predicates/assertion-event? event))
      (-> (update :events (fnil conj []) (vec event))
          ;; Keep the parallel :cofx slot index-aligned with
          ;; :events — an inserted assertion carries no captured cofx.
@@ -748,10 +748,10 @@
   "recorded")
 
 (def initial-dialog-state
-  "Alias for `review-dialog/initial-state` — kept for call-site
+  "Alias for `rf.story.review-dialog/initial-state` — kept for call-site
   ergonomics so the dialog ratom seeding form reads as
   `recorder/initial-dialog-state`."
-  review-dialog/initial-state)
+  rf.story.review-dialog/initial-state)
 
 (defn open-dialog
   "Pure: return the dialog state for opening the save-as-variant modal
@@ -767,7 +767,7 @@
   translator with the full DOM+timing record; pass `nil` when no rich
   entries are available."
   [_state variant-id events entries now-ms]
-  (let [base (review-dialog/open review-dialog/initial-state
+  (let [base (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                                  variant-id
                                  {:events  (vec events)
                                   :entries (vec (or entries []))}
@@ -779,13 +779,13 @@
 
 (defn close-dialog
   "Pure: return the dialog's idle state. Aliased to
-  `review-dialog/close` — the dialog has no recorder-specific close
+  `rf.story.review-dialog/close` — the dialog has no recorder-specific close
   behaviour."
   [_state]
-  review-dialog/initial-state)
+  rf.story.review-dialog/initial-state)
 
 ;; ---------------------------------------------------------------------------
-;; Impure: write the state atom. Gated under config/enabled? so the
+;; Impure: write the state atom. Gated under rf.story.config/enabled? so the
 ;; production CLJS build's call sites elide cleanly.
 ;; ---------------------------------------------------------------------------
 
@@ -796,13 +796,13 @@
   exists). Called at recording start/clear so a keystroke buffered under a
   PRIOR recording cannot bleed into the next one (rf2-x76af2.18)."
   []
-  (when-let [f (late-bind/get-fn :recorder/reset-dom-buffer)]
+  (when-let [f (rf.story.late-bind/get-fn :recorder/reset-dom-buffer)]
     (f)))
 
 (defn start-recording!
   "Begin recording events dispatched against `variant-id`'s frame.
   Returns the new state. Stops any in-flight recording first. Under
-  elision (`config/enabled?` false) returns the idle `initial-state`
+  elision (`rf.story.config/enabled?` false) returns the idle `initial-state`
   without touching the atom.
 
   EP-0023: the recording's address is the variant frame; replay dispatches
@@ -819,7 +819,7 @@
    (start-recording! variant-id #?(:clj (System/currentTimeMillis)
                                    :cljs (.now js/Date))))
   ([variant-id now-ms]
-   (if config/enabled?
+   (if rf.story.config/enabled?
      (do (reset-dom-buffer!)
          (swap! state start variant-id now-ms))
      initial-state)))
@@ -829,7 +829,7 @@
   the UI's save-as-variant dialog. Returns the new state. Under
   elision returns `initial-state` without touching the atom."
   []
-  (if config/enabled?
+  (if rf.story.config/enabled?
     (swap! state stop)
     initial-state))
 
@@ -841,7 +841,7 @@
   a discarded recording leaves no phantom keystroke to land in a subsequent
   recording (rf2-x76af2.18)."
   []
-  (if config/enabled?
+  (if rf.story.config/enabled?
     (do (reset-dom-buffer!)
         (reset! state initial-state))
     initial-state))
@@ -869,7 +869,7 @@
   empty cofx records a cofx-less trace."
   ([event] (record-event! event nil))
   ([event cofx]
-   (when config/enabled?
+   (when rf.story.config/enabled?
      (swap! state append event (now-ms*) cofx))
    nil))
 
@@ -887,7 +887,7 @@
   Idempotent against malformed inputs (filtered by `dom-event?`).
   No-op under production elision."
   [entry]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (swap! state append-dom entry))
   nil)
 
@@ -898,7 +898,7 @@
   the flush even when the flush fires after `stop-recording!` has cleared
   `:recording?`. Idempotent against malformed inputs; no-op under elision."
   [entry]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (swap! state append-dom-buffered entry))
   nil)
 
@@ -916,7 +916,7 @@
   resolve to a valid `:rf.assert/*` event vector. Returns the new
   recorder state on success, the current state on no-op."
   ([event-vec]
-   (when config/enabled?
+   (when rf.story.config/enabled?
      (swap! state append-assertion event-vec))
    @state)
   ([assertion-id payload]
@@ -992,7 +992,7 @@
                  (= (:frame tags) (recording-variant))
                  (vector? (:rf.event/v tags))
                  (recordable-event? (:rf.event/v tags)))
-        (if (config/suppress-sensitive? ev (:frame tags))
+        (if (rf.story.config/suppress-sensitive? ev (:frame tags))
           (do
             ;; Record-but-redact: append the redacted
             ;; placeholder so the row's position survives, and bump the
@@ -1002,7 +1002,7 @@
             ;; event id; no payload survives. No cofx is recorded for a
             ;; redacted row — the payload (and its causal token) is the
             ;; thing being suppressed.
-            (config/note-suppressed! (:frame tags))
+            (rf.story.config/note-suppressed! (:frame tags))
             (record-event! redacted-event))
           ;; EP-0017: carry the same trace event's flat
           ;; `:rf.cofx` map (the framework-stamped `:rf/time-ms` plus any
@@ -1019,13 +1019,13 @@
   Called from the shell at mount on CLJS and from JVM integration
   tests directly."
   []
-  (when config/enabled?
-    (trace-tooling/register-listener! listener-id trace-listener)
+  (when rf.story.config/enabled?
+    (rf.trace.tooling/register-listener! listener-id trace-listener)
     nil))
 
 (defn remove-trace-listener!
   "Tear down the recorder's trace-bus listener. Idempotent."
   []
-  (when config/enabled?
-    (trace-tooling/unregister-listener! listener-id)
+  (when rf.story.config/enabled?
+    (rf.trace.tooling/unregister-listener! listener-id)
     nil))

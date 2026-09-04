@@ -46,20 +46,20 @@
   walk. The shell's `main-pane` only reaches `docs-view` via the
   `(when config/enabled? ...)`-gated mount call, so production builds
   never invoke it — closure DCEs the lot."
-  (:require [re-frame.story.budgets    :as budgets]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.plan       :as plan]
-            [re-frame.story.registrar  :as registrar]
-            [re-frame.story.tags       :as tags]
-            [re-frame.story.ui.evidence-spine :as spine]
-            [re-frame.story.ui.markdown :as md]
-            [re-frame.story.ui.test-mode.pure :as test-pure]
+  (:require [re-frame.story.budgets    :as rf.story.budgets]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.plan       :as rf.story.plan]
+            [re-frame.story.registrar  :as rf.story.registrar]
+            [re-frame.story.tags       :as rf.story.tags]
+            [re-frame.story.ui.evidence-spine :as rf.story.ui.evidence-spine]
+            [re-frame.story.ui.markdown :as rf.story.ui.markdown]
+            [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]
             #?@(:cljs [[reagent.core :as r]
-                       [re-frame.story.args :as args]
-                       [re-frame.story.decorators :as decorators]
-                       [re-frame.story.ui.state :as state]])
-            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+                       [re-frame.story.args :as rf.story.args]
+                       [re-frame.story.decorators :as rf.story.decorators]
+                       [re-frame.story.ui.state :as rf.story.ui.state]])
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- pure: prose lookup -------------------------------------------------
 
@@ -78,7 +78,7 @@
   per-workspace, and a workspace that mentions the variant earns its
   prose."
   [variant-id]
-  (let [workspaces (registrar/registrations :workspace)]
+  (let [workspaces (rf.story.registrar/registrations :workspace)]
     (vec
       (for [[wid body] (sort-by key workspaces)
             :when     (and (= :prose (:layout body))
@@ -104,10 +104,10 @@
 
   Pure data → data so the JVM test fixture can cover the merge."
   [variant-id resolved-args]
-  (let [vb       (registrar/handler-meta :variant variant-id)
+  (let [vb       (rf.story.registrar/handler-meta :variant variant-id)
         story-id (when (and (keyword? variant-id) (namespace variant-id))
                    (keyword (namespace variant-id)))
-        sb       (when story-id (registrar/handler-meta :story story-id))
+        sb       (when story-id (rf.story.registrar/handler-meta :story story-id))
         atypes   (merge (:argtypes sb) (:argtypes vb))]
     (vec
       (for [[k v] (sort-by key (or resolved-args {}))]
@@ -151,10 +151,10 @@
   Each row is `{:key :modes|:substrates|:platforms
                  :value <set-or-vector-as-string>}`."
   [variant-id]
-  (let [vb       (registrar/handler-meta :variant variant-id)
+  (let [vb       (rf.story.registrar/handler-meta :variant variant-id)
         story-id (when (and (keyword? variant-id) (namespace variant-id))
                    (keyword (namespace variant-id)))
-        sb       (when story-id (registrar/handler-meta :story story-id))
+        sb       (when story-id (rf.story.registrar/handler-meta :story story-id))
         get-eff  (fn [k] (or (get vb k) (get sb k)))]
     (vec
       (keep
@@ -172,12 +172,12 @@
   bottom-of-page tag picker — the SAME set the sidebar filter and
   `variants-with-tags` compute."
   [variant-id]
-  (vec (sort (tags/effective-tags
+  (vec (sort (rf.story.tags/effective-tags
                variant-id
-               {:variant #(registrar/handler-meta :variant %)
-                :story   #(registrar/handler-meta :story %)}))))
+               {:variant #(rf.story.registrar/handler-meta :variant %)
+                :story   #(rf.story.registrar/handler-meta :story %)}))))
 
-;; The header chips call `pred/parent-story-id` directly.
+;; The header chips call `rf.story.predicates/parent-story-id` directly.
 
 ;; ---- pure: status / fidelity / schema / evidence excerpt ----------------
 ;;
@@ -187,14 +187,14 @@
 ;; contract that load-bears this whole section: Docs and Test MUST agree
 ;; because they read the SAME plan/result. So:
 ;;
-;;   - the status verdict is `test-pure/run-status` over the SAME unified
+;;   - the status verdict is `rf.story.ui.test-mode.pure/run-status` over the SAME unified
 ;;     run-result Test mode wrote (the `evidence-spine/result-for` slot) —
 ;;     docs never re-runs the variant nor re-derives the verdict;
 ;;   - fidelity / world-input / runner-requirement come from the variant's
-;;     compiled PLAN (`plan/variant-plan`) — the same plan the runner builds,
+;;     compiled PLAN (`rf.story.plan/variant-plan`) — the same plan the runner builds,
 ;;     so the badges match what a run would rest on;
 ;;   - the evidence excerpt is a SPARSE projection of the SAME spine the
-;;     evidence-spine display renders (`spine/spine-spans`), capped to a couple
+;;     evidence-spine display renders (`rf.story.ui.evidence-spine/spine-spans`), capped to a couple
 ;;     of beats — a curated pointer, NOT a second evidence renderer (spec/022
 ;;     §2). The deep beat tree / app-db diff stays in Inspector/Xray, reached
 ;;     through the spine's focus links.
@@ -203,7 +203,7 @@
 ;; without booting Reagent / the runtime / Xray.
 
 (defn variant-plan-quietly
-  "Compile `variant-id` into its normalized plan (`plan/variant-plan`),
+  "Compile `variant-id` into its normalized plan (`rf.story.plan/variant-plan`),
   returning nil rather than throwing when compilation fails (an unknown
   variant, a malformed `:extends` chain, an invalid view-arg / sub-override
   value). Pure data → data. Docs is a read-only projection — a variant whose
@@ -212,12 +212,12 @@
   taking the whole pane down."
   [variant-id]
   (try
-    (plan/variant-plan variant-id)
+    (rf.story.plan/variant-plan variant-id)
     (catch #?(:clj Exception :cljs :default) _ nil)))
 
 (def fidelity-rungs
   "The fidelity-ladder rungs (highest → lowest, spec/017 §View-state
-  subscription overrides → `plan/compute-fidelity`). Pure data so the badge
+  subscription overrides → `rf.story.plan/compute-fidelity`). Pure data so the badge
   renderer can order + label the `:fidelity` SET a plan carries. A reviewer
   reads the rungs to know which evidence a variant's render rests on:
   `:real-setup` (real events) beats `:db-seed` (a schema-checked app-db seed)
@@ -271,7 +271,7 @@
   "Project the SAME unified run-result Test mode wrote into the compact
   status summary Docs shows (spec/022 §1 — a current test-status summary).
   Pure data → data. THE docs↔Test agreement point: the verdict is
-  `test-pure/run-status` over the result + its `aggregate-summary` fold, the
+  `rf.story.ui.test-mode.pure/run-status` over the result + its `aggregate-summary` fold, the
   EXACT projection Test mode's summary pill uses — so a tape-floor `:fail` /
   a `:cannot-run` refusal reads identically in Docs and Test, and Docs can
   never disagree with Test about whether a variant is green.
@@ -288,7 +288,7 @@
   and points at Test mode rather than fabricating a verdict."
   [result summary]
   (let [{:keys [passed failed cannot-run total]} (or summary {})
-        status (test-pure/run-status result summary)]
+        status (rf.story.ui.test-mode.pure/run-status result summary)]
     {:status     status
      :passed     (or passed 0)
      :failed     (or failed 0)
@@ -305,7 +305,7 @@
 
   Reads a top-level Malli `[:map …]` schema's entries; each row is
   `{:key … :required? <bool> :schema <entry-schema>}` (a non-`{:optional
-  true}` entry is required, mirroring `plan/validate-effective-args`'
+  true}` entry is required, mirroring `rf.story.plan/validate-effective-args`'
   required-key floor). A non-`[:map]` schema (or no schema on file) yields an
   empty vector — Docs omits the section rather than inventing a table."
   [plan]
@@ -331,12 +331,12 @@
 
   Single source of truth: `re-frame.story.budgets/evidence-gesture-budget`
   `:excerpt-beats` (X1 — the failure→evidence budget; spec/018 §10)."
-  (:excerpt-beats budgets/evidence-gesture-budget))
+  (:excerpt-beats rf.story.budgets/evidence-gesture-budget))
 
 (defn evidence-excerpt
   "Project the SAME spine the evidence-spine display renders into a SPARSE
   docs excerpt (spec/022 §2). Pure data → data. NOT a second evidence
-  renderer — a curated pointer: it reuses `spine/spine-spans` (the canonical
+  renderer — a curated pointer: it reuses `rf.story.ui.evidence-spine/spine-spans` (the canonical
   projection over the run's `:narrative`), flattens to the run's beats, and
   caps the inline excerpt to `evidence-excerpt-beat-cap` beats. Each excerpt
   beat carries only the compact, readable fields (its trigger / epoch /
@@ -354,7 +354,7 @@
   :more 0}` — Docs renders an honest 'no evidence yet' line pointing at Test
   mode, never a fabricated excerpt."
   [narrative]
-  (let [spans (spine/spine-spans narrative)
+  (let [spans (rf.story.ui.evidence-spine/spine-spans narrative)
         beats (vec (mapcat :beats spans))
         n     (count beats)]
     {:available? (pos? n)
@@ -369,86 +369,86 @@
      {:wrap          {:flex             "1"
                       :overflow         "auto"
                       :padding          "20px 28px"
-                      :background       (:bg-canvas colors/tokens)
-                      :color            (:text-primary colors/tokens)
+                      :background       (:bg-canvas rf.story.theme.colors/tokens)
+                      :color            (:text-primary rf.story.theme.colors/tokens)
                       :font-family      sans-stack
-                      :font-size        (:body typography/type-scale)
+                      :font-size        (:body rf.story.theme.typography/type-scale)
                       :line-height      "1.5"}
       :h1            {:font-family      mono-stack
-                      :font-size        (:display typography/type-scale)
+                      :font-size        (:display rf.story.theme.typography/type-scale)
                       :font-weight      "bold"
                       :color            "white"
                       :margin           "0 0 4px 0"}
-      :sub           {:color            (:text-secondary colors/tokens)
+      :sub           {:color            (:text-secondary rf.story.theme.colors/tokens)
                       :font-family      mono-stack
-                      :font-size        (:caption typography/type-scale)
+                      :font-size        (:caption rf.story.theme.typography/type-scale)
                       :margin-bottom    "10px"}
       :section       {:margin-top       "24px"}
       :section-h     {:font-weight      "bold"
-                      :color            (:text-secondary colors/tokens)
+                      :color            (:text-secondary rf.story.theme.colors/tokens)
                       :text-transform   "uppercase"
-                      :font-size        (:micro typography/type-scale)
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
                       :letter-spacing   "0.5px"
                       :margin-bottom    "8px"
                       :border-bottom    "1px solid #444"
                       :padding-bottom   "4px"}
-      :doc-blurb     {:color            (:text-secondary colors/tokens)
+      :doc-blurb     {:color            (:text-secondary rf.story.theme.colors/tokens)
                       :font-style       "italic"
                       :margin           "4px 0 12px 0"}
       :prose-block   {:padding          "12px 16px"
                       :margin-bottom    "8px"
-                      :background       (:bg-2 colors/tokens)
+                      :background       (:bg-2 rf.story.theme.colors/tokens)
                       :border-left      "3px solid #0e639c"
-                      :color            (:text-primary colors/tokens)
+                      :color            (:text-primary rf.story.theme.colors/tokens)
                       :font-family      sans-stack}
-      :prose-source  {:color            (:text-secondary colors/tokens)
+      :prose-source  {:color            (:text-secondary rf.story.theme.colors/tokens)
                       :font-family      mono-stack
-                      :font-size        (:micro typography/type-scale)
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
                       :margin-bottom    "4px"}
       :table         {:width            "100%"
                       :border-collapse  "collapse"
                       :font-family      mono-stack
-                      :font-size        (:caption typography/type-scale)}
+                      :font-size        (:caption rf.story.theme.typography/type-scale)}
       :th            {:text-align       "left"
                       :padding          "6px 8px"
-                      :background       (:bg-2 colors/tokens)
-                      :color            (:text-secondary colors/tokens)
+                      :background       (:bg-2 rf.story.theme.colors/tokens)
+                      :color            (:text-secondary rf.story.theme.colors/tokens)
                       :border-bottom    "1px solid #444"
                       :text-transform   "uppercase"
-                      :font-size        (:micro typography/type-scale)
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
                       :letter-spacing   "0.5px"}
       :td            {:padding          "6px 8px"
                       :border-bottom    "1px solid #2d2d30"
-                      :color            (:text-primary colors/tokens)
+                      :color            (:text-primary rf.story.theme.colors/tokens)
                       :vertical-align   "top"}
-      :td-key        {:color            (:info colors/tokens)
+      :td-key        {:color            (:info rf.story.theme.colors/tokens)
                       :white-space      "nowrap"}
-      :td-value      {:color            (:tag-experimental-fg colors/tokens)
+      :td-value      {:color            (:tag-experimental-fg rf.story.theme.colors/tokens)
                       :font-family      mono-stack
                       :white-space      "pre-wrap"}
-      :td-doc        {:color            (:text-secondary colors/tokens)
+      :td-doc        {:color            (:text-secondary rf.story.theme.colors/tokens)
                       :font-style       "italic"}
-      :section-h-row {:background       (:bg-3 colors/tokens)
-                      :color            (:text-secondary colors/tokens)
+      :section-h-row {:background       (:bg-3 rf.story.theme.colors/tokens)
+                      :color            (:text-secondary rf.story.theme.colors/tokens)
                       :text-transform   "uppercase"
-                      :font-size        (:micro typography/type-scale)
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
                       :letter-spacing   "0.5px"}
       :chip-row      {:display          "flex"
                       :flex-wrap        "wrap"
                       :gap              "6px"
                       :margin-top       "4px"}
       :chip          {:padding          "3px 9px"
-                      :background       (:bg-3 colors/tokens)
-                      :color            (:text-primary colors/tokens)
+                      :background       (:bg-3 rf.story.theme.colors/tokens)
+                      :color            (:text-primary rf.story.theme.colors/tokens)
                       :border           "none"
                       :border-radius    "10px"
                       :cursor           "pointer"
                       :font-family      mono-stack
-                      :font-size        (:micro typography/type-scale)
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
                       :user-select      "none"}
-      :chip-active   {:background       (:accent-amber colors/tokens)
+      :chip-active   {:background       (:accent-amber rf.story.theme.colors/tokens)
                       :color            "white"}
-      :empty         {:color            (:text-tertiary colors/tokens)
+      :empty         {:color            (:text-tertiary rf.story.theme.colors/tokens)
                       :font-style       "italic"
                       :padding          "6px 0"}
       ;; ---- status / fidelity / evidence excerpt (spec/022) ----
@@ -460,84 +460,84 @@
       :status-pill   {:padding          "3px 10px"
                       :border-radius    "10px"
                       :font-family      mono-stack
-                      :font-size        (:caption typography/type-scale)
+                      :font-size        (:caption rf.story.theme.typography/type-scale)
                       :font-weight      "bold"
                       :text-transform   "uppercase"
                       :letter-spacing   "0.5px"}
-      :status-pass   {:background       (:success-bg colors/tokens)
-                      :color            (:success colors/tokens)}
-      :status-fail   {:background       (:danger-bg colors/tokens)
-                      :color            (:danger colors/tokens)}
-      :status-error  {:background       (:danger-bg colors/tokens)
-                      :color            (:danger colors/tokens)
-                      :border           (str "1px solid " (:danger colors/tokens))}
-      :status-cannot {:background       (:warning-bg colors/tokens)
-                      :color            (:warning colors/tokens)}
-      :status-pending {:background      (:bg-3 colors/tokens)
-                       :color           (:text-tertiary colors/tokens)}
-      :status-counts {:color            (:text-secondary colors/tokens)
+      :status-pass   {:background       (:success-bg rf.story.theme.colors/tokens)
+                      :color            (:success rf.story.theme.colors/tokens)}
+      :status-fail   {:background       (:danger-bg rf.story.theme.colors/tokens)
+                      :color            (:danger rf.story.theme.colors/tokens)}
+      :status-error  {:background       (:danger-bg rf.story.theme.colors/tokens)
+                      :color            (:danger rf.story.theme.colors/tokens)
+                      :border           (str "1px solid " (:danger rf.story.theme.colors/tokens))}
+      :status-cannot {:background       (:warning-bg rf.story.theme.colors/tokens)
+                      :color            (:warning rf.story.theme.colors/tokens)}
+      :status-pending {:background      (:bg-3 rf.story.theme.colors/tokens)
+                       :color           (:text-tertiary rf.story.theme.colors/tokens)}
+      :status-counts {:color            (:text-secondary rf.story.theme.colors/tokens)
                       :font-family      mono-stack
-                      :font-size        (:caption typography/type-scale)}
-      :label-key     {:color            (:text-tertiary colors/tokens)
+                      :font-size        (:caption rf.story.theme.typography/type-scale)}
+      :label-key     {:color            (:text-tertiary rf.story.theme.colors/tokens)
                       :font-family      mono-stack
-                      :font-size        (:micro typography/type-scale)
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
                       :text-transform   "uppercase"
                       :letter-spacing   "0.4px"
                       :margin-right     "2px"}
       :badge         {:padding          "2px 8px"
                       :border-radius    "8px"
                       :font-family      mono-stack
-                      :font-size        (:micro typography/type-scale)
-                      :background       (:bg-3 colors/tokens)
-                      :color            (:text-secondary colors/tokens)
-                      :border           (str "1px solid " (:border-subtle colors/tokens))}
-      :badge-high    {:background       (:success-bg colors/tokens)
-                      :color            (:success colors/tokens)}
-      :badge-mid     {:background       (:info-bg colors/tokens)
-                      :color            (:info colors/tokens)}
-      :badge-low     {:background       (:warning-bg colors/tokens)
-                      :color            (:warning colors/tokens)}
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
+                      :background       (:bg-3 rf.story.theme.colors/tokens)
+                      :color            (:text-secondary rf.story.theme.colors/tokens)
+                      :border           (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))}
+      :badge-high    {:background       (:success-bg rf.story.theme.colors/tokens)
+                      :color            (:success rf.story.theme.colors/tokens)}
+      :badge-mid     {:background       (:info-bg rf.story.theme.colors/tokens)
+                      :color            (:info rf.story.theme.colors/tokens)}
+      :badge-low     {:background       (:warning-bg rf.story.theme.colors/tokens)
+                      :color            (:warning rf.story.theme.colors/tokens)}
       :badge-absent  {:background       "transparent"
-                      :color            (:text-tertiary colors/tokens)
-                      :border           (str "1px dashed " (:border-subtle colors/tokens))
+                      :color            (:text-tertiary rf.story.theme.colors/tokens)
+                      :border           (str "1px dashed " (:border-subtle rf.story.theme.colors/tokens))
                       :opacity          "0.7"}
       :runner-chip   {:padding          "2px 8px"
                       :border-radius    "3px"
                       :font-family      mono-stack
-                      :font-size        (:micro typography/type-scale)
-                      :background       (:bg-3 colors/tokens)
-                      :color            (:text-primary colors/tokens)}
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
+                      :background       (:bg-3 rf.story.theme.colors/tokens)
+                      :color            (:text-primary rf.story.theme.colors/tokens)}
       :excerpt-beat  {:display          "flex"
                       :flex-direction   "column"
                       :gap              "3px"
                       :padding          "8px 10px"
                       :margin-bottom    "6px"
                       :border-radius    "4px"
-                      :background       (:bg-2 colors/tokens)
-                      :border-left      (str "3px solid " (:border-subtle colors/tokens))}
+                      :background       (:bg-2 rf.story.theme.colors/tokens)
+                      :border-left      (str "3px solid " (:border-subtle rf.story.theme.colors/tokens))}
       :excerpt-h     {:display          "flex"
                       :align-items      "baseline"
                       :gap              "8px"
                       :flex-wrap        "wrap"}
       :excerpt-trig  {:font-family      mono-stack
-                      :font-size        (:caption typography/type-scale)
-                      :color            (:text-primary colors/tokens)
+                      :font-size        (:caption rf.story.theme.typography/type-scale)
+                      :color            (:text-primary rf.story.theme.colors/tokens)
                       :word-break       "break-all"}
       :excerpt-epoch {:font-family      mono-stack
-                      :font-size        (:micro typography/type-scale)
-                      :color            (:text-tertiary colors/tokens)}
+                      :font-size        (:micro rf.story.theme.typography/type-scale)
+                      :color            (:text-tertiary rf.story.theme.colors/tokens)}
       :excerpt-link  {:font-family      sans-stack
-                      :font-size        (:caption typography/type-scale)
-                      :background       (:bg-3 colors/tokens)
-                      :color            (:info colors/tokens)
-                      :border           (str "1px solid " (:border-default colors/tokens))
+                      :font-size        (:caption rf.story.theme.typography/type-scale)
+                      :background       (:bg-3 rf.story.theme.colors/tokens)
+                      :color            (:info rf.story.theme.colors/tokens)
+                      :border           (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                       :border-radius    "6px"
                       :padding          "3px 10px"
                       :cursor           "pointer"
                       :user-select      "none"}
-      :excerpt-more  {:color            (:text-tertiary colors/tokens)
+      :excerpt-more  {:color            (:text-tertiary rf.story.theme.colors/tokens)
                       :font-style       "italic"
-                      :font-size        (:caption typography/type-scale)
+                      :font-size        (:caption rf.story.theme.typography/type-scale)
                       :margin-top       "4px"}}))
 
 #?(:cljs
@@ -556,12 +556,12 @@
      "Render the variant header — id, parent story, tags as chips that
      forward-link to the sidebar tag filter."
      [variant-id]
-     (let [shell      @state/shell-state-atom
+     (let [shell      @rf.story.ui.state/shell-state-atom
            tag-filter (or (:tag-filter shell) #{})
            tags       (variant-tags variant-id)
-           vb         (registrar/handler-meta :variant variant-id)
-           story-id   (pred/parent-story-id variant-id)
-           sb         (when story-id (registrar/handler-meta :story story-id))
+           vb         (rf.story.registrar/handler-meta :variant variant-id)
+           story-id   (rf.story.predicates/parent-story-id variant-id)
+           sb         (when story-id (rf.story.registrar/handler-meta :story story-id))
            vdoc       (:doc vb)
            sdoc       (:doc sb)]
        [:div
@@ -587,7 +587,7 @@
                :title           (str "Toggle tag filter for " tag)
                :on-click
                (fn [_]
-                 (state/swap-state! state/toggle-tag-filter tag))}
+                 (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-tag-filter tag))}
               (str tag)])])
         (when (or (seq vdoc) (seq sdoc))
           [:div {:style     (:doc-blurb styles)
@@ -613,15 +613,15 @@
               (str "from " workspace-id)]
              [:div {:style     (:prose-block styles)
                     :data-test "story-docs-prose-rendered"}
-              (md/parse body)]])]))))
+              (rf.story.ui.markdown/parse body)]])]))))
 
 #?(:cljs
    (defn- args-section
      "Args table — every resolved arg with default + :doc (when an
      `:argtypes` entry exists)."
      [variant-id]
-     (let [shell    @state/shell-state-atom
-           eff-args (args/resolve-args
+     (let [shell    @rf.story.ui.state/shell-state-atom
+           eff-args (rf.story.args/resolve-args
                       variant-id
                       {:active-modes (:active-modes shell)
                        ;; :docs is read-only — overrides are deliberately
@@ -659,13 +659,13 @@
      in apply-order. Story-level decorators come first per
      `resolve-decorators` semantics."
      [variant-id]
-     (let [shell @state/shell-state-atom
+     (let [shell @rf.story.ui.state/shell-state-atom
            ;; Thread the active-modes into `resolve-decorators`
            ;; so the plan recompile substitutes `[:arg]` keys resolvable
            ;; only through a mode layer. Mirrors `args-section` (docs is
            ;; read-only — overrides deliberately excluded; the variant's
            ;; declared shape, mode-aware, is what the docs surface shows).
-           pack (decorators/resolve-decorators
+           pack (rf.story.decorators/resolve-decorators
                   variant-id
                   {:active-modes (:active-modes shell) :cell-overrides nil})
            rows (decorator-rows pack)]
@@ -729,10 +729,10 @@
      "Bottom tag picker — clickable chips that forward-link into the
      sidebar tag filter. Re-uses the controls-panel chip style so the
      surface feels familiar; selecting a chip dispatches
-     `state/toggle-tag-filter` and the sidebar re-renders with the
+     `rf.story.ui.state/toggle-tag-filter` and the sidebar re-renders with the
      constrained tree."
      [variant-id]
-     (let [shell      @state/shell-state-atom
+     (let [shell      @rf.story.ui.state/shell-state-atom
            tag-filter (or (:tag-filter shell) #{})
            tags       (variant-tags variant-id)]
        [:div {:style     (:section styles)
@@ -755,7 +755,7 @@
                :title          (str "Toggle tag filter for " tag)
                :on-click
                (fn [_]
-                 (state/swap-state! state/toggle-tag-filter tag))}
+                 (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-tag-filter tag))}
               (str tag)])])])))
 
 #?(:cljs
@@ -794,14 +794,14 @@
    (defn- status-fidelity-section
      "Status + fidelity + world-input + runner-requirement summary (spec/022
      §1). The status verdict is `status-summary` over the SAME unified
-     run-result Test mode wrote (`spine/result-for`) — Docs and Test agree by
+     run-result Test mode wrote (`rf.story.ui.evidence-spine/result-for`) — Docs and Test agree by
      reading one result, not two. Fidelity badges / world-input chips /
      runner-requirement chips come from the variant's compiled PLAN, the same
      plan the runner builds. Read-only — a curated status snapshot, not a
      control surface; the Re-run affordance lives in Test mode."
      [variant-id plan]
-     (let [result   (spine/result-for variant-id)
-           summary  (state/aggregate-summary (:assertions result))
+     (let [result   (rf.story.ui.evidence-spine/result-for variant-id)
+           summary  (rf.story.ui.state/aggregate-summary (:assertions result))
            status   (status-summary result summary)
            badges   (fidelity-badges plan)
            worlds   (world-input-chips plan)
@@ -891,7 +891,7 @@
      "Render ONE sparse excerpt beat — the trigger event, its epoch, the
      evidence-strength tags, and the compact summary chips, plus a single
      'Open in Inspector' focus link. Reuses the evidence-spine's
-     `strength`/`summary` projection (decorated by `spine/spine-spans`) and
+     `strength`/`summary` projection (decorated by `rf.story.ui.evidence-spine/spine-spans`) and
      its `focus-beat!` side effect — Docs LINKS into the spine/Xray, it never
      rebuilds the beat tree."
      [variant-id beat]
@@ -929,21 +929,21 @@
                                 "Open the Xray Inspector (no epoch pin for this beat)")
                    :on-click  (fn [e]
                                 (.stopPropagation e)
-                                (spine/focus-beat! variant-id beat spine/default-focus-panel))}
+                                (rf.story.ui.evidence-spine/focus-beat! variant-id beat rf.story.ui.evidence-spine/default-focus-panel))}
           "Inspect in Xray"]])]))
 
 #?(:cljs
    (defn- evidence-excerpt-section
      "Sparse evidence excerpt (spec/022 §2). Reads the SAME run-result Test
-     mode wrote (`spine/result-for`) and projects a couple of leading
+     mode wrote (`rf.story.ui.evidence-spine/result-for`) and projects a couple of leading
      narrative beats through `evidence-excerpt` — a curated pointer into the
      evidence spine, NOT a debugging log. Detailed diagnostics (the full beat
      tree, app-db diff, trace) live in the Inspector / Xray, reached through
-     the 'Open full evidence' link (`spine/open!`) and the spine's own focus
+     the 'Open full evidence' link (`rf.story.ui.evidence-spine/open!`) and the spine's own focus
      links. When the variant has not been run (or retained no narrative) the
      section reads an honest 'no evidence yet' line pointing at Test mode."
      [variant-id]
-     (let [result    (spine/result-for variant-id)
+     (let [result    (rf.story.ui.evidence-spine/result-for variant-id)
            narrative (:narrative result)
            {:keys [available? beats beat-count more]} (evidence-excerpt narrative)]
        [:div {:style     (:section styles)
@@ -970,7 +970,7 @@
             [:button {:style     (:excerpt-link styles)
                       :data-test "story-docs-evidence-open"
                       :title     "Open the full evidence spine in the Inspector"
-                      :on-click  (fn [_] (spine/open! variant-id nil))}
+                      :on-click  (fn [_] (rf.story.ui.evidence-spine/open! variant-id nil))}
              "Open full evidence in Inspector"]]])])))
 
 ;; ---- pure: TOC entries --------------------------------------------------
@@ -1030,14 +1030,14 @@
                     :flex-shrink "0"
                     :padding "12px 12px 12px 16px"
                     :margin-left "20px"
-                    :border-left (str "1px solid " (:border-subtle colors/tokens))
+                    :border-left (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                     :font-family sans-stack
-                    :font-size (:nano typography/type-scale)
-                    :color (:text-secondary colors/tokens)}
+                    :font-size (:nano rf.story.theme.typography/type-scale)
+                    :color (:text-secondary rf.story.theme.colors/tokens)}
       :label      {:text-transform "uppercase"
                    :letter-spacing "0.08em"
-                   :color (:text-tertiary colors/tokens)
-                   :font-size (:nano typography/type-scale)
+                   :color (:text-tertiary rf.story.theme.colors/tokens)
+                   :font-size (:nano rf.story.theme.typography/type-scale)
                    :margin-bottom "6px"}
       :list       {:list-style "none"
                    :margin 0
@@ -1051,11 +1051,11 @@
                    :background "transparent"
                    :border "none"
                    :text-align "left"
-                   :color (:text-secondary colors/tokens)
+                   :color (:text-secondary rf.story.theme.colors/tokens)
                    :font-family sans-stack
-                   :font-size (:caption typography/type-scale)}
-      :item-active {:background (:accent-amber-soft colors/tokens)
-                    :color (:accent-amber colors/tokens)}}))
+                   :font-size (:caption rf.story.theme.typography/type-scale)}
+      :item-active {:background (:accent-amber-soft rf.story.theme.colors/tokens)
+                    :color (:accent-amber rf.story.theme.colors/tokens)}}))
 
 #?(:cljs
    (defn- jump-to-anchor!
@@ -1151,7 +1151,7 @@
          [:div {:style     {:display "flex"
                             :flex "1"
                             :overflow "auto"
-                            :background (:bg-canvas colors/tokens)}
+                            :background (:bg-canvas rf.story.theme.colors/tokens)}
                 :data-test "story-docs-layout"}
           [:section {:style     (:wrap styles)
                      :data-test "story-docs-view"
@@ -1186,14 +1186,14 @@
   under `story-id`. The sort gives the rollup page a stable order even
   when hot-reload re-registers variants in non-source-order."
   [story-id]
-  (vec (sort (registrar/variants-of story-id))))
+  (vec (sort (rf.story.registrar/variants-of story-id))))
 
 #?(:cljs
    (defn- rollup-header
      "Top of the rollup page — story id as h1, the story's :doc blurb,
      a count of variants."
      [story-id variant-ids]
-     (let [sb   (registrar/handler-meta :story story-id)
+     (let [sb   (rf.story.registrar/handler-meta :story story-id)
            sdoc (:doc sb)]
        [:div {:data-test "story-docs-rollup-header"}
         [:h1 {:style (:h1 styles)}
@@ -1223,7 +1223,7 @@
               :data-test "story-docs-rollup-variant"
               :data-variant-id (str variant-id)}
         [:h2 {:style (merge (:h1 styles)
-                            {:font-size (:body typography/type-scale)
+                            {:font-size (:body rf.story.theme.typography/type-scale)
                              :margin-top "0"})}
          (str variant-id)]
         (when plan [status-fidelity-section variant-id plan])

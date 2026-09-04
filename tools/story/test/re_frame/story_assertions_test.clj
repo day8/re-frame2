@@ -25,38 +25,38 @@
             ;; (the dep rides the shared `:test` alias). Without this the
             ;; facade degrades to `[]` and the regression has no tape to
             ;; read.
-            [re-frame.epoch            :as epoch]
+            [re-frame.epoch            :as rf.epoch]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.subs             :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.assertions :as assertions]
-            [re-frame.story.async      :as async]
-            [re-frame.story.config     :as config]
-            [re-frame.story.loaders    :as loaders]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.subs             :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.assertions :as rf.story.assertions]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.loaders    :as rf.story.loaders]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-all [test-fn]
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (require 're-frame.machines :reload)
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (config/set-global-args! {})
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.config/set-global-args! {})
   ;; Clear per-frame assertion accumulators between tests.
   ;; rf2-q651r — clear the epoch tape + listeners between tests so the
   ;; tape-projected assertions read only their own freshly-captured tape.
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.epoch/clear-history!)
+  (rf.epoch/clear-epoch-listeners!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-all)
@@ -83,10 +83,10 @@
 (deftest canonical-assertion-ids-set-exported
   (testing "canonical-assertion-ids returns the seven dispatched handlers PLUS
             the tape-evaluated :rf.assert/schema-error (rf2-5x1wt.21)"
-    (is (= 8 (count (story/canonical-assertion-ids))))
-    (is (contains? (story/canonical-assertion-ids) :rf.assert/schema-error))
-    (is (= assertions/canonical-assertion-ids
-           (story/canonical-assertion-ids)))))
+    (is (= 8 (count (rf.story/canonical-assertion-ids))))
+    (is (contains? (rf.story/canonical-assertion-ids) :rf.assert/schema-error))
+    (is (= rf.story.assertions/canonical-assertion-ids
+           (rf.story/canonical-assertion-ids)))))
 
 ;; ===========================================================================
 ;; :rf.assert/path-equals
@@ -96,26 +96,26 @@
   (testing ":rf.assert/path-equals passes when value at path matches"
     (rf/reg-event :test/set-status
       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :status] :authenticated)}))
-    (story/reg-variant :story.auth/happy
+    (rf.story/reg-variant :story.auth/happy
       {:setup [[:test/set-status]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:auth :status] :authenticated]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.auth/happy) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.auth/happy) 5000)]
       (is (= 1 (count (:assertions r))))
       (is (true? (-> r :assertions first :passed?)))
       (is (= :rf.assert/path-equals (-> r :assertions first :assertion))))
-    (story/destroy-variant! :story.auth/happy)))
+    (rf.story/destroy-variant! :story.auth/happy)))
 
 (deftest path-equals-fail
   (testing ":rf.assert/path-equals records failure on mismatch (no throw)"
-    (story/reg-variant :story.auth/sad
+    (rf.story/reg-variant :story.auth/sad
       {:setup []
        :script [[:dispatch-sync [:rf.assert/path-equals [:auth :status] :authenticated]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.auth/sad) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.auth/sad) 5000)]
       (is (= 1 (count (:assertions r))))
       (is (false? (-> r :assertions first :passed?)))
       (is (= :authenticated (-> r :assertions first :expected)))
       (is (nil? (-> r :assertions first :actual))))
-    (story/destroy-variant! :story.auth/sad)))
+    (rf.story/destroy-variant! :story.auth/sad)))
 
 ;; ===========================================================================
 ;; :rf.assert/path-matches
@@ -125,23 +125,23 @@
   (testing ":rf.assert/path-matches validates against malli"
     (rf/reg-event :test/set-count
       (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
-    (story/reg-variant :story.malli/ok
+    (rf.story/reg-variant :story.malli/ok
       {:setup [[:test/set-count]]
        :script [[:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.malli/ok) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.malli/ok) 5000)]
       (is (true? (-> r :assertions first :passed?))))
-    (story/destroy-variant! :story.malli/ok)))
+    (rf.story/destroy-variant! :story.malli/ok)))
 
 (deftest path-matches-fail
   (testing ":rf.assert/path-matches records failure with explanation on schema mismatch"
     (rf/reg-event :test/set-bad
       (fn [{:keys [db]} _] {:db (assoc db :n "not a number")}))
-    (story/reg-variant :story.malli/bad
+    (rf.story/reg-variant :story.malli/bad
       {:setup [[:test/set-bad]]
        :script [[:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.malli/bad) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.malli/bad) 5000)]
       (is (false? (-> r :assertions first :passed?))))
-    (story/destroy-variant! :story.malli/bad)))
+    (rf.story/destroy-variant! :story.malli/bad)))
 
 ;; ===========================================================================
 ;; :rf.assert/sub-equals
@@ -152,25 +152,25 @@
     (rf/reg-event :test/init
       (fn [{:keys [db]} _] {:db (assoc db :counter 7)}))
     (rf/reg-sub :counter (fn [db _] (:counter db)))
-    (story/reg-variant :story.sub/v
+    (rf.story/reg-variant :story.sub/v
       {:setup [[:test/init]]
        :script [[:dispatch-sync [:rf.assert/sub-equals [:counter] 7]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.sub/v) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.sub/v) 5000)]
       (is (true? (-> r :assertions first :passed?)))
       (is (= 7 (-> r :assertions first :actual))))
-    (story/destroy-variant! :story.sub/v)))
+    (rf.story/destroy-variant! :story.sub/v)))
 
 (deftest sub-equals-fail
   (testing ":rf.assert/sub-equals records the mismatch"
     (rf/reg-event :test/init2
       (fn [{:keys [db]} _] {:db (assoc db :counter 3)}))
     (rf/reg-sub :counter (fn [db _] (:counter db)))
-    (story/reg-variant :story.sub/bad
+    (rf.story/reg-variant :story.sub/bad
       {:setup [[:test/init2]]
        :script [[:dispatch-sync [:rf.assert/sub-equals [:counter] 7]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.sub/bad) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.sub/bad) 5000)]
       (is (false? (-> r :assertions first :passed?))))
-    (story/destroy-variant! :story.sub/bad)))
+    (rf.story/destroy-variant! :story.sub/bad)))
 
 (deftest sub-equals-runtime-db-projection
   ;; rf2-pecaxy regression: a `:rf.assert/sub-equals` over a sub that
@@ -189,18 +189,18 @@
                                   {:state :red})}))
     ;; A runtime-db sub projecting the snapshot's :state — the idiomatic
     ;; shape an app sub uses to read machine state reactively.
-    (subs/reg-runtime-sub :traffic-light/state
+    (rf.subs/reg-runtime-sub :traffic-light/state
       (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :traffic-light :state])))
-    (story/reg-variant :story.sub/runtime
+    (rf.story/reg-variant :story.sub/runtime
       {:setup [[:test/seed-machine-sub]]
        :script [[:dispatch-sync [:rf.assert/sub-equals [:traffic-light/state] :red]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.sub/runtime) 5000)
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.sub/runtime) 5000)
           a (-> r :assertions first)]
       (is (true? (:passed? a))
           "the runtime-db-projection sub resolved its live value through sub-equals")
       (is (= :red (:actual a))
           "actual is the live runtime-db value, not nil (the pre-pecaxy bug)"))
-    (story/destroy-variant! :story.sub/runtime)))
+    (rf.story/destroy-variant! :story.sub/runtime)))
 
 ;; ===========================================================================
 ;; :rf.assert/dispatched?
@@ -210,24 +210,24 @@
   (testing ":rf.assert/dispatched? passes when an earlier event in :script fired"
     (rf/reg-event :test/click
       (fn [{:keys [db]} _] {:db (assoc db :clicked? true)}))
-    (story/reg-variant :story.dispatched/v
+    (rf.story/reg-variant :story.dispatched/v
       {:setup []
        :script [[:dispatch-sync [:test/click]]
                 [:dispatch-sync [:rf.assert/dispatched? [:test/click]]]]})
-    (let [r       (async/deref-blocking (story/run-variant :story.dispatched/v) 5000)
+    (let [r       (rf.story.async/deref-blocking (rf.story/run-variant :story.dispatched/v) 5000)
           asserts (:assertions r)
           last-a  (last asserts)]
       (is (true? (:passed? last-a)) "the dispatched? assertion saw the test/click event"))
-    (story/destroy-variant! :story.dispatched/v)))
+    (rf.story/destroy-variant! :story.dispatched/v)))
 
 (deftest dispatched-fail
   (testing ":rf.assert/dispatched? records a fail when no matching event was dispatched"
-    (story/reg-variant :story.dispatched/no
+    (rf.story/reg-variant :story.dispatched/no
       {:setup []
        :script [[:dispatch-sync [:rf.assert/dispatched? [:never/fired]]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.dispatched/no) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.dispatched/no) 5000)]
       (is (false? (-> r :assertions first :passed?))))
-    (story/destroy-variant! :story.dispatched/no)))
+    (rf.story/destroy-variant! :story.dispatched/no)))
 
 ;; ===========================================================================
 ;; :rf.assert/state-is
@@ -242,12 +242,12 @@
         {:rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/machines :snapshots :traffic-light]
                                   {:state :red})}))
-    (story/reg-variant :story.machine/red
+    (rf.story/reg-variant :story.machine/red
       {:setup [[:test/seed-machine]]
        :script [[:dispatch-sync [:rf.assert/state-is :traffic-light :red]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.machine/red) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.machine/red) 5000)]
       (is (true? (-> r :assertions first :passed?))))
-    (story/destroy-variant! :story.machine/red)))
+    (rf.story/destroy-variant! :story.machine/red)))
 
 (deftest state-is-fail
   (testing ":rf.assert/state-is records the mismatch when state differs"
@@ -256,14 +256,14 @@
         {:rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/machines :snapshots :traffic-light]
                                   {:state :green})}))
-    (story/reg-variant :story.machine/mismatch
+    (rf.story/reg-variant :story.machine/mismatch
       {:setup [[:test/seed-machine2]]
        :script [[:dispatch-sync [:rf.assert/state-is :traffic-light :red]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.machine/mismatch) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.machine/mismatch) 5000)]
       (is (false? (-> r :assertions first :passed?)))
       (is (= :red   (-> r :assertions first :expected)))
       (is (= :green (-> r :assertions first :actual))))
-    (story/destroy-variant! :story.machine/mismatch)))
+    (rf.story/destroy-variant! :story.machine/mismatch)))
 
 ;; ===========================================================================
 ;; :rf.assert/no-warnings  (Stage 5 trace-bus accumulator)
@@ -271,12 +271,12 @@
 
 (deftest no-warnings-pass-when-silent
   (testing ":rf.assert/no-warnings passes when no warning was emitted"
-    (story/reg-variant :story.warn/silent
+    (rf.story/reg-variant :story.warn/silent
       {:setup []
        :script [[:dispatch-sync [:rf.assert/no-warnings]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.warn/silent) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.warn/silent) 5000)]
       (is (true? (-> r :assertions first :passed?))))
-    (story/destroy-variant! :story.warn/silent)))
+    (rf.story/destroy-variant! :story.warn/silent)))
 
 ;; ===========================================================================
 ;; :rf.assert/effect-emitted  (Stage 5 trace-bus accumulator + fx-stub log)
@@ -284,12 +284,12 @@
 
 (deftest effect-emitted-fail-when-no-fx
   (testing ":rf.assert/effect-emitted records a fail when no fx fired"
-    (story/reg-variant :story.fx/none
+    (rf.story/reg-variant :story.fx/none
       {:setup []
        :script [[:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.fx/none) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fx/none) 5000)]
       (is (false? (-> r :assertions first :passed?))))
-    (story/destroy-variant! :story.fx/none)))
+    (rf.story/destroy-variant! :story.fx/none)))
 
 ;; ===========================================================================
 ;; Record-don't-throw contract — `004-Assertions.md` §Record-don't-throw semantics
@@ -298,12 +298,12 @@
 (deftest record-not-throw-on-failure
   (testing "a failing assertion never throws; the play sequence continues"
     (rf/reg-event :test/touch (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
-    (story/reg-variant :story.contract/v
+    (rf.story/reg-variant :story.contract/v
       {:setup []
        :script [[:dispatch-sync [:rf.assert/path-equals [:nope] :unexpected]]
                 [:dispatch-sync [:test/touch]]
                 [:dispatch-sync [:rf.assert/path-equals [:touched] true]]]})      ; pass
-    (let [r (async/deref-blocking (story/run-variant :story.contract/v) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.contract/v) 5000)]
       ;; Both assertions recorded — sequence did NOT halt on the first
       ;; failure.
       (is (= 2 (count (:assertions r))))
@@ -311,7 +311,7 @@
       (is (true?  (-> r :assertions second :passed?)))
       (is (true?  (-> r :app-db :touched))
           ":test/touch fired between the two assertions"))
-    (story/destroy-variant! :story.contract/v)))
+    (rf.story/destroy-variant! :story.contract/v)))
 
 ;; ===========================================================================
 ;; assertions-passing? — the cljs.test adapter predicate
@@ -319,36 +319,36 @@
 
 (deftest assertions-passing-vacuously-true-on-empty
   (testing "an empty assertions list passes vacuously (/spec/007-Stories.md §Story-as-test duality)"
-    (story/reg-variant :story.empty/v {:setup [] :script []})
-    (let [r (async/deref-blocking (story/run-variant :story.empty/v) 5000)]
-      (is (true? (story/assertions-passing? r))
+    (rf.story/reg-variant :story.empty/v {:setup [] :script []})
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.empty/v) 5000)]
+      (is (true? (rf.story/assertions-passing? r))
           "a variant with no :script still 'passes' for cljs.test integration")
       (is (empty? (:assertions r))))
-    (story/destroy-variant! :story.empty/v)))
+    (rf.story/destroy-variant! :story.empty/v)))
 
 (deftest assertions-passing-true-on-all-pass
   (testing "passing? returns true when every assertion has :passed? true"
     (rf/reg-event :test/n (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
-    (story/reg-variant :story.all-pass/v
+    (rf.story/reg-variant :story.all-pass/v
       {:setup [[:test/n]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]
                 [:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.all-pass/v) 5000)]
-      (is (true? (story/assertions-passing? r)))
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.all-pass/v) 5000)]
+      (is (true? (rf.story/assertions-passing? r)))
       ;; Also accepts the assertions vector directly:
-      (is (true? (story/assertions-passing? (:assertions r)))))
-    (story/destroy-variant! :story.all-pass/v)))
+      (is (true? (rf.story/assertions-passing? (:assertions r)))))
+    (rf.story/destroy-variant! :story.all-pass/v)))
 
 (deftest assertions-passing-false-on-any-fail
   (testing "passing? returns false when any assertion failed"
     (rf/reg-event :test/n2 (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-    (story/reg-variant :story.any-fail/v
+    (rf.story/reg-variant :story.any-fail/v
       {:setup [[:test/n2]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]
                 [:dispatch-sync [:rf.assert/path-equals [:n] 999]]]})  ; fail
-    (let [r (async/deref-blocking (story/run-variant :story.any-fail/v) 5000)]
-      (is (false? (story/assertions-passing? r))))
-    (story/destroy-variant! :story.any-fail/v)))
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.any-fail/v) 5000)]
+      (is (false? (rf.story/assertions-passing? r))))
+    (rf.story/destroy-variant! :story.any-fail/v)))
 
 ;; ===========================================================================
 ;; The assertion record carries the canonical fields
@@ -357,33 +357,33 @@
 (deftest record-shape
   (testing "an assertion record carries :assertion :payload :passed? :elapsed-ms :reason"
     (rf/reg-event :test/init3 (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
-    (story/reg-variant :story.shape/v
+    (rf.story/reg-variant :story.shape/v
       {:setup [[:test/init3]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:x] 1]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.shape/v) 5000)
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.shape/v) 5000)
           a (first (:assertions r))]
       (is (= :rf.assert/path-equals  (:assertion a)))
       (is (= [[:x] 1]                (:payload a)))
       (is (true?                     (:passed? a)))
       (is (number?                   (:elapsed-ms a)))
       (is (string?                   (:reason a))))
-    (story/destroy-variant! :story.shape/v)))
+    (rf.story/destroy-variant! :story.shape/v)))
 
 ;; ===========================================================================
 ;; read-assertions — public alias for the per-frame accumulator
 ;; ===========================================================================
 
 (deftest read-assertions-public
-  (testing "story/read-assertions returns the live accumulator"
+  (testing "rf.story/read-assertions returns the live accumulator"
     (rf/reg-event :test/q (fn [{:keys [db]} _] {:db (assoc db :q :ok)}))
-    (story/reg-variant :story.read/v
+    (rf.story/reg-variant :story.read/v
       {:setup [[:test/q]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:q] :ok]]]})
-    (let [_ (async/deref-blocking (story/run-variant :story.read/v) 5000)
-          a (story/read-assertions :story.read/v)]
+    (let [_ (rf.story.async/deref-blocking (rf.story/run-variant :story.read/v) 5000)
+          a (rf.story/read-assertions :story.read/v)]
       (is (= 1 (count a)))
       (is (true? (:passed? (first a)))))
-    (story/destroy-variant! :story.read/v)))
+    (rf.story/destroy-variant! :story.read/v)))
 
 ;; ===========================================================================
 ;; assertion-event? — play-runner discriminator
@@ -391,12 +391,12 @@
 
 (deftest assertion-event-discriminator
   (testing "assertion-event? recognises :rf.assert/* but not other namespaces"
-    (is (true?  (assertions/assertion-event? [:rf.assert/path-equals [:x] 1])))
-    (is (true?  (assertions/assertion-event? [:rf.assert/no-warnings])))
-    (is (false? (assertions/assertion-event? [:auth/login])))
-    (is (false? (assertions/assertion-event? [:rf.story/something])))
-    (is (false? (assertions/assertion-event? nil)))
-    (is (false? (assertions/assertion-event? [])))))
+    (is (true?  (rf.story.assertions/assertion-event? [:rf.assert/path-equals [:x] 1])))
+    (is (true?  (rf.story.assertions/assertion-event? [:rf.assert/no-warnings])))
+    (is (false? (rf.story.assertions/assertion-event? [:auth/login])))
+    (is (false? (rf.story.assertions/assertion-event? [:rf.story/something])))
+    (is (false? (rf.story.assertions/assertion-event? nil)))
+    (is (false? (rf.story.assertions/assertion-event? [])))))
 
 ;; ===========================================================================
 ;; :rf.assert/schema-error — the EXPECTED schema-violation declaration
@@ -408,46 +408,46 @@
 (deftest schema-error-recognised-and-known
   (testing ":rf.assert/schema-error is recognised but is NOT one of the seven
             dispatched handlers"
-    (is (assertions/assertion-id-known? :rf.assert/schema-error))
-    (is (assertions/schema-error? [:rf.assert/schema-error {:where :event :event :x}]))
-    (is (assertions/schema-error? [:rf.assert/schema-error]))
-    (is (not (assertions/schema-error? [:rf.assert/path-equals [:k] 1])))))
+    (is (rf.story.assertions/assertion-id-known? :rf.assert/schema-error))
+    (is (rf.story.assertions/schema-error? [:rf.assert/schema-error {:where :event :event :x}]))
+    (is (rf.story.assertions/schema-error? [:rf.assert/schema-error]))
+    (is (not (rf.story.assertions/schema-error? [:rf.assert/path-equals [:k] 1])))))
 
 (deftest schema-error-selector-mirrors-violation-selector
   (testing "the declared expectation's selector matches evidence/violation-selector
             key-for-key per surface (so the matcher pairs them)"
     ;; :event (+ optional :path)
     (is (= [:event :checkout/submit]
-           (assertions/schema-error-selector {:where :event :event :checkout/submit})))
+           (rf.story.assertions/schema-error-selector {:where :event :event :checkout/submit})))
     (is (= [:event :checkout/submit [:cart]]
-           (assertions/schema-error-selector {:where :event :event :checkout/submit
+           (rf.story.assertions/schema-error-selector {:where :event :event :checkout/submit
                                               :path [:cart]})))
     ;; :cofx / :fx-args
     (is (= [:cofx :load/session]
-           (assertions/schema-error-selector {:where :cofx :cofx :load/session})))
+           (rf.story.assertions/schema-error-selector {:where :cofx :cofx :load/session})))
     (is (= [:fx-args :http/get]
-           (assertions/schema-error-selector {:where :fx-args :fx-args :http/get})))
+           (rf.story.assertions/schema-error-selector {:where :fx-args :fx-args :http/get})))
     ;; :sub-return / :app-db / :machine-data
     (is (= [:sub-return :auth/state [:auth/state]]
-           (assertions/schema-error-selector {:where :sub-return :sub-return :auth/state
+           (rf.story.assertions/schema-error-selector {:where :sub-return :sub-return :auth/state
                                               :query-v [:auth/state]})))
     (is (= [:app-db [:auth] [:auth :token]]
-           (assertions/schema-error-selector {:where :app-db :registered-path [:auth]
+           (rf.story.assertions/schema-error-selector {:where :app-db :registered-path [:auth]
                                               :path [:auth :token]})))
     (is (= [:machine-data :checkout/fsm :entry]
-           (assertions/schema-error-selector {:where :machine-data :machine-id :checkout/fsm
+           (rf.story.assertions/schema-error-selector {:where :machine-data :machine-id :checkout/fsm
                                               :phase :entry}))))
   (testing "a bare / where-less spec selects the [:any] wildcard"
-    (is (= [:any] (assertions/schema-error-selector {})))
-    (is (= [:any] (assertions/schema-error-selector {:event :x}))))
+    (is (= [:any] (rf.story.assertions/schema-error-selector {})))
+    (is (= [:any] (rf.story.assertions/schema-error-selector {:event :x}))))
   (testing "an unrecognised surface keys by [:where failing-id] (open fallback)"
     (is (= [:custom/surface :some-id]
-           (assertions/schema-error-selector {:where :custom/surface :failing-id :some-id})))))
+           (rf.story.assertions/schema-error-selector {:where :custom/surface :failing-id :some-id})))))
 
 (deftest schema-error-expectation-projection
   (testing "schema-error-expectation carries the atom, spec, and selector"
     (let [a   [:rf.assert/schema-error {:where :event :event :x}]
-          exp (assertions/schema-error-expectation a)]
+          exp (rf.story.assertions/schema-error-expectation a)]
       (is (= a (:atom exp)))
       (is (= {:where :event :event :x} (:spec exp)))
       (is (= [:event :x] (:selector exp))))))
@@ -464,7 +464,7 @@
 ;; reach the fail branch directly via the established var-quote seam.
 ;; ===========================================================================
 
-(def ^:private evaluate-no-warnings @#'assertions/evaluate-no-warnings)
+(def ^:private evaluate-no-warnings @#'rf.story.assertions/evaluate-no-warnings)
 
 (deftest evaluate-no-warnings-fail-branch
   (testing "warnings present → :passed? false, with :count / :actual / reason"
@@ -504,35 +504,35 @@
 (deftest causal-bounds-exactly-shorthand
   (testing ":exactly pins BOTH bounds to n, regardless of the per-id default"
     (is (= {:min 2 :max 2}
-           (assertions/causal-bounds :rf.assert/caused {:exactly 2}))
+           (rf.story.assertions/causal-bounds :rf.assert/caused {:exactly 2}))
         ":exactly on :caused pins min=max=2 (overriding the {:min 1} default)")
     (is (= {:min 0 :max 0}
-           (assertions/causal-bounds :rf.assert/no-cascade-rerender {:exactly 0}))
+           (rf.story.assertions/causal-bounds :rf.assert/no-cascade-rerender {:exactly 0}))
         ":exactly 0 on :no-cascade-rerender pins both to 0")
     (is (= {:min 3 :max 3}
-           (assertions/causal-bounds :rf.assert/no-cascade-rerender {:exactly 3}))
+           (rf.story.assertions/causal-bounds :rf.assert/no-cascade-rerender {:exactly 3}))
         ":exactly overrides the no-cascade default {:min 0 :max 0}")))
 
 (deftest causal-bounds-min-override-on-caused
   (testing ":min override on :rf.assert/caused — 'caused at least n times'"
     (is (= {:min 3}
-           (assertions/causal-bounds :rf.assert/caused {:min 3}))
+           (rf.story.assertions/causal-bounds :rf.assert/caused {:min 3}))
         ":min 3 overrides the default {:min 1}; :max stays absent (unbounded)")
     (is (= {:min 1}
-           (assertions/causal-bounds :rf.assert/caused {}))
+           (rf.story.assertions/causal-bounds :rf.assert/caused {}))
         "default for :caused is {:min 1} (the contrast — no override)")
     (is (= {:min 2 :max 5}
-           (assertions/causal-bounds :rf.assert/caused {:min 2 :max 5}))
+           (rf.story.assertions/causal-bounds :rf.assert/caused {:min 2 :max 5}))
         "both :min and :max may override on :caused")))
 
 (deftest causal-effect-surface-sub-over-view-precedence
   (testing ":sub takes precedence over :view when BOTH are present"
     (is (= [:sub :a]
-           (assertions/causal-effect-surface {:sub :a :view :b}))
+           (rf.story.assertions/causal-effect-surface {:sub :a :view :b}))
         "a spec naming both measures the sub recompute (sub wins)")
-    (is (= [:sub :a]   (assertions/causal-effect-surface {:sub :a})))
-    (is (= [:view :b]  (assertions/causal-effect-surface {:view :b})))
-    (is (= [:any]      (assertions/causal-effect-surface {}))
+    (is (= [:sub :a]   (rf.story.assertions/causal-effect-surface {:sub :a})))
+    (is (= [:view :b]  (rf.story.assertions/causal-effect-surface {:view :b})))
+    (is (= [:any]      (rf.story.assertions/causal-effect-surface {}))
         "neither :sub nor :view → the cause's total recompute+render count")))
 
 ;; ===========================================================================
@@ -556,12 +556,12 @@
     ;; (:rf.error/no-such-handler), NOT `:op-type :warning`. The tape's
     ;; :warnings projection (and therefore the run-result slot) stays empty;
     ;; the in-script no-warnings assertion reads the SAME projection.
-    (story/reg-variant :story.ssot/error-only
+    (rf.story/reg-variant :story.ssot/error-only
       {:setup []
        :script [[:dispatch-sync [:no/such-handler]]
                      [:dispatch-sync [:rf.assert/no-warnings]]]})
-    (let [r        (async/deref-blocking
-                     (story/run-variant :story.ssot/error-only) 5000)
+    (let [r        (rf.story.async/deref-blocking
+                     (rf.story/run-variant :story.ssot/error-only) 5000)
           no-warn  (->> (:assertions r)
                         (filter #(= :rf.assert/no-warnings (:assertion %)))
                         last)]
@@ -572,7 +572,7 @@
       (is (= (count (:warnings r)) (:count no-warn))
           "the assertion :count AGREES with the run-result :warnings slot count
            — one SSOT, no atom/tape divergence"))
-    (story/destroy-variant! :story.ssot/error-only)))
+    (rf.story/destroy-variant! :story.ssot/error-only)))
 
 (deftest dispatched?-projects-from-tape-trigger-events
   (testing ":rf.assert/dispatched? reads the epoch-tape :trigger-event
@@ -580,14 +580,14 @@
             bare keyword head — including a re-dispatched (nested) event"
     (rf/reg-event :ssot/outer (fn [_ _] {:fx [[:dispatch [:ssot/inner 42]]]}))
     (rf/reg-event :ssot/inner (fn [{:keys [db]} [_ n]] {:db (assoc db :inner n)}))
-    (story/reg-variant :story.ssot/dispatched
+    (rf.story/reg-variant :story.ssot/dispatched
       {:setup []
        :script [[:dispatch-sync [:ssot/outer]]
                      [:dispatch-sync [:rf.assert/dispatched? [:ssot/inner 42]]]
                      [:dispatch-sync [:rf.assert/dispatched? :ssot/inner]]
                      [:dispatch-sync [:rf.assert/dispatched? [:never/fired]]]]})
-    (let [r       (async/deref-blocking
-                    (story/run-variant :story.ssot/dispatched) 5000)
+    (let [r       (rf.story.async/deref-blocking
+                    (rf.story/run-variant :story.ssot/dispatched) 5000)
           by-need (->> (:assertions r)
                        (filter #(= :rf.assert/dispatched? (:assertion %)))
                        (map (juxt :expected :passed?))
@@ -598,7 +598,7 @@
           "a bare keyword needle matches the trigger-event's head id")
       (is (false? (get by-need [:never/fired]))
           "an event never dispatched does not appear on the tape → fail"))
-    (story/destroy-variant! :story.ssot/dispatched)))
+    (rf.story/destroy-variant! :story.ssot/dispatched)))
 
 ;; ===========================================================================
 ;; rf2-ynjts.21 — `dispatched-events` projection: the PRIVACY filter +
@@ -636,17 +636,17 @@
   restoring the prior value afterwards (the assertions fixture does not
   reset it, so a `set-egress-profile!` must be unwound by hand)."
   [profile thunk]
-  (let [prev @config/session-egress-profile]
-    (config/set-egress-profile! profile)
+  (let [prev @rf.story.config/session-egress-profile]
+    (rf.story.config/set-egress-profile! profile)
     (try (thunk)
-         (finally (config/set-egress-profile! prev)))))
+         (finally (rf.story.config/set-egress-profile! prev)))))
 
 (defn- with-tape
   "Run `thunk` with the private `frame-tape` projection redefed to return
   `tape` for any frame (`with-redefs-fn` takes the `#'`-var directly, so a
   private fn in another ns is redefable without importing it)."
   [tape thunk]
-  (with-redefs-fn {#'assertions/frame-tape (constantly tape)} thunk))
+  (with-redefs-fn {#'rf.story.assertions/frame-tape (constantly tape)} thunk))
 
 (deftest dispatched-events-drops-sensitive-trigger-when-redacting
   (testing "an epoch flagged :rf.epoch/sensitive? has its :trigger-event
@@ -661,7 +661,7 @@
         (fn []
           (with-egress-profile :rf.egress/local-redacted
             (fn []
-              (let [events (assertions/dispatched-events :any-frame)]
+              (let [events (rf.story.assertions/dispatched-events :any-frame)]
                 (is (= [[:auth/login]] events)
                     "the sensitive epoch's trigger-event is filtered out — only
                      the non-sensitive event projects")
@@ -679,7 +679,7 @@
         (fn []
           (with-egress-profile :rf.egress/local-raw
             (fn []
-              (let [events (assertions/dispatched-events :any-frame)]
+              (let [events (rf.story.assertions/dispatched-events :any-frame)]
                 (is (= [[:auth/login] [:auth/submit {:password "hunter2"}]] events)
                     "both trigger-events project under the raw profile — the drop
                      is gated on the profile, not unconditional")))))))))
@@ -698,7 +698,7 @@
         (fn []
           (with-egress-profile :rf.egress/local-redacted
             (fn []
-              (let [events (assertions/dispatched-events :any-frame)]
+              (let [events (rf.story.assertions/dispatched-events :any-frame)]
                 (is (= [[:cart/add-item {:sku "A"}] [:cart/checkout]] events)
                     "only the two real events project; both :rf.assert/* verdict
                      trigger-events are dropped")
@@ -711,20 +711,20 @@
             no events — the host-free floor, not a throw"
     (with-tape []
       (fn []
-        (is (= [] (assertions/dispatched-events :any-frame)))))))
+        (is (= [] (rf.story.assertions/dispatched-events :any-frame)))))))
 
 (deftest effect-emitted-projects-from-tape-effects
   (testing ":rf.assert/effect-emitted reads the epoch-tape :effects projection
             (the SSOT) for a real (non-stubbed) user fx"
     (rf/reg-fx :ssot.fx/real {:platforms #{:client :server}} (fn [_ _] nil))
     (rf/reg-event :ssot/emit-real (fn [_ _] {:fx [[:ssot.fx/real {:url "x"}]]}))
-    (story/reg-variant :story.ssot/effect
+    (rf.story/reg-variant :story.ssot/effect
       {:setup []
        :script [[:dispatch-sync [:ssot/emit-real]]
                      [:dispatch-sync [:rf.assert/effect-emitted :ssot.fx/real]]
                      [:dispatch-sync [:rf.assert/effect-emitted :ssot.fx/never]]]})
-    (let [r       (async/deref-blocking
-                    (story/run-variant :story.ssot/effect) 5000)
+    (let [r       (rf.story.async/deref-blocking
+                    (rf.story/run-variant :story.ssot/effect) 5000)
           by-need (->> (:assertions r)
                        (filter #(= :rf.assert/effect-emitted (:assertion %)))
                        (map (juxt :expected :passed?))
@@ -735,7 +735,7 @@
           "effect-emitted sees the fx via the SAME tape :effects projection")
       (is (false? (get by-need :ssot.fx/never))
           "an fx never emitted → fail"))
-    (story/destroy-variant! :story.ssot/effect)))
+    (rf.story/destroy-variant! :story.ssot/effect)))
 
 ;; ===========================================================================
 ;; rf2-luzky — fold coverage: a STUBBED fx is answerable from the stub-call
@@ -757,22 +757,22 @@
             stub-call log SSOT (the original fx-id, not the rewritten stub id)"
     (rf/reg-fx :ssot.fx/http {:platforms #{:client :server}} (fn [_ _] nil))
     (rf/reg-event :ssot/login (fn [_ _] {:fx [[:ssot.fx/http {:url "/login"}]]}))
-    (story/reg-variant :story.ssot/stubbed
+    (rf.story/reg-variant :story.ssot/stubbed
       {:decorators  [[:rf.story/force-fx-stub :ssot.fx/http {:status :ok}]]
        :setup      []
        :script [[:dispatch-sync [:ssot/login]]
                      [:dispatch-sync [:rf.assert/effect-emitted :ssot.fx/http]]
                      [:dispatch-sync [:rf.assert/effect-emitted :ssot.fx/never]]]})
-    (let [r       (async/deref-blocking
-                    (story/run-variant :story.ssot/stubbed) 5000)
+    (let [r       (rf.story.async/deref-blocking
+                    (rf.story/run-variant :story.ssot/stubbed) 5000)
           by-need (->> (:assertions r)
                        (filter #(= :rf.assert/effect-emitted (:assertion %)))
                        (map (juxt :expected :passed?))
                        (into {}))]
-      (is (contains? (assertions/emitted-fx :story.ssot/stubbed) :ssot.fx/http)
+      (is (contains? (rf.story.assertions/emitted-fx :story.ssot/stubbed) :ssot.fx/http)
           "emitted-fx answers the ORIGINAL fx-id from the stub-call log union")
       (is (true?  (get by-need :ssot.fx/http))
           "effect-emitted PASSES for the stubbed fx's original id")
       (is (false? (get by-need :ssot.fx/never))
           "an fx never emitted (stubbed or otherwise) → fail"))
-    (story/destroy-variant! :story.ssot/stubbed)))
+    (rf.story/destroy-variant! :story.ssot/stubbed)))

@@ -23,7 +23,7 @@
   Per Mike's testing direction (feedback_xray_story_cljs_unit_tests_
   not_playwright) + the Wave 1-4 migration pattern (rf2-tglku epic):
   the architectural answer is a CLJS unit test that drives
-  `story/run-variant` directly and asserts the result-map's
+  `rf.story/run-variant` directly and asserts the result-map's
   `:lifecycle` + `:app-db` slots — no DOM, no race-sensitive count
   timing.
 
@@ -51,34 +51,34 @@
   Each test runs sub-second under Node CLJS. No browser, no DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.async :as async-lib]
-            [re-frame.story.loaders :as loaders]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.async :as rf.story.async]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.subs :as rf.subs]))
 
 ;; ---- fixture: reset registrar + canonical vocab + counter events --------
 
 (declare register-counter-variants!)
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   ;; Re-register the machines artefact's framework-shipped `:rf/machine`
   ;; sub (a runtime-db sub under EP-0001) after the registrar clear —
   ;; see the matching comment in `variant_lifecycle_e2e_cljs_test.cljs`.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (register-counter-variants!))
 
 (use-fixtures :each {:before reset-all!})
@@ -106,18 +106,18 @@
 
 (defn- register-counter-variants! []
   (install-counter-events!)
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc "Parent story for the reg-variant e2e tests — mirrors the
            counter_with_stories testbed."})
-  (story/reg-variant :story.counter/empty
+  (rf.story/reg-variant :story.counter/empty
     {:doc "Fresh counter at zero. The simplest possible variant."
      :setup [[:counter/initialise 0]]
      :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
-  (story/reg-variant :story.counter/loaded
+  (rf.story/reg-variant :story.counter/loaded
     {:doc "A counter seeded with a non-zero value."
      :setup [[:counter/initialise 7]]
      :script [[:dispatch-sync [:rf.assert/path-equals [:count] 7]]]})
-  (story/reg-variant :story.counter/clicked-three-times
+  (rf.story/reg-variant :story.counter/clicked-three-times
     {:doc "Counter after three increments from zero, driven from the
            play slot so :rf.assert/dispatched? observes them."
      :setup [[:counter/initialise 0]]
@@ -126,10 +126,10 @@
                    [:dispatch-sync [:counter/inc]]
                    [:dispatch-sync [:rf.assert/path-equals  [:count] 3]]
                    [:dispatch-sync [:rf.assert/dispatched?  [:counter/inc]]]]})
-  (story/reg-variant :story.counter/save-stubbed
+  (rf.story/reg-variant :story.counter/save-stubbed
     {:doc "The save flow with the network fx stubbed."
      :setup [[:counter/initialise 5]]
-     :decorators [[story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
+     :decorators [[rf.story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
      :script [[:dispatch-sync [:counter/save]]
                    [:dispatch-sync [:rf.assert/path-equals    [:saving?] true]]
                    [:dispatch-sync [:rf.assert/effect-emitted :counter/sync-to-server]]]}))
@@ -138,7 +138,7 @@
 
 (defn- assertions-passing?
   "True iff every assertion in `result`'s `:assertions` slot has
-  `:passed? true`. Mirrors `story/assertions-passing?` semantics —
+  `:passed? true`. Mirrors `rf.story/assertions-passing?` semantics —
   inlined here so the test reads inline."
   [result]
   (every? (fn [a] (true? (:passed? a))) (:assertions result)))
@@ -149,8 +149,8 @@
   (testing ":story.counter/empty reaches :ready with :count 0 and all
             play-script assertions passing"
     (async done
-      (-> (story/run-variant :story.counter/empty)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter/empty)
+          (rf.story.async/then
             (fn [result]
               (is (= :ready (:lifecycle result))
                   "lifecycle reached :ready")
@@ -158,7 +158,7 @@
                   ":count seeded to 0 by [:counter/initialise 0]")
               (is (assertions-passing? result)
                   "every :rf.assert/* row in the result is :passed? true")
-              (story/destroy-variant! :story.counter/empty)
+              (rf.story/destroy-variant! :story.counter/empty)
               (done)))))))
 
 ;; ---- rf2-ixb0bq — the re-registered :rf/machine sub reads runtime-db -----
@@ -173,8 +173,8 @@
 (deftest rf-machine-sub-resolves-live-runtime-db-snapshot
   (testing ":rf/machine resolves the live lifecycle snapshot off runtime-db"
     (async done
-      (-> (story/run-variant :story.counter/loaded)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter/loaded)
+          (rf.story.async/then
             (fn [_result]
               (let [fs   (rf/frame-state-value :story.counter/loaded)
                     snap (rf/compute-sub
@@ -183,7 +183,7 @@
                     ":rf/machine read the live runtime-db snapshot, not nil")
                 (is (= :ready (:state snap))
                     "the live snapshot's :state is :ready after a clean run"))
-              (story/destroy-variant! :story.counter/loaded)
+              (rf.story/destroy-variant! :story.counter/loaded)
               (done)))))))
 
 ;; ---- (2) :story.counter/loaded -- count 7 -------------------------------
@@ -191,8 +191,8 @@
 (deftest loaded-variant-runs-clean-count-7
   (testing ":story.counter/loaded reaches :ready with :count 7"
     (async done
-      (-> (story/run-variant :story.counter/loaded)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter/loaded)
+          (rf.story.async/then
             (fn [result]
               (is (= :ready (:lifecycle result))
                   "lifecycle reached :ready")
@@ -200,7 +200,7 @@
                   ":count seeded to 7 by [:counter/initialise 7]")
               (is (assertions-passing? result)
                   "every :rf.assert/* row in the result is :passed? true")
-              (story/destroy-variant! :story.counter/loaded)
+              (rf.story/destroy-variant! :story.counter/loaded)
               (done)))))))
 
 ;; ---- (3) :story.counter/clicked-three-times -- count 3 ------------------
@@ -221,8 +221,8 @@
             contract that the Playwright probe (now skipped per
             rf2-8awk1) was trying to assert via the DOM."
     (async done
-      (-> (story/run-variant :story.counter/clicked-three-times)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter/clicked-three-times)
+          (rf.story.async/then
             (fn [result]
               (is (= :ready (:lifecycle result))
                   "lifecycle reached :ready after play-script ran")
@@ -232,7 +232,7 @@
               (is (assertions-passing? result)
                   "every :rf.assert/* row in the play-script passed
                    (path-equals 3 + dispatched? :counter/inc)")
-              (story/destroy-variant! :story.counter/clicked-three-times)
+              (rf.story/destroy-variant! :story.counter/clicked-three-times)
               (done)))))))
 
 ;; ---- (4) :story.counter/save-stubbed -- count 5 + fx-stub ---------------
@@ -242,8 +242,8 @@
             the `:counter/sync-to-server` fx-stub fires through the
             play-script"
     (async done
-      (-> (story/run-variant :story.counter/save-stubbed)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter/save-stubbed)
+          (rf.story.async/then
             (fn [result]
               (is (= :ready (:lifecycle result))
                   "lifecycle reached :ready")
@@ -256,7 +256,7 @@
                   "every :rf.assert/* row in the play-script passed
                    (path-equals :saving? true + effect-emitted
                    :counter/sync-to-server)")
-              (story/destroy-variant! :story.counter/save-stubbed)
+              (rf.story/destroy-variant! :story.counter/save-stubbed)
               (done)))))))
 
 ;; ---- (5) registration shape — `reg-variant` side-table -------------------
@@ -276,7 +276,7 @@
                  :story.counter/loaded
                  :story.counter/clicked-three-times
                  :story.counter/save-stubbed]]
-      (let [body (story/variant->edn vid)]
+      (let [body (rf.story/variant->edn vid)]
         (is (map? body)
             (str "variant->edn returned a map for " vid))
         (is (vector? (:setup body))

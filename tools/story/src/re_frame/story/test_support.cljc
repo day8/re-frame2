@@ -20,7 +20,7 @@
 
   The helper composes the framework's
   `re-frame.test-support/make-reset-runtime-fixture`, which resets the
-  runtime via registrar **snapshot/restore** (NOT `registrar/clear-all!`).
+  runtime via registrar **snapshot/restore** (NOT `rf.story.registrar/clear-all!`).
   Snapshot/restore preserves the framework- and example-app
   registrations that landed at namespace-load — including the
   `:rf/machine` subscription the lifecycle machine depends on — so the
@@ -85,13 +85,13 @@
       (deftest counter-at-five
         (let [result (story/run-variant :story.counter/at-five)]
           (is (= :ready (:lifecycle result)))))"
-  (:require [re-frame.test-support :as fw-test-support]
-            [re-frame.frame :as frame]
-            [re-frame.story.canonical :as canonical]
-            [re-frame.story.config :as config]
-            [re-frame.story.play :as play]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.play.runner-events :as runner-events]))
+  (:require [re-frame.test-support :as rf.test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.story.canonical :as rf.story.canonical]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.play :as rf.story.play]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]))
 
 (defn- as-thunks
   "Coerce `:install` (a 0-arity fn, a coll of them, or nil) into a vector
@@ -118,15 +118,15 @@
   ;; the next), reset the canonical-vocab auto-install gate, and clear the
   ;; two per-process play atoms (`pending-exceptions` + `stepper-state`).
   ;; Goes beyond `clear-all!` by also wiping the per-variant
-  ;; play run-state (`runner-events/clear-all-runs!`) — the test-reset path
+  ;; play run-state (`rf.story.play.runner-events/clear-all-runs!`) — the test-reset path
   ;; tears down a frame's full play surface, not just the registry.
-  (registrar/clear-all!)
-  (config/reset-all!)
-  (canonical/reset-installed-flag!)
-  (play/clear-all-play-state!)
-  (runner-events/clear-all-runs!)
-  (canonical/install!)
-  (frame/ensure-default-frame!)
+  (rf.story.registrar/clear-all!)
+  (rf.story.config/reset-all!)
+  (rf.story.canonical/reset-installed-flag!)
+  (rf.story.play/clear-all-play-state!)
+  (rf.story.play.runner-events/clear-all-runs!)
+  (rf.story.canonical/install!)
+  (rf.frame/ensure-default-frame!)
   (doseq [f (as-thunks install)]
     (f))
   nil)
@@ -149,7 +149,7 @@
 
   Returns a fixture fn suitable for `(use-fixtures :each ...)`."
   [{:keys [adapter install] :as _opts}]
-  (let [fw-fixture (fw-test-support/make-reset-runtime-fixture
+  (let [fw-fixture (rf.test-support/make-reset-runtime-fixture
                      {:adapter adapter
                       :init-fn #(story-reset! install)})]
     (fn [test-fn]

@@ -19,18 +19,18 @@
     includes the status dot when the variant is testable; the
     'Run all' button renders disabled when any run is in flight."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story :as story]
-            [re-frame.story.registrar :as story-registrar]
-            [re-frame.story.ui.state :as state]
-            #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]
-                       [re-frame.story.theme.status :as status]])))
+            [re-frame.story :as rf.story]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            #?@(:cljs [[re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
+                       [re-frame.story.theme.status :as rf.story.theme.status]])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!))
+  (rf.story/clear-all!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!))
 
 (use-fixtures :each (fn [t] (reset-all!) (t)))
 
@@ -38,12 +38,12 @@
 
 (deftest mark-test-running-stamps-status
   (testing "mark-test-running writes :running into [:tests :runs]"
-    (let [s  (state/mark-test-running state/default-shell-state :story.x/a)]
+    (let [s  (rf.story.ui.state/mark-test-running rf.story.ui.state/default-shell-state :story.x/a)]
       (is (= :running (get-in s [:tests :runs :story.x/a :status]))))))
 
 (deftest record-test-run-pass
   (testing "a run with passed assertions records :pass + counts"
-    (let [s (state/record-test-run state/default-shell-state :story.x/a
+    (let [s (rf.story.ui.state/record-test-run rf.story.ui.state/default-shell-state :story.x/a
                                    {:total 3 :passed 3 :failed 0 :skipped 0
                                     :all-passed? true
                                     :ran-at-ms 100 :elapsed-ms 12})]
@@ -54,7 +54,7 @@
 
 (deftest record-test-run-fail
   (testing "a run with any failure records :fail"
-    (let [s (state/record-test-run state/default-shell-state :story.x/a
+    (let [s (rf.story.ui.state/record-test-run rf.story.ui.state/default-shell-state :story.x/a
                                    {:total 3 :passed 1 :failed 2 :skipped 0
                                     :all-passed? false})]
       (is (= :fail (get-in s [:tests :runs :story.x/a :status])))
@@ -64,22 +64,22 @@
   (testing "a run that recorded zero assertions reads :pending — the
             variant ran but produced no signal, so the sidebar dot
             renders as 'not yet run' rather than green"
-    (let [s (state/record-test-run state/default-shell-state :story.x/a
+    (let [s (rf.story.ui.state/record-test-run rf.story.ui.state/default-shell-state :story.x/a
                                    {:total 0 :passed 0 :failed 0 :skipped 0
                                     :all-passed? false})]
       (is (= :pending (get-in s [:tests :runs :story.x/a :status]))))))
 
 (deftest clear-test-run-drops-record
   (testing "clear-test-run removes the slot — the dot re-reads :pending"
-    (let [s (-> state/default-shell-state
-                (state/mark-test-running :story.x/a)
-                (state/clear-test-run :story.x/a))]
+    (let [s (-> rf.story.ui.state/default-shell-state
+                (rf.story.ui.state/mark-test-running :story.x/a)
+                (rf.story.ui.state/clear-test-run :story.x/a))]
       (is (nil? (get-in s [:tests :runs :story.x/a])))
-      (is (= :pending (state/variant-test-status s :story.x/a))))))
+      (is (= :pending (rf.story.ui.state/variant-test-status s :story.x/a))))))
 
 (deftest variant-test-status-defaults-pending
   (testing "an un-stamped variant reads :pending"
-    (is (= :pending (state/variant-test-status state/default-shell-state
+    (is (= :pending (rf.story.ui.state/variant-test-status rf.story.ui.state/default-shell-state
                                                :story.unknown/x)))))
 
 ;; ---- pure: test-summary aggregation -------------------------------------
@@ -92,13 +92,13 @@
                         :all-passed? true}
           fail-summary {:total 1 :passed 0 :failed 1 :skipped 0
                         :all-passed? false}
-          s (-> state/default-shell-state
-                (state/record-test-run :story.x/a pass-summary)
-                (state/record-test-run :story.x/b pass-summary)
-                (state/record-test-run :story.x/c pass-summary)
-                (state/record-test-run :story.x/d fail-summary))
+          s (-> rf.story.ui.state/default-shell-state
+                (rf.story.ui.state/record-test-run :story.x/a pass-summary)
+                (rf.story.ui.state/record-test-run :story.x/b pass-summary)
+                (rf.story.ui.state/record-test-run :story.x/c pass-summary)
+                (rf.story.ui.state/record-test-run :story.x/d fail-summary))
           ;; :story.x/e is not stamped — it reads :pending.
-          summary (state/test-summary s [:story.x/a :story.x/b :story.x/c
+          summary (rf.story.ui.state/test-summary s [:story.x/a :story.x/b :story.x/c
                                          :story.x/d :story.x/e])]
       (is (= 5 (:total summary)))
       (is (= 3 (:passed summary)))
@@ -111,23 +111,23 @@
   (testing ":all-green? is true only when every variant has a recorded
             green run"
     (let [pass {:total 1 :passed 1 :failed 0 :skipped 0 :all-passed? true}
-          s (-> state/default-shell-state
-                (state/record-test-run :story.x/a pass)
-                (state/record-test-run :story.x/b pass))]
-      (is (:all-green? (state/test-summary s [:story.x/a :story.x/b]))))))
+          s (-> rf.story.ui.state/default-shell-state
+                (rf.story.ui.state/record-test-run :story.x/a pass)
+                (rf.story.ui.state/record-test-run :story.x/b pass))]
+      (is (:all-green? (rf.story.ui.state/test-summary s [:story.x/a :story.x/b]))))))
 
 (deftest test-summary-empty
   (testing "an empty seq of testable variants reads :all-green? false
             — a sea of pending is not green"
-    (let [summary (state/test-summary state/default-shell-state [])]
+    (let [summary (rf.story.ui.state/test-summary rf.story.ui.state/default-shell-state [])]
       (is (= 0 (:total summary)))
       (is (false? (:all-green? summary))))))
 
 (deftest test-summary-running-blocks-green
   (testing "a :running variant prevents :all-green?"
-    (let [s (-> state/default-shell-state
-                (state/mark-test-running :story.x/a))
-          summary (state/test-summary s [:story.x/a])]
+    (let [s (-> rf.story.ui.state/default-shell-state
+                (rf.story.ui.state/mark-test-running :story.x/a))
+          summary (rf.story.ui.state/test-summary s [:story.x/a])]
       (is (= 1 (:running summary)))
       (is (false? (:all-green? summary))))))
 
@@ -135,22 +135,22 @@
 
 (deftest testable-variant-ids-filters-by-tag-and-play
   (testing "only :test-tagged variants with non-empty :script count"
-    (story/reg-variant :story.x/a {:tags #{:test} :setup []
+    (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
                                    :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-    (story/reg-variant :story.x/b {:tags #{:test} :setup [] :script []})
-    (story/reg-variant :story.x/c {:tags #{:dev} :setup []
+    (rf.story/reg-variant :story.x/b {:tags #{:test} :setup [] :script []})
+    (rf.story/reg-variant :story.x/c {:tags #{:dev} :setup []
                                    :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-    (story/reg-variant :story.x/d {:tags #{:test :dev} :setup []
+    (rf.story/reg-variant :story.x/d {:tags #{:test :dev} :setup []
                                    :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-    (let [vs (story-registrar/registrations :variant)
-          testable (state/testable-variant-ids vs)]
+    (let [vs (rf.story.registrar/registrations :variant)
+          testable (rf.story.ui.state/testable-variant-ids vs)]
       (is (= [:story.x/a :story.x/d] testable))
       (is (not (some #{:story.x/b} testable)))
       (is (not (some #{:story.x/c} testable))))))
 
 (deftest testable-variant-ids-empty-on-no-registrations
   (testing "no :test variants → empty seq, widget renders 'no :test variants'"
-    (is (empty? (state/testable-variant-ids {})))))
+    (is (empty? (rf.story.ui.state/testable-variant-ids {})))))
 
 ;; ---- pure: status → dot style + aria label -------------------------------
 
@@ -161,40 +161,40 @@
                settled solid statuses fill with the descriptor fg,
                running fills translucent, the hollow shapes ring in the
                descriptor border colour"
-       (is (= {:background (status/fg :pass)} (sidebar/dot-style :pass)))
-       (is (= {:background (status/fg :fail)} (sidebar/dot-style :fail)))
-       (is (= {:background (status/fg :running) :opacity "0.7"}
-              (sidebar/dot-style :running)))
+       (is (= {:background (rf.story.theme.status/fg :pass)} (rf.story.ui.sidebar/dot-style :pass)))
+       (is (= {:background (rf.story.theme.status/fg :fail)} (rf.story.ui.sidebar/dot-style :fail)))
+       (is (= {:background (rf.story.theme.status/fg :running) :opacity "0.7"}
+              (rf.story.ui.sidebar/dot-style :running)))
        (is (= {:background "transparent"
-               :border     (str "1px solid " (:border (status/descriptor :pending)))}
-              (sidebar/dot-style :pending)))
+               :border     (str "1px solid " (:border (rf.story.theme.status/descriptor :pending)))}
+              (rf.story.ui.sidebar/dot-style :pending)))
        (is (= {:background "transparent"
-               :border     (str "1px solid " (:border (status/descriptor :cannot-run)))}
-              (sidebar/dot-style :cannot-run))))
+               :border     (str "1px solid " (:border (rf.story.theme.status/descriptor :cannot-run)))}
+              (rf.story.ui.sidebar/dot-style :cannot-run))))
      (testing ":cannot-run (the canonical third run status,
                state.tests/test-run-statuses) is visibly DISTINCT from
                :pending — a warning-hued ring, never the neutral
                reserved-slot ring"
-       (is (not= (sidebar/dot-style :pending) (sidebar/dot-style :cannot-run))))
+       (is (not= (rf.story.ui.sidebar/dot-style :pending) (rf.story.ui.sidebar/dot-style :cannot-run))))
      (testing "pending is reserved for the genuinely unknown/nil slot —
                unknown statuses degrade through the descriptor fallback"
-       (is (= (sidebar/dot-style :pending) (sidebar/dot-style :unknown)))
-       (is (= (sidebar/dot-style :pending) (sidebar/dot-style nil))))))
+       (is (= (rf.story.ui.sidebar/dot-style :pending) (rf.story.ui.sidebar/dot-style :unknown)))
+       (is (= (rf.story.ui.sidebar/dot-style :pending) (rf.story.ui.sidebar/dot-style nil))))))
 
 #?(:cljs
    (deftest status-dot-aria-labels
      (testing "the accessible label voices the canonical descriptor label
                — every run status distinct, :cannot-run ≠ :pending"
-       (is (= "tests: Pass"      (sidebar/dot-aria-label :pass)))
-       (is (= "tests: Fail"      (sidebar/dot-aria-label :fail)))
-       (is (= "tests: Running"   (sidebar/dot-aria-label :running)))
-       (is (= "tests: Pending"   (sidebar/dot-aria-label :pending)))
-       (is (= "tests: Can't run" (sidebar/dot-aria-label :cannot-run)))
-       (is (not= (sidebar/dot-aria-label :pending)
-                 (sidebar/dot-aria-label :cannot-run)))
+       (is (= "tests: Pass"      (rf.story.ui.sidebar/dot-aria-label :pass)))
+       (is (= "tests: Fail"      (rf.story.ui.sidebar/dot-aria-label :fail)))
+       (is (= "tests: Running"   (rf.story.ui.sidebar/dot-aria-label :running)))
+       (is (= "tests: Pending"   (rf.story.ui.sidebar/dot-aria-label :pending)))
+       (is (= "tests: Can't run" (rf.story.ui.sidebar/dot-aria-label :cannot-run)))
+       (is (not= (rf.story.ui.sidebar/dot-aria-label :pending)
+                 (rf.story.ui.sidebar/dot-aria-label :cannot-run)))
        ;; Unrecognised / nil → the descriptor's pending fallback.
-       (is (= "tests: Pending" (sidebar/dot-aria-label :unknown)))
-       (is (= "tests: Pending" (sidebar/dot-aria-label nil))))))
+       (is (= "tests: Pending" (rf.story.ui.sidebar/dot-aria-label :unknown)))
+       (is (= "tests: Pending" (rf.story.ui.sidebar/dot-aria-label nil))))))
 
 ;; ---- CLJS-only: rendered hiccup contains the widget ---------------------
 
@@ -227,24 +227,24 @@
    (deftest widget-renders-headline-and-counts
      (testing "with 3 pass / 1 fail / 1 pending the widget headline and
                count chips reflect the fixture"
-       (story/reg-variant :story.x/a {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/b {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/b {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/c {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/c {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/d {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/d {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/e {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/e {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (let [pass {:total 1 :passed 1 :failed 0 :skipped 0 :all-passed? true}
              fail {:total 1 :passed 0 :failed 1 :skipped 0 :all-passed? false}]
-         (state/swap-state! state/record-test-run :story.x/a pass)
-         (state/swap-state! state/record-test-run :story.x/b pass)
-         (state/swap-state! state/record-test-run :story.x/c pass)
-         (state/swap-state! state/record-test-run :story.x/d fail))
-       (let [tree     (sidebar/test-widget (state/get-state)
-                                           (state/registry-snapshot))
+         (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run :story.x/a pass)
+         (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run :story.x/b pass)
+         (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run :story.x/c pass)
+         (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run :story.x/d fail))
+       (let [tree     (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
+                                           (rf.story.ui.state/registry-snapshot))
              headline (first (find-by-data-test tree "story-test-widget-headline"))
              counts   (first (find-by-data-test tree "story-test-widget-counts"))]
          (is (some? headline))
@@ -258,9 +258,9 @@
    (deftest widget-empty-when-no-testable-variants
      (testing "no :test variants → the widget renders the empty-state
                sub-line and skips the Run all button"
-       (story/reg-variant :story.x/a {:tags #{:dev} :setup []})
-       (let [tree  (sidebar/test-widget (state/get-state)
-                                        (state/registry-snapshot))
+       (rf.story/reg-variant :story.x/a {:tags #{:dev} :setup []})
+       (let [tree  (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
+                                        (rf.story.ui.state/registry-snapshot))
              empty (first (find-by-data-test tree "story-test-widget-empty"))
              btn   (first (find-by-data-test tree "story-test-widget-run-all"))]
          (is (some? empty))
@@ -272,10 +272,10 @@
                run state. Renders the dot component directly for each
                status keyword and asserts the rendered hiccup carries
                the expected `data-status` attribute."
-       (let [dot-fail    (sidebar/status-dot :fail)
-             dot-pending (sidebar/status-dot :pending)
-             dot-pass    (sidebar/status-dot :pass)
-             dot-running (sidebar/status-dot :running)]
+       (let [dot-fail    (rf.story.ui.sidebar/status-dot :fail)
+             dot-pending (rf.story.ui.sidebar/status-dot :pending)
+             dot-pass    (rf.story.ui.sidebar/status-dot :pass)
+             dot-running (rf.story.ui.sidebar/status-dot :running)]
          (is (= "fail"    (get (second dot-fail) :data-status)))
          (is (= "pending" (get (second dot-pending) :data-status)))
          (is (= "pass"    (get (second dot-pass) :data-status)))
@@ -294,8 +294,8 @@
                (warning ring vs neutral ring), different accessible
                name, different data-status. Pending stays reserved for
                the genuinely unknown slot; a refusal never wears it."
-       (let [dot-cannot  (sidebar/status-dot :cannot-run)
-             dot-pending (sidebar/status-dot :pending)
+       (let [dot-cannot  (rf.story.ui.sidebar/status-dot :cannot-run)
+             dot-pending (rf.story.ui.sidebar/status-dot :pending)
              props       (fn [dot] (second dot))]
          (is (= "cannot-run" (:data-status (props dot-cannot))))
          (is (= "pending"    (:data-status (props dot-pending))))
@@ -303,7 +303,7 @@
          (is (not= (:style (props dot-cannot)) (:style (props dot-pending)))
              ":cannot-run must not wear the pending ring")
          ;; The paint comes from the canonical descriptor source.
-         (is (= (str "1px solid " (:border (status/descriptor :cannot-run)))
+         (is (= (str "1px solid " (:border (rf.story.theme.status/descriptor :cannot-run)))
                 (:border (:style (props dot-cannot)))))
          ;; Accessible channel — label + title both voice the refusal.
          (is (= "tests: Can't run" (:aria-label (props dot-cannot))))
@@ -323,8 +323,8 @@
                variant rows in a typical registry the AT noise was real.
                `role=\"img\"` keeps the `aria-label` exposed as the
                accessible name without the live-region announcement."
-       (let [dot-fail (sidebar/status-dot :fail)
-             dot-pass (sidebar/status-dot :pass)]
+       (let [dot-fail (rf.story.ui.sidebar/status-dot :fail)
+             dot-pass (rf.story.ui.sidebar/status-dot :pass)]
          (is (= "img" (get (second dot-fail) :role))
              "status-dot is exposed as an img with a label")
          (is (= "img" (get (second dot-pass) :role))
@@ -335,11 +335,11 @@
 #?(:cljs
    (deftest widget-run-all-button-disabled-while-running
      (testing "if any variant is :running the Run all button disables"
-       (story/reg-variant :story.x/a {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (state/swap-state! state/mark-test-running :story.x/a)
-       (let [tree (sidebar/test-widget (state/get-state)
-                                       (state/registry-snapshot))
+       (rf.story.ui.state/swap-state! rf.story.ui.state/mark-test-running :story.x/a)
+       (let [tree (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
+                                       (rf.story.ui.state/registry-snapshot))
              btn  (first (find-by-data-test tree "story-test-widget-run-all"))]
          (is (some? btn))
          (is (true? (get (second btn) :disabled)))))))
@@ -352,17 +352,17 @@
                instead of re-deriving from the registry — passes a
                restricted subset and asserts the headline counts reflect
                only that subset"
-       (story/reg-variant :story.x/a {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/b {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/b {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/c {:tags #{:test} :setup []
+       (rf.story/reg-variant :story.x/c {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        ;; Supply a 1-variant subset. The registry has three; the widget
        ;; should report total=1 because we threaded a 1-element seq, not
        ;; the full registry-derived set.
-       (let [tree     (sidebar/test-widget (state/get-state)
-                                           (state/registry-snapshot)
+       (let [tree     (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
+                                           (rf.story.ui.state/registry-snapshot)
                                            [:story.x/a])
              headline (first (find-by-data-test tree
                                                 "story-test-widget-headline"))]
@@ -383,14 +383,14 @@
                perform. The pre-fix bug passed `:cell-overrides nil`
                for every variant, dropping the user's controls-panel
                edits on a Run-all (rf2-zq6sn)."
-       (let [shell (-> state/default-shell-state
+       (let [shell (-> rf.story.ui.state/default-shell-state
                        (assoc :active-modes #{:dark}
                               :substrate :reagent)
-                       (state/set-cell-override-scalar :story.x/a :n 5)
-                       (state/set-cell-override-scalar :story.x/b :label "B"))
-             opts-a (sidebar/run-opts-for-variant shell :story.x/a)
-             opts-b (sidebar/run-opts-for-variant shell :story.x/b)
-             opts-c (sidebar/run-opts-for-variant shell :story.x/c)]
+                       (rf.story.ui.state/set-cell-override-scalar :story.x/a :n 5)
+                       (rf.story.ui.state/set-cell-override-scalar :story.x/b :label "B"))
+             opts-a (rf.story.ui.sidebar/run-opts-for-variant shell :story.x/a)
+             opts-b (rf.story.ui.sidebar/run-opts-for-variant shell :story.x/b)
+             opts-c (rf.story.ui.sidebar/run-opts-for-variant shell :story.x/c)]
          (testing ":story.x/a opts carry only :a's overrides"
            (is (= {:n 5} (:cell-overrides opts-a)))
            (is (= #{:dark} (:active-modes opts-a)))
@@ -415,7 +415,7 @@
 (deftest aggregate-summary-counts-error-records-as-failed
   (testing "a derived record carrying :exception / :error (no explicit
             :status) lands in aggregate-summary's :failed tally"
-    (let [summary (state/aggregate-summary
+    (let [summary (rf.story.ui.state/aggregate-summary
                     [{:passed? true}
                      {:exception (ex-info "boom" {})}
                      {:error "boom"}])]
@@ -431,12 +431,12 @@
                same numbers as the CLJS path"
        (let [pass {:total 1 :passed 1 :failed 0 :skipped 0 :all-passed? true}
              fail {:total 1 :passed 0 :failed 1 :skipped 0 :all-passed? false}
-             s    (-> state/default-shell-state
-                      (state/record-test-run :story.x/a pass)
-                      (state/record-test-run :story.x/b pass)
-                      (state/record-test-run :story.x/c pass)
-                      (state/record-test-run :story.x/d fail))
-             summary (state/test-summary s
+             s    (-> rf.story.ui.state/default-shell-state
+                      (rf.story.ui.state/record-test-run :story.x/a pass)
+                      (rf.story.ui.state/record-test-run :story.x/b pass)
+                      (rf.story.ui.state/record-test-run :story.x/c pass)
+                      (rf.story.ui.state/record-test-run :story.x/d fail))
+             summary (rf.story.ui.state/test-summary s
                        [:story.x/a :story.x/b :story.x/c :story.x/d :story.x/e])]
          (is (= {:total 5 :passed 3 :failed 1 :cannot-run 0 :running 0
                  :pending 1 :all-green? false}

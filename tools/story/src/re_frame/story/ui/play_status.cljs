@@ -15,7 +15,7 @@
      first failed assertion + a click-to-highlight affordance for
      `:assert-dom` failures.
 
-  Both components deref `runner-events/run-state` so Reagent re-renders
+  Both components deref `rf.story.play.runner-events/run-state` so Reagent re-renders
   observe every step transition. Production CLJS builds DCE the file
   entirely via `re-frame.story.config/enabled?`.
 
@@ -38,24 +38,24 @@
   runs every play sequentially, updating the chip as each one
   completes."
   (:require [reagent.core                    :as r]
-            [re-frame.story.config           :as config]
-            [re-frame.story.play.dom         :as dom]
-            [re-frame.story.play.runner      :as runner]
-            [re-frame.story.play.runner-events :as runner-events]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.config           :as rf.story.config]
+            [re-frame.story.play.dom         :as rf.story.play.dom]
+            [re-frame.story.play.runner      :as rf.story.play.runner]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- styles ---------------------------------------------------------------
 
 (def ^:private styles
   {:chip-base   {:padding         "3px 8px"
-                 :background      (:bg-3 colors/tokens)
-                 :color           (:text-primary colors/tokens)
+                 :background      (:bg-3 rf.story.theme.colors/tokens)
+                 :color           (:text-primary rf.story.theme.colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :user-select     "none"
                  :display         "inline-flex"
                  :align-items     "center"
@@ -66,17 +66,17 @@
                   :color      "#fae766"}
    :chip-pass    {:background "#1c4a1c"
                   :color      "#7be07b"}
-   :chip-fail    {:background (:danger-bg colors/tokens)
+   :chip-fail    {:background (:danger-bg rf.story.theme.colors/tokens)
                   :color      "#fda3a3"}
-   :chip-icon    {:font-size (:micro typography/type-scale)}
+   :chip-icon    {:font-size (:micro rf.story.theme.typography/type-scale)}
    :re-run-btn   {:padding         "2px 6px"
-                  :background      (:tag-dev-bg colors/tokens)
+                  :background      (:tag-dev-bg rf.story.theme.colors/tokens)
                   :color           "white"
                   :border          "1px solid #264f78"
                   :border-radius   "3px"
                   :cursor          "pointer"
                   :font-family     mono-stack
-                  :font-size       (:micro typography/type-scale)
+                  :font-size       (:micro rf.story.theme.typography/type-scale)
                   :margin-left     "4px"}
    :dropdown-btn {:padding         "0 4px"
                   :background      "transparent"
@@ -84,18 +84,18 @@
                   :border          "none"
                   :cursor          "pointer"
                   :font-family     mono-stack
-                  :font-size       (:micro typography/type-scale)
+                  :font-size       (:micro rf.story.theme.typography/type-scale)
                   :line-height     "1"}
    :dropdown-panel {:position       "absolute"
                     :top            "100%"
                     :left           "0"
                     :margin-top     "4px"
-                    :background     (:bg-canvas colors/tokens)
-                    :color          (:text-primary colors/tokens)
+                    :background     (:bg-canvas rf.story.theme.colors/tokens)
+                    :color          (:text-primary rf.story.theme.colors/tokens)
                     :border         "1px solid #3c3c3c"
                     :border-radius  "4px"
                     :font-family    mono-stack
-                    :font-size      (:caption typography/type-scale)
+                    :font-size      (:caption rf.story.theme.typography/type-scale)
                     :min-width      "220px"
                     :max-width      "320px"
                     :z-index        "2147483646"
@@ -113,18 +113,18 @@
                   :width           "100%"
                   :text-align      "left"
                   :font-family     mono-stack
-                  :font-size       (:caption typography/type-scale)}
-   :dropdown-row-active {:background (:tag-dev-bg colors/tokens)
+                  :font-size       (:caption rf.story.theme.typography/type-scale)}
+   :dropdown-row-active {:background (:tag-dev-bg rf.story.theme.colors/tokens)
                          :color      "white"}
    :dropdown-row-name   {:overflow      "hidden"
                          :text-overflow "ellipsis"
                          :white-space   "nowrap"
                          :flex          "1 1 auto"}
    :dropdown-row-status {:flex          "0 0 auto"
-                         :font-size     (:nano typography/type-scale)
+                         :font-size     (:nano rf.story.theme.typography/type-scale)
                          :text-transform "uppercase"
                          :opacity       "0.85"}
-   :dropdown-divider    {:height "1px" :background (:border-default colors/tokens)}
+   :dropdown-divider    {:height "1px" :background (:border-default rf.story.theme.colors/tokens)}
    :dropdown-run-all    {:padding         "6px 10px"
                          :cursor          "pointer"
                          :display         "block"
@@ -134,12 +134,12 @@
                          :background      "transparent"
                          :color           "#7bbcff"
                          :font-family     mono-stack
-                         :font-size       (:caption typography/type-scale)}
-   :banner       {:background     (:danger-bg colors/tokens)
+                         :font-size       (:caption rf.story.theme.typography/type-scale)}
+   :banner       {:background     (:danger-bg rf.story.theme.colors/tokens)
                   :color          "#fde0e0"
                   :padding        "8px 14px"
                   :font-family    mono-stack
-                  :font-size      (:body-tight typography/type-scale)
+                  :font-size      (:body-tight rf.story.theme.typography/type-scale)
                   :border-bottom  "2px solid #be4040"
                   :display        "flex"
                   :align-items    "flex-start"
@@ -157,7 +157,7 @@
                   :border-radius   "3px"
                   :cursor          "pointer"
                   :font-family     mono-stack
-                  :font-size       (:micro typography/type-scale)}})
+                  :font-size       (:micro rf.story.theme.typography/type-scale)}})
 
 ;; ---- chip helpers ---------------------------------------------------------
 
@@ -186,7 +186,7 @@
   [state]
   (if (nil? state)
     "Play: IDLE"
-    (str "Play: " (runner/progress-str state))))
+    (str "Play: " (rf.story.play.runner/progress-str state))))
 
 (defn chip-label-multi
   "Pure helper — render the chip's text for a multi-play variant. The
@@ -199,7 +199,7 @@
   [state play-name]
   (let [status-str (if (nil? state)
                      "IDLE"
-                     (runner/progress-str state))
+                     (rf.story.play.runner/progress-str state))
         nm         (or play-name "(default)")]
     (str "Play " nm " | " status-str)))
 
@@ -222,8 +222,8 @@
   "Best-effort: locate the selector from the first DOM-class failure
   and scroll-into-view + flash a temporary outline. CLJS-only."
   [selector]
-  (when (and selector (dom/dom-available?))
-    (when-let [node (dom/query selector)]
+  (when (and selector (rf.story.play.dom/dom-available?))
+    (when-let [node (rf.story.play.dom/query selector)]
       (try
         (.scrollIntoView node #js {:behavior "smooth" :block "center"})
         (let [orig (.. node -style -outline)]
@@ -249,7 +249,7 @@
          :on-click  (fn [e] (.stopPropagation e))}
    (for [[idx spec] (map-indexed vector plays)
          :let [pk     (:name spec)
-               state  (runner-events/current-state-for-play variant-id pk)
+               state  (rf.story.play.runner-events/current-state-for-play variant-id pk)
                status (or (:status state) :idle)
                active? (= active-key pk)]]
      ^{:key (str pk "-" idx)}
@@ -265,7 +265,7 @@
        :on-click    (fn [e]
                       (.stopPropagation e)
                       (close!)
-                      (runner-events/run-play! variant-id pk))}
+                      (rf.story.play.runner-events/run-play! variant-id pk))}
       [:span {:style (:dropdown-row-name styles)} (or pk "(unnamed)")]
       [:span {:style (:dropdown-row-status styles)} (dropdown-row-status state)]])
    [:div {:style (:dropdown-divider styles)}]
@@ -277,12 +277,12 @@
      :on-click  (fn [e]
                   (.stopPropagation e)
                   (close!)
-                  (runner-events/run-all-plays! variant-id))}
+                  (rf.story.play.runner-events/run-all-plays! variant-id))}
     (str "Run all (" (count plays) ")")]])
 
 (defn chip
   "Render the play-status chip for `variant-id`. Form-2 component; the
-  outer `runner-events/run-state` deref drives re-renders. Tagged with
+  outer `rf.story.play.runner-events/run-state` deref drives re-renders. Tagged with
   `data-test=\"story-play-status\"` for browser tests.
 
   rf2-tl7zk multi-play: when the variant declares `:plays` (more than
@@ -291,18 +291,18 @@
   [variant-id]
   (let [open? (r/atom false)]
     (fn [variant-id]
-      (let [plays      (runner-events/variant-plays variant-id)
-            multi?     (runner/multi? plays)
-            active-key (or (runner-events/active-play-key variant-id)
-                           (runner/default-play-key plays))
+      (let [plays      (rf.story.play.runner-events/variant-plays variant-id)
+            multi?     (rf.story.play.runner/multi? plays)
+            active-key (or (rf.story.play.runner-events/active-play-key variant-id)
+                           (rf.story.play.runner/default-play-key plays))
             ;; In multi-play mode, the chip's state reflects the
             ;; ACTIVE play's per-(variant, play) row; in single-play
             ;; mode it reflects the legacy single-script state.
             state      (if multi?
-                         (runner-events/current-state-for-play variant-id active-key)
-                         (get @runner-events/run-state variant-id))
+                         (rf.story.play.runner-events/current-state-for-play variant-id active-key)
+                         (get @rf.story.play.runner-events/run-state variant-id))
             status     (or (:status state) :idle)
-            active-spec (runner/find-play plays active-key)
+            active-spec (rf.story.play.runner/find-play plays active-key)
             active-name (when active-spec (:name active-spec))
             label      (if multi?
                          (chip-label-multi state active-name)
@@ -341,7 +341,7 @@
                              "the play script"))
            :on-click  (fn [e]
                         (.stopPropagation e)
-                        (runner-events/re-run! variant-id))}
+                        (rf.story.play.runner-events/re-run! variant-id))}
           "Re-run"]]))))
 
 ;; ---- failure banner -------------------------------------------------------
@@ -351,8 +351,8 @@
   when the run is not in `:fail` state. Exposed for unit tests."
   [state]
   (when (and state (= :fail (:status state)))
-    (let [{:keys [count first]} (runner/fail-summary state)
-          summary (runner/step-summary (:step first))
+    (let [{:keys [count first]} (rf.story.play.runner/fail-summary state)
+          summary (rf.story.play.runner/step-summary (:step first))
           msg     (:message first)]
       (str count " failure" (when (not= 1 count) "s") " — step "
            (inc (:idx first)) ": " summary
@@ -363,10 +363,10 @@
   most recent run did not fail. Tagged with
   `data-test=\"story-play-banner\"`."
   [variant-id]
-  (let [state (get @runner-events/run-state variant-id)]
+  (let [state (get @rf.story.play.runner-events/run-state variant-id)]
     (when (banner-text state)
-      (let [{:keys [first]} (runner/fail-summary state)
-            sel (runner/step-selector (:step first))]
+      (let [{:keys [first]} (rf.story.play.runner/fail-summary state)
+            sel (rf.story.play.runner/step-selector (:step first))]
         [:div {:style     (:banner styles)
                :role      "alert"
                :data-test "story-play-banner"}
@@ -381,7 +381,7 @@
          [:button {:style    (:banner-btn styles)
                    :data-test "story-play-banner-re-run"
                    :title    "Re-run the play script"
-                   :on-click (fn [_] (runner-events/re-run! variant-id))}
+                   :on-click (fn [_] (rf.story.play.runner-events/re-run! variant-id))}
           "Re-run"]]))))
 
 ;; ---- production-elision wrapper ------------------------------------------
@@ -395,8 +395,8 @@
   rf2-tl7zk: checks both single-script + multi-play surfaces via
   `variant-plays` (which resolves both)."
   [variant-id]
-  (when (and config/enabled? variant-id)
-    (let [plays (runner-events/variant-plays variant-id)]
+  (when (and rf.story.config/enabled? variant-id)
+    (let [plays (rf.story.play.runner-events/variant-plays variant-id)]
       (when (some (fn [p] (seq (:script p))) plays)
         [chip variant-id]))))
 
@@ -406,7 +406,7 @@
   is not in `:fail` — `chip-when-enabled` mirrors that check at the
   spec-presence layer."
   [variant-id]
-  (when (and config/enabled? variant-id)
-    (let [plays (runner-events/variant-plays variant-id)]
+  (when (and rf.story.config/enabled? variant-id)
+    (let [plays (rf.story.play.runner-events/variant-plays variant-id)]
       (when (some (fn [p] (seq (:script p))) plays)
         [banner variant-id]))))

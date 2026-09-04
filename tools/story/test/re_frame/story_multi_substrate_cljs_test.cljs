@@ -4,21 +4,21 @@
   React paths are CLJS-only."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.ui.multi-substrate :as multi]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate]))
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   ;; Wipe the substrate registry so each test starts clean.
-  (reset! multi/substrate->render-fn {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (reset! rf.story.ui.multi-substrate/substrate->render-fn {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -26,27 +26,27 @@
 
 (deftest reagent-default-registered
   (testing "install-canonical-vocabulary! registers :reagent substrate"
-    (is (contains? (multi/registered-substrates) :reagent))))
+    (is (contains? (rf.story.ui.multi-substrate/registered-substrates) :reagent))))
 
 (deftest register-and-unregister
   (testing "register-substrate! + unregister-substrate! work"
-    (multi/register-substrate! :uix
+    (rf.story.ui.multi-substrate/register-substrate! :uix
                                (fn [_ _ _] [:div "uix-stub"]))
-    (is (contains? (multi/registered-substrates) :uix))
-    (multi/unregister-substrate! :uix)
-    (is (not (contains? (multi/registered-substrates) :uix)))))
+    (is (contains? (rf.story.ui.multi-substrate/registered-substrates) :uix))
+    (rf.story.ui.multi-substrate/unregister-substrate! :uix)
+    (is (not (contains? (rf.story.ui.multi-substrate/registered-substrates) :uix)))))
 
 (deftest public-register-substrate-on-story
-  (testing "story/register-substrate! is the public form"
-    (story/register-substrate! :custom (fn [_ _ _] [:div "custom-stub"]))
-    (is (contains? (story/registered-substrates) :custom))))
+  (testing "rf.story/register-substrate! is the public form"
+    (rf.story/register-substrate! :custom (fn [_ _ _] [:div "custom-stub"]))
+    (is (contains? (rf.story/registered-substrates) :custom))))
 
 ;; ---- substrate-set resolution -------------------------------------------
 
 (deftest substrate-set-from-variant
   (testing "resolve-substrate-set prefers variant :substrates when present"
     (is (= #{:reagent :uix}
-           (multi/resolve-substrate-set
+           (rf.story.ui.multi-substrate/resolve-substrate-set
              {:substrates #{:reagent :uix}}
              {}
              :reagent)))))
@@ -54,7 +54,7 @@
 (deftest substrate-set-from-story
   (testing "falls back to story body's :substrates"
     (is (= #{:reagent :uix}
-           (multi/resolve-substrate-set
+           (rf.story.ui.multi-substrate/resolve-substrate-set
              {}
              {:substrates #{:reagent :uix}}
              :reagent)))))
@@ -62,7 +62,7 @@
 (deftest substrate-set-defaults-host
   (testing "defaults to {host} when neither body nor story declares :substrates"
     (is (= #{:reagent}
-           (multi/resolve-substrate-set {} {} :reagent)))))
+           (rf.story.ui.multi-substrate/resolve-substrate-set {} {} :reagent)))))
 
 ;; ---- render-view dispatch -----------------------------------------------
 ;;
@@ -82,12 +82,12 @@
   (testing "a registered NON-:reagent substrate gets the render call, and the
             (variant-id view-id args) contract arrives intact"
     (let [seen (atom nil)]
-      (multi/register-substrate! :uix
+      (rf.story.ui.multi-substrate/register-substrate! :uix
         (fn [variant-id view-id args]
           (reset! seen [variant-id view-id args])
           [:div.uix-stub "rendered by the stub"]))
       (is (= [:div.uix-stub "rendered by the stub"]
-             (multi/render-view :uix :story.rv/probe :views/probe {:n 1}))
+             (rf.story.ui.multi-substrate/render-view :uix :story.rv/probe :views/probe {:n 1}))
           "the substrate's own render result is returned verbatim")
       (is (= [:story.rv/probe :views/probe {:n 1}] @seen)
           "the substrate-render contract is (fn [variant-id view-id args])"))))
@@ -95,9 +95,9 @@
 (deftest render-view-degrades-when-substrate-unregistered
   (testing "an unregistered substrate yields an inline diagnostic rather than
             throwing, so the render verb's caller always sees something back"
-    (is (not (contains? (multi/registered-substrates) :uix))
+    (is (not (contains? (rf.story.ui.multi-substrate/registered-substrates) :uix))
         "precondition: :uix is not registered in this fixture")
-    (let [rendered (multi/render-view :uix :story.rv/probe :views/probe {})]
+    (let [rendered (rf.story.ui.multi-substrate/render-view :uix :story.rv/probe :views/probe {})]
       (is (vector? rendered)
           "a hiccup vector came back — nothing threw past the caller")
       (is (re-find #"is not registered" (last rendered))

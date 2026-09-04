@@ -65,8 +65,8 @@
   (:require [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
-            [re-frame.story.malli-schema :as msu]
-            [re-frame.story.predicates :as pred]))
+            [re-frame.story.malli-schema :as rf.story.malli-schema]
+            [re-frame.story.predicates :as rf.story.predicates]))
 
 ;; ===========================================================================
 ;; PURE: scalar-schema → widget descriptor (flat shapes only)
@@ -108,8 +108,8 @@
     (= :keyword schema) {:widget :text :coerce :keyword}
     (= :symbol schema)  {:widget :text :coerce :symbol}
 
-    (and (vector? schema) (= :enum (msu/schema-op schema)))
-    (let [options (vec (msu/schema-children schema))]
+    (and (vector? schema) (= :enum (rf.story.malli-schema/schema-op schema)))
+    (let [options (vec (rf.story.malli-schema/schema-children schema))]
       ;; A keyword-enum is a clean select; a mixed / non-keyword enum is
       ;; NOT a flat select (the option encoding would be ambiguous), so it
       ;; falls to the EDN escape hatch.
@@ -164,11 +164,11 @@
     {:renderable? true :kind :scalar :widget (scalar-widget schema)}
 
     ;; A vector form — only a FLAT `[:map …]` is renderable.
-    (and (vector? schema) (= :map (msu/schema-op schema)))
+    (and (vector? schema) (= :map (rf.story.malli-schema/schema-op schema)))
     (let [entries (mapv (fn [entry]
-                          {:key    (msu/map-entry-key entry)
-                           :widget (scalar-widget (msu/map-entry-schema entry))})
-                        (msu/schema-children schema))]
+                          {:key    (rf.story.malli-schema/map-entry-key entry)
+                           :widget (scalar-widget (rf.story.malli-schema/map-entry-schema entry))})
+                        (rf.story.malli-schema/schema-children schema))]
       (cond
         (empty? entries)
         {:renderable? false :kind :edn
@@ -190,7 +190,7 @@
     ;; not flat-renderable.
     (vector? schema)
     {:renderable? false :kind :edn
-     :reason (str "non-flat schema form " (pr-str (msu/schema-op schema)))}
+     :reason (str "non-flat schema form " (pr-str (rf.story.malli-schema/schema-op schema)))}
 
     ;; A bare keyword that is not a recognised flat scalar = a registry
     ;; name (`:my/user`) — opaque to a data walk.
@@ -340,7 +340,7 @@
    (let [v-str    (pp-value value 20)
          pinned-id (keyword (namespace source-variant-id)
                             (str (name source-variant-id) "-pinned"))]
-     (str (pred/reg-variant-envelope
+     (str (rf.story.predicates/reg-variant-envelope
             "story" pinned-id
             (str ":extends " (pr-str source-variant-id) "\n"
                  "   :sub-overrides {" (pr-str query-v) " " v-str "}"))

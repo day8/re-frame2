@@ -21,7 +21,7 @@
   `:assertions` records each stamped with their own `:status`. The pane
   reads it through `re-frame.story.ui.test-mode.pure`'s projection helpers.
 
-  Re-run flips `:running?` on, calls `runtime/reset-variant`, swaps the
+  Re-run flips `:running?` on, calls `rf.story.runtime/reset-variant`, swaps the
   result in on resolve.
 
   `:play-events`, `:epoch-ids` + `:selected-step` are the step-through
@@ -40,12 +40,12 @@
     helpers below)."
   (:require [reagent.core                 :as r]
             [re-frame.core                :as rf]
-            [re-frame.interop             :as interop]
-            [re-frame.story.async         :as async]
-            [re-frame.story.play          :as play]
-            [re-frame.story.runtime       :as runtime]
-            [re-frame.story.ui.state      :as state]
-            [re-frame.story.ui.test-mode.pure :as pure]))
+            [re-frame.interop             :as rf.interop]
+            [re-frame.story.async         :as rf.story.async]
+            [re-frame.story.play          :as rf.story.play]
+            [re-frame.story.runtime       :as rf.story.runtime]
+            [re-frame.story.ui.state      :as rf.story.ui.state]
+            [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]))
 
 ;; ---- ratom ---------------------------------------------------------------
 ;;
@@ -62,7 +62,7 @@
   is in flight."
   [variant-id]
   (swap! results-atom assoc-in [variant-id :running?] true)
-  (state/swap-state! state/mark-test-running variant-id))
+  (rf.story.ui.state/swap-state! rf.story.ui.state/mark-test-running variant-id))
 
 (defn- store-result!
   "Swap a fresh `result` (from `run-variant`) into the variant's
@@ -78,12 +78,12 @@
   too — the chrome-level test widget + sidebar dots read off that
   slot."
   [variant-id result]
-  (let [now          (interop/now-ms)
+  (let [now          (rf.interop/now-ms)
         ;; `:script` is the canonical phase-4 slot.
-        ;; `play/variant-play-events` extracts a flat event-vec list
+        ;; `rf.story.play/variant-play-events` extracts a flat event-vec list
         ;; (one per `:dispatch`/`:dispatch-sync` step), the shape the
         ;; scrubber's slot expects.
-        play-events  (play/variant-play-events variant-id)
+        play-events  (rf.story.play/variant-play-events variant-id)
         ;; rf2-4e545l finding 4: match against THIS run's own scoped
         ;; `:epoch-tape` (the result's raw `:rf/epoch-record` vector,
         ;; each carrying its `:trigger-event`) by trigger-event identity
@@ -91,8 +91,8 @@
         ;; epoch-history — a mixed :click+:dispatch script where the
         ;; :click ALSO commits an epoch (its DOM handler dispatches)
         ;; would otherwise misalign a positional slice. See
-        ;; `pure/epoch-id-slice`'s docstring.
-        epoch-ids    (pure/epoch-id-slice (:epoch-tape result) play-events)]
+        ;; `rf.story.ui.test-mode.pure/epoch-id-slice`'s docstring.
+        epoch-ids    (rf.story.ui.test-mode.pure/epoch-id-slice (:epoch-tape result) play-events)]
     (swap! results-atom assoc variant-id
            {:result        result
             :ran-at-ms     now
@@ -101,7 +101,7 @@
             :play-events   (vec play-events)
             :epoch-ids     epoch-ids
             :selected-step nil})
-    (let [summary (-> (state/aggregate-summary (:assertions result))
+    (let [summary (-> (rf.story.ui.state/aggregate-summary (:assertions result))
                       (assoc :ran-at-ms  now
                              :elapsed-ms (:elapsed-ms result)
                              ;; thread the unified run-level `:status` so
@@ -109,7 +109,7 @@
                              ;; `:fail` / `:cannot-run` refusal the
                              ;; assertion counts alone might miss.
                              :status     (:status result)))]
-      (state/swap-state! state/record-test-run variant-id summary))))
+      (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run variant-id summary))))
 
 (defn select-step!
   "Set the step-through scrubber's `:selected-step` for `variant-id`
@@ -187,14 +187,14 @@
   so the test pane re-runs against the same effective-args the user has
   been editing in the controls panel."
   [variant-id]
-  (let [shell @state/shell-state-atom
+  (let [shell @rf.story.ui.state/shell-state-atom
         opts  {:active-modes   (:active-modes shell)
                :cell-overrides (get-in shell [:cell-overrides variant-id])
                :substrate      (:substrate shell)}]
     (begin-run! variant-id)
-    (-> (runtime/reset-variant variant-id opts)
-        (async/then  (fn [r] (store-result! variant-id r) nil))
-        (async/catch* (fn [_]
+    (-> (rf.story.runtime/reset-variant variant-id opts)
+        (rf.story.async/then  (fn [r] (store-result! variant-id r) nil))
+        (rf.story.async/catch* (fn [_]
                         ;; Even a rejection clears :running? so the
                         ;; UI button comes back to "Re-run". Drop
                         ;; the shell-state running stamp too — the
@@ -202,5 +202,5 @@
                         ;; rejection.
                         (swap! results-atom assoc-in
                                [variant-id :running?] false)
-                        (state/swap-state! state/clear-test-run variant-id)
+                        (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run variant-id)
                         nil)))))

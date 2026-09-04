@@ -28,10 +28,10 @@
     depth through `theme.depth`. No literal px / hex strings live here.
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :as typography :refer [sans-stack]]
-            [re-frame.story.theme.colors :as colors]
-            [re-frame.story.theme.depth :as depth]
-            [re-frame.story.theme.space :as space]))
+  (:require [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]
+            [re-frame.story.theme.depth :as rf.story.theme.depth]
+            [re-frame.story.theme.space :as rf.story.theme.space]))
 
 (def styles
   {:root      {:display "flex"
@@ -41,8 +41,8 @@
                ;; rf2-ypd6h: atmospheric backdrop — radial-gradient mesh
                ;; over the deepest slate ground, lifts the shell out of
                ;; the 'editor pane' flat-solid floor.
-               :background (:shell-root depth/backdrops)
-               :color (:text-primary colors/tokens)}
+               :background (:shell-root rf.story.theme.depth/backdrops)
+               :color (:text-primary rf.story.theme.colors/tokens)}
    :body      {:display "flex"
                :flex-direction "row"
                :flex "1"
@@ -66,22 +66,22 @@
    :right     {:flex-shrink "0"
                :display "flex"
                :flex-direction "column"
-               :border-left (str "1px solid " (:border-default colors/tokens))
-               :background (:bg-1 colors/tokens)
-               :box-shadow (:elev-1 depth/shadows)
+               :border-left (str "1px solid " (:border-default rf.story.theme.colors/tokens))
+               :background (:bg-1 rf.story.theme.colors/tokens)
+               :box-shadow (:elev-1 rf.story.theme.depth/shadows)
                :overflow "auto"}
    :right-narrow {:width "auto"
                   :max-height "42vh"
                   :border-left "none"
-                  :border-top (str "1px solid " (:border-default colors/tokens))}
+                  :border-top (str "1px solid " (:border-default rf.story.theme.colors/tokens))}
    ;; The splitter is a quiet seam, not a chrome element — it reads as
    ;; the edge between panes, lighting up amber only while dragged.
    :splitter  {:width "10px"
                :flex "0 0 10px"
                :background "transparent"
                :border "0"
-               :border-left (str "1px solid " (:border-subtle colors/tokens))
-               :border-right (str "1px solid " (:border-subtle colors/tokens))
+               :border-left (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
+               :border-right (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                :cursor "col-resize"
                :padding "0"
                :position "relative"}
@@ -91,9 +91,9 @@
                    :width "2px"
                    :height "36px"
                    :transform "translateY(-50%)"
-                   :border-radius (:pill space/radius)
-                   :background (:border-strong colors/tokens)}
-   :splitter-active {:background (:accent-amber-soft colors/tokens)}
+                   :border-radius (:pill rf.story.theme.space/radius)
+                   :background (:border-strong rf.story.theme.colors/tokens)}
+   :splitter-active {:background (:accent-amber-soft rf.story.theme.colors/tokens)}
    ;; rf2-pxeko — `?` help-button chip lives top-LEFT of the viewport.
    ;; The top-RIGHT corner is reserved for the Test-Codegen REC chip
    ;; (`recorder/rec-chip` in the toolbar) plus the recording-overlay
@@ -103,8 +103,8 @@
    ;; conflict with the sidebar (which is part of the flex layout, not
    ;; fixed-positioned) or any other chrome affordance.
    :help-slot {:position "fixed"
-               :top      (space/pad 4)
-               :left     (space/pad 5)
+               :top      (rf.story.theme.space/pad 4)
+               :left     (rf.story.theme.space/pad 5)
                :z-index  1500}
    ;; ── RHS section bands (§12.3 Inspector + §12.9 the Xray seam) ──
    ;;
@@ -116,31 +116,31 @@
    ;; N labelled sections. The visual-foundation pass keeps that shape
    ;; and adds the Story↔Xray temperature seam.
    :rhs-section
-   {:padding        (str (space/pad 5) " " (space/pad 5) " 0 " (space/pad 5))
-    :background     (:bg-1 colors/tokens)}
+   {:padding        (str (rf.story.theme.space/pad 5) " " (rf.story.theme.space/pad 5) " 0 " (rf.story.theme.space/pad 5))
+    :background     (:bg-1 rf.story.theme.colors/tokens)}
    :rhs-section-h
    {:display        "flex"
     :align-items    "center"
-    :gap            (space/gap 3)
+    :gap            (rf.story.theme.space/gap 3)
     :font-family    sans-stack
-    :font-size      (:nano typography/type-scale)
+    :font-size      (:nano rf.story.theme.typography/type-scale)
     :font-weight    "600"
     :letter-spacing "0.08em"
     :text-transform "uppercase"
-    :color          (:text-tertiary colors/tokens)
-    :margin-bottom  (space/pad 4)
-    :padding-bottom (space/pad 3)
+    :color          (:text-tertiary rf.story.theme.colors/tokens)
+    :margin-bottom  (rf.story.theme.space/pad 4)
+    :padding-bottom (rf.story.theme.space/pad 3)
     ;; Story-owned sections wear a WARM amber-tinted hairline — the
     ;; same trick Xray uses for its own spine boundaries, but in
     ;; Story's identity colour so the band reads 'workshop'.
-    :border-bottom  (str "1px solid " (:border-subtle colors/tokens))
-    :box-shadow     (str "0 1px 0 " (:accent-amber-soft colors/tokens))}
+    :border-bottom  (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
+    :box-shadow     (str "0 1px 0 " (:accent-amber-soft rf.story.theme.colors/tokens))}
    ;; A muted sublabel that sits after the section title (e.g. 'args +
    ;; modes', 'provenance + lowering') — the second word in the header
    ;; row that tells the user what the band is for without a tooltip.
    :rhs-section-sub
    {:font-weight    "400"
-    :color          (:text-tertiary colors/tokens)
+    :color          (:text-tertiary rf.story.theme.colors/tokens)
     :letter-spacing "0.04em"}
    ;; ── the Xray seam header (§12.9) ──
    ;; The Xray band's header is the ONE place the RHS goes cool. The
@@ -150,13 +150,13 @@
    ;; ACCENT points at the embedded surface (§12.9 — 'Story owns outer
    ;; inspector chrome … Xray owns diagnostic panel interiors').
    :rhs-section-h-xray
-   {:color          (:seam-xray colors/tokens)
-    :box-shadow     (str "0 1px 0 " (:seam-xray-soft colors/tokens))}
+   {:color          (:seam-xray rf.story.theme.colors/tokens)
+    :box-shadow     (str "0 1px 0 " (:seam-xray-soft rf.story.theme.colors/tokens))}
    :rhs-section-sub-xray
-   {:color          (:seam-xray colors/tokens)
+   {:color          (:seam-xray rf.story.theme.colors/tokens)
     :opacity        "0.7"}
    :rhs-section-body
-   {:padding-bottom (space/pad 5)}
+   {:padding-bottom (rf.story.theme.space/pad 5)}
    ;; ── calm empty state (§12.5) — 'no variant or workspace selected' ──
    ;; Not an explanatory poster: a quiet centred prompt that names what
    ;; is missing and the command available now (pick from the sidebar).
@@ -168,23 +168,23 @@
     :flex-direction  "column"
     :align-items     "center"
     :justify-content "center"
-    :gap             (space/gap 3)
-    :padding         (space/pad 8)
+    :gap             (rf.story.theme.space/gap 3)
+    :padding         (rf.story.theme.space/pad 8)
     :text-align      "center"
-    :color           (:text-tertiary colors/tokens)}
+    :color           (:text-tertiary rf.story.theme.colors/tokens)}
    :empty-canvas-glyph
-   {:font-size       (:hero typography/type-scale)
-    :color           (:accent-amber colors/tokens)
+   {:font-size       (:hero rf.story.theme.typography/type-scale)
+    :color           (:accent-amber rf.story.theme.colors/tokens)
     :opacity         "0.5"}
    :empty-canvas-title
    {:font-family     sans-stack
-    :font-size       (:display typography/type-scale)
-    :font-weight     (str (:semibold typography/weights))
-    :color           (:text-secondary colors/tokens)
-    :letter-spacing  (:display typography/letter-spacing)}
+    :font-size       (:display rf.story.theme.typography/type-scale)
+    :font-weight     (str (:semibold rf.story.theme.typography/weights))
+    :color           (:text-secondary rf.story.theme.colors/tokens)
+    :letter-spacing  (:display rf.story.theme.typography/letter-spacing)}
    :empty-canvas-hint
    {:font-family     sans-stack
-    :font-size       (:caption typography/type-scale)
-    :color           (:text-tertiary colors/tokens)
+    :font-size       (:caption rf.story.theme.typography/type-scale)
+    :color           (:text-tertiary rf.story.theme.colors/tokens)
     :max-width       "32ch"
-    :line-height     (:line-height-body typography/type-scale)}})
+    :line-height     (:line-height-body rf.story.theme.typography/type-scale)}})

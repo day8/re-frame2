@@ -33,24 +33,24 @@
   affordance to drive that focus from a past row at all; this is the
   behaviour the inline spine unlocks."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.ui.xray-embed :as xray-embed]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as xray-e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.counter :as counter]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private variant-id :story.counter/loaded)
 
 (defn- register-variant! []
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc "Counter parent story for the spine e2e tests."})
-  (story/reg-variant variant-id
+  (rf.story/reg-variant variant-id
     {:doc    "Counter seeded at 5 — exercises the inline spine path."
      :setup [[:counter/initialise]]}))
 
@@ -60,23 +60,23 @@
   (testing "rf2-9k43e — `:event-spine` resolves to a callable mount-fn
             (the isolated L2 `shell/event-list` via mount-event-spine!),
             reusing the same require/case shape every chip panel uses"
-    (is (fn? (xray-embed/mount-fn-for :event-spine))
+    (is (fn? (rf.story.ui.xray-embed/mount-fn-for :event-spine))
         "mount-fn-for :event-spine returned a callable mount-fn")
     (testing "the spine is NOT a chip-row panel (not in the catalog)"
-      (is (not (contains? xray-embed/panel-ids :event-spine))
+      (is (not (contains? rf.story.ui.xray-embed/panel-ids :event-spine))
           ":event-spine is a persistent band, not a chip-selected panel"))))
 
 (deftest expanded-embed-renders-spine-band
   (testing "rf2-9k43e — an EXPANDED embed renders the recent-events spine
             band ABOVE the chip-selected panel, with the :event-spine
             mount slot driving mount-event-spine!"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
-        (e2e/select-variant! variant-id)
-        (let [tree    (xray-embed/xray-embed-panel)
-              band    (e2e/find-by-test-id tree "story-xray-spine-band")
-              caption (e2e/find-by-test-id tree "story-xray-spine-caption")
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
+        (let [tree    (rf.story.ui.xray-embed/xray-embed-panel)
+              band    (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-xray-spine-band")
+              caption (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-xray-spine-caption")
               ;; The spine's mount slot is the `[panel-host-component
               ;; :event-spine …]` vector — fn-headed, with `:event-spine`
               ;; as the second element (the panel-id argv).
@@ -85,7 +85,7 @@
                                             (fn? (first node))
                                             (= :event-spine (second node)))
                                    node))
-                               (e2e/hiccup-seq band))]
+                               (rf.story.test-helpers.e2e-multi-frame/hiccup-seq band))]
           (is (some? band)
               "spine band present in the expanded embed (rf2-9k43e
                `[data-test=\"story-xray-spine-band\"]`)")
@@ -100,20 +100,20 @@
   (testing "rf2-9k43e + rf2-ba86n.19 — collapsing the embed drops the
             spine band too (no spine mount → no L2 compute) and restores
             it on expand"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
-        (e2e/select-variant! variant-id)
-        (is (some? (e2e/find-by-test-id (xray-embed/xray-embed-panel)
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
+        (is (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id (rf.story.ui.xray-embed/xray-embed-panel)
                                         "story-xray-spine-band"))
             "expanded (default) embed shows the spine band")
-        (ui-state/swap-state! ui-state/set-xray-embed-collapsed true)
-        (is (nil? (e2e/find-by-test-id (xray-embed/xray-embed-panel)
+        (rf.story.ui.state/swap-state! rf.story.ui.state/set-xray-embed-collapsed true)
+        (is (nil? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id (rf.story.ui.xray-embed/xray-embed-panel)
                                        "story-xray-spine-band"))
             "COLLAPSED embed renders NO spine band → mount-event-spine!
              never fires → the L2 list's compute is deferred")
-        (ui-state/swap-state! ui-state/set-xray-embed-collapsed false)
-        (is (some? (e2e/find-by-test-id (xray-embed/xray-embed-panel)
+        (rf.story.ui.state/swap-state! rf.story.ui.state/set-xray-embed-collapsed false)
+        (is (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id (rf.story.ui.xray-embed/xray-embed-panel)
                                         "story-xray-spine-band"))
             "expanding restores the spine band")))))
 

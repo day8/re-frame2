@@ -40,8 +40,8 @@
     the registrar is frozen as far as DEV mutations go, but the
     seed registrations the static export ships with must be intact)."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.story        :as story]
-            [re-frame.story.config :as config]))
+            [re-frame.story        :as rf.story]
+            [re-frame.story.config :as rf.story.config]))
 
 ;; ===========================================================================
 ;; PUBLIC `static-mode?` PROBE
@@ -50,18 +50,18 @@
 (deftest public-probe-resolves
   (testing "re-frame.story/static-mode? is a public fn — consumers branch
             on it at boot to drop dev-only setup work"
-    (is (fn? @#'story/static-mode?)
+    (is (fn? @#'rf.story/static-mode?)
         "the public Var resolves and is a fn")))
 
 (deftest public-probe-mirrors-config-flag
-  (testing "(story/static-mode?) returns the same value as the underlying
+  (testing "(rf.story/static-mode?) returns the same value as the underlying
             goog-define `re-frame.story.config/static-mode?`"
-    (is (= config/static-mode? (story/static-mode?)))))
+    (is (= rf.story.config/static-mode? (rf.story/static-mode?)))))
 
 (deftest static-mode-defaults-false-in-node-test-build
   (testing "the node-test build does not flip the static-mode goog-define,
             so consumer code branches into the dev-flavoured path"
-    (is (false? (story/static-mode?))
+    (is (false? (rf.story/static-mode?))
         "default is the dev-flavoured branch")))
 
 ;; ===========================================================================
@@ -76,13 +76,13 @@
             static-mode? true). The orthogonality lets the static export
             be the runtime artefact `:rf.story/enabled? false` builds
             DCE the Story shell out of"
-    (is (true? config/enabled?))
-    (is (false? config/static-mode?))
+    (is (true? rf.story.config/enabled?))
+    (is (false? rf.story.config/static-mode?))
     ;; The two slots are independently set; reading them does not
     ;; couple them. A future refactor that lazily-derives one from the
     ;; other (an XOR shortcut, say) would break the orthogonality
     ;; contract spec/013 names.
-    (is (not= config/enabled? config/static-mode?)
+    (is (not= rf.story.config/enabled? rf.story.config/static-mode?)
         "in the dev-flavoured node-test build the two are different
          booleans — proves they're not aliased to one another")))
 
@@ -92,7 +92,7 @@
 ;; ===========================================================================
 ;;
 ;; The help-host's component-did-mount auto-open path is gated on
-;; `(not config/static-mode?)`. We mirror that predicate here so a
+;; `(not rf.story.config/static-mode?)`. We mirror that predicate here so a
 ;; future refactor that drops the static-mode check from the help host
 ;; fails this test even though we can't actually trigger Reagent's
 ;; component-did-mount in a node-test context (no DOM).
@@ -132,7 +132,7 @@
 ;; ===========================================================================
 ;;
 ;; Same shape as the help overlay. The shell's `start-hot-reload-poll!`
-;; gates on `(and config/enabled? (not config/static-mode?) ...)`. We
+;; gates on `(and rf.story.config/enabled? (not rf.story.config/static-mode?) ...)`. We
 ;; mirror the predicate so a future refactor that drops the
 ;; static-mode check from the shell fails this test.
 
@@ -181,20 +181,20 @@
             the shell chrome; the registrar is unaffected. A static-
             export bundle's seed registrations must reach the same side-
             table the dev-mode bundle uses"
-    (story/clear-all!)
-    (story/install-canonical-vocabulary!)
-    (story/reg-story :story.static.seed
+    (rf.story/clear-all!)
+    (rf.story/install-canonical-vocabulary!)
+    (rf.story/reg-story :story.static.seed
       {:doc "a seed story baked into the static export"})
-    (story/reg-variant :story.static.seed/probe
+    (rf.story/reg-variant :story.static.seed/probe
       {:setup [[:probe/init]]
        :tags   #{:dev}})
     ;; Read surface — the MCP-or-tooling consumer path.
-    (is (story/registered? :story   :story.static.seed))
-    (is (story/registered? :variant :story.static.seed/probe))
+    (is (rf.story/registered? :story   :story.static.seed))
+    (is (rf.story/registered? :variant :story.static.seed/probe))
     (is (= #{:story.static.seed/probe}
-           (story/variants-of :story.static.seed)))
+           (rf.story/variants-of :story.static.seed)))
     (is (= [[:probe/init]]
-           (:setup (story/variant->edn :story.static.seed/probe))))))
+           (:setup (rf.story/variant->edn :story.static.seed/probe))))))
 
 ;; ===========================================================================
 ;; STATIC-EXPORT SELF-CONTAINMENT — open-in-editor project-root fails closed
@@ -203,9 +203,9 @@
 ;; A published `story:build` export must not bake the build machine's
 ;; checkout root (a `C:/Users/<name>/...`-style absolute path) into its
 ;; open-in-editor URIs. The project-root is a DEV-time affordance; under
-;; `static-mode?` `config/set-project-root!` fails closed — a passed root is
+;; `static-mode?` `rf.story.config/set-project-root!` fails closed — a passed root is
 ;; ignored (the slot stays nil) unless a host explicitly opts in via
-;; `config/set-allow-static-project-root!`. The dev path (static-mode? false)
+;; `rf.story.config/set-allow-static-project-root!`. The dev path (static-mode? false)
 ;; is unaffected. This guard is now the whole of the defence: no build in the
 ;; repository derives a checkout path from its environment for a host to pass
 ;; in (rf2-3xq1v), so there is no ambient value for it to have to catch.
@@ -220,40 +220,40 @@
   (testing "under static-mode?, a passed project-root is ignored — the
             open-in-editor slot stays nil so no build-machine checkout path
             leaks into a published bundle's editor URIs"
-    (config/reset-all!)
-    (with-redefs [config/static-mode? true]
-      (config/set-project-root! sentinel-root)
-      (is (nil? (config/get-project-root))
+    (rf.story.config/reset-all!)
+    (with-redefs [rf.story.config/static-mode? true]
+      (rf.story.config/set-project-root! sentinel-root)
+      (is (nil? (rf.story.config/get-project-root))
           "static mode fails closed — the sentinel root is not retained"))
-    (config/reset-all!)))
+    (rf.story.config/reset-all!)))
 
 (deftest static-mode-opt-in-restores-project-root
   (testing "a host that explicitly opts in via set-allow-static-project-root!
             keeps the root in static mode — the escape hatch for a published
             site that deep-links back into the author's editor"
-    (config/reset-all!)
-    (with-redefs [config/static-mode? true]
-      (config/set-allow-static-project-root! true)
-      (config/set-project-root! sentinel-root)
-      (is (= sentinel-root (config/get-project-root))
+    (rf.story.config/reset-all!)
+    (with-redefs [rf.story.config/static-mode? true]
+      (rf.story.config/set-allow-static-project-root! true)
+      (rf.story.config/set-project-root! sentinel-root)
+      (is (= sentinel-root (rf.story.config/get-project-root))
           "with the explicit opt-in the root is retained even in static mode"))
-    (config/reset-all!)))
+    (rf.story.config/reset-all!)))
 
 (deftest dev-mode-project-root-unaffected
   (testing "with static-mode? false (the dev build) the project-root is set
             verbatim — the guard narrows ONLY static exports, never dev"
-    (config/reset-all!)
-    (is (false? config/static-mode?) "node-test build is dev-flavoured")
-    (config/set-project-root! sentinel-root)
-    (is (= sentinel-root (config/get-project-root))
+    (rf.story.config/reset-all!)
+    (is (false? rf.story.config/static-mode?) "node-test build is dev-flavoured")
+    (rf.story.config/set-project-root! sentinel-root)
+    (is (= sentinel-root (rf.story.config/get-project-root))
         "dev builds keep the root — open-in-editor resolves absolute paths")
-    (config/reset-all!)))
+    (rf.story.config/reset-all!)))
 
 (deftest reset-all-clears-static-opt-in
-  (testing "config/reset-all! restores the static project-root opt-in to its
+  (testing "rf.story.config/reset-all! restores the static project-root opt-in to its
             fail-closed default so a test that flips it cannot leak into the
             next test"
-    (config/set-allow-static-project-root! true)
-    (config/reset-all!)
-    (is (false? (config/allow-static-project-root?*))
+    (rf.story.config/set-allow-static-project-root! true)
+    (rf.story.config/reset-all!)
+    (is (false? (rf.story.config/allow-static-project-root?*))
         "opt-in is back to fail-closed after reset-all!")))

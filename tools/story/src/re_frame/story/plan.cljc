@@ -115,15 +115,15 @@
   contract is empty in a production bundle; callers thread an explicit
   `:lookup` (a `{variant-id → raw-body}` map or a 1-arg fn) for pure
   tests."
-  (:require [re-frame.story.args         :as args]
-            [re-frame.story.assertions   :as assertions]
-            [re-frame.story.config       :as config]
-            [re-frame.story.registrar    :as registrar]
-            [re-frame.story.requirements :as requirements]
-            [re-frame.story.malli-schema :as msu]
-            [re-frame.story.tags         :as tags]
-            [re-frame.story.play.runner  :as runner]
-            [re-frame.registrar          :as framework-registrar]))
+  (:require [re-frame.story.args         :as rf.story.args]
+            [re-frame.story.assertions   :as rf.story.assertions]
+            [re-frame.story.config       :as rf.story.config]
+            [re-frame.story.registrar    :as rf.story.registrar]
+            [re-frame.story.requirements :as rf.story.requirements]
+            [re-frame.story.malli-schema :as rf.story.malli-schema]
+            [re-frame.story.tags         :as rf.story.tags]
+            [re-frame.story.play.runner  :as rf.story.play.runner]
+            [re-frame.registrar          :as rf.registrar]))
 
 ;; ============================================================================
 ;; Errors
@@ -274,17 +274,17 @@
 
 (defn- merge-context
   "Deep-merge one context value root→child. Maps recurse (per
-  `args/deep-merge`); everything else is child-wins replacement."
+  `rf.story.args/deep-merge`); everything else is child-wins replacement."
   [parent child]
   (if (and (map? parent) (map? child))
-    (args/deep-merge parent child)
+    (rf.story.args/deep-merge parent child)
     (if (some? child) child parent)))
 
 ;; Tags are additive through `:extends` (§Merge rules — append/union), then
 ;; resolved through the SHARED `re-frame.story.tags` resolver (`:!x` removal
 ;; markers stripped + their base subtracted, story fallback when the chain
 ;; declares none). `compile-body` unions `:tags` across the resolved `bodies`
-;; and hands the union to `tags/resolve-markers` so the plan's `:tags` is the
+;; and hands the union to `rf.story.tags/resolve-markers` so the plan's `:tags` is the
 ;; EFFECTIVE set — identical to what `variants-with-tags`, docs chips, and the
 ;; sidebar filter compute through the same resolver.
 
@@ -293,7 +293,7 @@
 ;; ============================================================================
 ;;
 ;; `:script` (single) / `:plays` (named) both lower to `:script`. We reuse
-;; the runtime's `runner/variant-body->plays` so bare event-vector
+;; the runtime's `rf.story.play.runner/variant-body->plays` so bare event-vector
 ;; shorthand and the `:dispatch`/`:dispatch-sync`/`:wait`/`:assert-*` tag
 ;; grammar coerce exactly as the runtime sees them. Per spec §Public
 ;; vocabulary + §Setup and script.
@@ -307,12 +307,12 @@
   "FAIL plan construction when any COERCED (but not-yet-folded) script step
   is structurally malformed — an unknown step tag or a tag with the wrong
   arity/shape (spec/017 §Script step grammar). Reuses the
-  runner's `validate-script` (`runner/step-arity-ok?` + `known-step?`) — the
+  runner's `validate-script` (`rf.story.play.runner/step-arity-ok?` + `known-step?`) — the
   ONE encoding of the per-tag shape constraints — so the plan compiler and
   the runtime runner agree on what a well-formed step is.
 
-  This gate MUST run BEFORE `assertions/fold-script`: the fold helpers
-  (`assertions/assert-db->atom` / `assert-dom->atom`) assume a well-formed
+  This gate MUST run BEFORE `rf.story.assertions/fold-script`: the fold helpers
+  (`rf.story.assertions/assert-db->atom` / `assert-dom->atom`) assume a well-formed
   shipping step (a 3-/4-arity `:assert-db`, a recognised `:assert-dom`
   mode), so a malformed one folded raw throws an opaque HOST exception
   (IndexOutOfBounds / `No matching clause`) at plan-compile rather than the
@@ -320,7 +320,7 @@
   the typo through the SAME error vocabulary every other plan error uses
   (cf `reject-unknown-assertions!` / `reject-assert-in-setup!`)."
   [id script]
-  (when-let [offenders (seq (runner/validate-script script))]
+  (when-let [offenders (seq (rf.story.play.runner/validate-script script))]
     (fail! :rf.error/story-bad-step
            (str "re-frame2-story: variant " id
                 " — malformed script step(s) "
@@ -336,7 +336,7 @@
 (defn- normalize-scripts
   "Return `{:script [step ...] :scripts [{:name :script :auto-run?} ...]}`
   for a merged body. Reads the `:script` / `:plays` slots through the
-  runner's canonical coercion (`runner/variant-body->plays` — bare
+  runner's canonical coercion (`rf.story.play.runner/variant-body->plays` — bare
   vector or `{:script :auto-run? :name}` map for `:script`, named entries
   for `:plays`). The primary `:script` is the first play.
 
@@ -345,7 +345,7 @@
   (or any step) FAILS with a structured `:rf.error/story-bad-step` BEFORE
   the fold — the fold helpers assume well-formed input.
 
-  After validation every play's script is FOLDED (`assertions/fold-script`):
+  After validation every play's script is FOLDED (`rf.story.assertions/fold-script`):
   a shipping `:assert-db` / `:assert-dom` step rewrites to
   the canonical `[:assert assertion-atom]` checkpoint, so EVERY in-script
   assertion — whatever sugar the author typed — resolves to the ONE
@@ -353,10 +353,10 @@
   Each `:scripts` entry carries the folded script too, so named plays the
   runner drives also see the canonical checkpoints."
   [id body]
-  (let [plays (runner/variant-body->plays body)
+  (let [plays (rf.story.play.runner/variant-body->plays body)
         plays (mapv (fn [p]
                       (reject-malformed-steps! id (:script p))
-                      (update p :script assertions/fold-script))
+                      (update p :script rf.story.assertions/fold-script))
                     (vec plays))]
     {:script  (-> plays first :script (or []))
      :scripts plays}))
@@ -409,7 +409,7 @@
   "FAIL plan construction when any authored assertion atom — terminal
   `:assertions` OR an in-script `[:assert …]` checkpoint — names an id
   that is not in the recognised P1 vocabulary
-  (`assertions/known-assertion-ids`, spec/017 §Assertions).
+  (`rf.story.assertions/known-assertion-ids`, spec/017 §Assertions).
   Catching it at compile time surfaces the typo before any run, the same
   way the other `:rf.error/story-*` plan errors do — never letting an
   unknown id record a vacuous `:rf.assert/unknown` pseudo-record at run
@@ -420,14 +420,14 @@
   (let [offenders (into []
                         (comp (remove nil?)
                               (remove (fn [a]
-                                        (assertions/assertion-id-known?
-                                          (assertions/assertion-atom-id a)))))
+                                        (rf.story.assertions/assertion-id-known?
+                                          (rf.story.assertions/assertion-atom-id a)))))
                         (concat terminal-assertions script-assertions))]
     (when (seq offenders)
       (fail! :rf.error/story-unknown-assertion
              (str "re-frame2-story: variant " id
                   " — unknown assertion id(s) "
-                  (pr-str (mapv assertions/assertion-atom-id offenders))
+                  (pr-str (mapv rf.story.assertions/assertion-atom-id offenders))
                   " in " (pr-str (vec offenders))
                   ". An assertion atom must name a recognised :rf.assert/* id "
                   "(the shipping seven, the DOM family, or a registered "
@@ -435,7 +435,7 @@
                   ":assert-db / :assert-dom step rather than inventing an id.")
              {:variant/id id
               :offending-assertions (vec offenders)
-              :known-ids assertions/known-assertion-ids}))))
+              :known-ids rf.story.assertions/known-assertion-ids}))))
 
 (defn- reject-malformed-causal-opts!
   "FAIL plan construction when a causal assertion atom carries a malformed
@@ -461,14 +461,14 @@
         (into []
               (comp
                 (remove nil?)
-                (filter assertions/causal?)
+                (filter rf.story.assertions/causal?)
                 (keep (fn [a]
-                        (let [spec (assertions/causal-spec a)]
+                        (let [spec (rf.story.assertions/causal-spec a)]
                           (when (contains? spec :require-cause?)
-                            (let [aid (assertions/assertion-atom-id a)
+                            (let [aid (rf.story.assertions/assertion-atom-id a)
                                   v   (:require-cause? spec)]
                               (cond
-                                (= aid assertions/id-caused) a
+                                (= aid rf.story.assertions/id-caused) a
                                 (not (boolean? v))           a)))))))
               (concat terminal-assertions script-assertions))]
     (when (seq offenders)
@@ -567,10 +567,10 @@
   and terminal assertion, through the `re-frame.story.requirements` registry
   (§Runner requirements). `:headless` work contributes the empty set (which
   resolves to the cheapest `:headless` runner). An in-script `[:assert …]`
-  checkpoint's wrapped-atom tokens are folded by `requirements/step-tokens`,
+  checkpoint's wrapped-atom tokens are folded by `rf.story.requirements/step-tokens`,
   so the script vector alone carries them."
   [setup script assertions]
-  (requirements/plan-required-runner setup script assertions))
+  (rf.story.requirements/plan-required-runner setup script assertions))
 
 ;; ============================================================================
 ;; View arg schemas
@@ -603,7 +603,7 @@
 (def view-args-schema-keys
   "Re-export of `re-frame.story.malli-schema/view-args-schema-keys` — the
   canonical first-match key order `[:rf/props :schema]`."
-  msu/view-args-schema-keys)
+  rf.story.malli-schema/view-args-schema-keys)
 
 (def view-args-schema
   "Re-export of `re-frame.story.malli-schema/view-args-schema` — the
@@ -611,7 +611,7 @@
   uses it to write `[:world :view-args-schema]`; the shared resolver
   `re-frame.story.view-args/compiled-view-args-schema` (which consumers
   call) reads that compiled slot back."
-  msu/view-args-schema)
+  rf.story.malli-schema/view-args-schema)
 
 (defn- map-entry-optional?
   "True iff a Malli `[:map …]` entry `[k props? child]` is marked
@@ -619,7 +619,7 @@
   entry is a REQUIRED view input."
   [entry]
   (let [props (second entry)]
-    (boolean (and (msu/properties? props) (:optional props)))))
+    (boolean (and (rf.story.malli-schema/properties? props) (:optional props)))))
 
 (defn validate-effective-args
   "Validate `effective-args` against a view-args `schema` (the value
@@ -659,22 +659,22 @@
        (nil? schema)
        {:status :ok :schema nil :missing [] :malformed []}
 
-       (and (vector? schema) (= :map (msu/schema-op schema)))
-       (let [entries   (msu/schema-children schema)
+       (and (vector? schema) (= :map (rf.story.malli-schema/schema-op schema)))
+       (let [entries   (rf.story.malli-schema/schema-children schema)
              missing   (into []
                               (keep (fn [entry]
-                                      (let [k (msu/map-entry-key entry)]
+                                      (let [k (rf.story.malli-schema/map-entry-key entry)]
                                         (when (and (not (map-entry-optional? entry))
                                                    (not (contains? args k)))
                                           {:key    k
-                                           :schema (msu/map-entry-schema entry)
+                                           :schema (rf.story.malli-schema/map-entry-schema entry)
                                            :path   [k]}))))
                               entries)
              malformed (when validate
                          (into []
                                (keep (fn [entry]
-                                       (let [k  (msu/map-entry-key entry)
-                                             cs (msu/map-entry-schema entry)
+                                       (let [k  (rf.story.malli-schema/map-entry-key entry)
+                                             cs (rf.story.malli-schema/map-entry-schema entry)
                                              v  (get args k)]
                                          (when (and (contains? args k)
                                                     (not (validate cs v)))
@@ -1112,7 +1112,7 @@
   bundles elide the side-table, so the lookup returns nil there; pure
   tests thread an explicit `:lookup`."
   [variant-id]
-  (registrar/handler-meta :variant variant-id))
+  (rf.story.registrar/handler-meta :variant variant-id))
 
 (defn- default-view-lookup
   "Default view-metadata lookup — reads the **framework** `:view`
@@ -1120,7 +1120,7 @@
   any `:rf/props` / `:schema` props-schema slot). Production bundles that
   elide views return nil; pure tests thread an explicit `:view-lookup`."
   [view-id]
-  (framework-registrar/handler-meta :view view-id))
+  (rf.registrar/handler-meta :view view-id))
 
 (defn- default-sub-lookup
   "Default subscription-metadata lookup — reads the **framework** `:sub`
@@ -1129,28 +1129,28 @@
   `:sub-overrides` value validation. Production bundles
   that elide subs return nil; pure tests thread an explicit `:sub-lookup`."
   [sub-id]
-  (framework-registrar/handler-meta :sub sub-id))
+  (rf.registrar/handler-meta :sub sub-id))
 
 (defn- default-fragment-lookup
   "Default fragment-body lookup — reads the Story side-table `:fragment`
   kind. Production bundles elide the side-table; pure tests
   thread an explicit `:fragment-lookup`."
   [fragment-id]
-  (registrar/handler-meta :fragment fragment-id))
+  (rf.story.registrar/handler-meta :fragment fragment-id))
 
 (defn- default-check-lookup
   "Default check-body lookup — reads the Story side-table `:check` kind."
   [check-id]
-  (registrar/handler-meta :check check-id))
+  (rf.story.registrar/handler-meta :check check-id))
 
 (defn- default-global-decorators
   "Default global-decorators ref vector — reads the project-wide
-  `config/get-global-decorators` (Storybook `preview.ts`
+  `rf.story.config/get-global-decorators` (Storybook `preview.ts`
   `decorators: [...]` parity, the outermost wrap layer). Production
   bundles with Story elided register no globals, so the vector is empty
   there; pure tests thread an explicit `:global-decorators`."
   []
-  (config/get-global-decorators))
+  (rf.story.config/get-global-decorators))
 
 (defn- default-story-decorators-lookup
   "Default story-level `:decorators` lookup — reads the parent story body's
@@ -1160,7 +1160,7 @@
   the project-wide globals and the variant chain. Production bundles elide
   the side-table; pure tests thread an explicit `:story-decorators`."
   [story-id]
-  (:decorators (registrar/handler-meta :story story-id)))
+  (:decorators (rf.story.registrar/handler-meta :story story-id)))
 
 (defn- default-story-lookup
   "Default parent-story-body lookup — reads the Story side-table `:story`
@@ -1169,7 +1169,7 @@
   `:tags`). Production bundles elide the side-table (nil → no story tags);
   pure tests thread an explicit `:story-lookup`."
   [story-id]
-  (registrar/handler-meta :story story-id))
+  (rf.story.registrar/handler-meta :story story-id))
 
 (defn expand-checks
   "Expand a plan's `:expect :checks` ids into the
@@ -1220,7 +1220,7 @@
   - `:global-decorators` — the project-wide global-decorators ref vector
     (or a 0-arg fn returning one) prepended to `[:world :decorators]` as
     the outermost wrap layer). Defaults to
-    `config/get-global-decorators`; pure tests pass an explicit vector.
+    `rf.story.config/get-global-decorators`; pure tests pass an explicit vector.
   - `:story-decorators` — a 1-arg fn `(story-id) → decorators-vec` OR a
     `{story-id → decorators-vec}` map resolving the parent story's
     `:decorators` slot (folded between globals and the variant chain).
@@ -1318,9 +1318,9 @@
         ;; gets) — bare vectors are an authoring shorthand, never the P1
         ;; public form.
         setup-raw    (vec (concat
-                            (mapcat (fn [l] (runner/coerce-script (pick-setup l))) inherited)
-                            (mapcat (fn [l] (runner/coerce-script (pick-setup l))) frag-layers)
-                            (runner/coerce-script (pick-setup child))))
+                            (mapcat (fn [l] (rf.story.play.runner/coerce-script (pick-setup l))) inherited)
+                            (mapcat (fn [l] (rf.story.play.runner/coerce-script (pick-setup l))) frag-layers)
+                            (rf.story.play.runner/coerce-script (pick-setup child))))
         ;; script APPENDS through `:compose` only (never through
         ;; `:extends`): composed-fragment scripts in declared order, THEN
         ;; the child's own script (§Merge rules). Each fragment's script is
@@ -1350,7 +1350,7 @@
         ;; the child's own — variant args win over composed/inherited (the
         ;; layers go root → fragments → child, last-wins per deep-merge).
         merge-key    (fn [k]
-                       (reduce (fn [m l] (args/deep-merge m (get l k)))
+                       (reduce (fn [m l] (rf.story.args/deep-merge m (get l k)))
                                {}
                                (concat inherited frag-layers [child])))
         ;; The `:extends`-merged variant-CHAIN args (the §Total resolution
@@ -1362,7 +1362,7 @@
         ;; Fold the ambient + per-run layers AROUND the variant layer so
         ;; the effective `arg-map` (and therefore every `[:arg key]`
         ;; substitution below, `[:world :args]` / `[:world :effective-args]`,
-        ;; and the plan hash) matches `args/resolve-args` for the SAME
+        ;; and the plan hash) matches `rf.story.args/resolve-args` for the SAME
         ;; `:active-modes` / `:cell-overrides`. `:run-args` is the
         ;; `{:pre [global story mode] :post [cell-overrides]}` shape
         ;; `re-frame.story.args/run-arg-layers` produces: `:pre` is lower
@@ -1370,7 +1370,7 @@
         ;; plan-compile / explain / render-prep with no run opts) ⇒ the
         ;; variant layer alone.
         arg-map      (if run-args
-                       (args/deep-merge-all
+                       (rf.story.args/deep-merge-all
                          (concat (:pre run-args)
                                  [variant-arg-map]
                                  (:post run-args)))
@@ -1522,7 +1522,7 @@
         ;; two ambient world keys below AND the `:story/id` stamp on the
         ;; returned plan (rf2-xk8oz4) all read this SAME resolution, so
         ;; they can never disagree about the parent.
-        sid          (args/parent-story-id id)
+        sid          (rf.story.args/parent-story-id id)
         story-body   (when sid (story-lookup sid))
         ;; ---- ambient (story-level) world keys ----
         ;; `:substrates` and `:component` are declared on the VARIANT or on
@@ -1620,7 +1620,7 @@
         ;; script, not just `script*` (the primary/first play alone).
         ;; `[:world :scripts]` retains every play, and the runtime
         ;; auto-runs each `:auto-run? true` one in order
-        ;; (`runner/auto-runnable-plays` — the single definition both
+        ;; (`rf.story.play.runner/auto-runnable-plays` — the single definition both
         ;; `runtime/run-phase-4!` and `runner-events/auto-run!` delegate
         ;; to). Runner-selection trusts `:required-runner` VERBATIM, so an
         ;; auto-run play OTHER than the first whose step lifts capability
@@ -1633,7 +1633,7 @@
         ;; single-play computation whenever the first play auto-runs (the
         ;; common case) and correctly extends it to every other auto-run
         ;; play.
-        auto-run-scripts (vec (mapcat :script (runner/auto-runnable-plays scripts*)))
+        auto-run-scripts (vec (mapcat :script (rf.story.play.runner/auto-runnable-plays scripts*)))
         required     (compute-required-runner setup auto-run-scripts assertions)
         ;; ---- source coords ----
         source       (:source child)
@@ -1666,7 +1666,7 @@
         ;; EFFECTIVE set — a `:!dev` cancels an inherited `:dev` and never
         ;; leaks itself, matching what every other tag consumer computes.
         chain-tags   (reduce (fn [acc b] (into acc (:tags b))) #{} bodies)
-        eff-tags     (tags/resolve-markers
+        eff-tags     (rf.story.tags/resolve-markers
                        (if (seq chain-tags)
                          chain-tags
                          (set (:tags story-body))))
@@ -1877,7 +1877,7 @@
   - `:global-decorators` / `:story-decorators` — the ambient decorator
     layers folded into the FULL `[:world :decorators]` stack:
     a global-decorators ref vector (or 0-arg fn) defaulting to
-    `config/get-global-decorators`, and a `(story-id) → decorators-vec`
+    `rf.story.config/get-global-decorators`, and a `(story-id) → decorators-vec`
     lookup defaulting to the Story side-table `:story` kind. Pure tests
     thread explicit values; the live runtime uses the defaults.
   - `:run-args` — the ambient + per-run arg layers to fold AROUND the
@@ -1886,7 +1886,7 @@
     `re-frame.story.args/run-arg-layers` produces. With it the compiled
     `[:world :args]` / `[:world :effective-args]`, every `[:arg key]`
     substitution in setup/script/db-seed/network/sub-overrides, and the
-    plan hash all use the SAME effective args as `args/resolve-args` for
+    plan hash all use the SAME effective args as `rf.story.args/resolve-args` for
     those `:active-modes` / `:cell-overrides`. Absent (a bare
     compile / `explain` / render-prep) ⇒ the variant arg layer alone, so
     the controls/render path layers its overrides on top of the plan-time

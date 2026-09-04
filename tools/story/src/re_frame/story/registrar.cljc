@@ -73,9 +73,9 @@
   registration as validation plus atomic storage."
   (:require [clojure.string           :as str]
             [malli.core               :as m]
-            [re-frame.story.late-bind :as late-bind]
-            [re-frame.story.schemas   :as schemas]
-            [re-frame.story.tags      :as tags]))
+            [re-frame.story.late-bind :as rf.story.late-bind]
+            [re-frame.story.schemas   :as rf.story.schemas]
+            [re-frame.story.tags      :as rf.story.tags]))
 
 ;; ---- source-coord plumbing ------------------------------------------------
 ;;
@@ -296,7 +296,7 @@
   schema-mismatch message. The full malli `:explain` rides `ex-data`
   either way."
   [kind id body]
-  (when-let [explain (schemas/validate kind body)]
+  (when-let [explain (rf.story.schemas/validate kind body)]
     (let [error-kw (keyword "rf.error" (str (name kind) "-shape"))
           unknown  (unknown-key-reason kind explain)
           reason   (or unknown
@@ -372,12 +372,12 @@
   grammar for `kind`. Per /spec/007-Stories.md §Canonical id grammar."
   [kind id]
   (let [ok? (case kind
-              :story       schemas/story-id?
-              :variant     schemas/variant-id?
-              :fragment    schemas/fragment-id?
-              :check       schemas/check-id?
-              :workspace   schemas/workspace-id?
-              :mode        schemas/mode-id?
+              :story       rf.story.schemas/story-id?
+              :variant     rf.story.schemas/variant-id?
+              :fragment    rf.story.schemas/fragment-id?
+              :check       rf.story.schemas/check-id?
+              :workspace   rf.story.schemas/workspace-id?
+              :mode        rf.story.schemas/mode-id?
               ;; story-panel, decorator, tag — any keyword.
               :story-panel keyword?
               :decorator   keyword?
@@ -390,7 +390,7 @@
       ;; graph: the story-mcp entry point (`tools/write.cljc`
       ;; register-variant) pre-checks
       ;; the id grammar on the STRING shape — `fresh-keyword-checked` against
-      ;; `story/valid-variant-id?`, single-sourced with the `schemas/…-id?`
+      ;; `story/valid-variant-id?`, single-sourced with the `rf.story.schemas/…-id?`
       ;; predicates below — before interning, and answer with their own
       ;; conformant message. So an MCP client does not reach this throw; a
       ;; library / REPL caller passing an already-keyword id does, and the
@@ -428,7 +428,7 @@
   low-level test of side-table semantics; in normal use the hook is
   set at `re-frame.story` ns load."
   []
-  (when-let [f (late-bind/get-fn :ensure-canonical-installed)]
+  (when-let [f (rf.story.late-bind/get-fn :ensure-canonical-installed)]
     (f)))
 
 ;; ---- write API (the runtime helpers the macros expand to) ----------------
@@ -577,10 +577,10 @@
   Safe to call multiple times — re-registration is idempotent at the
   side-table level (same body replaces same body)."
   []
-  (doseq [t schemas/canonical-tags]
+  (doseq [t rf.story.schemas/canonical-tags]
     (reg-tag* t {:doc (str "Canonical Story inclusion tag — " (name t)
                            ". See /spec/007-Stories.md §Inclusion tags.")}))
-  (doseq [t schemas/canonical-state-tags]
+  (doseq [t rf.story.schemas/canonical-state-tags]
     (reg-tag* t {:axis :state
                  :doc  (str "Canonical Story state-magnitude tag — "
                             (pr-str t)
@@ -662,7 +662,7 @@
         lookups  {:variant variants :story (registrations :story)}]
     (->> variants
          (filter (fn [[vid _body]]
-                   (let [tset (tags/effective-tags vid lookups)]
+                   (let [tset (rf.story.tags/effective-tags vid lookups)]
                      (some #(contains? tset %) qs))))
          (map first)
          set)))

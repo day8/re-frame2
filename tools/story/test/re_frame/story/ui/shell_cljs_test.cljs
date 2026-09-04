@@ -16,9 +16,9 @@
   mount-time guard to (see the ns docstring above its definition in
   `shell.cljs`); it needs no DOM / mount to exercise."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.story.ui.shell :as shell]))
+            [re-frame.story.ui.shell :as rf.story.ui.shell]))
 
-(def ^:private mount-time-autorun-vid @#'shell/mount-time-autorun-vid)
+(def ^:private mount-time-autorun-vid @#'rf.story.ui.shell/mount-time-autorun-vid)
 
 (deftest mount-time-autorun-vid-schedules-when-unchanged
   (testing "selection unchanged across hydration (persisted / re-mount

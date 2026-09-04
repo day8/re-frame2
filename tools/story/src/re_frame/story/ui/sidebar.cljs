@@ -55,19 +55,19 @@
   inert (the filter row owns interaction) — purely a scan affordance."
   (:require [clojure.string                   :as str]
             [reagent.core                     :as r]
-            [re-frame.story.budgets           :as budgets]
-            [re-frame.story.runtime           :as runtime]
-            [re-frame.story.async             :as async]
-            [re-frame.story.registrar         :as registrar]
-            [re-frame.story.theme.colors      :as colors]
-            [re-frame.story.theme.glyphs      :as glyphs]
-            [re-frame.story.theme.status      :as status]
-            [re-frame.story.ui.promotion      :as promotion]
-            [re-frame.story.ui.sidebar-search :as search]
-            [re-frame.story.ui.sidebar-signals :as signals]
+            [re-frame.story.budgets           :as rf.story.budgets]
+            [re-frame.story.runtime           :as rf.story.runtime]
+            [re-frame.story.async             :as rf.story.async]
+            [re-frame.story.registrar         :as rf.story.registrar]
+            [re-frame.story.theme.colors      :as rf.story.theme.colors]
+            [re-frame.story.theme.glyphs      :as rf.story.theme.glyphs]
+            [re-frame.story.theme.status      :as rf.story.theme.status]
+            [re-frame.story.ui.promotion      :as rf.story.ui.promotion]
+            [re-frame.story.ui.sidebar-search :as rf.story.ui.sidebar-search]
+            [re-frame.story.ui.sidebar-signals :as rf.story.ui.sidebar-signals]
             [re-frame.story.ui.sidebar-styles :refer [styles]]
-            [re-frame.story.ui.state          :as state]
-            [re-frame.story.ui.watch          :as watch]))
+            [re-frame.story.ui.state          :as rf.story.ui.state]
+            [re-frame.story.ui.watch          :as rf.story.ui.watch]))
 
 ;; Styles live in `re-frame.story.ui.sidebar-styles` (pure-data leaf,
 ;; no Reagent dep). Required as `styles` above so the in-file call
@@ -109,11 +109,11 @@
   The dot's run-status domain is `state.tests/test-run-statuses` —
   `record-test-run` normalizes a run-level `:error` to `:fail` at write
   time, so `:cannot-run` is the canonical third terminal status here.
-  Unknown / nil statuses degrade through `status/descriptor`'s
+  Unknown / nil statuses degrade through `rf.story.theme.status/descriptor`'s
   `:pending` fallback — pending is reserved for the genuinely unknown
   slot, never a mask over a real terminal status."
   [status]
-  (let [{:keys [fg border shape]} (status/descriptor status)]
+  (let [{:keys [fg border shape]} (rf.story.theme.status/descriptor status)]
     (case shape
       :solid  {:background fg}
       :half   {:background fg :opacity "0.7"}
@@ -127,9 +127,9 @@
   descriptor label, so the dot voices the SAME vocabulary the chips
   render (`:cannot-run` → \"tests: Can't run\", accessibly distinct
   from `:pending` → \"tests: Pending\"). Unknown / nil statuses degrade
-  through `status/descriptor`'s `:pending` fallback."
+  through `rf.story.theme.status/descriptor`'s `:pending` fallback."
   [status]
-  (str "tests: " (status/label status)))
+  (str "tests: " (rf.story.theme.status/label status)))
 
 ;; ---- pure: per-tag badge styling (rf2-nwiwr) ----------------------------
 
@@ -171,7 +171,7 @@
   Single source of truth: `re-frame.story.budgets/sidebar-variant-cap`
   (N1). This alias keeps the in-file call sites (`bound-variants … cap`)
   textually stable while the number lives in one budget table."
-  budgets/sidebar-variant-cap)
+  rf.story.budgets/sidebar-variant-cap)
 
 (defn bound-variants
   "Pure data → data: bound a story's variant seq to at most `cap` entries
@@ -194,7 +194,7 @@
 ;; per artifact (spec/021 §3 acceptance + spec/018 §10; respects ba86n.4's
 ;; sidebar bounding). The section is a single collapsible header carrying a
 ;; count; expanding it lists the captured artifacts, each row OPENING the
-;; promotion dialog (`promotion/open!`) without becoming a Story variant.
+;; promotion dialog (`rf.story.ui.promotion/open!`) without becoming a Story variant.
 ;; The store lives in `re-frame.story.ui.promotion/captured-atom`; promoting
 ;; an artifact is non-destructive (the row stays until the user forgets it).
 
@@ -206,7 +206,7 @@
 
   Single source of truth: `re-frame.story.budgets/captured-artifact-cap`
   (N2)."
-  budgets/captured-artifact-cap)
+  rf.story.budgets/captured-artifact-cap)
 
 ;; ---- components ----------------------------------------------------------
 
@@ -227,8 +227,8 @@
           :data-test   "story-sidebar-tag-chip"
           :data-tag    (str tag)
           :data-active (str (boolean active?))
-          :on-click    (fn [_] (state/swap-state!
-                                 state/toggle-tag-filter tag))}
+          :on-click    (fn [_] (rf.story.ui.state/swap-state!
+                                 rf.story.ui.state/toggle-tag-filter tag))}
    (str tag)])
 
 (defn- axis-row
@@ -253,7 +253,7 @@
   with un-axis-grouped tags trailing in an `OTHER` row).
 
   Active chips highlight; the AND-across / OR-within rule lives in
-  `state/variant-tag-match?`.
+  `rf.story.ui.state/variant-tag-match?`.
 
   `tag->axis` is computed once at the sidebar top and threaded in;
   per rf2-0z8e2 we previously walked the tag registrar twice per
@@ -263,8 +263,8 @@
     (if (empty? all-tags)
       [:div {:style (:tag-row styles)}
        [:span {:style (:empty styles)} "no tags"]]
-      (let [by-axis (state/group-tags-by-axis all-tags tag->axis)
-            axes    (state/ordered-axes by-axis)]
+      (let [by-axis (rf.story.ui.state/group-tags-by-axis all-tags tag->axis)
+            axes    (rf.story.ui.state/ordered-axes by-axis)]
         [:div {:style       (:tag-row styles)
                :data-test   "story-sidebar-tag-filter"}
          (for [axis axes]
@@ -372,7 +372,7 @@
                     (if (and (= :frame-binding axis) (= :attached value))
                       (merge base (:signal-frame-attached styles))
                       base)))
-        glyph   (when status? (status/glyph value))]
+        glyph   (when status? (rf.story.theme.status/glyph value))]
     ^{:key (str (name axis) "-" (name value))}
     [:span {:style       (merge (:signal-chip styles) tint)
             :data-test   "story-sidebar-signal-chip"
@@ -397,7 +397,7 @@
   test corpus can render and inspect the hiccup directly."
   [body status]
   (let [{:keys [status fidelity world-inputs runner-requirement frame-binding]}
-        (signals/variant-signals body status)]
+        (rf.story.ui.sidebar-signals/variant-signals body status)]
     ;; Each `signal-chip` is invoked as a FUNCTION (not a `[component …]`
     ;; vector) so the returned hiccup is fully expanded — the same pattern
     ;; `tag-badges` uses. This keeps the strip a single pure hiccup tree
@@ -423,7 +423,7 @@
   suitable for splatting inside the row `<span>`. No-search shortcut
   returns the raw string unwrapped so the no-search path stays quiet."
   [label query]
-  (let [segments (search/highlight-segments label query)]
+  (let [segments (rf.story.ui.sidebar-search/highlight-segments label query)]
     (if (and (= 1 (count segments)) (not (:match? (first segments))))
       [(:text (first segments))]
       (vec
@@ -508,10 +508,10 @@
                    ;; (`shell.cljs` `main-pane`) yields to the variant
                    ;; branch. Mirror of the workspace-row click below,
                    ;; which clears `:selected-variant`.
-                   (state/swap-state!
+                   (rf.story.ui.state/swap-state!
                      (fn [s] (-> s
-                                 (state/select-variant variant-id)
-                                 (state/select-workspace nil)))))]
+                                 (rf.story.ui.state/select-variant variant-id)
+                                 (rf.story.ui.state/select-workspace nil)))))]
   [:<>
   [:div {:style       (merge (:variant-row styles)
                              (when selected? (:variant-row-active styles)))
@@ -536,7 +536,7 @@
    (if testable?
      [status-dot status]
      [:span {:style (:variant-glyph styles)}
-      [glyphs/variant-glyph 10]])
+      [rf.story.theme.glyphs/variant-glyph 10]])
    ;; rf2-yngai — wrap label so matched substrings render with the
    ;; amber-tint highlight when a search query is in flight.
    (into [:span] (highlighted-label (str "/" (name variant-id)) query))
@@ -549,7 +549,7 @@
 (defn- story-block
   "Render one story header + its variants. `entry` shape is
   `{:story-id ... :variants [[variant-id body] ...]}` (the shape
-  produced by `state/group-variants-by-story`).
+  produced by `rf.story.ui.state/group-variants-by-story`).
 
   rf2-p0wur: story rows lead with an amber diamond glyph + carry an
   inter-story spacer.
@@ -571,7 +571,7 @@
         selected?   (and registered? (= story-id selected-story))
         activate    (fn []
                       (when registered?
-                        (state/swap-state! state/select-story story-id)))
+                        (rf.story.ui.state/swap-state! rf.story.ui.state/select-story story-id)))
         expanded?   (or searching? (contains? @expanded-stories story-id))
         {:keys [shown hidden]} (bound-variants variants default-variant-cap expanded?)]
     [:div {:style (:story-block styles)}
@@ -588,7 +588,7 @@
                      :on-key-down  (on-row-key-down activate)
                      :on-click     (fn [_] (activate))}))
       [:span {:style (:story-glyph styles)}
-       [glyphs/story-glyph 13]]
+       [rf.story.theme.glyphs/story-glyph 13]]
       (into [:span] (highlighted-label (str (or story-id "(no story)")) query))]
      (for [[vid body] shown]
        (let [testable? (contains? testable-set vid)
@@ -635,10 +635,10 @@
 (defn- workspace-row
   [workspace-id selected? body]
   (let [activate (fn []
-                   (state/swap-state!
+                   (rf.story.ui.state/swap-state!
                      (fn [s] (-> s
-                                 (state/select-workspace workspace-id)
-                                 (state/select-variant nil)))))
+                                 (rf.story.ui.state/select-workspace workspace-id)
+                                 (rf.story.ui.state/select-variant nil)))))
         grouping (workspace-grid-grouping body)]
   [:<>
    ;; rf2-ba86n.4 — variants-grid grouping affordance (spec/018 §7.1). A
@@ -664,7 +664,7 @@
          :on-key-down  (on-row-key-down activate)
          :on-click     (fn [_] (activate))}
    [:span {:style (:workspace-glyph styles)}
-    [glyphs/workspace-glyph 12]]
+    [rf.story.theme.glyphs/workspace-glyph 12]]
    [:span (str workspace-id)]]]))
 
 ;; ---- chrome-level test widget (rf2-q0irb) -------------------------------
@@ -697,24 +697,24 @@
   so concurrent runs don't race against a swap-state! between the
   read and the dispatch."
   [vid]
-  (state/swap-state! state/mark-test-running vid)
-  (let [opts (run-opts-for-variant (state/get-state) vid)]
-    (-> (runtime/run-variant vid opts)
-        (async/then  (fn [result]
-                       ;; `state/aggregate-summary` is the canonical fold
+  (rf.story.ui.state/swap-state! rf.story.ui.state/mark-test-running vid)
+  (let [opts (run-opts-for-variant (rf.story.ui.state/get-state) vid)]
+    (-> (rf.story.runtime/run-variant vid opts)
+        (rf.story.async/then  (fn [result]
+                       ;; `rf.story.ui.state/aggregate-summary` is the canonical fold
                        ;; (rf2-khmon); it lives in shell-state so both
                        ;; this widget AND the `:test` mode pane share one
                        ;; impl without a require cycle.
-                       (let [summary (-> (state/aggregate-summary
+                       (let [summary (-> (rf.story.ui.state/aggregate-summary
                                            (:assertions result))
                                          (assoc :elapsed-ms (:elapsed-ms result)
                                                 :ran-at-ms  nil))]
-                         (state/swap-state! state/record-test-run vid summary))
+                         (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run vid summary))
                        nil))
-        (async/catch* (fn [_]
+        (rf.story.async/catch* (fn [_]
                         ;; A rejection drops the running stamp so the
                         ;; dot doesn't get stuck yellow.
-                        (state/swap-state! state/clear-test-run vid)
+                        (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run vid)
                         nil)))))
 
 (defn- run-all-tests!
@@ -748,7 +748,7 @@
 (defn set-watch-mode!
   "Set the chrome-level watch-mode flag, seeding the drift baseline when
   turning ON (rf2-asp2op). On toggle-ON we compute the CURRENT testable
-  snapshot hashes (`watch/compute-testable-content-hashes`) and record
+  snapshot hashes (`rf.story.ui.watch/compute-testable-content-hashes`) and record
   them into `[:tests :content-hashes]` BEFORE flipping `[:tests
   :watch-mode?]` — so the first `detect-watch-drift!` tick diffs a real
   baseline. Without the seed the slot is `{}` on enable (its default, or
@@ -757,16 +757,16 @@
   spuriously re-runs the instant watch is switched on.
 
   The compute lives in `re-frame.story.ui.watch` (registrar + identity
-  access) — it cannot fold into the pure `state/set-test-watch-mode` state
+  access) — it cannot fold into the pure `rf.story.ui.state/set-test-watch-mode` state
   fn. Turning OFF just flips the flag; that same state fn clears the
   recorded hashes so the next toggle-ON re-seeds fresh."
   [on?]
   (when on?
     ;; Seed BEFORE the flag flips so no detector tick can observe
     ;; watch-on against an empty baseline.
-    (state/swap-state! state/record-test-content-hashes
-                       (watch/compute-testable-content-hashes)))
-  (state/swap-state! state/set-test-watch-mode on?))
+    (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-content-hashes
+                       (rf.story.ui.watch/compute-testable-content-hashes)))
+  (rf.story.ui.state/swap-state! rf.story.ui.state/set-test-watch-mode on?))
 
 (defn test-widget
   "Chrome-level test widget. Aggregates `run-variant` outcomes across
@@ -790,13 +790,13 @@
   second registry walk; the no-arg form keeps the canonical surface
   for tests and standalone consumers."
   ([shell registry]
-   (test-widget shell registry (state/testable-variant-ids
+   (test-widget shell registry (rf.story.ui.state/testable-variant-ids
                                  (:variants registry))))
   ([shell _registry variant-ids]
-   (let [summary     (state/test-summary shell variant-ids)
+   (let [summary     (rf.story.ui.state/test-summary shell variant-ids)
          {:keys [total passed failed running pending all-green?]} summary
          any-run?    (pos? running)
-         watch-on?   (state/test-watch-mode? shell)
+         watch-on?   (rf.story.ui.state/test-watch-mode? shell)
          headline    (cond
                        (zero? total)  "Tests"
                        all-green?     (str "Tests · ✓ " passed)
@@ -884,14 +884,14 @@
 (defn captured-artifacts-section
   "Render the bounded, collapsed 'Captured artifacts' affordance
   (rf2-ba86n.13, spec/021 §3). Anonymous run artifacts (generated /
-  replayed failures captured into `promotion/captured-atom`) surface here
+  replayed failures captured into `rf.story.ui.promotion/captured-atom`) surface here
   as ONE collapsible section — NOT a permanent nav row per artifact — so a
   matrix of captured failures never floods the sidebar (spec/018 §10).
 
   Collapsed by default: the header shows the count and toggles open. When
   open, the captured artifacts list (bounded to `default-artifact-cap` with
   a '+N more' expander), each row OPENING the promotion dialog
-  (`promotion/open!`) — the artifact is inspected + promoted there, it never
+  (`rf.story.ui.promotion/open!`) — the artifact is inspected + promoted there, it never
   becomes a Story variant by appearing here. A '×' forgets a capture (the
   store entry only; any already-promoted variant is untouched —
   non-destructive).
@@ -901,7 +901,7 @@
   `open?-ratom` / `more?-ratom` are ephemeral local toggles owned by the
   parent `sidebar` component (not persisted)."
   [open?-ratom more?-ratom]
-  (let [entries (promotion/captured-entries)
+  (let [entries (rf.story.ui.promotion/captured-entries)
         n       (count entries)]
     (when (pos? n)
       (let [open? @open?-ratom
@@ -919,7 +919,7 @@
                 :on-key-down  (on-row-key-down (fn [] (swap! open?-ratom not)))
                 :on-click     (fn [_] (swap! open?-ratom not))}
           [:span {:aria-hidden "true"
-                  :style {:margin-right "6px" :color (:text-tertiary colors/tokens)}}
+                  :style {:margin-right "6px" :color (:text-tertiary rf.story.theme.colors/tokens)}}
            (if open? "▾" "▸")]
           [:span (str "Captured artifacts · " n)]]
          (when open?
@@ -932,22 +932,22 @@
                      :role         "button"
                      :tab-index    "0"
                      :aria-label   (str "Promote captured artifact " (name id))
-                     :on-key-down  (on-row-key-down (fn [] (promotion/open! id)))
-                     :on-click     (fn [_] (promotion/open! id))}
+                     :on-key-down  (on-row-key-down (fn [] (rf.story.ui.promotion/open! id)))
+                     :on-click     (fn [_] (rf.story.ui.promotion/open! id))}
                [:span {:style {:flex "1" :overflow "hidden" :text-overflow "ellipsis"
                                :white-space "nowrap"}}
                 label]
-               [:span {:style       {:margin-left "6px" :color (:text-tertiary colors/tokens)
+               [:span {:style       {:margin-left "6px" :color (:text-tertiary rf.story.theme.colors/tokens)
                                      :cursor "pointer" :flex-shrink "0"}
                        :data-test   "story-sidebar-captured-forget"
                        :role         "button"
                        :tab-index    "0"
                        :aria-label   (str "Forget captured artifact " (name id))
                        :title        "Forget this capture (does not unregister a promoted variant)"
-                       :on-key-down  (on-row-key-down (fn [] (promotion/forget! id)))
+                       :on-key-down  (on-row-key-down (fn [] (rf.story.ui.promotion/forget! id)))
                        :on-click     (fn [^js e]
                                        (.stopPropagation e)
-                                       (promotion/forget! id))}
+                                       (rf.story.ui.promotion/forget! id))}
                 "×"]])
             (when (pos? hidden)
               [:div {:style       (:variant-more styles)
@@ -980,23 +980,23 @@
          captured-open?   (r/atom false)
          captured-more?   (r/atom false)]
      (fn [opts]
-       (let [shell           @state/shell-state-atom
-             registry        (state/registry-snapshot)
+       (let [shell           @rf.story.ui.state/shell-state-atom
+             registry        (rf.story.ui.state/registry-snapshot)
              tag-filter      (:tag-filter shell)
              sel-variant     (:selected-variant shell)
              sel-ws          (:selected-workspace shell)
              sel-story       (:selected-story shell)
-             tag->axis       (registrar/tag->axis-index)
-             visible         (state/filter-variants (:variants registry)
+             tag->axis       (rf.story.registrar/tag->axis-index)
+             visible         (rf.story.ui.state/filter-variants (:variants registry)
                                                     tag-filter
                                                     tag->axis)
-             grouped-all     (state/group-variants-by-story visible)
+             grouped-all     (rf.story.ui.state/group-variants-by-story visible)
              query           @query-ratom
-             grouped         (search/filter-grouped-tree grouped-all query)
-             workspaces      (search/filter-workspaces
+             grouped         (rf.story.ui.sidebar-search/filter-grouped-tree grouped-all query)
+             workspaces      (rf.story.ui.sidebar-search/filter-workspaces
                                (:workspaces registry) query)
              test-runs       (get-in shell [:tests :runs])
-             testable-vec    (state/testable-variant-ids (:variants registry))
+             testable-vec    (rf.story.ui.state/testable-variant-ids (:variants registry))
              testable-set    (set testable-vec)
              searching?      (seq (str/trim query))]
          [:nav {:style       (merge (:wrap styles) (:style opts))
@@ -1018,8 +1018,8 @@
                   :aria-level  "2"}
             [:span {:aria-hidden "true"
                     :style {:display "inline-flex" :align-items "center"
-                            :color (:accent-amber colors/tokens)}}
-             [glyphs/story-glyph 12]]
+                            :color (:accent-amber rf.story.theme.colors/tokens)}}
+             [rf.story.theme.glyphs/story-glyph 12]]
             [:span "Stories"]]
            [search-input query-ratom]
            [tag-filter-row (:variants registry) tag-filter tag->axis]
@@ -1051,10 +1051,10 @@
                      :aria-level  "2"}
                [:span {:aria-hidden "true"
                        :style {:display "inline-flex" :align-items "center"
-                               :color (:info colors/tokens)
+                               :color (:info rf.story.theme.colors/tokens)
                                :margin-right "6px"
                                :vertical-align "-2px"}}
-                [glyphs/workspace-glyph 11]]
+                [rf.story.theme.glyphs/workspace-glyph 11]]
                "Workspaces"]
               (for [[wid body] (sort-by key workspaces)]
                 ^{:key wid}

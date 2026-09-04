@@ -38,7 +38,7 @@
 
   ## The behavioural slice
 
-  The slice frozen into a golden is `fingerprint/run-hash-input-keys` — the
+  The slice frozen into a golden is `rf.story.fingerprint/run-hash-input-keys` — the
   behavioural surface (`:status`, final `:app-db`, the `:epoch-tape`, the
   `:assertions` / `:checks` verdicts, the projected `:effects` /
   `:schema-violations` / `:warnings`, and the resolved `:sub-overrides` /
@@ -85,10 +85,10 @@
   Story path. The determinism dependency is the pure `->artifact` plan
   coercion (no runtime), reused so the plan capture path folds a plan to a
   replayable artifact through the SAME seam the determinism gate uses."
-  (:require [re-frame.story.artifact    :as artifact]
-            [re-frame.story.determinism :as determinism]
-            [re-frame.story.diff        :as diff]
-            [re-frame.story.fingerprint :as fingerprint]))
+  (:require [re-frame.story.artifact    :as rf.story.artifact]
+            [re-frame.story.determinism :as rf.story.determinism]
+            [re-frame.story.diff        :as rf.story.diff]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]))
 
 ;; ===========================================================================
 ;; THE :rf.test/golden SLICE
@@ -103,7 +103,7 @@
 
 (defn behavioural-slice
   "The behavioural surface of a `run`-result — `select-keys` over
-  `fingerprint/run-hash-input-keys`. Pure data → data.
+  `rf.story.fingerprint/run-hash-input-keys`. Pure data → data.
 
   This is the SAME slice `run-hash` hashes and the determinism gate +
   semantic diff compare, so a golden freezes exactly the surface those two
@@ -111,7 +111,7 @@
   `:run-artifact` back-link, `:replay-steps`) is excluded — it legitimately
   differs per run and would make a golden brittle."
   [run]
-  (select-keys run fingerprint/run-hash-input-keys))
+  (select-keys run rf.story.fingerprint/run-hash-input-keys))
 
 (defn slice-canonical
   "The `canonicalize`d behavioural slice of a `run` — the frozen value a
@@ -123,7 +123,7 @@
   the SAME canonical slice. This is THE equality the golden contract rests
   on."
   [run]
-  (fingerprint/canonicalize (behavioural-slice run)))
+  (rf.story.fingerprint/canonicalize (behavioural-slice run)))
 
 (defn make-golden
   "Construct a `:rf.test/golden` slice from a `run`-result. Pure data →
@@ -132,7 +132,7 @@
   The slice freezes the `canonicalize`d behavioural surface (`:canonical`)
   plus the cheap `:run-hash` discriminator and the `:run-hash-input-keys`
   the slice was taken over. `matches?` / `compare-golden` compare that
-  frozen `:slice-keys` against the CURRENT `fingerprint/run-hash-input-keys`
+  frozen `:slice-keys` against the CURRENT `rf.story.fingerprint/run-hash-input-keys`
   (see `slice-keys-current?`), so a future slice-key change is detectable,
   not silent: a slice-surface drift reads as a distinct `:stale-slice-keys`
   verdict ('recapture the golden') rather than a confusing fake regression.
@@ -164,8 +164,8 @@
   ([run {:keys [meta keep-run-result] :as _opts}]
    (cond-> {:golden/kind golden-kind
             :canonical   (slice-canonical run)
-            :run-hash    (fingerprint/run-hash run)
-            :slice-keys  fingerprint/run-hash-input-keys}
+            :run-hash    (rf.story.fingerprint/run-hash run)
+            :slice-keys  rf.story.fingerprint/run-hash-input-keys}
      (seq meta)      (assoc :golden/meta meta)
      keep-run-result (assoc :run-result (behavioural-slice run)))))
 
@@ -208,11 +208,11 @@
   reports false GREEN forever (the silent-wrong path this guard closes)."
   [target opts]
   (cond
-    (artifact/run-artifact? target)
-    (artifact/replay-run-artifact target opts)
+    (rf.story.artifact/run-artifact? target)
+    (rf.story.artifact/replay-run-artifact target opts)
 
     (and (map? target) (contains? target :world))
-    (artifact/replay-run-artifact (determinism/->artifact target) opts)
+    (rf.story.artifact/replay-run-artifact (rf.story.determinism/->artifact target) opts)
 
     (and (map? target) (contains? target :status))
     target
@@ -280,7 +280,7 @@
 
   `run-hash` and `slice-canonical` both `canonicalize` the same behavioural
   slice; computing the canonical slice once and hashing it via
-  `fingerprint/hash-canonical` (which hashes an ALREADY-canonical value with
+  `rf.story.fingerprint/hash-canonical` (which hashes an ALREADY-canonical value with
   NO second canonicalization pass) avoids running `canonicalize` twice per
   match / compare. The equivalence `hash-canonical(canonicalize(slice)) =
   run-hash(result)` is locked by the golden_test run-hash agreement
@@ -290,11 +290,11 @@
   [result]
   (let [canon (slice-canonical result)]
     {:canonical canon
-     :run-hash  (fingerprint/hash-canonical canon)}))
+     :run-hash  (rf.story.fingerprint/hash-canonical canon)}))
 
 (defn slice-keys-current?
   "True iff the `golden`'s frozen `:slice-keys` (the behavioural surface the
-  golden was captured over) match the CURRENT `fingerprint/run-hash-input-keys`
+  golden was captured over) match the CURRENT `rf.story.fingerprint/run-hash-input-keys`
   (spec/017 §Golden slices). Pure data → data.
 
   A golden's `:canonical` was taken via `select-keys` over the slice-key set
@@ -302,7 +302,7 @@
   (changing `run-hash-input-keys`), an old golden's frozen `:canonical` was
   taken over the OLD surface while an incoming run is sliced over the NEW one
   — the two no longer compare apples-to-apples. Unlike a canonical-FORM
-  change (version-tagged via `fingerprint/canonical-version`, which forces a
+  change (version-tagged via `rf.story.fingerprint/canonical-version`, which forces a
   hash mismatch), a slice-SURFACE change carries no version tag, so without
   this guard the drift would read as a confusing fake regression rather than
   'baseline surface changed — recapture'.
@@ -313,7 +313,7 @@
   [golden]
   (let [frozen (:slice-keys golden)]
     (or (nil? frozen)
-        (= frozen fingerprint/run-hash-input-keys))))
+        (= frozen rf.story.fingerprint/run-hash-input-keys))))
 
 (defn- matches?
   "The ONE GREEN/RED authority over an ALREADY-coerced run-`result` (spec/017
@@ -363,11 +363,11 @@
   On a STALE SLICE-SURFACE: `{:match? false :stale-slice-keys true
   :golden-slice-keys <frozen> :current-slice-keys <now>}` — the golden's
   frozen `:slice-keys` no longer match the current
-  `fingerprint/run-hash-input-keys`, so its `:canonical` was taken over a
+  `rf.story.fingerprint/run-hash-input-keys`, so its `:canonical` was taken over a
   DIFFERENT behavioural surface and the comparison is not apples-to-apples.
   This is surfaced as a DISTINCT verdict (NOT a `:diff`) so a slice-surface
   drift reads as 'baseline surface changed — recapture the golden' rather
-  than a confusing fake regression. No `diff/diff-runs` is taken because
+  than a confusing fake regression. No `rf.story.diff/diff-runs` is taken because
   diffing across two surfaces would mislocalise.
 
   On MISMATCH: `{:match? false :run-hash <new> :golden-run-hash <frozen>
@@ -402,7 +402,7 @@
        {:match?             false
         :stale-slice-keys   true
         :golden-slice-keys  (:slice-keys golden)
-        :current-slice-keys fingerprint/run-hash-input-keys}
+        :current-slice-keys rf.story.fingerprint/run-hash-input-keys}
 
        (matches? golden ch)
        {:match? true :run-hash run-hash}
@@ -411,5 +411,5 @@
        (cond-> {:match?          false
                 :run-hash        run-hash
                 :golden-run-hash (:run-hash golden)}
-         base-run       (assoc :diff (diff/diff-runs base-run result))
+         base-run       (assoc :diff (rf.story.diff/diff-runs base-run result))
          (not base-run) (assoc :diff :unavailable-no-run-result))))))

@@ -33,16 +33,16 @@
   effects and observes them at each tool's own navigator seam
   (`open-in-editor/set-navigator!`), forcing the synchronous
   `editor://` URI path via the shared core endpoint-launcher seam
-  (`open-endpoint/set-launcher!`), whose stub invokes the caller's
+  (`rf.source-coords.open-endpoint/set-launcher!`), whose stub invokes the caller's
   `fallback!` thunk directly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.source-coords.open-endpoint :as open-endpoint]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story.canonical :as canonical]
-            [re-frame.story.config :as story-config]
-            [re-frame.story.ui.open-in-editor :as story-open]
+            [re-frame.frame :as rf.frame]
+            [re-frame.source-coords.open-endpoint :as rf.source-coords.open-endpoint]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story.canonical :as rf.story.canonical]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.ui.open-in-editor :as rf.story.ui.open-in-editor]
             [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.open-in-editor :as xray-open]))
 
@@ -74,8 +74,8 @@
   "Give each tool its own editor + project root, and clear any operator
   override so `get-editor` resolves to the host default on the Xray side."
   []
-  (story-config/set-editor! story-editor)
-  (story-config/set-project-root! story-root)
+  (rf.story.config/set-editor! story-editor)
+  (rf.story.config/set-project-root! story-root)
   (xray-config/set-editor! xray-editor)
   (xray-config/set-project-root! xray-root)
   (xray-config/update-setting! :general :editor-override nil))
@@ -87,11 +87,11 @@
   []
   (reset! story-navigated [])
   (reset! xray-navigated [])
-  (story-open/set-navigator! #(swap! story-navigated conj %))
+  (rf.story.ui.open-in-editor/set-navigator! #(swap! story-navigated conj %))
   (xray-open/set-navigator!  #(swap! xray-navigated conj %))
   nil)
 
-(defn- install-story! [] (story-open/install!))
+(defn- install-story! [] (rf.story.ui.open-in-editor/install!))
 (defn- install-xray!  [] (xray-open/install!))
 
 (defn- ensure-adapter!
@@ -105,14 +105,14 @@
   not a suite. `init!` throws when an adapter is already installed, which is
   the idempotent case, so the throw is the no-op branch."
   []
-  (try (rf/init! plain-atom/adapter)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil)))
 
 (defn- fresh-frames!
   "Story's public event lands on `:rf/default`; Xray's on `:rf/xray`."
   []
   (ensure-adapter!)
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (rf/make-frame {:id :rf/xray}))
 
 (defn- dispatch-both!
@@ -130,22 +130,22 @@
 ;; namespace's tests would be a silent cross-suite corruption.
 (use-fixtures :each
   (fn [run-test]
-    (let [prev-story-nav (story-open/set-navigator! #(swap! story-navigated conj %))
+    (let [prev-story-nav (rf.story.ui.open-in-editor/set-navigator! #(swap! story-navigated conj %))
           prev-xray-nav  (xray-open/set-navigator! #(swap! xray-navigated conj %))
           ;; The shared core seam: `open-coord!` calls
           ;; `(@launcher url fallback!)`. Invoking `fallback!` immediately
           ;; models "no dev server present" — the documented standalone
           ;; contract, and the only path carrying the per-tool URI.
-          prev-launcher  (open-endpoint/set-launcher!
+          prev-launcher  (rf.source-coords.open-endpoint/set-launcher!
                            (fn [_url fallback!] (fallback!)))]
       (try
         (run-test)
         (finally
           (xray-config/update-setting! :general :editor-override nil)
           (xray-config/set-project-root! nil)
-          (story-config/set-project-root! nil)
-          (open-endpoint/set-launcher! prev-launcher)
-          (story-open/set-navigator! prev-story-nav)
+          (rf.story.config/set-project-root! nil)
+          (rf.source-coords.open-endpoint/set-launcher! prev-launcher)
+          (rf.story.ui.open-in-editor/set-navigator! prev-story-nav)
           (xray-open/set-navigator! prev-xray-nav))))))
 
 ;; ---- the ownership contract ---------------------------------------------
@@ -229,8 +229,8 @@
             EVENT policy (rf2-4s08ov). With no editor confirmed on the
             Xray side it must suppress Xray's silent navigation while
             Story — which has no such gate — still opens normally."
-    (story-config/set-editor! story-editor)
-    (story-config/set-project-root! story-root)
+    (rf.story.config/set-editor! story-editor)
+    (rf.story.config/set-project-root! story-root)
     (xray-config/set-project-root! xray-root)
     ;; Reset Xray to the unconfirmed state: no host editor, no override.
     (xray-config/set-editor! nil)
@@ -259,11 +259,11 @@
             from the canonical roster: the sole caller was Story's own
             test, so the documented path had no production handler.
             The installer now rides the canonical roster, so the event
-            works after an explicit `canonical/install!` with no
+            works after an explicit `rf.story.canonical/install!` with no
             hand-wiring."
     (configure-both-tools!)
-    (canonical/reset-installed-flag!)
-    (canonical/install!)
+    (rf.story.canonical/reset-installed-flag!)
+    (rf.story.canonical/install!)
     (fresh-frames!)
     (capture-navigators!)
 

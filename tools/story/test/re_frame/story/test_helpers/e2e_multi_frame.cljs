@@ -69,9 +69,9 @@
   around `use-fixtures :each`) handles frame disposal and registrar
   restoration."
   (:require [re-frame.core :as rf]
-            [re-frame.subs :as subs]
-            [re-frame.story :as story]
-            [re-frame.story.ui.state :as ui-state]
+            [re-frame.subs :as rf.subs]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.state :as rf.story.ui.state]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as xray-e2e]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -81,7 +81,7 @@
   "Canonical Story install path used by `with-story-and-xray-frames`
   when the caller did not supply `:install-story`.
 
-  - `story/clear-all!` — wipe the Story side-table. Per the impl,
+  - `rf.story/clear-all!` — wipe the Story side-table. Per the impl,
     this is `registrar/clear-all!` — i.e. drops every registered
     handler, sub, fx, machine, etc. (NOT just Story-side entries).
   - Re-register the framework-shipped `:rf/machine` sub. The
@@ -93,26 +93,26 @@
     sub is a runtime-db sub reading
     `[:rf.runtime/machines :snapshots <id>]` — NOT the retired app-db
     `:rf/runtime` path.
-  - `story/install-canonical-vocabulary!` — register the
+  - `rf.story/install-canonical-vocabulary!` — register the
     `:rf.story.lifecycle/machine` + helper events the runtime
     depends on.
-  - `ui-state/reset-shell-state!` — reset the shell ratom so prior
+  - `rf.story.ui.state/reset-shell-state!` — reset the shell ratom so prior
     tests' :selected-variant / :chrome-visibility leakage does not
     bleed into this run.
 
   Idempotent."
   []
-  (story/clear-all!)
+  (rf.story/clear-all!)
   ;; Re-register the framework's `:rf/machine` sub after the clear-all.
   ;; Mirrors the `reset-all!` pattern in `re-frame.story-runtime-cljs-test`.
   ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
   ;; `[:rf.runtime/machines :snapshots <id>]`, NOT the retired app-db
   ;; `:rf/runtime` path.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (story/install-canonical-vocabulary!)
-  (ui-state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.story.ui.state/reset-shell-state!)
   nil)
 
 ;; ---- harness -------------------------------------------------------------
@@ -127,19 +127,19 @@
                        `install-story-default!`.
     :install-xray   — zero-arg fn to install Xray. Defaults to
                        `xray-e2e/install-xray-default!`.
-    :register-stories — zero-arg fn that calls `(story/reg-story ...)`
-                       and `(story/reg-variant ...)` so the registrar
+    :register-stories — zero-arg fn that calls `(rf.story/reg-story ...)`
+                       and `(rf.story/reg-variant ...)` so the registrar
                        knows about the variants the test will exercise.
 
   `body-fn` runs inside the harness; usage:
 
       (with-story-and-xray-frames
         {:register-stories (fn []
-                             (story/reg-variant :story.counter/loaded
+                             (rf.story/reg-variant :story.counter/loaded
                                {:setup [[:counter/initialise 5]]}))}
         (fn []
           (async done
-            (-> (story/run-variant :story.counter/loaded)
+            (-> (rf.story/run-variant :story.counter/loaded)
                 (async-lib/then (fn [r] ...))))))
 
   Teardown clears the trace-bus buffer + resets shell state."
@@ -155,7 +155,7 @@
       (body-fn)
       (finally
         (trace-collector/reset-for-test!)
-        (ui-state/reset-shell-state!)))))
+        (rf.story.ui.state/reset-shell-state!)))))
 
 ;; ---- dispatch / subscribe helpers ----------------------------------------
 
@@ -189,7 +189,7 @@
   `sidebar/clickVariant` does in the browser without going through
   the DOM."
   [variant-id]
-  (ui-state/swap-state! ui-state/select-variant variant-id)
+  (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant variant-id)
   nil)
 
 ;; ---- hiccup walking ------------------------------------------------------
@@ -348,4 +348,4 @@
   read-wrapper so tests assert against a known shape (rather than the
   test reaching into the ratom directly)."
   []
-  (ui-state/chrome-visibility (ui-state/get-state)))
+  (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state)))

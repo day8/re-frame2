@@ -63,15 +63,15 @@
   Sub-millisecond per case; no DOM mount, no React, no Playwright."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.loaders :as loaders]
-            [re-frame.story.ui.canvas :as canvas]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.ui.canvas :as rf.story.ui.canvas]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
+            [re-frame.subs :as rf.subs]))
 
 ;; Mirror the proven reset pattern in variant_lifecycle_e2e — full
 ;; registrar clear + manual re-register of the framework's `:rf/machine`
@@ -82,22 +82,22 @@
 (declare register-skeleton-variants!)
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): machine snapshots are durable
   ;; RUNTIME-DB state at [:rf.runtime/machines :snapshots <id>] — the
   ;; framework `:rf/machine` sub reads the runtime-db partition, NOT the
   ;; retired app-db `:rf/runtime` path. Mirror `re-frame.machines`.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (canvas/reset-first-rendered!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.ui.canvas/reset-first-rendered!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (register-skeleton-variants!))
 
 (use-fixtures :each {:before reset-all!})
@@ -113,20 +113,20 @@
 
 (defn- register-skeleton-variants! []
   (rf/reg-view* :story.skeleton/view skeleton-view)
-  (story/reg-story* :story.skeleton {:doc "skeleton-e2e parent story"})
-  ;; The test drives the lifecycle machine directly via `loaders/mount!`
+  (rf.story/reg-story* :story.skeleton {:doc "skeleton-e2e parent story"})
+  ;; The test drives the lifecycle machine directly via `rf.story.loaders/mount!`
   ;; / `start-loaders!` / `finish-loaders!` — `:loaders` doesn't need a
   ;; real event since we never go through `run-variant`. The slot is
   ;; declared so `events-only-variant?` returns false (which is the
   ;; only condition that matters for the `loading-phase?` gate).
-  (story/reg-variant* :story.skeleton/v
+  (rf.story/reg-variant* :story.skeleton/v
     {:doc       "Variant declared with :loaders so events-only? is false."
      :component :story.skeleton/view
      :loaders   [[:noop/loader]]}))
 
 ;; ---- helper: read the canvas-inner hiccup tree --------------------------
 
-(def ^:private canvas-inner @#'canvas/canvas-inner)
+(def ^:private canvas-inner @#'rf.story.ui.canvas/canvas-inner)
 
 (defn- canvas-inner-tree
   "Drive `canvas-inner` for the test variant and expand the resulting
@@ -134,13 +134,13 @@
   that reads the lifecycle phase + first-rendered + assertions and
   branches on `show-skeleton?`."
   [variant-id]
-  (e2e/expand-tree (canvas-inner variant-id)))
+  (rf.story.test-helpers.e2e-multi-frame/expand-tree (canvas-inner variant-id)))
 
 (defn- skeleton-node [tree]
-  (e2e/find-by-test-id tree "story-canvas-loading-skeleton"))
+  (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-canvas-loading-skeleton"))
 
 (defn- user-view-node [tree]
-  (e2e/find-by-test-id tree "skeleton-test-user-view"))
+  (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "skeleton-test-user-view"))
 
 ;; ---- pipeline (1): phase-1 lifecycle → skeleton renders -----------------
 
@@ -157,9 +157,9 @@
       ;; lights up the skeleton — but pinning :loading specifically
       ;; matches the bead's user-facing acceptance criterion ("canvas
       ;; shows the skeleton when loaders run").
-      (loaders/mount! variant-id)
-      (loaders/start-loaders! variant-id)
-      (is (= :loading (loaders/current-state variant-id))
+      (rf.story.loaders/mount! variant-id)
+      (rf.story.loaders/start-loaders! variant-id)
+      (is (= :loading (rf.story.loaders/current-state variant-id))
           "lifecycle parked at :loading for the assertion below")
       (let [tree (canvas-inner-tree variant-id)]
         (is (some? (skeleton-node tree))
@@ -168,7 +168,7 @@
         (is (nil? (user-view-node tree))
             "user view does NOT render while the skeleton is showing
              (the skeleton replaces the user view in the cond branch)"))
-      (story/destroy-variant! variant-id))))
+      (rf.story/destroy-variant! variant-id))))
 
 ;; ---- pipeline (2): pre-mount also renders skeleton ----------------------
 
@@ -182,12 +182,12 @@
     (let [variant-id :story.skeleton/v]
       (rf/make-frame {:id variant-id})
       ;; No transitions — machine reports :pre-mount.
-      (is (= :pre-mount (loaders/current-state variant-id))
+      (is (= :pre-mount (rf.story.loaders/current-state variant-id))
           "fresh frame → :pre-mount")
       (let [tree (canvas-inner-tree variant-id)]
         (is (some? (skeleton-node tree))
             "skeleton renders during :pre-mount"))
-      (story/destroy-variant! variant-id))))
+      (rf.story/destroy-variant! variant-id))))
 
 ;; ---- pipeline (3): :ready phase elides the skeleton ---------------------
 
@@ -198,18 +198,18 @@
     (let [variant-id :story.skeleton/v]
       (rf/make-frame {:id variant-id})
       ;; Drive the lifecycle all the way through :ready.
-      (loaders/mount! variant-id)
-      (loaders/start-loaders! variant-id)
-      (loaders/finish-loaders! variant-id)
-      (loaders/finish-events! variant-id)
-      (is (= :ready (loaders/current-state variant-id))
+      (rf.story.loaders/mount! variant-id)
+      (rf.story.loaders/start-loaders! variant-id)
+      (rf.story.loaders/finish-loaders! variant-id)
+      (rf.story.loaders/finish-events! variant-id)
+      (is (= :ready (rf.story.loaders/current-state variant-id))
           "lifecycle reached :ready before the assertion below")
       (let [tree (canvas-inner-tree variant-id)]
         (is (nil? (skeleton-node tree))
             "skeleton is NOT in the tree once :ready lands")
         (is (some? (user-view-node tree))
             "user view renders post-:ready"))
-      (story/destroy-variant! variant-id))))
+      (rf.story/destroy-variant! variant-id))))
 
 ;; ---- pipeline (4): first-rendered sentinel pins skeleton off ------------
 
@@ -222,17 +222,17 @@
     (let [variant-id :story.skeleton/v]
       (rf/make-frame {:id variant-id})
       ;; Lifecycle in :loading, sentinel set → skeleton MUST NOT show.
-      (loaders/mount! variant-id)
-      (loaders/start-loaders! variant-id)
-      (canvas/mark-variant-rendered! variant-id)
-      (is (= :loading (loaders/current-state variant-id))
+      (rf.story.loaders/mount! variant-id)
+      (rf.story.loaders/start-loaders! variant-id)
+      (rf.story.ui.canvas/mark-variant-rendered! variant-id)
+      (is (= :loading (rf.story.loaders/current-state variant-id))
           "machine still in :loading — sentinel is the only off-switch")
       (let [tree (canvas-inner-tree variant-id)]
         (is (nil? (skeleton-node tree))
             "first-rendered sentinel pins the skeleton off")
         (is (some? (user-view-node tree))
             "user view renders despite the lifecycle being in :loading"))
-      (story/destroy-variant! variant-id))))
+      (rf.story/destroy-variant! variant-id))))
 
 ;; ---- pipeline (5): skeleton hiccup shape is the canonical one ------------
 
@@ -244,8 +244,8 @@
             simplification refactor that dropped them would surface."
     (let [variant-id :story.skeleton/v]
       (rf/make-frame {:id variant-id})
-      (loaders/mount! variant-id)
-      (loaders/start-loaders! variant-id)
+      (rf.story.loaders/mount! variant-id)
+      (rf.story.loaders/start-loaders! variant-id)
       (let [tree  (canvas-inner-tree variant-id)
             node  (skeleton-node tree)
             attrs (when (and (vector? node) (map? (second node)))
@@ -257,4 +257,4 @@
             "aria-live=polite — non-interrupting loading announcement")
         (is (= "Variant loading" (:aria-label attrs))
             "aria-label names the loading region for screen readers"))
-      (story/destroy-variant! variant-id))))
+      (rf.story/destroy-variant! variant-id))))

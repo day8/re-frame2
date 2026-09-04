@@ -66,7 +66,7 @@
   core."
   #?(:cljs (:require-macros [re-frame.story.invariants]))
   (:require [re-frame.core :as rf]
-            [re-frame.error :as error]
+            [re-frame.error :as rf.error]
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
 
@@ -98,7 +98,7 @@
           (= 1 (count rst))
           [::no-expected (first rst)]
           :else
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/story-bad-invariant
             'rf.story/with-invariants
             (str "re-frame2-story :db invariant shorthand must be "
@@ -138,7 +138,7 @@
     (map? invariant)
     (let [check (or (:check invariant) (:pred invariant))]
       (when-not (fn? check)
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/story-bad-invariant
           'rf.story/with-invariants
           (str "re-frame2-story invariant map needs a `:check` (or `:pred`) "
@@ -149,7 +149,7 @@
       (merge {:id (keyword (str "invariant-" idx))} invariant {:check check}))
 
     :else
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/story-bad-invariant
       'rf.story/with-invariants
       (str "re-frame2-story invariant must be a fn, a `[:db path …]` vector, "
@@ -448,7 +448,7 @@
      {:arglists '([[invariant-spec*] body+])}
      [invariants & body]
      (when-not (vector? invariants)
-       (error/throw-error!
+       (rf.error/throw-error!
          :rf.error/story-bad-invariants-vector
          'rf.story/with-invariants
          (str "with-invariants expects a vector of invariant specs as its "

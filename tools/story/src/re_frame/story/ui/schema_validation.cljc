@@ -74,17 +74,17 @@
   `:rf.story.panel/schema-validation-view`, registered against the
   framework view registry."
   (:require [clojure.string :as str]
-            [re-frame.story.malli-schema :as msu]
+            [re-frame.story.malli-schema :as rf.story.malli-schema]
             #?@(:cljs [[reagent.core              :as r]
                        [re-frame.core             :as rf]
-                       [re-frame.late-bind        :as late-bind]
-                       [re-frame.story.args       :as args]
-                       [re-frame.story.config     :as config]
-                       [re-frame.story.registrar  :as story-registrar]
-                       [re-frame.story.view-args  :as view-args]
-                       [re-frame.story.ui.trace-buffer :as trace-buffer]])
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+                       [re-frame.late-bind        :as rf.late-bind]
+                       [re-frame.story.args       :as rf.story.args]
+                       [re-frame.story.config     :as rf.story.config]
+                       [re-frame.story.registrar  :as rf.story.registrar]
+                       [re-frame.story.view-args  :as rf.story.view-args]
+                       [re-frame.story.ui.trace-buffer :as rf.story.ui.trace-buffer]])
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- pure: classify a trace event ---------------------------------------
 
@@ -169,11 +169,11 @@
 ;; leaf ns shared with `controls`). Aliased privately here so in-file
 ;; call sites stay textually identical.
 
-(def ^:private properties?      msu/properties?)
-(def ^:private schema-op        msu/schema-op)
-(def ^:private schema-children  msu/schema-children)
-(def ^:private map-entry-key    msu/map-entry-key)
-(def ^:private map-entry-schema msu/map-entry-schema)
+(def ^:private properties?      rf.story.malli-schema/properties?)
+(def ^:private schema-op        rf.story.malli-schema/schema-op)
+(def ^:private schema-children  rf.story.malli-schema/schema-children)
+(def ^:private map-entry-key    rf.story.malli-schema/map-entry-key)
+(def ^:private map-entry-schema rf.story.malli-schema/map-entry-schema)
 
 (defn map-schema?
   "True iff `schema` is a Malli `[:map ...]` vector form. The arg-
@@ -310,7 +310,7 @@
      The panel's CLJS-only render path calls this; the pure helpers
      (`args-violations`) take a pre-resolved schema and are JVM-friendly."
      [variant-id]
-     (view-args/compiled-view-args-schema variant-id)))
+     (rf.story.view-args/compiled-view-args-schema variant-id)))
 
 ;; ---- CLJS: validator lookup via late-bind -------------------------------
 
@@ -329,47 +329,47 @@
      decisions the framework's `validate-app-schema!` / `validate-event!`
      emit."
      []
-     {:validate (late-bind/get-fn :schemas/validate-with-registered-fn)
-      :explain  (late-bind/get-fn :schemas/explain-with-registered-fn)}))
+     {:validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)
+      :explain  (rf.late-bind/get-fn :schemas/explain-with-registered-fn)}))
 
 ;; ---- CLJS: styling ------------------------------------------------------
 
 #?(:cljs
    (def ^:private styles
      {:wrap         {:padding "8px"
-                     :background (:bg-2 colors/tokens)
-                     :color (:text-primary colors/tokens)
+                     :background (:bg-2 rf.story.theme.colors/tokens)
+                     :color (:text-primary rf.story.theme.colors/tokens)
                      :font-family mono-stack
-                     :font-size (:caption typography/type-scale)
+                     :font-size (:caption rf.story.theme.typography/type-scale)
                      :border-top "1px solid #444"
                      :overflow "auto"
                      :max-height "320px"}
       :section      {:margin-bottom "10px"}
       :section-h    {:font-weight "bold"
-                     :color (:text-secondary colors/tokens)
+                     :color (:text-secondary rf.story.theme.colors/tokens)
                      :text-transform "uppercase"
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :letter-spacing "0.5px"
                      :margin-bottom "4px"}
-      :hint         {:color (:text-tertiary colors/tokens)
+      :hint         {:color (:text-tertiary rf.story.theme.colors/tokens)
                      :font-style "italic"
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :margin-bottom "4px"}
-      :empty        {:color (:text-tertiary colors/tokens)
+      :empty        {:color (:text-tertiary rf.story.theme.colors/tokens)
                      :font-style "italic"
                      :padding "2px 0"}
       :violation    {:padding "4px 6px"
                      :margin "2px 0"
-                     :background (:danger-bg colors/tokens)
+                     :background (:danger-bg rf.story.theme.colors/tokens)
                      :border-left "3px solid #ff4040"
-                     :color (:danger colors/tokens)}
-      :v-key        {:color (:warning colors/tokens)
+                     :color (:danger rf.story.theme.colors/tokens)}
+      :v-key        {:color (:warning rf.story.theme.colors/tokens)
                      :font-weight "bold"}
-      :v-value      {:color (:info colors/tokens)}
-      :v-schema     {:color (:tag-experimental-fg colors/tokens)
-                     :font-size (:micro typography/type-scale)}
+      :v-value      {:color (:info rf.story.theme.colors/tokens)}
+      :v-schema     {:color (:tag-experimental-fg rf.story.theme.colors/tokens)
+                     :font-size (:micro rf.story.theme.typography/type-scale)}
       :v-explain    {:color "#aaa"
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :margin-top "2px"}
       :row          {:display "grid"
                      :grid-template-columns "92px 80px 1fr"
@@ -380,10 +380,10 @@
       :cell         {:overflow "hidden"
                      :text-overflow "ellipsis"
                      :white-space "nowrap"}
-      :cell-time    {:color (:text-tertiary colors/tokens)}
-      :cell-where   {:color (:info colors/tokens)
+      :cell-time    {:color (:text-tertiary rf.story.theme.colors/tokens)}
+      :cell-where   {:color (:info rf.story.theme.colors/tokens)
                      :font-style "italic"}
-      :cell-detail  {:color (:warning colors/tokens)}}))
+      :cell-detail  {:color (:warning rf.story.theme.colors/tokens)}}))
 
 ;; ---- CLJS: render helpers -----------------------------------------------
 
@@ -463,14 +463,14 @@
      ;; Form-2 — capture the trace buffer atom on the outer closure
      ;; so the per-render fn observes the same source-of-truth across
      ;; the component's lifecycle.
-     (let [_buf (trace-buffer/ensure-buffer! variant-id)]
+     (let [_buf (rf.story.ui.trace-buffer/ensure-buffer! variant-id)]
        (fn [variant-id]
-         (let [buf            (trace-buffer/ensure-buffer! variant-id)
+         (let [buf            (rf.story.ui.trace-buffer/ensure-buffer! variant-id)
                events         @buf
                trace-rows     (project-failures events)
                schema         (resolve-component-schema variant-id)
                vfns           (validator-fns)
-               eff-args       (args/resolve-args variant-id)
+               eff-args       (rf.story.args/resolve-args variant-id)
                args-viols     (args-violations eff-args schema vfns)
                schema-known?  (some? schema)
                validator-on?  (some? (:validate vfns))]
@@ -521,7 +521,7 @@
                [:div {:data-test "story-schema-trace-rows"}
                 [:div {:style (merge (:row styles)
                                      {:font-weight "bold"
-                                      :color       (:text-secondary colors/tokens)})}
+                                      :color       (:text-secondary rf.story.theme.colors/tokens)})}
                  [:span {:style (:cell styles)} "time"]
                  [:span {:style (:cell styles)} "where"]
                  [:span {:style (:cell styles)} "detail"]]
@@ -553,7 +553,7 @@
      Called from `re-frame.story.ui.panels/install-canonical-panels!`
      during `re-frame.story/install-canonical-vocabulary!`."
      []
-     (when config/enabled?
+     (when rf.story.config/enabled?
        ;; `[:div]` wrap REQUIRED for source-coord annotation — see the
        ;; full rationale on `:rf.story.panel/a11y-view` registration in
        ;; `re-frame.story.ui.a11y`. Per Spec 006 §Source-coord
@@ -561,7 +561,7 @@
        ;; `data-rf2-source-coord` to; a bare `[panel variant-id]` root
        ;; silences Story / Xray Inspect Mode for this panel.
        (rf/reg-view* panel-render-id (fn [variant-id] [:div [panel variant-id]]))
-       (story-registrar/reg-story-panel*
+       (rf.story.registrar/reg-story-panel*
          panel-id
          {:doc       "Live Spec 010 schema-validation panel — args vs schema + boundary trace failures."
           :title     "Schema validation"

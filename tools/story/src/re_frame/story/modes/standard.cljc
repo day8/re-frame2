@@ -9,7 +9,7 @@
   `(re-frame.story.modes.standard/register-all!)` (or one of the
   axis-scoped installers) at boot. Each registration is a plain
   `reg-mode` tuple — the toolbar surface picks them up via
-  `(registrar/registrations :mode)` like any other mode.
+  `(rf.story.registrar/registrations :mode)` like any other mode.
 
   ## Why opt-in, not auto-installed
 
@@ -34,7 +34,7 @@
   - `register-all!`        — call both. Convenience.
 
   Each installer is idempotent — re-registering a mode-id overwrites
-  the body (per `registrar/reg-mode*`), so calling these at hot-reload
+  the body (per `rf.story.registrar/reg-mode*`), so calling these at hot-reload
   time is safe.
 
   ## Effective-args contract
@@ -49,7 +49,7 @@
   accessor). Projects that want richer payloads (e.g. exact pixel
   dimensions for a viewport) wrap or replace this namespace's
   registrations with their own."
-  (:require [re-frame.story.registrar :as registrar]))
+  (:require [re-frame.story.registrar :as rf.story.registrar]))
 
 ;; ---- viewport canonical set ----------------------------------------------
 ;;
@@ -86,7 +86,7 @@
   registered."
   []
   (doseq [[id body] viewports]
-    (registrar/reg-mode* id body))
+    (rf.story.registrar/reg-mode* id body))
   (set (keys viewports)))
 
 ;; ---- background canonical set --------------------------------------------
@@ -117,7 +117,7 @@
   set of mode-ids registered."
   []
   (doseq [[id body] backgrounds]
-    (registrar/reg-mode* id body))
+    (rf.story.registrar/reg-mode* id body))
   (set (keys backgrounds)))
 
 ;; ---- convenience ---------------------------------------------------------

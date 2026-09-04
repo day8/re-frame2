@@ -41,73 +41,73 @@
   CLJS-only. Reached only through `view/test-view`, which the shell mounts
   behind the `config/enabled?` gate, so production builds never invoke it —
   closure DCEs the lot."
-  (:require [re-frame.story.ui.test-mode.pure        :as pure]
-            [re-frame.story.ui.test-mode.state       :as state]
-            [re-frame.story.theme.status :as status]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+  (:require [re-frame.story.ui.test-mode.pure        :as rf.story.ui.test-mode.pure]
+            [re-frame.story.ui.test-mode.state       :as rf.story.ui.test-mode.state]
+            [re-frame.story.theme.status :as rf.story.theme.status]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- styles (theme tokens only — no shell restyle) -----------------------
 
 (def ^:private styles
   {:section     {:margin-top "16px"}
    :section-h   {:font-weight    "bold"
-                 :color          (:text-secondary colors/tokens)
+                 :color          (:text-secondary rf.story.theme.colors/tokens)
                  :text-transform "uppercase"
-                 :font-size      (:micro typography/type-scale)
+                 :font-size      (:micro rf.story.theme.typography/type-scale)
                  :letter-spacing "0.5px"
                  :margin-bottom  "8px"
-                 :border-bottom  (str "1px solid " (:border-default colors/tokens))
+                 :border-bottom  (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                  :padding-bottom "4px"}
-   :card        {:border        (str "1px solid " (:border-default colors/tokens))
+   :card        {:border        (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                  :border-radius "4px"
                  :margin-bottom "6px"
-                 :background    (:bg-2 colors/tokens)
+                 :background    (:bg-2 rf.story.theme.colors/tokens)
                  :font-family   mono-stack
-                 :font-size     (:caption typography/type-scale)}
+                 :font-size     (:caption rf.story.theme.typography/type-scale)}
    :card-head   {:display       "flex"
                  :align-items   "center"
                  :gap           "8px"
                  :padding       "6px 10px"}
-   :kind-label  {:color       (:text-primary colors/tokens)
+   :kind-label  {:color       (:text-primary rf.story.theme.colors/tokens)
                  :font-weight "bold"}
-   :reason      {:color       (:text-secondary colors/tokens)
-                 :font-size   (:micro typography/type-scale)
+   :reason      {:color       (:text-secondary rf.story.theme.colors/tokens)
+                 :font-size   (:micro rf.story.theme.typography/type-scale)
                  :margin-left "auto"
                  :text-align  "right"}
    :findings    {:list-style  "none"
                  :margin      "0"
                  :padding     "0 10px 8px 10px"}
    :finding-row {:padding       "4px 0"
-                 :border-top    (str "1px solid " (:border-default colors/tokens))
+                 :border-top    (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                  :display       "flex"
                  :gap           "8px"
                  :align-items   "baseline"}
-   :finding-txt {:color (:text-primary colors/tokens)}
-   :locus       {:color         (:info colors/tokens)
-                 :background    (:bg-3 colors/tokens)
+   :finding-txt {:color (:text-primary rf.story.theme.colors/tokens)}
+   :locus       {:color         (:info rf.story.theme.colors/tokens)
+                 :background    (:bg-3 rf.story.theme.colors/tokens)
                  :padding       "1px 6px"
                  :border-radius "3px"
-                 :font-size     (:micro typography/type-scale)
+                 :font-size     (:micro rf.story.theme.typography/type-scale)
                  :white-space   "nowrap"}
-   :impact      {:color          (:warning colors/tokens)
+   :impact      {:color          (:warning rf.story.theme.colors/tokens)
                  :text-transform "uppercase"
-                 :font-size      (:micro typography/type-scale)
+                 :font-size      (:micro rf.story.theme.typography/type-scale)
                  :letter-spacing "0.4px"}
-   :detail      {:color     (:text-tertiary colors/tokens)
-                 :font-size (:micro typography/type-scale)}
-   :all-clear   {:color      (:success colors/tokens)
+   :detail      {:color     (:text-tertiary rf.story.theme.colors/tokens)
+                 :font-size (:micro rf.story.theme.typography/type-scale)}
+   :all-clear   {:color      (:success rf.story.theme.colors/tokens)
                  :padding    "4px 10px 8px 10px"
                  :font-style "italic"}
    :snap-box    {:padding "4px 10px 8px 10px"}
-   :snap-key    {:color          (:text-tertiary colors/tokens)
+   :snap-key    {:color          (:text-tertiary rf.story.theme.colors/tokens)
                  :text-transform "uppercase"
-                 :font-size      (:micro typography/type-scale)
+                 :font-size      (:micro rf.story.theme.typography/type-scale)
                  :letter-spacing "0.4px"
                  :margin-right   "6px"}
-   :snap-val    {:color (:text-primary colors/tokens)}
+   :snap-val    {:color (:text-primary rf.story.theme.colors/tokens)}
    :cannot-box  {:padding    "4px 10px 8px 10px"
-                 :color      (:warning colors/tokens)
+                 :color      (:warning rf.story.theme.colors/tokens)
                  :font-style "italic"}})
 
 ;; Deliberate glyph override: this pane marks `:error` with a HEAVY cross
@@ -130,13 +130,13 @@
   with a deliberate heavy-cross `:error` glyph override (see `error-glyph`).
   Unmapped statuses degrade to the descriptor's neutral fallback."
   [status]
-  (let [{:keys [bg fg glyph]} (status/descriptor status)
+  (let [{:keys [bg fg glyph]} (rf.story.theme.status/descriptor status)
         glyph (if (= status :error) error-glyph glyph)]
     [:span {:style       {:padding        "2px 8px"
                           :border-radius  "8px"
                           :background     bg
                           :color          fg
-                          :font-size      (:micro typography/type-scale)
+                          :font-size      (:micro rf.story.theme.typography/type-scale)
                           :font-weight    "bold"
                           :text-transform "uppercase"
                           :letter-spacing "0.4px"}
@@ -155,7 +155,7 @@
   the violation's `:nodes` → `:target`); when present the locus is tagged
   `data-selector` so the result UI exposes the source link the spec/021 §4
   MUST requires. A structural finding has no selector (the `:hiccup` tier
-  walks an in-memory tree, not a DOM — see `pure/structural-a11y-findings`),
+  walks an in-memory tree, not a DOM — see `rf.story.ui.test-mode.pure/structural-a11y-findings`),
   so it surfaces only its hiccup-tag locus, honestly."
   [findings]
   [:ul {:style (:findings styles) :data-test "story-va-findings"}
@@ -231,16 +231,16 @@
 (defn visual-a11y-section
   "The visual + a11y check-results section for `variant-id` (spec/021 §4).
   Reads the browser-tier oracle records off the unified run-result's
-  `:assertions` slot via `pure/browser-result-rows` and presents each
+  `:assertions` slot via `rf.story.ui.test-mode.pure/browser-result-rows` and presents each
   readably (structural-a11y violations as a `{:finding :locus}` list, axe
   violations likewise, visual snapshot identity, honest `:cannot-run`).
 
   Renders NOTHING when the run recorded no browser-tier checks — the common
   headless case (an honest empty state, never a fabricated card)."
   [variant-id]
-  (let [slot   (get @state/results-atom variant-id)
+  (let [slot   (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result (:result slot)
-        rows   (some-> result pure/browser-result-rows)]
+        rows   (some-> result rf.story.ui.test-mode.pure/browser-result-rows)]
     (when (seq rows)
       [:div {:style     (:section styles)
              :data-test "story-test-visual-a11y-section"}

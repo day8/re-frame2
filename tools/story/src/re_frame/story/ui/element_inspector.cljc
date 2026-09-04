@@ -39,7 +39,7 @@
   - **Click**: when inspect mode is on, the click handler intercepts
     (capture-phase, `stopPropagation` + `preventDefault`) so the
     variant's own onClick handlers don't fire. The resolved coord is
-    handed to `open-in-editor/open-source-coord!` — same launcher the
+    handed to `rf.story.ui.open-in-editor/open-source-coord!` — same launcher the
     chip uses.
   - **Esc**: a keydown listener exits inspect mode + clears hover state.
 
@@ -50,7 +50,7 @@
   shared `ui/canvas-listeners` lifecycle uses for its installed-root
   ref) avoids the latency + overhead of routing every mousemove through
   dispatch. Click DOES route through
-  `open-in-editor/open-source-coord!` so the launcher + allowlist gate
+  `rf.story.ui.open-in-editor/open-source-coord!` so the launcher + allowlist gate
   stay the single source of truth.
 
   ## Bundle isolation + production elision
@@ -61,13 +61,13 @@
   attribute it reads is itself dev-only (elides via
   `interop/debug-enabled?`) — under prod the inspector would find no
   matches and click would no-op. Per Spec 009 §Production builds."
-  (:require [re-frame.source-coords :as source-coords]
+  (:require [re-frame.source-coords :as rf.source-coords]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.core :as rf]
-                       [re-frame.story.ui.canvas-listeners :as canvas-listeners]
-                       [re-frame.story.ui.open-in-editor :as open-in-editor]])
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+                       [re-frame.story.ui.canvas-listeners :as rf.story.ui.canvas-listeners]
+                       [re-frame.story.ui.open-in-editor :as rf.story.ui.open-in-editor]])
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- per-process state ---------------------------------------------------
 ;;
@@ -104,7 +104,7 @@
   one canonical parser also backs the re-frame2-pair preload runtime.
   Returns nil for malformed input (too few / too many segments, empty ns or
   handler-id, non-string input). Never throws."
-  source-coords/parse-source-coord)
+  rf.source-coords/parse-source-coord)
 
 (defn coord->handler-keyword
   "Build the registered view id keyword from a parsed coord. Returns nil
@@ -128,7 +128,7 @@
      [parsed]
      (when-let [view-id (coord->handler-keyword parsed)]
        (let [meta (rf/handler-meta :view view-id)
-             err  (source-coords/error-coords-for :view view-id)
+             err  (rf.source-coords/error-coords-for :view view-id)
              file (or (:file meta) (:file err))]
          {:file   file
           :line   (or (:line parsed) (:line meta) (:line err) 1)
@@ -265,7 +265,7 @@
            (let [attr   (.getAttribute ancestor "data-rf2-source-coord")
                  parsed (parse-coord attr)]
              (when-let [coord (resolve-source-coord parsed)]
-               (open-in-editor/open-source-coord! coord)))))
+               (rf.story.ui.open-in-editor/open-source-coord! coord)))))
        ;; Exit inspect mode after a successful pick — matches React
        ;; Devtools' "pick once" gesture. The user re-clicks the chip
        ;; to start another pick.
@@ -316,7 +316,7 @@
 
 #?(:cljs
    (def ^:private lifecycle
-     (canvas-listeners/make-lifecycle installed-root attach-listeners! detach-listeners!)))
+     (rf.story.ui.canvas-listeners/make-lifecycle installed-root attach-listeners! detach-listeners!)))
 
 #?(:cljs
    (defn install!
@@ -356,32 +356,32 @@
    :tooltip {:position       "fixed"
              :pointer-events "none"
              :z-index        "1000000"
-             :background     (:bg-canvas colors/tokens)
-             :color          (:text-primary colors/tokens)
+             :background     (:bg-canvas rf.story.theme.colors/tokens)
+             :color          (:text-primary rf.story.theme.colors/tokens)
              :border         "1px solid #444"
              :border-radius  "3px"
              :padding        "3px 8px"
              :font-family    mono-stack
-             :font-size      (:caption typography/type-scale)
+             :font-size      (:caption rf.story.theme.typography/type-scale)
              :white-space    "nowrap"
              :box-shadow     "0 2px 8px rgba(0,0,0,0.4)"}
    :chip-on    {:padding         "3px 8px"
-                :background      (:accent-amber colors/tokens)
+                :background      (:accent-amber rf.story.theme.colors/tokens)
                 :color           "white"
                 :border          "none"
                 :border-radius   "10px"
                 :cursor          "pointer"
                 :font-family     mono-stack
-                :font-size       (:caption typography/type-scale)
+                :font-size       (:caption rf.story.theme.typography/type-scale)
                 :user-select     "none"}
    :chip-off   {:padding         "3px 8px"
-                :background      (:bg-3 colors/tokens)
-                :color           (:text-primary colors/tokens)
+                :background      (:bg-3 rf.story.theme.colors/tokens)
+                :color           (:text-primary rf.story.theme.colors/tokens)
                 :border          "none"
                 :border-radius   "10px"
                 :cursor          "pointer"
                 :font-family     mono-stack
-                :font-size       (:caption typography/type-scale)
+                :font-size       (:caption rf.story.theme.typography/type-scale)
                 :user-select     "none"}})
 
 #?(:cljs

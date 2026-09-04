@@ -27,7 +27,7 @@
       shell/:reagent-render guards `(when show-sb? [sidebar ...])` etc
             │
             ▼
-      No [sidebar/sidebar] / [toolbar/toolbar-strip] / [right-panel]
+      No [rf.story.ui.sidebar/sidebar] / [rf.story.ui.toolbar/toolbar-strip] / [right-panel]
       vectors in the rendered hiccup tree; the variant canvas slot
       still renders. The shell root carries
       `data-rf-chrome-fullscreen=\"true\"`.
@@ -51,25 +51,25 @@
   Sub-millisecond per case; no DOM mount, no React, no Playwright."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
-            [re-frame.story.ui.keybindings :as kb]
-            [re-frame.story.ui.shell :as shell]
-            [re-frame.story.ui.sidebar :as sidebar]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.ui.toolbar :as toolbar]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
+            [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]
+            [re-frame.story.ui.shell :as rf.story.ui.shell]
+            [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.toolbar :as rf.story.ui.toolbar]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; The `dispatch!` fn is private — bind through the var so the test
 ;; reaches the same dispatcher the `keydown` capture listener routes to.
-(def ^:private dispatch! @#'kb/dispatch!)
+(def ^:private dispatch! @#'rf.story.ui.keybindings/dispatch!)
 
 ;; ---- helpers: extract shell's `:reagent-render` -------------------------
 ;;
-;; Mirrors the harness in `embed_url_flag_e2e_cljs_test`. `shell/shell`
+;; Mirrors the harness in `embed_url_flag_e2e_cljs_test`. `rf.story.ui.shell/shell`
 ;; is a class-3 Reagent component built via `r/create-class`; we stub
 ;; create-class with identity to capture the spec map and invoke its
 ;; :reagent-render directly.
@@ -79,12 +79,12 @@
   ([spec _compiler] spec))
 
 (defn- shell-render-fn []
-  (let [spec (with-redefs [r/create-class capture-spec] (shell/shell))]
+  (let [spec (with-redefs [r/create-class capture-spec] (rf.story.ui.shell/shell))]
     (:reagent-render spec)))
 
 (defn- render-shell-tree []
   (let [render-fn (shell-render-fn)]
-    (e2e/expand-tree (render-fn))))
+    (rf.story.test-helpers.e2e-multi-frame/expand-tree (render-fn))))
 
 (defn- fn-headed-nodes
   [tree pred]
@@ -93,7 +93,7 @@
                   (pos? (count node))
                   (fn? (first node))
                   (pred (first node))))
-           (e2e/hiccup-seq tree)))
+           (rf.story.test-helpers.e2e-multi-frame/hiccup-seq tree)))
 
 ;; ---- pipeline (1): `f` keydown → shell-state flip -----------------------
 
@@ -103,13 +103,13 @@
             shell-state-atom. The state-mutation arm is covered by
             chrome_hotkeys_e2e; pinned here so the render test below
             has a known starting state."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        (is (false? (:full-screen? (e2e/chrome-visibility)))
+        (is (false? (:full-screen? (rf.story.test-helpers.e2e-multi-frame/chrome-visibility)))
             "default `:full-screen?` is false")
-        (dispatch! (e2e/fake-event {:key "f"}))
-        (is (true? (:full-screen? (e2e/chrome-visibility)))
+        (dispatch! (rf.story.test-helpers.e2e-multi-frame/fake-event {:key "f"}))
+        (is (true? (:full-screen? (rf.story.test-helpers.e2e-multi-frame/chrome-visibility)))
             "`f` keydown flipped shell-state to full-screen")))))
 
 ;; ---- pipeline (2): full-screen → chrome elides at render ----------------
@@ -123,29 +123,29 @@
             chrome, not the canvas. The root wrapper's
             `data-rf-chrome-fullscreen` reflects the render's view of
             the state."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
         ;; Seed full-screen directly — the state-flip arm is covered by
         ;; the test above so this separates the keydown-seam from the
         ;; render-seam (a failure points at the right layer).
-        (swap! ui-state/shell-state-atom
+        (swap! rf.story.ui.state/shell-state-atom
                assoc-in [:chrome-visibility :full-screen?] true)
         (let [tree            (render-shell-tree)
               root-attrs      (when (and (vector? tree) (map? (second tree)))
                                 (second tree))
-              sidebar-nodes   (fn-headed-nodes tree #(= sidebar/sidebar %))
-              toolbar-nodes   (fn-headed-nodes tree #(= toolbar/toolbar-strip %))
-              toolbar-by-attr (e2e/find-by-test-id tree "story-toolbar")
-              inspectors-node (e2e/find-by-test-id tree "story-inspectors")]
+              sidebar-nodes   (fn-headed-nodes tree #(= rf.story.ui.sidebar/sidebar %))
+              toolbar-nodes   (fn-headed-nodes tree #(= rf.story.ui.toolbar/toolbar-strip %))
+              toolbar-by-attr (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-toolbar")
+              inspectors-node (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-inspectors")]
           (is (= "true" (:data-rf-chrome-fullscreen root-attrs))
               "shell wrapper carries data-rf-chrome-fullscreen=true —
                the render saw the full-screen state")
           (is (empty? sidebar-nodes)
-              "no [sidebar/sidebar] vector in the tree — the sidebar
+              "no [rf.story.ui.sidebar/sidebar] vector in the tree — the sidebar
                guard elided per rf2-p3i0t")
           (is (empty? toolbar-nodes)
-              "no [toolbar/toolbar-strip] vector in the tree")
+              "no [rf.story.ui.toolbar/toolbar-strip] vector in the tree")
           (is (nil? toolbar-by-attr)
               "no data-test=\"story-toolbar\" element — the toolbar's
                <header> never rendered")
@@ -155,7 +155,7 @@
           ;; Inverse-shape check: the canvas <main> landmark must still
           ;; be in the tree. Without this assertion a render that always
           ;; drops every vector would still pass the negation checks.
-          (let [main-node (e2e/find-by-data-attr tree
+          (let [main-node (rf.story.test-helpers.e2e-multi-frame/find-by-data-attr tree
                                                  :aria-label "Story canvas")]
             (is (some? main-node)
                 "<main aria-label=\"Story canvas\"> is still in the
@@ -168,19 +168,19 @@
             shell's reagent-render produces a hiccup tree where the
             three chrome guards all admit their components. Pins the
             inverse so the elision test above can't trivially pass."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
         (let [tree            (render-shell-tree)
               root-attrs      (when (and (vector? tree) (map? (second tree)))
                                 (second tree))
-              sidebar-nodes   (fn-headed-nodes tree #(= sidebar/sidebar %))
-              toolbar-by-attr (e2e/find-by-test-id tree "story-toolbar")
-              inspectors-node (e2e/find-by-test-id tree "story-inspectors")]
+              sidebar-nodes   (fn-headed-nodes tree #(= rf.story.ui.sidebar/sidebar %))
+              toolbar-by-attr (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-toolbar")
+              inspectors-node (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-inspectors")]
           (is (= "false" (:data-rf-chrome-fullscreen root-attrs))
               "shell wrapper carries data-rf-chrome-fullscreen=false")
           (is (seq sidebar-nodes)
-              "[sidebar/sidebar] vector present in the tree by default")
+              "[rf.story.ui.sidebar/sidebar] vector present in the tree by default")
           (is (some? toolbar-by-attr)
               "data-test=\"story-toolbar\" element present by default")
           (is (some? inspectors-node)
@@ -194,16 +194,16 @@
               press 2 → chrome returns.
             Asserts the keydown→state→render pipeline is stable across
             both transitions (not just the activate edge)."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        (dispatch! (e2e/fake-event {:key "f"}))
+        (dispatch! (rf.story.test-helpers.e2e-multi-frame/fake-event {:key "f"}))
         (let [tree-on (render-shell-tree)
-              sidebar-on (fn-headed-nodes tree-on #(= sidebar/sidebar %))]
+              sidebar-on (fn-headed-nodes tree-on #(= rf.story.ui.sidebar/sidebar %))]
           (is (empty? sidebar-on)
               "after first `f` keydown, no sidebar in tree"))
-        (dispatch! (e2e/fake-event {:key "f"}))
+        (dispatch! (rf.story.test-helpers.e2e-multi-frame/fake-event {:key "f"}))
         (let [tree-off (render-shell-tree)
-              sidebar-off (fn-headed-nodes tree-off #(= sidebar/sidebar %))]
+              sidebar-off (fn-headed-nodes tree-off #(= rf.story.ui.sidebar/sidebar %))]
           (is (seq sidebar-off)
               "after second `f` keydown, sidebar is back in tree"))))))

@@ -1,7 +1,7 @@
 (ns re-frame.story.runtime-runpath-test
   "End-to-end run-path wiring tests (rf2-baah3 + rf2-9ikj0).
 
-  These drive `story/run` to terminal on the JVM (where the future resolves
+  These drive `rf.story/run` to terminal on the JVM (where the future resolves
   synchronously) and assert the run-path now THREADS the requirements
   registry + routes the browser-tier a11y-structural executor — the two
   surfaces that existed but were orphaned from the run path:
@@ -19,30 +19,30 @@
     `:hiccup` tier against the rendered hiccup tree (the `:render-hiccup`
     seam); a tier that cannot supply the tree records `:cannot-run`.
 
-  JVM-only (`.clj`): `story/run` returns a `CompletableFuture` that resolves
+  JVM-only (`.clj`): `rf.story/run` returns a `CompletableFuture` that resolves
   synchronously to the unified result. The selection / requirement-function
   unit coverage lives in `re-frame.story.requirements-test`; the browser
   executor unit coverage lives in `re-frame.story.play.browser-test`. This
   suite proves the END-TO-END wiring through the run path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
-            [re-frame.frame     :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story     :as story]
-            [re-frame.story.late-bind  :as late-bind]))
+            [re-frame.frame     :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story     :as rf.story]
+            [re-frame.story.late-bind  :as rf.story.late-bind]))
 
 (defn- reset-rf! [test-fn]
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   ;; Drop any stray :render-hiccup host from a prior test (the run-path
   ;; a11y-structural tier-proof seam) so the no-host :cannot-run case is clean.
-  (swap! late-bind/hooks dissoc :render-hiccup)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (swap! rf.story.late-bind/hooks dissoc :render-hiccup)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (rf/reg-event :rp/set-status (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
   (rf/reg-event :rp/set-value  (fn [{:keys [db]} [_ v]] {:db (assoc db :value v)}))
   (test-fn))
@@ -50,8 +50,8 @@
 (use-fixtures :each reset-rf!)
 
 (defn- run-target
-  ([target] (.get ^java.util.concurrent.CompletableFuture (story/run target)))
-  ([target opts] (.get ^java.util.concurrent.CompletableFuture (story/run target opts))))
+  ([target] (.get ^java.util.concurrent.CompletableFuture (rf.story/run target)))
+  ([target opts] (.get ^java.util.concurrent.CompletableFuture (rf.story/run target opts))))
 
 (defn- a11y-structural-record [result]
   (first (filter #(= :rf.assert/a11y-structural (:assertion %))
@@ -102,7 +102,7 @@
           "an app-db-only plan escalates no further than :headless under :auto"))
     ;; Install a render-hiccup host so a11y-structural can run at :hiccup; the
     ;; selection itself (cheapest = :hiccup for :hiccup-structure) is the point.
-    (late-bind/set-fn! :render-hiccup (fn [_frame] [:div "ok"]))
+    (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] [:div "ok"]))
     (let [hiccup (run-target {:assertions [[:rf.assert/a11y-structural]]}
                              {:runner :auto})]
       (is (= :hiccup (:runner hiccup))
@@ -130,7 +130,7 @@
             when the tree carries a structural issue (rf2-9ikj0 — the
             previously-orphaned executor is wired in)"
     ;; The host renders a tree with an :img missing :alt — a structural issue.
-    (late-bind/set-fn! :render-hiccup (fn [_frame] [:div [:img {:src "/k.png"}]]))
+    (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] [:div [:img {:src "/k.png"}]]))
     (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
                                        [:assert [:rf.assert/a11y-structural]]]}
                              {:runner :hiccup})]
@@ -144,7 +144,7 @@
 (deftest a11y-structural-evaluates-and-passes-at-hiccup
   (testing "a structurally-clean rendered tree PASSES :rf.assert/a11y-structural
             on the normal :hiccup run path (rf2-9ikj0)"
-    (late-bind/set-fn! :render-hiccup
+    (rf.story.late-bind/set-fn! :render-hiccup
                        (fn [_frame] [:div [:img {:src "/k.png" :alt "a kitten"}]
                                      [:button "Go"]]))
     (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
@@ -202,7 +202,7 @@
   (testing "a :cell-override drives an `[:arg …]` placeholder in the SCRIPT;
             the executed app-db AND the reported :effective-args BOTH reflect
             the override value — not the static story arg (rf2-2cpoo)"
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.opts/scripted
       {:args   {:value "static"}
        ;; `[:arg :value]` is resolved at plan-compile time; the run opts must
@@ -224,7 +224,7 @@
   (testing "a :cell-override drives an `[:arg …]` placeholder in the :db-seed;
             the seeded app-db reflects the override, matching :effective-args
             (rf2-2cpoo — db-seed substitution uses the run-opts effective args)"
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.opts/seeded
       {:args    {:value "static"}
        :db-seed {:seeded [:arg :value]}})
@@ -242,8 +242,8 @@
             reported :effective-args BOTH reflect the mode value (rf2-2cpoo —
             mode args fold into plan compilation at `mode < variant` precedence,
             so the mode supplies args the variant leaves open)"
-    (story/reg-mode :Mode.test/big {:args {:value "from-mode"}})
-    (story/reg-variant
+    (rf.story/reg-mode :Mode.test/big {:args {:value "from-mode"}})
+    (rf.story/reg-variant
       :story.opts/moded
       ;; the variant declares NO :value, so the mode's :value flows through
       ;; (precedence `mode < variant`: the mode fills args the variant omits).
@@ -262,8 +262,8 @@
   (testing "precedence holds end-to-end: mode < cell-override; the SCRIPT
             dispatches the override (highest layer), matching :effective-args
             (rf2-2cpoo — the plan folds layers in resolve-args precedence)"
-    (story/reg-mode :Mode.test/mid {:args {:value "from-mode"}})
-    (story/reg-variant
+    (rf.story/reg-mode :Mode.test/mid {:args {:value "from-mode"}})
+    (rf.story/reg-variant
       :story.opts/precedence
       {:args   {:value "static"}
        :script [[:dispatch-sync [:rp/set-value [:arg :value]]]]})
@@ -279,7 +279,7 @@
   (testing "with NO run opts the run still substitutes the STATIC variant args —
             the run-args threading is purely additive (rf2-2cpoo regression
             guard: the absent-opts path is unchanged)"
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.opts/plain
       {:args   {:value "static"}
        :script [[:dispatch-sync [:rp/set-value [:arg :value]]]]})
@@ -307,7 +307,7 @@
             NOT leak the prior run's app-db value (rf2-5fv445)"
     ;; Run 1: a valid variant that seeds app-db with {:value \"old\"} and runs
     ;; to a healthy terminal — the frame ends at :ready with that app-db.
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.stale/v
       {:script [[:dispatch-sync [:rp/set-value "old"]]
                 [:assert [:rf.assert/path-equals [:value] "old"]]]})
@@ -319,7 +319,7 @@
     ;; the variant (and its parents) never declares. Plan construction throws in
     ;; `prepare-context` (before the fresh-frame reset), and the prior frame is
     ;; still registered at :ready.
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.stale/v
       {:script [[:dispatch-sync [:rp/set-value [:arg :missing]]]]})
     (let [result (run-target :story.stale/v)]

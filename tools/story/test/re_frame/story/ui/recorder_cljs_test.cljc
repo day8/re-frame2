@@ -12,19 +12,19 @@
 
   - **CLJS-only** (`ui/recorder.cljs` is CLJS-only — depends on
     Reagent / DOM) — the dialog renders a snippet built from the
-    snapshot stored on `@ui-dialog`, NOT from `@recorder/state`. A
+    snapshot stored on `@ui-dialog`, NOT from `@rf.story.recorder/state`. A
     fresh `start-recording!` after the dialog opens does NOT mutate
     the rendered snippet — that's the rf2-8x9nb regression."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story.recorder :as recorder]
-            #?(:cljs [re-frame.story.ui.recorder :as ui-rec])))
+            [re-frame.story.recorder :as rf.story.recorder]
+            #?(:cljs [re-frame.story.ui.recorder :as rf.story.ui.recorder])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-recorder! [f]
-  (recorder/clear!)
-  #?(:cljs (reset! ui-rec/ui-dialog recorder/initial-dialog-state))
+  (rf.story.recorder/clear!)
+  #?(:cljs (reset! rf.story.ui.recorder/ui-dialog rf.story.recorder/initial-dialog-state))
   (f))
 
 (use-fixtures :each reset-recorder!)
@@ -34,7 +34,7 @@
 (deftest open-dialog-snapshots-events-onto-dialog-state
   (testing "open-dialog stashes the captured events on the dialog state"
     (let [events [[:counter/inc] [:counter/dec]]
-          opened (recorder/open-dialog recorder/initial-dialog-state
+          opened (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
                                        :story.x/y events nil 12345)]
       (is (:open? opened))
       (is (= :story.x/y (:source-id opened))
@@ -49,44 +49,44 @@
 (deftest open-dialog-snapshot-is-independent-of-source-vector
   (testing "the snapshot is decoupled from the caller's events vector"
     (let [events (vec [[:counter/inc]])
-          opened (recorder/open-dialog recorder/initial-dialog-state
+          opened (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
                                        :story.x/y events nil 0)]
       (is (= [[:counter/inc]] (:events opened))
           "the snapshot is a fresh vector, not a reference to a recorder atom"))))
 
 (deftest close-dialog-returns-idle-state
   (testing "close-dialog clears the snapshot — next open starts fresh"
-    (let [opened (recorder/open-dialog recorder/initial-dialog-state
+    (let [opened (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
                                        :story.x/y [[:counter/inc]] nil 0)
-          closed (recorder/close-dialog opened)]
+          closed (rf.story.recorder/close-dialog opened)]
       (is (false? (:open? closed)))
       (is (nil? (:source-id closed)))
       (is (nil? (:events closed))))))
 
 (deftest initial-dialog-state-is-idle
   (testing "the seed value for the dialog ratom is the idle state"
-    (is (false? (:open? recorder/initial-dialog-state)))
-    (is (nil? (:source-id recorder/initial-dialog-state)))
-    (is (nil? (:draft-id recorder/initial-dialog-state)))))
+    (is (false? (:open? rf.story.recorder/initial-dialog-state)))
+    (is (nil? (:source-id rf.story.recorder/initial-dialog-state)))
+    (is (nil? (:draft-id rf.story.recorder/initial-dialog-state)))))
 
 ;; ---- CLJS-only: dialog rendered hiccup -----------------------------------
 
 #?(:cljs
    (deftest save-dialog-not-rendered-when-closed
      (testing "the dialog renders nil when the ratom :open? is false"
-       (reset! ui-rec/ui-dialog recorder/initial-dialog-state)
-       (is (nil? (ui-rec/save-dialog))))))
+       (reset! rf.story.ui.recorder/ui-dialog rf.story.recorder/initial-dialog-state)
+       (is (nil? (rf.story.ui.recorder/save-dialog))))))
 
 #?(:cljs
    (deftest save-dialog-renders-snippet-from-snapshot
      (testing "the rendered snippet is built from the dialog snapshot"
-       (reset! ui-rec/ui-dialog
-               (recorder/open-dialog recorder/initial-dialog-state
+       (reset! rf.story.ui.recorder/ui-dialog
+               (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
                                      :story.x/source
                                      [[:counter/inc] [:counter/dec]]
                                      nil
                                      12345))
-       (let [flat (str (ui-rec/save-dialog))]
+       (let [flat (str (rf.story.ui.recorder/save-dialog))]
          (is (str/includes? flat ":counter/inc")
              "captured events appear in the snippet preview")
          (is (str/includes? flat ":counter/dec"))
@@ -115,12 +115,12 @@
               them), GREEN after (recording->script-body over :entries)"
        ;; Drive the actual capture pipeline so the test exercises the
        ;; real two-stream model, not a hand-built snapshot.
-       (recorder/clear!)
-       (recorder/start-recording! :story.login/form 0)
-       (recorder/record-event! [:counter/inc])                       ; → :events + :entries
-       (recorder/record-dom-event! [:dom/click "#submit" 10])        ; → :entries ONLY
-       (recorder/record-dom-event! [:dom/type "#email" "a@b.co" 20]) ; → :entries ONLY
-       (let [{:keys [variant-id events entries]} (recorder/stop-recording!)]
+       (rf.story.recorder/clear!)
+       (rf.story.recorder/start-recording! :story.login/form 0)
+       (rf.story.recorder/record-event! [:counter/inc])                       ; → :events + :entries
+       (rf.story.recorder/record-dom-event! [:dom/click "#submit" 10])        ; → :entries ONLY
+       (rf.story.recorder/record-dom-event! [:dom/type "#email" "a@b.co" 20]) ; → :entries ONLY
+       (let [{:keys [variant-id events entries]} (rf.story.recorder/stop-recording!)]
          ;; Sanity: the streams desync exactly as documented — :events
          ;; has the lone dispatch; :entries has all three interactions.
          (is (= [[:counter/inc]] events)
@@ -128,13 +128,13 @@
          (is (= 3 (count entries))
              ":entries carries the dispatch + both DOM interactions")
          ;; Open the primary dialog through the real UI entry point.
-         (reset! ui-rec/ui-dialog
-                 (recorder/open-dialog recorder/initial-dialog-state
+         (reset! rf.story.ui.recorder/ui-dialog
+                 (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
                                        variant-id events entries 0))
          ;; `(str hiccup)` escapes the inner double-quotes of the
          ;; rendered EDN, so the snippet selector "#submit" appears as
          ;; \"#submit\" in the flattened tree — assert against that form.
-         (let [flat (str (ui-rec/save-dialog))]
+         (let [flat (str (rf.story.ui.recorder/save-dialog))]
            (is (str/includes? flat ":dispatch [:counter/inc]")
                "the dispatched event still appears as a :dispatch step")
            (is (str/includes? flat "[:click \\\"#submit\\\"]")
@@ -156,17 +156,17 @@
      (testing "rf2-nkjkj: a recording of canvas interactions ONLY (no
               dispatched events) still produces a non-empty primary
               snippet — :events is empty but :entries carries the clicks"
-       (recorder/clear!)
-       (recorder/start-recording! :story.x/canvas 0)
-       (recorder/record-dom-event! [:dom/click "#a" 5])
-       (recorder/record-dom-event! [:dom/click "#b" 9])
-       (let [{:keys [variant-id events entries]} (recorder/stop-recording!)]
+       (rf.story.recorder/clear!)
+       (rf.story.recorder/start-recording! :story.x/canvas 0)
+       (rf.story.recorder/record-dom-event! [:dom/click "#a" 5])
+       (rf.story.recorder/record-dom-event! [:dom/click "#b" 9])
+       (let [{:keys [variant-id events entries]} (rf.story.recorder/stop-recording!)]
          (is (empty? events) ":events is empty for a DOM-only recording")
          (is (= 2 (count entries)))
-         (reset! ui-rec/ui-dialog
-                 (recorder/open-dialog recorder/initial-dialog-state
+         (reset! rf.story.ui.recorder/ui-dialog
+                 (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
                                        variant-id events entries 0))
-         (let [flat (str (ui-rec/save-dialog))]
+         (let [flat (str (rf.story.ui.recorder/save-dialog))]
            (is (str/includes? flat "[:click \\\"#a\\\"]"))
            (is (str/includes? flat "[:click \\\"#b\\\"]"))
            (is (str/includes? flat "2 recorded steps")
@@ -181,25 +181,25 @@
               at open time, not read live off the recorder atom"
        ;; Step 1: simulate stop-of-recording-A → open dialog with A's events.
        (let [a-events [[:counter/inc] [:counter/inc] [:counter/dec]]]
-         (reset! ui-rec/ui-dialog
-                 (recorder/open-dialog recorder/initial-dialog-state
+         (reset! rf.story.ui.recorder/ui-dialog
+                 (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
                                        :story.a/source a-events nil 12345))
-         (let [snippet-before (str (ui-rec/save-dialog))]
+         (let [snippet-before (str (rf.story.ui.recorder/save-dialog))]
            (is (str/includes? snippet-before ":counter/inc"))
            (is (str/includes? snippet-before ":story.a/source"))
 
            ;; Step 2: user clicks REC again — starts a fresh recording
-           ;; targeting B. This resets `recorder/state` to an empty
+           ;; targeting B. This resets `rf.story.recorder/state` to an empty
            ;; recording with a different variant-id.
-           (recorder/start-recording! :story.b/target 99999)
-           (is (recorder/recording?))
-           (is (= :story.b/target (recorder/recording-variant)))
-           (is (= [] (recorder/recorded-events))
+           (rf.story.recorder/start-recording! :story.b/target 99999)
+           (is (rf.story.recorder/recording?))
+           (is (= :story.b/target (rf.story.recorder/recording-variant)))
+           (is (= [] (rf.story.recorder/recorded-events))
                "the recorder atom is now empty / aimed at B")
 
            ;; Step 3: re-render the dialog. The snippet MUST still
            ;; reflect A's events + A's variant id — NOT empty/B.
-           (let [snippet-after (str (ui-rec/save-dialog))]
+           (let [snippet-after (str (rf.story.ui.recorder/save-dialog))]
              (is (= snippet-before snippet-after)
                  "the dialog snippet is unchanged after start-recording!")
              (is (str/includes? snippet-after ":counter/inc")
@@ -214,13 +214,13 @@
      (testing "rf2-8x9nb: events captured into a fresh recording after the
               dialog opened do NOT appear in the open dialog's snippet"
        (let [a-events [[:counter/inc]]]
-         (reset! ui-rec/ui-dialog
-                 (recorder/open-dialog recorder/initial-dialog-state
+         (reset! rf.story.ui.recorder/ui-dialog
+                 (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
                                        :story.a/source a-events nil 12345))
-         (recorder/start-recording! :story.b/target 99999)
-         (recorder/record-event! [:auth/login {:email "test@test"}])
-         (recorder/record-event! [:auth/logout])
-         (let [flat (str (ui-rec/save-dialog))]
+         (rf.story.recorder/start-recording! :story.b/target 99999)
+         (rf.story.recorder/record-event! [:auth/login {:email "test@test"}])
+         (rf.story.recorder/record-event! [:auth/logout])
+         (let [flat (str (rf.story.ui.recorder/save-dialog))]
            (is (str/includes? flat ":counter/inc")
                "A's original event remains in the snippet")
            (is (not (str/includes? flat ":auth/login"))
@@ -231,7 +231,7 @@
 
 #?(:cljs
    (defn- open-picker-for-test! []
-     (reset! ui-rec/ui-picker {:open?        true
+     (reset! rf.story.ui.recorder/ui-picker {:open?        true
                                :assertion    nil
                                :field-text   {}
                                :error        nil
@@ -242,7 +242,7 @@
      (testing "rf2-p1ai7: the assertion picker carries role=dialog +
               aria-modal + aria-labelledby on its panel"
        (open-picker-for-test!)
-       (let [flat (str (ui-rec/assertion-picker))]
+       (let [flat (str (rf.story.ui.recorder/assertion-picker))]
          (is (str/includes? flat "dialog")     "role=dialog appears")
          (is (str/includes? flat "aria-modal") "aria-modal flag is stamped")
          (is (str/includes? flat "aria-labelledby")
@@ -256,7 +256,7 @@
               menuitem rows + a roving tabindex (only the active row
               has tabindex=0)."
        (open-picker-for-test!)
-       (let [flat (str (ui-rec/assertion-picker))]
+       (let [flat (str (rf.story.ui.recorder/assertion-picker))]
          (is (str/includes? flat "menu")
              "role=menu identifies the vocab container")
          (is (str/includes? flat "menuitem")
@@ -274,15 +274,15 @@
      (testing "rf2-07m13: set-active-index! clamps + wraps the cursor
               across the vocabulary length."
        (open-picker-for-test!)
-       (let [n (count recorder/assertion-vocabulary)]
+       (let [n (count rf.story.recorder/assertion-vocabulary)]
          ;; Step forward through bounds.
-         (#'ui-rec/set-active-index! 0)
-         (is (= 0 (:active-index @ui-rec/ui-picker)))
-         (#'ui-rec/set-active-index! 1)
-         (is (= 1 (:active-index @ui-rec/ui-picker)))
+         (#'rf.story.ui.recorder/set-active-index! 0)
+         (is (= 0 (:active-index @rf.story.ui.recorder/ui-picker)))
+         (#'rf.story.ui.recorder/set-active-index! 1)
+         (is (= 1 (:active-index @rf.story.ui.recorder/ui-picker)))
          ;; Past the end wraps to 0.
-         (#'ui-rec/set-active-index! (+ n 5))
-         (is (= 0 (:active-index @ui-rec/ui-picker)))
+         (#'rf.story.ui.recorder/set-active-index! (+ n 5))
+         (is (= 0 (:active-index @rf.story.ui.recorder/ui-picker)))
          ;; Negative wraps to the last index.
-         (#'ui-rec/set-active-index! -1)
-         (is (= (dec n) (:active-index @ui-rec/ui-picker)))))))
+         (#'rf.story.ui.recorder/set-active-index! -1)
+         (is (= (dec n) (:active-index @rf.story.ui.recorder/ui-picker)))))))

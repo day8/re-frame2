@@ -17,11 +17,11 @@
   - `story/is` reports per assertion (`result->reports`)."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core               :as m]
-            [re-frame.epoch.capture   :as capture]
-            [re-frame.story.assertions :as assertions]
-            [re-frame.story.result   :as result]
-            [re-frame.story.play.evidence :as evidence]
-            [re-frame.story.requirements  :as requirements]))
+            [re-frame.epoch.capture   :as rf.epoch.capture]
+            [re-frame.story.assertions :as rf.story.assertions]
+            [re-frame.story.result   :as rf.story.result]
+            [re-frame.story.play.evidence :as rf.story.play.evidence]
+            [re-frame.story.requirements  :as rf.story.requirements]))
 
 ;; ===========================================================================
 ;; STATUS — the four verdicts, derived from one field
@@ -29,18 +29,18 @@
 
 (deftest record-status-derivation
   (testing "an explicit :status on the record wins"
-    (is (= :cannot-run (result/record-status {:status :cannot-run :passed? true}))))
+    (is (= :cannot-run (rf.story.result/record-status {:status :cannot-run :passed? true}))))
   (testing ":passed? true/false → :pass / :fail"
-    (is (= :pass (result/record-status {:passed? true})))
-    (is (= :fail (result/record-status {:passed? false}))))
+    (is (= :pass (rf.story.result/record-status {:passed? true})))
+    (is (= :fail (rf.story.result/record-status {:passed? false}))))
   (testing ":cannot-run? / legacy :skipped? → :cannot-run (the THIRD status)"
-    (is (= :cannot-run (result/record-status {:passed? false :cannot-run? true})))
-    (is (= :cannot-run (result/record-status {:passed? false :skipped? true}))))
+    (is (= :cannot-run (rf.story.result/record-status {:passed? false :cannot-run? true})))
+    (is (= :cannot-run (rf.story.result/record-status {:passed? false :skipped? true}))))
   (testing "an exception / error → :error"
-    (is (= :error (result/record-status {:passed? false :exception true})))
-    (is (= :error (result/record-status {:passed? false :error {:msg "boom"}}))))
+    (is (= :error (rf.story.result/record-status {:passed? false :exception true})))
+    (is (= :error (rf.story.result/record-status {:passed? false :error {:msg "boom"}}))))
   (testing "a record with no outcome is vacuously :pass (the duality)"
-    (is (= :pass (result/record-status {:assertion :rf.assert/x})))))
+    (is (= :pass (rf.story.result/record-status {:assertion :rf.assert/x})))))
 
 ;; ===========================================================================
 ;; ASSERTION RECORD — the `.18` atom shape + a unified :status
@@ -51,15 +51,15 @@
     (let [raw {:assertion :rf.assert/path-equals :payload [[:k] 1]
                :passed? true :expected 1 :actual 1
                :source-coord {:file "x.cljs" :line 3}}
-          rec (result/assertion-record raw)]
+          rec (rf.story.result/assertion-record raw)]
       (is (= :pass (:status rec)))
       (is (= {:file "x.cljs" :line 3} (:source rec)) ":source-coord renamed to :source")
       (is (not (contains? rec :source-coord))
           "the unified record emits ONLY :source — the legacy :source-coord slot is dropped (rf2-k9u0h)")
       (is (= :rf.assert/path-equals (:assertion rec)))))
   (testing "a failing entry → :fail; a record carrying its own :status is left"
-    (is (= :fail (:status (result/assertion-record {:passed? false}))))
-    (is (= :cannot-run (:status (result/assertion-record
+    (is (= :fail (:status (rf.story.result/assertion-record {:passed? false}))))
+    (is (= :cannot-run (:status (rf.story.result/assertion-record
                                   {:status :cannot-run :passed? false}))))))
 
 ;; ===========================================================================
@@ -73,7 +73,7 @@
                    {:assertion :rf.assert/path-equals :payload [[:b] 2] :status :fail}]
           check->atoms {:check/clean [[:rf.assert/no-warnings]]
                         :check/a     [[:rf.assert/path-equals [:a] 1]]}
-          recs (result/check-records check->atoms records)]
+          recs (rf.story.result/check-records check->atoms records)]
       (is (= 2 (count recs)))
       (let [clean (first (filter #(= :check/clean (:check %)) recs))
             a     (first (filter #(= :check/a (:check %)) recs))]
@@ -88,7 +88,7 @@
   (testing "a failing check shows the check id AND the failing record"
     (let [records [{:assertion :rf.assert/path-equals :payload [[:s] :x] :status :fail
                     :expected :x :actual :y}]
-          recs (result/check-records {:check/state [[:rf.assert/path-equals [:s] :x]]}
+          recs (rf.story.result/check-records {:check/state [[:rf.assert/path-equals [:s] :x]]}
                                      records)
           c    (first recs)]
       (is (= :check/state (:check c)))
@@ -96,7 +96,7 @@
       (is (= :y (:actual (first (:assertions c)))))))
 
   (testing "an unmatched check atom groups nothing (the assertion never ran)"
-    (let [recs (result/check-records {:check/missing [[:rf.assert/path-equals [:z] 9]]}
+    (let [recs (rf.story.result/check-records {:check/missing [[:rf.assert/path-equals [:z] 9]]}
                                      [])]
       (is (= :pass (:status (first recs))) "an empty group is vacuously :pass")
       (is (empty? (:assertions (first recs)))))))
@@ -119,7 +119,7 @@
                     :expected  :rf/redacted
                     :actual    :rf/redacted}]
           check->atoms {:check/no-leak [[:rf.assert/path-equals [:user :ssn] "123-45-6789"]]}
-          recs (result/check-records check->atoms records)
+          recs (rf.story.result/check-records check->atoms records)
           c    (first recs)]
       (is (= :check/no-leak (:check c)))
       (is (= 1 (count (:assertions c)))
@@ -135,7 +135,7 @@
     (let [records [{:assertion :rf.assert/sub-equals :payload [[:sub/a] 1] :status :pass}
                    {:assertion :rf.assert/sub-equals :payload [[:sub/b] 2] :status :fail}]
           check->atoms {:check/a [[:rf.assert/sub-equals [:sub/a] 1]]}
-          recs (result/check-records check->atoms records)
+          recs (rf.story.result/check-records check->atoms records)
           c    (first recs)]
       (is (= 1 (count (:assertions c)))
           "only the matching sub-vec's record groups under the check —
@@ -155,7 +155,7 @@
 
 (deftest passing-variant-yields-pass
   (testing "a passing assertion set + clean tape → :status :pass (§B5)"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:variant/id :story.x/v
                :epoch-tape [(epoch {})]
                :assertions [{:assertion :rf.assert/path-equals :passed? true}]
@@ -167,7 +167,7 @@
 
 (deftest failing-assertion-yields-fail
   (testing "a failing assertion → :status :fail (§B5)"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:epoch-tape [(epoch {})]
                :assertions [{:assertion :rf.assert/path-equals :passed? true}
                             {:assertion :rf.assert/path-equals :passed? false}]})]
@@ -175,24 +175,24 @@
 
 (deftest cannot-run-yields-cannot-run
   (testing "a run whose only unmet expectation is :cannot-run → :cannot-run (§B5)"
-    (let [refusal (requirements/requirement-refusal
+    (let [refusal (rf.story.requirements/requirement-refusal
                     #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
                     :runner-lacks-capability :headless)
-          r (result/run-result
+          r (rf.story.result/run-result
               {:epoch-tape [(epoch {})]
                :assertions [{:assertion :rf.assert/path-equals :passed? true}]
                :unmet      [refusal]})]
       (is (= :cannot-run (:status r)))
       (is (= [refusal] (:cannot-run r)) "the refusal surfaces on :cannot-run")))
   (testing "a :cannot-run assertion record (no real fail) → :cannot-run"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:assertions [{:assertion :rf.assert/dom-visible
                              :status :cannot-run :passed? false}]})]
       (is (= :cannot-run (:status r))))))
 
 (deftest error-outranks-fail
   (testing "an :error assertion record → :status :error (precedence)"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:assertions [{:assertion :rf.assert/x :passed? false}
                             {:assertion :rf.error/exception :passed? false
                              :exception true}]})]
@@ -207,7 +207,7 @@
     (let [tape [(epoch {:trace-events
                         [{:operation :rf.error/schema-validation-failure
                           :tags {:where :event :failing-id :checkout/submit}}]})]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :assertions [{:assertion :rf.assert/path-equals :passed? true}]})]
       (is (= :fail (:status r))
@@ -222,7 +222,7 @@
           tape [(epoch {:trace-events
                         [{:operation :rf.error/schema-validation-failure
                           :tags {:where :event :failing-id :checkout/submit}}]})]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :assertions [{:assertion :rf.assert/schema-error :passed? true}]
                   :consumed-selectors #{sel}})]
@@ -240,13 +240,13 @@
             unmet capability refusal says nothing about whether the tape
             independently carries an unconsumed failure), so both
             floor-eligible base statuses must escalate."
-    (let [refusal (requirements/requirement-refusal
+    (let [refusal (rf.story.requirements/requirement-refusal
                     #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
                     :runner-lacks-capability :headless)
           tape    [(epoch {:trace-events
                            [{:operation :rf.error/schema-validation-failure
                              :tags {:where :event :failing-id :checkout/submit}}]})]
-          r       (result/run-result
+          r       (rf.story.result/run-result
                     {:epoch-tape  tape
                      :assertions  [{:assertion :rf.assert/path-equals :passed? true}]
                      :unmet       [refusal]})]
@@ -262,53 +262,53 @@
 ;; ---- floor-blind assertion fold (no false GREEN) -------------------------
 
 (deftest assertions-passing?-consults-the-run-verdict
-  (testing "the public cljs.test-adapter predicate `assertions/passing?`
+  (testing "the public cljs.test-adapter predicate `rf.story.assertions/passing?`
             (also `story/assertions-passing?`) reads the run VERDICT
             (`:status`) for a RESULT MAP — NOT a fold over `:assertions` —
             so a floor-escalated `:fail` or a run-level `:cannot-run` with
             an all-green assertion set returns FALSE, agreeing with
-            `result/passed?`. Before rf2-x76af2.16 it folded only
+            `rf.story.result/passed?`. Before rf2-x76af2.16 it folded only
             `(every? :passed? (:assertions result))` and reported a false
             GREEN on both shapes."
     (testing "floor-escalated :fail (red tape + a single passing assertion)"
       (let [tape [(epoch {:trace-events
                           [{:operation :rf.error/schema-validation-failure
                             :tags {:where :event :failing-id :checkout/submit}}]})]
-            r    (result/run-result
+            r    (rf.story.result/run-result
                    {:epoch-tape tape
                     :assertions [{:assertion :rf.assert/path-equals :passed? true}]})]
         (is (= :fail (:status r)) "sanity: the agreement floor escalated to :fail")
         (is (every? :passed? (:assertions r))
             "sanity: the assertion fold alone is all-green (the false-GREEN trap)")
-        (is (false? (result/passed? r)) "the verdict authority says NOT passing")
-        (is (false? (assertions/passing? r))
-            "assertions/passing? MUST agree with the verdict — no false GREEN")))
+        (is (false? (rf.story.result/passed? r)) "the verdict authority says NOT passing")
+        (is (false? (rf.story.assertions/passing? r))
+            "rf.story.assertions/passing? MUST agree with the verdict — no false GREEN")))
     (testing "run-level :cannot-run (unmet requirement) + a passing assertion"
-      (let [refusal (requirements/requirement-refusal
+      (let [refusal (rf.story.requirements/requirement-refusal
                       #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
                       :runner-lacks-capability :headless)
-            r       (result/run-result
+            r       (rf.story.result/run-result
                       {:epoch-tape [(epoch {})]
                        :assertions [{:assertion :rf.assert/path-equals :passed? true}]
                        :unmet      [refusal]})]
         (is (= :cannot-run (:status r)) "sanity: run refused → :cannot-run")
-        (is (false? (assertions/passing? r))
-            "a :cannot-run run proved nothing — assertions/passing? is FALSE")))
+        (is (false? (rf.story.assertions/passing? r))
+            "a :cannot-run run proved nothing — rf.story.assertions/passing? is FALSE")))
     (testing "the vacuous-green duality still holds — a zero-assertion :pass"
-      (let [r (result/run-result {:assertions []})]
+      (let [r (rf.story.result/run-result {:assertions []})]
         (is (= :pass (:status r)))
-        (is (true? (assertions/passing? r))
+        (is (true? (rf.story.assertions/passing? r))
             "a zero-assertion :pass run is still green (Story-as-test duality)")))
     (testing "a genuinely-passing run with passing assertions is still green"
-      (let [r (result/run-result
+      (let [r (rf.story.result/run-result
                 {:epoch-tape [(epoch {})]
                  :assertions [{:assertion :rf.assert/path-equals :passed? true}]})]
         (is (= :pass (:status r)))
-        (is (true? (assertions/passing? r)))))
+        (is (true? (rf.story.assertions/passing? r)))))
     (testing "the bare-assertions-VECTOR arity is unchanged (the fold path)"
-      (is (true?  (assertions/passing? []))            "empty vector vacuously passes")
-      (is (true?  (assertions/passing? [{:passed? true}])))
-      (is (false? (assertions/passing? [{:passed? true} {:passed? false}]))
+      (is (true?  (rf.story.assertions/passing? []))            "empty vector vacuously passes")
+      (is (true?  (rf.story.assertions/passing? [{:passed? true}])))
+      (is (false? (rf.story.assertions/passing? [{:passed? true} {:passed? false}]))
           "any :passed? false in the vector fails the fold"))))
 
 ;; ===========================================================================
@@ -327,7 +327,7 @@
 (deftest match-schema-expectations-pairs-exactly
   (testing "an expected schema violation is consumed → :pass record, in the set"
     (let [tape [(schema-epoch :event :checkout/submit)]
-          m    (result/match-schema-expectations
+          m    (rf.story.result/match-schema-expectations
                  [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]
                  tape)]
       (is (= 1 (count (:records m))))
@@ -338,7 +338,7 @@
 
   (testing "a MISSING expected violation → :fail record (the expected violation
             never happened — §Schema rule step 3)"
-    (let [m (result/match-schema-expectations
+    (let [m (rf.story.result/match-schema-expectations
               [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]
               [(epoch {})])]                          ; clean tape, no violation
       (is (= :fail (:status (first (:records m)))))
@@ -348,7 +348,7 @@
   (testing "a DIFFERENT violation than expected → expectation unmatched (:fail)
             AND the emitted violation is left unconsumed (§Schema rule)"
     (let [tape [(schema-epoch :event :other/event)]
-          m    (result/match-schema-expectations
+          m    (rf.story.result/match-schema-expectations
                  [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]
                  tape)]
       (is (= :fail (:status (first (:records m)))) "expected violation never emitted")
@@ -357,14 +357,14 @@
       (is (empty? (:consumed-selectors m)))))
 
   (testing "an UNEXPECTED violation (no expectation declared) is left unconsumed"
-    (let [m (result/match-schema-expectations [] [(schema-epoch :cofx :load/session)])]
+    (let [m (rf.story.result/match-schema-expectations [] [(schema-epoch :cofx :load/session)])]
       (is (empty? (:records m)))
       (is (= 1 (count (:unconsumed m))))
       (is (empty? (:consumed-selectors m)))))
 
   (testing "N expectations of one selector consume N violations (multiset)"
     (let [tape [(schema-epoch :event :x) (schema-epoch :event :x)]
-          m    (result/match-schema-expectations
+          m    (rf.story.result/match-schema-expectations
                  [[:rf.assert/schema-error {:where :event :event :x}]
                   [:rf.assert/schema-error {:where :event :event :x}]]
                  tape)]
@@ -374,14 +374,14 @@
     (testing "one expectation against two same-selector violations leaves one
               unconsumed (multiset, not set)"
       (let [tape [(schema-epoch :event :x) (schema-epoch :event :x)]
-            m    (result/match-schema-expectations
+            m    (rf.story.result/match-schema-expectations
                    [[:rf.assert/schema-error {:where :event :event :x}]]
                    tape)]
         (is (= 1 (count (filter #(= :pass (:status %)) (:records m)))))
         (is (= 1 (count (:unconsumed m))) "the second violation is unconsumed"))))
 
   (testing "a bare [:rf.assert/schema-error] wildcard consumes any one violation"
-    (let [m (result/match-schema-expectations
+    (let [m (rf.story.result/match-schema-expectations
               [[:rf.assert/schema-error]]
               [(schema-epoch :app-db :db {:registered-path [:k] :path [:k]})])]
       (is (= :pass (:status (first (:records m)))))
@@ -391,7 +391,7 @@
   (testing "a concrete expectation is paired before a wildcard, so the wildcard
             does not starve the concrete match"
     (let [tape [(schema-epoch :cofx :a) (schema-epoch :event :b)]
-          m    (result/match-schema-expectations
+          m    (rf.story.result/match-schema-expectations
                  [[:rf.assert/schema-error]                              ; wildcard
                   [:rf.assert/schema-error {:where :event :event :b}]]   ; concrete
                  tape)]
@@ -401,7 +401,7 @@
 
 (deftest run-result-schema-expectations-wiring
   (testing "an EXPECTED schema violation passes the run (exactly consumed)"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:epoch-tape [(schema-epoch :event :checkout/submit)]
                :schema-expectations
                [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})]
@@ -413,12 +413,12 @@
           "rf2-uyebc — the consumed selector set is SURFACED on the result")))
 
   (testing "an UNEXPECTED schema violation FAILS the run (no expectation)"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:epoch-tape [(schema-epoch :event :checkout/submit)]})]
       (is (= :fail (:status r)) "the floor fails the run on the unconsumed violation")))
 
   (testing "a MISSING expected violation FAILS the run (the :fail record)"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:epoch-tape [(epoch {})]
                :schema-expectations
                [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})]
@@ -428,7 +428,7 @@
 
   (testing "a DIFFERENT violation than expected STILL FAILS (both: missing
             expected → :fail record AND the emitted one is unconsumed → floor)"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:epoch-tape [(schema-epoch :event :other/event)]
                :schema-expectations
                [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})]
@@ -441,7 +441,7 @@
     ;; violations + 1× [:rf.assert/schema-error {:where :event :event :x}]
     ;; expectation. The set-keyed floor dropped BOTH violations (selector held
     ;; once) and reported :pass; the multiset floor leaves the 2nd unconsumed.
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:epoch-tape [(schema-epoch :event :x) (schema-epoch :event :x)]
                :schema-expectations
                [[:rf.assert/schema-error {:where :event :event :x}]]})]
@@ -456,7 +456,7 @@
 
   (testing "rf2-5mrnwx — TWO same-selector violations FULLY consumed by TWO
             expectations PASSES (multiset balance: N expectations, N violations)"
-    (let [r (result/run-result
+    (let [r (rf.story.result/run-result
               {:epoch-tape [(schema-epoch :event :x) (schema-epoch :event :x)]
                :schema-expectations
                [[:rf.assert/schema-error {:where :event :event :x}]
@@ -473,7 +473,7 @@
                           :tags {:where :event :failing-id :checkout/submit
                                  :rollback? true}}]})]
           ;; no expectation declared → the retained violation fails the run
-          r    (result/run-result {:epoch-tape tape :app-db {:clean true}})]
+          r    (rf.story.result/run-result {:epoch-tape tape :app-db {:clean true}})]
       (is (= :fail (:status r)) "rollback to a clean db does NOT hide the tape violation")
       (is (= 1 (count (:schema-violations r)))))))
 
@@ -482,13 +482,13 @@
   ;; set anyway; it now SURFACES that value as `:consumed-selectors` so Test
   ;; mode reads the single source of truth rather than re-deriving it.
   (testing "always present — an empty `#{}` when nothing was consumed"
-    (let [r (result/run-result {:epoch-tape [(epoch {})]})]
+    (let [r (rf.story.result/run-result {:epoch-tape [(epoch {})]})]
       (is (contains? r :consumed-selectors) "the slot is always assoc'd")
       (is (= #{} (:consumed-selectors r)) "empty when no violations consumed")))
   (testing "an explicit `:consumed-selectors` input is unioned with the
             schema-expectation consumption and surfaced verbatim"
     (let [extra [:cofx :pre-computed]
-          r     (result/run-result
+          r     (rf.story.result/run-result
                   {:epoch-tape [(schema-epoch :event :checkout/submit)]
                    :schema-expectations
                    [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]
@@ -502,19 +502,19 @@
 ;;
 ;; The matcher reads the SAME reactive evidence the tape already carries —
 ;; the `:rf.sub/run` / `:rf.view/rendered` rows stamped with the dispatching
-;; cascade's `:cause-event-id` (rf2-5x1wt.30 `evidence/reactive-counts`). A
+;; cascade's `:cause-event-id` (rf2-5x1wt.30 `rf.story.play.evidence/reactive-counts`). A
 ;; reactive epoch is one whose sub-runs / renders carry `:cause-event-id`.
 ;;
 ;; rf2-9gquv — these epochs are PROJECTION-DERIVED, not hand-stamped. The
 ;; prior `reactive-epoch` synthesised `{:render-key [view-id 0]
 ;; :cause-event-id cause}` render rows directly — a shape the REAL
-;; `capture/render-row` projection never produced, because `render-row`
+;; `rf.epoch.capture/render-row` projection never produced, because `render-row`
 ;; dropped `:rf.view/cause-event-id` off the trace event. That synthetic
 ;; tape masked a false-GREEN: the projection emitted render rows with NO
 ;; `:cause-event-id`, so the `:view` causal surface silently measured 0 and
 ;; `:rf.assert/no-cascade-rerender {:view v}` could never catch an
-;; over-render. We now drive the rows through `capture/render-row` /
-;; `capture/sub-run-row` over real `:rf.view/rendered` / `:rf.sub/run` trace
+;; over-render. We now drive the rows through `rf.epoch.capture/render-row` /
+;; `rf.epoch.capture/sub-run-row` over real `:rf.view/rendered` / `:rf.sub/run` trace
 ;; events, so the tape carries `:cause-event-id` ONLY because the projection
 ;; threads it. Pre-fix (projection not threading) these epochs carry no
 ;; render-row `:cause-event-id` and the `:view` assertions fail; post-fix
@@ -543,8 +543,8 @@
   "An epoch carrying reactive rows attributed to `cause` — `n-subs` sub
   recomputes of `sub-id` and `n-renders` renders of `view-id`.
 
-  rf2-9gquv: the rows are PROJECTION-DERIVED via `capture/sub-run-row` /
-  `capture/render-row` over real trace events, NOT hand-stamped. The
+  rf2-9gquv: the rows are PROJECTION-DERIVED via `rf.epoch.capture/sub-run-row` /
+  `rf.epoch.capture/render-row` over real trace events, NOT hand-stamped. The
   `:cause-event-id` slot rides each row only because the projection threads
   it — so these epochs exercise the genuine production shape."
   [cause sub-id n-subs view-id n-renders]
@@ -555,15 +555,15 @@
           ;; fixture stamps it to mirror production.
           :event-id      cause
           :trigger-event [cause]
-          :sub-runs (mapv (fn [_] (capture/sub-run-row (sub-run-trace-event sub-id cause)))
+          :sub-runs (mapv (fn [_] (rf.epoch.capture/sub-run-row (sub-run-trace-event sub-id cause)))
                           (range n-subs))
-          :renders  (mapv (fn [_] (capture/render-row (rendered-trace-event view-id cause)))
+          :renders  (mapv (fn [_] (rf.epoch.capture/render-row (rendered-trace-event view-id cause)))
                           (range n-renders))}))
 
 (deftest causal-caused-passes-when-the-cause-produced-the-effect
   (testing ":rf.assert/caused {:event e} passes when e caused >= 1 reactive effect"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations [[:rf.assert/caused {:event :counter/inc}]]})
           rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
@@ -573,7 +573,7 @@
 
   (testing ":rf.assert/caused {:event e :sub s} measures the named sub only"
     (let [tape [(reactive-epoch :counter/inc :total 3 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations [[:rf.assert/caused {:event :counter/inc :sub :total}]]})
           rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
@@ -582,7 +582,7 @@
 
   (testing ":rf.assert/caused {:event e :view v} measures the named view only"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 2)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations [[:rf.assert/caused {:event :counter/inc :view :counter}]]})
           rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
@@ -592,7 +592,7 @@
 (deftest causal-caused-fails-when-the-cause-did-not-produce-the-effect
   (testing ":rf.assert/caused for an event that caused no reactive effect FAILS"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations [[:rf.assert/caused {:event :other/event}]]})
           rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
@@ -602,7 +602,7 @@
 
   (testing "a degenerate :rf.assert/caused (no :event) FAILS readably"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations [[:rf.assert/caused {}]]})
           rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
@@ -622,7 +622,7 @@
     ;; unrelated :sidebar view → n = 0 within [0,0] → the premise held and
     ;; the guard was honoured.
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :sidebar}]]})
@@ -635,7 +635,7 @@
 
   (testing ":rf.assert/no-cascade-rerender FAILS when the event over-rendered"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 3)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter}]]})
@@ -647,7 +647,7 @@
 
   (testing "an explicit :max bound on :no-cascade-rerender admits N renders"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 2)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter :max 2}]]})
@@ -659,7 +659,7 @@
 ;;
 ;; These tests guard the false-green directly at the projection boundary —
 ;; the layer the prior synthetic `reactive-epoch` masked. They drive a REAL
-;; `:rf.view/rendered` trace event through `capture/render-row` and assert
+;; `:rf.view/rendered` trace event through `rf.epoch.capture/render-row` and assert
 ;; the `:view` causal surface reads the cause-attributed render. Pre-fix
 ;; (render-row dropping `:rf.view/cause-event-id`) the row carries no
 ;; `:cause-event-id`, so `causal-count` / `reactive-counts` :by-cause credit
@@ -668,16 +668,16 @@
 ;; green). Post-fix the row carries it and both judge correctly.
 
 (deftest render-row-projection-carries-cause-event-id
-  (testing "capture/render-row threads :rf.view/cause-event-id off the
+  (testing "rf.epoch.capture/render-row threads :rf.view/cause-event-id off the
             :rf.view/rendered trace event (mirroring the sub-row, rf2-9gquv)"
-    (let [row (capture/render-row (rendered-trace-event :counter :counter/inc))]
+    (let [row (rf.epoch.capture/render-row (rendered-trace-event :counter :counter/inc))]
       (is (= :counter/inc (:cause-event-id row))
           "the render row MUST carry the cause-event-id the trace event stamped")
       (is (= [:counter 0] (:render-key row)))))
 
   (testing "a render with NO cause tag (mount / structural) omits the slot —
             OMITTED-vs-nil parity with the sub-row"
-    (let [row (capture/render-row {:operation :rf.view/rendered
+    (let [row (rf.epoch.capture/render-row {:operation :rf.view/rendered
                                    :tags {:rf.view/render-key [:counter 0]
                                           :rf.view/id :counter}})]
       (is (not (contains? row :cause-event-id))
@@ -691,7 +691,7 @@
     ;; the default [0 0] bound → silent PASS (the false green). Post-fix the
     ;; rows carry the cause → measured 3 > 0 → the over-render FAILS as it must.
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 3)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter}]]})
@@ -703,7 +703,7 @@
 
   (testing "a genuine cause IS credited to the view by :rf.assert/caused {:view}"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 2)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/caused {:event :counter/inc :view :counter}]]})
@@ -713,7 +713,7 @@
 
   (testing "the :by-cause evidence credits view-renders to the cause (not nil)"
     (let [tape    [(reactive-epoch :counter/inc :total 1 :counter 2)]
-          rc      (evidence/reactive-counts tape)
+          rc      (rf.story.play.evidence/reactive-counts tape)
           credited (get (:by-cause rc) :counter/inc)]
       (is (= 2 (:view-renders credited))
           "the projected render rows key on :counter/inc, not nil")
@@ -724,7 +724,7 @@
             :cannot-run (fail closed — never a silent pass)"
     ;; A bare dispatch-only tape carries no :reactive-counts slot.
     (let [tape [(epoch {:effects [{:fx-id :db :outcome :ok}]})]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations [[:rf.assert/caused {:event :counter/inc}]]})
           rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
@@ -738,7 +738,7 @@
     ;; A reactive tape with no schema/effect failure + NO causal expectation
     ;; is a clean :pass, even with many renders.
     (let [tape [(reactive-epoch :counter/inc :total 5 :counter 9)]
-          r    (result/run-result {:epoch-tape tape})]
+          r    (rf.story.result/run-result {:epoch-tape tape})]
       (is (= :pass (:status r)) "renders alone are not a tape failure"))))
 
 ;; ===========================================================================
@@ -772,7 +772,7 @@
     ;; rather than refusing on the reactive-slot check — but :search/run is
     ;; NOT in the tape, so its premise is unmet.
     (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:variant/id :story.search/box
                   :epoch-tape tape
                   :causal-expectations
@@ -792,9 +792,9 @@
       (is (= {:cannot-run 1} (frequencies (map :status (:assertions r))))
           "summary buckets: total 1, cannot-run 1, passed 0, failed 0")
       ;; --- the frozen RunResult contract still validates ---
-      (is (result/valid-run-result? r))
+      (is (rf.story.result/valid-run-result? r))
       ;; --- result->reports emits a host :fail (the cannot-run bridge) ---
-      (is (some #(= :fail (:type %)) (result/result->reports r))
+      (is (some #(= :fail (:type %)) (rf.story.result/result->reports r))
           "a :cannot-run assertion reports a host :fail, never a silent pass"))))
 
 (deftest no-cascade-observed-cause-zero-renders-passes
@@ -804,7 +804,7 @@
     ;; (:other/event) supplies the reactive evidence the run needs.
     (let [tape [(cause-epoch :search/run)
                 (reactive-epoch :other/event :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
@@ -818,7 +818,7 @@
             similarly-named event does not count"
     (let [tape [(cause-epoch :search/run-all)      ; NOT :search/run
                 (reactive-epoch :other/event :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
@@ -834,7 +834,7 @@
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)
                 (reactive-epoch :counter/inc :total 1 :counter 1)
                 (reactive-epoch :counter/inc :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter}]]})
@@ -851,7 +851,7 @@
                         :trigger-event        [:login/submit "hunter2"]
                         :rf.epoch/sensitive?  true})
                 (reactive-epoch :other/event :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :login/submit :view :dashboard}]]})
@@ -872,13 +872,13 @@
           ;; (record-result-map keeps only records newer than the baseline).
           prior   [(cause-epoch :search/run)]
           rec-current  (no-cascade-rec
-                         (result/run-result {:epoch-tape current
+                         (rf.story.result/run-result {:epoch-tape current
                                              :causal-expectations [decl]}))
           ;; Had the prior record been (wrongly) included, the premise WOULD
           ;; be met — proving the isolation boundary IS the slice, not the
           ;; matcher silently reaching back.
           rec-combined (no-cascade-rec
-                         (result/run-result {:epoch-tape (into prior current)
+                         (rf.story.result/run-result {:epoch-tape (into prior current)
                                              :causal-expectations [decl]}))]
       (is (= 0 (get-in rec-current [:actual :observed-cause-count])))
       (is (= :cannot-run (:status rec-current))
@@ -890,7 +890,7 @@
   (testing "{:require-cause? false} lets an unobserved cause pass vacuously
             under [0,0], with a reason stating the vacuity was explicit"
     (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]  ; reactive, no :maybe/fires
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender
@@ -902,7 +902,7 @@
 
   (testing ":min 0 does NOT double as an implicit opt-out (still :cannot-run)"
     (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/no-cascade-rerender {:event :maybe/fires :min 0}]]})
@@ -919,7 +919,7 @@
     ;; tape', never a claim the cause never fired NOR a silent green.
     (let [retained [(reactive-epoch :other/event :total 1 :counter 1)
                     (reactive-epoch :nav/go      :total 1 :counter 1)]
-          r        (result/run-result
+          r        (rf.story.result/run-result
                      {:epoch-tape retained
                       :causal-expectations
                       [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
@@ -933,7 +933,7 @@
             its positive-claim verdict is UNCHANGED (n=0 with reactive
             evidence still :fail, never :cannot-run)"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations
                   [[:rf.assert/caused {:event :counter/inc :view :sidebar}]]})
@@ -948,7 +948,7 @@
   (testing ":caused never gates on an unobserved cause — a cause absent from a
             reactive tape is :fail (n=0 < min 1), never :cannot-run"
     (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]
-          r    (result/run-result
+          r    (rf.story.result/run-result
                  {:epoch-tape tape
                   :causal-expectations [[:rf.assert/caused {:event :counter/inc}]]})
           rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
@@ -968,7 +968,7 @@
 ;; A min-only expectation is UNAFFECTED (lost effects only lower the count, so
 ;; an in-bounds min-only pass stays honest). These tests drive the PURE
 ;; result assembly directly with `:epoch-truncated?` — the runtime computes
-;; the flag from the real ring (`evidence/run-tape-truncated?`, unit-tested in
+;; the flag from the real ring (`rf.story.play.evidence/run-tape-truncated?`, unit-tested in
 ;; evidence_test).
 
 (deftest no-cascade-truncation-in-bounds-is-cannot-run
@@ -983,10 +983,10 @@
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
           decl [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :results}]]
           ;; fully-retained window (control): the existing bounds :pass stands.
-          r-complete  (result/run-result
+          r-complete  (rf.story.result/run-result
                         {:epoch-tape tape :causal-expectations decl})
           ;; truncated window (teeth): the same in-bounds count → :cannot-run.
-          r-truncated (result/run-result
+          r-truncated (rf.story.result/run-result
                         {:variant/id :story.counter/badge
                          :epoch-tape tape :causal-expectations decl
                          :epoch-truncated? true})
@@ -1009,8 +1009,8 @@
           "distinct from the unobserved-cause reason (the cause here was observed)")
       ;; --- run aggregation + frozen contract + host bridge ---
       (is (= :cannot-run (:status r-truncated)) "the run aggregates to :cannot-run")
-      (is (result/valid-run-result? r-truncated))
-      (is (some #(= :fail (:type %)) (result/result->reports r-truncated))
+      (is (rf.story.result/valid-run-result? r-truncated))
+      (is (some #(= :fail (:type %)) (rf.story.result/result->reports r-truncated))
           "a :cannot-run assertion reports a host :fail, never a silent pass"))))
 
 (deftest caused-explicit-max-truncation-is-cannot-run
@@ -1019,8 +1019,8 @@
     (let [tape [(reactive-epoch :counter/inc :total 0 :badge 2)]   ; 2 :badge renders
           decl [[:rf.assert/caused {:event :counter/inc :view :badge :max 3}]]
           rec  (fn [r] (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r))))
-          r-complete  (rec (result/run-result {:epoch-tape tape :causal-expectations decl}))
-          r-truncated (rec (result/run-result
+          r-complete  (rec (rf.story.result/run-result {:epoch-tape tape :causal-expectations decl}))
+          r-truncated (rec (rf.story.result/run-result
                              {:epoch-tape tape :causal-expectations decl
                               :epoch-truncated? true}))]
       (is (= :pass (:status r-complete)) "n=2 ∈ [1,3] passes on a complete tape")
@@ -1035,7 +1035,7 @@
     (let [tape [(reactive-epoch :counter/inc :total 3 :counter 0)]  ; 3 :total recomputes
           decl [[:rf.assert/caused {:event :counter/inc :sub :total}]]
           rec  (fn [r] (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r))))
-          r-truncated (rec (result/run-result
+          r-truncated (rec (rf.story.result/run-result
                              {:epoch-tape tape :causal-expectations decl
                               :epoch-truncated? true}))]
       (is (= :pass (:status r-truncated))
@@ -1049,7 +1049,7 @@
     (let [tape [(reactive-epoch :counter/inc :total 0 :results 3)]  ; 3 :results renders
           decl [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :results}]]
           rec  (no-cascade-rec
-                 (result/run-result {:epoch-tape tape :causal-expectations decl
+                 (rf.story.result/run-result {:epoch-tape tape :causal-expectations decl
                                      :epoch-truncated? true}))]
       (is (= :fail (:status rec))
           "n=3 > [0,0] is a genuine over-render — truncation does not convert it to :cannot-run")
@@ -1066,8 +1066,8 @@
                          {:op-type :warn :operation :rf.warning/x :tags {:category :perf}}]
                         :effects [{:fx-id :http :outcome :ok}]
                         :renders [{:view :v}]})]
-          r        (result/run-result {:epoch-tape tape})
-          expected (evidence/project-evidence tape nil)]
+          r        (rf.story.result/run-result {:epoch-tape tape})
+          expected (rf.story.play.evidence/project-evidence tape nil)]
       (is (= (:schema-violations expected) (:schema-violations r)))
       (is (= (:warnings expected)          (:warnings r)))
       (is (= (:effects expected)           (:effects r)))
@@ -1077,8 +1077,8 @@
 
 (deftest zero-assertion-clean-run-is-vacuously-green
   (testing "a run with no assertions + a clean tape is :pass (the duality)"
-    (is (= :pass (:status (result/run-result {:epoch-tape [(epoch {})]}))))
-    (is (= :pass (:status (result/run-result {}))))))
+    (is (= :pass (:status (rf.story.result/run-result {:epoch-tape [(epoch {})]}))))
+    (is (= :pass (:status (rf.story.result/run-result {}))))))
 
 ;; ===========================================================================
 ;; clojure.test / cljs.test BRIDGE PROJECTION — story/is reports per assertion
@@ -1086,12 +1086,12 @@
 
 (deftest result->reports-one-per-assertion
   (testing "story/is emits one report per assertion record (§B5)"
-    (let [r       (result/run-result
+    (let [r       (rf.story.result/run-result
                     {:assertions [{:assertion :rf.assert/path-equals :payload [[:a] 1]
                                    :passed? true}
                                   {:assertion :rf.assert/path-equals :payload [[:b] 2]
                                    :passed? false :expected 2 :actual 3}]})
-          reports (result/result->reports r)]
+          reports (rf.story.result/result->reports r)]
       (is (= 2 (count reports)) "one report per assertion")
       (is (= :pass (:type (first reports))))
       (is (= :fail (:type (second reports))))
@@ -1101,11 +1101,11 @@
 (deftest result->reports-cannot-run-reports-fail
   (testing "a :cannot-run assertion reports :fail (the runner proved nothing —
             never a silent pass)"
-    (let [r       (result/run-result
+    (let [r       (rf.story.result/run-result
                     {:assertions [{:assertion :rf.assert/visual-snapshot
                                    :status :cannot-run :passed? false
                                    :reason "needs :browser"}]})
-          reports (result/result->reports r)]
+          reports (rf.story.result/result->reports r)]
       (is (= :fail (:type (first reports))))
       (is (re-find #":cannot-run" (:message (first reports)))))))
 
@@ -1116,13 +1116,13 @@
             :assertions, so gating the run-level report on
             (empty? assertions) let the passing assertion's report stand
             alone and mask the refusal"
-    (let [refusal (requirements/requirement-refusal
+    (let [refusal (rf.story.requirements/requirement-refusal
                     #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
                     :runner-lacks-capability :headless)
-          r       (result/run-result
+          r       (rf.story.result/run-result
                     {:assertions [{:assertion :rf.assert/path-equals :passed? true}]
                      :unmet      [refusal]})
-          reports (result/result->reports r)]
+          reports (rf.story.result/result->reports r)]
       (is (= :cannot-run (:status r)) "the run verdict is :cannot-run")
       (is (= 2 (count reports))
           "one per-assertion pass + one run-level :cannot-run — not just the pass")
@@ -1134,7 +1134,7 @@
 (deftest result->reports-zero-assertion-pass-emits-one-pass
   (testing "a vacuous-green run emits ONE run-level pass so the test sees a
             positive signal"
-    (let [reports (result/result->reports (result/run-result {}))]
+    (let [reports (rf.story.result/result->reports (rf.story.result/run-result {}))]
       (is (= 1 (count reports)))
       (is (= :pass (:type (first reports)))))))
 
@@ -1144,10 +1144,10 @@
     (let [tape [(epoch {:trace-events
                         [{:operation :rf.error/schema-validation-failure
                           :tags {:where :event :failing-id :x}}]})]
-          r       (result/run-result
+          r       (rf.story.result/run-result
                     {:epoch-tape tape
                      :assertions [{:assertion :rf.assert/path-equals :passed? true}]})
-          reports (result/result->reports r)]
+          reports (rf.story.result/result->reports r)]
       (is (= :fail (:status r)))
       ;; one per-assertion pass + one run-level floor fail
       (is (= 2 (count reports)))
@@ -1163,7 +1163,7 @@
             tallied zero → the MOST SEVERE verdict a run can carry read GREEN.
             This is the public-projection path story/is drives for an
             already-resolved result (story.cljc sync branch)."
-    (let [reports (result/result->reports {:status :error :assertions []})]
+    (let [reports (rf.story.result/result->reports {:status :error :assertions []})]
       (is (seq reports)
           "an :error run must NOT project to zero reports (that reads green)")
       (is (= 1 (count reports)) "exactly one run-level error report")
@@ -1181,7 +1181,7 @@
                    :assertions [{:assertion :rf.assert/path-equals
                                  :status :error :passed? false
                                  :reason "handler threw"}]}
-          reports (result/result->reports r)
+          reports (rf.story.result/result->reports r)
           errors  (filterv #(= :error (:type %)) reports)]
       (is (= 1 (count reports))
           "no extra run-level report appended when an assertion carries the error")
@@ -1191,11 +1191,11 @@
           "the single report is the assertion's :error projection"))))
 
 (deftest passed?-only-pass
-  (testing "result/passed? is true ONLY for :pass — :cannot-run is not a pass"
-    (is (true?  (result/passed? {:status :pass})))
-    (is (false? (result/passed? {:status :fail})))
-    (is (false? (result/passed? {:status :cannot-run})))
-    (is (false? (result/passed? {:status :error})))))
+  (testing "rf.story.result/passed? is true ONLY for :pass — :cannot-run is not a pass"
+    (is (true?  (rf.story.result/passed? {:status :pass})))
+    (is (false? (rf.story.result/passed? {:status :fail})))
+    (is (false? (rf.story.result/passed? {:status :cannot-run})))
+    (is (false? (rf.story.result/passed? {:status :error})))))
 
 ;; ===========================================================================
 ;; THE FROZEN SCHEMA-BACKED CONTRACT  (rf2-3nbl5.6)
@@ -1214,28 +1214,28 @@
                    {:epoch-tape [(epoch {:trace-events
                                          [{:operation :rf.error/schema-validation-failure
                                            :tags {:where :event :failing-id :x}}]})]}]]
-      (let [r (result/run-result parts)]
-        (is (result/valid-run-result? r)
-            (str "assembled result must conform: " (pr-str (result/explain-run-result r))))))))
+      (let [r (rf.story.result/run-result parts)]
+        (is (rf.story.result/valid-run-result? r)
+            (str "assembled result must conform: " (pr-str (rf.story.result/explain-run-result r))))))))
 
 (deftest run-result-schema-pins-the-verdict-and-rejects-passing
   (testing ":status is required and must be one of the four verdicts"
-    (is (result/valid-run-result? {:status :pass :assertions [] :checks [] :consumed-selectors #{}}))
-    (is (not (result/valid-run-result? {:status :green :assertions [] :checks [] :consumed-selectors #{}}))
+    (is (rf.story.result/valid-run-result? {:status :pass :assertions [] :checks [] :consumed-selectors #{}}))
+    (is (not (rf.story.result/valid-run-result? {:status :green :assertions [] :checks [] :consumed-selectors #{}}))
         "an unknown verdict is rejected")
-    (is (not (result/valid-run-result? {:assertions [] :checks [] :consumed-selectors #{}}))
+    (is (not (rf.story.result/valid-run-result? {:assertions [] :checks [] :consumed-selectors #{}}))
         ":status is required — there is no verdict-less result"))
   (testing "the load-bearing slots are required"
-    (is (not (result/valid-run-result? {:status :pass}))
+    (is (not (rf.story.result/valid-run-result? {:status :pass}))
         ":assertions / :checks / :consumed-selectors are part of the contract")))
 
 (deftest assertion-and-check-records-carry-the-frozen-status
   (testing "assertion records validate with a unified :status"
-    (is (m/validate result/AssertionRecord
+    (is (m/validate rf.story.result/AssertionRecord
                     {:assertion :rf.assert/path-equals :status :fail :passed? false}))
-    (is (not (m/validate result/AssertionRecord
+    (is (not (m/validate rf.story.result/AssertionRecord
                          {:assertion :rf.assert/path-equals :passed? false}))
         ":status is the verdict — an assertion record without it does not conform"))
   (testing "check records group assertion records under a :status"
-    (is (m/validate result/CheckRecord
+    (is (m/validate rf.story.result/CheckRecord
                     {:check :checks/cart :status :pass :assertions []}))))

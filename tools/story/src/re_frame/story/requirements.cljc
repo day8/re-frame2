@@ -89,7 +89,7 @@
   on their own facts — NOT one shared map. The axes are legitimately
   distinct, so this ns names its own refusal rather than borrowing the
   boundary one."
-  (:require [re-frame.story.play.evidence :as evidence]))
+  (:require [re-frame.story.play.evidence :as rf.story.play.evidence]))
 
 ;; ===========================================================================
 ;; CAPABILITY TOKENS  (spec/017 §Runner kinds and capabilities)
@@ -311,7 +311,7 @@
    ;; browser checks — \"structural a11y checks MAY require only `:hiccup`\").
    :rf.assert/a11y-structural      #{:hiccup-structure}
    ;; Reactive-count assertions require `:reactive-counts` — proven by the
-   ;; `:cljs-reactive` runner via the `evidence/reactive-counts` projection
+   ;; `:cljs-reactive` runner via the `rf.story.play.evidence/reactive-counts` projection
    ;; (spec/017 §1a). Under `:headless` / `:hiccup` they resolve to
    ;; `:cannot-run`; `:auto` escalates to `:cljs-reactive`.
    :rf.assert/caused               #{:reactive-counts}
@@ -561,14 +561,14 @@
 ;; Preflight (above) confirms the chosen runner CLAIMS the tokens. Post-run
 ;; validation confirms the tape actually PRODUCED the evidence: a
 ;; step/assertion that REQUIRED a proof FAILS CLOSED if the projected
-;; evidence (`evidence/project-evidence`) does not carry the matching slot.
+;; evidence (`rf.story.play.evidence/project-evidence`) does not carry the matching slot.
 ;; This is the second half of the spec's two-sided fail-closed rule — a
 ;; runner that claims `:effects` but emits a tape with no effect rows for an
 ;; `:rf.assert/effect-emitted` expectation must NOT silently pass.
 
 (def token->evidence-slots
   "Map each capability token to the run-evidence SLOT(S) whose PRESENCE in
-  the projected evidence (`evidence/project-evidence`) proves the token was
+  the projected evidence (`rf.story.play.evidence/project-evidence`) proves the token was
   actually exercised. A token with NO slot needs no post-run check — its
   proof is the assertion's own evaluation, not a distinct stream the runner
   could fail to produce.
@@ -598,7 +598,7 @@
   for healthy runs:
 
   - `:trace` — the trace-event stream is always-on for any run; the only
-    projections `evidence/project-evidence` exposes (`:warnings`,
+    projections `rf.story.play.evidence/project-evidence` exposes (`:warnings`,
     `:schema-violations`) are FILTERED views, not a faithful presence slot
     for the whole stream. `:rf.assert/no-warnings` PASSES precisely when
     `:warnings` is EMPTY, and `:rf.assert/dispatched?` proves against trace
@@ -625,7 +625,7 @@
 
 (defn evidence-slot-satisfied?
   "True iff EVERY evidence slot the `required-tokens` demand is POPULATED in
-  the projected `evidence` map (`evidence/project-evidence` output). Pure
+  the projected `evidence` map (`rf.story.play.evidence/project-evidence` output). Pure
   data → data. A token with no entry in `token->evidence-slots` (e.g.
   `:app-db`, `:trace`, `:hiccup-structure` — the always-on / empty-is-healthy
   tokens, see that map's docstring) imposes no slot requirement: its proof is
@@ -649,13 +649,13 @@
   CLOSED if the tape/result did not contain it\"). Pure data → data.
 
   `assertion` is the assertion atom; `evidence` is the projected run
-  evidence (`evidence/project-evidence`); `runner` is the runner kind that
+  evidence (`rf.story.play.evidence/project-evidence`); `runner` is the runner kind that
   ran. Returns nil when the required evidence is present (the assertion's
   own pass/fail then stands), or a `requirement-refusal` (`:reason
   :required-evidence-missing`) when a required proof slot is empty — so a
   missing required evidence slot reports `:cannot-run`, NEVER a pass.
 
-  This consumes `.4`'s projection (`evidence/project-evidence`) as the
+  This consumes `.4`'s projection (`rf.story.play.evidence/project-evidence`) as the
   single source of truth: the proof check reads the SAME tape projection
   the run-result slots derive from, so a duplicate accumulator cannot
   report green when the tape is empty."

@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.command-palette
   "Pure helpers for Story's global command palette."
   (:require [clojure.string :as str]
-            [re-frame.story.predicates :as pred]))
+            [re-frame.story.predicates :as rf.story.predicates]))
 
 (def searchable-kinds
   [:command :story :variant :workspace :mode :decorator])
@@ -67,7 +67,7 @@
 (defn- variants-for-story [variants story-id]
   (->> variants
        keys
-       (filter #(= story-id (pred/parent-story-id %)))
+       (filter #(= story-id (rf.story.predicates/parent-story-id %)))
        sort
        vec))
 

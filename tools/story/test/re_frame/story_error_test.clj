@@ -11,9 +11,9 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story.error :as story-error]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story.error :as rf.story.error]))
 
 ;; ---- fixture ---------------------------------------------------------------
 ;;
@@ -25,10 +25,10 @@
 ;; plain-atom adapter and clean frame state around each test.
 (use-fixtures :each
   (fn [test-fn]
-    (reset! frame/frames {})
-    (try (rf/init! plain-atom/adapter)
+    (reset! rf.frame/frames {})
+    (try (rf/init! rf.substrate.plain-atom/adapter)
          (catch clojure.lang.ExceptionInfo _ nil))
-    (frame/ensure-default-frame!)
+    (rf.frame/ensure-default-frame!)
     (test-fn)))
 
 ;; ---- throwable->error-map -------------------------------------------------
@@ -36,7 +36,7 @@
 (deftest throwable->error-map-projects-the-canonical-shape
   (testing "an ExceptionInfo projects to {:message :stack :data} with every
             slot populated"
-    (let [m (story-error/throwable->error-map
+    (let [m (rf.story.error/throwable->error-map
               (ex-info "boom" {:why :test}))]
       (is (= #{:message :stack :data} (set (keys m)))
           "exactly the three canonical keys")
@@ -58,7 +58,7 @@
   (testing "a plain Throwable (no ex-data) yields :data nil WITHOUT an
             explicit instance? guard — ex-data already returns nil for a
             non-ExceptionInfo"
-    (let [m (story-error/throwable->error-map (RuntimeException. "plain"))]
+    (let [m (rf.story.error/throwable->error-map (RuntimeException. "plain"))]
       (is (= "plain" (:message m)))
       (is (nil? (:data m)))
       (is (string? (:stack m))))))
@@ -66,7 +66,7 @@
 (deftest throwable->error-map-tolerates-nil-throwable
   (testing "a nil throwable yields all-nil slots (the trace-drain path may
             carry no exception object)"
-    (let [m (story-error/throwable->error-map nil)]
+    (let [m (rf.story.error/throwable->error-map nil)]
       (is (= {:message nil :stack nil :data nil} m)))))
 
 (deftest throwable->error-map-explicit-message-override
@@ -74,15 +74,15 @@
             message (the trace-drain path threads a pre-extracted
             :exception-message)"
     (is (= "pre-extracted"
-           (:message (story-error/throwable->error-map
+           (:message (rf.story.error/throwable->error-map
                        (ex-info "original" {}) {:message "pre-extracted"}))))
     (testing "and survives even without a throwable in hand"
       (is (= "pre-extracted"
-             (:message (story-error/throwable->error-map
+             (:message (rf.story.error/throwable->error-map
                          nil {:message "pre-extracted"})))))
     (testing "a nil override falls back to the throwable's message"
       (is (= "original"
-             (:message (story-error/throwable->error-map
+             (:message (rf.story.error/throwable->error-map
                          (ex-info "original" {}) {:message nil})))))))
 
 ;; ---- exception-record -----------------------------------------------------
@@ -104,14 +104,14 @@
     (rf/make-frame {:id :story.x/v})
     (try
       (let [e (ex-info "kaboom" {:k :v})
-            r (story-error/exception-record :story.x/v :phase-2-events
+            r (rf.story.error/exception-record :story.x/v :phase-2-events
                                             [:some/event 1] e)]
         (is (= :rf.error/exception (:assertion r)))
         (is (= :story.x/v          (:variant-id r)))
         (is (= :phase-2-events     (:phase r)))
         (is (= [:some/event 1]     (:event r)))
         (is (false?                (:passed? r)))
-        (is (= (story-error/throwable->error-map e {:frame :story.x/v}) (:error r))
+        (is (= (rf.story.error/throwable->error-map e {:frame :story.x/v}) (:error r))
             "the :error slot is exactly the shared projection (same live frame)")
         (is (= "kaboom" (-> r :error :message)))
         (is (= {:k :v}  (-> r :error :data)))
@@ -122,7 +122,7 @@
 (deftest exception-record-threads-message-override
   (testing "the opts arity threads :message through to the embedded
             projection (the drain path's pre-extracted message)"
-    (let [r (story-error/exception-record :story.x/v :phase-1-loaders nil nil
+    (let [r (rf.story.error/exception-record :story.x/v :phase-1-loaders nil nil
                                           {:message "from trace"})]
       (is (= "from trace" (-> r :error :message)))
       (is (nil? (-> r :error :stack)))
@@ -140,7 +140,7 @@
                       :phase-loaders-teardown]
           error-keys (->> phases
                           (map (fn [p]
-                                 (set (keys (:error (story-error/exception-record
+                                 (set (keys (:error (rf.story.error/exception-record
                                                       :story.x/v p nil e))))))
                           set)]
       (is (= #{#{:message :stack :data}} error-keys)

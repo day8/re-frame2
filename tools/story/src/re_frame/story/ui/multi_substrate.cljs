@@ -125,12 +125,12 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.story.args :as args]
-            [re-frame.story.decorators :as decorators]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.args :as rf.story.args]
+            [re-frame.story.decorators :as rf.story.decorators]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -139,40 +139,40 @@
                 :grid-template-columns "repeat(auto-fit, minmax(280px, 1fr))"
                 :gap "12px"
                 :padding "12px"
-                :background (:bg-canvas colors/tokens)
+                :background (:bg-canvas rf.story.theme.colors/tokens)
                 :flex "1"
                 :overflow "auto"}
-   :cell       {:background (:bg-2 colors/tokens)
+   :cell       {:background (:bg-2 rf.story.theme.colors/tokens)
                 :border "1px solid #3c3c3c"
                 :border-radius "4px"
                 :display "flex"
                 :flex-direction "column"
                 :min-height "160px"
-                :color (:text-primary colors/tokens)
+                :color (:text-primary rf.story.theme.colors/tokens)
                 :font-family mono-stack
-                :font-size (:caption typography/type-scale)
+                :font-size (:caption rf.story.theme.typography/type-scale)
                 :position "relative"}
    :cell-head  {:padding "6px 10px"
-                :background (:bg-2 colors/tokens)
+                :background (:bg-2 rf.story.theme.colors/tokens)
                 :border-bottom "1px solid #444"
-                :color (:info colors/tokens)
+                :color (:info rf.story.theme.colors/tokens)
                 :font-weight "bold"
-                :font-size (:micro typography/type-scale)
+                :font-size (:micro rf.story.theme.typography/type-scale)
                 :letter-spacing "0.5px"
                 :text-transform "uppercase"
                 :border-radius "4px 4px 0 0"}
    :cell-body  {:padding "10px"
                 :flex 1}
-   :error-cell {:background (:danger-bg colors/tokens)
+   :error-cell {:background (:danger-bg rf.story.theme.colors/tokens)
                 :border "1px solid #be4040"
-                :color (:danger colors/tokens)
+                :color (:danger rf.story.theme.colors/tokens)
                 :border-radius "4px"
                 :font-family mono-stack
-                :font-size (:caption typography/type-scale)}
+                :font-size (:caption rf.story.theme.typography/type-scale)}
    :error-head {:padding "6px 10px"
                 :background "#7a2727"
                 :font-weight "bold"
-                :font-size (:micro typography/type-scale)
+                :font-size (:micro rf.story.theme.typography/type-scale)
                 :letter-spacing "0.5px"
                 :text-transform "uppercase"
                 :border-radius "4px 4px 0 0"}
@@ -232,7 +232,7 @@
   (let [resolved (rf/view view-id)]
     (if resolved
       [resolved eff-args]
-      [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"}}
+      [:div {:style {:color (:text-secondary rf.story.theme.colors/tokens) :font-style "italic"}}
        (str ":component " (pr-str view-id) " is not registered as a view")])))
 
 (defn install-reagent-substrate!
@@ -272,7 +272,7 @@
   [substrate variant-id view-id eff-args]
   (if-let [render-fn (get @substrate->render-fn substrate)]
     (render-fn variant-id view-id eff-args)
-    [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"}}
+    [:div {:style {:color (:text-secondary rf.story.theme.colors/tokens) :font-style "italic"}}
      (str "substrate :" (name substrate) " is not registered")]))
 
 ;; ---- shared decorate-and-render seam -----------------------------------
@@ -286,17 +286,17 @@
 ;; so the registered + inline paths agree too.
 
 (def ^:private decorator-error-styles
-  {:wrap   {:background (:danger-bg colors/tokens)
+  {:wrap   {:background (:danger-bg rf.story.theme.colors/tokens)
             :border "1px solid #be4040"
-            :color (:danger colors/tokens)
+            :color (:danger rf.story.theme.colors/tokens)
             :padding "8px"
             :margin-top "8px"
             :font-family mono-stack
-            :font-size (:caption typography/type-scale)
+            :font-size (:caption rf.story.theme.typography/type-scale)
             :border-radius "3px"}
    :uncoated {:margin-top "8px"
               :padding "8px"
-              :background (:bg-canvas colors/tokens)
+              :background (:bg-canvas rf.story.theme.colors/tokens)
               :border "1px dashed #555"}})
 
 (defn safe-decorated-view
@@ -311,13 +311,13 @@
   `render-variant` host hook call, so the two agree on the decorated tree."
   [view-hiccup hiccup-decorators effective-args]
   (try
-    (decorators/apply-hiccup-decorators hiccup-decorators view-hiccup effective-args)
+    (rf.story.decorators/apply-hiccup-decorators hiccup-decorators view-hiccup effective-args)
     (catch :default e
       [:div {:style (:wrap decorator-error-styles)}
        [:div "Decorator wrap threw — variant rendered without decorators."]
        [:div {:style {:margin-top "4px"}} (str (.-message e))]
        (when-let [ids (seq (keep :id hiccup-decorators))]
-         [:div {:style {:margin-top "4px" :color (:danger colors/tokens)}}
+         [:div {:style {:margin-top "4px" :color (:danger rf.story.theme.colors/tokens)}}
           (str "decorators in stack: " (str/join ", " (map pr-str ids)))])
        ;; Render the variant body itself uncoated so the user still sees
        ;; *something* — the page never blanks on a decorator failure.
@@ -339,7 +339,7 @@
   [substrate variant-id view-id eff-args decorator-refs]
   (let [view-hiccup (render-view substrate variant-id view-id eff-args)]
     (if (seq decorator-refs)
-      (let [hiccup-decorators (:hiccup (decorators/resolve-decorator-refs decorator-refs))]
+      (let [hiccup-decorators (:hiccup (rf.story.decorators/resolve-decorator-refs decorator-refs))]
         (safe-decorated-view view-hiccup hiccup-decorators eff-args))
       view-hiccup)))
 
@@ -459,14 +459,14 @@
   raw view-id under each substrate. When that work lands, resolve the
   decorator pack here and thread it into each cell's render."
   [variant-id]
-  (let [shell        @state/shell-state-atom
-        variant-body (registrar/handler-meta :variant variant-id)
-        story-id     (args/parent-story-id variant-id)
-        story-body   (when story-id (registrar/handler-meta :story story-id))
+  (let [shell        @rf.story.ui.state/shell-state-atom
+        variant-body (rf.story.registrar/handler-meta :variant variant-id)
+        story-id     (rf.story.args/parent-story-id variant-id)
+        story-body   (when story-id (rf.story.registrar/handler-meta :story story-id))
         substrates   (resolve-substrate-set variant-body story-body
                                             (or (:substrate shell) :reagent))
         view-id      (or (:component variant-body) (:component story-body))
-        eff-args     (args/resolve-args
+        eff-args     (rf.story.args/resolve-args
                        variant-id
                        {:active-modes   (:active-modes shell)
                         :cell-overrides (get-in shell [:cell-overrides variant-id])})]

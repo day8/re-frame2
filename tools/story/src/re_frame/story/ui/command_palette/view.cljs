@@ -2,14 +2,14 @@
   "Global Cmd-K / Ctrl-K command palette for the Story shell."
   (:require [clojure.string :as str]
             [reagent.core :as r]
-            [re-frame.story.config :as config]
-            [re-frame.story.save-variant :as save-variant]
-            [re-frame.story.ui.author-expectations :as author-expectations]
-            [re-frame.story.ui.command-palette :as palette]
-            [re-frame.story.ui.explain-panel :as explain-panel]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.toolbar :as toolbar]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]))
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.save-variant :as rf.story.save-variant]
+            [re-frame.story.ui.author-expectations :as rf.story.ui.author-expectations]
+            [re-frame.story.ui.command-palette :as rf.story.ui.command-palette]
+            [re-frame.story.ui.explain-panel :as rf.story.ui.explain-panel]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.toolbar :as rf.story.ui.toolbar]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]))
 
 (defn shortcut-event?
   "True when `event` is Story's global command-palette shortcut."
@@ -38,52 +38,52 @@
     (do
       (case (:action entry)
         ;; Open the Explain panel + scroll it into view.
-        :explain (explain-panel/open!)
+        :explain (rf.story.ui.explain-panel/open!)
         ;; Capture the focused variant's live canvas state
         ;; as a new variant. Same flow as the Controls-panel button
         ;; (spec/019 §3). `save-current-as-variant!` reads the live
         ;; selection from shell-state and no-ops (returns nil) when no
         ;; variant is focused, so the palette action needs no extra guard.
-        :save-current-as-variant (save-variant/save-current-as-variant!)
+        :save-current-as-variant (rf.story.save-variant/save-current-as-variant!)
         ;; Author EXPECTATIONS onto the focused story
         ;; (spec/021 §S5). Same dialog as the Controls-panel 'add
         ;; expectations…' button. Distinct from save-current-state.
         ;; `open-for-focused-variant!` reads the live selection and no-ops
         ;; when no variant is focused, so the action needs no extra guard.
-        :author-expectations (author-expectations/open-for-focused-variant!)
+        :author-expectations (rf.story.ui.author-expectations/open-for-focused-variant!)
         nil)
       true)
 
     :variant
     (do
-      (state/swap-state!
+      (rf.story.ui.state/swap-state!
         (fn [s]
           (-> s
-              (state/select-variant (:id entry))
-              (state/select-workspace nil))))
+              (rf.story.ui.state/select-variant (:id entry))
+              (rf.story.ui.state/select-workspace nil))))
       true)
 
     :workspace
     (do
-      (state/swap-state!
+      (rf.story.ui.state/swap-state!
         (fn [s]
           (-> s
-              (state/select-workspace (:id entry))
-              (state/select-variant nil))))
+              (rf.story.ui.state/select-workspace (:id entry))
+              (rf.story.ui.state/select-variant nil))))
       true)
 
     :story
     (when-let [variant-id (first (:variant-ids entry))]
-      (state/swap-state!
+      (rf.story.ui.state/swap-state!
         (fn [s]
           (-> s
-              (state/select-variant variant-id)
-              (state/select-workspace nil))))
+              (rf.story.ui.state/select-variant variant-id)
+              (rf.story.ui.state/select-workspace nil))))
       true)
 
     :mode
     (do
-      (toolbar/toggle-mode! (:id entry))
+      (rf.story.ui.toolbar/toggle-mode! (:id entry))
       true)
 
     :decorator
@@ -130,14 +130,14 @@
                  :border-radius "8px"
                  :cursor "pointer"}
    :row-active  {:background "#3a3a43"}
-   :kind        {:font-size (:caption typography/type-scale)
+   :kind        {:font-size (:caption rf.story.theme.typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.08em"
                  :color "#aeb4c0"
                  :padding-top "2px"}
-   :id          {:font-size (:body typography/type-scale)
+   :id          {:font-size (:body rf.story.theme.typography/type-scale)
                  :color "#ffffff"}
-   :doc         {:font-size (:body-tight typography/type-scale)
+   :doc         {:font-size (:body-tight rf.story.theme.typography/type-scale)
                  :color "#b8b8c0"
                  :line-height "1.35"
                  :margin-top "2px"
@@ -147,7 +147,7 @@
    :empty       {:padding "24px"
                  :text-align "center"
                  :color "#9a9aa3"
-                 :font-size (:body typography/type-scale)}})
+                 :font-size (:body rf.story.theme.typography/type-scale)}})
 
 (defn result-row [entry active? on-hover on-select]
   ^{:key [(:kind entry) (:id entry)]}
@@ -223,7 +223,7 @@
       {:display-name "rf-story-command-palette"
        :component-did-mount
        (fn [_]
-         (when config/enabled?
+         (when rf.story.config/enabled?
            (let [f (fn [event]
                      (cond
                        (shortcut-event? event)
@@ -257,12 +257,12 @@
          ;; host to keep the authoring flow's mount in its own lane.
          [:<>
           (when @open?
-            (let [results (palette/search
-                            (palette/entries (state/registry-snapshot))
+            (let [results (rf.story.ui.command-palette/search
+                            (rf.story.ui.command-palette/entries (rf.story.ui.state/registry-snapshot))
                             @query
                             30)
                   result-count (count results)
-                  active (palette/clamp-active-index @active-index result-count)]
+                  active (rf.story.ui.command-palette/clamp-active-index @active-index result-count)]
               (when (not= active @active-index)
                 (reset! active-index active))
               (render-palette
@@ -279,11 +279,11 @@
                                         "ArrowDown"
                                         (do (.preventDefault event)
                                             (swap! active-index
-                                                   palette/move-active-index 1 result-count))
+                                                   rf.story.ui.command-palette/move-active-index 1 result-count))
                                         "ArrowUp"
                                         (do (.preventDefault event)
                                             (swap! active-index
-                                                   palette/move-active-index -1 result-count))
+                                                   rf.story.ui.command-palette/move-active-index -1 result-count))
                                         "Enter"
                                         (do (.preventDefault event)
                                             (when-let [entry (get results active)]
@@ -297,4 +297,4 @@
                  :on-row-select     (fn [entry]
                                       (select-entry! entry)
                                       (close!))})))
-          [author-expectations/author-dialog]])})))
+          [rf.story.ui.author-expectations/author-dialog]])})))

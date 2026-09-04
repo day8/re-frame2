@@ -65,13 +65,13 @@
   `pipeline-exception-event?` is the ONE projection predicate every
   capture site consults — any of the three operations targeting the
   frame is a captured failure (spec/009 §Error contract)."
-  (:require [re-frame.elision :as elision]
+  (:require [re-frame.elision :as rf.elision]
             ;; The canonical RAW trace-event frame reader
             ;; (`re-frame.trace/trace-event-frame`) — read the raw event's
             ;; frame through it, not a hand-rolled `[:tags :frame]` walk.
             ;; Core framework leaf, so the require keeps this ns at the
             ;; leaf of the cycle graph.
-            [re-frame.trace   :as trace])
+            [re-frame.trace   :as rf.trace])
   (:refer-clojure :exclude [error]))
 
 (def pipeline-exception-operations
@@ -97,7 +97,7 @@
   §Frame identity on the raw event)."
   [frame-id ev]
   (and (contains? pipeline-exception-operations (:operation ev))
-       (= frame-id (trace/trace-event-frame ev))))
+       (= frame-id (rf.trace/trace-event-frame ev))))
 
 (defn- elide-ex-data
   "Project an `ex-data` map through `re-frame.elision/elide-wire-value`
@@ -121,7 +121,7 @@
   (if (or (nil? data) (nil? frame-id))
     data
     (try
-      (elision/elide-wire-value data {:frame frame-id})
+      (rf.elision/elide-wire-value data {:frame frame-id})
       (catch #?(:clj Throwable :cljs :default) _ data))))
 
 (defn throwable->error-map

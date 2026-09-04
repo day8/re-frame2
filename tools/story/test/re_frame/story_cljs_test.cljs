@@ -10,15 +10,15 @@
   round-trip to confirm the macros emit working code in a CLJS
   compile."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story :as story]
-            [re-frame.story.config :as config]
-            [re-frame.story.schemas :as schemas]))
+            [re-frame.story :as rf.story]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.schemas :as rf.story.schemas]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-story-registry [test-fn]
-  (story/clear-all!)
-  (story/install-canonical-vocabulary!)
+  (rf.story/clear-all!)
+  (rf.story/install-canonical-vocabulary!)
   (test-fn))
 
 (use-fixtures :each reset-story-registry)
@@ -27,7 +27,7 @@
 
 (deftest enabled-flag-is-true-in-test-build
   (testing "Story is enabled in this CLJS test build"
-    (is (true? config/enabled?))))
+    (is (true? rf.story.config/enabled?))))
 
 ;; ---- static-mode? (rf2-8wgpm) -------------------------------------------
 
@@ -38,48 +38,48 @@
     ;; downstream build mirroring its :closure-defines) flips it true.
     ;; The node-test build under shadow-cljs runs without overriding
     ;; the define, so we expect the default-false branch here.
-    (is (false? config/static-mode?)))
+    (is (false? rf.story.config/static-mode?)))
   (testing "the public probe (re-frame.story/static-mode?) reflects the flag"
-    (is (false? (story/static-mode?)))))
+    (is (false? (rf.story/static-mode?)))))
 
 ;; ---- macros emit working code -------------------------------------------
 
 (deftest cljs-smoke-reg-story-and-variant
   (testing "reg-story + reg-variant macros register against the side-table in CLJS"
-    (story/reg-story :story.cljs.smoke
+    (rf.story/reg-story :story.cljs.smoke
       {:doc       "CLJS smoke test."
        :component :app.cljs/comp
        :tags      #{:dev}})
-    (story/reg-variant :story.cljs.smoke/default
+    (rf.story/reg-variant :story.cljs.smoke/default
       {:doc    "default state"
        :setup [[:init]]
        :tags   #{:dev}})
-    (is (story/registered? :story   :story.cljs.smoke))
-    (is (story/registered? :variant :story.cljs.smoke/default))))
+    (is (rf.story/registered? :story   :story.cljs.smoke))
+    (is (rf.story/registered? :variant :story.cljs.smoke/default))))
 
 (deftest cljs-form-b-desugars
   (testing "Form-B :variants desugars on the CLJS side"
-    (story/reg-story :story.cljs.form-b
+    (rf.story/reg-story :story.cljs.form-b
       {:doc       "Form-B test."
        :component :app.cljs/comp
        :variants  {:a {:setup [[:init-a]]}
                    :b {:setup [[:init-b]]}}})
-    (is (story/registered? :variant :story.cljs.form-b/a))
-    (is (story/registered? :variant :story.cljs.form-b/b))))
+    (is (rf.story/registered? :variant :story.cljs.form-b/a))
+    (is (rf.story/registered? :variant :story.cljs.form-b/b))))
 
 ;; ---- canonical tag set ---------------------------------------------------
 
 (deftest cljs-canonical-tags-installed
   (testing "the seven canonical inclusion tags + five canonical :state/* magnitude tags load on the CLJS side"
-    (let [tags (story/list-tags)]
-      (is (= (into schemas/canonical-tags schemas/canonical-state-tags)
+    (let [tags (rf.story/list-tags)]
+      (is (= (into rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)
              tags))
       (testing "the seven inclusion tags are all present (rf2-k1k87 didn't drop any)"
-        (is (every? tags schemas/canonical-tags)))
+        (is (every? tags rf.story.schemas/canonical-tags)))
       (testing "the five state tags are all present (rf2-k1k87 regression smoke)"
-        (is (every? tags schemas/canonical-state-tags))
+        (is (every? tags rf.story.schemas/canonical-state-tags))
         (is (= #{:state/empty :state/small :state/medium :state/large :state/special}
-               schemas/canonical-state-tags))))))
+               rf.story.schemas/canonical-state-tags))))))
 
 ;; ---- :state/* axis regression smoke (rf2-k1k87) -------------------------
 ;;
@@ -92,16 +92,16 @@
 
 (deftest cljs-state-axis-tags-survive-variant-registration
   (testing "a variant tagged with the full :state/* axis registers cleanly (no :rf.error/unknown-tag)"
-    (story/reg-story :story.cljs.state-axis-smoke
+    (rf.story/reg-story :story.cljs.state-axis-smoke
       {:doc       "rf2-k1k87 canonical :state/* axis smoke."
        :component :app.cljs/comp
        :tags      #{:dev}})
-    (story/reg-variant :story.cljs.state-axis-smoke/all-state-magnitudes
+    (rf.story/reg-variant :story.cljs.state-axis-smoke/all-state-magnitudes
       {:doc    "every :state/* tag at once."
        :setup [[:init]]
-       :tags   (into #{:dev} schemas/canonical-state-tags)})
-    (is (story/registered? :variant :story.cljs.state-axis-smoke/all-state-magnitudes)))
+       :tags   (into #{:dev} rf.story.schemas/canonical-state-tags)})
+    (is (rf.story/registered? :variant :story.cljs.state-axis-smoke/all-state-magnitudes)))
   (testing "each :state/* tag carries the :state axis classifier"
-    (let [by-axis (story/tags-by-axis :state)]
-      (is (= schemas/canonical-state-tags by-axis)
+    (let [by-axis (rf.story/tags-by-axis :state)]
+      (is (= rf.story.schemas/canonical-state-tags by-axis)
           "every :state/* tag is registered on the :state axis"))))

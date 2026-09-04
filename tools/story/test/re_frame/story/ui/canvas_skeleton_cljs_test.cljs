@@ -14,35 +14,35 @@
   - `viewport-indicator`    — hidden for `:full` (no width/height);
                               shows `\"WxH\"` text for sized presets"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story.ui.canvas :as canvas]))
+            [re-frame.story.ui.canvas :as rf.story.ui.canvas]))
 
-(use-fixtures :each {:before (fn [] (canvas/reset-first-rendered!))})
+(use-fixtures :each {:before (fn [] (rf.story.ui.canvas/reset-first-rendered!))})
 
 ;; ---- loading-phase? -----------------------------------------------------
 
 (deftest loading-phase-pre-mount-mounting-loading
   (testing "pre-mount / mounting / loading + not-rendered? + no assertions → true"
-    (is (true? (canvas/loading-phase? :pre-mount false false)))
-    (is (true? (canvas/loading-phase? :mounting  false false)))
-    (is (true? (canvas/loading-phase? :loading   false false)))))
+    (is (true? (rf.story.ui.canvas/loading-phase? :pre-mount false false)))
+    (is (true? (rf.story.ui.canvas/loading-phase? :mounting  false false)))
+    (is (true? (rf.story.ui.canvas/loading-phase? :loading   false false)))))
 
 (deftest loading-phase-ready-or-error
   (testing ":ready / :error → false"
-    (is (false? (canvas/loading-phase? :ready false false)))
-    (is (false? (canvas/loading-phase? :error false false)))))
+    (is (false? (rf.story.ui.canvas/loading-phase? :ready false false)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :error false false)))))
 
 (deftest loading-phase-first-rendered-overrides
   (testing "first-rendered? true → false regardless of phase"
-    (is (false? (canvas/loading-phase? :loading true false)))
-    (is (false? (canvas/loading-phase? :pre-mount true false)))))
+    (is (false? (rf.story.ui.canvas/loading-phase? :loading true false)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :pre-mount true false)))))
 
 (deftest loading-phase-assertions-recorded-overrides
   (testing "assertions-recorded? true → false even when phase is loading
             (rf2-qrk2s: loader-never-completes / loader-rejects park the
             lifecycle at :loading but the user view must render)"
-    (is (false? (canvas/loading-phase? :loading   false true)))
-    (is (false? (canvas/loading-phase? :pre-mount false true)))
-    (is (false? (canvas/loading-phase? :mounting  false true)))))
+    (is (false? (rf.story.ui.canvas/loading-phase? :loading   false true)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :pre-mount false true)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :mounting  false true)))))
 
 (deftest loading-phase-events-only-overrides
   (testing "rf2-043cm — events-only? true → false even when phase is in
@@ -51,33 +51,33 @@
             skeleton must NEVER engage for them, including the brief
             pre-allocate window where `current-state` could still
             report `:pre-mount`."
-    (is (false? (canvas/loading-phase? :pre-mount false false true)))
-    (is (false? (canvas/loading-phase? :mounting  false false true)))
-    (is (false? (canvas/loading-phase? :loading   false false true)))
-    (is (false? (canvas/loading-phase? :ready     false false true))))
+    (is (false? (rf.story.ui.canvas/loading-phase? :pre-mount false false true)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :mounting  false false true)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :loading   false false true)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :ready     false false true))))
   (testing "events-only? false reverts to the classical predicate"
-    (is (true?  (canvas/loading-phase? :pre-mount false false false)))
-    (is (false? (canvas/loading-phase? :ready     false false false)))))
+    (is (true?  (rf.story.ui.canvas/loading-phase? :pre-mount false false false)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :ready     false false false)))))
 
 (deftest loading-phase-3-arg-overload-is-back-compat
   (testing "rf2-043cm — the 3-arg overload (phase / first? / assertions?)
             stays a back-compat surface for callers / tests written
             against the pre-rf2-043cm signature. It defaults
             `events-only?` to false."
-    (is (true?  (canvas/loading-phase? :loading   false false)))
-    (is (false? (canvas/loading-phase? :ready     false false)))))
+    (is (true?  (rf.story.ui.canvas/loading-phase? :loading   false false)))
+    (is (false? (rf.story.ui.canvas/loading-phase? :ready     false false)))))
 
 (deftest loading-phase-nil-or-unknown
   (testing "nil phase → false (no skeleton when phase isn't known)"
-    (is (false? (canvas/loading-phase? nil false false))))
+    (is (false? (rf.story.ui.canvas/loading-phase? nil false false))))
   (testing "unknown phase → false"
-    (is (false? (canvas/loading-phase? :something-else false false)))))
+    (is (false? (rf.story.ui.canvas/loading-phase? :something-else false false)))))
 
 ;; ---- loading-skeleton hiccup shape --------------------------------------
 
 (deftest loading-skeleton-hiccup-shape
   (testing "hiccup root carries the canonical data-test"
-    (let [hiccup (canvas/loading-skeleton)
+    (let [hiccup (rf.story.ui.canvas/loading-skeleton)
           [_tag props] hiccup]
       (is (= "story-canvas-loading-skeleton" (:data-test props)))
       (is (= "status" (:role props)))
@@ -87,30 +87,30 @@
 
 (deftest first-rendered-sentinel-round-trip
   (testing "marker round-trips through the per-variant set"
-    (canvas/reset-first-rendered!)
-    (is (false? (canvas/variant-first-rendered? :story.x/y)))
-    (canvas/mark-variant-rendered! :story.x/y)
-    (is (true? (canvas/variant-first-rendered? :story.x/y)))
-    (canvas/reset-first-rendered! :story.x/y)
-    (is (false? (canvas/variant-first-rendered? :story.x/y))))
+    (rf.story.ui.canvas/reset-first-rendered!)
+    (is (false? (rf.story.ui.canvas/variant-first-rendered? :story.x/y)))
+    (rf.story.ui.canvas/mark-variant-rendered! :story.x/y)
+    (is (true? (rf.story.ui.canvas/variant-first-rendered? :story.x/y)))
+    (rf.story.ui.canvas/reset-first-rendered! :story.x/y)
+    (is (false? (rf.story.ui.canvas/variant-first-rendered? :story.x/y))))
   (testing "reset all"
-    (canvas/mark-variant-rendered! :story.a/one)
-    (canvas/mark-variant-rendered! :story.b/two)
-    (is (true? (canvas/variant-first-rendered? :story.a/one)))
-    (canvas/reset-first-rendered!)
-    (is (false? (canvas/variant-first-rendered? :story.a/one)))
-    (is (false? (canvas/variant-first-rendered? :story.b/two)))))
+    (rf.story.ui.canvas/mark-variant-rendered! :story.a/one)
+    (rf.story.ui.canvas/mark-variant-rendered! :story.b/two)
+    (is (true? (rf.story.ui.canvas/variant-first-rendered? :story.a/one)))
+    (rf.story.ui.canvas/reset-first-rendered!)
+    (is (false? (rf.story.ui.canvas/variant-first-rendered? :story.a/one)))
+    (is (false? (rf.story.ui.canvas/variant-first-rendered? :story.b/two)))))
 
 ;; ---- viewport-indicator -------------------------------------------------
 
 (deftest viewport-indicator-elides-for-full
   (testing ":full preset has no width/height → indicator hidden"
-    (is (nil? (canvas/viewport-indicator {:label "Full" :width nil :height nil})))
-    (is (nil? (canvas/viewport-indicator {})))))
+    (is (nil? (rf.story.ui.canvas/viewport-indicator {:label "Full" :width nil :height nil})))
+    (is (nil? (rf.story.ui.canvas/viewport-indicator {})))))
 
 (deftest viewport-indicator-shows-dims
   (testing "sized preset → chip with WxH text"
-    (let [hiccup (canvas/viewport-indicator {:label "iPhone" :width 375 :height 667})
+    (let [hiccup (rf.story.ui.canvas/viewport-indicator {:label "iPhone" :width 375 :height 667})
           [_tag props text] hiccup]
       (is (= "story-canvas-viewport-indicator" (:data-test props)))
       (is (= "375 × 667" text)))))

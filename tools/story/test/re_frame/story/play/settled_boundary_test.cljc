@@ -13,95 +13,95 @@
     `:error`, never swallowed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core   :as rf]
-            [re-frame.frame  :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.story.play.settled-boundary :as boundary]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.registrar :as registrar]))
+            [re-frame.frame  :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.registrar :as rf.registrar]))
 
 ;; ---- pure: the boundary ladder -------------------------------------------
 
 (deftest boundary-ladder-ordering
   (testing "the ladder is cheapest→richest and `boundary>=` respects it"
-    (is (= [:headless :cljs-reactive :dom :browser] boundary/boundary-levels))
-    (is (boundary/boundary>= :dom :headless))
-    (is (boundary/boundary>= :headless :headless))
-    (is (boundary/boundary>= :browser :dom))
-    (is (not (boundary/boundary>= :headless :dom)))
-    (is (not (boundary/boundary>= :cljs-reactive :browser)))))
+    (is (= [:headless :cljs-reactive :dom :browser] rf.story.play.settled-boundary/boundary-levels))
+    (is (rf.story.play.settled-boundary/boundary>= :dom :headless))
+    (is (rf.story.play.settled-boundary/boundary>= :headless :headless))
+    (is (rf.story.play.settled-boundary/boundary>= :browser :dom))
+    (is (not (rf.story.play.settled-boundary/boundary>= :headless :dom)))
+    (is (not (rf.story.play.settled-boundary/boundary>= :cljs-reactive :browser)))))
 
 (deftest unknown-boundary-fails-closed
   (testing "unknown boundaries compare false (fail-closed)"
-    (is (not (boundary/boundary>= :nonsense :headless)))
-    (is (not (boundary/boundary>= :headless :nonsense)))
-    (is (false? (boundary/boundary? :nonsense)))
-    (is (true?  (boundary/boundary? :dom)))))
+    (is (not (rf.story.play.settled-boundary/boundary>= :nonsense :headless)))
+    (is (not (rf.story.play.settled-boundary/boundary>= :headless :nonsense)))
+    (is (false? (rf.story.play.settled-boundary/boundary? :nonsense)))
+    (is (true?  (rf.story.play.settled-boundary/boundary? :dom)))))
 
 (deftest max-boundary-picks-richer
   (testing "max-boundary returns the richer of two, treating unknowns as weakest"
-    (is (= :dom      (boundary/max-boundary :headless :dom)))
-    (is (= :dom      (boundary/max-boundary :dom :headless)))
-    (is (= :browser  (boundary/max-boundary :browser :cljs-reactive)))
-    (is (= :headless (boundary/max-boundary :nonsense :nonsense)))
-    (is (= :dom      (boundary/max-boundary :nonsense :dom)))))
+    (is (= :dom      (rf.story.play.settled-boundary/max-boundary :headless :dom)))
+    (is (= :dom      (rf.story.play.settled-boundary/max-boundary :dom :headless)))
+    (is (= :browser  (rf.story.play.settled-boundary/max-boundary :browser :cljs-reactive)))
+    (is (= :headless (rf.story.play.settled-boundary/max-boundary :nonsense :nonsense)))
+    (is (= :dom      (rf.story.play.settled-boundary/max-boundary :nonsense :dom)))))
 
 ;; ---- pure: step → required boundary --------------------------------------
 
 (deftest step-required-boundary-mapping
   (testing "[:dispatch …] needs only :headless; DOM steps need :dom"
-    (is (= :headless (boundary/step-required-boundary [:dispatch [:e]])))
-    (is (= :headless (boundary/step-required-boundary [:dispatch-sync [:e]])))
-    (is (= :headless (boundary/step-required-boundary [:assert-db [:k] 1])))
-    (is (= :dom      (boundary/step-required-boundary [:click "button"])))
-    (is (= :dom      (boundary/step-required-boundary [:type "input" "x"])))
-    (is (= :dom      (boundary/step-required-boundary [:assert-dom "div" :visible]))))
+    (is (= :headless (rf.story.play.settled-boundary/step-required-boundary [:dispatch [:e]])))
+    (is (= :headless (rf.story.play.settled-boundary/step-required-boundary [:dispatch-sync [:e]])))
+    (is (= :headless (rf.story.play.settled-boundary/step-required-boundary [:assert-db [:k] 1])))
+    (is (= :dom      (rf.story.play.settled-boundary/step-required-boundary [:click "button"])))
+    (is (= :dom      (rf.story.play.settled-boundary/step-required-boundary [:type "input" "x"])))
+    (is (= :dom      (rf.story.play.settled-boundary/step-required-boundary [:assert-dom "div" :visible]))))
   (testing "unknown / untagged steps default to :headless"
-    (is (= :headless (boundary/step-required-boundary [:no/such-step])))
-    (is (= :headless (boundary/step-required-boundary "not-a-step")))))
+    (is (= :headless (rf.story.play.settled-boundary/step-required-boundary [:no/such-step])))
+    (is (= :headless (rf.story.play.settled-boundary/step-required-boundary "not-a-step")))))
 
 ;; ---- pure: :cannot-run refusal shape -------------------------------------
 
 (deftest cannot-run-refusal-shape
   (testing "refusal carries required + provided + reason + step"
-    (let [r (boundary/cannot-run-refusal :dom :headless [:click "b"])]
+    (let [r (rf.story.play.settled-boundary/cannot-run-refusal :dom :headless [:click "b"])]
       (is (= :cannot-run (:status r)))
       (is (= :dom        (:required-boundary r)))
       (is (= :headless   (:provided-boundary r)))
       (is (= :runner-below-required-boundary (:reason r)))
       (is (= [:click "b"] (:step r)))))
   (testing "an explicit reason (e.g. flush timeout) is preserved"
-    (let [r (boundary/cannot-run-refusal :dom :headless nil :flush-timeout)]
+    (let [r (rf.story.play.settled-boundary/cannot-run-refusal :dom :headless nil :flush-timeout)]
       (is (= :flush-timeout (:reason r)))
       (is (not (contains? r :step)) "nil step is omitted"))))
 
 (deftest satisfies-boundary-predicate
   (testing "a runner satisfies a step iff its provided boundary >= required"
-    (is (boundary/satisfies-boundary? :dom :headless))
-    (is (boundary/satisfies-boundary? :headless :headless))
-    (is (not (boundary/satisfies-boundary? :headless :dom)))))
+    (is (rf.story.play.settled-boundary/satisfies-boundary? :dom :headless))
+    (is (rf.story.play.settled-boundary/satisfies-boundary? :headless :headless))
+    (is (not (rf.story.play.settled-boundary/satisfies-boundary? :headless :dom)))))
 
 ;; ---- pure: the default headless flush-hooks ------------------------------
 
 (deftest headless-hooks-shape
   (testing "the default headless hooks provide :headless and route dispatch through the drain"
-    (is (= :headless (boundary/hooks-provided-boundary boundary/headless-flush-hooks)))
-    (is (fn? (:dispatch! boundary/headless-flush-hooks)))
-    (is (fn? (get-in boundary/headless-flush-hooks [:flush! :headless])))))
+    (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary rf.story.play.settled-boundary/headless-flush-hooks)))
+    (is (fn? (:dispatch! rf.story.play.settled-boundary/headless-flush-hooks)))
+    (is (fn? (get-in rf.story.play.settled-boundary/headless-flush-hooks [:flush! :headless])))))
 
 (deftest hooks-provided-defaults-headless
   (testing "a hooks map with no :provides is assumed headless-only (fail-closed)"
-    (is (= :headless (boundary/hooks-provided-boundary {})))
-    (is (= :headless (boundary/hooks-provided-boundary {:provides :bogus})))
-    (is (= :dom      (boundary/hooks-provided-boundary {:provides :dom})))))
+    (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary {})))
+    (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary {:provides :bogus})))
+    (is (= :dom      (rf.story.play.settled-boundary/hooks-provided-boundary {:provides :dom})))))
 
 ;; ---- pure: flush-timeout result policy -----------------------------------
 
 (deftest flush-timeout-policy
   (testing "a flush timeout reports :cannot-run or :error per policy, never a pass"
-    (let [cr (boundary/flush-timeout-result :dom :headless [:click "b"])]
+    (let [cr (rf.story.play.settled-boundary/flush-timeout-result :dom :headless [:click "b"])]
       (is (= :cannot-run (:status cr)))
       (is (= :flush-timeout (:reason cr))))
-    (let [err (boundary/flush-timeout-result :dom :headless [:click "b"] :error)]
+    (let [err (rf.story.play.settled-boundary/flush-timeout-result :dom :headless [:click "b"] :error)]
       (is (= :error (:status err)))
       (is (string? (:error err))))))
 
@@ -110,11 +110,11 @@
 (def ^:private bf :story.boundary/frame)
 
 (defn- reset-frame! [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (rf/make-frame {:id bf :doc "settled-boundary drain test frame"})
   (test-fn))
 
@@ -137,8 +137,8 @@
          :fx [[:dispatch [:chain/c]]]}))
     (rf/reg-event :chain/c
       (fn [{:keys [db]} _] {:db (update db :hops (fnil conj []) :c)}))
-    (let [res (boundary/dispatch-and-settle!
-                bf [:chain/a] boundary/headless-flush-hooks :headless [:dispatch [:chain/a]])]
+    (let [res (rf.story.play.settled-boundary/dispatch-and-settle!
+                bf [:chain/a] rf.story.play.settled-boundary/headless-flush-hooks :headless [:dispatch [:chain/a]])]
       (is (= :settled (:status res)))
       (is (= :headless (:boundary res)))
       ;; The entire synchronous cascade has settled — all three hops are
@@ -153,8 +153,8 @@
     (let [fired (atom false)]
       (rf/reg-event :dom/should-not-fire
         (fn [{:keys [db]} _] (reset! fired true) {:db db}))
-      (let [res (boundary/dispatch-and-settle!
-                  bf [:dom/should-not-fire] boundary/headless-flush-hooks
+      (let [res (rf.story.play.settled-boundary/dispatch-and-settle!
+                  bf [:dom/should-not-fire] rf.story.play.settled-boundary/headless-flush-hooks
                   :dom [:click "button"])]
         (is (= :cannot-run (:status res)))
         (is (= :dom      (:required-boundary res)))
@@ -168,12 +168,12 @@
     (let [flushed (atom [])
           hooks   {:provides  :dom
                    :dispatch! (fn [frame-id evec]
-                                (boundary/drain-sync! frame-id evec))
+                                (rf.story.play.settled-boundary/drain-sync! frame-id evec))
                    :flush!    {:headless      (fn [_] (swap! flushed conj :headless))
                                :cljs-reactive (fn [_] (swap! flushed conj :reactive))
                                :dom           (fn [_] (swap! flushed conj :dom))}}]
       (rf/reg-event :dom/click (fn [{:keys [db]} _] {:db (assoc db :clicked true)}))
-      (let [res (boundary/dispatch-and-settle! bf [:dom/click] hooks :dom [:click "b"])]
+      (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:dom/click] hooks :dom [:click "b"])]
         (is (= :settled (:status res)))
         (is (= :dom     (:boundary res)))
         (is (true? (:clicked (rf/app-db-value bf))) "event dispatched")
@@ -184,10 +184,10 @@
   (testing "a throwing flush fn surfaces :error, never a silent pass
             (spec/017: a flush timeout/error NEVER reports a pass)"
     (let [hooks {:provides  :dom
-                 :dispatch! (fn [frame-id evec] (boundary/drain-sync! frame-id evec))
+                 :dispatch! (fn [frame-id evec] (rf.story.play.settled-boundary/drain-sync! frame-id evec))
                  :flush!    {:dom (fn [_] (throw (ex-info "flush boom" {})))}}]
       (rf/reg-event :dom/x (fn [{:keys [db]} _] {:db db}))
-      (let [res (boundary/dispatch-and-settle! bf [:dom/x] hooks :dom [:click "b"])]
+      (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:dom/x] hooks :dom [:click "b"])]
         (is (= :error (:status res)))
         (is (re-find #"flush boom" (:error res)))
         (is (not= :settled (:status res)) "a flush failure is never a settled pass")))))
@@ -204,12 +204,12 @@
                   ;; deterministic, no wall-clock sleep needed.
                   :timeout-ms -1
                   :dispatch!  (fn [frame-id evec]
-                                (boundary/drain-sync! frame-id evec))
+                                (rf.story.play.settled-boundary/drain-sync! frame-id evec))
                   :flush!     {:headless      (fn [_] (swap! ran conj :headless))
                                :cljs-reactive (fn [_] (swap! ran conj :reactive))
                                :dom           (fn [_] (swap! ran conj :dom))}}]
       (rf/reg-event :timeout/fired (fn [{:keys [db]} _] {:db (assoc db :fired true)}))
-      (let [res (boundary/dispatch-and-settle! bf [:timeout/fired] hooks :dom [:click "b"])]
+      (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:timeout/fired] hooks :dom [:click "b"])]
         (is (= :cannot-run    (:status res)))
         (is (= :flush-timeout (:reason res)))
         (is (= :dom           (:required-boundary res)))
@@ -239,18 +239,18 @@
           hooks  {:provides   :dom
                   :timeout-ms budget
                   :dispatch!  (fn [frame-id evec]
-                                (boundary/drain-sync! frame-id evec))
+                                (rf.story.play.settled-boundary/drain-sync! frame-id evec))
                   :flush!     {:cljs-reactive (fn [_] (swap! ran conj :reactive))
                                :dom           (fn [_]
                                                 (swap! ran conj :dom)
                                                 ;; burn well past the deadline
                                                 ;; so the post-flush check is
                                                 ;; unambiguously over budget
-                                                (let [stop (+ (interop/now-ms)
+                                                (let [stop (+ (rf.interop/now-ms)
                                                               (* 4 budget))]
-                                                  (while (< (interop/now-ms) stop) nil)))}}]
+                                                  (while (< (rf.interop/now-ms) stop) nil)))}}]
       (rf/reg-event :timeout/terminal (fn [{:keys [db]} _] {:db (assoc db :fired true)}))
-      (let [res (boundary/dispatch-and-settle! bf [:timeout/terminal] hooks :dom [:click "b"])]
+      (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:timeout/terminal] hooks :dom [:click "b"])]
         (is (not= :settled (:status res))
             "an over-budget TERMINAL flush is never a settled pass")
         (is (= :cannot-run    (:status res)))
@@ -272,11 +272,11 @@
           hooks {:provides   :dom
                  :timeout-ms 60000
                  :dispatch!  (fn [frame-id evec]
-                               (boundary/drain-sync! frame-id evec))
+                               (rf.story.play.settled-boundary/drain-sync! frame-id evec))
                  :flush!     {:cljs-reactive (fn [_] (swap! ran conj :reactive))
                               :dom           (fn [_] (swap! ran conj :dom))}}]
       (rf/reg-event :timeout/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
-      (let [res (boundary/dispatch-and-settle! bf [:timeout/ok] hooks :dom [:click "b"])]
+      (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:timeout/ok] hooks :dom [:click "b"])]
         (is (= :settled (:status res)))
         (is (= :dom     (:boundary res)))
         (is (= [:reactive :dom] @ran) "all flushes ran under a generous budget")
@@ -286,8 +286,8 @@
   (testing "with no :timeout-ms the flush phase is unbounded — settlement
             completes regardless of flush duration (the headless default)"
     (rf/reg-event :noop (fn [{:keys [db]} _] {:db db}))
-    (let [res (boundary/dispatch-and-settle!
-                bf [:noop] boundary/headless-flush-hooks :headless [:dispatch [:noop]])]
+    (let [res (rf.story.play.settled-boundary/dispatch-and-settle!
+                bf [:noop] rf.story.play.settled-boundary/headless-flush-hooks :headless [:dispatch [:noop]])]
       (is (= :settled (:status res))))))
 
 (deftest drain-sync-settles-synchronous-redispatch
@@ -298,6 +298,6 @@
         {:db (assoc db :n 0)
          :fx [[:dispatch [:seed/bump]]]}))
     (rf/reg-event :seed/bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (boundary/drain-sync! bf [:seed/start])
+    (rf.story.play.settled-boundary/drain-sync! bf [:seed/start])
     (is (= 1 (:n (rf/app-db-value bf)))
         "the queued :seed/bump drained synchronously within drain-sync!")))

@@ -73,8 +73,8 @@
   (`re-frame.story.ui.recorder-export-dialog`) consumes this fn to
   build the snippet text. JVM-testable end-to-end."
   (:require [clojure.string :as str]
-            [re-frame.story.play.runner :as runner]
-            [re-frame.story.predicates  :as pred]))
+            [re-frame.story.play.runner :as rf.story.play.runner]
+            [re-frame.story.predicates  :as rf.story.predicates]))
 
 ;; ---------------------------------------------------------------------------
 ;; Tunables
@@ -151,7 +151,7 @@
                 (redacted? event)
                 nil
 
-                (pred/assertion-event? event)
+                (rf.story.predicates/assertion-event? event)
                 :dispatch-sync
 
                 (and (vector? event)
@@ -372,7 +372,7 @@
 
 (defn recording->script-body
   "Translate a recording into a normalised `:script` body map per
-  `runner/parse-spec`. Pure data → data.
+  `rf.story.play.runner/parse-spec`. Pure data → data.
 
   Inputs:
 
@@ -411,8 +411,8 @@
                          the byte-identical 2-element steps.
 
   Returns a map: `{:script [...steps] :auto-run? bool :name str?}`.
-  The script is pre-coerced via `runner/coerce-script` so it round-
-  trips through `runner/parse-spec` without further normalisation —
+  The script is pre-coerced via `rf.story.play.runner/coerce-script` so it round-
+  trips through `rf.story.play.runner/parse-spec` without further normalisation —
   what you get back is what the runner will execute.
 
   Empty `events` returns a map with an empty `:script` (still legal —
@@ -465,7 +465,7 @@
   [script]
   (if (seq script)
     (str "["
-         (str/join (pred/indent-after indent-prefix)
+         (str/join (rf.story.predicates/indent-after indent-prefix)
                    (map pr-str script))
          "]")
     "[]"))
@@ -476,7 +476,7 @@
   string.
 
   The rendered form is `read-string`-able and round-trips back to the
-  same map via `runner/parse-spec`."
+  same map via `rf.story.play.runner/parse-spec`."
   [{:keys [script name auto-run?] :as _spec}]
   (let [body-keys (cond-> []
                     name             (conj [":name      " (pr-str name)])
@@ -508,4 +508,4 @@
         body-str (->> body
                       (map (fn [[k v]] (str k v)))
                       (str/join "\n  "))]
-    (pred/reg-variant-envelope alias variant-id body-str)))
+    (rf.story.predicates/reg-variant-envelope alias variant-id body-str)))

@@ -34,7 +34,7 @@
   choreography map. The inject helper is CLJS-only — it touches
   `js/document.head`."
   {:no-doc true}
-  #?(:cljs (:require [re-frame.story.config :as config])))
+  #?(:cljs (:require [re-frame.story.config :as rf.story.config])))
 
 (def timing
   "Duration tokens (CSS strings). Six slots covering the chrome's
@@ -286,7 +286,7 @@
      Behind `re-frame.story.config/enabled?` — production builds
      short-circuit before touching the DOM."
      []
-     (when (and config/enabled? (not @motion-css-injected?))
+     (when (and rf.story.config/enabled? (not @motion-css-injected?))
        (reset! motion-css-injected? true)
        (when (and (exists? js/document) (.-head js/document))
          (try

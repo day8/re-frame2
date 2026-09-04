@@ -15,7 +15,7 @@
 
   The faceted-filter contract (Storybook SB9 parity): AND across axes,
   OR within an axis. Documented per-fn below."
-  (:require [re-frame.story.predicates :as pred]))
+  (:require [re-frame.story.predicates :as rf.story.predicates]))
 
 (defn group-tags-by-axis
   "Pure data → data: split a seq of tags into `{axis-kw → [tag …]}`
@@ -147,7 +147,7 @@
   Sorted by story id (alphabetic on the keyword name) so the sidebar is
   stable across re-renders."
   [id->body]
-  (let [by-story (group-by (comp pred/parent-story-id key) id->body)]
+  (let [by-story (group-by (comp rf.story.predicates/parent-story-id key) id->body)]
     (->> by-story
          (map (fn [[story-id variants]]
                 {:story-id story-id

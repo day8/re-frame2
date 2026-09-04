@@ -18,15 +18,15 @@
   explain visibility, plan-hash sensitivity, and the schema acceptance."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            [re-frame.story.plan        :as plan]
-            [re-frame.story.fingerprint :as fp]
-            [re-frame.story.schemas     :as schemas]))
+            [re-frame.story.plan        :as rf.story.plan]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.schemas     :as rf.story.schemas]))
 
 ;; ---- helpers ------------------------------------------------------------
 
 (defn- plan-of
   [target m]
-  (plan/variant-plan target {:lookup m}))
+  (rf.story.plan/variant-plan target {:lookup m}))
 
 (def ^:private cart-route   [:get  "/api/cart"])
 (def ^:private checkout-route [:post "/api/checkout"])
@@ -53,8 +53,8 @@
         (is (= {:rf.http/managed :rf.http/managed-test-stub}
                (get-in p [:world :frame :fx-overrides]))))
       (testing "the stub fx id matches the http-test-support helper's return"
-        (is (= :rf.http/managed-test-stub plan/managed-stub-fx-id))
-        (is (= :rf.http/managed plan/managed-fx-id))))))
+        (is (= :rf.http/managed-test-stub rf.story.plan/managed-stub-fx-id))
+        (is (= :rf.http/managed rf.story.plan/managed-fx-id))))))
 
 (deftest one-route-succeeds-one-fails-in-one-variant
   (testing "mixed success/failure routes coexist in one variant (the §B2c case)"
@@ -95,10 +95,10 @@
     (let [routes {cart-route {:reply {:ok 1}}}]
       (is (= {:network      routes
               :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
-             (plan/lower-network routes))))
+             (rf.story.plan/lower-network routes))))
     (testing "nil for empty / nil input"
-      (is (nil? (plan/lower-network {})))
-      (is (nil? (plan/lower-network nil))))))
+      (is (nil? (rf.story.plan/lower-network {})))
+      (is (nil? (rf.story.plan/lower-network nil))))))
 
 ;; ===========================================================================
 ;; arg substitution inside :network reply data
@@ -168,7 +168,7 @@
           variants  {:story.checkout/compose-conflict
                      {:network {cart-route {:reply {:ok {:items []}}}}
                       :compose [:fragment.http/managed-override]}}
-          compile   #(plan/variant-plan :story.checkout/compose-conflict
+          compile   #(rf.story.plan/variant-plan :story.checkout/compose-conflict
                                         {:lookup          variants
                                          :fragment-lookup fragments})]
       (is (thrown-with-msg?
@@ -190,7 +190,7 @@
     (let [routes {cart-route     {:reply {:ok {:items []}}}
                   checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}
           m {:story.checkout/explained {:network routes}}
-          ex (plan/explain :story.checkout/explained {:lookup m})]
+          ex (rf.story.plan/explain :story.checkout/explained {:lookup m})]
       (is (= routes (get-in ex [:network :routes]))
           "explain shows the per-route reply data")
       (is (= {:rf.http/managed :rf.http/managed-test-stub}
@@ -200,7 +200,7 @@
 (deftest explain-network-absent-when-no-network
   (testing "explain has no :network slot for a variant without :network"
     (let [m {:story.plain/v {:setup [[:dispatch [:a]]]}}
-          ex (plan/explain :story.plain/v {:lookup m})]
+          ex (rf.story.plan/explain :story.plain/v {:lookup m})]
       (is (nil? (:network ex))))))
 
 ;; ===========================================================================
@@ -213,7 +213,7 @@
           alt  {:story.h/v {:network {cart-route {:reply {:ok {:items [{:sku "A"}]}}}}}}
           p1   (plan-of :story.h/v base)
           p2   (plan-of :story.h/v alt)]
-      (is (not= (fp/plan-hash p1) (fp/plan-hash p2))
+      (is (not= (rf.story.fingerprint/plan-hash p1) (rf.story.fingerprint/plan-hash p2))
           "a semantic change to a route reply changes the plan-hash"))))
 
 (deftest network-failure-kind-perturbs-plan-hash
@@ -222,7 +222,7 @@
                         {:story.h/v {:network {checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}}})
           p5xx (plan-of :story.h/v
                         {:story.h/v {:network {checkout-route {:reply {:failure {:kind :rf.http/http-5xx}}}}}})]
-      (is (not= (fp/plan-hash p4xx) (fp/plan-hash p5xx))))))
+      (is (not= (rf.story.fingerprint/plan-hash p4xx) (rf.story.fingerprint/plan-hash p5xx))))))
 
 ;; ===========================================================================
 ;; :network inherits through :extends (world context flows down)
@@ -251,31 +251,31 @@
 
 (deftest variant-schema-accepts-network
   (testing "the Variant schema accepts a well-formed :network slot"
-    (is (nil? (schemas/validate :variant
+    (is (nil? (rf.story.schemas/validate :variant
                 {:network {cart-route     {:reply {:ok {:items []}}}
                            checkout-route {:reply {:failure {:kind :rf.http/http-4xx
                                                              :status 409}}}}})))))
 
 (deftest network-schema-rejects-missing-reply
   (testing "a route value with no :reply is rejected"
-    (is (some? (schemas/validate :variant
+    (is (some? (rf.story.schemas/validate :variant
                  {:network {cart-route {:status :ok}}})))))
 
 (deftest network-schema-rejects-both-ok-and-failure
   (testing "a :reply carrying BOTH :ok and :failure is rejected (xor)"
-    (is (some? (schemas/validate :variant
+    (is (some? (rf.story.schemas/validate :variant
                  {:network {cart-route {:reply {:ok 1 :failure {:kind :x}}}}})))))
 
 (deftest network-schema-rejects-bad-route-key
   (testing "a route key that is not a [method url] pair is rejected"
-    (is (some? (schemas/validate :variant
+    (is (some? (rf.story.schemas/validate :variant
                  {:network {"/api/cart" {:reply {:ok 1}}}})))   ; bare string key
-    (is (some? (schemas/validate :variant
+    (is (some? (rf.story.schemas/validate :variant
                  {:network {[:teleport "/api/cart"] {:reply {:ok 1}}}}))))) ; bad method
 
 (deftest network-spec-is-malli-valid
   (testing "NetworkSpec is a well-formed Malli schema"
-    (is (m/validate schemas/NetworkSpec
+    (is (m/validate rf.story.schemas/NetworkSpec
                     {cart-route {:reply {:ok {:items []}}}}))
-    (is (not (m/validate schemas/NetworkSpec
+    (is (not (m/validate rf.story.schemas/NetworkSpec
                          {cart-route {:reply {}}})))))

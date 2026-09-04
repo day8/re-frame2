@@ -9,7 +9,7 @@
   surfaces' contract without booting the shell."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [re-frame.story.ui.markdown :as md]))
+            [re-frame.story.ui.markdown :as rf.story.ui.markdown]))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -17,15 +17,15 @@
   "Strip the `:div.rf-story-md` wrapper and return the block-level
   vector. Reduces test boilerplate."
   [s]
-  (vec (rest (md/parse s))))
+  (vec (rest (rf.story.ui.markdown/parse s))))
 
 ;; ---- block shapes --------------------------------------------------------
 
 (deftest empty-and-nil-inputs
   (testing "empty / nil / whitespace input produce an empty wrapper"
-    (is (= [:div.rf-story-md] (md/parse "")))
-    (is (= [:div.rf-story-md] (md/parse nil)))
-    (is (= [:div.rf-story-md] (md/parse "   \n   ")))))
+    (is (= [:div.rf-story-md] (rf.story.ui.markdown/parse "")))
+    (is (= [:div.rf-story-md] (rf.story.ui.markdown/parse nil)))
+    (is (= [:div.rf-story-md] (rf.story.ui.markdown/parse "   \n   ")))))
 
 (deftest paragraph-with-plain-text
   (testing "plain text becomes a single <p> block"

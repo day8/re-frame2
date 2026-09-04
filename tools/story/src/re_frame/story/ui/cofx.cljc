@@ -29,28 +29,28 @@
   `re-frame.story/install-canonical-vocabulary!`. Idempotent — re-
   registering with the same body replaces the slot atomically."
   (:require [re-frame.core :as rf]
-            [re-frame.story.args :as args]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.args :as rf.story.args]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.state :as rf.story.ui.state]))
 
 (defn active-modes-snapshot
   "Return the current `:active-modes` vector from the shell state.
   Pure data → data when paired with the shell-state-atom deref."
   []
-  (vec (or (:active-modes (state/get-state)) [])))
+  (vec (or (:active-modes (rf.story.ui.state/get-state)) [])))
 
 (defn- mode-args
   "Lookup the `:args` map for `mode-id`, or `{}` if the mode is
   unregistered. Mirrors `re-frame.story.args/mode-args` (private)."
   [mode-id]
-  (or (:args (registrar/handler-meta :mode mode-id)) {}))
+  (or (:args (rf.story.registrar/handler-meta :mode mode-id)) {}))
 
 (defn active-args-snapshot
   "Return the deep-merged `:args` from every active mode, in the order
   the modes were activated. Mirrors `re-frame.story.args/resolve-args`'
   modes-layer composition. Pure data → data."
   []
-  (args/deep-merge-all (map mode-args (active-modes-snapshot))))
+  (rf.story.args/deep-merge-all (map mode-args (active-modes-snapshot))))
 
 (defn install-canonical-cofx!
   "Register the three canonical Story cofx + the matching subs. Per
@@ -84,7 +84,7 @@
   (rf/reg-sub
     :story/active-modes
     (fn [_ _]
-      (vec (or (:active-modes @state/shell-state-atom) []))))
+      (vec (or (:active-modes @rf.story.ui.state/shell-state-atom) []))))
 
   (rf/reg-sub
     :story/active-args

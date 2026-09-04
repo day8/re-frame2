@@ -21,7 +21,7 @@
       viewport-switcher/effective-viewport
             │
             ▼
-      framed-canvas → [canvas/viewport-indicator vp]
+      framed-canvas → [rf.story.ui.canvas/viewport-indicator vp]
             │
             ▼
       Hiccup: [:div {:data-test \"story-canvas-viewport-indicator\"
@@ -50,22 +50,22 @@
 
   Sub-millisecond per case; no DOM mount, no React, no Playwright."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
-            [re-frame.story.ui.canvas :as canvas]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.ui.viewport-switcher :as vs]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
+            [re-frame.story.ui.canvas :as rf.story.ui.canvas]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.viewport-switcher :as rf.story.ui.viewport-switcher]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers: render the indicator from effective-viewport --------------
 ;;
 ;; `framed-canvas` is `defn-` in shell.cljs; to exercise the indicator
 ;; render seam here we follow the same composition the shell does —
-;; resolve the effective viewport, then invoke `canvas/viewport-indicator`
+;; resolve the effective viewport, then invoke `rf.story.ui.canvas/viewport-indicator`
 ;; on the result. This is the exact code path the live shell drives.
 
 (defn- render-indicator-from-shell-state
@@ -73,8 +73,8 @@
   the live shell-state-atom + registrar) — the same composition the
   shell's `framed-canvas` performs at runtime."
   []
-  (let [vp (vs/effective-viewport)]
-    (canvas/viewport-indicator vp)))
+  (let [vp (rf.story.ui.viewport-switcher/effective-viewport)]
+    (rf.story.ui.canvas/viewport-indicator vp)))
 
 (defn- indicator-attrs
   "Extract the attrs map of a rendered indicator hiccup tree, or nil
@@ -98,7 +98,7 @@
             resolves to `:full` (no width/height) and the indicator
             self-elides (returns nil). Pinning the inverse here ensures
             the later 'indicator-renders' tests can't be trivial-pass."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
         (is (nil? (render-indicator-from-shell-state))
@@ -111,10 +111,10 @@
             slot; `effective-viewport` reads through it; the indicator
             renders the canonical \"375 × 667\" text with the
             `data-viewport-dims` attribute matching."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        (vs/select! :mobile-portrait)
+        (rf.story.ui.viewport-switcher/select! :mobile-portrait)
         (let [hiccup (render-indicator-from-shell-state)
               attrs  (indicator-attrs hiccup)
               text   (indicator-text hiccup)]
@@ -133,16 +133,16 @@
   (testing "rf2-f9xkq — calling `select!` with a different preset
             updates the indicator's rendered text. Catches the
             'indicator stuck on first selection' class of regression."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        (vs/select! :mobile-portrait)
+        (rf.story.ui.viewport-switcher/select! :mobile-portrait)
         (is (= "375 × 667" (indicator-text (render-indicator-from-shell-state)))
             "first selection lands the mobile-portrait dims")
-        (vs/select! :desktop)
+        (rf.story.ui.viewport-switcher/select! :desktop)
         (is (= "1280 × 800" (indicator-text (render-indicator-from-shell-state)))
             "switching to :desktop updates the chip to 1280 × 800")
-        (vs/select! :tablet)
+        (rf.story.ui.viewport-switcher/select! :tablet)
         (is (= "768 × 1024" (indicator-text (render-indicator-from-shell-state)))
             "switching to :tablet updates the chip to 768 × 1024")))))
 
@@ -153,13 +153,13 @@
             (the no-resize default) re-elides the indicator. Pins the
             'sized → unsized → no chip' transition so a regression that
             kept a stale chip after un-selection would surface."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        (vs/select! :tablet)
+        (rf.story.ui.viewport-switcher/select! :tablet)
         (is (some? (render-indicator-from-shell-state))
             "sized preset → indicator rendered")
-        (vs/select! :full)
+        (rf.story.ui.viewport-switcher/select! :full)
         (is (nil? (render-indicator-from-shell-state))
             "back to :full → indicator self-elides")))))
 
@@ -170,10 +170,10 @@
             the indicator with the custom dimensions. Pins the custom-
             entry path (the dropdown's Width × Height row at the
             bottom)."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        (vs/select! {:width 1024 :height 600})
+        (rf.story.ui.viewport-switcher/select! {:width 1024 :height 600})
         (let [hiccup (render-indicator-from-shell-state)
               text   (indicator-text hiccup)]
           (is (some? hiccup)
@@ -187,17 +187,17 @@
   (testing "rf2-f9xkq — when a variant body declares `:viewport`, that
             override wins over the toolbar's selection at indicator-
             render time. Per spec/014 §`:viewport` body slot."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story* :story.vp-override
+         (rf.story/reg-story* :story.vp-override
            {:doc "viewport override fixture" :component :ignored})
-         (story/reg-variant* :story.vp-override/v
+         (rf.story/reg-variant* :story.vp-override/v
            {:doc "child with :viewport override"
             :viewport :tablet}))}
       (fn []
-        (vs/select! :mobile-portrait)
-        (swap! ui-state/shell-state-atom
+        (rf.story.ui.viewport-switcher/select! :mobile-portrait)
+        (swap! rf.story.ui.state/shell-state-atom
                assoc :selected-variant :story.vp-override/v)
         (is (= "768 × 1024" (indicator-text (render-indicator-from-shell-state)))
             "variant body's `:viewport :tablet` wins over toolbar's

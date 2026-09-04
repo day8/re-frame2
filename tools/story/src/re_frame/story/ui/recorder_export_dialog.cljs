@@ -44,18 +44,18 @@
 
   ## Elision
 
-  Every public fn opens with `(when config/enabled? ...)` so
+  Every public fn opens with `(when rf.story.config/enabled? ...)` so
   production CLJS builds short-circuit before any DOM call."
   (:require [clojure.string :as str]
             [reagent.core :as r]
-            [re-frame.story.config                        :as config]
-            [re-frame.story.recorder                      :as recorder]
-            [re-frame.story.recorder.play-export          :as export]
-            [re-frame.story.recorder.play-export-events   :as export-events]
-            [re-frame.story.review-dialog                 :as review-dialog]
-            [re-frame.story.ui.a11y-dialog                :as a11y-dialog]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.config                        :as rf.story.config]
+            [re-frame.story.recorder                      :as rf.story.recorder]
+            [re-frame.story.recorder.play-export          :as rf.story.recorder.play-export]
+            [re-frame.story.recorder.play-export-events   :as rf.story.recorder.play-export-events]
+            [re-frame.story.review-dialog                 :as rf.story.review-dialog]
+            [re-frame.story.ui.a11y-dialog                :as rf.story.ui.a11y-dialog]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---------------------------------------------------------------------------
 ;; Dialog state — a single Reagent ratom carrying the dialog's
@@ -66,7 +66,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def initial-state
-  "Idle export-dialog state. Mirrors the shape `review-dialog/initial-
+  "Idle export-dialog state. Mirrors the shape `rf.story.review-dialog/initial-
   state` carries plus the export-specific options."
   {:open?               false
    :source-id           nil   ; the recorded variant-id (rides into :extends)
@@ -100,7 +100,7 @@
 
   Idempotent — opening twice replaces the in-flight state."
   [{:keys [source-id events entries variant-id final-db]}]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (reset! ui-dialog
             (assoc initial-state
                    :open?      true
@@ -118,7 +118,7 @@
   (swap! ui-dialog assoc :name (str s)))
 
 (defn- set-variant-id! [s]
-  (let [parsed (review-dialog/parse-variant-id-string s)]
+  (let [parsed (rf.story.review-dialog/parse-variant-id-string s)]
     (swap! ui-dialog assoc :variant-id (or parsed s))))
 
 (defn- toggle-auto-assert! []
@@ -137,7 +137,7 @@
   ;; that's where DOM-events + per-event timestamps live.
   ;; Fall back to the legacy :events vector for back-compat.
   (let [src (if (seq entries) entries events)]
-    (export-events/build-export
+    (rf.story.recorder.play-export-events/build-export
       src
       (cond-> {:variant-id variant-id
                :extends    source-id
@@ -155,9 +155,9 @@
   frame via the runner. Updates the dialog's `:replay-status` slot so
   the UI can surface the outcome."
   [{:keys [source-id]} spec]
-  (when (and config/enabled? source-id spec)
+  (when (and rf.story.config/enabled? source-id spec)
     (swap! ui-dialog assoc :replay-status :running :replay-failure-msg nil)
-    (export-events/replay-script!
+    (rf.story.recorder.play-export-events/replay-script!
       source-id spec
       (fn [final-state]
         (let [status (:status final-state)
@@ -188,41 +188,41 @@
    :modal       {:width          "720px"
                  :max-width      "92vw"
                  :max-height     "86vh"
-                 :background     (:bg-canvas colors/tokens)
-                 :color          (:text-primary colors/tokens)
+                 :background     (:bg-canvas rf.story.theme.colors/tokens)
+                 :color          (:text-primary rf.story.theme.colors/tokens)
                  :border         "1px solid #444"
                  :border-radius  "6px"
                  :padding        "16px"
                  :font-family    mono-stack
-                 :font-size      (:body-tight typography/type-scale)
+                 :font-size      (:body-tight rf.story.theme.typography/type-scale)
                  :display        "flex"
                  :flex-direction "column"
                  :gap            "12px"
                  :box-shadow     "0 14px 36px rgba(0,0,0,0.75)"
                  :overflow       "hidden"}
    :title       {:font-weight "bold"
-                 :color       (:info colors/tokens)
-                 :font-size   (:body typography/type-scale)}
-   :hint        {:color (:text-tertiary colors/tokens)
+                 :color       (:info rf.story.theme.colors/tokens)
+                 :font-size   (:body rf.story.theme.typography/type-scale)}
+   :hint        {:color (:text-tertiary rf.story.theme.colors/tokens)
                  :font-style "italic"
-                 :font-size (:micro typography/type-scale)}
+                 :font-size (:micro rf.story.theme.typography/type-scale)}
    :row         {:display "flex"
                  :gap "8px"
                  :align-items "center"}
-   :label       {:color (:info colors/tokens)
-                 :font-size (:caption typography/type-scale)
+   :label       {:color (:info rf.story.theme.colors/tokens)
+                 :font-size (:caption rf.story.theme.typography/type-scale)
                  :min-width "110px"}
    :input       {:padding "6px 8px"
-                 :background (:bg-2 colors/tokens)
+                 :background (:bg-2 rf.story.theme.colors/tokens)
                  :color "white"
                  :border "1px solid #444"
                  :border-radius "3px"
                  :font-family mono-stack
-                 :font-size (:body-tight typography/type-scale)
+                 :font-size (:body-tight rf.story.theme.typography/type-scale)
                  :flex "1 1 auto"
                  :box-sizing "border-box"}
    :snippet     {:background    "#0e0e10"
-                 :color         (:warning colors/tokens)
+                 :color         (:warning rf.story.theme.colors/tokens)
                  :padding       "10px"
                  :border        "1px solid #333"
                  :border-radius "4px"
@@ -230,7 +230,7 @@
                  :overflow      "auto"
                  :max-height    "40vh"
                  :font-family   mono-stack
-                 :font-size     (:caption typography/type-scale)
+                 :font-size     (:caption rf.story.theme.typography/type-scale)
                  :line-height   "1.45"
                  :flex          "1 1 auto"}
    :checkbox-row {:display "flex"
@@ -241,29 +241,29 @@
                  :justify-content "flex-end"
                  :flex-wrap "wrap"}
    :btn         {:padding "5px 12px"
-                 :background (:accent-amber colors/tokens)
+                 :background (:accent-amber rf.story.theme.colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-family mono-stack
-                 :font-size (:caption typography/type-scale)}
+                 :font-size (:caption rf.story.theme.typography/type-scale)}
    :btn-muted   {:padding "5px 12px"
                  :background "transparent"
-                 :color (:text-primary colors/tokens)
+                 :color (:text-primary rf.story.theme.colors/tokens)
                  :border "1px solid #444"
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-family mono-stack
-                 :font-size (:caption typography/type-scale)}
+                 :font-size (:caption rf.story.theme.typography/type-scale)}
    :status-pill {:padding "2px 8px"
                  :border-radius "10px"
-                 :font-size (:micro typography/type-scale)
+                 :font-size (:micro rf.story.theme.typography/type-scale)
                  :font-family mono-stack
                  :margin-left "auto"}
    :pill-pass   {:background "#1f5e2b" :color "#cdf7d4"}
    :pill-fail   {:background "#7a2020" :color "#ffd1d1"}
-   :pill-running {:background (:accent-amber colors/tokens) :color "white"}})
+   :pill-running {:background (:accent-amber rf.story.theme.colors/tokens) :color "white"}})
 
 (defn- replay-pill
   [status msg]
@@ -305,7 +305,7 @@
         ;; trigger on close. The dialog hiccup is passed eagerly so
         ;; tests can string-traverse the full tree without invoking
         ;; the class component's render lifecycle.
-        [a11y-dialog/focus-trap
+        [rf.story.ui.a11y-dialog/focus-trap
          {:on-close close-dialog!}
          [:div
           {:style     (:back styles)
@@ -365,7 +365,7 @@
               :on-change (fn [_] (toggle-auto-assert!))}]
             [:span {:style (:label styles)} "Auto-assert app-db at end"]
             [:span {:style (:hint styles)}
-             (str "(top-" export/default-max-auto-assertions
+             (str "(top-" rf.story.recorder.play-export/default-max-auto-assertions
                   " changed paths; trim manually after pasting)")]]
 
            ;; ---- Snippet preview ---------------------------------------------
@@ -383,7 +383,7 @@
             [:button
              {:style    (:btn styles)
               :data-test "story-recorder-export-copy"
-              :on-click (fn [_] (review-dialog/copy-to-clipboard! rendered))}
+              :on-click (fn [_] (rf.story.review-dialog/copy-to-clipboard! rendered))}
              "copy to clipboard"]
             [:button
              {:style    (:btn-muted styles)
@@ -408,10 +408,10 @@
   record) alongside `:events` so the translator emits `:click` /
   `:type` / `:wait` steps when DOM-events were captured."
   [{:keys [events entries source-id]}]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (open-dialog!
       {:source-id source-id
        :events    events
        :entries   entries
        :final-db  (when source-id
-                    (export-events/snapshot-frame-db source-id))})))
+                    (rf.story.recorder.play-export-events/snapshot-frame-db source-id))})))

@@ -70,14 +70,14 @@
 
   Per `005-SOTA-Features.md` §`:variants-grid` workspace layout the `:variants-grid` layout is the v1 devcards-
   style multi-variant pane."
-  (:require [re-frame.story.registrar :as registrar]
-            [re-frame.story.budgets :as budgets]
+  (:require [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.budgets :as rf.story.budgets]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.core :as rf]
-                       [re-frame.story.args :as args]
-                       [re-frame.story.config :as config]
-                       [re-frame.story.decorators :as decorators]
-                       [re-frame.story.runtime :as runtime]
+                       [re-frame.story.args :as rf.story.args]
+                       [re-frame.story.config :as rf.story.config]
+                       [re-frame.story.decorators :as rf.story.decorators]
+                       [re-frame.story.runtime :as rf.story.runtime]
                        ;; The merged `rf/frame-provider {:frame …}` shape
                        ;; routes through Reagent's `:r>` interop head, which
                        ;; avoids `:>`'s `(name kw)` prop conversion dropping
@@ -87,13 +87,13 @@
                        ;; namespaced ids of the form `:story.x/y`, and a
                        ;; namespace-dropping provider would scope the
                        ;; subtree to `:y` — a frame that does not exist.
-                       [re-frame.story.ui.assertion-strip :as assertion-strip]
-                       [re-frame.story.ui.canvas :as canvas]
-                       [re-frame.story.ui.multi-substrate :as multi-substrate]
-                       [re-frame.story.ui.state :as state]])
-            #?(:cljs [re-frame.story.ui.markdown :as md])
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+                       [re-frame.story.ui.assertion-strip :as rf.story.ui.assertion-strip]
+                       [re-frame.story.ui.canvas :as rf.story.ui.canvas]
+                       [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate]
+                       [re-frame.story.ui.state :as rf.story.ui.state]])
+            #?(:cljs [re-frame.story.ui.markdown :as rf.story.ui.markdown])
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- pure: layout resolution --------------------------------------------
 
@@ -101,7 +101,7 @@
   "Return the variant ids whose parent story is `story-id`. Pure
   derivation against the registrar — used by `:variants-grid`."
   [story-id]
-  (registrar/variants-of story-id))
+  (rf.story.registrar/variants-of story-id))
 
 (defn resolve-layout
   "Given a workspace body, return an ordered vector of cell descriptors.
@@ -164,7 +164,7 @@
 ;; anchor story. At matrix / design-system scale that can be hundreds of
 ;; cells — rendering them all freezes the canvas (spec/018 §10 — never
 ;; freeze or flood). The grid uses the SAME cap-and-page idiom (F1) as the
-;; sidebar and the controls panel, wiring the shared `budgets/bound-cells`
+;; sidebar and the controls panel, wiring the shared `rf.story.budgets/bound-cells`
 ;; helper + the matrix dimension guard. Pure data → data so the budget gate
 ;; exercises the bounding contract at floor scale without a DOM.
 
@@ -173,34 +173,34 @@
   Returns `{:shown [...] :hidden <n> :warn? <bool> :over-hard-cap? <bool>
   :total <n>}`.
 
-  - `:shown` is the first `budgets/grid-visible-cell-cap` (100) cells (G1)
+  - `:shown` is the first `rf.story.budgets/grid-visible-cell-cap` (100) cells (G1)
     unless `expanded?`, in which case it is the full set UP TO
-    `budgets/matrix-hard-cap` (400). Beyond the hard cap the grid NEVER
+    `rf.story.budgets/matrix-hard-cap` (400). Beyond the hard cap the grid NEVER
     renders all cells (G3 — paginate, never freeze): expansion still tops
     out at the hard cap and `:over-hard-cap?` flags that the tail is paged.
   - `:hidden` is the count paged out of `:shown`.
-  - `:warn?` is true when the total reaches `budgets/matrix-warn-threshold`
+  - `:warn?` is true when the total reaches `rf.story.budgets/matrix-warn-threshold`
     (144) — the soft advisory the renderer surfaces (G2).
   - `:over-hard-cap?` is true when the total exceeds the hard cap (G3).
 
-  Routes through `budgets/bound-cells` (the shared cap-and-page primitive)
+  Routes through `rf.story.budgets/bound-cells` (the shared cap-and-page primitive)
   so the grid and the budget gate move with one number. JVM-testable."
   [cells expanded?]
   (let [cells (vec cells)
         total (count cells)
-        over? (budgets/matrix-over-hard-cap? [total])
+        over? (rf.story.budgets/matrix-over-hard-cap? [total])
         ;; G3 — even when the user expands, never render past the hard cap.
         ;; The visible budget is the per-page cap (100); expansion lifts it
         ;; to the hard cap (400) but no further. Over the hard cap we force
         ;; the bound (`expanded?` must NOT short-circuit `bound-cells` to
         ;; the full set — that is the freeze G3 forbids).
-        cap   (if expanded? budgets/matrix-hard-cap budgets/grid-visible-cell-cap)
-        {:keys [shown hidden]} (budgets/bound-cells cells cap
+        cap   (if expanded? rf.story.budgets/matrix-hard-cap rf.story.budgets/grid-visible-cell-cap)
+        {:keys [shown hidden]} (rf.story.budgets/bound-cells cells cap
                                                     (and expanded? (not over?)))]
     {:shown          shown
      :hidden         hidden
      :total          total
-     :warn?          (budgets/matrix-warn? [total])
+     :warn?          (rf.story.budgets/matrix-warn? [total])
      :over-hard-cap? over?}))
 
 ;; ---- pure: :columns grid template (rf2-ugmrg) ---------------------------
@@ -237,11 +237,11 @@
 #?(:cljs
    (def ^:private styles
      {:wrap          {:padding "16px"
-                      :background (:bg-canvas colors/tokens)
+                      :background (:bg-canvas rf.story.theme.colors/tokens)
                       :flex "1"
                       :overflow "auto"}
       :title         {:font-weight "bold"
-                      :color (:info colors/tokens)
+                      :color (:info rf.story.theme.colors/tokens)
                       :font-family mono-stack
                       :margin-bottom "12px"}
       ;; rf2-ugmrg — `:grid-template-columns` is set per-render from the
@@ -251,26 +251,26 @@
       ;; + gap; the renderer merges the computed template in.
       :grid          {:display "grid"
                       :gap "12px"}
-      :cell          {:background (:bg-2 colors/tokens)
+      :cell          {:background (:bg-2 rf.story.theme.colors/tokens)
                       :border "1px solid #3c3c3c"
                       :border-radius "4px"
                       :padding "8px"
                       :min-height "160px"
-                      :color (:text-primary colors/tokens)
+                      :color (:text-primary rf.story.theme.colors/tokens)
                       :font-family mono-stack
-                      :font-size (:caption typography/type-scale)}
-      :cell-title    {:color (:warning colors/tokens)
+                      :font-size (:caption rf.story.theme.typography/type-scale)}
+      :cell-title    {:color (:warning rf.story.theme.colors/tokens)
                       :font-weight "bold"
                       :margin-bottom "4px"}
       :prose-block   {:padding "12px"
-                      :background (:bg-2 colors/tokens)
-                      :color (:text-primary colors/tokens)
+                      :background (:bg-2 rf.story.theme.colors/tokens)
+                      :color (:text-primary rf.story.theme.colors/tokens)
                       :border-radius "4px"
                       :margin-bottom "12px"
                       :line-height "1.5"}
       :prose-flow    {:display "flex"
                       :flex-direction "column"}
-      :empty         {:color (:text-tertiary colors/tokens)
+      :empty         {:color (:text-tertiary rf.story.theme.colors/tokens)
                       :font-style "italic"
                       :padding "24px"
                       :text-align "center"}
@@ -278,9 +278,9 @@
       ;; renders when its cell count exceeds the visible cap. Mirrors the
       ;; sidebar's `:variant-more` affordance language (spec/018 §10).
       :grid-more     {:padding "8px 0 2px"
-                      :color (:text-tertiary colors/tokens)
+                      :color (:text-tertiary rf.story.theme.colors/tokens)
                       :font-family mono-stack
-                      :font-size (:caption typography/type-scale)
+                      :font-size (:caption rf.story.theme.typography/type-scale)
                       :font-style "italic"
                       :background "none"
                       :border "none"
@@ -292,12 +292,12 @@
       ;; capped page below. The G3 hard-cap note reuses this style.
       :grid-warn     {:padding "6px 8px"
                       :margin-bottom "8px"
-                      :color (:warning colors/tokens)
-                      :background (:bg-2 colors/tokens)
-                      :border-left (str "3px solid " (:warning colors/tokens))
+                      :color (:warning rf.story.theme.colors/tokens)
+                      :background (:bg-2 rf.story.theme.colors/tokens)
+                      :border-left (str "3px solid " (:warning rf.story.theme.colors/tokens))
                       :border-radius "3px"
                       :font-family mono-stack
-                      :font-size (:caption typography/type-scale)}}))
+                      :font-size (:caption rf.story.theme.typography/type-scale)}}))
 
 ;; ---- the Reagent renderer ------------------------------------------------
 
@@ -307,38 +307,38 @@
      falling back to the parent story (per `001-Authoring.md` §Registration macros, the parent
      story usually carries the `:component`)."
      [variant-id]
-     (let [vb       (registrar/handler-meta :variant variant-id)
-           story-id (args/parent-story-id variant-id)
+     (let [vb       (rf.story.registrar/handler-meta :variant variant-id)
+           story-id (rf.story.args/parent-story-id variant-id)
            sb       (when story-id
-                      (registrar/handler-meta :story story-id))]
+                      (rf.story.registrar/handler-meta :story story-id))]
        (or (:component vb) (:component sb)))))
 
 #?(:cljs
    (defn- run-variant-with-shell-opts!
      "Drive `run-variant` for `variant-id` with the current shell
      state's modes / cell overrides / substrate. Mirrors
-     `canvas/run-with-shell-opts!`; reproduced here so the workspace
+     `rf.story.ui.canvas/run-with-shell-opts!`; reproduced here so the workspace
      mounts each cell's frame independently of which variant the canvas
      happens to have last rendered."
      [variant-id]
-     (let [shell @state/shell-state-atom
+     (let [shell @rf.story.ui.state/shell-state-atom
            opts  {:active-modes   (:active-modes shell)
                   :cell-overrides (get-in shell [:cell-overrides variant-id])
                   :substrate      (:substrate shell)}]
-       (runtime/run-variant variant-id opts)
+       (rf.story.runtime/run-variant variant-id opts)
        nil)))
 
 #?(:cljs
    (defn- variant-cell-inner
      "Read the variant's resolved view + decorator pack + effective
      args and render the variant body inside the cell. Mirrors
-     `canvas/canvas-inner` at a smaller scale — a SINGLE-TREE render, no
+     `rf.story.ui.canvas/canvas-inner` at a smaller scale — a SINGLE-TREE render, no
      share affordance, errors render inline.
 
      'Single substrate' describes the render's SHAPE, not an assumption
      about which one: since rf2-r4coe the cell resolves the substrate
-     through `canvas/variant-substrate-set` and reduces it with
-     `multi-substrate/single-render-substrate`, rather than painting
+     through `rf.story.ui.canvas/variant-substrate-set` and reduces it with
+     `rf.story.ui.multi-substrate/single-render-substrate`, rather than painting
      Reagent whatever the variant declared. A workspace never grids a
      single variant across substrates the way the canvas can — that is
      what stays smaller here.
@@ -357,18 +357,18 @@
      carried no `:count`)."
      [variant-id]
      (let [view-id        (variant-component-id variant-id)
-           shell          @state/shell-state-atom
+           shell          @rf.story.ui.state/shell-state-atom
            ;; rf2-eyrpr — thread the per-run opts into `resolve-decorators`
-           ;; (mirrors `canvas/canvas-inner`) so the plan it recompiles to
+           ;; (mirrors `rf.story.ui.canvas/canvas-inner`) so the plan it recompiles to
            ;; read `[:world :decorators]` substitutes `[:arg]` keys that
            ;; resolve only through a mode / cell layer instead of throwing.
            run-opts       {:active-modes   (:active-modes shell)
                            :cell-overrides (get-in shell
                                                    [:cell-overrides
                                                     variant-id])}
-           decorator-pack (decorators/resolve-decorators variant-id run-opts)
-           eff-args       (args/resolve-args variant-id run-opts)
-           assertions     (runtime/read-assertions variant-id)
+           decorator-pack (rf.story.decorators/resolve-decorators variant-id run-opts)
+           eff-args       (rf.story.args/resolve-args variant-id run-opts)
+           assertions     (rf.story.runtime/read-assertions variant-id)
            errors         (:errors decorator-pack)]
        ;; Per rf2-9la06: stamp `data-test-variant` on each cell so
        ;; Playwright specs can disambiguate workspace cells from each
@@ -381,21 +381,21 @@
         [:div {:style (:cell-title styles)}
          [:span (pr-str variant-id)]
          (when view-id
-           [:span {:style {:color (:text-secondary colors/tokens) :margin-left "8px"
+           [:span {:style {:color (:text-secondary rf.story.theme.colors/tokens) :margin-left "8px"
                            :font-weight "normal"}}
             (str "→ " (pr-str view-id))])]
         (cond
           (nil? view-id)
-          [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"
+          [:div {:style {:color (:text-secondary rf.story.theme.colors/tokens) :font-style "italic"
                          :padding "8px 0"}}
            "variant has no :component registered — register one on the story or variant body"]
 
           :else
           ;; Resolve the renderer through the SUBSTRATE REGISTRY, by the same
-          ;; policy the canvas uses (`canvas/variant-substrate-set` →
+          ;; policy the canvas uses (`rf.story.ui.canvas/variant-substrate-set` →
           ;; declared set, else the shell's host substrate) reduced to the one
           ;; substrate a single-tree render can paint under
-          ;; (`multi-substrate/single-render-substrate`).
+          ;; (`rf.story.ui.multi-substrate/single-render-substrate`).
           ;;
           ;; rf2-r4coe: this branch used to call `(rf/view view-id)` itself and
           ;; embed the result as a Reagent hiccup vector — the identical bypass
@@ -405,7 +405,7 @@
           ;; new behaviour needing a ruling. At source it already had one, and
           ;; used it everywhere except here: `run-variant-with-shell-opts!`
           ;; threads `:substrate (:substrate shell)` into every run, and
-          ;; `canvas/run-key` — which `variant-cell` keys its re-runs on —
+          ;; `rf.story.ui.canvas/run-key` — which `variant-cell` keys its re-runs on —
           ;; carries `:substrate` precisely so the cell re-renders when the
           ;; user flips it. Painting Reagent regardless made that re-run a lie.
           ;; So this is a bypass removal, not a feature: the cell now honours
@@ -422,8 +422,8 @@
           ;; mode / cell-override `run-opts` threaded into `resolve-decorators`
           ;; above, so the cell consumes the render half and keeps its own
           ;; `safe-decorated-view` wrap — the same trap rf2-3afns navigated.
-          (let [substrate (multi-substrate/single-render-substrate
-                            (canvas/variant-substrate-set variant-id)
+          (let [substrate (rf.story.ui.multi-substrate/single-render-substrate
+                            (rf.story.ui.canvas/variant-substrate-set variant-id)
                             :reagent)]
             ;; Scope the rendered view's subscribe / dispatch to the
             ;; variant's allocated frame via the namespace-preserving
@@ -447,18 +447,18 @@
             ;; axe-core to ONLY the variant's rendered tree.
             [rf/frame-provider {:frame variant-id}
              [:div {:data-rf-story-variant-root (pr-str variant-id)}
-              (canvas/safe-decorated-view
-                (multi-substrate/render-view
+              (rf.story.ui.canvas/safe-decorated-view
+                (rf.story.ui.multi-substrate/render-view
                   substrate variant-id view-id eff-args)
                 (:hiccup decorator-pack)
                 eff-args)]]))
         (when (seq errors)
-          [:div {:style {:background (:danger-bg colors/tokens)
+          [:div {:style {:background (:danger-bg rf.story.theme.colors/tokens)
                          :border "1px solid #be4040"
-                         :color (:danger colors/tokens)
+                         :color (:danger rf.story.theme.colors/tokens)
                          :padding "6px"
                          :margin-top "6px"
-                         :font-size (:micro typography/type-scale)
+                         :font-size (:micro rf.story.theme.typography/type-scale)
                          :border-radius "3px"}}
            [:div "Decorator errors:"]
            (for [[i e] (map-indexed vector errors)]
@@ -470,7 +470,7 @@
         ;; component; both render off the same per-record projection
         ;; rather than `pr-str`-ing raw maps.
         (when (seq assertions)
-          [assertion-strip/assertion-strip assertions])])))
+          [rf.story.ui.assertion-strip/assertion-strip assertions])])))
 
 #?(:cljs
    (defn- variant-cell
@@ -500,7 +500,7 @@
      owns the pre-allocation.
 
      Per rf2-c56hr (sibling to rf2-kgn0c, rf2-z4fza): the per-cell
-     `last-run-key` atom tracks the most-recent `(canvas/run-key shell
+     `last-run-key` atom tracks the most-recent `(rf.story.ui.canvas/run-key shell
      variant-id)` value seen by THIS cell. The prior implementation
      keyed only on `:hot-reload-tick`, so editing a control through
      the controls panel — which writes through to `:cell-overrides`
@@ -514,8 +514,8 @@
      interaction — same property the tick-only path preserved."
      [variant-id]
      (r/with-let [last-run-key (atom nil)]
-       (let [shell @state/shell-state-atom
-             key   (canvas/run-key shell variant-id)]
+       (let [shell @rf.story.ui.state/shell-state-atom
+             key   (rf.story.ui.canvas/run-key shell variant-id)]
          (when (not= key @last-run-key)
            (reset! last-run-key key)
            (run-variant-with-shell-opts! variant-id))
@@ -526,7 +526,7 @@
      [body]
      [:div {:style     (:prose-block styles)
             :data-test "story-workspace-prose-rendered"}
-      (md/parse body)]))
+      (rf.story.ui.markdown/parse body)]))
 
 #?(:cljs
    (defn- cell-key
@@ -583,15 +583,15 @@
       :tab-button  {:background     "#2d2d2d"
                     :border         "1px solid #3c3c3c"
                     :border-radius  "3px 3px 0 0"
-                    :color          (:text-primary colors/tokens)
+                    :color          (:text-primary rf.story.theme.colors/tokens)
                     :font-family    mono-stack
-                    :font-size      (:caption typography/type-scale)
+                    :font-size      (:caption rf.story.theme.typography/type-scale)
                     :padding        "4px 10px"
                     :cursor         "pointer"}
-      :tab-active  {:background     (:bg-2 colors/tokens)
+      :tab-active  {:background     (:bg-2 rf.story.theme.colors/tokens)
                     :border         "1px solid #569cd6"
                     :border-bottom  "1px solid #252526"
-                    :color          (:info colors/tokens)
+                    :color          (:info rf.story.theme.colors/tokens)
                     :font-weight    "bold"}
       :tab-body    {:display "block"}}))
 
@@ -677,17 +677,17 @@
       :nav-button  {:background    "#2d2d2d"
                     :border        "1px solid #3c3c3c"
                     :border-radius "3px"
-                    :color         (:text-primary colors/tokens)
+                    :color         (:text-primary rf.story.theme.colors/tokens)
                     :font-family   mono-stack
-                    :font-size     (:caption typography/type-scale)
+                    :font-size     (:caption rf.story.theme.typography/type-scale)
                     :padding       "4px 10px"
                     :cursor        "pointer"}
-      :nav-button-disabled {:background  (:bg-2 colors/tokens)
+      :nav-button-disabled {:background  (:bg-2 rf.story.theme.colors/tokens)
                             :color       "#666666"
                             :cursor      "not-allowed"}
-      :nav-label   {:color       (:info colors/tokens)
+      :nav-label   {:color       (:info rf.story.theme.colors/tokens)
                     :font-family mono-stack
-                    :font-size   (:caption typography/type-scale)
+                    :font-size   (:caption rf.story.theme.typography/type-scale)
                     :font-weight "bold"}
       :nav-body    {:display "block"}}))
 
@@ -819,11 +819,11 @@
                    :data-test-grid-warn (str total)
                    :data-test-grid-over-hard-cap (str (boolean over-hard-cap?))}
              (if over-hard-cap?
-               (str "⚠ " total " cells exceed the " budgets/matrix-hard-cap
+               (str "⚠ " total " cells exceed the " rf.story.budgets/matrix-hard-cap
                     "-cell hard cap — the grid is paged and will never render "
                     "all cells. Narrow the story's variants or filter.")
                (str "⚠ dense matrix: " total " cells (≥ "
-                    budgets/matrix-warn-threshold
+                    rf.story.budgets/matrix-warn-threshold
                     "). Consider narrowing the variants axis."))])
           [:div {:style (assoc (:grid styles)
                                :grid-template-columns
@@ -854,7 +854,7 @@
      keys, the workspace-level remount still guarantees frame setup
      re-fires on swap. Per rf2-kgn0c."
      [workspace-id]
-     (let [body (registrar/handler-meta :workspace workspace-id)]
+     (let [body (rf.story.registrar/handler-meta :workspace workspace-id)]
        (cond
          (nil? body)
          ;; Per rf2-xc65: workspace wrap is a scrollable container —

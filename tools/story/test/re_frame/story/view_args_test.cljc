@@ -23,9 +23,9 @@
   Pure JVM + CLJS — `view-args.cljc` + `plan.cljc` + both registrars are
   JVM-runnable, so the DEFAULT lookup works under `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story.view-args :as view-args]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.registrar       :as framework-registrar]))
+            [re-frame.story.view-args :as rf.story.view-args]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.registrar       :as rf.registrar]))
 
 ;; ---- fixtures ------------------------------------------------------------
 ;;
@@ -36,8 +36,8 @@
 ;; the resolver cache between tests.
 
 (defn reset-fixture [test-fn]
-  (registrar/clear-all!)
-  (framework-registrar/clear-kind! :view)
+  (rf.story.registrar/clear-all!)
+  (rf.registrar/clear-kind! :view)
   (test-fn))
 
 (use-fixtures :each reset-fixture)
@@ -48,25 +48,25 @@
   reads. A `:handler-fn` stub keeps the slot well-formed; the resolver
   only reads the schema slots."
   [view-id metadata]
-  (framework-registrar/register! :view view-id
+  (rf.registrar/register! :view view-id
                                  (assoc metadata :handler-fn (fn [_] nil))))
 
 ;; ---- the key picker (rf2-ayu6n: stale :spec dropped) ---------------------
 
 (deftest view-args-schema-keys-drop-spec
   (testing "the canonical key order is [:rf/props :schema] — :spec is gone"
-    (is (= [:rf/props :schema] view-args/view-args-schema-keys))))
+    (is (= [:rf/props :schema] rf.story.view-args/view-args-schema-keys))))
 
 (deftest view-args-schema-first-match-no-composition
   (testing ":rf/props wins outright over :schema (no composition)"
     (is (= [:map [:a :string]]
-           (view-args/view-args-schema {:rf/props [:map [:a :string]]
+           (rf.story.view-args/view-args-schema {:rf/props [:map [:a :string]]
                                         :schema   [:map [:b :string]]}))))
   (testing ":schema is the fallback location when :rf/props is absent"
     (is (= [:map [:b :string]]
-           (view-args/view-args-schema {:schema [:map [:b :string]]}))))
+           (rf.story.view-args/view-args-schema {:schema [:map [:b :string]]}))))
   (testing "a view carrying ONLY :spec resolves NO schema (dead post-M-54)"
-    (is (nil? (view-args/view-args-schema {:spec [:map [:c :string]]})))))
+    (is (nil? (rf.story.view-args/view-args-schema {:spec [:map [:c :string]]})))))
 
 ;; ---- the compiled-plan resolver (PRODUCTION path, DEFAULT lookup) --------
 
@@ -75,45 +75,45 @@
             the compiled plan via the DEFAULT side-table lookup"
     (let [schema [:map [:label :string] [:count :int]]]
       (reg-view-meta! :views/widget {:rf/props schema})
-      (registrar/reg-variant* :story.prod/ok
+      (rf.story.registrar/reg-variant* :story.prod/ok
                               {:component :views/widget
                                :args      {:label "Hi" :count 3}
                                :setup    []})
       ;; No :lookup / :view-lookup — the DEFAULT side-table + framework
       ;; `:view` registrar path the production runtime takes.
-      (is (= schema (view-args/compiled-view-args-schema :story.prod/ok))))))
+      (is (= schema (rf.story.view-args/compiled-view-args-schema :story.prod/ok))))))
 
 (deftest compiled-resolver-rf-props-wins-over-schema-on-default-lookup
   (testing ":rf/props wins over :schema on the registered view, end-to-end"
     (reg-view-meta! :views/dual {:rf/props [:map [:a :string]]
                                  :schema   [:map [:b :string]]})
-    (registrar/reg-variant* :story.prod/dual
+    (rf.story.registrar/reg-variant* :story.prod/dual
                             {:component :views/dual
                              :args      {:a "x"}
                              :setup    []})
     (is (= [:map [:a :string]]
-           (view-args/compiled-view-args-schema :story.prod/dual)))))
+           (rf.story.view-args/compiled-view-args-schema :story.prod/dual)))))
 
 (deftest compiled-resolver-schema-fallback-on-default-lookup
   (testing "a view carrying its schema under :schema (no :rf/props) still
             resolves — :schema is the post-M-54 fallback location"
     (reg-view-meta! :views/schemaed {:schema [:map [:title :string]]})
-    (registrar/reg-variant* :story.prod/schemaed
+    (rf.story.registrar/reg-variant* :story.prod/schemaed
                             {:component :views/schemaed
                              :args      {:title "T"}
                              :setup    []})
     (is (= [:map [:title :string]]
-           (view-args/compiled-view-args-schema :story.prod/schemaed)))))
+           (rf.story.view-args/compiled-view-args-schema :story.prod/schemaed)))))
 
 (deftest compiled-resolver-spec-only-view-resolves-nil
   (testing "a view whose ONLY schema slot is the dead :spec key resolves no
             schema on the production path (rf2-ayu6n — :spec is dead)"
     (reg-view-meta! :views/specced {:spec [:map [:x :string]]})
-    (registrar/reg-variant* :story.prod/specced
+    (rf.story.registrar/reg-variant* :story.prod/specced
                             {:component :views/specced
                              :args      {:x "v"}
                              :setup    []})
-    (is (nil? (view-args/compiled-view-args-schema :story.prod/specced)))))
+    (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/specced)))))
 
 (deftest compiled-resolver-resolves-extends-inherited-component
   (testing "an :extends-INHERITED :component resolves its schema — the
@@ -124,16 +124,16 @@
     ;; and declares no :component of its own. A bare-body read of the child
     ;; would find no :component → no schema. The compiled plan resolves the
     ;; parent chain, so the schema flows down.
-    (registrar/reg-variant* :story.prod/parent
+    (rf.story.registrar/reg-variant* :story.prod/parent
                             {:component :views/base
                              :args      {:label "P"}
                              :setup    []})
-    (registrar/reg-variant* :story.prod/child
+    (rf.story.registrar/reg-variant* :story.prod/child
                             {:extends :story.prod/parent
                              :args    {:label "C"}
                              :setup  []})
     (is (= [:map [:label :string]]
-           (view-args/compiled-view-args-schema :story.prod/child))
+           (rf.story.view-args/compiled-view-args-schema :story.prod/child))
         "the inherited :component's props schema resolves off the compiled plan")))
 
 (deftest compiled-resolver-matches-compiled-plan-slot
@@ -141,33 +141,33 @@
             — one source of truth, not a re-derivation"
     (let [schema [:map [:label :string]]]
       (reg-view-meta! :views/same {:rf/props schema})
-      (registrar/reg-variant* :story.prod/same
+      (rf.story.registrar/reg-variant* :story.prod/same
                               {:component :views/same
                                :args      {:label "Hi"}
                                :setup    []})
       ;; The shared resolver and the controls/schema-validation panels MUST
       ;; agree because they read the same compiled slot.
-      (is (= schema (view-args/compiled-view-args-schema :story.prod/same))))))
+      (is (= schema (rf.story.view-args/compiled-view-args-schema :story.prod/same))))))
 
 (deftest compiled-resolver-unregistered-variant-is-nil
   (testing "an unregistered variant resolves nil (best-effort tooling read —
             no throw)"
-    (is (nil? (view-args/compiled-view-args-schema :story.prod/nope)))))
+    (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/nope)))))
 
 (deftest compiled-resolver-no-component-is-nil
   (testing "a registered variant with no :component resolves nil"
-    (registrar/reg-variant* :story.prod/plain
+    (rf.story.registrar/reg-variant* :story.prod/plain
                             {:args {:x 1} :setup []})
-    (is (nil? (view-args/compiled-view-args-schema :story.prod/plain)))))
+    (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/plain)))))
 
 (deftest compiled-resolver-view-without-schema-is-nil
   (testing "a registered :component view carrying NO schema slot resolves nil"
     (reg-view-meta! :views/bare {})
-    (registrar/reg-variant* :story.prod/bare
+    (rf.story.registrar/reg-variant* :story.prod/bare
                             {:component :views/bare
                              :args      {:x 1}
                              :setup    []})
-    (is (nil? (view-args/compiled-view-args-schema :story.prod/bare)))))
+    (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/bare)))))
 
 ;; ---- memoization invalidates on registrar mutation ----------------------
 
@@ -175,19 +175,19 @@
   (testing "the per-(variant-id, mutation-tick) memo invalidates when the
             view is hot-reloaded with a new props schema"
     (reg-view-meta! :views/hot {:rf/props [:map [:a :string]]})
-    (registrar/reg-variant* :story.prod/hot
+    (rf.story.registrar/reg-variant* :story.prod/hot
                             {:component :views/hot
                              :args      {:a "x"}
                              :setup    []})
     (is (= [:map [:a :string]]
-           (view-args/compiled-view-args-schema :story.prod/hot)))
+           (rf.story.view-args/compiled-view-args-schema :story.prod/hot)))
     ;; Re-register the variant (bumps the Story side-table mutation-tick),
     ;; pointing at a view with a different schema → the memo invalidates.
     (reg-view-meta! :views/hot {:rf/props [:map [:a :string] [:b :int]]})
-    (registrar/reg-variant* :story.prod/hot
+    (rf.story.registrar/reg-variant* :story.prod/hot
                             {:component :views/hot
                              :args      {:a "x" :b 1}
                              :setup    []})
     (is (= [:map [:a :string] [:b :int]]
-           (view-args/compiled-view-args-schema :story.prod/hot))
+           (rf.story.view-args/compiled-view-args-schema :story.prod/hot))
         "the resolver re-reads the compiled plan after the tick bump")))

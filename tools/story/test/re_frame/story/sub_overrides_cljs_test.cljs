@@ -17,16 +17,16 @@
   because `compute-sub` + `reg-sub` need the framework runtime."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs :as subs]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.sub-override-context :as ovr-ctx]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story.sub-overrides :as sub-overrides]))
+            [re-frame.subs :as rf.subs]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.sub-override-context :as rf.adapter.sub-override-context]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story.sub-overrides :as rf.story.sub-overrides]))
 
 (use-fixtures :each
   {:before (fn []
-             (registrar/clear-all!)
-             (try (rf/init! plain-atom/adapter) (catch :default _ nil)))})
+             (rf.registrar/clear-all!)
+             (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil)))})
 
 (deftest override-does-not-leak-into-compute-sub
   (testing "a bound :sub-overrides value does NOT change what compute-sub returns"
@@ -36,29 +36,29 @@
       ;; Bind an override that pins the SAME query to a DIFFERENT value —
       ;; the render path would surface :error, but compute-sub (the seam
       ;; :rf.assert/sub-equals uses) must still see the real :ok.
-      (sub-overrides/with-overrides* {[:login/state] :error}
+      (rf.story.sub-overrides/with-overrides* {[:login/state] :error}
         (fn []
           (testing "the render-path resolver surfaces the override"
-            (is (= :error (sub-overrides/resolve [:login/state]))))
+            (is (= :error (rf.story.sub-overrides/resolve [:login/state]))))
           (testing "compute-sub is UNAFFECTED — it reads real app-db"
-            (is (= :ok (subs/compute-sub [:login/state] db))))
+            (is (= :ok (rf.subs/compute-sub [:login/state] db))))
           (testing "so a sub-equals check of the override value would FAIL"
             ;; (= (compute-sub …) override-value) is false — the override
             ;; cannot satisfy the subscription assertion.
-            (is (not= :error (subs/compute-sub [:login/state] db)))))))))
+            (is (not= :error (rf.subs/compute-sub [:login/state] db)))))))))
 
 (deftest read-seam-surfaces-override-without-touching-db
-  (testing "sub-overrides/read returns the override; real-read runs only on a miss"
+  (testing "rf.story.sub-overrides/read returns the override; real-read runs only on a miss"
     (rf/reg-sub :login/state (fn [db _] (get-in db [:login :state])))
     (let [db {:login {:state :ok}}
-          real-read #(subs/compute-sub [:login/state] db)]
-      (sub-overrides/with-overrides* {[:login/state] :error}
+          real-read #(rf.subs/compute-sub [:login/state] db)]
+      (rf.story.sub-overrides/with-overrides* {[:login/state] :error}
         (fn []
           (testing "overridden query → override value, real-read skipped"
-            (is (= :error (sub-overrides/read [:login/state]
+            (is (= :error (rf.story.sub-overrides/read [:login/state]
                                               (fn [] (throw (ex-info "real-read should not run" {})))))))
           (testing "non-overridden query → falls through to compute-sub"
-            (is (= :ok (sub-overrides/read [:login/other] real-read)))))))))
+            (is (= :ok (rf.story.sub-overrides/read [:login/other] real-read)))))))))
 
 ;; ---- the React-context resolver (the LIVE carriage, rf2-7pgiz) -----------
 ;;
@@ -73,30 +73,30 @@
 ;; (`re-frame.story.sub-overrides-render-dom-cljs-test`).
 
 (defn- with-context-overrides* [m thunk]
-  (let [prev (.-_currentValue ^js ovr-ctx/override-context)]
-    (set! (.-_currentValue ^js ovr-ctx/override-context) m)
+  (let [prev (.-_currentValue ^js rf.adapter.sub-override-context/override-context)]
+    (set! (.-_currentValue ^js rf.adapter.sub-override-context/override-context) m)
     (try (thunk)
-         (finally (set! (.-_currentValue ^js ovr-ctx/override-context) prev)))))
+         (finally (set! (.-_currentValue ^js rf.adapter.sub-override-context/override-context) prev)))))
 
 (deftest context-resolver-returns-one-element-vector-on-hit
   (testing "resolve-sub-override-hit reads the context Provider value"
     (with-context-overrides* {[:login/state] :error}
       (fn []
         (testing "exact-query-vector hit → [value]"
-          (is (= [:error] (sub-overrides/resolve-sub-override-hit [:login/state]))))
+          (is (= [:error] (rf.story.sub-overrides/resolve-sub-override-hit [:login/state]))))
         (testing "non-overridden query → nil (miss)"
-          (is (nil? (sub-overrides/resolve-sub-override-hit [:login/other]))))))))
+          (is (nil? (rf.story.sub-overrides/resolve-sub-override-hit [:login/other]))))))))
 
 (deftest context-resolver-honours-nil-valued-override
   (testing "a nil-valued override is a HIT — returns [nil], not nil-the-miss"
     (with-context-overrides* {[:x/value] nil}
       (fn []
-        (is (= [nil] (sub-overrides/resolve-sub-override-hit [:x/value]))
+        (is (= [nil] (rf.story.sub-overrides/resolve-sub-override-hit [:x/value]))
             "nil override surfaces as a [nil] hit (one-element-vector contract)")))))
 
 (deftest context-resolver-misses-with-no-provider
   (testing "no Provider in scope (_currentValue nil) → every query misses"
     ;; The fixture's runtime reset leaves the context at its createContext
     ;; default (nil); assert a miss without setting any value.
-    (set! (.-_currentValue ^js ovr-ctx/override-context) nil)
-    (is (nil? (sub-overrides/resolve-sub-override-hit [:anything])))))
+    (set! (.-_currentValue ^js rf.adapter.sub-override-context/override-context) nil)
+    (is (nil? (rf.story.sub-overrides/resolve-sub-override-hit [:anything])))))

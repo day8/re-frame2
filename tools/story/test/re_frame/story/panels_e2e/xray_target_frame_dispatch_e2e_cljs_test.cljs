@@ -21,15 +21,15 @@
   Sub-second per surface; no DOM / no React mount / no Playwright."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.ui.shell :as shell]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.shell :as rf.story.ui.shell]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -40,12 +40,12 @@
   test — calling it directly exercises exactly the path
   `mount-shell!` invokes during boot."
   []
-  ((deref #'shell/selection-watcher)))
+  ((deref #'rf.story.ui.shell/selection-watcher)))
 
 (defn- remove-selection-watcher!
   "Symmetric teardown: drop the watch + clear the cross-mount tracker."
   []
-  ((deref #'shell/remove-selection-watcher!)))
+  ((deref #'rf.story.ui.shell/remove-selection-watcher!)))
 
 ;; ---- the contract --------------------------------------------------------
 
@@ -57,18 +57,18 @@
             the variant's frame but never told Xray to OBSERVE it,
             so the App-DB / Event panels rendered against the prior
             target-frame (commonly the boot default)."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story :story.cart {})
-         (story/reg-variant :story.cart/empty
+         (rf.story/reg-story :story.cart {})
+         (rf.story/reg-variant :story.cart/empty
            {:doc    "Empty cart variant — exercises the target-frame dispatch."
             :setup []}))}
       (fn []
         (install-selection-watcher!)
         (try
           ;; Variant-id IS the frame-id per `re-frame.story.frames`.
-          (e2e/select-variant! :story.cart/empty)
+          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.cart/empty)
           ;; Inspect the slot Xray's `:rf.xray/set-target-frame`
           ;; reducer writes to. If the watcher's dispatch fired, the
           ;; slot reflects the freshly-selected variant.
@@ -85,21 +85,21 @@
             watcher dispatched zero times so a switch left Xray
             stuck on the prior frame. The post-fix watcher fires on
             every edge."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story :story.cart {})
-         (story/reg-variant :story.cart/empty {:setup []})
-         (story/reg-variant :story.cart/with-items {:setup []}))}
+         (rf.story/reg-story :story.cart {})
+         (rf.story/reg-variant :story.cart/empty {:setup []})
+         (rf.story/reg-variant :story.cart/with-items {:setup []}))}
       (fn []
         (install-selection-watcher!)
         (try
-          (e2e/select-variant! :story.cart/empty)
+          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.cart/empty)
           (rf/with-frame :rf/xray
             (is (= :story.cart/empty
                    @(rf/subscribe [:rf.xray/target-frame]))
                 "first selection lands"))
-          (e2e/select-variant! :story.cart/with-items)
+          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.cart/with-items)
           (rf/with-frame :rf/xray
             (is (= :story.cart/with-items
                    @(rf/subscribe [:rf.xray/target-frame]))
@@ -114,15 +114,15 @@
             value rather than being reset to nil — consistent with the
             picker contract (a nil dispatch resets to the boot
             default, which would clobber the user's last context)."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story :story.cart {})
-         (story/reg-variant :story.cart/empty {:setup []}))}
+         (rf.story/reg-story :story.cart {})
+         (rf.story/reg-variant :story.cart/empty {:setup []}))}
       (fn []
         (install-selection-watcher!)
         (try
-          (e2e/select-variant! :story.cart/empty)
+          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.cart/empty)
           (rf/with-frame :rf/xray
             (is (= :story.cart/empty
                    @(rf/subscribe [:rf.xray/target-frame]))
@@ -130,7 +130,7 @@
           ;; Now clear the selection. The watcher's `(when now ...)`
           ;; guard short-circuits, so no dispatch fires; the slot
           ;; retains the last variant-id.
-          (e2e/select-variant! nil)
+          (rf.story.test-helpers.e2e-multi-frame/select-variant! nil)
           (rf/with-frame :rf/xray
             (is (= :story.cart/empty
                    @(rf/subscribe [:rf.xray/target-frame]))

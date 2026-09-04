@@ -16,9 +16,9 @@
   Runs on the JVM under `clojure -M:test` and on CLJS under shadow's
   `:node-test` build (ns suffix `-cljs-test`)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.ui.author-expectations :as ui]
+            [re-frame.story.ui.author-expectations :as rf.story.ui.author-expectations]
             #?@(:cljs [[clojure.string :as str]
-                       [re-frame.story.registrar :as registrar]])))
+                       [re-frame.story.registrar :as rf.story.registrar]])))
 
 ;; ===========================================================================
 ;; JVM + CLJS — pure draft transitions
@@ -26,48 +26,48 @@
 
 (deftest add-row-mints-stable-ids
   (testing "add-row appends a fresh row of the kind with a stable id"
-    (let [d  (ui/initial-draft)
-          d1 (ui/add-row d :app-db-equals)
-          d2 (ui/add-row d1 :dom-text)]
+    (let [d  (rf.story.ui.author-expectations/initial-draft)
+          d1 (rf.story.ui.author-expectations/add-row d :app-db-equals)
+          d2 (rf.story.ui.author-expectations/add-row d1 :dom-text)]
       (is (= 2 (count (:rows d2))))
       (is (= [:app-db-equals :dom-text] (mapv :kind (:rows d2))))
       (is (= [0 1] (mapv :row-id (:rows d2)))
           "row ids are stable + monotonic so React keys survive edits"))))
 
 (deftest remove-row-drops-by-id
-  (let [d (-> (ui/initial-draft)
-              (ui/add-row :app-db-equals)
-              (ui/add-row :no-warnings))]
-    (is (= [1] (mapv :row-id (:rows (ui/remove-row d 0)))))
+  (let [d (-> (rf.story.ui.author-expectations/initial-draft)
+              (rf.story.ui.author-expectations/add-row :app-db-equals)
+              (rf.story.ui.author-expectations/add-row :no-warnings))]
+    (is (= [1] (mapv :row-id (:rows (rf.story.ui.author-expectations/remove-row d 0)))))
     (is (= 2 (count (:rows d))) "remove is non-mutating")))
 
 (deftest set-operand-stores-raw-string
   (testing "set-operand stores the raw value verbatim (parsed at projection)"
-    (let [d (-> (ui/initial-draft)
-                (ui/add-row :app-db-equals)
-                (ui/set-operand 0 :path "[:a]")
-                (ui/set-operand 0 :expected "5"))]
+    (let [d (-> (rf.story.ui.author-expectations/initial-draft)
+                (rf.story.ui.author-expectations/add-row :app-db-equals)
+                (rf.story.ui.author-expectations/set-operand 0 :path "[:a]")
+                (rf.story.ui.author-expectations/set-operand 0 :expected "5"))]
       (is (= "[:a]" (get-in (first (:rows d)) [:operands :path])))
       (is (= "5" (get-in (first (:rows d)) [:operands :expected]))))))
 
 (deftest set-variant-id-and-doc
-  (let [d (-> (ui/initial-draft)
-              (ui/set-variant-id :story.x/expects-1)
-              (ui/set-doc "why"))]
+  (let [d (-> (rf.story.ui.author-expectations/initial-draft)
+              (rf.story.ui.author-expectations/set-variant-id :story.x/expects-1)
+              (rf.story.ui.author-expectations/set-doc "why"))]
     (is (= :story.x/expects-1 (:variant-id d)))
     (is (= "why" (:doc d)))))
 
 (deftest draft-atoms-projects-ready-rows
   (testing "draft-atoms yields canonical atoms for the ready rows only"
-    (let [d (-> (ui/initial-draft)
-                (ui/add-row :app-db-equals)
-                (ui/set-operand 0 :path "[:a]")
-                (ui/set-operand 0 :expected "1")
-                (ui/add-row :no-warnings)         ; nullary, always ready
-                (ui/add-row :sub-equals))]        ; operands blank → not ready
+    (let [d (-> (rf.story.ui.author-expectations/initial-draft)
+                (rf.story.ui.author-expectations/add-row :app-db-equals)
+                (rf.story.ui.author-expectations/set-operand 0 :path "[:a]")
+                (rf.story.ui.author-expectations/set-operand 0 :expected "1")
+                (rf.story.ui.author-expectations/add-row :no-warnings)         ; nullary, always ready
+                (rf.story.ui.author-expectations/add-row :sub-equals))]        ; operands blank → not ready
       (is (= [[:rf.assert/path-equals [:a] 1]
               [:rf.assert/no-warnings]]
-             (ui/draft-atoms d))))))
+             (rf.story.ui.author-expectations/draft-atoms d))))))
 
 ;; ===========================================================================
 ;; CLJS-only — button hiccup
@@ -76,7 +76,7 @@
 #?(:cljs
    (deftest button-disabled-without-variant
      (testing "the button is disabled + hinted when no variant is focused"
-       (let [attrs (second (ui/author-expectations-button nil))]
+       (let [attrs (second (rf.story.ui.author-expectations/author-expectations-button nil))]
          (is (true? (:disabled attrs)))
          (is (str/includes? (:title attrs) "Select a variant"))
          (is (= "story-author-expectation-button" (:data-test attrs)))))))
@@ -84,7 +84,7 @@
 #?(:cljs
    (deftest button-enabled-with-variant
      (testing "the button enables when a variant is focused"
-       (let [attrs (second (ui/author-expectations-button :story.x/y))]
+       (let [attrs (second (rf.story.ui.author-expectations/author-expectations-button :story.x/y))]
          (is (false? (:disabled attrs)))
          (is (fn? (:on-click attrs)))))))
 
@@ -97,41 +97,41 @@
      "Realise the form-2 author-dialog into hiccup (call the component, then
       its returned render fn)."
      []
-     ((ui/author-dialog))))
+     ((rf.story.ui.author-expectations/author-dialog))))
 
 #?(:cljs
    (deftest dialog-not-rendered-when-closed
      (testing "the dialog renders nil while its ratom is closed"
-       (reset! ui/dialog-atom ui/initial-dialog-state)
+       (reset! rf.story.ui.author-expectations/dialog-atom rf.story.ui.author-expectations/initial-dialog-state)
        (is (nil? (render-dialog))))))
 
 #?(:cljs
    (deftest open-seeds-an-empty-draft-with-default-id
      (testing "open! flips :open? and seeds a default expects-<ms> id"
-       (registrar/clear-all!)
-       (ui/open! :story.counter/happy-path)
-       (let [d @ui/dialog-atom]
+       (rf.story.registrar/clear-all!)
+       (rf.story.ui.author-expectations/open! :story.counter/happy-path)
+       (let [d @rf.story.ui.author-expectations/dialog-atom]
          (is (:open? d))
          (is (= :story.counter/happy-path (:source-id d)))
          (is (empty? (:rows (:draft d))) "starts with no expectations")
          (is (qualified-keyword? (:variant-id (:draft d))))
          (is (str/includes? (name (:variant-id (:draft d))) "expects")
              "the default id carries the 'expects' prefix"))
-       (ui/close!))))
+       (rf.story.ui.author-expectations/close!))))
 
 #?(:cljs
    (deftest dialog-shows-cost-before-save-and-cannot-run
      (testing "the open dialog renders the per-row cost + a cannot-run flag
                for a DOM expectation — the honesty floor BEFORE save"
-       (registrar/clear-all!)
-       (ui/open! :story.counter/happy-path)
+       (rf.story.registrar/clear-all!)
+       (rf.story.ui.author-expectations/open! :story.counter/happy-path)
        ;; author one headless app-db expectation + one DOM expectation
-       (ui/add-row! :app-db-equals)
-       (ui/set-operand! 0 :path "[:counter :value]")
-       (ui/set-operand! 0 :expected "5")
-       (ui/add-row! :dom-text)
-       (ui/set-operand! 1 :selector "\".count\"")
-       (ui/set-operand! 1 :text "\"5\"")
+       (rf.story.ui.author-expectations/add-row! :app-db-equals)
+       (rf.story.ui.author-expectations/set-operand! 0 :path "[:counter :value]")
+       (rf.story.ui.author-expectations/set-operand! 0 :expected "5")
+       (rf.story.ui.author-expectations/add-row! :dom-text)
+       (rf.story.ui.author-expectations/set-operand! 1 :selector "\".count\"")
+       (rf.story.ui.author-expectations/set-operand! 1 :text "\"5\"")
        (let [flat (str (render-dialog))]
          (is (str/includes? flat "story-author-expectation-dialog"))
          ;; both authored rows are present as components (the per-row cost
@@ -154,7 +154,7 @@
          (is (str/includes? flat ":rf.assert/dom-text"))
          (is (str/includes? flat ":extends"))
          (is (str/includes? flat ":story.counter/happy-path")))
-       (ui/close!))))
+       (rf.story.ui.author-expectations/close!))))
 
 #?(:cljs
    (deftest expectation-row-renders-per-row-cost-stripe
@@ -163,7 +163,7 @@
                (realised directly, since the strip lives inside the component)"
        (let [row  {:row-id 0 :kind :dom-text
                    :operands {:selector "\".count\"" :text "\"5\""}}
-             flat (str (#'ui/expectation-row row))]
+             flat (str (#'rf.story.ui.author-expectations/expectation-row row))]
          (is (str/includes? flat "story-author-expectation-cost"))
          (is (str/includes? flat "story-author-expectation-cannot-run"))
          (is (str/includes? flat "cannot run headless"))
@@ -173,26 +173,26 @@
    (deftest dialog-merges-existing-declared-assertions
      (testing "the snippet merges the source variant's declared :assertions
                with the authored atoms (the additive round-trip)"
-       (registrar/clear-all!)
-       (registrar/install-canonical-tags!)
+       (rf.story.registrar/clear-all!)
+       (rf.story.registrar/install-canonical-tags!)
        ;; register a source variant that already declares an assertion
-       (registrar/reg-variant* :story.counter/has-assert
+       (rf.story.registrar/reg-variant* :story.counter/has-assert
          {:assertions [[:rf.assert/no-warnings]]
           :tags       #{:test}})
-       (ui/open! :story.counter/has-assert)
-       (ui/add-row! :app-db-equals)
-       (ui/set-operand! 0 :path "[:n]")
-       (ui/set-operand! 0 :expected "1")
+       (rf.story.ui.author-expectations/open! :story.counter/has-assert)
+       (rf.story.ui.author-expectations/add-row! :app-db-equals)
+       (rf.story.ui.author-expectations/set-operand! 0 :path "[:n]")
+       (rf.story.ui.author-expectations/set-operand! 0 :expected "1")
        (let [flat (str (render-dialog))]
          (is (str/includes? flat ":rf.assert/no-warnings") "existing kept")
          (is (str/includes? flat ":rf.assert/path-equals") "authored added"))
-       (ui/close!))))
+       (rf.story.ui.author-expectations/close!))))
 
 #?(:cljs
    (deftest kind-picker-covers-all-surfaces
      (testing "the rendered dialog kind-picker offers a chip per catalog kind"
-       (registrar/clear-all!)
-       (ui/open! :story.x/y)
+       (rf.story.registrar/clear-all!)
+       (rf.story.ui.author-expectations/open! :story.x/y)
        (let [flat (str (render-dialog))]
          (is (str/includes? flat "story-author-expectation-kind-picker"))
          ;; one chip per kind — spot-check the five acceptance surfaces
@@ -201,4 +201,4 @@
          (is (str/includes? flat "dom-text"))
          (is (str/includes? flat "schema-error"))
          (is (str/includes? flat "a11y")))
-       (ui/close!))))
+       (rf.story.ui.author-expectations/close!))))

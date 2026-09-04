@@ -15,35 +15,35 @@
   - Frame teardown drops the stub-event log."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.async      :as async]
-            [re-frame.story.config     :as config]
-            [re-frame.story.decorators :as decorators]
-            [re-frame.story.frames     :as frames]
-            [re-frame.story.fx-stubs   :as fx-stubs]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.play       :as play]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.decorators :as rf.story.decorators]
+            [re-frame.story.frames     :as rf.story.frames]
+            [re-frame.story.fx-stubs   :as rf.story.fx-stubs]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.play       :as rf.story.play]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-all [test-fn]
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (require 're-frame.machines :reload)
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (config/set-global-args! {})
-  (reset! play/stepper-state            {})
-  (reset! frames/stub-call-log          {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.config/set-global-args! {})
+  (reset! rf.story.play/stepper-state            {})
+  (reset! rf.story.frames/stub-call-log          {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-all)
@@ -54,10 +54,10 @@
 
 (deftest force-fx-stub-registered-at-boot
   (testing ":rf.story/force-fx-stub is registered as a decorator after install"
-    (is (story/registered? :decorator :rf.story/force-fx-stub))
+    (is (rf.story/registered? :decorator :rf.story/force-fx-stub))
     (is (= :fx-override
-           (:kind (story/handler-meta :decorator :rf.story/force-fx-stub))))
-    (is (= story/force-fx-stub-id :rf.story/force-fx-stub))))
+           (:kind (rf.story/handler-meta :decorator :rf.story/force-fx-stub))))
+    (is (= rf.story/force-fx-stub-id :rf.story/force-fx-stub))))
 
 ;; ===========================================================================
 ;; Ref-args expansion
@@ -65,10 +65,10 @@
 
 (deftest force-fx-stub-ref-args-expansion
   (testing "ref-args expand into a per-reference body with fx-id + response"
-    (story/reg-variant :story.fxstub/v
+    (rf.story/reg-variant :story.fxstub/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]]
        :setup     []})
-    (let [r (story/resolve-decorators :story.fxstub/v)]
+    (let [r (rf.story/resolve-decorators :story.fxstub/v)]
       (is (= 1 (count (:fx-override r))))
       (let [body (-> r :fx-override first :body)]
         (is (= :http              (:fx-id body)))
@@ -77,12 +77,12 @@
 
 (deftest force-fx-stub-multiple-refs-distinct-fx-ids
   (testing "multiple force-fx-stub references with distinct fx-ids get distinct stub-event-ids"
-    (story/reg-variant :story.fxstub-multi/v
+    (rf.story/reg-variant :story.fxstub-multi/v
       {:decorators [[:rf.story/force-fx-stub :http      {:status :a}]
                     [:rf.story/force-fx-stub :websocket {:status :b}]]
        :setup     []})
-    (let [r       (story/resolve-decorators :story.fxstub-multi/v)
-          stack   (decorators/fx-overrides-map (:fx-override r))]
+    (let [r       (rf.story/resolve-decorators :story.fxstub-multi/v)
+          stack   (rf.story.decorators/fx-overrides-map (:fx-override r))]
       (is (= 2 (count (:overrides stack))))
       (is (contains? (:overrides stack) :http))
       (is (contains? (:overrides stack) :websocket))
@@ -98,11 +98,11 @@
 (deftest expand-ref-args-helper
   (testing "expand-ref-args returns a body map for force-fx-stub refs"
     (is (= {:kind :fx-override :fx-id :http :response {:n 1}}
-           (fx-stubs/expand-ref-args
+           (rf.story.fx-stubs/expand-ref-args
              [:rf.story/force-fx-stub :http {:n 1}])))
-    (is (nil? (fx-stubs/expand-ref-args [:some-other-decorator :http])))
-    (is (nil? (fx-stubs/expand-ref-args nil)))
-    (is (nil? (fx-stubs/expand-ref-args [])))))
+    (is (nil? (rf.story.fx-stubs/expand-ref-args [:some-other-decorator :http])))
+    (is (nil? (rf.story.fx-stubs/expand-ref-args nil)))
+    (is (nil? (rf.story.fx-stubs/expand-ref-args [])))))
 
 ;; ===========================================================================
 ;; The fx-overrides config threads onto the variant frame
@@ -110,16 +110,16 @@
 
 (deftest force-fx-stub-installs-on-frame
   (testing "running a variant with force-fx-stub stamps :fx-overrides on the frame config"
-    (story/reg-variant :story.fxstub-frame/v
+    (rf.story/reg-variant :story.fxstub-frame/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]]
        :setup     []})
-    (let [r (async/deref-blocking (story/run-variant :story.fxstub-frame/v) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxstub-frame/v) 5000)]
       (is (= :ready (:lifecycle r)))
       (let [overrides (:fx-overrides (rf/frame-meta :story.fxstub-frame/v))]
         (is (map? overrides))
         (is (contains? overrides :http)
             "the :http fx is redirected to the stub event")))
-    (story/destroy-variant! :story.fxstub-frame/v)))
+    (rf.story/destroy-variant! :story.fxstub-frame/v)))
 
 ;; ===========================================================================
 ;; :rf.assert/effect-emitted with force-fx-stub
@@ -130,16 +130,16 @@
     (rf/reg-event :do/http-call
       (fn [_ _]
         {:fx [[:http {:url "/test" :method :get}]]}))
-    (story/reg-variant :story.fxemit/v
+    (rf.story/reg-variant :story.fxemit/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {:n 1}}]]
        :setup     []
        :script [[:dispatch-sync [:do/http-call]]
                     [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.fxemit/v) 5000)
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxemit/v) 5000)
           last-a (last (:assertions r))]
       (is (true? (:passed? last-a))
           "force-fx-stub's stub event taps emitted-fx accumulator so :rf.assert/effect-emitted sees the call"))
-    (story/destroy-variant! :story.fxemit/v)))
+    (rf.story/destroy-variant! :story.fxemit/v)))
 
 ;; ===========================================================================
 ;; Stub event log inspection
@@ -150,11 +150,11 @@
     (rf/reg-event :do/http-call2
       (fn [_ _]
         {:fx [[:http {:url "/api" :method :post}]]}))
-    (story/reg-variant :story.fxlog/v
+    (rf.story/reg-variant :story.fxlog/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {}}]]
        :setup     []
        :script [[:dispatch-sync [:do/http-call2]]]})
-    (async/deref-blocking (story/run-variant :story.fxlog/v) 5000)
+    (rf.story.async/deref-blocking (rf.story/run-variant :story.fxlog/v) 5000)
     (let [log (re-frame.story.frames/stub-call-log-for :story.fxlog/v)]
       (is (= 1 (count log)))
       (is (= :http (:fx-id (first log)))
@@ -162,9 +162,9 @@
       (is (= {:url "/api" :method :post} (:payload (first log)))
           "the stub log entry carries the original fx payload"))
     ;; observed-fx-ids should also see the stub.
-    (is (contains? (fx-stubs/observed-fx-ids :story.fxlog/v) :http)
+    (is (contains? (rf.story.fx-stubs/observed-fx-ids :story.fxlog/v) :http)
         "observed-fx-ids surfaces the stubbed fx after the run")
-    (story/destroy-variant! :story.fxlog/v)))
+    (rf.story/destroy-variant! :story.fxlog/v)))
 
 (deftest force-fx-stub-log-is-per-frame
   (testing "two variants emitting the same fx id keep stub logs and effect assertions isolated by frame"
@@ -174,25 +174,25 @@
     (rf/reg-event :do/http-b
       (fn [_ _]
         {:fx [[:http {:url "/b"}]]}))
-    (story/reg-variant :story.fxisolation/a
+    (rf.story/reg-variant :story.fxisolation/a
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
        :setup     []
        :script [[:dispatch-sync [:do/http-a]]
                     [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (story/reg-variant :story.fxisolation/b
+    (rf.story/reg-variant :story.fxisolation/b
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
        :setup     []
        :script [[:dispatch-sync [:do/http-b]]
                     [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [ra (async/deref-blocking (story/run-variant :story.fxisolation/a) 5000)
-          rb (async/deref-blocking (story/run-variant :story.fxisolation/b) 5000)
-          log-a (frames/stub-call-log-for :story.fxisolation/a)
-          log-b (frames/stub-call-log-for :story.fxisolation/b)]
+    (let [ra (rf.story.async/deref-blocking (rf.story/run-variant :story.fxisolation/a) 5000)
+          rb (rf.story.async/deref-blocking (rf.story/run-variant :story.fxisolation/b) 5000)
+          log-a (rf.story.frames/stub-call-log-for :story.fxisolation/a)
+          log-b (rf.story.frames/stub-call-log-for :story.fxisolation/b)]
       (is (every? :passed? (:assertions ra)))
       (is (every? :passed? (:assertions rb)))
       (is (= [{:url "/a"}] (mapv :payload log-a)))
       (is (= [{:url "/b"}] (mapv :payload log-b)))
-      (is (= #{:http} (fx-stubs/observed-fx-ids :story.fxisolation/a)))
-      (is (= #{:http} (fx-stubs/observed-fx-ids :story.fxisolation/b))))
-    (story/destroy-variant! :story.fxisolation/a)
-    (story/destroy-variant! :story.fxisolation/b)))
+      (is (= #{:http} (rf.story.fx-stubs/observed-fx-ids :story.fxisolation/a)))
+      (is (= #{:http} (rf.story.fx-stubs/observed-fx-ids :story.fxisolation/b))))
+    (rf.story/destroy-variant! :story.fxisolation/a)
+    (rf.story/destroy-variant! :story.fxisolation/b)))

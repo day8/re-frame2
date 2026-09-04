@@ -5,7 +5,7 @@
   URL-hash-routed between two surfaces, like every other Story testbed:
 
     `#/`        → the live tally, a Reagent root carrying the boundary
-                  through `h/as-component`.
+                  through `rf.hicasso/as-component`.
     `#/stories` → the Story shell. The deck's two variants declare
                   `:substrates #{:hicasso}` and paint through the
                   registered `:hicasso` render fn.
@@ -46,10 +46,10 @@
   short-circuits. This build leaves Story enabled; the elision path is
   gated elsewhere."
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.hicasso :as h]
-            [re-frame.story :as story]
-            [re-frame.story.play.ci-runner :as story-ci]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.story :as rf.story]
+            [re-frame.story.play.ci-runner :as rf.story.play.ci-runner]
             [day8.re-frame2-xray.config :as xray-config]
             [hicasso-counter.events]
             [hicasso-counter.subs]
@@ -57,7 +57,7 @@
             [hicasso-counter.stories]
             ;; Shared Story-host helper: owns the live-app↔Story-shell hash
             ;; router + React-root handle.
-            [re-frame.testbed.story-host :as story-host])
+            [re-frame.testbed.story-host :as rf.testbed.story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ---------------------------------------------------------------------------
@@ -73,15 +73,15 @@
     the same id — reaches the deck with no deck change;
   - read `:hicasso/component`, because the alias entry deliberately
     carries no `:handler-fn` and `rf/view` answers nil for it (rf2-5qaf4);
-  - mint the element with `h/as-element` rather than bridging through
-    `h/as-component`. `defview` already mints ONE `React.memo` wrapper per
+  - mint the element with `rf.hicasso/as-element` rather than bridging through
+    `rf.hicasso/as-component`. `defview` already mints ONE `React.memo` wrapper per
     head, so a fresh element per pass rides a stable TYPE and the boundary
     re-renders instead of remounting."
   []
-  (story/register-substrate! :hicasso
+  (rf.story/register-substrate! :hicasso
     (fn [_variant-id view-id args]
       (if-let [head (:hicasso/component (rf/handler-meta :view view-id))]
-        (h/as-element [head args])
+        (rf.hicasso/as-element [head args])
         [:div (str ":component " (pr-str view-id)
                    " is not registered as a hicasso view")]))))
 
@@ -95,7 +95,7 @@
    [:h2 {:style {:margin "0 0 0.5em 0"}} "Hicasso tally (Story testbed)"]
    [:p {:style {:font-size "13px" :color "#666" :margin "0 0 1.5em 0"}}
     "Every element below this line was authored with "
-    [:code {:style {:background "#f5f5f5" :padding "1px 4px"}} "h/defview"]
+    [:code {:style {:background "#f5f5f5" :padding "1px 4px"}} "rf.hicasso/defview"]
     ". Open "
     [:a {:href "#/stories"} "#/stories"]
     " for the same views as Story variants under "
@@ -125,7 +125,7 @@
   ;; Story owns this page's full-width browser-test canvas. Keep Xray's
   ;; collectors and keybinding installed but skip the default panel launch.
   (xray-config/configure! {:rf.xray/auto-open? false})
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (install-hicasso-substrate!)
   (rf/make-frame {:id  :rf/default
                   :doc "Hicasso-counter testbed default frame."})
@@ -137,5 +137,5 @@
   ;; and drives. Installed unconditionally — the fn body is itself gated on
   ;; Story being enabled — and BEFORE the router mounts, so the global is
   ;; present by the time the page has finished loading.
-  (story-ci/install-ci-hooks!)
-  (story-host/mount-with-hash-routing! live-app-root))
+  (rf.story.play.ci-runner/install-ci-hooks!)
+  (rf.testbed.story-host/mount-with-hash-routing! live-app-root))

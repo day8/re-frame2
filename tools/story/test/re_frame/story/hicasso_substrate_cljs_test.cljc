@@ -16,10 +16,10 @@
   1. **Registration** — the closed shape accepts it, on the variant body
      and on the story body, and STILL refuses an unknown member. A widen
      that quietly opened the enum would pass every other row here.
-  2. **Plan compilation** — `plan/variant-plan` folds it to
+  2. **Plan compilation** — `rf.story.plan/variant-plan` folds it to
      `[:world :substrates]`, which is where `canonical/render-host-scope`
      reads the declared set (rf2-3afns).
-  3. **The EDN / MCP read path** — `story/variant->edn` is what the MCP
+  3. **The EDN / MCP read path** — `rf.story/variant->edn` is what the MCP
      `list-variants` / read tools relay to an agent, and a keyword that
      did not round-trip would strand the agent on a story it can see and
      cannot describe.
@@ -43,22 +43,22 @@
   `re-frame.story.ui.hicasso-substrate-dom-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as rf-registrar]
-            [re-frame.story :as story]
-            [re-frame.story.identity :as identity]
-            [re-frame.story.plan :as plan]
-            [re-frame.story.registrar :as story-registrar]
-            [re-frame.story.schemas :as schemas]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.story :as rf.story]
+            [re-frame.story.identity :as rf.story.identity]
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.schemas :as rf.story.schemas]))
 
 ;; ---- fixture --------------------------------------------------------------
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (rf-registrar/clear-all!)
-  (reset! frame/frames {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each (fn [t] (reset-all!) (t)))
 
@@ -70,15 +70,15 @@
   (testing "rf2-2dbpd — `#{:hicasso}` is a legal substrate set. Before the
             widen this was the whole blocker: the schema rejected it, so
             no hicasso variant could be registered at all."
-    (is (m/validate schemas/SubstrateSet #{:hicasso}))
-    (is (m/validate schemas/SubstrateSet #{:reagent :hicasso}))
-    (is (m/validate schemas/SubstrateSet #{:reagent :uix :hicasso})))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:hicasso}))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :hicasso}))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :uix :hicasso})))
 
   (testing "and the members that were already legal still are — the widen
             is additive, not a replacement"
-    (is (m/validate schemas/SubstrateSet #{:reagent}))
-    (is (m/validate schemas/SubstrateSet #{:uix}))
-    (is (m/validate schemas/SubstrateSet #{})))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent}))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:uix}))
+    (is (m/validate rf.story.schemas/SubstrateSet #{})))
 
   (testing "the enum is still CLOSED, which is the half a widen can lose
             with nothing going red to say so. `:reagent-slim` is the
@@ -86,11 +86,11 @@
             `:helix` is an authoring layer Story does not carry at all; if
             either row ever passes, the widen has become an opening and
             `SubstrateSet` validates nothing."
-    (is (not (m/validate schemas/SubstrateSet #{:reagent-slim})))
-    (is (not (m/validate schemas/SubstrateSet #{:helix})))
-    (is (not (m/validate schemas/SubstrateSet #{:reagent :helix})))
-    (is (not (m/validate schemas/SubstrateSet #{:hicasso :typo})))
-    (is (not (m/validate schemas/SubstrateSet [:hicasso]))
+    (is (not (m/validate rf.story.schemas/SubstrateSet #{:reagent-slim})))
+    (is (not (m/validate rf.story.schemas/SubstrateSet #{:helix})))
+    (is (not (m/validate rf.story.schemas/SubstrateSet #{:reagent :helix})))
+    (is (not (m/validate rf.story.schemas/SubstrateSet #{:hicasso :typo})))
+    (is (not (m/validate rf.story.schemas/SubstrateSet [:hicasso]))
         "a VECTOR is not a set — the slot's shape is unchanged too")))
 
 ;; ===========================================================================
@@ -103,34 +103,34 @@
             (`re-frame.story.registrar/validate-shape!`). Pre-widen THIS
             call threw; the registration landing is the user-visible half
             of the enum change."
-    (story/reg-story* :story.hic {:doc "hicasso authoring-layer fixture"})
-    (story/reg-variant* :story.hic/card
+    (rf.story/reg-story* :story.hic {:doc "hicasso authoring-layer fixture"})
+    (rf.story/reg-variant* :story.hic/card
       {:doc        "A variant whose subject is a hicasso boundary."
        :component  :my.app.views/article-card
        :substrates #{:hicasso}})
-    (is (= #{:hicasso} (:substrates (story/variant->edn :story.hic/card)))))
+    (is (= #{:hicasso} (:substrates (rf.story/variant->edn :story.hic/card)))))
 
   (testing "and the STORY body takes it too — `StoryBody` is closed
             independently of `VariantBody`, so a whole story can declare
             the authoring layer once. (Since rf2-sc5g0 that story-level
             declaration reaches the compiled plan too, so the canvas and
             `render-variant` read the same set; see the plan row below.)"
-    (story/reg-story* :story.hic-all
+    (rf.story/reg-story* :story.hic-all
       {:doc        "story-level declaration"
        :component  :my.app.views/article-card
        :substrates #{:hicasso}})
-    (story/reg-variant* :story.hic-all/v {:doc "child"})
+    (rf.story/reg-variant* :story.hic-all/v {:doc "child"})
     (is (= #{:hicasso}
-           (:substrates (story-registrar/handler-meta :story :story.hic-all))))))
+           (:substrates (rf.story.registrar/handler-meta :story :story.hic-all))))))
 
 (deftest an-unknown-substrate-is-still-refused-at-registration
   (testing "the closed enum is enforced where it matters — at
             registration, with the catalogued error id, so an author's
             typo is a loud refusal rather than a variant that renders
             under whatever the shell defaulted to"
-    (story/reg-story* :story.hic-bad {:doc "fixture"})
+    (rf.story/reg-story* :story.hic-bad {:doc "fixture"})
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-          (story/reg-variant* :story.hic-bad/typo
+          (rf.story/reg-variant* :story.hic-bad/typo
             {:doc "declares a substrate nobody defines"
              :substrates #{:hicaso}})))))
 
@@ -146,7 +146,7 @@
 ;; did NOT reach `canonical/render-host-scope`, which reads
 ;; `[:world :substrates]` and fell back to the `:reagent` host default.
 ;;
-;; FIXED under rf2-sc5g0: `plan/variant-plan` now folds the parent story's
+;; FIXED under rf2-sc5g0: `rf.story.plan/variant-plan` now folds the parent story's
 ;; `:substrates` (and `:component`, which had the same asymmetry and no
 ;; renderer-side fallback at all) with the canvas's own variant-then-story
 ;; precedence. The witness is
@@ -157,13 +157,13 @@
   (testing "rf2-3afns routed `canonical/render-host-scope` at the COMPILED
             PLAN's `[:world :substrates]` instead of a literal `:reagent`,
             so that slot is the one a hicasso variant has to reach. It is
-            folded by `plan/variant-plan`, already `:extends`-merged."
-    (story/reg-story* :story.hicplan {:doc "fixture"})
-    (story/reg-variant* :story.hicplan/v
+            folded by `rf.story.plan/variant-plan`, already `:extends`-merged."
+    (rf.story/reg-story* :story.hicplan {:doc "fixture"})
+    (rf.story/reg-variant* :story.hicplan/v
       {:doc        "declares the native authoring layer"
        :component  :my.app.views/article-card
        :substrates #{:hicasso}})
-    (let [p (plan/variant-plan :story.hicplan/v)]
+    (let [p (rf.story.plan/variant-plan :story.hicplan/v)]
       (is (= #{:hicasso} (get-in p [:world :substrates])))
       (is (= :my.app.views/article-card (get-in p [:world :component]))
           "and the subject rides beside it — the two slots the renderer
@@ -171,14 +171,14 @@
 
   (testing "`:extends` inheritance carries it, so a hicasso base story's
             children do not each re-declare the layer"
-    (story/reg-story* :story.hicext {:doc "fixture"})
-    (story/reg-variant* :story.hicext/base
+    (rf.story/reg-story* :story.hicext {:doc "fixture"})
+    (rf.story/reg-variant* :story.hicext/base
       {:doc "base" :component :my.app.views/article-card
        :substrates #{:hicasso}})
-    (story/reg-variant* :story.hicext/child
+    (rf.story/reg-variant* :story.hicext/child
       {:doc "child" :extends :story.hicext/base})
     (is (= #{:hicasso}
-           (get-in (plan/variant-plan :story.hicext/child)
+           (get-in (rf.story.plan/variant-plan :story.hicext/child)
                    [:world :substrates])))))
 
 ;; ===========================================================================
@@ -191,13 +191,13 @@
             agent. A keyword that did not survive here would leave an
             agent able to list a hicasso story and unable to say what it
             renders under."
-    (story/reg-story* :story.hicedn {:doc "fixture"})
+    (rf.story/reg-story* :story.hicedn {:doc "fixture"})
     (let [body {:doc        "a hicasso variant"
                 :component  :my.app.views/article-card
                 :substrates #{:hicasso}
                 :args       {:label "one"}}]
-      (story/reg-variant* :story.hicedn/v body)
-      (let [edn (story/variant->edn :story.hicedn/v)]
+      (rf.story/reg-variant* :story.hicedn/v body)
+      (let [edn (rf.story/variant->edn :story.hicedn/v)]
         (is (= #{:hicasso} (:substrates edn)))
         (is (= :my.app.views/article-card (:component edn))
             "and `:component` is still a KEYWORD — the whole reason
@@ -219,13 +219,13 @@
             one visual-regression baseline for two views. Naming them with
             keywords is what keeps them apart, and this is the row that
             would have caught it."
-    (story/reg-story* :story.hicid {:doc "fixture"})
-    (story/reg-variant* :story.hicid/card
+    (rf.story/reg-story* :story.hicid {:doc "fixture"})
+    (rf.story/reg-variant* :story.hicid/card
       {:doc "one" :component :my.app.views/article-card :substrates #{:hicasso}})
-    (story/reg-variant* :story.hicid/panel
+    (rf.story/reg-variant* :story.hicid/panel
       {:doc "one" :component :my.app.views/side-panel :substrates #{:hicasso}})
-    (let [a (:content-hash (identity/snapshot-identity :story.hicid/card))
-          b (:content-hash (identity/snapshot-identity :story.hicid/panel))]
+    (let [a (:content-hash (rf.story.identity/snapshot-identity :story.hicid/card))
+          b (:content-hash (rf.story.identity/snapshot-identity :story.hicid/panel))]
       (is (string? a))
       (is (not= a b)
           "two hicasso view ids, differing in NOTHING but `:component`,
@@ -234,18 +234,18 @@
   (testing "and the authoring layer is identity-bearing in its own right —
             the same view stories under two layers are two baselines,
             because the two renderers paint two trees"
-    (story/reg-story* :story.hiclayer {:doc "fixture"})
-    (story/reg-variant* :story.hiclayer/hic
+    (rf.story/reg-story* :story.hiclayer {:doc "fixture"})
+    (rf.story/reg-variant* :story.hiclayer/hic
       {:doc "x" :component :my.app.views/article-card :substrates #{:hicasso}})
-    (story/reg-variant* :story.hiclayer/rea
+    (rf.story/reg-variant* :story.hiclayer/rea
       {:doc "x" :component :my.app.views/article-card :substrates #{:reagent}})
-    (is (not= (:content-hash (identity/snapshot-identity :story.hiclayer/hic))
-              (:content-hash (identity/snapshot-identity :story.hiclayer/rea)))))
+    (is (not= (:content-hash (rf.story.identity/snapshot-identity :story.hiclayer/hic))
+              (:content-hash (rf.story.identity/snapshot-identity :story.hiclayer/rea)))))
 
   (testing "the hash is STABLE for one hicasso variant across calls — the
             distinctions above are the tuple's, not run-to-run noise"
-    (story/reg-story* :story.hicstable {:doc "fixture"})
-    (story/reg-variant* :story.hicstable/v
+    (rf.story/reg-story* :story.hicstable {:doc "fixture"})
+    (rf.story/reg-variant* :story.hicstable/v
       {:doc "x" :component :my.app.views/article-card :substrates #{:hicasso}})
-    (is (= (:content-hash (identity/snapshot-identity :story.hicstable/v))
-           (:content-hash (identity/snapshot-identity :story.hicstable/v))))))
+    (is (= (:content-hash (rf.story.identity/snapshot-identity :story.hicstable/v))
+           (:content-hash (rf.story.identity/snapshot-identity :story.hicstable/v))))))

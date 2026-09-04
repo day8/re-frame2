@@ -4,18 +4,18 @@
   sidebar ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
-            [re-frame.story.theme.colors :as colors]
-            [re-frame.story.theme.motion :as motion]
-            [re-frame.story.theme.status :as status]))
+  (:require [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack sans-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]
+            [re-frame.story.theme.motion :as rf.story.theme.motion]
+            [re-frame.story.theme.status :as rf.story.theme.status]))
 
 (def styles
   {:wrap         {:width "260px"
-                  :background (:bg-1 colors/tokens)
-                  :color (:text-primary colors/tokens)
+                  :background (:bg-1 rf.story.theme.colors/tokens)
+                  :color (:text-primary rf.story.theme.colors/tokens)
                   :font-family sans-stack
-                  :font-size (:body-tight typography/type-scale)
-                  :border-right (str "1px solid " (:border-default colors/tokens))
+                  :font-size (:body-tight rf.story.theme.typography/type-scale)
+                  :border-right (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                   :overflow "auto"
                   :padding "8px 0 0 0"
                   :display "flex"
@@ -32,26 +32,26 @@
    ;; chrome's section-label vocabulary.
    :header       {:padding "10px 12px 8px 12px"
                   :font-family sans-stack
-                  :font-weight (str (:semibold typography/weights))
-                  :font-size (:nano typography/type-scale)
+                  :font-weight (str (:semibold rf.story.theme.typography/weights))
+                  :font-size (:nano rf.story.theme.typography/type-scale)
                   :text-transform "uppercase"
-                  :letter-spacing (:label-wide typography/letter-spacing)
-                  :color (:accent-amber colors/tokens)
-                  :border-bottom (str "1px solid " (:border-subtle colors/tokens))
-                  :box-shadow (str "0 1px 0 " (:accent-amber-soft colors/tokens))
+                  :letter-spacing (:label-wide rf.story.theme.typography/letter-spacing)
+                  :color (:accent-amber rf.story.theme.colors/tokens)
+                  :border-bottom (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
+                  :box-shadow (str "0 1px 0 " (:accent-amber-soft rf.story.theme.colors/tokens))
                   :margin-bottom "6px"
                   :display "flex"
                   :align-items "center"
                   :gap "8px"}
    :section      {:padding "16px 0 6px 12px"
                   :margin-top "4px"
-                  :border-top (str "1px solid " (:border-subtle colors/tokens))
+                  :border-top (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                   :font-family sans-stack
-                  :font-weight (str (:semibold typography/weights))
-                  :color (:text-tertiary colors/tokens)
+                  :font-weight (str (:semibold rf.story.theme.typography/weights))
+                  :color (:text-tertiary rf.story.theme.colors/tokens)
                   :text-transform "uppercase"
-                  :font-size (:nano typography/type-scale)
-                  :letter-spacing (:label-wide typography/letter-spacing)
+                  :font-size (:nano rf.story.theme.typography/type-scale)
+                  :letter-spacing (:label-wide rf.story.theme.typography/letter-spacing)
                   :display "flex"
                   :align-items "center"}
    :tag-row      {:display "flex"
@@ -59,13 +59,13 @@
                   :gap "6px"
                   :padding "8px 12px 10px 12px"
                   :margin-bottom "6px"
-                  :border-bottom (str "1px solid " (:border-subtle colors/tokens))}
+                  :border-bottom (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))}
    ;; rf2-7ncf9 — faceted tag-filter: one labelled chip row per axis.
    :axis-row     {:display "flex"
                   :flex-direction "column"
                   :gap "3px"}
-   :axis-label   {:font-size (:nano typography/type-scale)
-                  :color (:text-tertiary colors/tokens)
+   :axis-label   {:font-size (:nano rf.story.theme.typography/type-scale)
+                  :color (:text-tertiary rf.story.theme.colors/tokens)
                   :letter-spacing "0.5px"
                   :text-transform "uppercase"
                   :font-weight "bold"}
@@ -73,15 +73,15 @@
                   :flex-wrap "wrap"
                   :gap "4px"}
    :tag          {:padding "2px 6px"
-                  :background (:bg-3 colors/tokens)
-                  :color (:text-primary colors/tokens)
+                  :background (:bg-3 rf.story.theme.colors/tokens)
+                  :color (:text-primary rf.story.theme.colors/tokens)
                   :border-radius "10px"
                   :cursor "pointer"
-                  :font-size (:micro typography/type-scale)
+                  :font-size (:micro rf.story.theme.typography/type-scale)
                   :user-select "none"
-                  :transition (:chip motion/transitions)}
-   :tag-active   {:background (:accent-amber colors/tokens)
-                  :color (:text-on-accent colors/tokens)}
+                  :transition (:chip rf.story.theme.motion/transitions)}
+   :tag-active   {:background (:accent-amber rf.story.theme.colors/tokens)
+                  :color (:text-on-accent rf.story.theme.colors/tokens)}
    ;; rf2-p0wur — top-level story rows + a generous inter-block gap so
    ;; the sidebar tree breathes. Story rows lead with the diamond
    ;; glyph (`re-frame.story.theme.glyphs/story-glyph`) — the sidebar
@@ -92,9 +92,9 @@
                   :padding-bottom "2px"}
    :story-row    {:padding "6px 12px 6px 10px"
                   :font-family sans-stack
-                  :color (:text-primary colors/tokens)
-                  :font-weight (str (:semibold typography/weights))
-                  :font-size (:body-tight typography/type-scale)
+                  :color (:text-primary rf.story.theme.colors/tokens)
+                  :font-weight (str (:semibold rf.story.theme.typography/weights))
+                  :font-size (:body-tight rf.story.theme.typography/type-scale)
                   :letter-spacing "0.01em"
                   ;; rf2-8j7wg — story-row is now click-activated (opens
                   ;; the rollup docs page). The cursor flips from
@@ -104,26 +104,26 @@
                   :align-items "center"
                   :gap "8px"
                   :border-left (str "2px solid transparent")}
-   :story-row-active {:background (:bg-active colors/tokens)
-                      :color (:accent-amber colors/tokens)
-                      :border-left (str "2px solid " (:accent-amber colors/tokens))}
+   :story-row-active {:background (:bg-active rf.story.theme.colors/tokens)
+                      :color (:accent-amber rf.story.theme.colors/tokens)
+                      :border-left (str "2px solid " (:accent-amber rf.story.theme.colors/tokens))}
    :story-glyph  {:flex-shrink "0"
                   :display "inline-flex"
                   :align-items "center"
-                  :color (:accent-amber colors/tokens)}
+                  :color (:accent-amber rf.story.theme.colors/tokens)}
    :variant-row  {:padding "3px 12px 3px 26px"
                   :cursor "pointer"
-                  :color (:text-secondary colors/tokens)
+                  :color (:text-secondary rf.story.theme.colors/tokens)
                   :font-family mono-stack
                   :display "flex"
                   :align-items "center"
                   :gap "8px"
                   :border-left (str "2px solid transparent")
-                  :transition (:row motion/transitions)}
-   :variant-row-active {:background (:bg-active colors/tokens)
-                        :color (:accent-amber colors/tokens)
-                        :font-weight (str (:medium typography/weights))
-                        :border-left (str "2px solid " (:accent-amber colors/tokens))}
+                  :transition (:row rf.story.theme.motion/transitions)}
+   :variant-row-active {:background (:bg-active rf.story.theme.colors/tokens)
+                        :color (:accent-amber rf.story.theme.colors/tokens)
+                        :font-weight (str (:medium rf.story.theme.typography/weights))
+                        :border-left (str "2px solid " (:accent-amber rf.story.theme.colors/tokens))}
    :variant-glyph {:flex-shrink "0"
                    :display "inline-flex"
                    :align-items "center"
@@ -131,26 +131,26 @@
                    :width "10px"
                    :height "10px"
                    :opacity 0.55
-                   :color (:text-tertiary colors/tokens)}
+                   :color (:text-tertiary rf.story.theme.colors/tokens)}
    :workspace-row {:padding "3px 12px 3px 14px"
                    :cursor "pointer"
-                   :color (:text-secondary colors/tokens)
+                   :color (:text-secondary rf.story.theme.colors/tokens)
                    :font-family mono-stack
                    :display "flex"
                    :align-items "center"
                    :gap "8px"
                    :border-left (str "2px solid transparent")
-                   :transition (:row motion/transitions)}
-   :workspace-row-active {:background (:bg-active colors/tokens)
-                          :color (:accent-amber colors/tokens)
-                          :font-weight (str (:medium typography/weights))
-                          :border-left (str "2px solid " (:accent-amber colors/tokens))}
+                   :transition (:row rf.story.theme.motion/transitions)}
+   :workspace-row-active {:background (:bg-active rf.story.theme.colors/tokens)
+                          :color (:accent-amber rf.story.theme.colors/tokens)
+                          :font-weight (str (:medium rf.story.theme.typography/weights))
+                          :border-left (str "2px solid " (:accent-amber rf.story.theme.colors/tokens))}
    :workspace-glyph {:flex-shrink "0"
                      :display "inline-flex"
                      :align-items "center"
-                     :color (:info colors/tokens)
+                     :color (:info rf.story.theme.colors/tokens)
                      :opacity 0.75}
-   :empty        {:color (:text-tertiary colors/tokens)
+   :empty        {:color (:text-tertiary rf.story.theme.colors/tokens)
                   :font-style "italic"
                   :padding "8px 12px"}
    ;; rf2-q0irb — status dot + chrome-level test widget. Only the dot's
@@ -164,43 +164,43 @@
                   :border-radius "50%"
                   :flex-shrink "0"
                   :display "inline-block"}
-   :widget       {:border-top (str "1px solid " (:border-default colors/tokens))
+   :widget       {:border-top (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                   :margin-top "auto"
                   :padding "10px 12px"
                   :display "flex"
                   :flex-direction "column"
                   :gap "6px"
-                  :background (:bg-1 colors/tokens)}
+                  :background (:bg-1 rf.story.theme.colors/tokens)}
    :widget-h     {:font-weight "bold"
-                  :color (:text-secondary colors/tokens)
+                  :color (:text-secondary rf.story.theme.colors/tokens)
                   :text-transform "uppercase"
-                  :font-size (:micro typography/type-scale)
+                  :font-size (:micro rf.story.theme.typography/type-scale)
                   :letter-spacing "0.5px"}
    :widget-counts {:display "flex"
                    :flex-wrap "wrap"
                    :gap "8px"
                    :font-family mono-stack
-                   :font-size (:caption typography/type-scale)
-                   :color (:text-primary colors/tokens)}
-   :widget-pass  {:color (:success colors/tokens)}
-   :widget-fail  {:color (:danger colors/tokens)}
-   :widget-run   {:color (:warning colors/tokens)}
-   :widget-pend  {:color (:text-tertiary colors/tokens)}
+                   :font-size (:caption rf.story.theme.typography/type-scale)
+                   :color (:text-primary rf.story.theme.colors/tokens)}
+   :widget-pass  {:color (:success rf.story.theme.colors/tokens)}
+   :widget-fail  {:color (:danger rf.story.theme.colors/tokens)}
+   :widget-run   {:color (:warning rf.story.theme.colors/tokens)}
+   :widget-pend  {:color (:text-tertiary rf.story.theme.colors/tokens)}
    :widget-btn   {:margin-top "4px"
                   :padding "4px 10px"
-                  :background (:accent-amber colors/tokens)
-                  :color (:text-on-accent colors/tokens)
+                  :background (:accent-amber rf.story.theme.colors/tokens)
+                  :color (:text-on-accent rf.story.theme.colors/tokens)
                   :border "none"
                   :border-radius "3px"
                   :cursor "pointer"
                   :font-family mono-stack
-                  :font-size (:caption typography/type-scale)}
-   :widget-btn-disabled {:background (:bg-3 colors/tokens)
-                         :color (:text-tertiary colors/tokens)
+                  :font-size (:caption rf.story.theme.typography/type-scale)}
+   :widget-btn-disabled {:background (:bg-3 rf.story.theme.colors/tokens)
+                         :color (:text-tertiary rf.story.theme.colors/tokens)
                          :cursor "not-allowed"}
-   :widget-empty {:color (:text-tertiary colors/tokens)
+   :widget-empty {:color (:text-tertiary rf.story.theme.colors/tokens)
                   :font-style "italic"
-                  :font-size (:micro typography/type-scale)}
+                  :font-size (:micro rf.story.theme.typography/type-scale)}
    ;; rf2-z1h0f — watch-mode eye-icon toggle on the chrome widget.
    :watch-row    {:display     "flex"
                   :align-items "center"
@@ -208,76 +208,76 @@
                   :margin-top  "2px"}
    :watch-btn    {:padding         "2px 8px"
                   :background      "transparent"
-                  :color           (:text-tertiary colors/tokens)
-                  :border          (str "1px solid " (:border-default colors/tokens))
+                  :color           (:text-tertiary rf.story.theme.colors/tokens)
+                  :border          (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                   :border-radius   "10px"
                   :cursor          "pointer"
                   :font-family     mono-stack
-                  :font-size       (:micro typography/type-scale)
+                  :font-size       (:micro rf.story.theme.typography/type-scale)
                   :letter-spacing  "0.3px"
                   :display         "inline-flex"
                   :align-items     "center"
                   :gap             "4px"}
-   :watch-btn-on {:background (:success-bg colors/tokens)
-                  :color      (:success colors/tokens)
-                  :border     (str "1px solid " (:success colors/tokens))}
+   :watch-btn-on {:background (:success-bg rf.story.theme.colors/tokens)
+                  :color      (:success rf.story.theme.colors/tokens)
+                  :border     (str "1px solid " (:success rf.story.theme.colors/tokens))}
    ;; rf2-nwiwr — tag-as-badge affordance on variant rows.
    :tag-badges   {:display     "inline-flex"
                   :flex-wrap   "wrap"
                   :gap         "3px"
                   :margin-left "4px"}
    :tag-badge    {:padding       "0 5px"
-                  :background    (:bg-3 colors/tokens)
-                  :color         (:text-primary colors/tokens)
+                  :background    (:bg-3 rf.story.theme.colors/tokens)
+                  :color         (:text-primary rf.story.theme.colors/tokens)
                   :border-radius "8px"
                   :font-family   mono-stack
-                  :font-size     (:nano typography/type-scale)
+                  :font-size     (:nano rf.story.theme.typography/type-scale)
                   :line-height   "14px"
                   :user-select   "none"
                   :flex-shrink   "0"}
    ;; Per-tag palette — keys on the canonical seven from
    ;; /spec/007-Stories.md §Inclusion tags; unknown tags fall through to
    ;; the neutral :tag-badge above.
-   :tag-badge-dev          {:background (:tag-dev-bg colors/tokens) :color (:info colors/tokens)}
-   :tag-badge-docs         {:background (:tag-docs-bg colors/tokens) :color (:tag-docs-fg colors/tokens)}
-   :tag-badge-test         {:background (:success-bg colors/tokens) :color (:success colors/tokens)}
-   :tag-badge-screenshot   {:background (:warning-bg colors/tokens) :color (:warning colors/tokens)}
-   :tag-badge-experimental {:background (:tag-experimental-bg colors/tokens) :color (:tag-experimental-fg colors/tokens)}
-   :tag-badge-internal     {:background (:tag-internal-bg colors/tokens) :color (:danger colors/tokens)}
-   :tag-badge-agent        {:background (:tag-agent-bg colors/tokens) :color (:success colors/tokens)}
+   :tag-badge-dev          {:background (:tag-dev-bg rf.story.theme.colors/tokens) :color (:info rf.story.theme.colors/tokens)}
+   :tag-badge-docs         {:background (:tag-docs-bg rf.story.theme.colors/tokens) :color (:tag-docs-fg rf.story.theme.colors/tokens)}
+   :tag-badge-test         {:background (:success-bg rf.story.theme.colors/tokens) :color (:success rf.story.theme.colors/tokens)}
+   :tag-badge-screenshot   {:background (:warning-bg rf.story.theme.colors/tokens) :color (:warning rf.story.theme.colors/tokens)}
+   :tag-badge-experimental {:background (:tag-experimental-bg rf.story.theme.colors/tokens) :color (:tag-experimental-fg rf.story.theme.colors/tokens)}
+   :tag-badge-internal     {:background (:tag-internal-bg rf.story.theme.colors/tokens) :color (:danger rf.story.theme.colors/tokens)}
+   :tag-badge-agent        {:background (:tag-agent-bg rf.story.theme.colors/tokens) :color (:success rf.story.theme.colors/tokens)}
    ;; rf2-yngai — search-as-you-type input row + amber-tint highlight.
    :search-row     {:padding "0 12px 8px 12px"
                     :display "flex"
                     :align-items "center"
                     :gap "6px"
-                    :border-bottom (str "1px solid " (:border-subtle colors/tokens))
+                    :border-bottom (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                     :margin-bottom "6px"
                     :position "relative"}
    :search-input   {:width "100%"
                     :box-sizing "border-box"
-                    :background (:bg-input colors/tokens)
-                    :color (:text-primary colors/tokens)
-                    :border (str "1px solid " (:border-subtle colors/tokens))
+                    :background (:bg-input rf.story.theme.colors/tokens)
+                    :color (:text-primary rf.story.theme.colors/tokens)
+                    :border (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                     :border-radius "4px"
                     :font-family mono-stack
-                    :font-size (:caption typography/type-scale)
+                    :font-size (:caption rf.story.theme.typography/type-scale)
                     :padding "5px 24px 5px 8px"
                     :outline "none"
-                    :transition (:chip motion/transitions)}
+                    :transition (:chip rf.story.theme.motion/transitions)}
    :search-clear   {:position "absolute"
                     :right "18px"
                     :top "50%"
                     :transform "translateY(-50%)"
                     :background "transparent"
                     :border "none"
-                    :color (:text-tertiary colors/tokens)
+                    :color (:text-tertiary rf.story.theme.colors/tokens)
                     :cursor "pointer"
                     :padding "0 4px"
                     :font-family mono-stack
-                    :font-size (:caption typography/type-scale)
+                    :font-size (:caption rf.story.theme.typography/type-scale)
                     :line-height "1"}
-   :search-hit     {:background (:accent-amber-soft colors/tokens)
-                    :color (:accent-amber colors/tokens)
+   :search-hit     {:background (:accent-amber-soft rf.story.theme.colors/tokens)
+                    :color (:accent-amber rf.story.theme.colors/tokens)
                     :border-radius "2px"
                     :padding "0 1px"}
    ;; rf2-ba86n.4 — per-variant SIGNAL CHIPS (spec/018 §7.1 + §12.6). Five
@@ -303,13 +303,13 @@
    :signal-chip     {:padding       "0 5px"
                      :border-radius "8px"
                      :font-family   mono-stack
-                     :font-size     (:nano typography/type-scale)
+                     :font-size     (:nano rf.story.theme.typography/type-scale)
                      :line-height   "14px"
                      :letter-spacing "0.2px"
                      :user-select   "none"
                      :flex-shrink   "0"
-                     :background    (:bg-3 colors/tokens)
-                     :color         (:text-secondary colors/tokens)}
+                     :background    (:bg-3 rf.story.theme.colors/tokens)
+                     :color         (:text-secondary rf.story.theme.colors/tokens)}
    ;; rf2-ba86n.3 / rf2-gsqbp — the status GLYPH channel (spec/018 §12.6).
    ;; Status chips lead with the descriptor's structural glyph (✓ ✗ ! …)
    ;; so the status survives colour-blindness AND Windows HCM, where
@@ -330,43 +330,43 @@
    ;; constructor. The shape discriminator (outline / dashed / ring)
    ;; rides through `chip-style` so cannot-run / error / pending /
    ;; redacted stay distinguishable beyond hue.
-   :signal-status-pass       (status/chip-style :pass)
-   :signal-status-fail       (status/chip-style :fail)
-   :signal-status-cannot-run (status/chip-style :cannot-run)
-   :signal-status-error      (status/chip-style :error)
-   :signal-status-running    (status/chip-style :running)
-   :signal-status-pending    (status/chip-style :pending)
-   :signal-status-blocked    (status/chip-style :blocked)
-   :signal-status-dirty      (status/chip-style :dirty)
-   :signal-status-redacted   (status/chip-style :redacted)
+   :signal-status-pass       (rf.story.theme.status/chip-style :pass)
+   :signal-status-fail       (rf.story.theme.status/chip-style :fail)
+   :signal-status-cannot-run (rf.story.theme.status/chip-style :cannot-run)
+   :signal-status-error      (rf.story.theme.status/chip-style :error)
+   :signal-status-running    (rf.story.theme.status/chip-style :running)
+   :signal-status-pending    (rf.story.theme.status/chip-style :pending)
+   :signal-status-blocked    (rf.story.theme.status/chip-style :blocked)
+   :signal-status-dirty      (rf.story.theme.status/chip-style :dirty)
+   :signal-status-redacted   (rf.story.theme.status/chip-style :redacted)
    ;; ── fidelity axis — purple-violet tint (shared with the :docs tag
    ;;    palette) so it reads as its own family, never as a world input ──
-   :signal-fidelity {:background (:tag-docs-bg colors/tokens)
-                     :color (:tag-docs-fg colors/tokens)}
+   :signal-fidelity {:background (:tag-docs-bg rf.story.theme.colors/tokens)
+                     :color (:tag-docs-fg rf.story.theme.colors/tokens)}
    ;; ── world-inputs axis — info-blue tint (distinct from fidelity) ──
-   :signal-world    {:background (:info-bg colors/tokens)
-                     :color (:info colors/tokens)}
+   :signal-world    {:background (:info-bg rf.story.theme.colors/tokens)
+                     :color (:info rf.story.theme.colors/tokens)}
    ;; ── runner-requirement axis — teal tint (shared with the :agent tag
    ;;    palette) so a capability requirement never reads as a tier of
    ;;    fidelity ──
-   :signal-runner   {:background (:tag-agent-bg colors/tokens)
-                     :color (:tag-agent-fg colors/tokens)}
+   :signal-runner   {:background (:tag-agent-bg rf.story.theme.colors/tokens)
+                     :color (:tag-agent-fg rf.story.theme.colors/tokens)}
    ;; ── frame-binding axis — neutral mono tint; an attached / MCP-bound
    ;;    binding is a binding, not a runner tier (spec/018 §7.2) ──
-   :signal-frame    {:background (:bg-3 colors/tokens)
-                     :color (:text-secondary colors/tokens)
-                     :border (str "1px solid " (:border-default colors/tokens))}
-   :signal-frame-attached  {:background (:tag-experimental-bg colors/tokens)
-                            :color (:tag-experimental-fg colors/tokens)
-                            :border (str "1px solid " (:tag-experimental-fg colors/tokens))}
+   :signal-frame    {:background (:bg-3 rf.story.theme.colors/tokens)
+                     :color (:text-secondary rf.story.theme.colors/tokens)
+                     :border (str "1px solid " (:border-default rf.story.theme.colors/tokens))}
+   :signal-frame-attached  {:background (:tag-experimental-bg rf.story.theme.colors/tokens)
+                            :color (:tag-experimental-fg rf.story.theme.colors/tokens)
+                            :border (str "1px solid " (:tag-experimental-fg rf.story.theme.colors/tokens))}
    ;; rf2-ba86n.4 — large-list virtualization / bounding (spec/018 §10 —
    ;; cap or page; the UI SHOULD fail by summarizing, not flooding). The
    ;; "+N more" affordance row a story-block renders when its variant count
    ;; exceeds the per-story cap.
    :variant-more    {:padding "2px 12px 4px 26px"
-                     :color (:text-tertiary colors/tokens)
+                     :color (:text-tertiary rf.story.theme.colors/tokens)
                      :font-family mono-stack
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :font-style "italic"
                      :cursor "pointer"
                      :user-select "none"}
@@ -379,10 +379,10 @@
                      :display "flex"
                      :align-items "center"
                      :gap "6px"
-                     :color (:text-tertiary colors/tokens)
+                     :color (:text-tertiary rf.story.theme.colors/tokens)
                      :font-family sans-stack
-                     :font-size (:nano typography/type-scale)
+                     :font-size (:nano rf.story.theme.typography/type-scale)
                      :text-transform "uppercase"
-                     :letter-spacing (:label-wide typography/letter-spacing)}
-   :grid-group-count {:color (:accent-amber colors/tokens)
+                     :letter-spacing (:label-wide rf.story.theme.typography/letter-spacing)}
+   :grid-group-count {:color (:accent-amber rf.story.theme.colors/tokens)
                       :font-family mono-stack}})

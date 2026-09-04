@@ -71,9 +71,9 @@
   (:require [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
-            [re-frame.story.assertions   :as assertions]
-            [re-frame.story.predicates   :as pred]
-            [re-frame.story.requirements :as requirements]))
+            [re-frame.story.assertions   :as rf.story.assertions]
+            [re-frame.story.predicates   :as rf.story.predicates]
+            [re-frame.story.requirements :as rf.story.requirements]))
 
 ;; ===========================================================================
 ;; THE EXPECTATION-KIND CATALOG  (the authorable expectation surface)
@@ -326,7 +326,7 @@
   (`re-frame.story.requirements/default-runner`). The cost projection
   reports `:cannot-run?` true when the expectation needs more than this
   runner can prove, so the author sees the escalation cost before saving."
-  requirements/default-runner)
+  rf.story.requirements/default-runner)
 
 (defn expectation-cost
   "Project the runner cost of one authored expectation `atom` (a canonical
@@ -348,11 +348,11 @@
   [atom]
   (if (nil? atom)
     {:required #{} :cheapest-runner nil :headless? true :cannot-run? false :missing #{}}
-    (let [required (requirements/assertion-tokens atom)
-          headless (requirements/runner-provides default-author-runner)
-          missing  (requirements/missing-tokens required headless)]
+    (let [required (rf.story.requirements/assertion-tokens atom)
+          headless (rf.story.requirements/runner-provides default-author-runner)
+          missing  (rf.story.requirements/missing-tokens required headless)]
       {:required        required
-       :cheapest-runner (requirements/cheapest-runner required)
+       :cheapest-runner (rf.story.requirements/cheapest-runner required)
        :headless?       (empty? missing)
        :cannot-run?     (seq missing)
        :missing         missing})))
@@ -378,7 +378,7 @@
        :surfaces     #{surface …}}     ; acceptance surfaces the draft spans
 
   `:cheapest-runner` is the cheapest concrete runner whose token set is a
-  superset of the WHOLE draft's required union (`requirements/cheapest-runner`),
+  superset of the WHOLE draft's required union (`rf.story.requirements/cheapest-runner`),
   so the author sees the single runner that would prove every authored
   expectation at once. `:cannot-run-rows` lists the rows that the default
   headless runner refuses — the honest before-save list."
@@ -386,7 +386,7 @@
   (let [rows*       (vec (or rows []))
         ready-rows  (filter (fn [r] (:ok? (parse-operands r))) rows*)
         atoms       (mapv expectation->atom ready-rows)
-        required    (reduce into #{} (map requirements/assertion-tokens atoms))
+        required    (reduce into #{} (map rf.story.requirements/assertion-tokens atoms))
         surfaces    (into #{}
                           (keep (fn [r] (:surface (kind-descriptor (:kind r)))))
                           rows*)
@@ -400,7 +400,7 @@
      :ready           (count ready-rows)
      :atoms           atoms
      :required        required
-     :cheapest-runner (requirements/cheapest-runner required)
+     :cheapest-runner (rf.story.requirements/cheapest-runner required)
      :cannot-run-rows cannot-rows
      :surfaces        surfaces}))
 
@@ -441,7 +441,7 @@
     (str "["
          (->> atoms
               (map pr-str)
-              (str/join (pred/indent-after "   :assertions [")))
+              (str/join (rf.story.predicates/indent-after "   :assertions [")))
          "]")))
 
 (defn gen-expectations-snippet
@@ -472,7 +472,7 @@
                     extends (conj [:extends (pr-str extends)])
                     true    (conj [:assertions (pr-assertions-vector merged)])
                     true    (conj [:tags (pr-str #{:test})]))]
-    (pred/reg-variant-form alias (or variant-id :story.expectations/example) body-keys)))
+    (rf.story.predicates/reg-variant-form alias (or variant-id :story.expectations/example) body-keys)))
 
 ;; ===========================================================================
 ;; DEFAULT NEW-VARIANT ID
@@ -491,5 +491,5 @@
   The dialog asserts this before offering the snippet so an authored
   expectation can never reference an id plan construction would reject."
   [atoms]
-  (every? (fn [a] (assertions/assertion-id-known? (assertions/assertion-atom-id a)))
+  (every? (fn [a] (rf.story.assertions/assertion-id-known? (rf.story.assertions/assertion-atom-id a)))
           (or atoms [])))

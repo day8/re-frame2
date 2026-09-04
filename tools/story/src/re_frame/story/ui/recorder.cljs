@@ -9,7 +9,7 @@
     chrome-wide and visually unmistakable.
   - The trace bus — installs a per-process listener that filters
     `:rf.event/dispatched` events targeting the currently-focused variant
-    frame and feeds them into `recorder/record-event!`.
+    frame and feeds them into `rf.story.recorder/record-event!`.
   - A save-as-variant dialog — when the user stops recording, a modal
     surfaces the captured EDN snippet (the `(reg-variant ...)` form
     they paste into source).
@@ -57,46 +57,46 @@
 
   ## Elision
 
-  Every public fn opens with `(when config/enabled? ...)` so production
+  Every public fn opens with `(when rf.story.config/enabled? ...)` so production
   CLJS builds short-circuit before any DOM call. The listener install
   is also gated."
   (:require [cljs.reader]
             [clojure.string :as str]
             [reagent.core :as r]
-            [re-frame.story.config                       :as config]
-            [re-frame.story.recorder                     :as recorder]
-            [re-frame.story.recorder.dom-capture         :as recorder-dom]
-            [re-frame.story.recorder.play-export         :as play-export]
-            [re-frame.story.review-dialog                :as review-dialog]
-            [re-frame.story.ui.a11y-dialog               :as a11y-dialog]
-            [re-frame.story.ui.recorder-export-dialog    :as export-dialog]
-            [re-frame.story.ui.state                     :as state]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.config                       :as rf.story.config]
+            [re-frame.story.recorder                     :as rf.story.recorder]
+            [re-frame.story.recorder.dom-capture         :as rf.story.recorder.dom-capture]
+            [re-frame.story.recorder.play-export         :as rf.story.recorder.play-export]
+            [re-frame.story.review-dialog                :as rf.story.review-dialog]
+            [re-frame.story.ui.a11y-dialog               :as rf.story.ui.a11y-dialog]
+            [re-frame.story.ui.recorder-export-dialog    :as rf.story.ui.recorder-export-dialog]
+            [re-frame.story.ui.state                     :as rf.story.ui.state]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---------------------------------------------------------------------------
 ;; Reagent mirror of the recorder state
 ;;
-;; `recorder/state` is a plain `atom` so JVM tests can exercise the state
+;; `rf.story.recorder/state` is a plain `atom` so JVM tests can exercise the state
 ;; machine. CLJS-side we mirror it into a `r/atom` so the toolbar chip /
 ;; overlay auto-re-render on every transition. A `add-watch` on the
 ;; pure atom keeps the mirror in sync.
 ;; ---------------------------------------------------------------------------
 
 (defonce ui-state
-  (r/atom (recorder/current-state)))
+  (r/atom (rf.story.recorder/current-state)))
 
 (defonce ^:private mirror-installed?
   (atom false))
 
 (defn- install-mirror! []
-  (when (and config/enabled? (not @mirror-installed?))
+  (when (and rf.story.config/enabled? (not @mirror-installed?))
     (reset! mirror-installed? true)
-    (add-watch recorder/state ::ui-mirror
+    (add-watch rf.story.recorder/state ::ui-mirror
                (fn [_ _ _ new-state]
                  (reset! ui-state new-state)))
     ;; Seed once at install time so the mirror starts in sync.
-    (reset! ui-state (recorder/current-state))))
+    (reset! ui-state (rf.story.recorder/current-state))))
 
 ;; ---------------------------------------------------------------------------
 ;; Trace-bus listener wiring
@@ -111,16 +111,16 @@
   "Install the recorder's trace-bus listener + seed the Reagent state
   mirror. Idempotent."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (install-mirror!)
-    (recorder/install-trace-listener!)
+    (rf.story.recorder/install-trace-listener!)
     nil))
 
 (defn remove-trace-listener!
   "Tear down the recorder's trace-bus listener. Idempotent."
   []
-  (when config/enabled?
-    (recorder/remove-trace-listener!)
+  (when rf.story.config/enabled?
+    (rf.story.recorder/remove-trace-listener!)
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -132,13 +132,13 @@
                  :align-items     "center"
                  :gap             "5px"
                  :padding         "3px 10px"
-                 :background      (:bg-3 colors/tokens)
-                 :color           (:text-primary colors/tokens)
+                 :background      (:bg-3 rf.story.theme.colors/tokens)
+                 :color           (:text-primary rf.story.theme.colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :user-select     "none"
                  :letter-spacing  "0.4px"}
    :chip-active {:display         "inline-flex"
@@ -151,7 +151,7 @@
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :user-select     "none"
                  :font-weight     "bold"
                  :letter-spacing  "0.4px"
@@ -160,13 +160,13 @@
                  :align-items     "center"
                  :gap             "5px"
                  :padding         "3px 10px"
-                 :background      (:bg-2 colors/tokens)
+                 :background      (:bg-2 rf.story.theme.colors/tokens)
                  :color           "#777"
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "not-allowed"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :user-select     "none"
                  :letter-spacing  "0.4px"}
    :dot         {:width        "8px"
@@ -180,11 +180,11 @@
                  :z-index      1600
                  :background   "#1f1f1f"
                  :border       "1px solid #b91c1c"
-                 :color        (:danger colors/tokens)
+                 :color        (:danger rf.story.theme.colors/tokens)
                  :padding      "6px 10px"
                  :border-radius "4px"
                  :font-family  mono-stack
-                 :font-size    (:caption typography/type-scale)
+                 :font-size    (:caption rf.story.theme.typography/type-scale)
                  :box-shadow   "0 4px 10px rgba(0,0,0,0.6)"
                  :display      "flex"
                  :align-items  "center"
@@ -196,33 +196,33 @@
                  :gap "8px"
                  :justify-content "flex-end"}
    :btn         {:padding "5px 12px"
-                 :background (:accent-amber colors/tokens)
+                 :background (:accent-amber rf.story.theme.colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-family mono-stack
-                 :font-size (:caption typography/type-scale)}
+                 :font-size (:caption rf.story.theme.typography/type-scale)}
    :btn-muted   {:padding "5px 12px"
                  :background "transparent"
-                 :color (:text-primary colors/tokens)
+                 :color (:text-primary rf.story.theme.colors/tokens)
                  :border "1px solid #444"
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-family mono-stack
-                 :font-size (:caption typography/type-scale)}
-   :hint        {:color (:text-tertiary colors/tokens)
+                 :font-size (:caption rf.story.theme.typography/type-scale)}
+   :hint        {:color (:text-tertiary rf.story.theme.colors/tokens)
                  :font-style "italic"
-                 :font-size (:micro typography/type-scale)}
+                 :font-size (:micro rf.story.theme.typography/type-scale)}
    ;; Mid-recording assertion picker
    :assert-btn  {:padding "3px 9px"
-                 :background (:accent-amber colors/tokens)
+                 :background (:accent-amber rf.story.theme.colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-family mono-stack
-                 :font-size (:caption typography/type-scale)}
+                 :font-size (:caption rf.story.theme.typography/type-scale)}
    :picker-back {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
                  :background "rgba(0,0,0,0.55)"
@@ -233,60 +233,60 @@
    :picker      {:width "520px"
                  :max-width "90vw"
                  :max-height "80vh"
-                 :background (:bg-canvas colors/tokens)
-                 :color (:text-primary colors/tokens)
+                 :background (:bg-canvas rf.story.theme.colors/tokens)
+                 :color (:text-primary rf.story.theme.colors/tokens)
                  :border "1px solid #444"
                  :border-radius "6px"
                  :padding "14px"
                  :font-family mono-stack
-                 :font-size (:body-tight typography/type-scale)
+                 :font-size (:body-tight rf.story.theme.typography/type-scale)
                  :display "flex"
                  :flex-direction "column"
                  :gap "10px"
                  :overflow "auto"
                  :box-shadow "0 12px 32px rgba(0,0,0,0.7)"}
    :picker-title {:font-weight "bold"
-                  :color (:info colors/tokens)
-                  :font-size (:body typography/type-scale)}
+                  :color (:info rf.story.theme.colors/tokens)
+                  :font-size (:body rf.story.theme.typography/type-scale)}
    :picker-grid {:display "grid"
                  :grid-template-columns "1fr 1fr"
                  :gap "6px"}
    :picker-row  {:padding "6px 8px"
-                 :background (:bg-2 colors/tokens)
-                 :color (:text-primary colors/tokens)
+                 :background (:bg-2 rf.story.theme.colors/tokens)
+                 :color (:text-primary rf.story.theme.colors/tokens)
                  :border "1px solid #333"
                  :border-radius "3px"
                  :cursor "pointer"
                  :text-align "left"
                  :font-family mono-stack
-                 :font-size (:caption typography/type-scale)
+                 :font-size (:caption rf.story.theme.typography/type-scale)
                  :display "flex"
                  :flex-direction "column"
                  :gap "2px"}
-   :picker-row-id    {:color (:info colors/tokens)
+   :picker-row-id    {:color (:info rf.story.theme.colors/tokens)
                       :font-weight "bold"}
-   :picker-row-hint  {:color (:text-tertiary colors/tokens)
-                      :font-size (:micro typography/type-scale)
+   :picker-row-hint  {:color (:text-tertiary rf.story.theme.colors/tokens)
+                      :font-size (:micro rf.story.theme.typography/type-scale)
                       :font-style "italic"}
    :field-row   {:display "flex"
                  :flex-direction "column"
                  :gap "3px"}
-   :field-label {:color (:info colors/tokens)
-                 :font-size (:caption typography/type-scale)}
+   :field-label {:color (:info rf.story.theme.colors/tokens)
+                 :font-size (:caption rf.story.theme.typography/type-scale)}
    :field-input {:padding "5px 7px"
-                 :background (:bg-2 colors/tokens)
+                 :background (:bg-2 rf.story.theme.colors/tokens)
                  :color "white"
                  :border "1px solid #444"
                  :border-radius "3px"
                  :font-family mono-stack
-                 :font-size (:body-tight typography/type-scale)
+                 :font-size (:body-tight rf.story.theme.typography/type-scale)
                  :width "100%"
                  :box-sizing "border-box"}
    :field-error {:color "#f08080"
-                 :font-size (:micro typography/type-scale)
+                 :font-size (:micro rf.story.theme.typography/type-scale)
                  :font-style "italic"}
    :preview     {:background "#0e0e10"
-                 :color (:warning colors/tokens)
+                 :color (:warning rf.story.theme.colors/tokens)
                  :padding "8px"
                  :border "1px solid #333"
                  :border-radius "3px"
@@ -294,7 +294,7 @@
                  :overflow "auto"
                  :max-height "30vh"
                  :font-family mono-stack
-                 :font-size (:caption typography/type-scale)
+                 :font-size (:caption rf.story.theme.typography/type-scale)
                  :line-height "1.4"}})
 
 ;; ---------------------------------------------------------------------------
@@ -317,7 +317,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defonce ui-dialog
-  (r/atom recorder/initial-dialog-state))
+  (r/atom rf.story.recorder/initial-dialog-state))
 
 (defn- open-dialog!
   "Open the save-as-variant dialog against `source-variant-id` with
@@ -327,17 +327,17 @@
   export dialog drives the `:script`-body translator with the rich
   DOM-event + timing record."
   ([source-variant-id events]
-   (open-dialog! source-variant-id events (recorder/recorded-entries) (.now js/Date)))
+   (open-dialog! source-variant-id events (rf.story.recorder/recorded-entries) (.now js/Date)))
   ([source-variant-id events now-ms]
-   (open-dialog! source-variant-id events (recorder/recorded-entries) now-ms))
+   (open-dialog! source-variant-id events (rf.story.recorder/recorded-entries) now-ms))
   ([source-variant-id events entries now-ms]
-   (swap! ui-dialog recorder/open-dialog source-variant-id events entries now-ms)))
+   (swap! ui-dialog rf.story.recorder/open-dialog source-variant-id events entries now-ms)))
 
 (defn- close-dialog! []
-  (swap! ui-dialog recorder/close-dialog))
+  (swap! ui-dialog rf.story.recorder/close-dialog))
 
 (defn- set-draft-id! [s]
-  (review-dialog/swap-parse-and-set-draft-id! ui-dialog s))
+  (rf.story.review-dialog/swap-parse-and-set-draft-id! ui-dialog s))
 
 ;; ---------------------------------------------------------------------------
 ;; Toolbar chip + overlay components
@@ -361,7 +361,7 @@
   Public so tests can introspect the chip-level hiccup without
   driving the full toolbar."
   []
-  (let [shell      @state/shell-state-atom
+  (let [shell      @rf.story.ui.state/shell-state-atom
         rec        @ui-state
         rec?       (:recording? rec)
         target     (:selected-variant shell)
@@ -376,12 +376,12 @@
                          ;; switches (Docs / Test → Canvas) re-mount the
                          ;; canvas DOM and we want capture wired to the
                          ;; live node before recording starts. Idempotent.
-                         (recorder-dom/install!)
-                         (recorder/start-recording! target))
+                         (rf.story.recorder.dom-capture/install!)
+                         (rf.story.recorder/start-recording! target))
 
                        rec?
-                       (let [_     (recorder-dom/flush-type-buffer!)
-                             {:keys [variant-id events entries]} (recorder/stop-recording!)]
+                       (let [_     (rf.story.recorder.dom-capture/flush-type-buffer!)
+                             {:keys [variant-id events entries]} (rf.story.recorder/stop-recording!)]
                          ;; Open the dialog when EITHER stream
                          ;; captured something — a recording of canvas
                          ;; clicks/types only lands in :entries, never
@@ -425,7 +425,7 @@
 ;;   2. Field entry — one EDN input per payload field declared in the
 ;;      vocabulary entry. A live preview shows the event vector that
 ;;      will land in the captured `:script` body. 'Insert' calls
-;;      `recorder/insert-assertion!`; 'cancel' returns to phase 1.
+;;      `rf.story.recorder/insert-assertion!`; 'cancel' returns to phase 1.
 ;;
 ;; The picker is overlay-style modal so it stays visible while the
 ;; user clicks back over the canvas — but the recording stays in
@@ -453,7 +453,7 @@
   "Clamp `idx` into `[0, n)` and stash on the picker state. The renderer
   reads this to drive the roving-focus `tabindex` + `data-active`."
   [idx]
-  (let [n (count recorder/assertion-vocabulary)]
+  (let [n (count rf.story.recorder/assertion-vocabulary)]
     (when (pos? n)
       (let [clamped (cond
                       (neg? idx) (dec n)         ; arrow-up wraps to last
@@ -479,7 +479,7 @@
   parsing each input. Returns `[:ok payload]` on success or
   `[:err {:field <k> :raw <s>}]` on first parse error."
   [{:keys [assertion field-text]}]
-  (let [{:keys [fields]} (recorder/vocabulary-entry assertion)]
+  (let [{:keys [fields]} (rf.story.recorder/vocabulary-entry assertion)]
     (loop [fs fields payload {}]
       (if-let [{:keys [key type]} (first fs)]
         (let [raw (get field-text key "")]
@@ -500,7 +500,7 @@
   [picker]
   (let [[outcome payload] (build-payload picker)]
     (when (= outcome :ok)
-      (recorder/make-assertion (:assertion picker) payload))))
+      (rf.story.recorder/make-assertion (:assertion picker) payload))))
 
 (defn- insert!
   "Commit the picker's current state by inserting the assertion into
@@ -511,7 +511,7 @@
         [outcome detail] (build-payload picker)]
     (if (= outcome :ok)
       (do
-        (recorder/insert-assertion! (:assertion picker) detail)
+        (rf.story.recorder/insert-assertion! (:assertion picker) detail)
         (close-picker!))
       (swap! ui-picker assoc :error detail))))
 
@@ -546,7 +546,7 @@
                       (set-active-index! (dec n)))
       ("Enter" " ") (do
                       (.preventDefault evt)
-                      (let [vocab (nth recorder/assertion-vocabulary active-index nil)]
+                      (let [vocab (nth rf.story.recorder/assertion-vocabulary active-index nil)]
                         (when vocab
                           (pick-assertion! (:id vocab)))))
       nil)))
@@ -565,7 +565,7 @@
   row, roving tabindex with ArrowUp/ArrowDown/Home/End/Enter handling."
   []
   (let [{:keys [open? assertion field-text error active-index] :as picker} @ui-picker
-        vocab recorder/assertion-vocabulary
+        vocab rf.story.recorder/assertion-vocabulary
         n     (count vocab)
         ;; Clamp the cursor against the live vocabulary length so the
         ;; renderer never receives an out-of-range index (defensive
@@ -577,7 +577,7 @@
                 :else                active-index)
         active-row-ref (atom nil)]
     (when open?
-      [a11y-dialog/focus-trap
+      [rf.story.ui.a11y-dialog/focus-trap
        {:on-close          close-picker!
         ;; In phase 1, the menu's active row is the natural starting
         ;; focus. In phase 2 we leave the helper to pick the first
@@ -630,7 +630,7 @@
                 vocab))]
 
            ;; Phase 2: field entry + preview.
-           (let [{:keys [fields hint]} (recorder/vocabulary-entry assertion)
+           (let [{:keys [fields hint]} (rf.story.recorder/vocabulary-entry assertion)
                  preview (preview-event picker)]
              [:div {:style {:display "flex" :flex-direction "column" :gap "10px"}
                     :data-test "story-recorder-picker-fields"}
@@ -652,7 +652,7 @@
                            :data-test "story-recorder-picker-error"}
                     "EDN didn't parse — " (pr-str (:raw error))])])
               (when (seq fields)
-                [:div {:style {:font-size (:micro typography/type-scale) :color (:text-tertiary colors/tokens)}}
+                [:div {:style {:font-size (:micro rf.story.theme.typography/type-scale) :color (:text-tertiary rf.story.theme.colors/tokens)}}
                  "preview:"])
               (when preview
                 [:pre {:style     (:preview styles)
@@ -684,11 +684,11 @@
 ;; overlay chip re-renders when the user toggles capture. The flag
 ;; lives in the dom-capture ns; here we just mirror it.
 
-(defonce ui-dom-capture-enabled? (r/atom (recorder-dom/enabled?)))
+(defonce ui-dom-capture-enabled? (r/atom (rf.story.recorder.dom-capture/enabled?)))
 
 (defn- toggle-dom-capture! []
   (let [new-val (not @ui-dom-capture-enabled?)]
-    (recorder-dom/set-enabled! new-val)
+    (rf.story.recorder.dom-capture/set-enabled! new-val)
     (reset! ui-dom-capture-enabled? new-val)))
 
 (defn recording-overlay
@@ -710,11 +710,11 @@
        [:span "REC"]
        [:span {:style {:color "#fff"}}
         (pr-str variant-id)]
-       [:span {:style {:color (:text-tertiary colors/tokens)}}
+       [:span {:style {:color (:text-tertiary rf.story.theme.colors/tokens)}}
         (str (count events) " event" (when (not= 1 (count events)) "s"))]
        [:button
         {:style       (if dom-on?
-                        (assoc (:assert-btn styles) :background (:accent-amber colors/tokens))
+                        (assoc (:assert-btn styles) :background (:accent-amber rf.story.theme.colors/tokens))
                         (assoc (:btn-muted styles)  :opacity     "0.6"))
          :data-test   "story-recorder-toggle-dom"
          :data-enabled (if dom-on? "true" "false")
@@ -737,8 +737,8 @@
                      ;; Drain pending typed-input buffer
                      ;; before sealing the recording so the final
                      ;; :dom/type entry lands in the script.
-                     (recorder-dom/flush-type-buffer!)
-                     (let [{:keys [variant-id events entries]} (recorder/stop-recording!)]
+                     (rf.story.recorder.dom-capture/flush-type-buffer!)
+                     (let [{:keys [variant-id events entries]} (rf.story.recorder/stop-recording!)]
                        ;; Open on EITHER stream — a DOM-only
                        ;; recording lands only in :entries.
                        (when (or (seq events) (seq entries))
@@ -789,15 +789,15 @@
             ;; bare :events vector only when no rich entries were
             ;; snapshotted (legacy callers / dispatch-only recordings).
             src        (if (seq entries) entries events)
-            spec       (play-export/recording->script-body
+            spec       (rf.story.recorder.play-export/recording->script-body
                          src
                          {:auto-run? false})
-            snippet    (play-export/render-variant-form
+            snippet    (rf.story.recorder.play-export/render-variant-form
                          spec
                          {:variant-id (or draft-id :story.recorded/example)
                           :extends    source-id})
             step-count (count (:script spec))]
-        (review-dialog/review-dialog dialog
+        (rf.story.review-dialog/review-dialog dialog
           {:title             "Test Codegen — save recording as variant"
            :hint              (str "EDN snippet generated from "
                                    step-count " recorded step"
@@ -810,14 +810,14 @@
            :placeholder-id    :story.recorded/example
            :placeholder-input ":story.your-story/recorded-flow"
            :on-edit-id        set-draft-id!
-           :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
-           :on-discard        (fn [] (recorder/clear!) (close-dialog!))
+           :on-copy           (fn [] (rf.story.review-dialog/copy-to-clipboard! snippet))
+           :on-discard        (fn [] (rf.story.recorder/clear!) (close-dialog!))
            ;; Open the export dialog with the captured
            ;; snapshot for the auto-run / auto-assert affordances. We
            ;; DON'T close the parent dialog; the export dialog stacks on
            ;; top via a higher z-index.
            :on-export         (fn []
-                                (export-dialog/open-from-recorder-dialog!
+                                (rf.story.ui.recorder-export-dialog/open-from-recorder-dialog!
                                   {:events    events
                                    :entries   entries
                                    :source-id source-id}))

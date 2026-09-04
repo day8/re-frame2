@@ -13,15 +13,15 @@
   smoke just confirms the function runs)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.machines :as machines]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.async :as async-lib]
-            [re-frame.story.loaders :as loaders]
-            [re-frame.story.play.runner-events :as re]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.machines :as rf.machines]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.async :as rf.story.async]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]
+            [re-frame.subs :as rf.subs]))
 
 ;; ---- fixtures ------------------------------------------------------------
 ;;
@@ -35,13 +35,13 @@
 ;; non-empty registrar carrying over between tests.
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
   ;; Seat the plain-atom adapter. `rf/init!` is idempotent at the
   ;; install-adapter! layer (the test build may have seated it
   ;; already via another suite's boot).
-  (try (rf/init! plain-atom/adapter)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the machines artefact's framework-shipped sub
   ;; (`:rf/machine`) after the registrar clear. The JVM equivalent
@@ -51,13 +51,13 @@
   ;; state at [:rf.runtime/machines :snapshots <id>], so the framework sub
   ;; is a runtime-db sub (db-position arg is the runtime-db value) — mirror
   ;; `re-frame.machines` exactly, NOT the retired app-db `:rf/runtime` path.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 ;; Per cljs.test: async tests require fixtures to be supplied in
 ;; map form — function-form fixtures can't suspend around the async
@@ -70,18 +70,18 @@
   (testing "run-variant returns a js/Promise"
     (rf/reg-event :test/inc
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
-    (story/reg-variant :story.cljs.run/v
+    (rf.story/reg-variant :story.cljs.run/v
       {:setup [[:test/inc] [:test/inc]]})
-    (let [p (story/run-variant :story.cljs.run/v)]
-      (is (async-lib/promise? p))
+    (let [p (rf.story/run-variant :story.cljs.run/v)]
+      (is (rf.story.async/promise? p))
       (async done
         (-> p
-            (async-lib/then
+            (rf.story.async/then
               (fn [r]
                 (is (= :story.cljs.run/v (:frame r)))
                 (is (= :ready            (:lifecycle r)))
                 (is (= 2                 (:counter (:app-db r))))
-                (story/destroy-variant! :story.cljs.run/v)
+                (rf.story/destroy-variant! :story.cljs.run/v)
                 (done))))))))
 
 ;; ---- rf2-043cm — events-only fast-path on CLJS --------------------------
@@ -103,12 +103,12 @@
             `:frame-setup` decorators / no `:loaders-complete-when`."
     (rf/reg-event :test.eo/seed
       (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
-    (story/reg-variant :story.cljs.eo/v
+    (rf.story/reg-variant :story.cljs.eo/v
       {:setup [[:test.eo/seed]]})
-    (let [p (story/run-variant :story.cljs.eo/v)]
+    (let [p (rf.story/run-variant :story.cljs.eo/v)]
       (async done
         (-> p
-            (async-lib/then
+            (rf.story.async/then
               (fn [r]
                 (is (= :ready  (:lifecycle r))
                     "events-only variant lands :ready")
@@ -116,23 +116,23 @@
                     "events still dispatched after the fast-path mount")
                 (is (empty? (:assertions r))
                     "no `:rf.error/loader-incomplete` projection on the fast-path")
-                (story/destroy-variant! :story.cljs.eo/v)
+                (rf.story/destroy-variant! :story.cljs.eo/v)
                 (done))))))))
 
 (deftest cljs-events-only-classifier
-  (testing "rf2-043cm — `loaders/events-only-variant?` classifies the
+  (testing "rf2-043cm — `rf.story.loaders/events-only-variant?` classifies the
             canonical events-only loader-body shape on CLJS"
-    (is (true?  (loaders/events-only-variant? {:setup [[:counter/initialise 5]]}
+    (is (true?  (rf.story.loaders/events-only-variant? {:setup [[:counter/initialise 5]]}
                                               {:hiccup [] :frame-setup []
                                                :fx-override [] :errors []}))
         "the counter_with_stories `:story.counter/events-only-loaded`
          body shape (preserved from the retired xray-rhs-smoke
          testbed per rf2-9jfo1.2) → events-only")
-    (is (false? (loaders/events-only-variant? {:loaders [[:l]]} {}))
+    (is (false? (rf.story.loaders/events-only-variant? {:loaders [[:l]]} {}))
         ":loaders disqualifies")
-    (is (false? (loaders/events-only-variant? {:loaders-complete-when :p?} {}))
+    (is (false? (rf.story.loaders/events-only-variant? {:loaders-complete-when :p?} {}))
         ":loaders-complete-when disqualifies")
-    (is (false? (loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
+    (is (false? (rf.story.loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
         ":frame-setup decorators disqualify")))
 
 ;; ---- rf2-9x5fm — the run-variant promise resolves even when the play -----
@@ -158,7 +158,7 @@
             aborted run loop settles its continuation instead of hanging"
     (rf/reg-event :test.hang/touch
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (story/reg-variant :story.cljs.hang/torn-down
+    (rf.story/reg-variant :story.cljs.hang/torn-down
       {:setup      []
        :script {:script [[:dispatch-sync [:test.hang/touch]]
                               ;; The async yield window: the frame is
@@ -168,14 +168,14 @@
                               [:wait 60]
                               [:dispatch-sync [:test.hang/touch]]]}})
     (async done
-      (let [p (story/run-variant :story.cljs.hang/torn-down)]
+      (let [p (rf.story/run-variant :story.cljs.hang/torn-down)]
         ;; Destroy the frame mid-:wait (after run-phase-4! has scheduled the
         ;; wait's setTimeout, before it resumes). This wipes the run-state
         ;; slot (`clear-state!` via the :drop-run-state teardown hook), so the
         ;; resuming loop hits the `(nil? state)` abort branch.
-        (js/setTimeout #(story/destroy-variant! :story.cljs.hang/torn-down) 15)
+        (js/setTimeout #(rf.story/destroy-variant! :story.cljs.hang/torn-down) 15)
         (-> p
-            (async-lib/then
+            (rf.story.async/then
               (fn [r]
                 (is (map? r)
                     "the run-variant promise RESOLVED — the torn-down-mid-wait
@@ -189,22 +189,22 @@
             its own continuation rather than stranding the chain"
     (rf/reg-event :test.hang2/touch
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (story/reg-variant :story.cljs.hang/token-swap
+    (rf.story/reg-variant :story.cljs.hang/token-swap
       {:setup      []
        :script {:auto-run? false
                      :script [[:dispatch-sync [:test.hang2/touch]]
                               [:wait 60]
                               [:dispatch-sync [:test.hang2/touch]]]}})
     (async done
-      (let [p (story/run-variant :story.cljs.hang/token-swap)]
+      (let [p (rf.story/run-variant :story.cljs.hang/token-swap)]
         (-> p
-            (async-lib/then
+            (rf.story.async/then
               (fn [r]
                 (is (map? r)
                     "the original run-variant promise RESOLVED even though a
                      concurrent run! swapped the run-state token mid-:wait —
                      the stale loop's continuation settled (rf2-9x5fm)")
-                (story/destroy-variant! :story.cljs.hang/token-swap)
+                (rf.story/destroy-variant! :story.cljs.hang/token-swap)
                 (done))))
         ;; Mid-:wait, fire a concurrent runner-events/run! for the SAME
         ;; variant. It stamps a fresher :run-token onto the shared slot, so
@@ -213,18 +213,18 @@
         ;; itself is allowed to complete; we only assert the ORIGINAL promise
         ;; resolves.
         (js/setTimeout
-          #(re/run! :story.cljs.hang/token-swap)
+          #(rf.story.play.runner-events/run! :story.cljs.hang/token-swap)
           15)))))
 
 ;; ---- snapshot-identity --------------------------------------------------
 
 (deftest cljs-snapshot-identity-shape
   (testing "snapshot-identity produces an 8-char hex hash"
-    (story/reg-story :story.cljs.id
+    (rf.story/reg-story :story.cljs.id
       {:component :app/v :args {:a 1}})
-    (story/reg-variant :story.cljs.id/v
+    (rf.story/reg-variant :story.cljs.id/v
       {:setup [[:init]] :tags #{:dev}})
-    (let [s (story/snapshot-identity :story.cljs.id/v
+    (let [s (rf.story/snapshot-identity :story.cljs.id/v
                                      {:substrate :reagent})]
       (is (= :story.cljs.id/v (:variant-id s)))
       (is (string?            (:content-hash s)))
@@ -235,12 +235,12 @@
 
 (deftest cljs-resolve-args-precedence
   (testing "args precedence chain works on CLJS"
-    (story/configure! {:rf.story/global-args {:theme :light}})
-    (story/reg-story :story.cljs.args
+    (rf.story/configure! {:rf.story/global-args {:theme :light}})
+    (rf.story/reg-story :story.cljs.args
       {:args {:label "story"}})
-    (story/reg-variant :story.cljs.args/v
+    (rf.story/reg-variant :story.cljs.args/v
       {:args {:label "variant"} :setup []})
-    (let [r (story/resolve-args :story.cljs.args/v
+    (let [r (rf.story/resolve-args :story.cljs.args/v
                                 {:cell-overrides {:icon :star}})]
       (is (= :light    (:theme r)))
       (is (= "variant" (:label r)))
@@ -250,12 +250,12 @@
 
 (deftest cljs-decorator-resolution
   (testing "decorator resolution works on CLJS"
-    (story/reg-decorator :centered
+    (rf.story/reg-decorator :centered
       {:kind :hiccup
        :wrap (fn [body _] [:div.centered body])})
-    (story/reg-variant :story.cljs.dec/v
+    (rf.story/reg-variant :story.cljs.dec/v
       {:decorators [[:centered]]
        :setup     []})
-    (let [r (story/resolve-decorators :story.cljs.dec/v)]
+    (let [r (rf.story/resolve-decorators :story.cljs.dec/v)]
       (is (= 1 (count (:hiccup r))))
       (is (= :centered (-> r :hiccup first :id))))))

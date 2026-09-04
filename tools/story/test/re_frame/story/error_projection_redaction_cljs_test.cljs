@@ -24,32 +24,32 @@
   ## redacts it while the message survives verbatim."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.async      :as async-lib]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.ui.state   :as state]
-            [re-frame.subs             :as subs]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.ui.state   :as rf.story.ui.state]
+            [re-frame.subs             :as rf.subs]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -71,13 +71,13 @@
         (throw (ex-info "Invalid credentials"
                         {:token  "BEARER-secret-12345"
                          :reason :bad-password}))))
-    (story/reg-variant :story.err-redaction/probe
+    (rf.story/reg-variant :story.err-redaction/probe
       {:setup      []
        :sensitive   {:app-db [[:token]]}
        :script [[:dispatch-sync [:auth/boom]]]})
     (async done
-      (-> (story/run-variant :story.err-redaction/probe)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.err-redaction/probe)
+          (rf.story.async/then
             (fn [result]
               (let [ex   (last (filter #(= :rf.error/exception (:assertion %))
                                        (:assertions result)))
@@ -92,7 +92,7 @@
                     "a non-sensitive ex-data slot passes through")
                 (is (= "Invalid credentials" (get-in ex [:error :message]))
                     "the message string survives verbatim (NOT auto-walked)"))
-              (story/destroy-variant! :story.err-redaction/probe)
+              (rf.story/destroy-variant! :story.err-redaction/probe)
               (done)))))))
 
 (deftest exception-ex-data-non-sensitive-passes-through
@@ -101,17 +101,17 @@
     (rf/reg-event :plain/boom
       (fn [_ _]
         (throw (ex-info "boom" {:detail "not-secret"}))))
-    (story/reg-variant :story.err-plain/probe
+    (rf.story/reg-variant :story.err-plain/probe
       {:setup      []
        :script [[:dispatch-sync [:plain/boom]]]})
     (async done
-      (-> (story/run-variant :story.err-plain/probe)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.err-plain/probe)
+          (rf.story.async/then
             (fn [result]
               (let [ex   (last (filter #(= :rf.error/exception (:assertion %))
                                        (:assertions result)))
                     data (get-in ex [:error :data])]
                 (is (= "not-secret" (:detail data))
                     "an unmarked ex-data slot is not redacted"))
-              (story/destroy-variant! :story.err-plain/probe)
+              (rf.story/destroy-variant! :story.err-plain/probe)
               (done)))))))

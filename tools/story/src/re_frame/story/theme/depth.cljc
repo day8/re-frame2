@@ -44,7 +44,7 @@
 
   Token data is `.cljc`. The inject helper is CLJS-only."
   {:no-doc true}
-  #?(:cljs (:require [re-frame.story.config :as config])))
+  #?(:cljs (:require [re-frame.story.config :as rf.story.config])))
 
 (def shadows
   "Box-shadow tokens. Four slots:
@@ -109,9 +109,9 @@
 #?(:cljs
    (defn inject-grain-css!
      "Inject the grain-overlay CSS into `js/document.head`. Idempotent.
-     Behind `config/enabled?` — production short-circuits."
+     Behind `rf.story.config/enabled?` — production short-circuits."
      []
-     (when (and config/enabled? (not @grain-injected?))
+     (when (and rf.story.config/enabled? (not @grain-injected?))
        (reset! grain-injected? true)
        (when (and (exists? js/document) (.-head js/document))
          (try

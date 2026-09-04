@@ -9,76 +9,76 @@
   - `shortcut-keys`     — sorted key list
   - Each handler fn round-trips through the shell-state-atom"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story.ui.keybindings :as kb]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]
+            [re-frame.story.ui.state :as rf.story.ui.state]))
 
 (use-fixtures :each
-  {:before (fn [] (state/reset-shell-state!))})
+  {:before (fn [] (rf.story.ui.state/reset-shell-state!))})
 
 ;; ---- dispatch predicate -------------------------------------------------
 
 (deftest dispatch-key-predicate
   (testing "single lowercase char, no modifier, not editable → true"
-    (is (true? (kb/dispatch-key? "f" false false))))
+    (is (true? (rf.story.ui.keybindings/dispatch-key? "f" false false))))
   (testing "modifier held → false (Cmd-K / Ctrl-S etc. pass through)"
-    (is (false? (kb/dispatch-key? "f" true false))))
+    (is (false? (rf.story.ui.keybindings/dispatch-key? "f" true false))))
   (testing "focused input → false (typing in search shouldn't toggle)"
-    (is (false? (kb/dispatch-key? "f" false true))))
+    (is (false? (rf.story.ui.keybindings/dispatch-key? "f" false true))))
   (testing "multi-char key (Arrow, Escape) → false"
-    (is (false? (kb/dispatch-key? "Escape" false false))))
+    (is (false? (rf.story.ui.keybindings/dispatch-key? "Escape" false false))))
   (testing "nil / non-string → false"
-    (is (false? (kb/dispatch-key? nil false false)))))
+    (is (false? (rf.story.ui.keybindings/dispatch-key? nil false false)))))
 
 ;; ---- registry shape -----------------------------------------------------
 
 (deftest bindings-table-shape
   (testing "canonical 4-key registry: f / s / a / t"
-    (is (= #{"f" "s" "a" "t"} (set (keys kb/bindings))))
-    (is (= ["a" "f" "s" "t"]  (kb/shortcut-keys)))))
+    (is (= #{"f" "s" "a" "t"} (set (keys rf.story.ui.keybindings/bindings))))
+    (is (= ["a" "f" "s" "t"]  (rf.story.ui.keybindings/shortcut-keys)))))
 
 ;; ---- handler round-trip -------------------------------------------------
 
 (defn- visibility []
-  (state/chrome-visibility (state/get-state)))
+  (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state)))
 
 (deftest full-screen-toggle-round-trip
   (testing "default off → on → off"
     (is (false? (:full-screen? (visibility))))
-    (kb/full-screen-toggle!)
+    (rf.story.ui.keybindings/full-screen-toggle!)
     (is (true?  (:full-screen? (visibility))))
-    (kb/full-screen-toggle!)
+    (rf.story.ui.keybindings/full-screen-toggle!)
     (is (false? (:full-screen? (visibility))))))
 
 (deftest sidebar-toggle-round-trip
   (testing "default on → off → on"
     (is (true?  (:sidebar? (visibility))))
-    (kb/sidebar-toggle!)
+    (rf.story.ui.keybindings/sidebar-toggle!)
     (is (false? (:sidebar? (visibility))))
-    (kb/sidebar-toggle!)
+    (rf.story.ui.keybindings/sidebar-toggle!)
     (is (true?  (:sidebar? (visibility))))))
 
 (deftest rhs-toggle-round-trip
   (testing "default on → off → on"
     (is (true?  (:rhs? (visibility))))
-    (kb/rhs-toggle!)
+    (rf.story.ui.keybindings/rhs-toggle!)
     (is (false? (:rhs? (visibility))))
-    (kb/rhs-toggle!)
+    (rf.story.ui.keybindings/rhs-toggle!)
     (is (true?  (:rhs? (visibility))))))
 
 (deftest toolbar-toggle-round-trip
   (testing "default on → off → on"
     (is (true?  (:toolbar? (visibility))))
-    (kb/toolbar-toggle!)
+    (rf.story.ui.keybindings/toolbar-toggle!)
     (is (false? (:toolbar? (visibility))))
-    (kb/toolbar-toggle!)
+    (rf.story.ui.keybindings/toolbar-toggle!)
     (is (true?  (:toolbar? (visibility))))))
 
 (deftest exit-full-screen-clears
   (testing "exit handler always clears full-screen regardless of prior"
-    (kb/full-screen-toggle!)         ;; on
+    (rf.story.ui.keybindings/full-screen-toggle!)         ;; on
     (is (true? (:full-screen? (visibility))))
-    (kb/exit-full-screen!)            ;; off
+    (rf.story.ui.keybindings/exit-full-screen!)            ;; off
     (is (false? (:full-screen? (visibility))))
     ;; idempotent: calling again leaves it off
-    (kb/exit-full-screen!)
+    (rf.story.ui.keybindings/exit-full-screen!)
     (is (false? (:full-screen? (visibility))))))

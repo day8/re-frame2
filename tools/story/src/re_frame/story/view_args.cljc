@@ -48,9 +48,9 @@
   behind the §6 elision contract along with the rest of the Story runtime;
   the default lookup reads the Story side-table, which is empty in a
   production bundle."
-  (:require [re-frame.story.malli-schema :as msu]
-            [re-frame.story.plan         :as plan]
-            [re-frame.story.registrar    :as registrar]))
+  (:require [re-frame.story.malli-schema :as rf.story.malli-schema]
+            [re-frame.story.plan         :as rf.story.plan]
+            [re-frame.story.registrar    :as rf.story.registrar]))
 
 ;; ---- key resolution (re-exported from the leaf for the in-ns surface) ----
 ;;
@@ -62,7 +62,7 @@
 (def view-args-schema-keys
   "Re-export of `malli-schema/view-args-schema-keys` — the canonical
   first-match key order `[:rf/props :schema]`."
-  msu/view-args-schema-keys)
+  rf.story.malli-schema/view-args-schema-keys)
 
 (def view-args-schema
   "Re-export of `malli-schema/view-args-schema` — the low-level key picker
@@ -70,7 +70,7 @@
   variant-id (not a pre-resolved view-meta) call `compiled-view-args-
   schema` instead, which routes through the compiled plan so an
   `:extends`-inherited / `:compose`-d `:component` resolves."
-  msu/view-args-schema)
+  rf.story.malli-schema/view-args-schema)
 
 ;; ---- compiled-plan resolver (the ONE shared entry) -----------------------
 
@@ -92,13 +92,13 @@
   that fails registration."
   [variant-id]
   (try
-    (-> (plan/variant-plan variant-id) :world :view-args-schema)
+    (-> (rf.story.plan/variant-plan variant-id) :world :view-args-schema)
     (catch #?(:clj Exception :cljs :default) _ nil)))
 
 (defn compiled-view-args-schema
   "Return the view-args (props) schema for a REGISTERED `variant-id`,
   resolved off the COMPILED variant-plan (`[:world :view-args-schema]`) —
-  the single source of truth. Routes through `plan/variant-plan` with the
+  the single source of truth. Routes through `rf.story.plan/variant-plan` with the
   DEFAULT side-table lookup so an `:extends`-inherited or `:compose`-d
   `:component` resolves the same way the runner / render / docs paths see
   it. Returns nil when the variant is unregistered, declares no
@@ -107,10 +107,10 @@
 
   Memoized per `[variant-id mutation-tick]` (see the ns docstring): cheap
   to call per render. The result is identical to
-  `(get-in (plan/variant-plan variant-id) [:world :view-args-schema])` but
+  `(get-in (rf.story.plan/variant-plan variant-id) [:world :view-args-schema])` but
   does not recompile the plan on every call between two registrar writes."
   [variant-id]
-  (let [tick (registrar/current-mutation-tick)
+  (let [tick (rf.story.registrar/current-mutation-tick)
         c    @cache]
     (if (and (= tick (:tick c)) (contains? (:by-id c) variant-id))
       (get (:by-id c) variant-id)

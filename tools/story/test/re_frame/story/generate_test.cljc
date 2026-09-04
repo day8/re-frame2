@@ -16,14 +16,14 @@
     existing bridge; `sweep-faults!` collects one artifact per fault cell."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core   :as rf]
-            [re-frame.epoch  :as epoch]
-            [re-frame.frame  :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story.artifact  :as artifact]
-            [re-frame.story.generate  :as generate]
-            [re-frame.story.generate.test-check :as gen-tc]
-            [re-frame.story.promotion :as promotion]
+            [re-frame.epoch  :as rf.epoch]
+            [re-frame.frame  :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story.artifact  :as rf.story.artifact]
+            [re-frame.story.generate  :as rf.story.generate]
+            [re-frame.story.generate.test-check :as rf.story.generate.test-check]
+            [re-frame.story.promotion :as rf.story.promotion]
             #?(:clj [clojure.test.check.generators :as tcgen])))
 
 ;; ===========================================================================
@@ -39,16 +39,16 @@
   ;; `generated-failure-promotes-through-the-existing-bridge`). The spec
   ;; (spec/017 §Generator-agnostic) now qualifies the claim as within-host.
   (testing "WITHIN a host the same root seed yields the SAME sequence (reproducibility)"
-    (is (= (generate/seed-seq 12345 8) (generate/seed-seq 12345 8))
+    (is (= (rf.story.generate/seed-seq 12345 8) (rf.story.generate/seed-seq 12345 8))
         "a property run replays identically from its recorded :seed on the same host"))
   (testing "different root seeds diverge"
-    (is (not= (generate/seed-seq 1 8) (generate/seed-seq 2 8))))
+    (is (not= (rf.story.generate/seed-seq 1 8) (rf.story.generate/seed-seq 2 8))))
   (testing "seed-seq length + the root seed is never reused as a program seed"
-    (let [s (generate/seed-seq 99 5)]
+    (let [s (rf.story.generate/seed-seq 99 5)]
       (is (= 5 (count s)))
       (is (not (some #{99} s)) "root seed itself is not in the program-seed sequence")))
   (testing "next-seed is a pure, deterministic successor"
-    (is (= (generate/next-seed 7) (generate/next-seed 7)))))
+    (is (= (rf.story.generate/next-seed 7) (rf.story.generate/next-seed 7)))))
 
 ;; ===========================================================================
 ;; PURE: failure predicate + shrink candidate enumeration
@@ -56,24 +56,24 @@
 
 (deftest failing-predicate
   (testing ":fail / :error falsify; :pass / :cannot-run do not"
-    (is (generate/failing? {:status :fail}))
-    (is (generate/failing? {:status :error}))
-    (is (not (generate/failing? {:status :pass})))
-    (is (not (generate/failing? {:status :cannot-run}))
+    (is (rf.story.generate/failing? {:status :fail}))
+    (is (rf.story.generate/failing? {:status :error}))
+    (is (not (rf.story.generate/failing? {:status :pass})))
+    (is (not (rf.story.generate/failing? {:status :cannot-run}))
         ":cannot-run is inconclusive, not a falsification")))
 
 (deftest drop-candidates-enumeration
   (testing "drop-candidates removes one contiguous chunk-size window, L→R"
     (is (= [[:b :c :d] [:a :c :d] [:a :b :d] [:a :b :c]]
-           (generate/drop-candidates [:a :b :c :d] 1))
+           (rf.story.generate/drop-candidates [:a :b :c :d] 1))
         "chunk-size 1: drop each single step in turn (one candidate per step)")
     (is (= [[:c :d] [:a :b]]
-           (generate/drop-candidates [:a :b :c :d] 2))
+           (rf.story.generate/drop-candidates [:a :b :c :d] 2))
         "chunk-size 2: drop the first pair, then the second pair"))
   (testing "a chunk >= length yields the empty program; <= 0 yields none"
-    (is (= [[]] (generate/drop-candidates [:a :b] 2)))
-    (is (= []  (generate/drop-candidates [:a :b] 0)))
-    (is (= []  (generate/drop-candidates [] 3)))))
+    (is (= [[]] (rf.story.generate/drop-candidates [:a :b] 2)))
+    (is (= []  (rf.story.generate/drop-candidates [:a :b] 0)))
+    (is (= []  (rf.story.generate/drop-candidates [] 3)))))
 
 ;; ===========================================================================
 ;; PURE: seed-bearing artifact construction
@@ -81,17 +81,17 @@
 
 (deftest generated-artifact-carries-seed-and-shrink
   (testing "a generated artifact is a :rf.test/run-artifact carrying its :seed"
-    (let [a (generate/generated-artifact
+    (let [a (rf.story.generate/generated-artifact
               {:seed 42 :event-program [[:counter/inc]]})]
-      (is (artifact/run-artifact? a))
+      (is (rf.story.artifact/run-artifact? a))
       (is (= 42 (:seed a)))
       (is (= [[:dispatch [:counter/inc]]] (:event-program a))
           "a bare event vector lifts to a tagged dispatch program")
       (is (= :rf.story/property-run (get-in a [:source :tool])))))
   (testing "a shrunk failure carries its :shrink-path; absent when not shrunk"
-    (let [shrunk (generate/generated-artifact
+    (let [shrunk (rf.story.generate/generated-artifact
                    {:seed 1 :event-program [[:a]] :shrink-path [[[:a] [:b]]]})
-          plain  (generate/generated-artifact {:seed 1 :event-program [[:a]]})]
+          plain  (rf.story.generate/generated-artifact {:seed 1 :event-program [[:a]]})]
       (is (= [[[:a] [:b]]] (:shrink-path shrunk)))
       (is (not (contains? plain :shrink-path))))))
 
@@ -100,13 +100,13 @@
 ;; ===========================================================================
 
 (defn- reset-rf! [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (try (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.epoch/clear-history!)
+  (rf.epoch/clear-epoch-listeners!)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-rf!)
@@ -115,7 +115,7 @@
   (testing "a property that always holds passes over N seeds"
     ;; A handler that always succeeds — every generated program passes.
     (rf/reg-event :gen/ok (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [res (generate/check-property!
+    (let [res (rf.story.generate/check-property!
                 (fn [_seed] [[:dispatch [:gen/ok]]])
                 {:seed 7 :num-tests 5})]
       (is (= :pass (:status res)))
@@ -134,12 +134,12 @@
 (deftest check-property-falsifies-and-emits-seed-bearing-artifact
   (testing "a property that fails yields a seed-bearing failing artifact"
     (reg-boom!)
-    (let [res (generate/check-property!
+    (let [res (rf.story.generate/check-property!
                 (fn [_seed] [[:dispatch [:gen/boom]]])
                 {:seed 3 :num-tests 4 :shrink? false})]
       (is (= :fail (:status res)))
       (is (some? (:seed res)) "the failing program's seed is recorded")
-      (is (artifact/run-artifact? (:artifact res)))
+      (is (rf.story.artifact/run-artifact? (:artifact res)))
       (is (= (:seed res) (:seed (:artifact res)))
           "the artifact carries the falsifying seed")
       (is (= :fail (:status (:result res)))))))
@@ -153,7 +153,7 @@
     (let [program [[:dispatch [:gen/noise]] [:dispatch [:gen/noise]]
                    [:dispatch [:gen/boom]]
                    [:dispatch [:gen/noise]] [:dispatch [:gen/noise]]]
-          res (generate/check-property!
+          res (rf.story.generate/check-property!
                 (fn [_seed] program)
                 {:seed 1 :num-tests 1 :shrink? true})]
       (is (= :fail (:status res)))
@@ -170,14 +170,14 @@
   (testing "a generated failure's artifact promotes into a curated variant,
             preserving the source link + the seed/shrink provenance"
     (reg-boom!)
-    (let [res      (generate/check-property!
+    (let [res      (rf.story.generate/check-property!
                      (fn [_seed] [[:dispatch [:gen/boom]]])
                      {:seed 5 :num-tests 2 :shrink? true})
           artifact (:artifact res)
           ;; materialize-variant-plan is PURE — registers nothing; it proves
           ;; the generated failure flows through the promotion bridge with
           ;; its seed-bearing source link intact.
-          plan     (promotion/materialize-variant-plan
+          plan     (rf.story.promotion/materialize-variant-plan
                      artifact {:variant/id :story.gen/regression-5})]
       (is (= :fail (:status res)))
       (is (= :rf.test/run-artifact (get-in plan [:run-artifact :artifact/kind]))
@@ -213,11 +213,11 @@
     (let [base   [[:dispatch [:app/save]]]
           lattice {:healthy {}
                    :save-fails {:app.fx/save :app.fx/save-broken}}
-          res    (generate/sweep-faults! base lattice {:seed 11})]
+          res    (rf.story.generate/sweep-faults! base lattice {:seed 11})]
       (is (= 2 (count (:cells res))) "one cell per lattice entry")
       (let [by-cell (into {} (map (juxt :cell identity)) (:cells res))]
-        (is (artifact/run-artifact? (:artifact (:healthy by-cell))))
-        (is (artifact/run-artifact? (:artifact (:save-fails by-cell))))
+        (is (rf.story.artifact/run-artifact? (:artifact (:healthy by-cell))))
+        (is (rf.story.artifact/run-artifact? (:artifact (:save-fails by-cell))))
         (is (= {:app.fx/save :app.fx/save-broken}
                (:fx-decisions (:artifact (:save-fails by-cell))))
             "the faulted cell's artifact carries its fault overrides for replay")
@@ -241,8 +241,8 @@
           ;; The SAME lattice in both shapes, in the same cell order.
           as-map      {:healthy {} :save-fails {:app.fx/save :app.fx/save-broken}}
           as-pair-seq [[:healthy {}] [:save-fails {:app.fx/save :app.fx/save-broken}]]
-          from-map    (generate/sweep-faults! base as-map      {:seed 7})
-          from-seq    (generate/sweep-faults! base as-pair-seq {:seed 7})
+          from-map    (rf.story.generate/sweep-faults! base as-map      {:seed 7})
+          from-seq    (rf.story.generate/sweep-faults! base as-pair-seq {:seed 7})
           cell-shape  (fn [c] {:cell (:cell c)
                                :status (:status c)
                                :fx-decisions (:fx-decisions (:artifact c))})]
@@ -274,7 +274,7 @@
    (deftest test-check-adapter-is-available-on-the-test-classpath
      (testing "test.check resolves on the :test alias, so the optional adapter
                reports available (the dep is test-only, not a Story runtime dep)"
-       (is (true? (gen-tc/available?))
+       (is (true? (rf.story.generate.test-check/available?))
            "org.clojure/test.check is on the :test alias classpath"))))
 
 #?(:clj
@@ -285,7 +285,7 @@
        ;; A generator of event programs: 1–4 dispatch steps of :gen/ok.
        (let [program-gen (tcgen/vector
                            (tcgen/return [:dispatch [:gen/ok]]) 1 4)
-             gen-fn      (gen-tc/gen->gen-fn program-gen {:size 20})]
+             gen-fn      (rf.story.generate.test-check/gen->gen-fn program-gen {:size 20})]
          (is (= (gen-fn 12345) (gen-fn 12345))
              "same seed → identical program")
          (is (let [p (gen-fn 7)]
@@ -306,8 +306,8 @@
        (rf/reg-event :gen/ok (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (let [program-gen (tcgen/vector
                           (tcgen/return [:dispatch [:gen/ok]]) 1 3)
-             res (gen-tc/check-property-gen!
-                  generate/check-property! program-gen
+             res (rf.story.generate.test-check/check-property-gen!
+                  rf.story.generate/check-property! program-gen
                   {:seed 7 :num-tests 5 :size 25})]
          (is (= :pass (:status res)))
          (is (= 5 (:num-tests res)))
@@ -328,11 +328,11 @@
                           (fn [noise] (conj (vec noise) [:dispatch [:gen/boom]]))
                           (tcgen/vector
                            (tcgen/return [:dispatch [:gen/noise]]) 0 3))
-             res (gen-tc/check-property-gen!
-                  generate/check-property! program-gen
+             res (rf.story.generate.test-check/check-property-gen!
+                  rf.story.generate/check-property! program-gen
                   {:seed 3 :num-tests 4 :size 20 :shrink? true})]
          (is (= :fail (:status res)))
-         (is (artifact/run-artifact? (:artifact res)))
+         (is (rf.story.artifact/run-artifact? (:artifact res)))
          (is (= (:seed res) (:seed (:artifact res)))
              "the artifact carries the falsifying seed (same as splitmix path)")
          (is (some #(= [:dispatch [:gen/boom]] %) (:smallest-program res))
@@ -340,7 +340,7 @@
          (is (seq (:shrink-path res))
              "shrinking ran via check-property!'s own delta-debug, not test.check")
          ;; The artifact promotes through the existing curated bridge unchanged.
-         (let [plan (promotion/materialize-variant-plan
+         (let [plan (rf.story.promotion/materialize-variant-plan
                      (:artifact res) {:variant/id :story.gen-tc/regression-3})]
            (is (= (:seed (:artifact res)) (get-in plan [:run-artifact :seed]))
                "the curated plan carries the test.check-driven failing seed"))))))
@@ -354,7 +354,7 @@
        ;; and the adapter's `available?` is the branch a caller uses to pick the
        ;; dependency-free path. The CLJS arm of the adapter throws the same
        ;; message (covered by the node build loading the ns without test.check).
-       (is (fn? (gen-tc/gen->gen-fn (tcgen/return [:dispatch [:gen/ok]])))
+       (is (fn? (rf.story.generate.test-check/gen->gen-fn (tcgen/return [:dispatch [:gen/ok]])))
            "with test.check present, gen->gen-fn returns a usable gen-fn")
-       (is (true? (gen-tc/available?))
+       (is (true? (rf.story.generate.test-check/available?))
            "available? is the documented branch for choosing the gen-fn path"))))

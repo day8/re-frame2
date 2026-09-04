@@ -36,9 +36,9 @@
   variant frame) but not the variant's authoring shape — same posture
   as the Re-run button (spec/009)."
   (:require [reagent.core                                  :as r]
-            [re-frame.story.predicates                     :as pred]
-            [re-frame.story.ui.test-mode.stepper-pure      :as pure]
-            [re-frame.story.ui.test-mode.stepper-state     :as state]
+            [re-frame.story.predicates                     :as rf.story.predicates]
+            [re-frame.story.ui.test-mode.stepper-pure      :as rf.story.ui.test-mode.stepper-pure]
+            [re-frame.story.ui.test-mode.stepper-state     :as rf.story.ui.test-mode.stepper-state]
             [re-frame.story.ui.test-mode.stepper-styles    :refer [styles]]))
 
 ;; ---- glyphs -------------------------------------------------------------
@@ -52,7 +52,7 @@
     :pending "○"
     ;; Done rows show the shared assertion-outcome glyph
     ;; (`predicates/assertion-glyph`); :event + unknown fall to the bullet.
-    :done    (get pred/assertion-glyph outcome "•")
+    :done    (get rf.story.predicates/assertion-glyph outcome "•")
     "·"))
 
 (defn- outcome-style [{:keys [outcome]}]
@@ -90,11 +90,11 @@
 (defn- controls-strip
   [variant-id slot]
   (let [{:keys [active? auto-playing?]} slot
-        step?       (pure/can-step? slot)
-        back?       (pure/can-step-back? slot)
-        rewind?     (pure/can-rewind? slot)
-        pause?      (pure/can-pause? slot)
-        resume?     (pure/can-resume? slot)]
+        step?       (rf.story.ui.test-mode.stepper-pure/can-step? slot)
+        back?       (rf.story.ui.test-mode.stepper-pure/can-step-back? slot)
+        rewind?     (rf.story.ui.test-mode.stepper-pure/can-rewind? slot)
+        pause?      (rf.story.ui.test-mode.stepper-pure/can-pause? slot)
+        resume?     (rf.story.ui.test-mode.stepper-pure/can-resume? slot)]
     (into
       [:div {:style     (:ctrl-row styles)
              :data-test "story-stepper-controls"}
@@ -105,14 +105,14 @@
             :title     "Start a step-by-step play run (re-allocates the frame)"
             :enabled?  true
             :style-key :primary
-            :on-click  (fn [] (state/begin! variant-id))})
+            :on-click  (fn [] (rf.story.ui.test-mode.stepper-state/begin! variant-id))})
          (ctrl-btn
            {:label     "Stop"
             :data-test "story-stepper-stop"
             :title     "Stop the stepper (tear down, return to Re-run mode)"
             :enabled?  true
             :style-key :soft
-            :on-click  (fn [] (state/end! variant-id))}))]
+            :on-click  (fn [] (rf.story.ui.test-mode.stepper-state/end! variant-id))}))]
       (when active?
         [[:div {:style (:ctrl-divider styles)}]
          (ctrl-btn
@@ -121,14 +121,14 @@
             :title     "Step back one event (restores the prior epoch)"
             :enabled?  back?
             :style-key :soft
-            :on-click  (fn [] (state/step-back! variant-id))})
+            :on-click  (fn [] (rf.story.ui.test-mode.stepper-state/step-back! variant-id))})
          (ctrl-btn
            {:label     "Step →"
             :data-test "story-stepper-step"
             :title     "Dispatch the next play event"
             :enabled?  step?
             :style-key :primary
-            :on-click  (fn [] (state/step! variant-id))})
+            :on-click  (fn [] (rf.story.ui.test-mode.stepper-state/step! variant-id))})
          [:div {:style (:ctrl-divider styles)}]
          (if auto-playing?
            (ctrl-btn
@@ -138,14 +138,14 @@
               :enabled?  pause?
               :armed?    true
               :style-key :soft
-              :on-click  (fn [] (state/pause! variant-id))})
+              :on-click  (fn [] (rf.story.ui.test-mode.stepper-state/pause! variant-id))})
            (ctrl-btn
              {:label     "▶ Play"
               :data-test "story-stepper-resume"
               :title     "Auto-play (Space)"
               :enabled?  resume?
               :style-key :soft
-              :on-click  (fn [] (state/resume! variant-id))}))
+              :on-click  (fn [] (rf.story.ui.test-mode.stepper-state/resume! variant-id))}))
          [:div {:style (:ctrl-divider styles)}]
          (ctrl-btn
            {:label     "↺ Rewind"
@@ -153,7 +153,7 @@
             :title     "Restore the pre-play state (R)"
             :enabled?  rewind?
             :style-key :soft
-            :on-click  (fn [] (state/rewind! variant-id))})]))))
+            :on-click  (fn [] (rf.story.ui.test-mode.stepper-state/rewind! variant-id))})]))))
 
 ;; ---- step row -----------------------------------------------------------
 
@@ -175,7 +175,7 @@
            :data-index  (str index)
            :data-position (name position)
            :data-breakpoint (str (boolean bp?))
-           :on-click    (fn [_] (state/toggle-breakpoint! variant-id index))
+           :on-click    (fn [_] (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! variant-id index))
            :title       (str "Click to toggle breakpoint at step " (inc index))}
      [:span {:style (merge (:step-glyph styles) (outcome-style row))}
       (position-glyph row)]
@@ -189,7 +189,7 @@
                :title        (if bp? "Remove breakpoint" "Set breakpoint")
                :on-click     (fn [e]
                                (.stopPropagation e)
-                               (state/toggle-breakpoint! variant-id index))}
+                               (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! variant-id index))}
       (if bp? "● BP" "◯ BP")]]))
 
 (defn- step-list
@@ -212,14 +212,14 @@
     (let [k (.-key e)]
       (case k
         " "          (do (.preventDefault e)
-                         (let [s (get @state/results-atom variant-id)]
+                         (let [s (get @rf.story.ui.test-mode.stepper-state/results-atom variant-id)]
                            (if (:auto-playing? s)
-                             (state/pause! variant-id)
-                             (state/resume! variant-id))))
-        "ArrowRight" (do (.preventDefault e) (state/step! variant-id))
-        "ArrowLeft"  (do (.preventDefault e) (state/step-back! variant-id))
-        ("r" "R")    (do (.preventDefault e) (state/rewind! variant-id))
-        "Escape"     (do (.preventDefault e) (state/end! variant-id))
+                             (rf.story.ui.test-mode.stepper-state/pause! variant-id)
+                             (rf.story.ui.test-mode.stepper-state/resume! variant-id))))
+        "ArrowRight" (do (.preventDefault e) (rf.story.ui.test-mode.stepper-state/step! variant-id))
+        "ArrowLeft"  (do (.preventDefault e) (rf.story.ui.test-mode.stepper-state/step-back! variant-id))
+        ("r" "R")    (do (.preventDefault e) (rf.story.ui.test-mode.stepper-state/rewind! variant-id))
+        "Escape"     (do (.preventDefault e) (rf.story.ui.test-mode.stepper-state/end! variant-id))
         nil))))
 
 ;; ---- top-level component ------------------------------------------------
@@ -233,7 +233,7 @@
       (when active?
         [:span {:style     (:progress styles)
                 :data-test "story-stepper-progress"}
-         (str " · " (pure/progress-label cursor total)
+         (str " · " (rf.story.ui.test-mode.stepper-pure/progress-label cursor total)
               (when auto-playing? " · playing"))])]
      [:span {:style (:kbd-hint styles)}
       "Space pause · → step · ← back · R rewind"]]))
@@ -281,8 +281,8 @@
          ;; If the user navigates away while a stepper is in flight,
          ;; tear it down so we don't leak the interval or the
          ;; substrate's per-frame state.
-         (when (get @state/results-atom variant-id)
-           (state/end! variant-id)))
+         (when (get @rf.story.ui.test-mode.stepper-state/results-atom variant-id)
+           (rf.story.ui.test-mode.stepper-state/end! variant-id)))
        :reagent-render
        (fn [variant-id]
-         (render-section variant-id (get @state/results-atom variant-id)))})))
+         (render-section variant-id (get @rf.story.ui.test-mode.stepper-state/results-atom variant-id)))})))

@@ -28,9 +28,9 @@
   invoke `resolve-args` only inside the `(when enabled? ...)`-gated
   runtime entry points; the call site disappears in production along
   with the rest of the runtime."
-  (:require [re-frame.story.config     :as config]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.registrar  :as registrar]))
+  (:require [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.registrar  :as rf.story.registrar]))
 
 ;; ---- deep-merge -----------------------------------------------------------
 
@@ -69,7 +69,7 @@
 ;; (decorators, identity, runtime, canvas, controls, multi-substrate,
 ;; panels, schema-validation, workspace) `:require` args already and call
 ;; it through this alias. The alias is a thin pass-through to
-;; `pred/parent-story-id`.
+;; `rf.story.predicates/parent-story-id`.
 
 (def parent-story-id
   "Derive the parent story id from a variant id. Per /spec/007-Stories.md
@@ -78,7 +78,7 @@
   id is the keyword named `:story.foo.bar`.
 
   Returns nil if `variant-id` does not match the variant-id grammar."
-  pred/parent-story-id)
+  rf.story.predicates/parent-story-id)
 
 ;; ---- mode-set materialisation --------------------------------------------
 
@@ -88,7 +88,7 @@
   runner can ignore a stale mode id; tools surface the mismatch as a
   validation warning."
   [mode-id]
-  (or (:args (registrar/handler-meta :mode mode-id)) {}))
+  (or (:args (rf.story.registrar/handler-meta :mode mode-id)) {}))
 
 (defn- active-modes-args
   "Compose every active mode's `:args` map by deep-merging in declared
@@ -124,10 +124,10 @@
   ([variant-id]
    (resolve-args variant-id nil))
   ([variant-id {:keys [active-modes cell-overrides] :as _opts}]
-   (let [variant-body (registrar/handler-meta :variant variant-id)
+   (let [variant-body (rf.story.registrar/handler-meta :variant variant-id)
          story-id     (parent-story-id variant-id)
-         story-body   (when story-id (registrar/handler-meta :story story-id))
-         global       (config/get-global-args)
+         story-body   (when story-id (rf.story.registrar/handler-meta :story story-id))
+         global       (rf.story.config/get-global-args)
          story-args   (:args story-body)
          mode-args    (active-modes-args (or active-modes []))
          variant-args (:args variant-body)
@@ -177,8 +177,8 @@
   ([variant-id] (run-arg-layers variant-id nil))
   ([variant-id {:keys [active-modes cell-overrides] :as _opts}]
    (let [story-id   (parent-story-id variant-id)
-         story-body (when story-id (registrar/handler-meta :story story-id))]
-     {:pre  [(config/get-global-args)
+         story-body (when story-id (rf.story.registrar/handler-meta :story story-id))]
+     {:pre  [(rf.story.config/get-global-args)
              (:args story-body)
              (active-modes-args (or active-modes []))]
       :post [(or cell-overrides {})]})))

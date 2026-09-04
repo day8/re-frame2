@@ -66,20 +66,20 @@
   `:rf.story/enabled?` false the shell is DCE'd and this ns rides
   out alongside it."
   (:require [reagent.core :as r]
-            [re-frame.story.args :as args]
-            [re-frame.story.config :as config]
-            [re-frame.story.egress :as egress]
-            [re-frame.story.malli-schema :as msu]
-            [re-frame.story.plan :as plan]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.review-dialog :as review-dialog]
-            [re-frame.story.share :as share]
-            [re-frame.story.ui.a11y-dialog :as a11y-dialog]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.view-args :as view-args]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.args :as rf.story.args]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.egress :as rf.story.egress]
+            [re-frame.story.malli-schema :as rf.story.malli-schema]
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.review-dialog :as rf.story.review-dialog]
+            [re-frame.story.share :as rf.story.share]
+            [re-frame.story.ui.a11y-dialog :as rf.story.ui.a11y-dialog]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.view-args :as rf.story.view-args]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack sans-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -104,28 +104,28 @@
   (rf2-76l69l). The same surface the controls panel exposes as editable
   args: the union of
 
-    - the resolved args' keys (`args/resolve-args` WITHOUT cell-overrides
+    - the resolved args' keys (`rf.story.args/resolve-args` WITHOUT cell-overrides
       — the global / story / variant-chain `:args` layers);
     - the variant's + parent story's explicit `:argtypes` keys;
     - the compiled view-args (props) schema's top-level `:map` entry keys
-      (`view-args/compiled-view-args-schema`).
+      (`rf.story.view-args/compiled-view-args-schema`).
 
   Returns nil for an unregistered / uncompilable variant (no contract
-  known) so `share/drop-stale-overrides` degrades to keeping every parsed
+  known) so `rf.story.share/drop-stale-overrides` degrades to keeping every parsed
   override rather than dropping all. Best-effort: any read failure
   contributes its empty layer; the resolved-args layer alone is the
   floor."
   [variant-id]
-  (when (and variant-id (registrar/registered? :variant variant-id))
-    (let [story-id   (args/parent-story-id variant-id)
-          vb         (registrar/handler-meta :variant variant-id)
-          sb         (when story-id (registrar/handler-meta :story story-id))
-          arg-keys   (set (keys (args/resolve-args variant-id)))
+  (when (and variant-id (rf.story.registrar/registered? :variant variant-id))
+    (let [story-id   (rf.story.args/parent-story-id variant-id)
+          vb         (rf.story.registrar/handler-meta :variant variant-id)
+          sb         (when story-id (rf.story.registrar/handler-meta :story story-id))
+          arg-keys   (set (keys (rf.story.args/resolve-args variant-id)))
           argtype-ks (into (set (keys (:argtypes sb)))
                            (keys (:argtypes vb)))
-          schema     (view-args/compiled-view-args-schema variant-id)
-          schema-ks  (when (and (vector? schema) (= :map (msu/schema-op schema)))
-                       (map msu/map-entry-key (msu/schema-children schema)))]
+          schema     (rf.story.view-args/compiled-view-args-schema variant-id)
+          schema-ks  (when (and (vector? schema) (= :map (rf.story.malli-schema/schema-op schema)))
+                       (map rf.story.malli-schema/map-entry-key (rf.story.malli-schema/schema-children schema)))]
       (into (into arg-keys argtype-ks) schema-ks))))
 
 (defn hydrate-from-url!
@@ -164,7 +164,7 @@
   side-effect only.
 
   rf2-76l69l — drift is detected at TWO stages: `parse-overrides-param*`
-  drops UNPARSEABLE entries, then `share/drop-stale-overrides` drops every
+  drops UNPARSEABLE entries, then `rf.story.share/drop-stale-overrides` drops every
   parsed override whose arg-key the focused variant no longer DECLARES.
   Both classes land in `:dropped` and feed the share-import hint, so a
   stale override is reported (reproducibility downgraded) instead of
@@ -175,22 +175,22 @@
     ;; ran first) rather than re-deriving it from the raw URL — guarantees
     ;; this pass operates on `url-state`'s authoritative, validated
     ;; selection and can never diverge from it.
-    (let [variant-id (:selected-variant @state/shell-state-atom)
-          valid?     (and variant-id (registrar/registered? :variant variant-id))
-          parsed0    (share/parse-overrides-param* (.get params "overrides"))
+    (let [variant-id (:selected-variant @rf.story.ui.state/shell-state-atom)
+          valid?     (and variant-id (rf.story.registrar/registered? :variant variant-id))
+          parsed0    (rf.story.share/parse-overrides-param* (.get params "overrides"))
           ;; Second stage: drop overrides for args the focused variant no
           ;; longer declares (renamed / removed) so they are REPORTED, not
           ;; merged as orphan live args. Only meaningful for a valid variant
           ;; (its declared-key contract). `declared-arg-keys` returns nil →
           ;; keep-all degrade.
           parsed     (if valid?
-                       (share/drop-stale-overrides parsed0
+                       (rf.story.share/drop-stale-overrides parsed0
                                                    (declared-arg-keys variant-id))
                        parsed0)
           overrides  (:overrides parsed)
           dropped    (:dropped parsed)]
       (when valid?
-        (state/swap-state!
+        (rf.story.ui.state/swap-state!
           (fn [s]
             (cond-> s
               ;; AUTHORITATIVE owner of the focused variant's overrides slice:
@@ -213,7 +213,7 @@
   "Clear the share-import hint for `variant-id` (rf2-9jthx). Called
   from the hint's close affordance."
   [variant-id]
-  (state/swap-state!
+  (rf.story.ui.state/swap-state!
     (fn [s] (update s :rf.story/share-import-hint dissoc variant-id))))
 
 (defn share-import-hint
@@ -224,7 +224,7 @@
   Returns nil when nothing dropped, so callers can splice
   unconditionally."
   [variant-id]
-  (let [hint (get-in @state/shell-state-atom
+  (let [hint (get-in @rf.story.ui.state/shell-state-atom
                      [:rf.story/share-import-hint variant-id])
         n    (:dropped-count hint 0)]
     (when (pos? n)
@@ -238,7 +238,7 @@
                          :border "1px solid #a06030"
                          :border-radius "3px"
                          :font-family mono-stack
-                         :font-size (:caption typography/type-scale)
+                         :font-size (:caption rf.story.theme.typography/type-scale)
                          :display "flex"
                          :align-items "center"
                          :justify-content "space-between"}}
@@ -246,12 +246,12 @@
         (str n " override" (when (not= 1 n) "s")
              " from this URL no longer apply — variant args refactored?")]
        [:button {:style     {:padding "2px 8px"
-                             :background (:bg-3 colors/tokens)
-                             :color (:text-primary colors/tokens)
+                             :background (:bg-3 rf.story.theme.colors/tokens)
+                             :color (:text-primary rf.story.theme.colors/tokens)
                              :border "1px solid #555"
                              :border-radius "3px"
                              :cursor "pointer"
-                             :font-size (:micro typography/type-scale)
+                             :font-size (:micro rf.story.theme.typography/type-scale)
                              :margin-left "10px"}
                  :data-test "story-share-import-hint-dismiss"
                  :on-click  (fn [_] (dismiss-share-import-hint! variant-id))}
@@ -270,7 +270,7 @@
 ;; ---- pure: report + EDN snippet ------------------------------------------
 
 (defn current-share-report
-  "Build the reproducibility report (`egress/classify`) for the cell the
+  "Build the reproducibility report (`rf.story.egress/classify`) for the cell the
   `shell` state currently describes. Pure-ish: compiles the focused
   variant's plan (best-effort — a variant whose plan does not compile
   still shares, its overrides are still classified) and threads the
@@ -285,9 +285,9 @@
         overrides (when vid (get-in shell [:cell-overrides vid]))
         dropped   (when vid (get-in shell [:rf.story/share-import-hint vid :dropped]))
         plan      (when vid
-                    (try (plan/variant-plan vid)
+                    (try (rf.story.plan/variant-plan vid)
                          (catch :default _ nil)))]
-    (egress/classify {:plan           plan
+    (rf.story.egress/classify {:plan           plan
                       :cell-overrides overrides
                       :dropped        dropped})))
 
@@ -304,19 +304,19 @@
   honestly (it is what the dev would paste) rather than silently dropped."
   [shell]
   (when-let [vid (:selected-variant shell)]
-    (let [eff (args/resolve-args
+    (let [eff (rf.story.args/resolve-args
                 vid
                 {:active-modes   (:active-modes shell)
                  :cell-overrides (get-in shell [:cell-overrides vid])})]
-      (pred/reg-variant-form "story" vid [[:extends (pr-str vid)]
+      (rf.story.predicates/reg-variant-form "story" vid [[:extends (pr-str vid)]
                                           [:args (pr-str eff)]]))))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private badge-styles
-  {:full      {:background (:success-bg colors/tokens) :color (:success colors/tokens)}
-   :partial   {:background (:warning-bg colors/tokens) :color (:warning colors/tokens)}
-   :view-only {:background (:danger-bg  colors/tokens) :color (:danger  colors/tokens)}})
+  {:full      {:background (:success-bg rf.story.theme.colors/tokens) :color (:success rf.story.theme.colors/tokens)}
+   :partial   {:background (:warning-bg rf.story.theme.colors/tokens) :color (:warning rf.story.theme.colors/tokens)}
+   :view-only {:background (:danger-bg  rf.story.theme.colors/tokens) :color (:danger  rf.story.theme.colors/tokens)}})
 
 (def ^:private styles
   {:badge        {:display       "inline-flex"
@@ -325,7 +325,7 @@
                   :padding       "2px 9px"
                   :border-radius "10px"
                   :font-family   mono-stack
-                  :font-size     (:micro typography/type-scale)
+                  :font-size     (:micro rf.story.theme.typography/type-scale)
                   :font-weight   "bold"
                   :text-transform "uppercase"
                   :letter-spacing "0.4px"}
@@ -336,19 +336,19 @@
                   :flex-direction "column"
                   :gap           "4px"}
    :reason       {:font-family   sans-stack
-                  :font-size     (:caption typography/type-scale)
-                  :color         (:text-secondary colors/tokens)
+                  :font-size     (:caption rf.story.theme.typography/type-scale)
+                  :color         (:text-secondary rf.story.theme.colors/tokens)
                   :padding-left  "14px"
                   :position      "relative"}
    ;; toolbar SHARE chip
    :chip         {:padding         "3px 9px"
-                  :background      (:bg-3 colors/tokens)
-                  :color           (:text-primary colors/tokens)
-                  :border          (str "1px solid " (:border-subtle colors/tokens))
+                  :background      (:bg-3 rf.story.theme.colors/tokens)
+                  :color           (:text-primary rf.story.theme.colors/tokens)
+                  :border          (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                   :border-radius   "10px"
                   :cursor          "pointer"
                   :font-family     mono-stack
-                  :font-size       (:caption typography/type-scale)
+                  :font-size       (:caption rf.story.theme.typography/type-scale)
                   :user-select     "none"}
    ;; dialog
    :back         {:position    "fixed"
@@ -361,73 +361,73 @@
    :modal        {:width          "640px"
                   :max-width      "92vw"
                   :max-height     "86vh"
-                  :background     (:bg-overlay colors/tokens)
-                  :color          (:text-primary colors/tokens)
-                  :border         (str "1px solid " (:border-default colors/tokens))
+                  :background     (:bg-overlay rf.story.theme.colors/tokens)
+                  :color          (:text-primary rf.story.theme.colors/tokens)
+                  :border         (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                   :border-radius  "6px"
                   :padding        "16px"
                   :font-family    mono-stack
-                  :font-size      (:body-tight typography/type-scale)
+                  :font-size      (:body-tight rf.story.theme.typography/type-scale)
                   :display        "flex"
                   :flex-direction "column"
                   :gap            "14px"
                   :box-shadow     "0 14px 36px rgba(0,0,0,0.75)"
                   :overflow       "auto"}
    :title        {:font-weight "bold"
-                  :color       (:info colors/tokens)
-                  :font-size   (:body typography/type-scale)}
-   :hint         {:color (:text-tertiary colors/tokens)
+                  :color       (:info rf.story.theme.colors/tokens)
+                  :font-size   (:body rf.story.theme.typography/type-scale)}
+   :hint         {:color (:text-tertiary rf.story.theme.colors/tokens)
                   :font-style "italic"
-                  :font-size (:micro typography/type-scale)}
+                  :font-size (:micro rf.story.theme.typography/type-scale)}
    :command      {:display "flex"
                   :flex-direction "column"
                   :gap "6px"
                   :padding "12px"
-                  :border (str "1px solid " (:border-subtle colors/tokens))
+                  :border (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                   :border-radius "5px"
-                  :background (:bg-2 colors/tokens)}
+                  :background (:bg-2 rf.story.theme.colors/tokens)}
    :command-h    {:display "flex"
                   :align-items "center"
                   :gap "8px"
                   :flex-wrap "wrap"}
    :command-name {:font-weight "bold"
-                  :color (:text-primary colors/tokens)
-                  :font-size (:caption typography/type-scale)}
-   :command-desc {:color (:text-secondary colors/tokens)
+                  :color (:text-primary rf.story.theme.colors/tokens)
+                  :font-size (:caption rf.story.theme.typography/type-scale)}
+   :command-desc {:color (:text-secondary rf.story.theme.colors/tokens)
                   :font-family sans-stack
-                  :font-size (:caption typography/type-scale)}
+                  :font-size (:caption rf.story.theme.typography/type-scale)}
    :url-row      {:display "flex"
                   :gap "6px"
                   :align-items "stretch"}
    :url-input    {:flex "1 1 auto"
                   :padding "5px 8px"
-                  :background (:bg-canvas colors/tokens)
-                  :color (:text-primary colors/tokens)
-                  :border (str "1px solid " (:border-default colors/tokens))
+                  :background (:bg-canvas rf.story.theme.colors/tokens)
+                  :color (:text-primary rf.story.theme.colors/tokens)
+                  :border (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                   :border-radius "3px"
                   :font-family mono-stack
-                  :font-size (:micro typography/type-scale)
+                  :font-size (:micro rf.story.theme.typography/type-scale)
                   :overflow "hidden"
                   :text-overflow "ellipsis"
                   :white-space "nowrap"
                   :box-sizing "border-box"}
    :btn          {:padding "5px 12px"
-                  :background (:accent-amber colors/tokens)
-                  :color (:text-on-accent colors/tokens)
+                  :background (:accent-amber rf.story.theme.colors/tokens)
+                  :color (:text-on-accent rf.story.theme.colors/tokens)
                   :border "none"
                   :border-radius "3px"
                   :cursor "pointer"
                   :font-family mono-stack
-                  :font-size (:caption typography/type-scale)
+                  :font-size (:caption rf.story.theme.typography/type-scale)
                   :white-space "nowrap"}
    :btn-muted    {:padding "5px 12px"
                   :background "transparent"
-                  :color (:text-primary colors/tokens)
-                  :border (str "1px solid " (:border-default colors/tokens))
+                  :color (:text-primary rf.story.theme.colors/tokens)
+                  :border (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                   :border-radius "3px"
                   :cursor "pointer"
                   :font-family mono-stack
-                  :font-size (:caption typography/type-scale)
+                  :font-size (:caption rf.story.theme.typography/type-scale)
                   :white-space "nowrap"}
    :btn-row      {:display "flex"
                   :gap "8px"
@@ -436,7 +436,7 @@
 ;; ---- reusable reproducibility badge --------------------------------------
 
 (defn reproducibility-badge
-  "Render the reproducibility badge for a `report` (an `egress/classify`
+  "Render the reproducibility badge for a `report` (an `rf.story.egress/classify`
   return). Pure-hiccup. Shows the status pill (fully / partially /
   view-only) and, when the status is downgraded, the list of reasons that
   made it so — so a dev sharing/exporting reads exactly WHAT makes the
@@ -478,7 +478,7 @@
   "Open the human-egress dialog. No-op under production builds (the whole
   shell is elided). Idempotent."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (reset! dialog-state {:open? true :copied nil :error nil})))
 
 (defn close-share-export-dialog! []
@@ -522,7 +522,7 @@
   "Copy `text` to the clipboard via the shared review-dialog shim, then
   flash the `cmd` confirmation."
   [cmd text]
-  (review-dialog/copy-to-clipboard! text)
+  (rf.story.review-dialog/copy-to-clipboard! text)
   (mark-copied! cmd))
 
 ;; ---- screenshot ----------------------------------------------------------
@@ -655,12 +655,12 @@
    [:div {:style (:btn-row styles)}
     (when (and copied? (not error))
       [:span {:style (merge (:hint styles) {:font-style "normal"
-                                            :color (:success colors/tokens)})
+                                            :color (:success rf.story.theme.colors/tokens)})
               :data-test (str "story-egress-copied-" test)}
        "copied ✓"])
     (when error
       [:span {:style (merge (:hint styles) {:font-style "normal"
-                                            :color (:danger colors/tokens)})
+                                            :color (:danger rf.story.theme.colors/tokens)})
               :role      "status"
               :data-test (str "story-egress-error-" test)}
        (str "unavailable — " error)])
@@ -697,12 +697,12 @@
   []
   (let [{:keys [open? copied error]} @dialog-state]
     (when open?
-      (let [shell    @state/shell-state-atom
+      (let [shell    @rf.story.ui.state/shell-state-atom
             vid      (:selected-variant shell)
             report   (current-share-report shell)
             url      (current-url)
             edn      (egress-edn-snippet shell)]
-        [a11y-dialog/focus-trap
+        [rf.story.ui.a11y-dialog/focus-trap
          {:on-close close-share-export-dialog!}
          [:div {:style     (:back styles)
                 :data-test "story-share-export-dialog"
@@ -755,7 +755,7 @@
              :desc    "Copy a PNG of the variant canvas to the clipboard."
              :badge   (reproducibility-badge
                         {:status :view-only
-                         :label  (egress/status-labels :view-only)
+                         :label  (rf.story.egress/status-labels :view-only)
                          :reasons [{:status :view-only
                                     :code   :screenshot
                                     :detail "a screenshot is a static image — the recipient sees the view but cannot replay it"}]})
@@ -771,7 +771,7 @@
              :desc    "Build a self-contained static site with `npm run story:build`. The published artifact carries the registered variants as data."
              :badge   (reproducibility-badge
                         {:status :full
-                         :label  (egress/status-labels :full)
+                         :label  (rf.story.egress/status-labels :full)
                          :reasons []})
              :action       (fn [_] (copy-text! :static-build "npm run story:build"))
              :action-label "copy command"

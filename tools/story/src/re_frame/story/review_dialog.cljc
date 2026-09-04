@@ -79,9 +79,9 @@
                    to the renderer."
   (:require [clojure.string :as str]
             #?(:cljs [reagent.core :as r])
-            #?(:cljs [re-frame.story.ui.a11y-dialog :as a11y-dialog])
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            #?(:cljs [re-frame.story.ui.a11y-dialog :as rf.story.ui.a11y-dialog])
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: initial state + transitions
@@ -310,32 +310,32 @@
       :modal        {:width          "640px"
                      :max-width      "90vw"
                      :max-height     "80vh"
-                     :background     (:bg-canvas colors/tokens)
-                     :color          (:text-primary colors/tokens)
+                     :background     (:bg-canvas rf.story.theme.colors/tokens)
+                     :color          (:text-primary rf.story.theme.colors/tokens)
                      :border         "1px solid #444"
                      :border-radius  "6px"
                      :padding        "16px"
                      :font-family    mono-stack
-                     :font-size      (:body-tight typography/type-scale)
+                     :font-size      (:body-tight rf.story.theme.typography/type-scale)
                      :display        "flex"
                      :flex-direction "column"
                      :gap            "12px"
                      :box-shadow     "0 12px 32px rgba(0,0,0,0.7)"
                      :overflow       "hidden"}
       :modal-title  {:font-weight "bold"
-                     :color       (:info colors/tokens)
-                     :font-size   (:body typography/type-scale)}
+                     :color       (:info rf.story.theme.colors/tokens)
+                     :font-size   (:body rf.story.theme.typography/type-scale)}
       :id-input     {:padding       "6px 8px"
-                     :background    (:bg-2 colors/tokens)
+                     :background    (:bg-2 rf.story.theme.colors/tokens)
                      :color         "white"
                      :border        "1px solid #444"
                      :border-radius "3px"
                      :font-family   mono-stack
-                     :font-size     (:body-tight typography/type-scale)
+                     :font-size     (:body-tight rf.story.theme.typography/type-scale)
                      :width         "100%"
                      :box-sizing    "border-box"}
       :snippet      {:background    "#0e0e10"
-                     :color         (:warning colors/tokens)
+                     :color         (:warning rf.story.theme.colors/tokens)
                      :padding       "10px"
                      :border        "1px solid #333"
                      :border-radius "4px"
@@ -343,31 +343,31 @@
                      :overflow      "auto"
                      :max-height    "44vh"
                      :font-family   mono-stack
-                     :font-size     (:caption typography/type-scale)
+                     :font-size     (:caption rf.story.theme.typography/type-scale)
                      :line-height   "1.45"
                      :flex          "1 1 auto"}
       :btn-row      {:display         "flex"
                      :gap             "8px"
                      :justify-content "flex-end"}
       :btn          {:padding       "5px 12px"
-                     :background    (:accent-amber colors/tokens)
+                     :background    (:accent-amber rf.story.theme.colors/tokens)
                      :color         "white"
                      :border        "none"
                      :border-radius "3px"
                      :cursor        "pointer"
                      :font-family   mono-stack
-                     :font-size     (:caption typography/type-scale)}
+                     :font-size     (:caption rf.story.theme.typography/type-scale)}
       :btn-muted    {:padding       "5px 12px"
                      :background    "transparent"
-                     :color         (:text-primary colors/tokens)
+                     :color         (:text-primary rf.story.theme.colors/tokens)
                      :border        "1px solid #444"
                      :border-radius "3px"
                      :cursor        "pointer"
                      :font-family   mono-stack
-                     :font-size     (:caption typography/type-scale)}
-      :hint         {:color       (:text-tertiary colors/tokens)
+                     :font-size     (:caption rf.story.theme.typography/type-scale)}
+      :hint         {:color       (:text-tertiary rf.story.theme.colors/tokens)
                      :font-style  "italic"
-                     :font-size   (:micro typography/type-scale)}}))
+                     :font-size   (:micro rf.story.theme.typography/type-scale)}}))
 
 #?(:cljs
    (defn review-dialog
@@ -438,7 +438,7 @@
          ;; ride on the inner panel + the wrapper's on-click closes on
          ;; backdrop tap as before. Hiccup is passed eagerly to the
          ;; focus-trap so tests can string-traverse the full tree.
-         [a11y-dialog/focus-trap
+         [rf.story.ui.a11y-dialog/focus-trap
           {:on-close on-close}
           [:div {:style     (:modal-back styles)
                  :data-test (dtest "dialog")

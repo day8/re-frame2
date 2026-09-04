@@ -66,7 +66,7 @@
     time shell can self-host webfonts without forcing a build-time
     asset pipeline."
   {:no-doc true}
-  #?(:cljs (:require [re-frame.story.config :as config])))
+  #?(:cljs (:require [re-frame.story.config :as rf.story.config])))
 
 (def sans-stack
   "IBM Plex Sans stack — the chrome / labels / prose font. Distinctive
@@ -215,7 +215,7 @@
      Behind `re-frame.story.config/enabled?` — production builds
      short-circuit before touching the DOM."
      []
-     (when (and config/enabled? (not @font-faces-injected?))
+     (when (and rf.story.config/enabled? (not @font-faces-injected?))
        (reset! font-faces-injected? true)
        (when (and (exists? js/document) (.-head js/document))
          (try

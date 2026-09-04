@@ -21,7 +21,7 @@
   no `:run-token`, which the loop's token guard (`(some? (:run-token state))`)
   then declines to abort on.
 
-  THE SAME SHAPE IN THE INTERACTIVE STEPPER. `play/step-once!` amends its
+  THE SAME SHAPE IN THE INTERACTIVE STEPPER. `rf.story.play/step-once!` amends its
   recorded result when the presence Promise settles, guarded only by a BOUNDS
   check (`idx < (count results)`). A bounds check is a size test, not an
   identity test: it correctly declines when a reset has SHRUNK `:results` below
@@ -41,29 +41,29 @@
   `:pending`), and the `async` tests below require cljs.test MAP fixtures,
   which a `.cljc` may not use (`re-frame.story.meta-fixtures-test`)."
   (:require [cljs.test :refer [async deftest is testing use-fixtures]]
-            [re-frame.story.play                    :as play]
-            [re-frame.story.play.presence           :as story-presence]
-            [re-frame.story.play.runner             :as runner]
-            [re-frame.story.play.runner-events      :as re]
+            [re-frame.story.play                    :as rf.story.play]
+            [re-frame.story.play.presence           :as rf.story.play.presence]
+            [re-frame.story.play.runner             :as rf.story.play.runner]
+            [re-frame.story.play.runner-events      :as rf.story.play.runner-events]
             ;; The shared harness (fresh registrar + runtime + variant frame),
             ;; reused rather than re-built — one harness across the presence
             ;; rung's coverage.
-            [re-frame.story.play.presence-cljs-test :as shared]))
+            [re-frame.story.play.presence-cljs-test :as rf.story.play.presence-cljs-test]))
 
-;; `clear-all-runs!` on top of the shared setup: `shared/setup!` resets
-;; `re/run-state` but not `runs-by-play`, and every assertion here reads the
+;; `clear-all-runs!` on top of the shared setup: `rf.story.play.presence-cljs-test/setup!` resets
+;; `rf.story.play.runner-events/run-state` but not `runs-by-play`, and every assertion here reads the
 ;; slot through `current-state-for-play` (which derefs `runs-by-play`). A slot
 ;; surviving from a previous test would make a stale-settlement assertion read
 ;; a state this test never seeded.
 (use-fixtures :each
-  {:before (fn [] (shared/setup!) (re/clear-all-runs!))
-   :after  (fn [] (shared/teardown!) (re/clear-all-runs!))})
+  {:before (fn [] (rf.story.play.presence-cljs-test/setup!) (rf.story.play.runner-events/clear-all-runs!))
+   :after  (fn [] (rf.story.play.presence-cljs-test/teardown!) (rf.story.play.runner-events/clear-all-runs!))})
 
 ;; The private run-loop seam, reached via var-quote — the established
 ;; Story-test seam (`runner-events-cljs-test` drives the abort branches the
 ;; same way).
-(def ^:private run-loop!  @#'re/run-loop!)
-(def ^:private set-state! @#'re/set-state!)
+(def ^:private run-loop!  @#'rf.story.play.runner-events/run-loop!)
+(def ^:private set-state! @#'rf.story.play.runner-events/set-state!)
 
 ;; ---------------------------------------------------------------------------
 ;; A deferred whose settlement the TEST places
@@ -88,17 +88,17 @@
   advance's ms so a test can prove the verb was REACHED — a fence that worked
   by never running the host would pass every staleness assertion here."
   [d calls]
-  (story-presence/install-presence-flush!
+  (rf.story.play.presence/install-presence-flush!
     (fn [ms] (swap! calls conj ms) (:thenable d))))
 
 (defn- seed-run!
   "Stamp a fresh run carrying `token` onto the `[presence-frame nil]` slot.
   Returns the seeded state."
   [token script]
-  (let [started (-> (runner/start
-                      (runner/initial-state {:name nil :script script}) 0)
+  (let [started (-> (rf.story.play.runner/start
+                      (rf.story.play.runner/initial-state {:name nil :script script}) 0)
                     (assoc :run-token token))]
-    (set-state! shared/presence-frame nil started)
+    (set-state! rf.story.play.presence-cljs-test/presence-frame nil started)
     started))
 
 (defn- start-run!
@@ -108,10 +108,10 @@
   ([token script] (start-run! token script nil))
   ([token script done-cb]
    (seed-run! token script)
-   (run-loop! shared/presence-frame nil token done-cb)))
+   (run-loop! rf.story.play.presence-cljs-test/presence-frame nil token done-cb)))
 
 (defn- slot []
-  (re/current-state-for-play shared/presence-frame nil))
+  (rf.story.play.runner-events/current-state-for-play rf.story.play.presence-cljs-test/presence-frame nil))
 
 (def ^:private presence-script
   [[:flush-presence] [:dispatch [:presence/tick]]])
@@ -172,13 +172,13 @@
           calls (atom [])]
       (install-deferred-host! d calls)
       (start-run! "tok-A" presence-script)
-      (re/clear-state! shared/presence-frame)
+      (rf.story.play.runner-events/clear-state! rf.story.play.presence-cljs-test/presence-frame)
       (is (nil? (slot)) "precondition: teardown removed the slot")
       (is (nil? ((:resolve! d) :ok))
           "settling after teardown completes without throwing")
       (is (nil? (slot))
           "and left NO phantom entry in runs-by-play")
-      (is (nil? (get @re/run-state shared/presence-frame))
+      (is (nil? (get @rf.story.play.runner-events/run-state rf.story.play.presence-cljs-test/presence-frame))
           "nor in run-state — update-state! writes BOTH atoms, so both are
            checked"))))
 
@@ -298,7 +298,7 @@
                           "settled with nil — the slot was torn down, and the
                            continuation only chains the next play")
                       (done)))
-        (re/clear-state! shared/presence-frame)
+        (rf.story.play.runner-events/clear-state! rf.story.play.presence-cljs-test/presence-frame)
         ((:resolve! d) :ok)))))
 
 ;; ===========================================================================
@@ -325,12 +325,12 @@
   is the documented substrate surface and `step-once!` is driven exactly as the
   UI widget drives it."
   [steps]
-  (swap! play/stepper-state assoc shared/presence-frame
+  (swap! rf.story.play/stepper-state assoc rf.story.play.presence-cljs-test/presence-frame
          {:remaining steps :ran [] :results []})
   nil)
 
 (defn- stepper-results []
-  (:results (get @play/stepper-state shared/presence-frame)))
+  (:results (get @rf.story.play/stepper-state rf.story.play.presence-cljs-test/presence-frame)))
 
 (deftest stale-stepper-settlement-does-not-clobber-a-new-session
   (testing "THE BUG in the stepper (rf2-6pfpt): a presence step parks, the
@@ -344,17 +344,17 @@
           calls (atom [])]
       (install-deferred-host! stale calls)
       (seed-stepper! [[:flush-presence 100] [:dispatch [:presence/tick]]])
-      (play/step-once! shared/presence-frame)
+      (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
       (is (true? ((:armed? stale))) "the stepper parked on the thenable")
       ;; A real reset/new-cursor path — the UI's rewind button.
-      (play/stepper-rewind! shared/presence-frame)
+      (rf.story.play/stepper-rewind! rf.story.play.presence-cljs-test/presence-frame)
       (is (= 0 (count (stepper-results))) "the rewind emptied :results")
       ;; The new session parks on a DIFFERENT deferred, so settling the stale
       ;; one settles ONLY the abandoned session — otherwise one `resolve!`
       ;; would fire both callbacks and the assertion could not tell a refused
       ;; stale amendment from an admitted live one.
       (install-deferred-host! live calls)
-      (play/step-once! shared/presence-frame)
+      (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
       (let [fresh (first (stepper-results))]
         (is (= 1 (count (stepper-results))) "index 0 belongs to the new session")
         (is (= :flush-presence (:type fresh))
@@ -380,7 +380,7 @@
           calls (atom [])]
       (install-deferred-host! d calls)
       (seed-stepper! [[:flush-presence 100]])
-      (play/step-once! shared/presence-frame)
+      (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
       (is (nil? (:exception (first (stepper-results))))
           "provisional: the parked step reads clean before settlement")
       ((:reject! d) (ex-info "presence flush failed" {}))
@@ -401,12 +401,12 @@
           calls (atom [])]
       (install-deferred-host! d calls)
       (seed-stepper! [[:flush-presence 100] [:dispatch [:presence/tick]]])
-      (play/step-once! shared/presence-frame)          ; idx 0 — parks
-      (play/step-once! shared/presence-frame)          ; idx 1 — synchronous
+      (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)          ; idx 0 — parks
+      (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)          ; idx 1 — synchronous
       (is (= 2 (count (stepper-results))))
-      (play/stepper-step-back! shared/presence-frame)  ; pops idx 1 only
+      (rf.story.play/stepper-step-back! rf.story.play.presence-cljs-test/presence-frame)  ; pops idx 1 only
       (is (= 1 (count (stepper-results))) "idx 1 was dropped; idx 0 survives")
-      (play/step-once! shared/presence-frame)          ; re-runs into idx 1
+      (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)          ; re-runs into idx 1
       (is (= 2 (count (stepper-results))))
       ((:reject! d) (ex-info "presence flush failed" {}))
       (is (true? (:exception (first (stepper-results))))
@@ -421,7 +421,7 @@
       (let [d1 (deferred)]
         (install-deferred-host! d1 calls)
         (seed-stepper! [[:flush-presence 100]])
-        (play/step-once! shared/presence-frame)
+        (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
         ((:reject! d1) (ex-info "boom" {}))
         (is (true? (:exception (first (stepper-results))))
             "1/4 ADMITTED — the owning step was amended"))
@@ -432,10 +432,10 @@
             l2 (deferred)]
         (install-deferred-host! d2 calls)
         (seed-stepper! [[:flush-presence 100]])
-        (play/step-once! shared/presence-frame)
-        (play/stepper-rewind! shared/presence-frame)
+        (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
+        (rf.story.play/stepper-rewind! rf.story.play.presence-cljs-test/presence-frame)
         (install-deferred-host! l2 calls)
-        (play/step-once! shared/presence-frame)
+        (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
         (let [fresh (first (stepper-results))]
           ((:reject! d2) (ex-info "boom" {}))
           (is (identical? fresh (first (stepper-results)))
@@ -444,7 +444,7 @@
       (let [d3 (deferred)]
         (install-deferred-host! d3 calls)
         (seed-stepper! [[:flush-presence 100]])
-        (play/step-once! shared/presence-frame)
+        (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
         ((:reject! d3) (ex-info "boom" {}))
         (is (true? (:exception (first (stepper-results))))
             "3/4 ADMITTED AGAIN — the fence did not latch shut"))
@@ -453,10 +453,10 @@
             l4 (deferred)]
         (install-deferred-host! d4 calls)
         (seed-stepper! [[:flush-presence 100]])
-        (play/step-once! shared/presence-frame)
-        (play/stepper-rewind! shared/presence-frame)
+        (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
+        (rf.story.play/stepper-rewind! rf.story.play.presence-cljs-test/presence-frame)
         (install-deferred-host! l4 calls)
-        (play/step-once! shared/presence-frame)
+        (rf.story.play/step-once! rf.story.play.presence-cljs-test/presence-frame)
         (let [fresh (first (stepper-results))]
           ((:reject! d4) (ex-info "boom" {}))
           (is (identical? fresh (first (stepper-results)))
@@ -465,4 +465,4 @@
           "every stepped presence step really reached the verb (four sessions,
            two of them stepped twice across a rewind)")
       ;; `stepper-state` is process-global — leave no cursor behind.
-      (swap! play/stepper-state dissoc shared/presence-frame))))
+      (swap! rf.story.play/stepper-state dissoc rf.story.play.presence-cljs-test/presence-frame))))

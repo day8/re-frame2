@@ -30,8 +30,8 @@
   Mirrors `save_variant.cljs` + `promotion.cljc`: the catalog / atom
   builders / cost projection / snippet live in the pure `.cljc` substrate;
   the dialog ratom, the keystroke transitions, and the Reagent render are
-  `#?(:cljs …)`. Production builds short-circuit on `config/enabled?`."
-  (:require [re-frame.story.author-expectations :as author]
+  `#?(:cljs …)`. Production builds short-circuit on `rf.story.config/enabled?`."
+  (:require [re-frame.story.author-expectations :as rf.story.author-expectations]
             ;; `clojure.string` + `review-dialog` are consumed ONLY by the
             ;; `:cljs` dialog surface below (the pure draft transitions in
             ;; this ns need neither), so they ride the `:cljs` require — a
@@ -40,12 +40,12 @@
             ;; only calls them from `:cljs` code.
             #?@(:cljs [[clojure.string :as str]
                        [reagent.core :as r]
-                       [re-frame.story.config :as config]
-                       [re-frame.story.registrar :as registrar]
-                       [re-frame.story.review-dialog :as review-dialog]
-                       [re-frame.story.ui.state :as state]
-                       [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
-                       [re-frame.story.theme.colors :as colors]])))
+                       [re-frame.story.config :as rf.story.config]
+                       [re-frame.story.registrar :as rf.story.registrar]
+                       [re-frame.story.review-dialog :as rf.story.review-dialog]
+                       [re-frame.story.ui.state :as rf.story.ui.state]
+                       [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack sans-stack]]
+                       [re-frame.story.theme.colors :as rf.story.theme.colors]])))
 
 ;; ===========================================================================
 ;; PURE: draft shape + transitions
@@ -93,7 +93,7 @@
 (defn set-operand
   "Set `field`'s raw operand string on the row `row-id`. Pure data → data.
   The raw string is stored verbatim (parsing happens at projection time via
-  `author/parse-operands`) so the input value the author sees is never
+  `rf.story.author-expectations/parse-operands`) so the input value the author sees is never
   clobbered mid-keystroke."
   [draft row-id field value]
   (update draft :rows
@@ -120,7 +120,7 @@
   → vector. Re-exposed here so the snippet generator + tests read one
   helper rather than re-walking the rows."
   [draft]
-  (:atoms (author/draft-summary draft)))
+  (:atoms (rf.story.author-expectations/draft-summary draft)))
 
 ;; ===========================================================================
 ;; CLJS-ONLY: dialog ratom + lifecycle
@@ -146,7 +146,7 @@
       additively (the round-trip). Reads the resolved body via the Story
       registrar; nil → empty."
      [source-id]
-     (let [body (registrar/handler-meta :variant source-id)]
+     (let [body (rf.story.registrar/handler-meta :variant source-id)]
        (or (:assertions body)
            (get-in body [:expect :assertions])
            []))))
@@ -158,10 +158,10 @@
       namespace (when the source is a qualified keyword). No-op when Story
       is disabled."
      [source-variant-id]
-     (when config/enabled?
+     (when rf.story.config/enabled?
        (let [now-ms (.now js/Date)
-             def-id (review-dialog/default-variant-id-with-prefix
-                      source-variant-id now-ms author/default-id-prefix)]
+             def-id (rf.story.review-dialog/default-variant-id-with-prefix
+                      source-variant-id now-ms rf.story.author-expectations/default-id-prefix)]
          (reset! dialog-atom
                  {:open?     true
                   :source-id source-variant-id
@@ -190,7 +190,7 @@
       the author sees is not clobbered mid-keystroke."
      [s]
      (update-draft! set-variant-id
-                    (or (review-dialog/parse-variant-id-string s) s))))
+                    (or (rf.story.review-dialog/parse-variant-id-string s) s))))
 
 ;; ===========================================================================
 ;; CLJS-ONLY: styling
@@ -200,16 +200,16 @@
    (def ^:private styles
      {:section    {:margin "8px 0 0 0"}
       :label      {:font-family    mono-stack
-                   :font-size      (:micro typography/type-scale)
-                   :color          (:text-tertiary colors/tokens)
+                   :font-size      (:micro rf.story.theme.typography/type-scale)
+                   :color          (:text-tertiary rf.story.theme.colors/tokens)
                    :margin         "0 0 3px 0"
                    :text-transform "uppercase"
                    :letter-spacing "0.04em"}
       :picker-row {:display "flex" :gap "6px" :flex-wrap "wrap" :margin-bottom "6px"}
       :kind-chip  {:font-family   mono-stack
-                   :font-size     (:micro typography/type-scale)
-                   :background    (:bg-2 colors/tokens)
-                   :color         (:text-secondary colors/tokens)
+                   :font-size     (:micro rf.story.theme.typography/type-scale)
+                   :background    (:bg-2 rf.story.theme.colors/tokens)
+                   :color         (:text-secondary rf.story.theme.colors/tokens)
                    :border        "1px solid #444"
                    :border-radius "10px"
                    :padding       "2px 9px"
@@ -220,29 +220,29 @@
                    :gap           "4px"
                    :padding       "6px 8px"
                    :margin        "4px 0"
-                   :background    (:bg-2 colors/tokens)
+                   :background    (:bg-2 rf.story.theme.colors/tokens)
                    :border        "1px solid #3a3a44"
                    :border-radius "4px"}
       :row-head   {:display "flex" :align-items "baseline" :gap "8px"}
       :row-kind   {:font-family mono-stack
                    :font-weight "bold"
-                   :color       (:info colors/tokens)
-                   :font-size   (:caption typography/type-scale)}
+                   :color       (:info rf.story.theme.colors/tokens)
+                   :font-size   (:caption rf.story.theme.typography/type-scale)}
       :row-doc    {:flex "1 1 auto"
-                   :color (:text-tertiary colors/tokens)
-                   :font-size (:nano typography/type-scale)
+                   :color (:text-tertiary rf.story.theme.colors/tokens)
+                   :font-size (:nano rf.story.theme.typography/type-scale)
                    :font-style "italic"
                    :white-space "nowrap" :overflow "hidden" :text-overflow "ellipsis"}
       :remove-btn {:background "transparent"
                    :border     "none"
-                   :color      (:text-tertiary colors/tokens)
+                   :color      (:text-tertiary rf.story.theme.colors/tokens)
                    :cursor     "pointer"
-                   :font-size  (:caption typography/type-scale)
+                   :font-size  (:caption rf.story.theme.typography/type-scale)
                    :padding    "0 4px"}
       :operand-row {:display "flex" :align-items "baseline" :gap "6px"}
       :operand-lbl {:font-family mono-stack
-                    :font-size (:nano typography/type-scale)
-                    :color (:text-tertiary colors/tokens)
+                    :font-size (:nano rf.story.theme.typography/type-scale)
+                    :color (:text-tertiary rf.story.theme.colors/tokens)
                     :width "84px" :text-align "right" :flex "0 0 auto"}
       :operand-in  {:padding       "3px 6px"
                     :background    "#0e0e10"
@@ -250,26 +250,26 @@
                     :border        "1px solid #444"
                     :border-radius "3px"
                     :font-family   mono-stack
-                    :font-size     (:caption typography/type-scale)
+                    :font-size     (:caption rf.story.theme.typography/type-scale)
                     :flex          "1 1 auto"
                     :box-sizing    "border-box"}
-      :operand-err {:color (:danger colors/tokens)
-                    :font-size (:nano typography/type-scale)
+      :operand-err {:color (:danger rf.story.theme.colors/tokens)
+                    :font-size (:nano rf.story.theme.typography/type-scale)
                     :font-family mono-stack}
       ;; per-row cost stripe — the honesty floor (cost BEFORE save)
       :cost        {:display "flex" :align-items "baseline" :gap "8px"
                     :font-family mono-stack
-                    :font-size (:nano typography/type-scale)
+                    :font-size (:nano rf.story.theme.typography/type-scale)
                     :padding "2px 0 0 0"}
-      :cost-ok     {:color (:success colors/tokens)}
-      :cost-cannot {:color (:warning colors/tokens)}
+      :cost-ok     {:color (:success rf.story.theme.colors/tokens)}
+      :cost-cannot {:color (:warning rf.story.theme.colors/tokens)}
       :doc-input   {:padding       "5px 8px"
-                    :background    (:bg-2 colors/tokens)
+                    :background    (:bg-2 rf.story.theme.colors/tokens)
                     :color         "white"
                     :border        "1px solid #444"
                     :border-radius "3px"
                     :font-family   sans-stack
-                    :font-size     (:body-tight typography/type-scale)
+                    :font-size     (:body-tight rf.story.theme.typography/type-scale)
                     :width         "100%"
                     :box-sizing    "border-box"}
       :banner      {:padding       "8px 10px"
@@ -279,12 +279,12 @@
                     :border        "1px solid #3a3a44"
                     :border-radius "3px"
                     :font-family   mono-stack
-                    :font-size     (:micro typography/type-scale)
+                    :font-size     (:micro rf.story.theme.typography/type-scale)
                     :line-height   "1.5"}
       :banner-warn {:background "#332a2a" :color "#d8b48f" :border "1px solid #704a40"}
-      :empty       {:color (:text-tertiary colors/tokens)
+      :empty       {:color (:text-tertiary rf.story.theme.colors/tokens)
                     :font-style "italic"
-                    :font-size (:micro typography/type-scale)
+                    :font-size (:micro rf.story.theme.typography/type-scale)
                     :padding "6px 0"}}))
 
 ;; ===========================================================================
@@ -294,13 +294,13 @@
 #?(:cljs
    (defn- cost-stripe
      "Render the per-row runner-cost / `:cannot-run` stripe — the honesty
-      floor shown BEFORE save. Reads `author/row-cost` (which reads the
+      floor shown BEFORE save. Reads `rf.story.author-expectations/row-cost` (which reads the
       EXISTING requirement registry); shows the cheapest runner that proves
       the expectation and, when it needs more than the default headless
       runner, an explicit `cannot run headless` flag with the missing
       tokens. Never hides the cost."
      [row]
-     (let [{:keys [required cheapest-runner cannot-run? missing]} (author/row-cost row)]
+     (let [{:keys [required cheapest-runner cannot-run? missing]} (rf.story.author-expectations/row-cost row)]
        [:div {:style       (:cost styles)
               :data-test    "story-author-expectation-cost"
               :data-cannot-run (str (boolean cannot-run?))
@@ -309,7 +309,7 @@
          (if cannot-run? "⚠ " "✓ ")]
         [:span "runner: " (if cheapest-runner (name cheapest-runner) "none")]
         (when (seq required)
-          [:span {:style {:color (:text-tertiary colors/tokens)}}
+          [:span {:style {:color (:text-tertiary rf.story.theme.colors/tokens)}}
            "needs " (pr-str required)])
         (when cannot-run?
           [:span {:style (:cost-cannot styles)
@@ -343,8 +343,8 @@
       its operand inputs (with per-field parse errors), and the per-row cost
       stripe (cost BEFORE save)."
      [row]
-     (let [desc   (author/kind-descriptor (:kind row))
-           parsed (author/parse-operands row)
+     (let [desc   (rf.story.author-expectations/kind-descriptor (:kind row))
+           parsed (rf.story.author-expectations/parse-operands row)
            errors (:errors parsed)]
        [:div {:style     (:row styles)
               :data-test "story-author-expectation-row"
@@ -385,7 +385,7 @@
      [:div {:data-test "story-author-expectation-kind-picker"}
       [:div {:style (:label styles)} "add expectation"]
       [:div {:style (:picker-row styles)}
-       (for [{:keys [kind label surface]} author/expectation-kinds]
+       (for [{:keys [kind label surface]} rf.story.author-expectations/expectation-kinds]
          ^{:key (name kind)}
          [:span {:style       (:kind-chip styles)
                  :data-test   "story-author-expectation-kind-chip"
@@ -393,7 +393,7 @@
                  :data-surface (name surface)
                  :role        "button"
                  :tab-index   "0"
-                 :title       (get author/surface-labels surface)
+                 :title       (get rf.story.author-expectations/surface-labels surface)
                  :on-click    (fn [_] (add-row! kind))}
           (str "+ " label)])]]))
 
@@ -402,10 +402,10 @@
      "The before-save honesty banner: how many expectations are authored vs
       ready, which acceptance surfaces they span, the single cheapest runner
       that would prove the whole draft, and the explicit list of rows that
-      `:cannot-run` headless. Reads the pure `author/draft-summary`."
+      `:cannot-run` headless. Reads the pure `rf.story.author-expectations/draft-summary`."
      [draft]
      (let [{:keys [count ready cheapest-runner cannot-run-rows surfaces]}
-           (author/draft-summary draft)
+           (rf.story.author-expectations/draft-summary draft)
            any-cannot? (seq cannot-run-rows)]
        [:div {:style     (merge (:banner styles) (when any-cannot? (:banner-warn styles)))
               :data-test "story-author-expectation-summary"
@@ -422,7 +422,7 @@
           [:div {:data-test "story-author-expectation-surfaces"}
            "surfaces: "
            (str/join " · "
-                     (keep #(get author/surface-labels %)
+                     (keep #(get rf.story.author-expectations/surface-labels %)
                            (sort surfaces)))])
         (when any-cannot?
           [:div {:data-test "story-author-expectation-cannot-run-summary"
@@ -472,7 +472,7 @@
       `:assertions` variant DATA, merged with the source variant's declared
       assertions (the additive round-trip)."
      [{:keys [source-id draft] :as _dialog}]
-     (author/gen-expectations-snippet
+     (rf.story.author-expectations/gen-expectations-snippet
        {:variant-id (or (:variant-id draft) :story.expectations/example)
         :extends    source-id
         :existing   (existing-assertions source-id)
@@ -496,7 +496,7 @@
          (when (:open? dialog)
            (let [{:keys [source-id draft]} dialog
                  snippet (build-snippet dialog)]
-             (review-dialog/review-dialog
+             (rf.story.review-dialog/review-dialog
                {:open?     true
                 :draft-id  (:variant-id draft)
                 :source-id source-id}
@@ -514,7 +514,7 @@
                 :placeholder-id    :story.expectations/example
                 :placeholder-input ":story.your-story/expects-flow"
                 :on-edit-id        set-variant-id!
-                :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
+                :on-copy           (fn [] (rf.story.review-dialog/copy-to-clipboard! snippet))
                 :on-close          close!
                 :data-test-prefix  "story-author-expectation"})))))))
 
@@ -525,21 +525,21 @@
 #?(:cljs
    (def ^:private button-styles
      {:button          {:padding       "4px 8px"
-                        :background    (:bg-2 colors/tokens)
-                        :color         (:text-primary colors/tokens)
-                        :border        (str "1px solid " (:info colors/tokens))
+                        :background    (:bg-2 rf.story.theme.colors/tokens)
+                        :color         (:text-primary rf.story.theme.colors/tokens)
+                        :border        (str "1px solid " (:info rf.story.theme.colors/tokens))
                         :border-radius "3px"
                         :cursor        "pointer"
-                        :font-size     (:micro typography/type-scale)
+                        :font-size     (:micro rf.story.theme.typography/type-scale)
                         :margin-top    "8px"
                         :font-family   mono-stack}
       :button-disabled {:padding       "4px 8px"
-                        :background    (:bg-2 colors/tokens)
+                        :background    (:bg-2 rf.story.theme.colors/tokens)
                         :color         "#777"
                         :border        "1px solid #444"
                         :border-radius "3px"
                         :cursor        "not-allowed"
-                        :font-size     (:micro typography/type-scale)
+                        :font-size     (:micro rf.story.theme.typography/type-scale)
                         :margin-top    "8px"
                         :font-family   mono-stack}}))
 
@@ -574,6 +574,6 @@
       command-palette action target. No-op (returns nil) when no variant is
       focused, so the palette entry needs no extra guard."
      []
-     (when config/enabled?
-       (when-let [vid (:selected-variant (state/get-state))]
+     (when rf.story.config/enabled?
+       (when-let [vid (:selected-variant (rf.story.ui.state/get-state))]
          (open! vid)))))

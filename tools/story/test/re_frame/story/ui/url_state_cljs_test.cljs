@@ -12,9 +12,9 @@
   runner (and so the test doesn't perturb the harness's own URL)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string               :as str]
-            [re-frame.story.share         :as share]
-            [re-frame.story.ui.state      :as state]
-            [re-frame.story.ui.url-state  :as us]))
+            [re-frame.story.share         :as rf.story.share]
+            [re-frame.story.ui.state      :as rf.story.ui.state]
+            [re-frame.story.ui.url-state  :as rf.story.ui.url-state]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -22,7 +22,7 @@
   (and (exists? js/window) (exists? js/URLSearchParams)))
 
 (defn reset-all! []
-  (state/reset-shell-state!))
+  (rf.story.ui.state/reset-shell-state!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -37,7 +37,7 @@
                  :background         :dark
                  :tag-filter         #{:tag/a}
                  :substrate          :uix}
-          url   (us/url-from-state shell {:pathname "/p/" :hash "#/stories"})]
+          url   (rf.story.ui.url-state/url-from-state shell {:pathname "/p/" :hash "#/stories"})]
       (is (re-find #"variant="    url))
       (is (re-find #"mode-tab="   url))
       (is (re-find #"modes="      url))
@@ -77,16 +77,16 @@
                   "substrate"  "uix"}
           search (str "?"
                       (str/join "&" (map #(str (name %) "=" (get stale (name %)))
-                                         share/story-query-keys))
+                                         rf.story.share/story-query-keys))
                       "&from=index&embed=1")
-          url    (us/url-from-state
+          url    (rf.story.ui.url-state/url-from-state
                    {:selected-variant :story.new/b}
                    {:pathname "/counter-with-stories/"
                     :search   search
                     :hash     "#/stories"})
           usp    (js/URLSearchParams.
                    (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))]
-      (is (= (set (map name share/story-query-keys)) (set (keys stale)))
+      (is (= (set (map name rf.story.share/story-query-keys)) (set (keys stale)))
           "the fixture carries a stale value for every key in the vocabulary")
       (is (= "index" (.get usp "from"))
           "the referrer param survives with its value")
@@ -96,13 +96,13 @@
           "URLSearchParams.get returns the variant this state asked for")
       (is (= 1 (count (.getAll usp "variant")))
           "exactly one variant value")
-      (doseq [k (map name share/story-query-keys)
+      (doseq [k (map name rf.story.share/story-query-keys)
               :when (not= k "variant")]
         (is (zero? (count (.getAll usp k)))
             (str "URLSearchParams sees no stale " k "= at all")))
-      (let [parsed (share/parse-params
+      (let [parsed (rf.story.share/parse-params
                      (into {} (map (fn [k] [k (.get usp k)]))
-                           (map name share/story-query-keys)))]
+                           (map name rf.story.share/story-query-keys)))]
         (is (= :story.new/b (:variant-id parsed))
             "the hydrator's own read path recovers the requested variant")
         (doseq [slot [:workspace-id :mode-tab :active-modes :viewport
@@ -114,7 +114,7 @@
 
 ;; ---- rf2-b7je1: the LIVE address bar owns escaped key spellings ---------
 ;;
-;; Unifying the two writers on `share/apply-story-params` carried the
+;; Unifying the two writers on `rf.story.share/apply-story-params` carried the
 ;; share builder's last ownership hole onto the address bar: ownership was
 ;; matched on raw key text, while the `URLSearchParams` this shell reads
 ;; with compares DECODED names. A `location.search` spelling a Story key
@@ -128,7 +128,7 @@
   (testing "rf2-b7je1 audit — `%76ariant=` IS `variant=` to the browser, so
             a state-driven push must clear it rather than append behind it;
             read back through the API the next mount will actually use"
-    (let [url (us/url-from-state
+    (let [url (rf.story.ui.url-state/url-from-state
                 {:selected-variant :story.new/b}
                 {:pathname "/p/"
                  :search   "?%76ariant=story.old%2Fa&embed=1"
@@ -146,7 +146,7 @@
 
 (deftest url-from-state-clears-every-escaped-story-key-cljs
   (testing "rf2-b7je1 audit — the whole vocabulary spelled with escapes.
-            Derived from `share/story-query-keys`, so a key added to the
+            Derived from `rf.story.share/story-query-keys`, so a key added to the
             vocabulary is covered without editing this test."
     (let [escape #(str "%" (.toUpperCase (.toString (.charCodeAt % 0) 16))
                        (subs % 1))
@@ -163,20 +163,20 @@
                       (str/join "&" (map #(str (escape (name %))
                                                "="
                                                (get stale (name %)))
-                                         share/story-query-keys))
+                                         rf.story.share/story-query-keys))
                       "&from=index&embed=1")
-          url    (us/url-from-state
+          url    (rf.story.ui.url-state/url-from-state
                    {:selected-variant :story.new/b}
                    {:pathname "/p/" :search search :hash "#/stories"})
           usp    (js/URLSearchParams.
                    (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))]
-      (is (= (set (map name share/story-query-keys)) (set (keys stale)))
+      (is (= (set (map name rf.story.share/story-query-keys)) (set (keys stale)))
           "the fixture carries a stale value for every key in the vocabulary")
       (is (= "story.new/b" (.get usp "variant"))
           "URLSearchParams.get returns the variant this state asked for")
       (is (= 1 (count (.getAll usp "variant")))
           "exactly one variant value")
-      (doseq [k (map name share/story-query-keys)
+      (doseq [k (map name rf.story.share/story-query-keys)
               :when (not= k "variant")]
         (is (zero? (count (.getAll usp k)))
             (str "URLSearchParams sees no stale " k "= at all")))
@@ -195,7 +195,7 @@
     (let [loc (js/URL. (str "https://example.test/counter-with-stories/"
                             "?from=index&embed=1&variant=story.old%2Fa"
                             "#/stories"))
-          url (us/url-from-state
+          url (rf.story.ui.url-state/url-from-state
                 {:selected-variant :story.new/b}
                 {:pathname (.-pathname loc)
                  :search   (.-search loc)
@@ -207,8 +207,8 @@
 
 (deftest params-from-state-feeds-share-build-params
   (testing "rf2-o4u18 — the projection contract: params-from-state +
-            share/build-params produce a URL params vector that
-            share/parse-params round-trips back to the projection"
+            rf.story.share/build-params produce a URL params vector that
+            rf.story.share/parse-params round-trips back to the projection"
     (let [shell  {:selected-variant   :foo/bar
                   :active-mode-tab    {:foo/bar :test}
                   :active-modes       [:m/dark]
@@ -217,8 +217,8 @@
                   :tag-filter         #{:tag/x}
                   :cell-overrides     {:foo/bar {:label "Hi"}}
                   :substrate          :uix}
-          proj   (us/params-from-state shell)
-          ps     (share/build-params proj)
+          proj   (rf.story.ui.url-state/params-from-state shell)
+          ps     (rf.story.share/build-params proj)
           usp    (js/URLSearchParams. (str/join "&" ps))
           getter {"variant"    (.get usp "variant")
                   "workspace"  (.get usp "workspace")
@@ -229,7 +229,7 @@
                   "tag-filter" (.get usp "tag-filter")
                   "overrides"  (.get usp "overrides")
                   "substrate"  (.get usp "substrate")}
-          out    (share/parse-params getter)]
+          out    (rf.story.share/parse-params getter)]
       (is (= :foo/bar (:variant-id out)))
       (is (= :test    (:mode-tab out)))
       (is (= [:m/dark] (:active-modes out)))
@@ -254,15 +254,15 @@
           shell    {:selected-variant variant
                     :cell-overrides   {variant slice}}
           ;; encode: project → build params → real URLSearchParams string
-          proj     (us/params-from-state shell)
-          ps       (share/build-params proj)
+          proj     (rf.story.ui.url-state/params-from-state shell)
+          ps       (rf.story.share/build-params proj)
           qs       (str/join "&" ps)
           usp      (js/URLSearchParams. qs)
           getter   {"variant"   (.get usp "variant")
                     "overrides" (.get usp "overrides")}
           ;; decode: parse-params → apply back into a fresh shell state
-          parsed   (share/parse-params getter)
-          out      (us/apply-parsed-to-state {} parsed {})]
+          parsed   (rf.story.share/parse-params getter)
+          out      (rf.story.ui.url-state/apply-parsed-to-state {} parsed {})]
       (is (= variant (:selected-variant out)))
       (is (= slice (get-in out [:cell-overrides variant]))
           "decoded overrides equal the encoded overrides (round-trip)")
@@ -296,7 +296,7 @@
             cur (str (.-pathname (.-location js/window))
                      (.-search   (.-location js/window))
                      (.-hash     (.-location js/window)))]
-        (us/push! cur)
+        (rf.story.ui.url-state/push! cur)
         (try
           (is (= 0 (count @captured))
               "no pushState calls when URL matches")
@@ -305,7 +305,7 @@
   (deftest push!-fires-when-url-differs
     (testing "rf2-o4u18 — push! pushes a different URL"
       (let [[captured restore] (with-history-spy)]
-        (us/push! (str (.-pathname (.-location js/window))
+        (rf.story.ui.url-state/push! (str (.-pathname (.-location js/window))
                        "?variant=foo%2Fbar"
                        (.-hash (.-location js/window))))
         (try
@@ -330,11 +330,11 @@
             ONE url-state watch after a double-install (no doubled fires),
             and teardown removes it. A watcher that stacked (fresh key per
             install) would leave the count one higher and fail here."
-    (let [a  state/shell-state-atom
+    (let [a  rf.story.ui.state/shell-state-atom
           n0 (count (.-watches a))]
-      (us/install-state-watcher! a)
+      (rf.story.ui.url-state/install-state-watcher! a)
       (let [n1 (count (.-watches a))]
-        (us/install-state-watcher! a)          ; re-install under same key
+        (rf.story.ui.url-state/install-state-watcher! a)          ; re-install under same key
         (let [n2 (count (.-watches a))]
           (try
             (is (= (inc n0) n1)
@@ -342,7 +342,7 @@
             (is (= n1 n2)
                 "re-install does NOT grow the watch count — replaces under
                  the same key (no stacked / doubled-fire watchers)")
-            (finally (us/remove-state-watcher! a)))
+            (finally (rf.story.ui.url-state/remove-state-watcher! a)))
           (is (= n0 (count (.-watches a)))
               "teardown removes the watch (back to baseline)"))))))
 
@@ -404,10 +404,10 @@
       (try
         ;; Clear any process-wide handler left by a prior test/run so the
         ;; registry count reflects only this test's installs.
-        (us/remove-popstate-listener!)
+        (rf.story.ui.url-state/remove-popstate-listener!)
         (reset! fires 0)
-        (us/install-popstate-listener! state/shell-state-atom apply-fn)
-        (us/install-popstate-listener! state/shell-state-atom apply-fn) ; re-install
+        (rf.story.ui.url-state/install-popstate-listener! rf.story.ui.state/shell-state-atom apply-fn)
+        (rf.story.ui.url-state/install-popstate-listener! rf.story.ui.state/shell-state-atom apply-fn) ; re-install
         (is (= 1 (popstate-listener-count registry))
             "exactly one popstate listener registered after double-install
              (replaced, not stacked)")
@@ -415,11 +415,11 @@
         (.dispatchEvent js/window #js {:type "popstate"})
         (is (= 1 @fires)
             "single popstate fires the handler exactly once (no doubled fires)")
-        (us/remove-popstate-listener!)
+        (rf.story.ui.url-state/remove-popstate-listener!)
         (is (= 0 (popstate-listener-count registry))
             "remove-popstate-listener! removes the listener")
         (finally
-          (us/remove-popstate-listener!)
+          (rf.story.ui.url-state/remove-popstate-listener!)
           (uninstall-window-stub!))))))
 
 ;; ---- apply-fn integration through swap! ---------------------------------
@@ -428,13 +428,13 @@
   (testing "rf2-o4u18 — swap! threads apply-parsed-to-state through the
             live shell-state ratom"
     (let [apply-fn (fn [s parsed]
-                     (us/apply-parsed-to-state s parsed {}))]
-      (swap! state/shell-state-atom apply-fn
+                     (rf.story.ui.url-state/apply-parsed-to-state s parsed {}))]
+      (swap! rf.story.ui.state/shell-state-atom apply-fn
              {:variant-id :foo/bar
               :viewport   :tablet
               :background :dark
               :tag-filter #{:tag/a}})
-      (let [s @state/shell-state-atom]
+      (let [s @rf.story.ui.state/shell-state-atom]
         (is (= :foo/bar (:selected-variant s)))
         (is (= :tablet  (:viewport s)))
         (is (= :dark    (:background s)))
@@ -449,7 +449,7 @@
             their defaults instead of no-op'ing. (The harness URL has no
             Story params, so this exercises the blank-search branch.)"
     (when (browser?)
-      (let [parsed (us/parse-current-url-or-empty)]
+      (let [parsed (rf.story.ui.url-state/parse-current-url-or-empty)]
         (is (map? parsed) "returns a parsed map, never nil, when window present")
         (is (nil? (:variant-id parsed)))
         (is (nil? (:active-modes parsed)))
@@ -463,18 +463,18 @@
             then applying the all-nil parsed shape (what
             `parse-current-url-or-empty` yields for an empty search) clears
             every URL-owned slot. Drives the live shell-state ratom."
-    (let [apply-fn (fn [s parsed] (us/apply-parsed-to-state s parsed {}))]
+    (let [apply-fn (fn [s parsed] (rf.story.ui.url-state/apply-parsed-to-state s parsed {}))]
       ;; 1. populated: a deep-link with framing + filter + modes.
-      (swap! state/shell-state-atom apply-fn
+      (swap! rf.story.ui.state/shell-state-atom apply-fn
              {:variant-id   :foo/bar
               :active-modes [:m/dark]
               :viewport     :tablet
               :background   :dark
               :tag-filter   #{:tag/a}})
-      (is (= :foo/bar (:selected-variant @state/shell-state-atom)))
+      (is (= :foo/bar (:selected-variant @rf.story.ui.state/shell-state-atom)))
       ;; 2. popstate to a no-query URL ⇒ all-nil parsed shape.
-      (swap! state/shell-state-atom apply-fn (share/parse-params {}))
-      (let [s @state/shell-state-atom]
+      (swap! rf.story.ui.state/shell-state-atom apply-fn (rf.story.share/parse-params {}))
+      (let [s @rf.story.ui.state/shell-state-atom]
         (is (nil? (:selected-variant s)) "selection cleared on bare-URL pop")
         (is (= [] (:active-modes s))      "modes cleared")
         (is (nil? (:viewport s))          "viewport cleared")
@@ -485,16 +485,16 @@
   (testing "rf2-fkmnh — navigating from a fully-populated URL to one that
             keeps the variant but drops modes/viewport/background/tag-filter
             clears exactly the omitted slots (the variant survives)"
-    (let [apply-fn (fn [s parsed] (us/apply-parsed-to-state s parsed {}))]
-      (swap! state/shell-state-atom apply-fn
+    (let [apply-fn (fn [s parsed] (rf.story.ui.url-state/apply-parsed-to-state s parsed {}))]
+      (swap! rf.story.ui.state/shell-state-atom apply-fn
              {:variant-id   :foo/bar
               :active-modes [:m/dark]
               :viewport     :tablet
               :background   :dark
               :tag-filter   #{:tag/a}})
       ;; second URL: variant only.
-      (swap! state/shell-state-atom apply-fn {:variant-id :foo/bar})
-      (let [s @state/shell-state-atom]
+      (swap! rf.story.ui.state/shell-state-atom apply-fn {:variant-id :foo/bar})
+      (let [s @rf.story.ui.state/shell-state-atom]
         (is (= :foo/bar (:selected-variant s)) "variant preserved")
         (is (= [] (:active-modes s)))
         (is (nil? (:viewport s)))

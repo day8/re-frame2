@@ -59,8 +59,8 @@
   drain is the same at every rung, and the richer rungs add the render
   commit on top of it rather than replacing it."
   (:require [re-frame.core :as rf]
-            [re-frame.story.late-bind :as late-bind]
-            [re-frame.story.play.settled-boundary :as boundary]))
+            [re-frame.story.late-bind :as rf.story.late-bind]
+            [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]))
 
 (defn adapter-flush-render
   "The installed adapter's optional `:flush-render!` contract fn, or nil.
@@ -105,11 +105,11 @@
                     (flush-render (fn [] nil))
                     nil)]
       {:provides  :dom
-       :dispatch! boundary/drain-sync!
+       :dispatch! rf.story.play.settled-boundary/drain-sync!
        :flush!    {:headless      (fn headless-flush [_frame-id] nil)
                    :cljs-reactive commit!
                    :dom           commit!}})
-    boundary/headless-flush-hooks))
+    rf.story.play.settled-boundary/headless-flush-hooks))
 
 (defn install!
   "Register `substrate-flush-hooks` under the `:settled-boundary-hooks`
@@ -120,5 +120,5 @@
   settles layout and paint, say — registers its own hooks after boot and
   wins the slot, which is what the late-bind seam is for."
   []
-  (late-bind/set-fn! :settled-boundary-hooks substrate-flush-hooks)
+  (rf.story.late-bind/set-fn! :settled-boundary-hooks substrate-flush-hooks)
   nil)

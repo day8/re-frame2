@@ -32,37 +32,37 @@
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.async      :as async]
-            [re-frame.story.config     :as config]
-            [re-frame.story.frames     :as frames]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.play.runner-events :as runner-events]
-            [re-frame.story.schemas    :as schemas]
-            [re-frame.trace.tooling    :as trace-tooling]
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.frames     :as rf.story.frames]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]
+            [re-frame.story.schemas    :as rf.story.schemas]
+            [re-frame.trace.tooling    :as rf.trace.tooling]
             [malli.core                :as m]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-all [test-fn]
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (require 're-frame.machines :reload)
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (config/set-global-args! {})
-  (reset! frames/stub-call-log {})
-  (reset! frames/allocated-decorator-stacks {})
-  (runner-events/clear-all-runs!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.config/set-global-args! {})
+  (reset! rf.story.frames/stub-call-log {})
+  (reset! rf.story.frames/allocated-decorator-stacks {})
+  (rf.story.play.runner-events/clear-all-runs!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-all)
@@ -75,24 +75,24 @@
   (testing "a :frame-setup decorator body carrying only :teardown is valid
             — the schema's at-least-one-of guard counts :teardown as a
             satisfying slot. Symmetric with :init / :app-db-patch."
-    (is (m/validate schemas/Decorator
+    (is (m/validate rf.story.schemas/Decorator
                     {:kind :frame-setup :teardown [[:noop]]}))
-    (is (m/validate schemas/Decorator
+    (is (m/validate rf.story.schemas/Decorator
                     {:kind :frame-setup :init [[:setup]] :teardown [[:cleanup]]}))
-    (is (m/validate schemas/Decorator
+    (is (m/validate rf.story.schemas/Decorator
                     {:kind :frame-setup :app-db-patch {:x 1} :teardown [[:cleanup]]}))))
 
 (deftest schema-rejects-empty-frame-setup-body
   (testing "a :frame-setup body with NONE of :init / :app-db-patch /
             :teardown still fails — the at-least-one-of guard holds."
-    (is (not (m/validate schemas/Decorator {:kind :frame-setup})))))
+    (is (not (m/validate rf.story.schemas/Decorator {:kind :frame-setup})))))
 
 (deftest schema-rejects-non-vector-teardown
   (testing ":teardown must be a vector of event vectors — a bare keyword
             or a single event vector at the top level is invalid."
-    (is (not (m/validate schemas/Decorator
+    (is (not (m/validate rf.story.schemas/Decorator
                          {:kind :frame-setup :teardown :not-a-vector})))
-    (is (not (m/validate schemas/Decorator
+    (is (not (m/validate rf.story.schemas/Decorator
                          {:kind :frame-setup :teardown [:not-a-vector-of-vectors]})))))
 
 ;; ===========================================================================
@@ -105,21 +105,21 @@
     (let [fired (atom [])]
       (rf/reg-event :feed/close-socket
         (fn [{:keys [db]} _] (swap! fired conj :feed/close-socket) {:db db}))
-      (story/reg-decorator :feed/live-subscription
+      (rf.story/reg-decorator :feed/live-subscription
         {:kind     :frame-setup
          :init     [[:feed/noop-init]]
          :teardown [[:feed/close-socket]]})
       (rf/reg-event :feed/noop-init (fn [{:keys [db]} _] {:db db}))
-      (story/reg-variant :story.feed/teardown-fires
+      (rf.story/reg-variant :story.feed/teardown-fires
         {:decorators [[:feed/live-subscription]]
          :setup     []})
       ;; Allocate + destroy. The single :frame-setup decorator's
       ;; :teardown event must fire on destroy.
-      (async/deref-blocking
-        (story/run-variant :story.feed/teardown-fires) 5000)
+      (rf.story.async/deref-blocking
+        (rf.story/run-variant :story.feed/teardown-fires) 5000)
       (is (= [] @fired)
           "teardown has NOT fired yet — the variant is still live")
-      (story/destroy-variant! :story.feed/teardown-fires)
+      (rf.story/destroy-variant! :story.feed/teardown-fires)
       (is (= [:feed/close-socket] @fired)
           "teardown fired exactly once on destroy"))))
 
@@ -133,17 +133,17 @@
         (fn [{:keys [db]} _] (swap! fired conj :two) {:db db}))
       (rf/reg-event :step/three
         (fn [{:keys [db]} _] (swap! fired conj :three) {:db db}))
-      (story/reg-decorator :multi-step-teardown
+      (rf.story/reg-decorator :multi-step-teardown
         {:kind     :frame-setup
          :init     [[:step/noop]]
          :teardown [[:step/one] [:step/two] [:step/three]]})
       (rf/reg-event :step/noop (fn [{:keys [db]} _] {:db db}))
-      (story/reg-variant :story.feed/multi-step
+      (rf.story/reg-variant :story.feed/multi-step
         {:decorators [[:multi-step-teardown]]
          :setup     []})
-      (async/deref-blocking
-        (story/run-variant :story.feed/multi-step) 5000)
-      (story/destroy-variant! :story.feed/multi-step)
+      (rf.story.async/deref-blocking
+        (rf.story/run-variant :story.feed/multi-step) 5000)
+      (rf.story/destroy-variant! :story.feed/multi-step)
       (is (= [:one :two :three] @fired)
           "within one decorator, teardown events run in declared order"))))
 
@@ -162,20 +162,20 @@
         (fn [{:keys [db]} _] (swap! fired conj :outer) {:db db}))
       (rf/reg-event :inner/cleanup
         (fn [{:keys [db]} _] (swap! fired conj :inner) {:db db}))
-      (story/reg-decorator :outer-dec
+      (rf.story/reg-decorator :outer-dec
         {:kind :frame-setup :init [[:outer/noop]] :teardown [[:outer/cleanup]]})
-      (story/reg-decorator :inner-dec
+      (rf.story/reg-decorator :inner-dec
         {:kind :frame-setup :init [[:inner/noop]] :teardown [[:inner/cleanup]]})
       (rf/reg-event :outer/noop (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :inner/noop (fn [{:keys [db]} _] {:db db}))
-      (story/reg-story :story.teardown.order
+      (rf.story/reg-story :story.teardown.order
         {:decorators [[:outer-dec]]})
-      (story/reg-variant :story.teardown.order/v
+      (rf.story/reg-variant :story.teardown.order/v
         {:decorators [[:inner-dec]]
          :setup     []})
-      (async/deref-blocking
-        (story/run-variant :story.teardown.order/v) 5000)
-      (story/destroy-variant! :story.teardown.order/v)
+      (rf.story.async/deref-blocking
+        (rf.story/run-variant :story.teardown.order/v) 5000)
+      (rf.story/destroy-variant! :story.teardown.order/v)
       (is (= [:inner :outer] @fired)
           "reverse-declaration: innermost (variant-level :inner-dec)
            tears down BEFORE outermost (story-level :outer-dec).
@@ -190,18 +190,18 @@
         (fn [{:keys [db]} _] (swap! fired conj :a) {:db db}))
       (rf/reg-event :dec-b/cleanup
         (fn [{:keys [db]} _] (swap! fired conj :b) {:db db}))
-      (story/reg-decorator :dec-a
+      (rf.story/reg-decorator :dec-a
         {:kind :frame-setup :init [[:dec-a/noop]] :teardown [[:dec-a/cleanup]]})
-      (story/reg-decorator :dec-b
+      (rf.story/reg-decorator :dec-b
         {:kind :frame-setup :init [[:dec-b/noop]] :teardown [[:dec-b/cleanup]]})
       (rf/reg-event :dec-a/noop (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :dec-b/noop (fn [{:keys [db]} _] {:db db}))
-      (story/reg-variant :story.teardown.same-level/v
+      (rf.story/reg-variant :story.teardown.same-level/v
         {:decorators [[:dec-a] [:dec-b]]
          :setup     []})
-      (async/deref-blocking
-        (story/run-variant :story.teardown.same-level/v) 5000)
-      (story/destroy-variant! :story.teardown.same-level/v)
+      (rf.story.async/deref-blocking
+        (rf.story/run-variant :story.teardown.same-level/v) 5000)
+      (rf.story/destroy-variant! :story.teardown.same-level/v)
       (is (= [:b :a] @fired)
           "later-declared :dec-b tears down before earlier-declared :dec-a"))))
 
@@ -230,25 +230,25 @@
       (rf/reg-event :d2/init    (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :d1/cleanup (fn [{:keys [db]} _] (swap! fired conj :d1) {:db db}))
       (rf/reg-event :d2/cleanup (fn [{:keys [db]} _] (swap! fired conj :d2) {:db db}))
-      (story/reg-decorator :hot/d1
+      (rf.story/reg-decorator :hot/d1
         {:kind :frame-setup :init [[:d1/init]] :teardown [[:d1/cleanup]]})
-      (story/reg-decorator :hot/d2
+      (rf.story/reg-decorator :hot/d2
         {:kind :frame-setup :init [[:d2/init]] :teardown [[:d2/cleanup]]})
       ;; Allocate with D1 — its :init ran; the allocate-time stack is captured.
-      (story/reg-variant :story.hotdec/v
+      (rf.story/reg-variant :story.hotdec/v
         {:decorators [[:hot/d1]] :setup []})
-      (async/deref-blocking (story/run-variant :story.hotdec/v) 5000)
+      (rf.story.async/deref-blocking (rf.story/run-variant :story.hotdec/v) 5000)
       ;; HOT-RELOAD: the variant body now declares D2 instead of D1. The live
       ;; frame still carries D1's :init; only the registered body changed.
-      (story/reg-variant :story.hotdec/v
+      (rf.story/reg-variant :story.hotdec/v
         {:decorators [[:hot/d2]] :setup []})
       ;; Sanity: the CURRENT resolution IS D2 — exactly what the buggy
       ;; re-resolve-at-teardown would read (so this test is not vacuous).
       (is (= [:hot/d2]
-             (mapv :id (:frame-setup (story/resolve-decorators :story.hotdec/v))))
+             (mapv :id (:frame-setup (rf.story/resolve-decorators :story.hotdec/v))))
           "post-hot-reload resolve-decorators returns D2")
       ;; Destroy — teardown MUST use the allocate-time stack (D1), not D2.
-      (story/destroy-variant! :story.hotdec/v)
+      (rf.story/destroy-variant! :story.hotdec/v)
       (is (= [:d1] @fired)
           "teardown ran D1's :cleanup (the allocate-time :frame-setup set
            whose :init actually ran), NOT the re-resolved D2's"))))
@@ -263,19 +263,19 @@
             contract: teardown never aborts destroy-frame!"
     (rf/reg-event :boom/cleanup
       (fn [_ _] (throw (ex-info "teardown boom" {:why :test}))))
-    (story/reg-decorator :boom-dec
+    (rf.story/reg-decorator :boom-dec
       {:kind :frame-setup :init [[:boom/noop]] :teardown [[:boom/cleanup]]})
     (rf/reg-event :boom/noop (fn [{:keys [db]} _] {:db db}))
-    (story/reg-variant :story.teardown.boom/v
+    (rf.story/reg-variant :story.teardown.boom/v
       {:decorators [[:boom-dec]]
        :setup     []})
-    (async/deref-blocking
-      (story/run-variant :story.teardown.boom/v) 5000)
+    (rf.story.async/deref-blocking
+      (rf.story/run-variant :story.teardown.boom/v) 5000)
     ;; The destroy walk catches the exception. After destroy, the
     ;; variant frame is gone (rf/destroy-frame! ran).
-    (is (nil? (story/destroy-variant! :story.teardown.boom/v))
+    (is (nil? (rf.story/destroy-variant! :story.teardown.boom/v))
         "destroy-variant! returns nil — exception caught, walk completed")
-    (is (not (contains? (story/variant-frames) :story.teardown.boom/v))
+    (is (not (contains? (rf.story/variant-frames) :story.teardown.boom/v))
         "the frame is destroyed despite the teardown throw")))
 
 (deftest throwing-teardown-records-exception-assertion
@@ -298,9 +298,9 @@
         (fn [{:keys [db]} _]
           (reset! captured (:rf.story/assertions db))
           {:db db}))
-      (story/reg-decorator :boom-dec
+      (rf.story/reg-decorator :boom-dec
         {:kind :frame-setup :init [[:boom/noop]] :teardown [[:boom/cleanup]]})
-      (story/reg-decorator :probe-dec
+      (rf.story/reg-decorator :probe-dec
         {:kind :frame-setup
          :init [[:boom/noop]]
          :teardown [[::probe-snapshot]]})
@@ -308,14 +308,14 @@
       ;; means variant-level :boom-dec fires first; story-level
       ;; :probe-dec fires last — AFTER the boom's exception record has
       ;; landed on [:rf.story/assertions].
-      (story/reg-story :story.teardown.record
+      (rf.story/reg-story :story.teardown.record
         {:decorators [[:probe-dec]]})
-      (story/reg-variant :story.teardown.record/v
+      (rf.story/reg-variant :story.teardown.record/v
         {:decorators [[:boom-dec]]
          :setup     []})
-      (async/deref-blocking
-        (story/run-variant :story.teardown.record/v) 5000)
-      (story/destroy-variant! :story.teardown.record/v)
+      (rf.story.async/deref-blocking
+        (rf.story/run-variant :story.teardown.record/v) 5000)
+      (rf.story/destroy-variant! :story.teardown.record/v)
       (let [asserts @captured
             err     (first (filter #(= :rf.error/exception (:assertion %))
                                    asserts))]
@@ -344,23 +344,23 @@
             tears down cleanly — the walk is a no-op for that decorator"
     (rf/reg-event :seed/init
       (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
-    (story/reg-decorator :seed-only
+    (rf.story/reg-decorator :seed-only
       {:kind :frame-setup :init [[:seed/init]]})
-    (story/reg-variant :story.teardown.none/v
+    (rf.story/reg-variant :story.teardown.none/v
       {:decorators [[:seed-only]]
        :setup     []})
-    (async/deref-blocking
-      (story/run-variant :story.teardown.none/v) 5000)
-    (is (nil? (story/destroy-variant! :story.teardown.none/v))
+    (rf.story.async/deref-blocking
+      (rf.story/run-variant :story.teardown.none/v) 5000)
+    (is (nil? (rf.story/destroy-variant! :story.teardown.none/v))
         "destroy returns nil — no-op teardown walk completes cleanly")
-    (is (not (contains? (story/variant-frames) :story.teardown.none/v))
+    (is (not (contains? (rf.story/variant-frames) :story.teardown.none/v))
         "frame still destroyed")))
 
 ;; ===========================================================================
 ;; RUN-STATE EVICTION — destroy-variant! clears the play-runner run-state
 ;;
-;; rf2-booyu CORRECTNESS: `runner-events/clear-state!` documented itself as
-;; "called from frame teardown" but was never wired into `frames/destroy!`,
+;; rf2-booyu CORRECTNESS: `rf.story.play.runner-events/clear-state!` documented itself as
+;; "called from frame teardown" but was never wired into `rf.story.frames/destroy!`,
 ;; so a destroyed variant frame leaked its per-frame run-state across the four
 ;; process-global atoms (run-state / runs-by-play / active-play /
 ;; step-boundaries). Over a long Story session (every hot-reload reset tears a
@@ -375,36 +375,36 @@
             per-frame run-state is gone from every process-global atom — no
             leak (rf2-booyu)"
     (rf/reg-event :rs/noop (fn [{:keys [db]} _] {:db db}))
-    (story/reg-variant :story.runstate/v
+    (rf.story/reg-variant :story.runstate/v
       {:setup      []
        :script [[:dispatch-sync [:rs/noop]]]})
-    (let [decorator-stack (story/resolve-decorators :story.runstate/v)]
+    (let [decorator-stack (rf.story/resolve-decorators :story.runstate/v)]
       ;; Drive the live-shell path: allocate the frame, then run the play via
       ;; the runner (the toolbar Re-run / auto-run path that populates
       ;; run-state).
-      (frames/allocate! :story.runstate/v decorator-stack)
-      (loaders/start-loaders! :story.runstate/v)
-      (loaders/finish-loaders! :story.runstate/v)
+      (rf.story.frames/allocate! :story.runstate/v decorator-stack)
+      (rf.story.loaders/start-loaders! :story.runstate/v)
+      (rf.story.loaders/finish-loaders! :story.runstate/v)
       (let [done (promise)]
-        (runner-events/run! :story.runstate/v (fn [_] (deliver done :ok)))
+        (rf.story.play.runner-events/run! :story.runstate/v (fn [_] (deliver done :ok)))
         (deref done 5000 :timeout))
-      (is (contains? @runner-events/run-state :story.runstate/v)
+      (is (contains? @rf.story.play.runner-events/run-state :story.runstate/v)
           "run-state populated by the run")
-      (is (contains? @runner-events/runs-by-play [:story.runstate/v nil])
+      (is (contains? @rf.story.play.runner-events/runs-by-play [:story.runstate/v nil])
           "runs-by-play populated by the run")
       ;; A single :script variant's active-play key is legitimately nil
       ;; (no :plays :name), so assert the ENTRY exists, not that the value is
       ;; non-nil.
-      (is (contains? @runner-events/active-play :story.runstate/v)
+      (is (contains? @rf.story.play.runner-events/active-play :story.runstate/v)
           "active-play populated by the run")
-      (story/destroy-variant! :story.runstate/v)
-      (is (not (contains? @runner-events/run-state :story.runstate/v))
+      (rf.story/destroy-variant! :story.runstate/v)
+      (is (not (contains? @rf.story.play.runner-events/run-state :story.runstate/v))
           "run-state evicted on destroy — no leak")
-      (is (not (contains? @runner-events/runs-by-play [:story.runstate/v nil]))
+      (is (not (contains? @rf.story.play.runner-events/runs-by-play [:story.runstate/v nil]))
           "runs-by-play evicted on destroy — no leak")
-      (is (not (contains? @runner-events/active-play :story.runstate/v))
+      (is (not (contains? @rf.story.play.runner-events/active-play :story.runstate/v))
           "active-play evicted on destroy — no leak")
-      (is (nil? (runner-events/settle-boundaries :story.runstate/v nil))
+      (is (nil? (rf.story.play.runner-events/settle-boundaries :story.runstate/v nil))
           "step-boundaries evicted on destroy — no leak"))))
 
 ;; ===========================================================================
@@ -426,22 +426,22 @@
     (let [live (atom #{})]
       ;; Instrument the trace-tooling registry so the test observes which
       ;; listener ids are live without reaching into its private atom.
-      (with-redefs [trace-tooling/register-listener!
+      (with-redefs [rf.trace.tooling/register-listener!
                     (fn [id f]
                       (swap! live conj id)
-                      (swap! @#'trace-tooling/listeners assoc id f)
+                      (swap! @#'rf.trace.tooling/listeners assoc id f)
                       id)
-                    trace-tooling/unregister-listener!
+                    rf.trace.tooling/unregister-listener!
                     (fn [id]
                       (swap! live disj id)
-                      (swap! @#'trace-tooling/listeners dissoc id)
+                      (swap! @#'rf.trace.tooling/listeners dissoc id)
                       nil)]
         (rf/reg-event :lst/noop (fn [{:keys [db]} _] {:db db}))
-        (story/reg-variant :story.listener/v {:setup [[:lst/noop]]})
-        (async/deref-blocking (story/run-variant :story.listener/v) 5000)
+        (rf.story/reg-variant :story.listener/v {:setup [[:lst/noop]]})
+        (rf.story.async/deref-blocking (rf.story/run-variant :story.listener/v) 5000)
         (is (some play-listener-id? @live)
             "run-variant installed the per-frame play trace listener")
-        (story/destroy-variant! :story.listener/v)
+        (rf.story/destroy-variant! :story.listener/v)
         (is (not-any? play-listener-id? @live)
             "destroy unregistered the play trace listener — no stale closure
              survives the frame lifecycle")))))
@@ -452,24 +452,24 @@
             second play trace listener; each run installs one and the prior
             is gone (rf2-294yq5.4)"
     (let [live (atom #{})]
-      (with-redefs [trace-tooling/register-listener!
+      (with-redefs [rf.trace.tooling/register-listener!
                     (fn [id f]
                       (swap! live conj id)
-                      (swap! @#'trace-tooling/listeners assoc id f)
+                      (swap! @#'rf.trace.tooling/listeners assoc id f)
                       id)
-                    trace-tooling/unregister-listener!
+                    rf.trace.tooling/unregister-listener!
                     (fn [id]
                       (swap! live disj id)
-                      (swap! @#'trace-tooling/listeners dissoc id)
+                      (swap! @#'rf.trace.tooling/listeners dissoc id)
                       nil)]
         (rf/reg-event :lst/noop2 (fn [{:keys [db]} _] {:db db}))
-        (story/reg-variant :story.listener2/v {:setup [[:lst/noop2]]})
-        (async/deref-blocking (story/run-variant :story.listener2/v) 5000)
-        (async/deref-blocking (story/run-variant :story.listener2/v) 5000)
+        (rf.story/reg-variant :story.listener2/v {:setup [[:lst/noop2]]})
+        (rf.story.async/deref-blocking (rf.story/run-variant :story.listener2/v) 5000)
+        (rf.story.async/deref-blocking (rf.story/run-variant :story.listener2/v) 5000)
         (is (= 1 (count (filter play-listener-id? @live)))
             "exactly one play trace listener is live after two runs — the
              fresh-run boundary destroyed the first run's frame (and its
              listener) before the second run installed its own")
-        (story/destroy-variant! :story.listener2/v)
+        (rf.story/destroy-variant! :story.listener2/v)
         (is (not-any? play-listener-id? @live)
             "and the final destroy clears it")))))

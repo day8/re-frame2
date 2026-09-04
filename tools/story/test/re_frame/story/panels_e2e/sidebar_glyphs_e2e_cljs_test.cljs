@@ -13,24 +13,24 @@
 
   ## What this catches
 
-  - **Story row → story-glyph wiring**: `sidebar/story-block` builds
-    `[:span {:style (:story-glyph styles)} [glyphs/story-glyph 13]]`
+  - **Story row → story-glyph wiring**: `rf.story.ui.sidebar/story-block` builds
+    `[:span {:style (:story-glyph styles)} [rf.story.theme.glyphs/story-glyph 13]]`
     as the first child of every story-row. A regression that removes
     the glyph slot (or wires the wrong glyph) would drop the iconic
     prefix and leave story labels visually indistinguishable from
     the variant labels indented underneath.
 
   - **Variant row → variant-glyph wiring (non-testable case)**:
-    `sidebar/variant-row` builds
-    `[:span {:style (:variant-glyph styles)} [glyphs/variant-glyph 10]]`
+    `rf.story.ui.sidebar/variant-row` builds
+    `[:span {:style (:variant-glyph styles)} [rf.story.theme.glyphs/variant-glyph 10]]`
     when the variant is NOT testable. A regression that drops the
     fallback glyph would leave non-testable variant rows visually
     indistinguishable from the status-dot rows underneath (or worse,
     leave a ragged left edge when the glyph slot is absent entirely).
 
   - **Workspace row → workspace-glyph wiring**:
-    `sidebar/workspace-row` builds
-    `[:span {:style (:workspace-glyph styles)} [glyphs/workspace-glyph 12]]`
+    `rf.story.ui.sidebar/workspace-row` builds
+    `[:span {:style (:workspace-glyph styles)} [rf.story.theme.glyphs/workspace-glyph 12]]`
     as the first child of every workspace-row. A regression that
     drops the glyph slot would erase the workspace iconography from
     the bottom section of the sidebar.
@@ -46,7 +46,7 @@
   ## Detection strategy
 
   `expand-tree` recursively invokes every fn-headed vector — which
-  means the inline `[glyphs/story-glyph 13]` vectors would expand
+  means the inline `[rf.story.theme.glyphs/story-glyph 13]` vectors would expand
   into the underlying SVG (a `:path`, `:circle`, four `:rect`s),
   losing the symbolic link to the glyph fn at the call site. To
   preserve a stable, role-typed marker through the walk, the tests
@@ -57,33 +57,33 @@
 
   Surface tested via hiccup walking; no DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.theme.glyphs :as glyphs]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
-            [re-frame.story.ui.sidebar :as sidebar]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.theme.glyphs :as rf.story.theme.glyphs]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
+            [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- fixture -----------------------------------------------------------
 
 (defn- register-variants!
   "Two stories with one non-testable variant each, plus one workspace.
   No `:test` tag / `:script` slot → both variants take the non-testable
-  branch in `variant-row` (the branch that emits `[glyphs/variant-glyph
+  branch in `variant-row` (the branch that emits `[rf.story.theme.glyphs/variant-glyph
   10]`)."
   []
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc "Counter parent story."})
-  (story/reg-variant :story.counter/empty
+  (rf.story/reg-variant :story.counter/empty
     {:doc "empty counter" :setup []})
-  (story/reg-story :story.login
+  (rf.story/reg-story :story.login
     {:doc "Login parent story."})
-  (story/reg-variant :story.login/blank
+  (rf.story/reg-variant :story.login/blank
     {:doc "blank login form" :setup []})
-  (story/reg-workspace :Workspace.counter/all
+  (rf.story/reg-workspace :Workspace.counter/all
     {:doc      "Counter workspace."
      :layout   :grid
      :variants [:story.counter/empty]
@@ -104,13 +104,13 @@
 ;; ---- helpers -----------------------------------------------------------
 
 (defn- render-sidebar-tree
-  "`sidebar/sidebar` is a class-2 Reagent component — calling it
+  "`rf.story.ui.sidebar/sidebar` is a class-2 Reagent component — calling it
   returns the inner render fn. Invoking that returns hiccup; we walk
   the expanded tree so `story-block` / `variant-row` / `workspace-row`
   are surfaced as plain DOM-shaped hiccup with sentinel-glyph leaves."
   []
-  (let [render-fn (sidebar/sidebar)]
-    (e2e/expand-tree (render-fn nil))))
+  (let [render-fn (rf.story.ui.sidebar/sidebar)]
+    (rf.story.test-helpers.e2e-multi-frame/expand-tree (render-fn nil))))
 
 (defn- glyph-roles-under
   "Walk `node` and return the multiset of `[:rf-test-glyph <role>]`
@@ -131,7 +131,7 @@
   `[:div {:style (:story-row styles)} [:span ...] ...]` whose first
   inner span carries a `[:rf-test-glyph :story]` sentinel."
   [tree]
-  (->> (e2e/hiccup-seq tree)
+  (->> (rf.story.test-helpers.e2e-multi-frame/hiccup-seq tree)
        (filter (fn [node]
                  (and (vector? node)
                       (= :div (first node))
@@ -148,27 +148,27 @@
   "Every variant-row hiccup vector in the tree, located by the
   authoritative `:data-test=\"story-sidebar-variant-row\"` selector."
   [tree]
-  (e2e/find-all-by-test-id tree "story-sidebar-variant-row"))
+  (rf.story.test-helpers.e2e-multi-frame/find-all-by-test-id tree "story-sidebar-variant-row"))
 
 (defn- workspace-row-nodes
   "Every workspace-row hiccup vector in the tree, located by the
   authoritative `:data-test=\"story-sidebar-workspace-row\"` selector."
   [tree]
-  (e2e/find-all-by-test-id tree "story-sidebar-workspace-row"))
+  (rf.story.test-helpers.e2e-multi-frame/find-all-by-test-id tree "story-sidebar-workspace-row"))
 
 ;; ---- assertions --------------------------------------------------------
 
 (deftest story-rows-lead-with-story-glyph
   (testing "rf2-p0wur — every story-row in the sidebar carries a
-            `[glyphs/story-glyph]` as its first iconographic prefix.
+            `[rf.story.theme.glyphs/story-glyph]` as its first iconographic prefix.
             Two stories registered → at least two story rows in the
             tree, each with exactly one story-role sentinel underneath."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (with-redefs [glyphs/story-glyph     story-glyph-stub
-                      glyphs/variant-glyph   variant-glyph-stub
-                      glyphs/workspace-glyph workspace-glyph-stub]
+        (with-redefs [rf.story.theme.glyphs/story-glyph     story-glyph-stub
+                      rf.story.theme.glyphs/variant-glyph   variant-glyph-stub
+                      rf.story.theme.glyphs/workspace-glyph workspace-glyph-stub]
           (let [tree  (render-sidebar-tree)
                 rows  (story-row-nodes tree)]
             (is (<= 2 (count rows))
@@ -180,16 +180,16 @@
 
 (deftest variant-rows-lead-with-variant-glyph
   (testing "rf2-p0wur — every non-testable variant-row carries a
-            `[glyphs/variant-glyph]` sentinel as the iconographic
+            `[rf.story.theme.glyphs/variant-glyph]` sentinel as the iconographic
             prefix in the variant-glyph branch of `variant-row`. Both
             registered variants are non-testable (no `:test` tag, no
             `:script`), so both rows take this branch."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (with-redefs [glyphs/story-glyph     story-glyph-stub
-                      glyphs/variant-glyph   variant-glyph-stub
-                      glyphs/workspace-glyph workspace-glyph-stub]
+        (with-redefs [rf.story.theme.glyphs/story-glyph     story-glyph-stub
+                      rf.story.theme.glyphs/variant-glyph   variant-glyph-stub
+                      rf.story.theme.glyphs/workspace-glyph workspace-glyph-stub]
           (let [tree (render-sidebar-tree)
                 rows (variant-row-nodes tree)]
             (is (<= 2 (count rows))
@@ -198,19 +198,19 @@
                         rows)
                 "each variant row contains exactly one variant-role glyph
                  sentinel — the non-testable branch of variant-row wired
-                 `[glyphs/variant-glyph]` per rf2-p0wur")))))))
+                 `[rf.story.theme.glyphs/variant-glyph]` per rf2-p0wur")))))))
 
 (deftest workspace-rows-lead-with-workspace-glyph
   (testing "rf2-p0wur — every workspace-row carries a
-            `[glyphs/workspace-glyph]` sentinel as the iconographic
+            `[rf.story.theme.glyphs/workspace-glyph]` sentinel as the iconographic
             prefix. One workspace registered → one workspace row, with
             exactly one workspace-role sentinel underneath."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (with-redefs [glyphs/story-glyph     story-glyph-stub
-                      glyphs/variant-glyph   variant-glyph-stub
-                      glyphs/workspace-glyph workspace-glyph-stub]
+        (with-redefs [rf.story.theme.glyphs/story-glyph     story-glyph-stub
+                      rf.story.theme.glyphs/variant-glyph   variant-glyph-stub
+                      rf.story.theme.glyphs/workspace-glyph workspace-glyph-stub]
           (let [tree (render-sidebar-tree)
                 rows (workspace-row-nodes tree)]
             (is (= 1 (count rows))
@@ -226,12 +226,12 @@
             wires the wrong glyph fn into a row (variant-glyph in a
             workspace row, etc.) surfaces as a mismatched role count
             instead of silently passing the per-row checks above."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (with-redefs [glyphs/story-glyph     story-glyph-stub
-                      glyphs/variant-glyph   variant-glyph-stub
-                      glyphs/workspace-glyph workspace-glyph-stub]
+        (with-redefs [rf.story.theme.glyphs/story-glyph     story-glyph-stub
+                      rf.story.theme.glyphs/variant-glyph   variant-glyph-stub
+                      rf.story.theme.glyphs/workspace-glyph workspace-glyph-stub]
           (let [tree            (render-sidebar-tree)
                 variant-rows    (variant-row-nodes tree)
                 workspace-rows  (workspace-row-nodes tree)]
@@ -257,12 +257,12 @@
             activate them. Without these, the sidebar's `<nav>` landmark
             is reachable but rows inside it aren't — keyboard users
             can't select a variant from the sidebar at all."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (with-redefs [glyphs/story-glyph     story-glyph-stub
-                      glyphs/variant-glyph   variant-glyph-stub
-                      glyphs/workspace-glyph workspace-glyph-stub]
+        (with-redefs [rf.story.theme.glyphs/story-glyph     story-glyph-stub
+                      rf.story.theme.glyphs/variant-glyph   variant-glyph-stub
+                      rf.story.theme.glyphs/workspace-glyph workspace-glyph-stub]
           (let [tree (render-sidebar-tree)
                 rows (variant-row-nodes tree)]
             (is (<= 2 (count rows)))
@@ -290,12 +290,12 @@
             `<div>`s that must expose `role=\"button\"` + `tabindex=\"0\"`
             + a key handler. Without these the workspace section of the
             sidebar is unreachable from the keyboard."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (with-redefs [glyphs/story-glyph     story-glyph-stub
-                      glyphs/variant-glyph   variant-glyph-stub
-                      glyphs/workspace-glyph workspace-glyph-stub]
+        (with-redefs [rf.story.theme.glyphs/story-glyph     story-glyph-stub
+                      rf.story.theme.glyphs/variant-glyph   variant-glyph-stub
+                      rf.story.theme.glyphs/workspace-glyph workspace-glyph-stub]
           (let [tree (render-sidebar-tree)
                 rows (workspace-row-nodes tree)]
             (is (= 1 (count rows)))

@@ -60,12 +60,12 @@
 
   ## Scheme-rejection denylist
 
-  `editor-uri/editor-uri` rejects `javascript:` / `data:` / `vbscript:`
+  `rf.source-coords.editor-uri/editor-uri` rejects `javascript:` / `data:` / `vbscript:`
   for `{:custom ...}` templates at build time — the spec-mandated
   scheme-rejection list (Security.md / Tool-Pair.md §Editor URI scheme
   allowlist): everything other than the three known-bad schemes passes
   through. The click-time `open!` seam below re-applies the same cheap
-  denylist (`editor-uri/forbidden-scheme?`) because the
+  denylist (`rf.source-coords.editor-uri/forbidden-scheme?`) because the
   `:rf.story.fx/open-in-editor` reg-fx accepts a pre-resolved `{:uri ...}` arg that
   bypasses `editor-uri`'s build-time gating — the denylist must fire at
   every handoff. There is no positive allowlist (it would fail CLOSED on
@@ -79,34 +79,34 @@
   UI shell so this ns never enters a release bundle."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.story.config :as config]
-            [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.source-coords.open-endpoint :as open-endpoint]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
+            [re-frame.source-coords.open-endpoint :as rf.source-coords.open-endpoint]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private chip-styles
   {:chip      {:padding         "2px 8px"
-               :background      (:bg-3 colors/tokens)
-               :color           (:info colors/tokens)
+               :background      (:bg-3 rf.story.theme.colors/tokens)
+               :color           (:info rf.story.theme.colors/tokens)
                :border          "1px solid #555"
                :border-radius   "3px"
                :cursor          "pointer"
                :font-family     mono-stack
-               :font-size       (:micro typography/type-scale)
+               :font-size       (:micro rf.story.theme.typography/type-scale)
                :margin-left     "8px"
                :text-decoration "none"
                :display         "inline-block"}
    :chip-test {:padding         "1px 6px"
-               :background      (:bg-2 colors/tokens)
-               :color           (:info colors/tokens)
+               :background      (:bg-2 rf.story.theme.colors/tokens)
+               :color           (:info rf.story.theme.colors/tokens)
                :border          "1px solid #444"
                :border-radius   "2px"
                :cursor          "pointer"
                :font-family     mono-stack
-               :font-size       (:micro typography/type-scale)
+               :font-size       (:micro rf.story.theme.typography/type-scale)
                :margin-left     "8px"
                :text-decoration "none"
                :display         "inline-block"}})
@@ -120,7 +120,7 @@
 
 (defn- parse-file-line
   "Parse a `\"file:line\"` (or bare `\"file\"`) display string into the
-  structured source-coord map shape `editor-uri/editor-uri` expects.
+  structured source-coord map shape `rf.source-coords.editor-uri/editor-uri` expects.
 
   Some Story-host integrations (e.g. agents replaying open-in-editor
   via the MCP surface, panels that flatten a coord to a display
@@ -154,7 +154,7 @@
       (the dispatch shape an external integration may emit).
     - A bare display string `\"file:line\"` (defensive).
 
-  Returns the map form; callers feed it to `editor-uri/editor-uri`
+  Returns the map form; callers feed it to `rf.source-coords.editor-uri/editor-uri`
   unchanged. Mirrors Xray's `coerce-coord` (rf2-r2un8 port)."
   [payload]
   (let [unwrapped (if (and (map? payload) (contains? payload :source-coord))
@@ -167,13 +167,13 @@
 
 (defn resolve-uri
   "Pure-data: source-coord → launchable URI string, or nil. Returns nil
-  when the coord lacks `:file` or when `editor-uri/editor-uri` returns
+  when the coord lacks `:file` or when `rf.source-coords.editor-uri/editor-uri` returns
   nil (a forbidden scheme per rf2-vwcsq — `javascript:` / `data:` /
   `vbscript:`). Per rf2-ox357n there is no positive allowlist: any
   non-dangerous scheme (built-in or unknown custom) passes through.
 
   Per rf2-zfy1e: threads the configured project-root through
-  `editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
+  `rf.source-coords.editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
   coord (the common case — macros capture the form-meta `:file` slot,
   typically classpath-relative) resolves to an absolute on-disk path
   the OS-side editor handler can find. The `:project-root` opt is
@@ -185,11 +185,11 @@
   the URI shape across the data path and the side-effect path. Mirrors
   Xray's `resolve-uri` (rf2-r2un8 port)."
   [source-coord]
-  (when (editor-uri/has-source? source-coord)
-    (let [opts {:project-root (config/get-project-root)}]
+  (when (rf.source-coords.editor-uri/has-source? source-coord)
+    (let [opts {:project-root (rf.story.config/get-project-root)}]
       ;; `editor-uri` already denylist-gates the resolved URI inline at
       ;; build time (rf2-vwcsq), returning nil on a forbidden scheme.
-      (editor-uri/editor-uri (config/get-editor) source-coord opts))))
+      (rf.source-coords.editor-uri/editor-uri (rf.story.config/get-editor) source-coord opts))))
 
 ;; ---- side-effect: open the editor ----------------------------------------
 ;;
@@ -238,7 +238,7 @@
   denylist seam.
 
   Per rf2-vwcsq + rf2-ox357n: this fn re-applies the cheap scheme
-  denylist (`editor-uri/forbidden-scheme?`) before handing the URI off.
+  denylist (`rf.source-coords.editor-uri/forbidden-scheme?`) before handing the URI off.
   A URI built via `resolve-uri` was already denylist-gated at build
   time, but the `:rf.story.fx/open-in-editor` reg-fx also accepts a pre-resolved
   `{:uri ...}` arg that bypasses build-time gating — so the denylist
@@ -261,7 +261,7 @@
   tests stub the navigation without mutating `js/window.location`
   (which is non-configurable in modern browsers)."
   [uri]
-  (when (and uri (not (editor-uri/forbidden-scheme? uri)))
+  (when (and uri (not (rf.source-coords.editor-uri/forbidden-scheme? uri)))
     (js/console.log "[rf.story/open-in-editor] navigating to:" uri)
     (@navigator uri)
     nil))
@@ -273,7 +273,7 @@
 ;; (classpath-relative) source-coord against the live source-paths on the
 ;; dev machine at runtime and launches the editor via launch-editor. This
 ;; is ADDITIVE: `open-coord!` first tries the endpoint
-;; (`open-endpoint/open-coord!`); on any failure (no dev server, network
+;; (`rf.source-coords.open-endpoint/open-coord!`); on any failure (no dev server, network
 ;; error, non-2xx — static export / non-shadow host / production
 ;; inspection) it falls back to navigating the historic `editor://` URI via
 ;; `open!`. The URI path is never removed. Mirrors Xray's `open-coord!`.
@@ -289,9 +289,9 @@
   build-time scheme denylist). When the coord cannot produce a usable
   URI either, the fallback is a harmless no-op. Returns nothing."
   [source-coord]
-  (open-endpoint/open-coord!
+  (rf.source-coords.open-endpoint/open-coord!
     source-coord
-    (config/get-editor)
+    (rf.story.config/get-editor)
     (fn [] (open! (resolve-uri source-coord))))
   nil)
 
@@ -299,11 +299,11 @@
 
 (defn open-chip
   "Render an 'Open' chip for a source-coord. Reads the current editor
-  preference from `config/editor`; constructs the URI via
+  preference from `rf.story.config/editor`; constructs the URI via
   `resolve-uri`; click fires `(open! uri)`.
 
   Returns nil when the source-coord has no usable `:file` slot or when
-  `editor-uri/editor-uri` returns nil (a forbidden scheme rejected by
+  `rf.source-coords.editor-uri/editor-uri` returns nil (a forbidden scheme rejected by
   the `editor-uri`-side denylist per rf2-vwcsq). Per rf2-ox357n there is
   no positive allowlist — any non-dangerous scheme produces a chip. The
   UI hides the chip rather than rendering an unclickable affordance.
@@ -321,13 +321,13 @@
    (open-chip source-coord :title))
   ([source-coord variant-of-style]
    (when-let [uri (resolve-uri source-coord)]
-     (let [editor (config/get-editor)
+     (let [editor (rf.story.config/get-editor)
            style  (case variant-of-style
                     :test-detail (:chip-test chip-styles)
                     (:chip chip-styles))]
        [:a {:style       style
             :href        uri
-            :title       (editor-uri/open-button-title source-coord)
+            :title       (rf.source-coords.editor-uri/open-button-title source-coord)
             :data-test   "story-open-in-editor"
             :data-editor (cond
                            (map? editor) "custom"
@@ -359,7 +359,7 @@
   `source-coord` shape: `{:file :line :column}` per
   `re-frame.source-coords`."
   [source-coord]
-  (if (editor-uri/has-source? source-coord)
+  (if (rf.source-coords.editor-uri/has-source? source-coord)
     (do (open-coord! source-coord)
         true)
     false))

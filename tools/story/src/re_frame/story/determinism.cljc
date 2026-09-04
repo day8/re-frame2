@@ -55,9 +55,9 @@
   into fresh frames). The pure half runs under `clojure -M:test` with no
   runtime; the replay half settles synchronously to a fixed point via the
   headless flush-hooks, so the JVM gate exercises the full gate."
-  (:require [re-frame.story.artifact    :as artifact]
-            [re-frame.story.fingerprint :as fingerprint]
-            [re-frame.story.play.runner :as runner]))
+  (:require [re-frame.story.artifact    :as rf.story.artifact]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.play.runner :as rf.story.play.runner]))
 
 ;; ===========================================================================
 ;; PLAN / ARTIFACT → REPLAYABLE ARTIFACT  (pure)
@@ -90,7 +90,7 @@
   recorder's captured program replays verbatim."
   [target]
   (cond
-    (artifact/run-artifact? target)
+    (rf.story.artifact/run-artifact? target)
     target
 
     ;; A normalized variant plan: setup lives under [:world :setup], the
@@ -99,7 +99,7 @@
     ;; Fold setup ⧺ script into the event program; carry the network routes
     ;; so replay re-installs the managed-request stubs.
     (and (map? target) (contains? target :world))
-    (artifact/make-run-artifact
+    (rf.story.artifact/make-run-artifact
       (cond-> {:setup        (get-in target [:world :setup] [])
                :script       (get target :script [])
                :fx-decisions (get-in target [:world :frame :fx-overrides] {})
@@ -108,7 +108,7 @@
         (assoc :network (get-in target [:world :network]))))
 
     :else
-    (artifact/make-run-artifact target)))
+    (rf.story.artifact/make-run-artifact target)))
 
 ;; ===========================================================================
 ;; THE BARE-[:wait ms] OPT-OUT  (pure)
@@ -122,7 +122,7 @@
   `[:wait-until pred]` is NOT a wait step — it settles on a queue/state
   condition and is deterministic — so it never appears here."
   [artifact]
-  (filterv #(= :wait (runner/step-type %)) (:event-program artifact)))
+  (filterv #(= :wait (rf.story.play.runner/step-type %)) (:event-program artifact)))
 
 (defn has-wall-clock-wait?
   "True iff the artifact's event program contains a bare `[:wait ms]` step —
@@ -174,9 +174,9 @@
   hashes, for a readable failure."
   [results]
   (let [n        (count results)
-        slice    (fn [r] (select-keys r fingerprint/run-hash-input-keys))
+        slice    (fn [r] (select-keys r rf.story.fingerprint/run-hash-input-keys))
         ;; Canonicalize each run-slice ONCE and reuse the result for BOTH the
-        ;; hash and the equality. `fingerprint/run-hash` would re-canonicalize
+        ;; hash and the equality. `rf.story.fingerprint/run-hash` would re-canonicalize
         ;; the same slice internally (`canonical-hash` → `canonicalize`), so
         ;; hashing the canon directly via `hash-canonical` avoids the second
         ;; pass while staying byte-identical: `run-hash` ≡ `(hash-canonical
@@ -186,8 +186,8 @@
         ;; hashes an already-canonical value with no second pass). The two-stage
         ;; contract — the hash is the cheap discriminator, canonical `=` is the
         ;; authority — is preserved exactly.
-        canons   (mapv (comp fingerprint/canonicalize slice) results)
-        hashes   (mapv fingerprint/hash-canonical canons)
+        canons   (mapv (comp rf.story.fingerprint/canonicalize slice) results)
+        hashes   (mapv rf.story.fingerprint/hash-canonical canons)
         base     (first canons)
         diverged (first (keep-indexed
                           (fn [i c] (when (and (pos? i) (not= base c)) i))
@@ -257,7 +257,7 @@
        (let [replay-opts (cond-> {}
                            hooks        (assoc :hooks hooks)
                            frame-config (assoc :frame-config frame-config))
-             results     (mapv (fn [_] (artifact/replay-run-artifact art replay-opts))
+             results     (mapv (fn [_] (rf.story.artifact/replay-run-artifact art replay-opts))
                                (range n))
              ;; A replay that itself refused/errored is not a determinism
              ;; question — surface it directly rather than comparing.

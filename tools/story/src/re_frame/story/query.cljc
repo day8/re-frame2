@@ -12,8 +12,8 @@
   `re-frame.story.registrar` or `re-frame.story.schemas`; no mutation,
   no lifecycle / runtime / play state. Pure-data reads — JVM + CLJS
   portable, same shape across hosts."
-  (:require [re-frame.story.registrar :as registrar]
-            [re-frame.story.schemas   :as schemas]))
+  (:require [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.schemas   :as rf.story.schemas]))
 
 ;; ---- per-kind registry query ---------------------------------------------
 
@@ -26,34 +26,34 @@
   side-table. The Story registry is logically a peer of the framework
   registrar — see `001-Authoring.md` §Registration macros + bd rf2-7ho2 for the design rationale."
   [kind]
-  (registrar/registrations kind))
+  (rf.story.registrar/registrations kind))
 
 (defn handler-meta
   "Return the body for `(kind, id)`, or nil."
   [kind id]
-  (registrar/handler-meta kind id))
+  (rf.story.registrar/handler-meta kind id))
 
 (defn ids
   "Return the id set for `kind`."
   [kind]
-  (registrar/ids kind))
+  (rf.story.registrar/ids kind))
 
 (defn registered?
   "True iff `(kind, id)` is registered."
   [kind id]
-  (registrar/registered? kind id))
+  (rf.story.registrar/registered? kind id))
 
 (defn all-kinds-with-counts
   "{kind → count} — dev tooling overlay."
   []
-  (registrar/all-kinds-with-counts))
+  (rf.story.registrar/all-kinds-with-counts))
 
 ;; ---- convenience lookups -------------------------------------------------
 
 (defn variants-of
   "Return the set of variant ids whose parent is `story-id`."
   [story-id]
-  (registrar/variants-of story-id))
+  (rf.story.registrar/variants-of story-id))
 
 (defn variants-by-story
   "Return a `{story-id #{variant-id ...}}` index built in one pass over
@@ -64,7 +64,7 @@
   introspection tool); the single-pass index replaces the O(S × V)
   walk of calling `variants-of` per story (rf2-d3iso)."
   []
-  (registrar/variants-by-story))
+  (rf.story.registrar/variants-by-story))
 
 (defn variants-with-tags
   "Per `002-Runtime.md` §Programmatic API — return the set of variant ids
@@ -73,7 +73,7 @@
   resolver). The assertions/play surface leans on this; the render shell
   leans on this to compose the sidebar tree."
   [query-tags]
-  (registrar/variants-with-tags query-tags))
+  (rf.story.registrar/variants-with-tags query-tags))
 
 (defn list-tags
   "Per `002-Runtime.md` §Tag-vocabulary queries — return the set of registered tag ids. Tools
@@ -93,14 +93,14 @@
   tags into collapsible facet rows (rf2-v05qb SB9 parity). Returns the
   empty set if no tag carries that axis."
   [axis-kw]
-  (registrar/tags-by-axis axis-kw))
+  (rf.story.registrar/tags-by-axis axis-kw))
 
 (defn tags-without-axis
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
   body carries no `:axis`. The sidebar renders these in a trailing
   un-grouped facet row."
   []
-  (registrar/tags-without-axis))
+  (rf.story.registrar/tags-without-axis))
 
 (defn tags-default-excluded
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
@@ -108,37 +108,37 @@
   pre-excludes variants carrying any of these at boot (e.g.
   `:internal` / `:experimental`)."
   []
-  (registrar/tags-default-excluded))
+  (rf.story.registrar/tags-default-excluded))
 
 (def canonical-tags
   "Re-export of the seven canonical tag ids from /spec/007-Stories.md §Inclusion
   tags. Stable across hosts."
-  schemas/canonical-tags)
+  rf.story.schemas/canonical-tags)
 
 (def canonical-axes
   "Re-export of the canonical facet axes documented in spec/001
   §reg-tag — `:status`, `:role`, `:team`, `:feature` (rf2-7ncf9 SB9
   facet taxonomy) + `:state` (rf2-k1k87 operator-facing magnitude).
   Stable across hosts."
-  schemas/canonical-axes)
+  rf.story.schemas/canonical-axes)
 
 (def canonical-status-values
   "Re-export of the recommended `:status` axis vocabulary."
-  schemas/canonical-status-values)
+  rf.story.schemas/canonical-status-values)
 
 (def canonical-role-values
   "Re-export of the recommended `:role` axis vocabulary."
-  schemas/canonical-role-values)
+  rf.story.schemas/canonical-role-values)
 
 (def canonical-state-values
   "Re-export of the canonical `:state` axis vocabulary (rf2-k1k87) —
   `#{:empty :small :medium :large :special}`."
-  schemas/canonical-state-values)
+  rf.story.schemas/canonical-state-values)
 
 (def canonical-state-tags
   "Re-export of the canonical `:state/*` faceted tags registered at
   Story load (rf2-k1k87)."
-  schemas/canonical-state-tags)
+  rf.story.schemas/canonical-state-tags)
 
 (defn tag->axis-index
   "Per spec/001 §reg-tag — return a `{tag-id → axis-kw}` map across
@@ -147,4 +147,4 @@
   filter row + the `:tag-filter` AND-across-axes predicate (rf2-7ncf9)
   consume this."
   []
-  (registrar/tag->axis-index))
+  (rf.story.registrar/tag->axis-index))

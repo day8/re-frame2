@@ -5,7 +5,7 @@
   ## The race
 
   `loading-phase?` DELIBERATELY suppresses the loading skeleton for
-  events-only variants (`loaders/events-only-variant?` — no `:loaders`,
+  events-only variants (`rf.story.loaders/events-only-variant?` — no `:loaders`,
   no `:loaders-complete-when`, no `:frame-setup` decorator), so
   `canvas-inner`'s first render falls straight through to
   `[rf/frame-provider {:frame variant-id} ...]`. That SCOPE-ONLY shape
@@ -40,35 +40,35 @@
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.story :as story]
-            [re-frame.story.loaders :as loaders]
-            [re-frame.story.ui.canvas :as canvas]
-            [re-frame.story.ui.state :as state]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.story :as rf.story]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.ui.canvas :as rf.story.ui.canvas]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.subs :as rf.subs]))
 
 ;; ---- fixture --------------------------------------------------------------
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! reagent-adapter/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.adapter.reagent/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar
   ;; clear (mirrors viewport_toggle_app_db_dom_cljs_test's reset-all!).
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
-  (canvas/reset-first-rendered!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
+  (rf.story.ui.canvas/reset-first-rendered!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -107,7 +107,7 @@
           (fn [_]
             [:div {:data-test "eofr-probe"}
              (str "n=" @(rf/subscribe [:eofr/n]))]))
-        (story/reg-variant variant-id
+        (rf.story/reg-variant variant-id
           {:component :views/eofr-probe
            :setup    [[:eofr/seed 7]]})
         ;; Pre-select BEFORE mount — no selection-watcher pre-allocation
@@ -116,14 +116,14 @@
         ;; This is the exact condition #5265's comment names: "the SAME
         ;; synchronous render pass that first builds the vdom" reaches
         ;; frame-provider before component-did-mount ever runs.
-        (state/swap-state! state/select-variant variant-id)
+        (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant variant-id)
         (let [mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)]
           (try
             (is (nil?
                   (try
                     (react-dom/flushSync
-                      (fn [] (rdc/render root [canvas/canvas])))
+                      (fn [] (rdc/render root [rf.story.ui.canvas/canvas])))
                     nil
                     (catch :default e e)))
                 "the first commit must NOT throw

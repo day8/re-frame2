@@ -15,16 +15,16 @@
     replay / close buttons all surface)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story.recorder                    :as recorder]
-            [re-frame.story.recorder.play-export        :as export]
-            [re-frame.story.recorder.play-export-events :as export-events]
-            #?(:cljs [re-frame.story.ui.recorder-export-dialog :as export-dialog])))
+            [re-frame.story.recorder                    :as rf.story.recorder]
+            [re-frame.story.recorder.play-export        :as rf.story.recorder.play-export]
+            [re-frame.story.recorder.play-export-events :as rf.story.recorder.play-export-events]
+            #?(:cljs [re-frame.story.ui.recorder-export-dialog :as rf.story.ui.recorder-export-dialog])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 #?(:cljs
    (defn reset-dialog! [f]
-     (reset! export-dialog/ui-dialog export-dialog/initial-state)
+     (reset! rf.story.ui.recorder-export-dialog/ui-dialog rf.story.ui.recorder-export-dialog/initial-state)
      (f)))
 
 #?(:cljs (use-fixtures :each reset-dialog!))
@@ -33,7 +33,7 @@
 
 (deftest build-export-tuple-shape
   (testing "build-export yields {:spec :rendered} with both shapes well-formed"
-    (let [{:keys [spec rendered]} (export-events/build-export
+    (let [{:keys [spec rendered]} (rf.story.recorder.play-export-events/build-export
                                     [[:counter/inc] [:counter/dec]]
                                     {:variant-id :story.x/recorded
                                      :extends    :story.x/source
@@ -50,7 +50,7 @@
 
 (deftest build-export-auto-assert-flows-through
   (testing "the auto-assert option produces trailing :assert-db steps"
-    (let [{:keys [spec]} (export-events/build-export
+    (let [{:keys [spec]} (rf.story.recorder.play-export-events/build-export
                            [[:counter/inc]]
                            {:variant-id :story.x/recorded
                             :auto-assert? true
@@ -65,11 +65,11 @@
 #?(:cljs
    (deftest open-dialog-snapshots-input
      (testing "open-dialog stashes the captured events + source-id on the ratom"
-       (export-dialog/open-dialog!
+       (rf.story.ui.recorder-export-dialog/open-dialog!
          {:source-id :story.a/source
           :events    [[:counter/inc] [:counter/dec]]
           :final-db  {:n 1}})
-       (let [s @export-dialog/ui-dialog]
+       (let [s @rf.story.ui.recorder-export-dialog/ui-dialog]
          (is (:open? s))
          (is (= :story.a/source (:source-id s)))
          (is (= [[:counter/inc] [:counter/dec]] (:events s)))
@@ -80,19 +80,19 @@
 #?(:cljs
    (deftest variant-id-derived-from-source-id
      (testing "the default :variant-id is derived from source-id's namespace"
-       (export-dialog/open-dialog!
+       (rf.story.ui.recorder-export-dialog/open-dialog!
          {:source-id :story.counter/happy
           :events    [[:counter/inc]]})
        (is (= :story.counter/recorded-script
-              (:variant-id @export-dialog/ui-dialog))))))
+              (:variant-id @rf.story.ui.recorder-export-dialog/ui-dialog))))))
 
 #?(:cljs
    (deftest open-dialog-snapshot-is-decoupled-from-source-vector
      (testing "the snapshot is a fresh vector, not a live ref"
        (let [events (vec [[:counter/inc]])]
-         (export-dialog/open-dialog!
+         (rf.story.ui.recorder-export-dialog/open-dialog!
            {:source-id :story.x/y :events events})
-         (is (= [[:counter/inc]] (:events @export-dialog/ui-dialog))
+         (is (= [[:counter/inc]] (:events @rf.story.ui.recorder-export-dialog/ui-dialog))
              "the dialog carries the snapshot independent of the source vector")))))
 
 ;; ---- CLJS-only: dialog rendering ----------------------------------------
@@ -100,16 +100,16 @@
 #?(:cljs
    (deftest dialog-not-rendered-when-closed
      (testing "the dialog renders nil when :open? is false"
-       (reset! export-dialog/ui-dialog export-dialog/initial-state)
-       (is (nil? (export-dialog/export-dialog))))))
+       (reset! rf.story.ui.recorder-export-dialog/ui-dialog rf.story.ui.recorder-export-dialog/initial-state)
+       (is (nil? (rf.story.ui.recorder-export-dialog/export-dialog))))))
 
 #?(:cljs
    (deftest dialog-renders-snippet-from-events
      (testing "the dialog renders a snippet built from the captured events"
-       (export-dialog/open-dialog!
+       (rf.story.ui.recorder-export-dialog/open-dialog!
          {:source-id :story.x/source
           :events    [[:counter/inc] [:counter/dec]]})
-       (let [flat (str (export-dialog/export-dialog))]
+       (let [flat (str (rf.story.ui.recorder-export-dialog/export-dialog))]
          (is (str/includes? flat ":counter/inc")
              "captured events appear in the snippet")
          (is (str/includes? flat ":counter/dec"))
@@ -145,60 +145,60 @@
               snapshot-independence the test name promises, NOT a self-poke of
               the dialog's own ratom (rf2-x76af2.20)."
        ;; Seed the recorder with a completed capture.
-       (recorder/clear!)
-       (recorder/start-recording! :story.a/source)
-       (recorder/record-event! [:auth/login])
-       (recorder/record-event! [:counter/inc])
-       (is (seq (recorder/recorded-events))
+       (rf.story.recorder/clear!)
+       (rf.story.recorder/start-recording! :story.a/source)
+       (rf.story.recorder/record-event! [:auth/login])
+       (rf.story.recorder/record-event! [:counter/inc])
+       (is (seq (rf.story.recorder/recorded-events))
            "sanity: the recorder captured the seeded events")
        ;; Drive the export-open handler EXACTLY as the toolbar :on-export
        ;; closure does — deref the recorder AT click time and pass the
        ;; snapshot. :source-id nil keeps the frame-db snapshot out of scope.
-       (export-dialog/open-from-recorder-dialog!
-         {:events    (recorder/recorded-events)
-          :entries   (recorder/recorded-entries)
+       (rf.story.ui.recorder-export-dialog/open-from-recorder-dialog!
+         {:events    (rf.story.recorder/recorded-events)
+          :entries   (rf.story.recorder/recorded-entries)
           :source-id nil})
-       (let [snap-events  (:events  @export-dialog/ui-dialog)
-             snap-entries (:entries @export-dialog/ui-dialog)]
-         (is (str/includes? (str (export-dialog/export-dialog)) ":auth/login")
+       (let [snap-events  (:events  @rf.story.ui.recorder-export-dialog/ui-dialog)
+             snap-entries (:entries @rf.story.ui.recorder-export-dialog/ui-dialog)]
+         (is (str/includes? (str (rf.story.ui.recorder-export-dialog/export-dialog)) ":auth/login")
              "the export dialog snapshotted the captured events at open time")
          ;; MUTATE THE RECORDER: a fresh recording resets the atom, a new
          ;; keystroke lands, then a discard — the exact churn the snapshot
          ;; must survive. Were any link reading the recorder live, the
          ;; already-open export would change.
-         (recorder/start-recording! :story.b/other)
-         (recorder/record-event! [:counter/dec])
-         (recorder/clear!)
-         (is (= snap-events (:events @export-dialog/ui-dialog))
+         (rf.story.recorder/start-recording! :story.b/other)
+         (rf.story.recorder/record-event! [:counter/dec])
+         (rf.story.recorder/clear!)
+         (is (= snap-events (:events @rf.story.ui.recorder-export-dialog/ui-dialog))
              "recorder churn did not change the export dialog :events snapshot")
-         (is (= snap-entries (:entries @export-dialog/ui-dialog))
+         (is (= snap-entries (:entries @rf.story.ui.recorder-export-dialog/ui-dialog))
              "recorder churn did not change the export dialog :entries snapshot")
-         (let [after (str (export-dialog/export-dialog))]
+         (let [after (str (rf.story.ui.recorder-export-dialog/export-dialog))]
            (is (str/includes? after ":auth/login")
                "the rendered export still carries the originally-captured events")
            (is (not (str/includes? after ":counter/dec"))
                "the post-open recorder keystroke never leaked into the export")))
        ;; Leave the recorder idle for the next test.
-       (recorder/clear!))))
+       (rf.story.recorder/clear!))))
 
 #?(:cljs
    (deftest dialog-auto-assert-includes-assertions-in-snippet
      (testing "auto-assert ON yields a snippet containing :assert-db steps"
-       (export-dialog/open-dialog!
+       (rf.story.ui.recorder-export-dialog/open-dialog!
          {:source-id :story.x/source
           :events    [[:counter/inc]]
           :final-db  {:n 5 :who "alice"}})
-       (let [flat (str (export-dialog/export-dialog))]
+       (let [flat (str (rf.story.ui.recorder-export-dialog/export-dialog))]
          (is (str/includes? flat ":assert-db")
              "auto-assert ON produces trailing :assert-db steps in the snippet")))))
 
 #?(:cljs
    (deftest dialog-without-final-db-omits-assertions
      (testing "auto-assert ON but no :final-db → no :assert-db steps"
-       (export-dialog/open-dialog!
+       (rf.story.ui.recorder-export-dialog/open-dialog!
          {:source-id :story.x/source
           :events    [[:counter/inc]]
           :final-db  nil})
-       (let [flat (str (export-dialog/export-dialog))]
+       (let [flat (str (rf.story.ui.recorder-export-dialog/export-dialog))]
          (is (not (str/includes? flat ":assert-db"))
              "nothing to assert against → no trailing block")))))

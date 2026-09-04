@@ -6,19 +6,19 @@
   `re-frame.story.ui.shell/hydrate-url-state!` runs TWO passes on mount
   (see the sibling `share-url-state-hydration-e2e-cljs-test`, rf2-ovb1en):
 
-      1. url-state/hydrate-from-url!  ← installs the RAW parsed
+      1. rf.story.ui.url-state/hydrate-from-url!  ← installs the RAW parsed
                                          `:cell-overrides` (pure, no
                                          registrar access)
-      2. share/hydrate-from-url!     ← the declared-key DRIFT filter
-                                         (`share/drop-stale-overrides`)
+      2. rf.story.ui.share/hydrate-from-url!     ← the declared-key DRIFT filter
+                                         (`rf.story.ui.share/drop-stale-overrides`)
                                          narrows/clears that slice + records
                                          the share-import drift hint
 
-  The popstate handler (`url-state/install-popstate-listener!`) used to
+  The popstate handler (`rf.story.ui.url-state/install-popstate-listener!`) used to
   wire ONLY pass 1 as its `apply-fn` — pass 2 never ran on Back/Forward, so
   a stale override (an arg-key the focused variant no longer declares,
   e.g. renamed/removed) installed as a live orphan arg with no drop/report,
-  unlike the mount path. The fix threads `share/hydrate-from-url!` through
+  unlike the mount path. The fix threads `rf.story.ui.share/hydrate-from-url!` through
   as `install-popstate-listener!`'s new `post-apply-fn`, run inside the
   SAME hydration guard as the base apply (`shell.cljs`'s wiring).
 
@@ -29,17 +29,17 @@
   window; `:node-test` also loads it (regex matches the suffix too) where
   the body self-gates on `(browser?)` and no-ops."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.ui.share :as share]
-            [re-frame.story.ui.url-state :as url-state]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.share :as rf.story.ui.share]
+            [re-frame.story.ui.url-state :as rf.story.ui.url-state]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- browser gate ---------------------------------------------------------
 
@@ -53,17 +53,17 @@
 (defn- production-apply-fn []
   (let [validators {:variant? (fn [vid]
                                 (or (nil? vid)
-                                    (registrar/registered? :variant vid)))}]
+                                    (rf.story.registrar/registered? :variant vid)))}]
     (fn [state parsed]
-      (url-state/apply-parsed-to-state state parsed validators))))
+      (rf.story.ui.url-state/apply-parsed-to-state state parsed validators))))
 
 ;; A variant whose declared arg surface is exactly #{:label}. An
 ;; `overrides=` entry for any OTHER key is stale (the variant no longer
 ;; declares it) and must be dropped + reported by the declared-key filter —
 ;; on the popstate path exactly as on mount.
 (defn- register-variant! []
-  (story/reg-story :story.sample {:doc "Parent for the popstate-hydration e2e."})
-  (story/reg-variant :story.sample/card
+  (rf.story/reg-story :story.sample {:doc "Parent for the popstate-hydration e2e."})
+  (rf.story/reg-variant :story.sample/card
     {:doc      "A card variant declaring a single :label arg."
      :argtypes {:label {:type :string}}
      :args     {:label "Hello"}}))
@@ -77,23 +77,23 @@
             unfiltered install pass 1 alone would leave."
     (if-not (browser?)
       (is true ":node-test — no real window/history; :browser-test runs the real assertion")
-      (e2e/with-story-and-xray-frames
+      (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
         {:register-stories register-variant!}
         (fn []
           (let [orig-url (str (.-pathname (.-location js/window))
                               (.-search   (.-location js/window))
                               (.-hash     (.-location js/window)))]
             (try
-              (url-state/install-popstate-listener!
-                ui-state/shell-state-atom
+              (rf.story.ui.url-state/install-popstate-listener!
+                rf.story.ui.state/shell-state-atom
                 (production-apply-fn)
-                share/hydrate-from-url!)
+                rf.story.ui.share/hydrate-from-url!)
               (let [qs (str "?variant=" (js/encodeURIComponent "story.sample/card")
                             "&overrides=" (js/encodeURIComponent
                                             (pr-str {:gone 1 :also-gone 2})))]
                 (.pushState (.-history js/window) nil "" qs)
                 (.dispatchEvent js/window (js/PopStateEvent. "popstate" #js {})))
-              (let [s (ui-state/get-state)]
+              (let [s (rf.story.ui.state/get-state)]
                 (is (= :story.sample/card (:selected-variant s))
                     "the popstate applied the variant selection (pass 1)")
                 (is (nil? (get-in s [:cell-overrides :story.sample/card]))
@@ -105,7 +105,7 @@
                     "the drift hint is recorded on the popstate path,
                      mirroring mount hydration (rf2-9jthx)"))
               (finally
-                (url-state/remove-popstate-listener!)
+                (rf.story.ui.url-state/remove-popstate-listener!)
                 (try (.replaceState (.-history js/window) nil "" orig-url)
                      (catch :default _ nil))))))))))
 
@@ -115,28 +115,28 @@
             does not break the happy path)"
     (if-not (browser?)
       (is true ":node-test — no real window/history; :browser-test runs the real assertion")
-      (e2e/with-story-and-xray-frames
+      (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
         {:register-stories register-variant!}
         (fn []
           (let [orig-url (str (.-pathname (.-location js/window))
                               (.-search   (.-location js/window))
                               (.-hash     (.-location js/window)))]
             (try
-              (url-state/install-popstate-listener!
-                ui-state/shell-state-atom
+              (rf.story.ui.url-state/install-popstate-listener!
+                rf.story.ui.state/shell-state-atom
                 (production-apply-fn)
-                share/hydrate-from-url!)
+                rf.story.ui.share/hydrate-from-url!)
               (let [qs (str "?variant=" (js/encodeURIComponent "story.sample/card")
                             "&overrides=" (js/encodeURIComponent
                                             (pr-str {:label "Shared"})))]
                 (.pushState (.-history js/window) nil "" qs)
                 (.dispatchEvent js/window (js/PopStateEvent. "popstate" #js {})))
-              (let [s (ui-state/get-state)]
+              (let [s (rf.story.ui.state/get-state)]
                 (is (= {:label "Shared"} (get-in s [:cell-overrides :story.sample/card]))
                     "a declared override hydrates on popstate")
                 (is (nil? (get-in s [:rf.story/share-import-hint :story.sample/card]))
                     "no drift hint when nothing was dropped"))
               (finally
-                (url-state/remove-popstate-listener!)
+                (rf.story.ui.url-state/remove-popstate-listener!)
                 (try (.replaceState (.-history js/window) nil "" orig-url)
                      (catch :default _ nil))))))))))

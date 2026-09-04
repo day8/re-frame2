@@ -52,22 +52,22 @@
 
   ## Elision
 
-  Every impure entry opens with `(when config/enabled? …)` so production
+  Every impure entry opens with `(when rf.story.config/enabled? …)` so production
   CLJS builds short-circuit before any DOM / registrar touch (mirroring
   `save-variant` + the substrate's `promote-run-artifact!`)."
   (:require [clojure.string :as str]
-            [re-frame.story.artifact  :as artifact]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.promotion :as promotion]
+            [re-frame.story.artifact  :as rf.story.artifact]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.promotion :as rf.story.promotion]
             ;; `review-dialog` is `.cljc` — its pure transitions
             ;; (`default-variant-id-with-prefix` / `parse-variant-id-string`)
             ;; are JVM-available; its Reagent + renderer surface is behind
             ;; `:cljs` reader conditionals, so the require is safe on the JVM.
-            [re-frame.story.review-dialog :as review-dialog]
+            [re-frame.story.review-dialog :as rf.story.review-dialog]
             #?@(:cljs [[reagent.core :as r]
-                       [re-frame.story.config        :as config]
-                       [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
-                       [re-frame.story.theme.colors :as colors]])))
+                       [re-frame.story.config        :as rf.story.config]
+                       [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack sans-stack]]
+                       [re-frame.story.theme.colors :as rf.story.theme.colors]])))
 
 ;; ===========================================================================
 ;; PURE: artifact identity + label  (the capture store keys)
@@ -82,7 +82,7 @@
   `:rf.test.artifact/*` namespace marks the id as a capture-store key,
   never a variant id."
   [artifact]
-  (let [core (promotion/provenance-link artifact)
+  (let [core (rf.story.promotion/provenance-link artifact)
         seed (:seed artifact)
         tag  (if (some? seed)
                (str "seed-" seed)
@@ -97,7 +97,7 @@
   [artifact]
   (let [kind   (name (:artifact/kind artifact :rf.test/run-artifact))
         status (some-> artifact :result :status name)
-        steps  (count (artifact/program-events artifact))]
+        steps  (count (rf.story.artifact/program-events artifact))]
     (str (when status (str status " · "))
          steps (if (= 1 steps) " step" " steps")
          (when (and kind (not= kind "run-artifact"))
@@ -122,9 +122,9 @@
   play-events) — promotion needs a replayable program."
   [result play-events]
   (or (let [linked (:run-artifact result)]
-        (when (artifact/run-artifact? linked) linked))
+        (when (rf.story.artifact/run-artifact? linked) linked))
       (when (seq play-events)
-        (artifact/make-run-artifact
+        (rf.story.artifact/make-run-artifact
           {:event-program (vec play-events)
            :result        result}))))
 
@@ -142,11 +142,11 @@
   "Derive a sensible default promoted-variant id from a `source-story-id`
   (the story the artifact belongs to, when known) + a wall-clock millis
   stamp. Pure data → keyword | nil. Delegates to
-  `review-dialog/default-variant-id-with-prefix` with the `\"regression\"`
+  `rf.story.review-dialog/default-variant-id-with-prefix` with the `\"regression\"`
   prefix; nil when no qualified source story is known (the dialog then
   falls back to a placeholder literal)."
   [source-story-id now-ms]
-  (review-dialog/default-variant-id-with-prefix source-story-id now-ms default-id-prefix))
+  (rf.story.review-dialog/default-variant-id-with-prefix source-story-id now-ms default-id-prefix))
 
 (defn draft->promote-opts
   "Project a promotion `draft` map into the `opts` map the substrate's
@@ -159,7 +159,7 @@
   - `:tags`        ← `:tags` (when non-empty)
   - `:setup-count` ← `:setup-count` (the precondition/behaviour cut; when
                      a non-negative integer — see
-                     `promotion/partition-program`)
+                     `rf.story.promotion/partition-program`)
   - `:extends`     ← `:extends` (a parent variant id to inherit
                      component/decorators/args from, when set)
 
@@ -191,7 +191,7 @@
   [artifact draft]
   (let [opts       (draft->promote-opts draft)
         variant-id (or (:variant/id opts) :story.regression/example)
-        body       (promotion/artifact->variant-body artifact opts)
+        body       (rf.story.promotion/artifact->variant-body artifact opts)
         ;; Render the body keys in a stable, readable order. The body is
         ;; data the substrate produced; we pr-str each slot so the snippet
         ;; round-trips through read-string + the registrar.
@@ -201,7 +201,7 @@
                                 (when (contains? body k)
                                   [k (pr-str (get body k))])))
                         vec)]
-    (pred/reg-variant-form "story" variant-id body-keys)))
+    (rf.story.predicates/reg-variant-form "story" variant-id body-keys)))
 
 ;; ===========================================================================
 ;; CLJS-ONLY: the capture store
@@ -235,7 +235,7 @@
      dialog can derive a same-story default promoted-id. Optional."
      ([artifact] (capture! artifact nil))
      ([artifact origin]
-      (when (and config/enabled? (artifact/run-artifact? artifact))
+      (when (and rf.story.config/enabled? (rf.story.artifact/run-artifact? artifact))
         (let [id (artifact-id artifact)]
           (swap! captured-atom assoc id
                  {:id            id
@@ -331,7 +331,7 @@
      setup-cut 0 + an `:extends` to the origin variant when known). No-op
      when the id is not in the capture store or Story is disabled."
      [artifact-id]
-     (when (and config/enabled? (contains? @captured-atom artifact-id))
+     (when (and rf.story.config/enabled? (contains? @captured-atom artifact-id))
        (let [entry (get @captured-atom artifact-id)
              now   (.now js/Date)]
          ;; Full reset (incl. `:promoted-id nil`) — a freshly-opened artifact
@@ -368,12 +368,12 @@
 #?(:cljs
    (defn set-draft-id!
      "Per-keystroke promoted-id edit. Parses the raw input string into a
-     keyword best-effort (`review-dialog/parse-variant-id-string`); stores
+     keyword best-effort (`rf.story.review-dialog/parse-variant-id-string`); stores
      the raw string on parse failure so the input value the user sees
      doesn't get clobbered mid-keystroke."
      [s]
      (update-draft! (fn [d] (assoc d :variant-id
-                                   (or (review-dialog/parse-variant-id-string s) s))))))
+                                   (or (rf.story.review-dialog/parse-variant-id-string s) s))))))
 
 #?(:cljs
    (defn set-draft-doc!
@@ -421,7 +421,7 @@
      substrate would throw `:rf.error/story-promote-no-id`; the dialog gates
      the button on a present id, but we guard here too)."
      [artifact-id draft]
-     (when config/enabled?
+     (when rf.story.config/enabled?
        (when-let [entry (get @captured-atom artifact-id)]
          (let [opts (draft->promote-opts draft)]
            (when (some? (:variant/id opts))
@@ -429,7 +429,7 @@
              ;; → :setup, behaviour → :script, trimmed link → :run-artifact)
              ;; and writes it through the reg-variant write path. We do NOT
              ;; touch the capture store — the artifact stays as evidence.
-             (promotion/promote-run-artifact! (:artifact entry) opts)))))))
+             (rf.story.promotion/promote-run-artifact! (:artifact entry) opts)))))))
 
 ;; ===========================================================================
 ;; CLJS-ONLY: the dialog hiccup
@@ -447,55 +447,55 @@
    (def ^:private styles
      {:section   {:margin "8px 0 0 0"}
       :label     {:font-family mono-stack
-                  :font-size   (:micro typography/type-scale)
-                  :color       (:text-tertiary colors/tokens)
+                  :font-size   (:micro rf.story.theme.typography/type-scale)
+                  :color       (:text-tertiary rf.story.theme.colors/tokens)
                   :margin      "0 0 3px 0"
                   :text-transform "uppercase"
                   :letter-spacing "0.04em"}
       :doc-input {:padding       "5px 8px"
-                  :background    (:bg-2 colors/tokens)
+                  :background    (:bg-2 rf.story.theme.colors/tokens)
                   :color         "white"
                   :border        "1px solid #444"
                   :border-radius "3px"
                   :font-family   sans-stack
-                  :font-size     (:body-tight typography/type-scale)
+                  :font-size     (:body-tight rf.story.theme.typography/type-scale)
                   :width         "100%"
                   :box-sizing    "border-box"}
       :num-input {:padding       "5px 8px"
-                  :background    (:bg-2 colors/tokens)
+                  :background    (:bg-2 rf.story.theme.colors/tokens)
                   :color         "white"
                   :border        "1px solid #444"
                   :border-radius "3px"
                   :font-family   mono-stack
-                  :font-size     (:body-tight typography/type-scale)
+                  :font-size     (:body-tight rf.story.theme.typography/type-scale)
                   :width         "72px"
                   :box-sizing    "border-box"}
       :tag-row   {:display "flex" :gap "6px" :flex-wrap "wrap"}
       :tag       {:font-family mono-stack
-                  :font-size   (:micro typography/type-scale)
-                  :background  (:bg-2 colors/tokens)
+                  :font-size   (:micro rf.story.theme.typography/type-scale)
+                  :background  (:bg-2 rf.story.theme.colors/tokens)
                   :color       "#999"
                   :border      "1px solid #444"
                   :border-radius "10px"
                   :padding     "1px 9px"
                   :cursor      "pointer"
                   :user-select "none"}
-      :tag-on    {:background (:accent-amber colors/tokens)
+      :tag-on    {:background (:accent-amber rf.story.theme.colors/tokens)
                   :color      "white"
-                  :border     (str "1px solid " (:accent-amber colors/tokens))}
-      :note      {:color      (:text-tertiary colors/tokens)
-                  :font-size  (:nano typography/type-scale)
+                  :border     (str "1px solid " (:accent-amber rf.story.theme.colors/tokens))}
+      :note      {:color      (:text-tertiary rf.story.theme.colors/tokens)
+                  :font-size  (:nano rf.story.theme.typography/type-scale)
                   :font-style "italic"
                   :margin-top "2px"}
       :promote-btn {:padding       "5px 12px"
-                    :background    (:accent-amber colors/tokens)
+                    :background    (:accent-amber rf.story.theme.colors/tokens)
                     :color         "white"
                     :border        "none"
                     :border-radius "3px"
                     :cursor        "pointer"
                     :font-family   mono-stack
-                    :font-size     (:caption typography/type-scale)}
-      :promote-disabled {:background (:bg-2 colors/tokens)
+                    :font-size     (:caption rf.story.theme.typography/type-scale)}
+      :promote-disabled {:background (:bg-2 rf.story.theme.colors/tokens)
                          :color      "#777"
                          :cursor     "not-allowed"
                          :border     "1px solid #444"}}))
@@ -515,7 +515,7 @@
                     :border "1px solid #3a703a"
                     :border-radius "3px"
                     :font-family mono-stack
-                    :font-size (:micro typography/type-scale)
+                    :font-size (:micro rf.story.theme.typography/type-scale)
                     :line-height "1.5"}}
       [:div {:style {:font-weight "bold" :margin-bottom "3px"}}
        (str "Promoted to " (pr-str promoted-id))]
@@ -529,7 +529,7 @@
      cut, and the tag chips. The id input + snippet + copy/close ride the
      shared `review-dialog` skeleton (the id edit reuses its input)."
      [artifact draft]
-     (let [steps (count (artifact/program-events artifact))]
+     (let [steps (count (rf.story.artifact/program-events artifact))]
        [:div {:data-test "story-promotion-curation"}
         ;; ---- doc ----
         [:div {:style (:section styles)}
@@ -604,7 +604,7 @@
                      rv-state {:open?     true
                                :draft-id  (:variant-id draft)
                                :source-id (:extends draft)}]
-                 (review-dialog/review-dialog rv-state
+                 (rf.story.review-dialog/review-dialog rv-state
                    {:title  "Promote captured run artifact to regression variant"
                     :hint   [:div
                              [:div (str "Promoting captured artifact "
@@ -620,7 +620,7 @@
                     :placeholder-id    :story.regression/example
                     :placeholder-input ":story.your-story/regression-042"
                     :on-edit-id        set-draft-id!
-                    :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
+                    :on-copy           (fn [] (rf.story.review-dialog/copy-to-clipboard! snippet))
                     ;; The PRIMARY action drives the
                     ;; substrate's `promote-run-artifact!` register path
                     ;; (review-dialog renders it as the accent button left

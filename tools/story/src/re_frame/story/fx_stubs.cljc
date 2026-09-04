@@ -64,9 +64,9 @@
   decorator registration single-shot while allowing per-reference
   configuration."
   (:require [re-frame.core         :as rf]
-            [re-frame.story.config :as config]
-            [re-frame.story.frames :as frames]
-            [re-frame.story.registrar :as registrar]))
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.frames :as rf.story.frames]
+            [re-frame.story.registrar :as rf.story.registrar]))
 
 ;; ---------------------------------------------------------------------------
 ;; The decorator id
@@ -107,8 +107,8 @@
 
   Called from `re-frame.story/install-canonical-vocabulary!` at boot."
   []
-  (when config/enabled?
-    (registrar/reg-decorator* force-fx-stub-id force-fx-stub-body))
+  (when rf.story.config/enabled?
+    (rf.story.registrar/reg-decorator* force-fx-stub-id force-fx-stub-body))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -148,14 +148,14 @@
   original `:fx-id`; we set-ify."
   [variant-id]
   (let [entries (try
-                  (frames/stub-call-log-for variant-id)
+                  (rf.story.frames/stub-call-log-for variant-id)
                   (catch #?(:clj Throwable :cljs :default) _ []))]
     (set (keep :fx-id entries))))
 
 ;; ---------------------------------------------------------------------------
 ;; Stub-redirected fx-ids are owned by the stub-call log
 ;;
-;; `frames/ensure-stub-event!` registers an fx handler under
+;; `rf.story.frames/ensure-stub-event!` registers an fx handler under
 ;; `:rf.story.fx-stub/<decorator-id>` that appends to the per-frame
 ;; stub-call log. `:rf.assert/effect-emitted` projects from the epoch tape,
 ;; but a STUBBED fx lands on the tape under its REWRITTEN stub id, not its

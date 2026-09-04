@@ -22,12 +22,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core         :as rf]
-            [re-frame.elision      :as elision]
-            [re-frame.event-emit   :as event-emit]
-            [re-frame.frame        :as frame]
-            [re-frame.late-bind    :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision      :as rf.elision]
+            [re-frame.event-emit   :as rf.event-emit]
+            [re-frame.frame        :as rf.frame]
+            [re-frame.late-bind    :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Loading the demo ns fires its registrations against the
             ;; registrar — the tests then exercise the registered
             ;; handlers + the listener install/uninstall surface.
@@ -53,14 +53,14 @@
 (def ^:private registrar-snapshot (atom nil))
 
 (defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
+  (reset! registrar-snapshot (rf.test-support/snapshot-registrar))
   ;; Xray's preload-time trace-cb registers its bookkeeping
   ;; handlers with `:rf.trace/no-emit? true`, so the framework
   ;; short-circuits emission for them and the collector never
   ;; re-enters itself. The previous workaround that wiped the
   ;; trace-cb registry per fixture is obsolete — Xray's cb runs
   ;; as production preload wires it.
-  (reset! frame/frames {})
+  (reset! rf.frame/frames {})
   ;; Clear cross-namespace schemas from the per-frame registry
   ;; before re-registering this demo's
   ;; declarations. Sibling test namespaces (auth-flow story tests,
@@ -68,11 +68,11 @@
   ;; at ns-load; the post-commit validation rollback would otherwise
   ;; fire on every dispatch in this file against those unrelated
   ;; schemas.
-  (when-let [clear! (late-bind/get-fn :schemas/clear-by-frame!)]
+  (when-let [clear! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear!))
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (frame/ensure-default-frame!)
-  (event-emit/clear-event-listeners!)
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+  (rf.frame/ensure-default-frame!)
+  (rf.event-emit/clear-event-listeners!)
   ;; Re-register this demo's app-db schema (SHAPE only — EP-0015 §8). The
   ;; demo namespace's ns-load `reg-app-schema` call ran once at module load;
   ;; the preceding `(clear!)` step wiped it. Re-stamping it here keeps the
@@ -85,19 +85,19 @@
   ;; EP-0025: durable app-db egress classification rides the commit-plane
   ;; classification effects. Classify the `[:user/avatar-pdf]` large path
   ;; (index-free :rf/path) onto :rf/default's elision registry via
-  ;; `elision/apply-classification-effects` (`:source :effect`) — the same
+  ;; `rf.elision/apply-classification-effects` (`:source :effect`) — the same
   ;; registry write a `reg-event` returning `:large` performs — so
   ;; `elide-wire-value` finds a declared-large entry and substitutes the
   ;; `:rf.size/large-elided` marker on that slot.
-  (frame/swap-runtime-db! :rf/default
-    (fn [rt] (elision/apply-classification-effects rt {:large [[:user/avatar-pdf]]}))))
+  (rf.frame/swap-runtime-db! :rf/default
+    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:user/avatar-pdf]]}))))
 
 (defn- after! []
   (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
+    (rf.test-support/restore-registrar! snap)
     (reset! registrar-snapshot nil))
-  (reset! frame/frames {})
-  (event-emit/clear-event-listeners!))
+  (reset! rf.frame/frames {})
+  (rf.event-emit/clear-event-listeners!))
 
 ;; EP-0002: these tests exercise the ambient dispatch /
 ;; app-db-read paths, which require a carried frame stamp. A function

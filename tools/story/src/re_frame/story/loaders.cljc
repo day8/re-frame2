@@ -55,10 +55,10 @@
   CLJS builds with the flag false never register the machine; the
   Story runtime entry points read `(rf/handler-meta :event
   :rf.story.lifecycle/machine)` and find nothing, returning early."
-  (:require [re-frame.story.config    :as config]
-            [re-frame.story.assertions :as assertions]
-            #?(:clj  [re-frame.machines :as machines]
-               :cljs [re-frame.machines :as machines])
+  (:require [re-frame.story.config    :as rf.story.config]
+            [re-frame.story.assertions :as rf.story.assertions]
+            #?(:clj  [re-frame.machines :as rf.machines]
+               :cljs [re-frame.machines :as rf.machines])
             [re-frame.core            :as rf]))
 
 ;; ---- canonical ids --------------------------------------------------------
@@ -191,8 +191,8 @@
   every app-image-scoped variant frame's generation, and the lifecycle drives
   past `:pre-mount`."
   []
-  (when config/enabled?
-    (machines/reg-machine* lifecycle-machine-id
+  (when rf.story.config/enabled?
+    (rf.machines/reg-machine* lifecycle-machine-id
                            {:ns 're-frame.story.loaders}
                            lifecycle-machine)))
 
@@ -275,7 +275,7 @@
     (dispatch-lifecycle-event! frame-id [:rf.story.lifecycle/loaders-complete])
     (dispatch-lifecycle-event! frame-id [:rf.story.lifecycle/errored err])"
   [frame-id inner-event]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (let [from (current-state frame-id)
           ;; Machine handler convention per Spec 005: outer event is
           ;; [<machine-id> <inner-event>]. The machine reads inner from
@@ -295,7 +295,7 @@
   "Register the `::set-lifecycle-state-mirror` event handler.
   Idempotent."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (rf/reg-event
       ::set-lifecycle-state-mirror
       (fn [{:keys [db]} [_ state]]
@@ -394,12 +394,12 @@
 
 (defn- dispatched-events-set
   "Read the dispatched-events set for `frame-id` from the epoch tape (the
-  SSOT — `assertions/dispatched-events` projects each committed epoch's
+  SSOT — `rf.story.assertions/dispatched-events` projects each committed epoch's
   `:trigger-event`). This reads the SAME tape projection the
   run-result evidence + `:rf.assert/dispatched?` read."
   [frame-id]
   (try
-    (set (assertions/dispatched-events frame-id))
+    (set (rf.story.assertions/dispatched-events frame-id))
     (catch #?(:clj Throwable :cljs :default) _ #{})))
 
 (defn- vector-of-events-satisfied?
@@ -426,7 +426,7 @@
   - a vector of event vectors — `[[:fixture/loaded] [:auth/ready]]`.
     Interpreted as 'loaders complete when ALL listed events have fired
     against the variant's frame.' The runtime checks the epoch-tape
-    dispatched-events projection (`assertions/dispatched-events`, the
+    dispatched-events projection (`rf.story.assertions/dispatched-events`, the
     SSOT — the SAME tape the run-result evidence reads)."
   [frame-id variant-body]
   (let [pred (:loaders-complete-when variant-body)]

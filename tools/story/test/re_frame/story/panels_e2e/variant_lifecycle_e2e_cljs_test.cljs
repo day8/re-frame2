@@ -29,19 +29,19 @@
   loader-success / loader-never-completes / loader-rejects, switching
   to `test` mode and asserting the test-pane's reason text included
   the canonical strings. This test gets the same coverage by
-  driving `story/run-variant` directly + reading the result-map's
+  driving `rf.story/run-variant` directly + reading the result-map's
   `:lifecycle` and `:assertions` slots — sub-second per surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.async :as async-lib]
-            [re-frame.story.loaders :as loaders]
-            [re-frame.story.ui.canvas :as canvas]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.async :as rf.story.async]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.ui.canvas :as rf.story.ui.canvas]
+            [re-frame.subs :as rf.subs]))
 
 ;; Async tests need a map-form fixture so cljs.test's `async` body
 ;; can suspend around the per-test boundary. Mirrors the proven reset
@@ -55,23 +55,23 @@
 (declare register-lifecycle-variants!)
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   ;; Re-register the machines artefact's framework-shipped `:rf/machine`
   ;; sub after the registrar clear. EP-0001 (rf2-vzld77 / rf2-ixb0bq):
   ;; machine snapshots are durable RUNTIME-DB state at
   ;; [:rf.runtime/machines :snapshots <id>], so this is a runtime-db sub
   ;; (db-position arg is the runtime-db value) — mirror `re-frame.machines`,
   ;; NOT the retired app-db `:rf/runtime` path.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (register-lifecycle-variants!))
 
 (use-fixtures :each {:before reset-all!})
@@ -101,19 +101,19 @@
 
 (defn- register-lifecycle-variants! []
   (install-counter-events!)
-  (story/reg-story :story.counter-matrix
+  (rf.story/reg-story :story.counter-matrix
     {:doc "Matrix parent for the lifecycle e2e tests."})
-  (story/reg-variant :story.counter-matrix/loader-success
+  (rf.story/reg-variant :story.counter-matrix/loader-success
     {:doc    "Default-success loader → lifecycle reaches :ready."
      :loaders [[:counter/initialise 5]]
      :setup  [[:counter/inc]]})
-  (story/reg-variant :story.counter-matrix/loader-never-completes
+  (rf.story/reg-variant :story.counter-matrix/loader-never-completes
     {:doc "rf2-qrk2s class — `:loaders-complete-when` returns false; the
            lifecycle parks at :loading, no events/play, a non-throwing
            `:rf.error/loader-incomplete` assertion is recorded."
      :loaders               [[:counter/loader-never-ready?]]
      :loaders-complete-when :counter/loader-never-ready?})
-  (story/reg-variant :story.counter-matrix/loader-rejects
+  (rf.story/reg-variant :story.counter-matrix/loader-rejects
     {:doc "rf2-qrk2s class — the loader event throws; the runtime
            captures the exception into the assertions vector and
            rejection records phase = :phase-1-loaders."
@@ -125,8 +125,8 @@
   (testing "loader-success variant runs cleanly: lifecycle is :ready,
             no error assertions, the loader event committed to app-db"
     (async done
-      (-> (story/run-variant :story.counter-matrix/loader-success)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter-matrix/loader-success)
+          (rf.story.async/then
             (fn [result]
               (is (= :ready (:lifecycle result))
                   "lifecycle reached :ready after the four phases")
@@ -137,7 +137,7 @@
                                         (= :rf.error/loader-incomplete (:assertion a))))
                                   (:assertions result)))
                   "no error assertions on a clean run")
-              (story/destroy-variant! :story.counter-matrix/loader-success)
+              (rf.story/destroy-variant! :story.counter-matrix/loader-success)
               (done)))))))
 
 ;; ---- the re-registered :rf/machine sub reads the LIVE runtime-db snapshot
@@ -155,8 +155,8 @@
   (testing ":rf/machine computed against the variant frame-state resolves
             the live lifecycle snapshot off runtime-db, not nil"
     (async done
-      (-> (story/run-variant :story.counter-matrix/loader-success)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter-matrix/loader-success)
+          (rf.story.async/then
             (fn [_result]
               (let [variant-id :story.counter-matrix/loader-success
                     fs   (rf/frame-state-value variant-id)
@@ -167,7 +167,7 @@
                      the live runtime-db partition, not the dead app-db path")
                 (is (= :ready (:state snap))
                     "the live snapshot's :state is :ready after a clean run"))
-              (story/destroy-variant! :story.counter-matrix/loader-success)
+              (rf.story/destroy-variant! :story.counter-matrix/loader-success)
               (done)))))))
 
 ;; ---- parked: loaders-complete-when never returns true -------------------
@@ -178,8 +178,8 @@
             :rf.error/loader-incomplete assertion. Events + play
             were skipped — :app-db reflects the loader-side write only."
     (async done
-      (-> (story/run-variant :story.counter-matrix/loader-never-completes)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter-matrix/loader-never-completes)
+          (rf.story.async/then
             (fn [result]
               (is (= :loading (:lifecycle result))
                   "lifecycle parked at :loading (no advance to :ready)")
@@ -201,10 +201,10 @@
               (testing "rf2-qrk2s — loading-phase? still gates the
                         skeleton false when assertions are recorded,
                         so the canvas can render the user's view"
-                (is (false? (canvas/loading-phase? :loading false true))
+                (is (false? (rf.story.ui.canvas/loading-phase? :loading false true))
                     "assertions-recorded? overrides the loading-phase
                      skeleton gate"))
-              (story/destroy-variant! :story.counter-matrix/loader-never-completes)
+              (rf.story/destroy-variant! :story.counter-matrix/loader-never-completes)
               (done)))))))
 
 ;; ---- rejected: loader event throws --------------------------------------
@@ -215,8 +215,8 @@
             :phase :phase-1-loaders + the canonical ex-data carries
             through. The lifecycle does NOT advance to :ready."
     (async done
-      (-> (story/run-variant :story.counter-matrix/loader-rejects)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.counter-matrix/loader-rejects)
+          (rf.story.async/then
             (fn [result]
               (let [rejection (some (fn [a]
                                       (when (and (= :rf.error/exception
@@ -234,7 +234,7 @@
                        (:event rejection))
                     ":event slot carries the canonical source event
                      so the test-pane reason text can include it"))
-              (story/destroy-variant! :story.counter-matrix/loader-rejects)
+              (rf.story/destroy-variant! :story.counter-matrix/loader-rejects)
               (done)))))))
 
 ;; ---- lifecycle state advance --------------------------------------------
@@ -250,15 +250,15 @@
           ;; installed by install-canonical-vocabulary! in the fixture.
           _ (rf/make-frame {:id variant-id})]
       ;; Before any transition.
-      (is (= :pre-mount (loaders/current-state variant-id))
+      (is (= :pre-mount (rf.story.loaders/current-state variant-id))
           "fresh frame → :pre-mount")
-      (loaders/mount! variant-id)
-      (is (= :mounting (loaders/current-state variant-id))
+      (rf.story.loaders/mount! variant-id)
+      (is (= :mounting (rf.story.loaders/current-state variant-id))
           ":mount transition → :mounting")
-      (loaders/start-loaders! variant-id)
-      (is (= :loading (loaders/current-state variant-id))
+      (rf.story.loaders/start-loaders! variant-id)
+      (is (= :loading (rf.story.loaders/current-state variant-id))
           ":loaders-started → :loading")
-      (loaders/finish-loaders! variant-id)
-      (loaders/finish-events! variant-id)
-      (is (= :ready (loaders/current-state variant-id))
+      (rf.story.loaders/finish-loaders! variant-id)
+      (rf.story.loaders/finish-events! variant-id)
+      (is (= :ready (rf.story.loaders/current-state variant-id))
           "events-complete → :ready"))))

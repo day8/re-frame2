@@ -79,10 +79,10 @@
   runners (DOM/browser) supply their own flush-hooks; this ns defaults to
   the headless hooks and never reaches for `dispatch-sync` directly."
   (:require [re-frame.core                        :as rf]
-            [re-frame.story.play.evidence         :as evidence]
-            [re-frame.story.play.runner           :as runner]
-            [re-frame.story.play.runner-events    :as runner-events]
-            [re-frame.story.play.settled-boundary :as boundary]
+            [re-frame.story.play.evidence         :as rf.story.play.evidence]
+            [re-frame.story.play.runner           :as rf.story.play.runner]
+            [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
+            [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]
             ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
             ;; (reached through its home namespace, not the `re-frame.core`
             ;; façade). CLJS requires it directly; on the JVM it is resolved
@@ -91,7 +91,7 @@
             ;; `re-frame.story` MACRO-ns does NOT drag the http artefact's
             ;; JVM-only transitive deps (e.g. cheshire) onto the macro
             ;; classpath. CLJS pulls only the CLJS-clean `.cljc` surface.
-            #?(:cljs [re-frame.http.test-support :as http-test-support])))
+            #?(:cljs [re-frame.http.test-support :as rf.http.test-support])))
 
 ;; ===========================================================================
 ;; THE :rf.test/run-artifact SCHEMA
@@ -157,7 +157,7 @@
                   :else [])]
     (-> (select-keys parts artifact-keys)
         (assoc :artifact/kind artifact-kind
-               :event-program (runner/coerce-script program))
+               :event-program (rf.story.play.runner/coerce-script program))
         (update :fx-decisions #(or % {})))))
 
 (defn program-events
@@ -167,7 +167,7 @@
   event. Useful for promotion (spec/017 §Promotion) + diagnostics."
   [artifact]
   (into []
-        (keep runner/step-event)
+        (keep rf.story.play.runner/step-event)
         (:event-program artifact)))
 
 ;; ===========================================================================
@@ -221,7 +221,7 @@
   (possibly richer-adapter) inner hook owns. A 2-arity replay (no opts)
   stays byte-identical to the opts-free dispatch path."
   [base-hooks fx-decisions]
-  (let [inner (or (:dispatch! base-hooks) boundary/drain-sync!)
+  (let [inner (or (:dispatch! base-hooks) rf.story.play.settled-boundary/drain-sync!)
         ;; Route the dispatch through `inner`, optionally with opts, always
         ;; under the `fx-decisions` lexical wrap. The fx decisions and the
         ;; EP-0017 dispatch opts are independent seams (lexical overrides vs
@@ -264,9 +264,9 @@
       ;; story MACRO-ns never hard-loads the http artefact's JVM deps; CLJS
       ;; calls the directly-required surface.
       (let [install   #?(:clj  (requiring-resolve 're-frame.http.test-support/install-managed-request-stubs!)
-                         :cljs http-test-support/install-managed-request-stubs!)
+                         :cljs rf.http.test-support/install-managed-request-stubs!)
             uninstall #?(:clj  (requiring-resolve 're-frame.http.test-support/uninstall-managed-request-stubs!)
-                         :cljs http-test-support/uninstall-managed-request-stubs!)]
+                         :cljs rf.http.test-support/uninstall-managed-request-stubs!)]
         (try
           (install network)
           (thunk)
@@ -289,7 +289,7 @@
   the boundary's `dispatch-opts`, which the replay `:dispatch!` wrap threads
   onto the dispatch envelope. Pure data → data."
   [step]
-  (let [cofx (runner/step-cofx step)]
+  (let [cofx (rf.story.play.runner/step-cofx step)]
     (cond-> {:rf.cofx/mint-policy :strict}
       (and (map? cofx) (seq cofx)) (assoc :rf.cofx cofx))))
 
@@ -301,12 +301,12 @@
   on success, a `cannot-run-refusal` / `{:status :error …}` otherwise.
 
   The returned vector carries an `:attribution` metadata slot: the
-  last-committed `:epoch-id` (`runner-events/last-epoch-id` — a genuine
+  last-committed `:epoch-id` (`rf.story.play.runner-events/last-epoch-id` — a genuine
   monotonic identity, NOT a ring-length snapshot; rf2-96qsjr) at the start
   of each dispatch step's settle, in dispatch-step order. `replay-result`
   reads it (via `(:attribution (meta outcomes))`) and hands it to
   `project-evidence` so the replay narrative is attributed EXACTLY
-  (`evidence/spans-from-stamps`) rather than via the EVEN heuristic. The
+  (`rf.story.play.evidence/spans-from-stamps`) rather than via the EVEN heuristic. The
   metadata leaves the documented return VALUE (the outcomes vector)
   unchanged. The boundaries are positional with respect to DISPATCH-STEP
   ORDER — the Nth element is the Nth dispatch step's settle boundary — so
@@ -322,15 +322,15 @@
   story. `hooks` defaults to the headless flush-hooks; the fx decisions are
   wrapped onto its `:dispatch!`."
   ([frame-id artifact]
-   (replay-into-frame! frame-id artifact boundary/headless-flush-hooks))
+   (replay-into-frame! frame-id artifact rf.story.play.settled-boundary/headless-flush-hooks))
   ([frame-id artifact hooks]
    (let [fx-decisions (:fx-decisions artifact {})
          replay-hooks (replay-flush-hooks hooks fx-decisions)
          boundaries   (volatile! [])
          outcomes     (into []
                             (keep (fn [step]
-                                    (when-let [evec (runner/step-event step)]
-                                      (let [required (boundary/step-required-boundary step)
+                                    (when-let [evec (rf.story.play.runner/step-event step)]
+                                      (let [required (rf.story.play.settled-boundary/step-required-boundary step)
                                             dispatch-opts (step-dispatch-opts step)]
                                         ;; Snapshot the last-committed
                                         ;; `:epoch-id` BEFORE the settle — this
@@ -339,8 +339,8 @@
                                         ;; an identity, not a ring-length
                                         ;; snapshot, so it stays correct
                                         ;; whatever the ring evicts).
-                                        (vswap! boundaries conj (runner-events/last-epoch-id frame-id))
-                                        (boundary/dispatch-and-settle!
+                                        (vswap! boundaries conj (rf.story.play.runner-events/last-epoch-id frame-id))
+                                        (rf.story.play.settled-boundary/dispatch-and-settle!
                                           frame-id evec replay-hooks required step
                                           dispatch-opts)))))
                             (:event-program artifact))]
@@ -367,7 +367,7 @@
   the settle outcomes — never a sibling accumulator — so a replay cannot
   read green while the tape is red."
   [{:keys [epoch-tape artifact outcomes frame-id app-db]}]
-  (let [evidence-slots (evidence/project-evidence
+  (let [evidence-slots (rf.story.play.evidence/project-evidence
                          epoch-tape {:script      (:event-program artifact)
                                      ;; The per-dispatch-step settle
                                      ;; boundaries `replay-into-frame!`
@@ -379,7 +379,7 @@
                                      :attribution (:attribution (meta outcomes))})
         refusal        (some (fn [o] (when (= :cannot-run (:status o)) o)) outcomes)
         errored        (some (fn [o] (when (= :error (:status o)) o)) outcomes)
-        tape-red?      (evidence/tape-shows-failure? epoch-tape)
+        tape-red?      (rf.story.play.evidence/tape-shows-failure? epoch-tape)
         status         (cond
                          refusal   :cannot-run
                          errored   :error
@@ -432,7 +432,7 @@
   ([artifact {:keys [frame hooks frame-config] :as _opts}]
    (let [own-frame? (nil? frame)
          frame-id   (or frame (gen-replay-frame-id))
-         hooks      (or hooks boundary/headless-flush-hooks)
+         hooks      (or hooks rf.story.play.settled-boundary/headless-flush-hooks)
          ;; When we allocate the replay frame, KEEP the frame VALUE `make-frame`
          ;; returns: it carries the EXACT incarnation token (rf2-moftbs), so the
          ;; `finally` teardown destroys ONLY the incarnation THIS replay created.

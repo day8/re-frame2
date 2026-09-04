@@ -50,21 +50,21 @@
   ## Elision
 
   CLJS rendering reaches `explain-panel` only via the
-  `config/enabled?`-gated shell mount, so production builds never invoke
+  `rf.story.config/enabled?`-gated shell mount, so production builds never invoke
   it; closure DCEs the lot. The pure `.cljc` helpers carry no DOM /
   Reagent dep."
   (:require [clojure.string :as str]
-            [re-frame.story.plan :as plan]
+            [re-frame.story.plan :as rf.story.plan]
             ;; The theme requires are CLJS-only — `typography`/`colors` are
             ;; referenced solely from the `#?(:cljs (def ^:private styles …))`
             ;; block. Keeping them inside the `:cljs` reader conditional avoids
             ;; an unused-namespace warning in the `.cljc` clj view.
             #?@(:cljs [[reagent.core :as r]
-                       [re-frame.story.config :as config]
-                       [re-frame.story.review-dialog :as review-dialog]
-                       [re-frame.story.ui.state :as state]
-                       [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-                       [re-frame.story.theme.colors :as colors]])))
+                       [re-frame.story.config :as rf.story.config]
+                       [re-frame.story.review-dialog :as rf.story.review-dialog]
+                       [re-frame.story.ui.state :as rf.story.ui.state]
+                       [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
+                       [re-frame.story.theme.colors :as rf.story.theme.colors]])))
 
 ;; ---------------------------------------------------------------------------
 ;; The panel-visibility slot + the scroll anchor id. Shared with the
@@ -98,7 +98,7 @@
   with a concrete id."
   [variant-id]
   (try
-    {:explain (plan/explain variant-id)}
+    {:explain (rf.story.plan/explain variant-id)}
     (catch #?(:clj Throwable :cljs :default) e
       {:error (or #?(:clj (.getMessage ^Throwable e)
                      :cljs (.-message e))
@@ -250,100 +250,100 @@
 #?(:cljs
    (def ^:private styles
      {:wrap          {:font-family   sans-stack
-                      :font-size     (:body-tight typography/type-scale)
-                      :color         (:text-primary colors/tokens)
+                      :font-size     (:body-tight rf.story.theme.typography/type-scale)
+                      :color         (:text-primary rf.story.theme.colors/tokens)
                       :padding-bottom "12px"}
       :variant-id    {:font-family   mono-stack
-                      :font-size     (:caption typography/type-scale)
-                      :color         (:accent-amber colors/tokens)
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
+                      :color         (:accent-amber rf.story.theme.colors/tokens)
                       :margin        "0 0 2px 0"
                       :word-break    "break-all"}
-      :blurb         {:color         (:text-tertiary colors/tokens)
-                      :font-size     (:caption typography/type-scale)
+      :blurb         {:color         (:text-tertiary rf.story.theme.colors/tokens)
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
                       :margin-bottom "10px"
-                      :line-height   (:line-height-tight typography/type-scale)}
+                      :line-height   (:line-height-tight rf.story.theme.typography/type-scale)}
       :section       {:margin-top    "12px"}
       :section-h     {:display       "flex"
                       :align-items   "baseline"
                       :justify-content "space-between"
                       :gap           "8px"
-                      :color         (:text-secondary colors/tokens)
+                      :color         (:text-secondary rf.story.theme.colors/tokens)
                       :text-transform "uppercase"
-                      :font-size     (:micro typography/type-scale)
-                      :letter-spacing (:label typography/letter-spacing)
+                      :font-size     (:micro rf.story.theme.typography/type-scale)
+                      :letter-spacing (:label rf.story.theme.typography/letter-spacing)
                       :margin-bottom "4px"
                       :padding-bottom "3px"
-                      :border-bottom (str "1px solid " (:border-subtle colors/tokens))}
-      :absent-tag    {:color         (:text-tertiary colors/tokens)
+                      :border-bottom (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))}
+      :absent-tag    {:color         (:text-tertiary rf.story.theme.colors/tokens)
                       :font-style    "italic"
                       :text-transform "none"
                       :letter-spacing "normal"
-                      :font-size     (:micro typography/type-scale)}
-      :empty         {:color         (:text-tertiary colors/tokens)
+                      :font-size     (:micro rf.story.theme.typography/type-scale)}
+      :empty         {:color         (:text-tertiary rf.story.theme.colors/tokens)
                       :font-style    "italic"
-                      :font-size     (:caption typography/type-scale)
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
                       :padding       "2px 0 4px 0"}
       :chain         {:font-family   mono-stack
-                      :font-size     (:caption typography/type-scale)
-                      :color         (:info colors/tokens)
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
+                      :color         (:info rf.story.theme.colors/tokens)
                       :word-break    "break-all"
-                      :line-height   (:line-height-mono typography/type-scale)}
+                      :line-height   (:line-height-mono rf.story.theme.typography/type-scale)}
       :table         {:width         "100%"
                       :border-collapse "collapse"
                       :font-family   mono-stack
-                      :font-size     (:caption typography/type-scale)}
+                      :font-size     (:caption rf.story.theme.typography/type-scale)}
       :td            {:padding       "3px 6px 3px 0"
-                      :border-bottom (str "1px solid " (:border-subtle colors/tokens))
-                      :color         (:text-primary colors/tokens)
+                      :border-bottom (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
+                      :color         (:text-primary rf.story.theme.colors/tokens)
                       :vertical-align "top"
                       :white-space   "pre-wrap"
                       :word-break    "break-word"}
-      :td-key        {:color         (:info colors/tokens)
+      :td-key        {:color         (:info rf.story.theme.colors/tokens)
                       :white-space   "nowrap"
                       :padding-right "10px"}
-      :td-val        {:color         (:tag-experimental-fg colors/tokens)}
+      :td-val        {:color         (:tag-experimental-fg rf.story.theme.colors/tokens)}
       :list          {:margin        0
                       :padding-left  "16px"
                       :font-family   mono-stack
-                      :font-size     (:caption typography/type-scale)
-                      :color         (:text-primary colors/tokens)
-                      :line-height   (:line-height-mono typography/type-scale)}
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
+                      :color         (:text-primary rf.story.theme.colors/tokens)
+                      :line-height   (:line-height-mono rf.story.theme.typography/type-scale)}
       :badge-row     {:display       "flex"
                       :flex-wrap     "wrap"
                       :gap           "4px"
                       :margin-top    "2px"}
       :badge         {:font-family   mono-stack
-                      :font-size     (:nano typography/type-scale)
-                      :background    (:bg-3 colors/tokens)
-                      :color         (:text-secondary colors/tokens)
-                      :border        (str "1px solid " (:border-subtle colors/tokens))
+                      :font-size     (:nano rf.story.theme.typography/type-scale)
+                      :background    (:bg-3 rf.story.theme.colors/tokens)
+                      :color         (:text-secondary rf.story.theme.colors/tokens)
+                      :border        (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                       :border-radius "8px"
                       :padding       "1px 7px"}
       :conflict      {:font-family   mono-stack
-                      :font-size     (:caption typography/type-scale)
-                      :color         (:warning colors/tokens)
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
+                      :color         (:warning rf.story.theme.colors/tokens)
                       :padding       "2px 0"
-                      :line-height   (:line-height-mono typography/type-scale)}
+                      :line-height   (:line-height-mono rf.story.theme.typography/type-scale)}
       :toolbar       {:display       "flex"
                       :gap           "6px"
                       :margin-bottom "8px"}
       :btn           {:font-family   sans-stack
-                      :font-size     (:caption typography/type-scale)
-                      :background    (:bg-3 colors/tokens)
-                      :color         (:text-secondary colors/tokens)
-                      :border        (str "1px solid " (:border-default colors/tokens))
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
+                      :background    (:bg-3 rf.story.theme.colors/tokens)
+                      :color         (:text-secondary rf.story.theme.colors/tokens)
+                      :border        (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                       :border-radius "6px"
                       :padding       "3px 9px"
                       :cursor        "pointer"
                       :user-select   "none"}
-      :btn-on        {:background    (:accent-amber colors/tokens)
-                      :color         (:text-on-accent colors/tokens)
-                      :border        (str "1px solid " (:accent-amber-deep colors/tokens))}
+      :btn-on        {:background    (:accent-amber rf.story.theme.colors/tokens)
+                      :color         (:text-on-accent rf.story.theme.colors/tokens)
+                      :border        (str "1px solid " (:accent-amber-deep rf.story.theme.colors/tokens))}
       :pre           {:font-family   mono-stack
-                      :font-size     (:caption typography/type-scale)
-                      :background    (:bg-input colors/tokens)
-                      :color         (:text-primary colors/tokens)
-                      :border        (str "1px solid " (:border-subtle colors/tokens))
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
+                      :background    (:bg-input rf.story.theme.colors/tokens)
+                      :color         (:text-primary rf.story.theme.colors/tokens)
+                      :border        (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                       :border-radius "4px"
                       :padding       "8px"
                       :margin        0
@@ -351,21 +351,21 @@
                       :overflow      "auto"
                       :white-space   "pre-wrap"
                       :word-break    "break-word"}
-      :copied        {:color         (:success colors/tokens)
-                      :font-size     (:caption typography/type-scale)
+      :copied        {:color         (:success rf.story.theme.colors/tokens)
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
                       :align-self    "center"}
-      :error         {:color         (:danger colors/tokens)
+      :error         {:color         (:danger rf.story.theme.colors/tokens)
                       :font-family   mono-stack
-                      :font-size     (:caption typography/type-scale)
-                      :background    (:danger-bg colors/tokens)
-                      :border        (str "1px solid " (:danger colors/tokens))
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
+                      :background    (:danger-bg rf.story.theme.colors/tokens)
+                      :border        (str "1px solid " (:danger rf.story.theme.colors/tokens))
                       :border-radius "4px"
                       :padding       "8px"
                       :white-space   "pre-wrap"
                       :word-break    "break-word"}
-      :no-variant    {:color         (:text-tertiary colors/tokens)
+      :no-variant    {:color         (:text-tertiary rf.story.theme.colors/tokens)
                       :font-style    "italic"
-                      :font-size     (:caption typography/type-scale)
+                      :font-size     (:caption rf.story.theme.typography/type-scale)
                       :padding       "4px 0"}}))
 
 #?(:cljs
@@ -518,7 +518,7 @@
      (let [show-raw? (r/atom false)
            copied?   (r/atom false)]
        (fn []
-         (let [shell      @state/shell-state-atom
+         (let [shell      @rf.story.ui.state/shell-state-atom
                variant-id (:selected-variant shell)]
            (cond
              (not variant-id)
@@ -555,7 +555,7 @@
                       :data-test "story-explain-copy"
                       :title     "Copy the explain map as EDN to the clipboard"
                       :on-click  (fn [_]
-                                   (review-dialog/copy-to-clipboard! (raw-edn explain))
+                                   (rf.story.review-dialog/copy-to-clipboard! (raw-edn explain))
                                    (reset! copied? true)
                                    (js/setTimeout #(reset! copied? false) 1400))}
                      "Copy EDN"]
@@ -580,8 +580,8 @@
      and scroll it into view. Wired from the command palette's
      `Explain variant` command. No-op when Story is disabled."
      []
-     (when config/enabled?
-       (state/swap-state! assoc-in [:panel-visibility panel-key] true)
+     (when rf.story.config/enabled?
+       (rf.story.ui.state/swap-state! assoc-in [:panel-visibility panel-key] true)
        (js/setTimeout
          (fn []
            (when (exists? js/document)

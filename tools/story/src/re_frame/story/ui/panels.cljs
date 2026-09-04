@@ -35,29 +35,29 @@
                                 from the Story trace buffer."
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.story.config :as config]
-            [re-frame.story.args :as args]
-            [re-frame.story.layout-debug :as layout-debug]
-            [re-frame.story.registrar :as story-registrar]
-            [re-frame.story.ui.a11y :as a11y]
-            [re-frame.story.ui.chrome-a11y :as chrome-a11y]
-            [re-frame.story.ui.schema-validation :as schema-validation]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.args :as rf.story.args]
+            [re-frame.story.layout-debug :as rf.story.layout-debug]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.a11y :as rf.story.ui.a11y]
+            [re-frame.story.ui.chrome-a11y :as rf.story.ui.chrome-a11y]
+            [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private styles
   {:layout-wrap  {:padding "8px"
-                  :background (:bg-2 colors/tokens)
-                  :color (:text-primary colors/tokens)
+                  :background (:bg-2 rf.story.theme.colors/tokens)
+                  :color (:text-primary rf.story.theme.colors/tokens)
                   :font-family mono-stack
-                  :font-size (:caption typography/type-scale)
+                  :font-size (:caption rf.story.theme.typography/type-scale)
                   :border-top "1px solid #444"}
    :layout-title {:font-weight "bold"
-                  :color (:text-secondary colors/tokens)
+                  :color (:text-secondary rf.story.theme.colors/tokens)
                   :text-transform "uppercase"
-                  :font-size (:micro typography/type-scale)
+                  :font-size (:micro rf.story.theme.typography/type-scale)
                   :letter-spacing "0.5px"
                   :margin-bottom "6px"}
    :toggle       {:display "flex"
@@ -66,10 +66,10 @@
                   :padding "4px 0"
                   :cursor "pointer"
                   :user-select "none"}
-   :decor-id     {:color (:info colors/tokens)}
-   :hint         {:color (:text-tertiary colors/tokens)
+   :decor-id     {:color (:info rf.story.theme.colors/tokens)}
+   :hint         {:color (:text-tertiary rf.story.theme.colors/tokens)
                   :font-style "italic"
-                  :font-size (:micro typography/type-scale)
+                  :font-size (:micro rf.story.theme.typography/type-scale)
                   :margin-top "6px"}})
 
 ;; ---- layout-debug controls panel ---------------------------------------
@@ -133,9 +133,9 @@
           on-for (get active variant-id #{})]
       [:div {:style (:layout-wrap styles)}
        [:div {:style (:layout-title styles)} "Layout-debug"]
-       (for [id [layout-debug/id-measure
-                 layout-debug/id-outline
-                 layout-debug/id-pseudo]]
+       (for [id [rf.story.layout-debug/id-measure
+                 rf.story.layout-debug/id-outline
+                 rf.story.layout-debug/id-pseudo]]
          ^{:key id}
          [:label {:style (:toggle styles)}
           [:input {:type      "checkbox"
@@ -169,25 +169,25 @@
   Idempotent. Production builds with `:rf.story/enabled?` false skip
   registration."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     ;; Layout-debug controls panel.
     (reg-view! layout-debug-render-id layout-debug-view)
-    (story-registrar/reg-story-panel*
+    (rf.story.registrar/reg-story-panel*
       layout-debug-panel-id
       {:doc       "Layout-debug decorator toggles (measure / outline / pseudo)."
        :title     "Layout-debug"
        :placement :right
        :render    layout-debug-render-id})
     ;; A11y panel — registers in its own ns.
-    (a11y/install-canonical-a11y!)
+    (rf.story.ui.a11y/install-canonical-a11y!)
     ;; Chrome-a11y panel — sibling of the variant a11y
     ;; panel scoped to `[data-rf-story-root]` so Story dogfoods axe-
     ;; core against its OWN chrome (the variant a11y panel scopes to
     ;; the variant tree only).
-    (chrome-a11y/install-canonical-chrome-a11y!)
+    (rf.story.ui.chrome-a11y/install-canonical-chrome-a11y!)
     ;; Schema-validation panel registers in its own ns
     ;; so the late-bind validator lookup stays isolated.
-    (schema-validation/install!)))
+    (rf.story.ui.schema-validation/install!)))
 
 ;; ---- panel host ---------------------------------------------------------
 
@@ -197,11 +197,11 @@
                  :justify-content "space-between"
                  :align-items "center"
                  :padding "4px 10px"
-                 :background (:bg-2 colors/tokens)
+                 :background (:bg-2 rf.story.theme.colors/tokens)
                  :border-bottom "1px solid #444"
-                 :color (:text-secondary colors/tokens)
+                 :color (:text-secondary rf.story.theme.colors/tokens)
                  :font-family mono-stack
-                 :font-size (:micro typography/type-scale)
+                 :font-size (:micro rf.story.theme.typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"}})
 
@@ -214,7 +214,7 @@
   (let [targets (:for body)]
     (or (empty? targets)
         (contains? targets variant-id)
-        (contains? targets (args/parent-story-id variant-id)))))
+        (contains? targets (rf.story.args/parent-story-id variant-id)))))
 
 (defn render-panels-at-placement
   "Render every registered `:story-panel` whose `:placement` matches
@@ -231,7 +231,7 @@
 
   Returns a hiccup vector wrapping the resolved panels."
   [placement variant-id panel-visibility]
-  (let [panels (story-registrar/registrations :story-panel)
+  (let [panels (rf.story.registrar/registrations :story-panel)
         slots  (->> panels
                     (filter (fn [[pid body]]
                               (and (= placement (:placement body))
@@ -248,7 +248,7 @@
          [:div
           [:div {:style (:panel-head host-styles)}
            [:span (:title body)]
-           [:span {:style {:color (:text-tertiary colors/tokens)}} (str pid)]]
+           [:span {:style {:color (:text-tertiary rf.story.theme.colors/tokens)}} (str pid)]]
           (if view-fn
             ;; rf2-zme7: scope the panel view's subscribe / dispatch to
             ;; the active variant's frame. The SCOPE-only `rf/frame-provider
@@ -257,7 +257,7 @@
             ;; Reagent's `:r>` interop head, rf2-c5jz).
             [rf/frame-provider {:frame variant-id}
              [view-fn variant-id]]
-            [:div {:style {:padding "8px" :color (:text-secondary colors/tokens)
-                           :font-style "italic" :font-size (:micro typography/type-scale)}}
+            [:div {:style {:padding "8px" :color (:text-secondary rf.story.theme.colors/tokens)
+                           :font-style "italic" :font-size (:micro rf.story.theme.typography/type-scale)}}
              (str "panel " (pr-str pid)
                   " has no registered :render view (" (pr-str view-id) ")")])]))]))

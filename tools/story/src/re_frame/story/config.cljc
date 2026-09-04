@@ -29,11 +29,11 @@
   true (the registration call); to `nil` when false. Production code
   that accidentally requires a stories ns sees the namespace load but
   with no registrations, every Story query returns empty."
-  (:require [re-frame.privacy    :as privacy]
+  (:require [re-frame.privacy    :as rf.privacy]
             ;; the canonical RAW trace-event frame reader
             ;; (`re-frame.trace/trace-event-frame`); Story reads the
             ;; frame off a trace event through it.
-            [re-frame.trace      :as trace]
+            [re-frame.trace      :as rf.trace]
             ;; EP-0015: the on-box dev visibility choice is a named
             ;; `:rf.egress/*` profile resolved through the framework's
             ;; centralized projection table. `re-frame.projection` is the
@@ -42,7 +42,7 @@
             ;; the whole `re-frame.core` facade) keeps this config ns
             ;; JVM-runnable for the test corpus and pins the egress
             ;; vocabulary to the ONE canonical source.
-            [re-frame.projection :as projection])
+            [re-frame.projection :as rf.projection])
   #?(:cljs (:require-macros [re-frame.story.config])))
 
 ;; ---- the compile-time flag -----------------------------------------------
@@ -394,7 +394,7 @@
 ;; The "is this `:sensitive?` event visible?" decision is not a hand-held
 ;; boolean: it derives from the profile's `:rf.size/include-sensitive?`
 ;; resolution via the framework's projection table
-;; (`projection/profile-size-opts`), the same table `project-egress`
+;; (`rf.projection/profile-size-opts`), the same table `project-egress`
 ;; consumes — one source of truth, no re-implemented redaction policy.
 ;;
 ;; Storage shape (issue 7 — per-frame, not process-global):
@@ -427,7 +427,7 @@
   the framework's `re-frame.projection/profiles` so `configure!` can
   validate `:rf.story/egress-profile` against the ONE canonical enum (no
   forked copy)."
-  projection/profiles)
+  rf.projection/profiles)
 
 (defn known-egress-profile?
   "True iff `profile` is a member of the closed `:rf.egress/*` enum."
@@ -546,7 +546,7 @@
   relevant profile that does. An unknown / nil profile is fail-closed
   (does NOT reveal)."
   [profile]
-  (boolean (:rf.size/include-sensitive? (projection/profile-size-opts profile))))
+  (boolean (:rf.size/include-sensitive? (rf.projection/profile-size-opts profile))))
 
 (defn resolve-egress-profile
   "Resolve the effective `:rf.egress/*` profile for `frame-id` (EP-0015
@@ -589,7 +589,7 @@
   the callbacks. Returns nil."
   [frame-id profile]
   (when (some? frame-id)
-    (let [next (if (contains? projection/profiles profile)
+    (let [next (if (contains? rf.projection/profiles profile)
                  profile
                  default-egress-profile)
           prev (resolve-egress-profile frame-id)]
@@ -616,7 +616,7 @@
   their own per-frame override keep their own profile and are scrubbed only
   by their own `set-frame-egress-profile!` narrowing. Returns nil."
   [profile]
-  (let [next (if (contains? projection/profiles profile)
+  (let [next (if (contains? rf.projection/profiles profile)
                profile
                default-egress-profile)
         prev @session-egress-profile]
@@ -671,7 +671,7 @@
   against ONE framework primitive rather than reimplementing the
   five-token check. Per Spec 009 §Privacy."
   [ev]
-  (privacy/sensitive? ev))
+  (rf.privacy/sensitive? ev))
 
 (defn event-frame
   "Return the frame a RAW trace event targets — its `[:tags :frame]` slot
@@ -683,7 +683,7 @@
   defensive call sites may pass."
   [ev]
   (when (map? ev)
-    (trace/trace-event-frame ev)))
+    (rf.trace/trace-event-frame ev)))
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by a Story-registered listener

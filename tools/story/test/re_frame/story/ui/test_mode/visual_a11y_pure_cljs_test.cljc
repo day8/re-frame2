@@ -4,7 +4,7 @@
 
   The substantive UI is CLJS, but the projection the dedicated visual/a11y
   results component (`re-frame.story.ui.test-mode.visual-a11y-view`)
-  consumes is `.cljc` + pure (`pure/browser-result-rows` and friends), so
+  consumes is `.cljc` + pure (`rf.story.ui.test-mode.pure/browser-result-rows` and friends), so
   the JVM test corpus pins the contract without booting Reagent.
 
   The browser-tier oracle records under test are exactly the shapes the run
@@ -18,7 +18,7 @@
     identity, `:expected` the baseline;
   - any of the three can be `:cannot-run` (the headless / hiccup refusal)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.ui.test-mode.pure :as pure]))
+            [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]))
 
 ;; ---- structural-a11y-findings -------------------------------------------
 
@@ -31,7 +31,7 @@
                              :detail "img element has no :alt attribute"}
                             {:rule :control-missing-name :tag :button
                              :detail "button control has no accessible name"}]}
-          rows (pure/structural-a11y-findings rec)]
+          rows (rf.story.ui.test-mode.pure/structural-a11y-findings rec)]
       (is (= 2 (count rows)))
       (is (= "image missing alt text" (:finding (first rows))))
       (is (= "<img>" (:locus (first rows))))
@@ -41,19 +41,19 @@
 
 (deftest structural-findings-unknown-rule-falls-back-readably
   (testing "an unknown rule kebab-spells rather than dropping the finding"
-    (let [rows (pure/structural-a11y-findings
+    (let [rows (rf.story.ui.test-mode.pure/structural-a11y-findings
                  {:actual [{:rule :some-future-rule :tag :div :detail "d"}]})]
       (is (= "some future rule" (:finding (first rows))))
       (is (= "<div>" (:locus (first rows)))))))
 
 (deftest structural-findings-empty-on-no-issues
-  (is (= [] (pure/structural-a11y-findings {:actual []})))
-  (is (= [] (pure/structural-a11y-findings {}))))
+  (is (= [] (rf.story.ui.test-mode.pure/structural-a11y-findings {:actual []})))
+  (is (= [] (rf.story.ui.test-mode.pure/structural-a11y-findings {}))))
 
 ;; ---- axe-a11y-findings ---------------------------------------------------
 
 (deftest axe-findings-project-id-impact-help
-  (let [rows (pure/axe-a11y-findings
+  (let [rows (rf.story.ui.test-mode.pure/axe-a11y-findings
                {:actual [{:id "color-contrast" :impact "serious"
                           :help "Elements must have sufficient colour contrast"}]})]
     (is (= 1 (count rows)))
@@ -68,7 +68,7 @@
   (testing "rf2-ffu8t — the axe finding's recovered :selector is the SOURCE
             LINK (spec/021 §4 + §5): :locus is the selector, not the rule id,
             and :selector / :targets carry the offending-element coordinates"
-    (let [rows (pure/axe-a11y-findings
+    (let [rows (rf.story.ui.test-mode.pure/axe-a11y-findings
                  {:actual [{:id       "image-alt"
                             :impact   "critical"
                             :help     "Images must have alternate text"
@@ -81,7 +81,7 @@
       (is (= ["main > img:nth-child(2)"] (:targets row)))
       (is (= "image-alt" (:rule row)) "the rule id is still carried for keying")))
   (testing "a multi-node violation carries every target selector"
-    (let [row (first (pure/axe-a11y-findings
+    (let [row (first (rf.story.ui.test-mode.pure/axe-a11y-findings
                        {:actual [{:id       "label"
                                   :selector "#a"
                                   :targets  ["#a" "#b"]}]}))]
@@ -102,17 +102,17 @@
                     :reason "axe needs a real browser"}
                    {:assertion :rf.assert/visual-snapshot :status :cannot-run
                     :reason "visual needs :pixels"}]}
-          rows   (pure/browser-result-rows result)]
+          rows   (rf.story.ui.test-mode.pure/browser-result-rows result)]
       (is (= 3 (count rows)) "only the 3 browser-tier records surface")
       (is (= [:a11y-structural :a11y :visual] (mapv :kind rows))))))
 
 (deftest browser-rows-empty-when-headless-run-has-no-browser-checks
   (testing "the common headless case projects to no rows — an honest empty
             state, never a fabricated card"
-    (is (= [] (pure/browser-result-rows
+    (is (= [] (rf.story.ui.test-mode.pure/browser-result-rows
                 {:assertions [{:assertion :rf.assert/path-equals :status :pass}]})))
-    (is (= [] (pure/browser-result-rows {:assertions []})))
-    (is (= [] (pure/browser-result-rows {})))))
+    (is (= [] (rf.story.ui.test-mode.pure/browser-result-rows {:assertions []})))
+    (is (= [] (rf.story.ui.test-mode.pure/browser-result-rows {})))))
 
 ;; ---- browser-result-rows: structural-a11y fail --------------------------
 
@@ -124,7 +124,7 @@
                   :reason    "1 structural a11y issue(s) in the rendered hiccup tree: img-missing-alt"
                   :actual    [{:rule :img-missing-alt :tag :img
                                :detail "img element has no :alt attribute"}]}]}
-        row    (first (pure/browser-result-rows result))]
+        row    (first (rf.story.ui.test-mode.pure/browser-result-rows result))]
     (is (= :a11y-structural (:kind row)))
     (is (= :fail (:status row)))
     (is (= 1 (:count row)))
@@ -154,7 +154,7 @@
                                  :help     "Images must have alternate text"
                                  :selector "main > img:nth-child(2)"
                                  :targets  ["main > img:nth-child(2)"]}]}]}
-          row    (first (pure/browser-result-rows result))
+          row    (first (rf.story.ui.test-mode.pure/browser-result-rows result))
           finding (first (:findings row))]
       (is (= :a11y (:kind row)))
       (is (= :fail (:status row)))
@@ -179,7 +179,7 @@
                     :cannot-run? true
                     :passed?     false
                     :reason      "visual snapshot requires a real browser (:pixels)"}]}
-          rows   (pure/browser-result-rows result)
+          rows   (rf.story.ui.test-mode.pure/browser-result-rows result)
           [axe vis] rows]
       (is (= :cannot-run (:status axe)))
       (is (not= :pass (:status axe)))
@@ -198,7 +198,7 @@
                                   :status :pass
                                   :actual "abc123"
                                   :expected :rf.story/any-snapshot}]}
-          row      (first (pure/browser-result-rows captured))]
+          row      (first (rf.story.ui.test-mode.pure/browser-result-rows captured))]
       (is (= :visual (:kind row)))
       (is (= "abc123" (:snapshot row)))
       (is (nil? (:baseline row)) ":rf.story/any-snapshot is no baseline")))
@@ -207,7 +207,7 @@
                                 :status :fail
                                 :actual "new-hash"
                                 :expected "base-hash"}]}
-          row    (first (pure/browser-result-rows diffed))]
+          row    (first (rf.story.ui.test-mode.pure/browser-result-rows diffed))]
       (is (= "new-hash" (:snapshot row)))
       (is (= "base-hash" (:baseline row))))))
 
@@ -218,5 +218,5 @@
             from :passed? (the legacy fallback, not the primary)"
     (let [result {:assertions [{:assertion :rf.assert/a11y-structural
                                 :passed? true :actual []}]}
-          row    (first (pure/browser-result-rows result))]
+          row    (first (rf.story.ui.test-mode.pure/browser-result-rows result))]
       (is (= :pass (:status row))))))

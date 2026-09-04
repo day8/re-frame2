@@ -3,7 +3,7 @@
 
   `:db-seed` is the MIDDLE rung of spec/017's fidelity ladder
   (`#{:real-setup :db-seed :sub-overrides}`): a schema-checked direct
-  app-db seed. These tests drive `story/run` to terminal on the JVM and
+  app-db seed. These tests drive `rf.story/run` to terminal on the JVM and
   assert the runtime BEHAVIOUR the plan compiler can't (the seed is
   applied to a live frame; the seeded app-db is schema-validated):
 
@@ -30,11 +30,11 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core         :as m]
             [re-frame.core      :as rf]
-            [re-frame.frame     :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story     :as story]))
+            [re-frame.frame     :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story     :as rf.story]))
 
 ;; ---- a host-free stand-in for the schemas artefact's late-bind seam ------
 ;;
@@ -49,31 +49,31 @@
   (swap! frame-schemas assoc-in [frame-id reg-path] {:schema schema}))
 
 (defn- install-schema-seam! []
-  (late-bind/set-fn! :schemas/frame-schema-entries
+  (rf.late-bind/set-fn! :schemas/frame-schema-entries
                      (fn [frame-id] (get @frame-schemas frame-id {})))
-  (late-bind/set-fn! :schemas/validate-with-registered-fn
+  (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
                      (fn [schema value] (m/validate schema value)))
-  (late-bind/set-fn! :schemas/explain-with-registered-fn
+  (rf.late-bind/set-fn! :schemas/explain-with-registered-fn
                      (fn [schema value] (m/explain schema value))))
 
 (defn- uninstall-schema-seam! []
-  (swap! late-bind/hooks dissoc
+  (swap! rf.late-bind/hooks dissoc
          :schemas/frame-schema-entries
          :schemas/validate-with-registered-fn
          :schemas/explain-with-registered-fn))
 
 (defn- reset-rf! [test-fn]
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
   (reset! frame-schemas {})
-  (try (rf/init! plain-atom/adapter)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   ;; Clear any schema seam a prior test left so the no-validator floor case
   ;; is clean; tests that want validation install it explicitly.
   (uninstall-schema-seam!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (rf/reg-event :cart/add-item
                    (fn [{:keys [db]} [_ item]]
                      {:db (update-in db [:cart :items] (fnil conj []) item)}))
@@ -82,8 +82,8 @@
 (use-fixtures :each reset-rf!)
 
 (defn- run-target
-  ([target] (.get ^java.util.concurrent.CompletableFuture (story/run target)))
-  ([target opts] (.get ^java.util.concurrent.CompletableFuture (story/run target opts))))
+  ([target] (.get ^java.util.concurrent.CompletableFuture (rf.story/run target)))
+  ([target opts] (.get ^java.util.concurrent.CompletableFuture (rf.story/run target opts))))
 
 (defn- seed-error-record [result]
   (first (filter #(= :rf.error/story-db-seed-invalid (:assertion %))
@@ -96,13 +96,13 @@
 (deftest db-seed-is-accepted-by-the-variant-schema
   (testing "reg-variant ACCEPTS a well-shaped :db-seed (the typed slot — the
             pre-rf2-blw1q bug was silent-accept-then-ignore)"
-    (is (some? (story/reg-variant :story.cart/typed {:db-seed {:cart {:items []}}}))
+    (is (some? (rf.story/reg-variant :story.cart/typed {:db-seed {:cart {:items []}}}))
         "a {path → value} :db-seed registers without a shape error")))
 
 (deftest malformed-db-seed-is-rejected-by-the-variant-schema
   (testing "a non-map :db-seed is REJECTED at registration (no longer silently
             accepted) — :rf.error/variant-shape"
-    (let [ex (try (story/reg-variant :story.cart/malformed {:db-seed [1 2 3]})
+    (let [ex (try (rf.story/reg-variant :story.cart/malformed {:db-seed [1 2 3]})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "a non-map :db-seed throws a shape error")
@@ -115,7 +115,7 @@
 (deftest valid-db-seed-seeds-app-db-before-script
   (testing "a valid :db-seed merges into the frame's app-db BEFORE the script,
             and a :real-setup event runs ON TOP of the seed (the ladder composes)"
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.cart/seeded
       {:db-seed {:cart {:items [{:sku "A" :qty 1}]}}
        :script  [[:dispatch-sync [:cart/add-item {:sku "B" :qty 2}]]]})
@@ -134,7 +134,7 @@
     (install-schema-seam!)
     (reg-app-schema! :story.cart/ok [:cart]
                      [:map [:items [:vector [:map [:sku :string] [:qty :int]]]]])
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.cart/ok
       {:db-seed {:cart {:items [{:sku "A" :qty 1}]}}})
     (let [result (run-target :story.cart/ok)]
@@ -153,7 +153,7 @@
     (install-schema-seam!)
     (reg-app-schema! :story.cart/bad [:cart]
                      [:map [:items [:vector [:map [:sku :string] [:qty :int]]]]])
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.cart/bad
       ;; :qty is a string — violates [:qty :int].
       {:db-seed {:cart {:items [{:sku "A" :qty "two"}]}}})
@@ -177,7 +177,7 @@
     (install-schema-seam!)
     (reg-app-schema! :story.cart/halt [:cart]
                      [:map [:items [:vector :map]]])
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.cart/halt
       {:db-seed {:cart {:items "not-a-vector"}}
        :script  [[:dispatch-sync [:cart/add-item {:sku "Z"}]]]})
@@ -195,7 +195,7 @@
             unchecked (the host-free floor) — Story without the schemas
             artefact pays nothing"
     ;; The fixture left the schema seam UNINSTALLED.
-    (story/reg-variant
+    (rf.story/reg-variant
       :story.cart/nohost
       {:db-seed {:cart {:items [{:sku "A" :qty "even-a-string-is-fine-here"}]}}})
     (let [result (run-target :story.cart/nohost)]

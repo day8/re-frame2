@@ -56,7 +56,7 @@
   whatever snapshot the caller passes in. Production CLJS builds skip
   the panel entirely (per the shell's `config/enabled?` gate); the
   registrar query is never reached."
-  #?(:cljs (:require [re-frame.registrar :as registrar])))
+  #?(:cljs (:require [re-frame.registrar :as rf.registrar])))
 
 (defn registered-event-ids
   "Return the set of registered event-id keywords. Two arities:
@@ -65,7 +65,7 @@
   - 1-arity: take a `{event-id meta}` snapshot map and return its
     key-set. Used by tests + JVM coverage."
   ([]
-   #?(:cljs (set (keys (registrar/registrations :event)))
+   #?(:cljs (set (keys (rf.registrar/registrations :event)))
       :clj  #{}))
   ([registry-snapshot]
    (set (keys (or registry-snapshot {})))))
@@ -81,7 +81,7 @@
   selection / keystroke — same posture as `registered-event-ids` (a
   plain query fn, not a `reg-sub`)."
   []
-  #?(:cljs (registrar/registrations :event)
+  #?(:cljs (rf.registrar/registrations :event)
      :clj  {}))
 
 (defn- normalise-requires

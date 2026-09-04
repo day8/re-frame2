@@ -19,25 +19,25 @@
   code does not have to register it. Project-specific tags must
   register via `reg-tag` *before* use; an unregistered tag on a
   variant's `:tags` set raises `:rf.error/unknown-tag`."
-  (:require [re-frame.story.assertions   :as assertions]
-            [re-frame.story.frames       :as frames]
-            [re-frame.story.fx-stubs     :as fx-stubs]
-            [re-frame.story.late-bind    :as late-bind]
-            [re-frame.story.layout-debug :as layout-debug]
-            [re-frame.story.loaders      :as loaders]
-            [re-frame.story.play         :as play]
-            [re-frame.story.play.runner-events :as runner-events]
-            [re-frame.story.play.substrate-boundary :as substrate-boundary]
-            [re-frame.story.registrar    :as registrar]
-            [re-frame.story.render       :as render]
-            [re-frame.story.runtime      :as runtime]
-            [re-frame.story.save-variant :as save-variant]
-            [re-frame.story.ui.cofx      :as ui-cofx]
-            #?(:cljs [re-frame.story.ui.a11y            :as ui-a11y])
-            #?(:cljs [re-frame.story.ui.panels          :as ui-panels])
-            #?(:cljs [re-frame.story.ui.open-in-editor  :as ui-open-in-editor])
-            #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
-            #?(:cljs [re-frame.story.sub-overrides       :as sub-overrides])))
+  (:require [re-frame.story.assertions   :as rf.story.assertions]
+            [re-frame.story.frames       :as rf.story.frames]
+            [re-frame.story.fx-stubs     :as rf.story.fx-stubs]
+            [re-frame.story.late-bind    :as rf.story.late-bind]
+            [re-frame.story.layout-debug :as rf.story.layout-debug]
+            [re-frame.story.loaders      :as rf.story.loaders]
+            [re-frame.story.play         :as rf.story.play]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]
+            [re-frame.story.play.substrate-boundary :as rf.story.play.substrate-boundary]
+            [re-frame.story.registrar    :as rf.story.registrar]
+            [re-frame.story.render       :as rf.story.render]
+            [re-frame.story.runtime      :as rf.story.runtime]
+            [re-frame.story.save-variant :as rf.story.save-variant]
+            [re-frame.story.ui.cofx      :as rf.story.ui.cofx]
+            #?(:cljs [re-frame.story.ui.a11y            :as rf.story.ui.a11y])
+            #?(:cljs [re-frame.story.ui.panels          :as rf.story.ui.panels])
+            #?(:cljs [re-frame.story.ui.open-in-editor  :as rf.story.ui.open-in-editor])
+            #?(:cljs [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate])
+            #?(:cljs [re-frame.story.sub-overrides       :as rf.story.sub-overrides])))
 
 (defn- install-late-bind-shims!
   "Wire the late-bound shims so the frames runtime can tap into the
@@ -50,13 +50,13 @@
   ;; `force-fx-stub` redirected is the stub-call log `fx-stubs` owns; the
   ;; assertions module reads it via this hook (it cannot `:require`
   ;; fx-stubs / frames without a cycle).
-  (late-bind/set-fn! :stub-observed-fx-ids fx-stubs/observed-fx-ids)
+  (rf.story.late-bind/set-fn! :stub-observed-fx-ids rf.story.fx-stubs/observed-fx-ids)
   ;; Only the play module's per-frame `pending-exceptions` slot needs
   ;; frame-teardown eviction.
   ;;
   ;; Per-frame destroy must ALSO unregister the play-runner's per-frame
-  ;; trace listener (`play/install-trace-listener!` registered it
-  ;; in `runtime/run-phase-0!`). Dropping only the `pending-exceptions` entry
+  ;; trace listener (`rf.story.play/install-trace-listener!` registered it
+  ;; in `rf.story.runtime/run-phase-0!`). Dropping only the `pending-exceptions` entry
   ;; would leave the listener registered against a destroyed frame:
   ;; `clear-all-play-state!` keys off `pending-exceptions` / `stepper-state`
   ;; (both empty for a torn-down frame), so without this eviction long-running
@@ -64,10 +64,10 @@
   ;; listener closures inspecting every future trace event.
   ;; `remove-trace-listener!` is idempotent, so destroying a frame that never
   ;; installed a listener (or a double-destroy) is harmless.
-  (late-bind/set-fn! :drop-assertion-accumulators
+  (rf.story.late-bind/set-fn! :drop-assertion-accumulators
     (fn [frame-id]
-      (play/drop-pending-exceptions! frame-id)
-      (play/remove-trace-listener! frame-id)))
+      (rf.story.play/drop-pending-exceptions! frame-id)
+      (rf.story.play/remove-trace-listener! frame-id)))
   ;; The play-runner's per-frame run-state (`run-state` / `runs-by-play` /
   ;; `active-play` / `step-boundaries`) is evicted on frame teardown via
   ;; `clear-state!`: without it a destroyed variant frame would leak its
@@ -76,9 +76,9 @@
   ;; run-state. `frames` cannot `:require` `runner-events` (cycle), so the
   ;; eviction routes through this late-bind hook the same way the
   ;; pending-exceptions eviction does.
-  (late-bind/set-fn! :drop-run-state
+  (rf.story.late-bind/set-fn! :drop-run-state
     (fn [frame-id]
-      (runner-events/clear-state! frame-id)))
+      (rf.story.play.runner-events/clear-state! frame-id)))
   ;; The a11y panel's per-frame axe state (`violations-by-frame` /
   ;; `run-state`) is evicted on frame teardown via `drop-frame-state!`
   ;; (rf2-cpbut). This is a MEMORY eviction before it is a correctness one:
@@ -89,15 +89,15 @@
   ;;
   ;; CLJS-only, and registered here rather than at `ui/a11y` load time so the
   ;; hook is re-armed by every `install!` — a fixture that wiped the registry
-  ;; (`late-bind/clear!`) gets it back, which a load-time `defonce` could not
+  ;; (`rf.story.late-bind/clear!`) gets it back, which a load-time `defonce` could not
   ;; give. `frames` cannot `:require` a `.cljs` ns from a `.cljc` one, so the
   ;; teardown call routes through the hook exactly as the two evictions above
   ;; do. The chrome panel (`ui/chrome-a11y`) needs no counterpart: its state
   ;; is a singleton, with no per-frame accumulation to evict.
   #?(:cljs
-     (late-bind/set-fn! :drop-a11y-state
+     (rf.story.late-bind/set-fn! :drop-a11y-state
        (fn [frame-id]
-         (ui-a11y/drop-frame-state! frame-id)))))
+         (rf.story.ui.a11y/drop-frame-state! frame-id)))))
 
 #?(:cljs
    (defn- render-host-scope
@@ -108,7 +108,7 @@
      never touches app-db / `compute-sub`.
 
      The host paints through the SHARED
-     `ui-multi-substrate/render-decorated-view` seam the canvas single-pane
+     `rf.story.ui.multi-substrate/render-decorated-view` seam the canvas single-pane
      path uses, threading the compiled plan's `[:world :decorators]` refs
      (`render-inputs`' `:decorators`, the single-merge-authority output —
      spec/017 §305-306). `render-variant` and the live shell paint the
@@ -129,13 +129,13 @@
      single-pane branch carried, which is why the two agreed with each other.
      The declared set rides the compiled plan at `[:world :substrates]` (folded
      there by `plan/variant-plan`, so it arrives already `:extends`-merged) and
-     `ui-multi-substrate/single-render-substrate` reduces it to the one
+     `rf.story.ui.multi-substrate/single-render-substrate` reduces it to the one
      substrate a single-tree render can paint under. Multi-substrate variants
      that declare `:reagent` are unaffected."
      [{:keys [view frame effective-args sub-overrides decorators plan]}]
-     (sub-overrides/override-provider sub-overrides
-       (ui-multi-substrate/render-decorated-view
-         (ui-multi-substrate/single-render-substrate
+     (rf.story.sub-overrides/override-provider sub-overrides
+       (rf.story.ui.multi-substrate/render-decorated-view
+         (rf.story.ui.multi-substrate/single-render-substrate
            (get-in plan [:world :substrates]) :reagent)
          frame view effective-args decorators))))
 
@@ -160,7 +160,7 @@
      The bare JVM installs NO render host, so `render-variant` returns
      `:cannot-run` there rather than a silent empty render."
      []
-     (render/install-render-host!
+     (rf.story.render/install-render-host!
        (fn [render-inputs]
          [render-host-scope render-inputs]))))
 
@@ -169,28 +169,28 @@
   zero args and is idempotent. The CLJS-only SOTA-feature surfaces
   (multi-substrate Reagent default + the v1.0 panel set) gate on the
   reader so the JVM classpath stays Reagent-free."
-  [registrar/install-canonical-tags!
-   loaders/install!
-   loaders/install-mirror-writer!
-   frames/install-canonical-frame-events!
-   runtime/install-canonical-runtime-events!
-   assertions/install-canonical-assertions!
-   fx-stubs/install-canonical-fx-stubs!
-   save-variant/install-canonical-event-handlers!
+  [rf.story.registrar/install-canonical-tags!
+   rf.story.loaders/install!
+   rf.story.loaders/install-mirror-writer!
+   rf.story.frames/install-canonical-frame-events!
+   rf.story.runtime/install-canonical-runtime-events!
+   rf.story.assertions/install-canonical-assertions!
+   rf.story.fx-stubs/install-canonical-fx-stubs!
+   rf.story.save-variant/install-canonical-event-handlers!
    install-late-bind-shims!
-   layout-debug/install-canonical-layout-debug!
-   ui-cofx/install-canonical-cofx!
+   rf.story.layout-debug/install-canonical-layout-debug!
+   rf.story.ui.cofx/install-canonical-cofx!
    ;; The `:settled-boundary-hooks` producer (rf2-ek9qb). Unconditional
    ;; rather than CLJS-gated: it names no substrate — it reads
    ;; `:flush-render!` off whatever adapter is seated — so it adds nothing
    ;; to the JVM classpath, and on the JVM (no adapter) it resolves to the
    ;; headless hooks the runner already defaulted to. Installing it in both
    ;; readers keeps ONE settle story rather than a CLJS-only one.
-   substrate-boundary/install!
-   #?@(:cljs [ui-multi-substrate/install-reagent-substrate!
+   rf.story.play.substrate-boundary/install!
+   #?@(:cljs [rf.story.ui.multi-substrate/install-reagent-substrate!
               install-render-host!
-              ui-open-in-editor/install!
-              ui-panels/install-canonical-panels!])])
+              rf.story.ui.open-in-editor/install!
+              rf.story.ui.panels/install-canonical-panels!])])
 
 ;; ---- auto-install gate --------------------------------------------------
 ;;
@@ -262,4 +262,4 @@
 ;; registrar consults this hook from each `reg-*!` runtime helper —
 ;; see `re-frame.story.registrar/maybe-auto-install!`. Late-bound to
 ;; avoid a circular require (registrar → canonical → registrar).
-(late-bind/set-fn! :ensure-canonical-installed ensure-installed!)
+(rf.story.late-bind/set-fn! :ensure-canonical-installed ensure-installed!)

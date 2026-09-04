@@ -23,19 +23,19 @@
 
   ## Elision
 
-  Every public fn opens with `(when config/enabled? ...)` so production
+  Every public fn opens with `(when rf.story.config/enabled? ...)` so production
   CLJS builds short-circuit before any DOM call. The UI-callback wiring
   via `install!` is the only impure registration the ns owns; idempotent
   on re-mount."
   (:require [reagent.core :as r]
-            [re-frame.story.config        :as config]
-            [re-frame.story.review-dialog :as review-dialog]
-            [re-frame.story.save-variant  :as save-variant]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.config        :as rf.story.config]
+            [re-frame.story.review-dialog :as rf.story.review-dialog]
+            [re-frame.story.save-variant  :as rf.story.save-variant]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---------------------------------------------------------------------------
-;; Dialog ratom — the impure mirror of `review-dialog/initial-state`.
+;; Dialog ratom — the impure mirror of `rf.story.review-dialog/initial-state`.
 ;;
 ;; The pure transitions in `re-frame.story.review-dialog` +
 ;; `re-frame.story.save-variant` produce new state maps; the UI swaps
@@ -44,7 +44,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defonce ui-dialog
-  (r/atom review-dialog/initial-state))
+  (r/atom rf.story.review-dialog/initial-state))
 
 (defn- open-dialog!
   "Open the dialog against `source-variant-id` with the captured
@@ -55,7 +55,7 @@
   nil/empty (no schema registered, or all args conform).
 
   `slices` is the eight-slice capture report from
-  `save-variant/capture-slices` — the dialog renders its honesty-floor
+  `rf.story.save-variant/capture-slices` — the dialog renders its honesty-floor
   warnings (which slices are captured-as-declared / not-yet-projectable)
   so a saved variant is honest about what it does and does NOT capture.
   May be nil (legacy 3/4-arity callers)."
@@ -64,18 +64,18 @@
   ([source-variant-id args-snapshot now-ms violations]
    (open-dialog! source-variant-id args-snapshot now-ms violations nil))
   ([source-variant-id args-snapshot now-ms violations slices]
-   (swap! ui-dialog save-variant/open
+   (swap! ui-dialog rf.story.save-variant/open
           source-variant-id args-snapshot now-ms violations slices)))
 
 (defn- close-dialog! []
-  (swap! ui-dialog save-variant/close))
+  (swap! ui-dialog rf.story.save-variant/close))
 
 (defn- set-draft-id! [s]
-  (review-dialog/swap-parse-and-set-draft-id! ui-dialog s))
+  (rf.story.review-dialog/swap-parse-and-set-draft-id! ui-dialog s))
 
 ;; ---------------------------------------------------------------------------
 ;; Install — register the CLJS open-callback against the pure ns so
-;; `save-variant/save-current-as-variant!` can drive the dialog without
+;; `rf.story.save-variant/save-current-as-variant!` can drive the dialog without
 ;; coupling the .cljc helper to Reagent / DOM. Idempotent.
 ;; ---------------------------------------------------------------------------
 
@@ -83,8 +83,8 @@
   "Register the dialog-open callback against the pure ns. Called once at
   shell mount; idempotent."
   []
-  (when config/enabled?
-    (save-variant/set-open-dialog-fn! open-dialog!)
+  (when rf.story.config/enabled?
+    (rf.story.save-variant/set-open-dialog-fn! open-dialog!)
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -96,21 +96,21 @@
 
 (def ^:private button-styles
   {:button          {:padding       "4px 8px"
-                     :background    (:accent-amber colors/tokens)
+                     :background    (:accent-amber rf.story.theme.colors/tokens)
                      :color         "white"
                      :border        "none"
                      :border-radius "3px"
                      :cursor        "pointer"
-                     :font-size     (:micro typography/type-scale)
+                     :font-size     (:micro rf.story.theme.typography/type-scale)
                      :margin-top    "8px"
                      :font-family   mono-stack}
    :button-disabled {:padding       "4px 8px"
-                     :background    (:bg-2 colors/tokens)
+                     :background    (:bg-2 rf.story.theme.colors/tokens)
                      :color         "#777"
                      :border        "1px solid #444"
                      :border-radius "3px"
                      :cursor        "not-allowed"
-                     :font-size     (:micro typography/type-scale)
+                     :font-size     (:micro rf.story.theme.typography/type-scale)
                      :margin-top    "8px"
                      :font-family   mono-stack}})
 
@@ -142,7 +142,7 @@
                    "Select a variant to capture its current state")
       :on-click  (fn [_]
                    (when enabled?
-                     (save-variant/save-current-as-variant!
+                     (rf.story.save-variant/save-current-as-variant!
                        {:variant-id variant-id})))}
      "save as new variant…"]))
 
@@ -169,7 +169,7 @@
                    :border "1px solid #a06030"
                    :border-radius "3px"
                    :font-family mono-stack
-                   :font-size (:micro typography/type-scale)
+                   :font-size (:micro rf.story.theme.typography/type-scale)
                    :line-height "1.5"}}
      [:div {:style {:font-weight "bold" :margin-bottom "4px"}}
       "Args do not match the variant's Spec 010 schema — preview below; "
@@ -190,7 +190,7 @@
 ;; slices it can represent losslessly and which it cannot: "if the
 ;; current state contains data that cannot be represented losslessly yet,
 ;; the UI MUST say what will be omitted". The pure
-;; `save-variant/capture-slices` classifies every slice; this component
+;; `rf.story.save-variant/capture-slices` classifies every slice; this component
 ;; renders the warnings (every slice that is NOT a clean live projection)
 ;; so the user knows, BEFORE pasting, that a saved variant captures args
 ;; live, carries declared slices forward via `:extends`, and does NOT yet
@@ -211,7 +211,7 @@
   — with its honest note. Returns nil when every slice projects cleanly
   (nothing to warn about). Public so tests can render it directly."
   [slices]
-  (let [warnings (save-variant/slice-warnings slices)]
+  (let [warnings (rf.story.save-variant/slice-warnings slices)]
     (when (seq warnings)
       [:div {:data-test "story-save-variant-slice-report"
              :data-warning-count (count warnings)
@@ -222,7 +222,7 @@
                      :border "1px solid #3a3a44"
                      :border-radius "3px"
                      :font-family mono-stack
-                     :font-size (:micro typography/type-scale)
+                     :font-size (:micro rf.story.theme.typography/type-scale)
                      :line-height "1.5"}}
        [:div {:style {:font-weight "bold" :margin-bottom "6px"}}
         "What this save captures — and what it does not"]
@@ -272,11 +272,11 @@
   (let [dialog @ui-dialog]
     (when (:open? dialog)
       (let [{:keys [draft-id source-id args violations slices]} dialog
-            snippet (save-variant/gen-variant-snippet
+            snippet (rf.story.save-variant/gen-variant-snippet
                       {:variant-id (or draft-id :story.saved/example)
                        :extends    source-id
                        :args       args})]
-        (review-dialog/review-dialog dialog
+        (rf.story.review-dialog/review-dialog dialog
           {:title             "Save current canvas state as new variant"
            :hint              [:div
                                [:div (str "Args snapshot captured from "
@@ -289,6 +289,6 @@
            :placeholder-id    :story.saved/example
            :placeholder-input ":story.your-story/saved-flow"
            :on-edit-id        set-draft-id!
-           :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
+           :on-copy           (fn [] (rf.story.review-dialog/copy-to-clipboard! snippet))
            :on-close          close-dialog!
            :data-test-prefix  "story-save-variant"})))))

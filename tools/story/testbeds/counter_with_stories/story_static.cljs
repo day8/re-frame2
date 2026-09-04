@@ -24,8 +24,8 @@
   point at their own stories ns, and re-run."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.story :as story]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.story :as rf.story]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Source the stories ns so all `reg-*` calls fire on namespace
             ;; load. The variant bodies reference views / events / subs by
             ;; id; the stories ns transitively requires them.
@@ -36,8 +36,8 @@
   doesn't happen under `release` builds, but the path is correct under
   `compile` too)."
   []
-  (rf/init! reagent-adapter/adapter)
-  ;; No explicit `(story/install-canonical-vocabulary!)` call — the
+  (rf/init! rf.adapter.reagent/adapter)
+  ;; No explicit `(rf.story/install-canonical-vocabulary!)` call — the
   ;; `:require [counter-with-stories.stories]` above already loaded the
   ;; stories ns, whose first `reg-*` call auto-installed the canonical
   ;; vocabulary.
@@ -54,7 +54,7 @@
   ;; downstream "published site that links back into the author's editor"
   ;; opts in explicitly via `config/set-allow-static-project-root!` +
   ;; passing a root; this canonical export does not.
-  (story/configure! {:rf.story/global-args {:locale :en}})
+  (rf.story/configure! {:rf.story/global-args {:locale :en}})
   ;; NO shell-level `(rf/dispatch-sync [:counter/initialise 5])` here.
   ;; A bare global dispatch carries no frame context, and per EP-0002 the
   ;; runtime never synthesises a `:rf/default` frame — so the router would
@@ -67,4 +67,4 @@
   ;; contexts; the static shell holds no app-db of its own to seed.
   ;; Mount the Story shell directly onto `#app`. No hash routing — this
   ;; ns is the static-export entry only, the SPA lives in core.cljs.
-  (story/mount-shell! (js/document.getElementById "app")))
+  (rf.story/mount-shell! (js/document.getElementById "app")))

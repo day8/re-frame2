@@ -43,8 +43,8 @@
   flipped off because nothing reachable from a `:advanced` build root
   calls `install-canonical-layout-debug!`."
   (:require [clojure.string           :as str]
-            [re-frame.story.config    :as config]
-            [re-frame.story.registrar :as registrar]))
+            [re-frame.story.config    :as rf.story.config]
+            [re-frame.story.registrar :as rf.story.registrar]))
 
 ;; ---- decorator ids -------------------------------------------------------
 
@@ -209,23 +209,23 @@
   fn-valued slot Story permits at the decorator's registration site
   (per `001-Authoring.md` §Registration macros).
 
-  Production builds (`config/enabled?` false) skip registration — the
+  Production builds (`rf.story.config/enabled?` false) skip registration — the
   decorator bodies never enter the registrar. Per `005-SOTA-Features.md` §Production elision under `:advanced` the
   Story registrar itself is DCE'd under `:advanced` with `enabled?`
   off, so this gate is belt-and-braces."
   []
-  (when config/enabled?
-    (registrar/reg-decorator*
+  (when rf.story.config/enabled?
+    (rf.story.registrar/reg-decorator*
       id-measure
       {:doc  "Storybook-style hover rulers + box-dimension labels."
        :kind :hiccup
        :wrap measure-wrap})
-    (registrar/reg-decorator*
+    (rf.story.registrar/reg-decorator*
       id-outline
       {:doc  "Pesticide-style coloured outlines on every descendant."
        :kind :hiccup
        :wrap outline-wrap})
-    (registrar/reg-decorator*
+    (rf.story.registrar/reg-decorator*
       id-pseudo
       {:doc  (str "Pseudo-state forcing — ref-args is a set from "
                   "#{:hover :focus :active :visited}; default #{:hover}.")

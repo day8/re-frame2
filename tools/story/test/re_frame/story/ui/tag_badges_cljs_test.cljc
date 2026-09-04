@@ -16,16 +16,16 @@
     `:tags` renders no badge container at all; a variant with tags
     contributes badges into its sidebar row."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story :as story]
-            [re-frame.story.ui.state :as state]
-            #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]])))
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            #?@(:cljs [[re-frame.story.ui.sidebar :as rf.story.ui.sidebar]])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!))
+  (rf.story/clear-all!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!))
 
 (use-fixtures :each (fn [t] (reset-all!) (t)))
 
@@ -34,30 +34,30 @@
 #?(:cljs
    (deftest tag-badge-style-mapping-canonical-seven
      (testing "each of the seven canonical tags maps to its own style key"
-       (is (= :tag-badge-dev          (sidebar/tag->badge-style-key :dev)))
-       (is (= :tag-badge-docs         (sidebar/tag->badge-style-key :docs)))
-       (is (= :tag-badge-test         (sidebar/tag->badge-style-key :test)))
-       (is (= :tag-badge-screenshot   (sidebar/tag->badge-style-key :screenshot)))
-       (is (= :tag-badge-experimental (sidebar/tag->badge-style-key :experimental)))
-       (is (= :tag-badge-internal     (sidebar/tag->badge-style-key :internal)))
-       (is (= :tag-badge-agent        (sidebar/tag->badge-style-key :agent))))))
+       (is (= :tag-badge-dev          (rf.story.ui.sidebar/tag->badge-style-key :dev)))
+       (is (= :tag-badge-docs         (rf.story.ui.sidebar/tag->badge-style-key :docs)))
+       (is (= :tag-badge-test         (rf.story.ui.sidebar/tag->badge-style-key :test)))
+       (is (= :tag-badge-screenshot   (rf.story.ui.sidebar/tag->badge-style-key :screenshot)))
+       (is (= :tag-badge-experimental (rf.story.ui.sidebar/tag->badge-style-key :experimental)))
+       (is (= :tag-badge-internal     (rf.story.ui.sidebar/tag->badge-style-key :internal)))
+       (is (= :tag-badge-agent        (rf.story.ui.sidebar/tag->badge-style-key :agent))))))
 
 #?(:cljs
    (deftest tag-badge-style-mapping-unknown-tag-falls-through
      (testing "an unknown tag returns nil — the renderer merges nil into
                the base `:tag-badge` style, yielding the neutral grey pill"
-       (is (nil? (sidebar/tag->badge-style-key :wip)))
-       (is (nil? (sidebar/tag->badge-style-key :review)))
-       (is (nil? (sidebar/tag->badge-style-key :prod))))))
+       (is (nil? (rf.story.ui.sidebar/tag->badge-style-key :wip)))
+       (is (nil? (rf.story.ui.sidebar/tag->badge-style-key :review)))
+       (is (nil? (rf.story.ui.sidebar/tag->badge-style-key :prod))))))
 
 ;; ---- pure: sorted-tags ordering -----------------------------------------
 
 #?(:cljs
    (deftest sorted-tags-stable-name-order
      (testing "tags sort by name so the rendered row is stable across runs"
-       (is (= [:agent :dev :docs] (sidebar/sorted-tags #{:docs :agent :dev})))
-       (is (= []                  (sidebar/sorted-tags nil)))
-       (is (= []                  (sidebar/sorted-tags #{}))))))
+       (is (= [:agent :dev :docs] (rf.story.ui.sidebar/sorted-tags #{:docs :agent :dev})))
+       (is (= []                  (rf.story.ui.sidebar/sorted-tags nil)))
+       (is (= []                  (rf.story.ui.sidebar/sorted-tags #{}))))))
 
 ;; ---- CLJS-only: rendered hiccup -----------------------------------------
 
@@ -90,7 +90,7 @@
    (deftest tag-badges-renders-one-pill-per-tag
      (testing "a variant with three tags renders one `.tag-badge` per tag,
                ordered by `name` so visual scanning is stable"
-       (let [tree    (sidebar/tag-badges #{:docs :dev :test})
+       (let [tree    (rf.story.ui.sidebar/tag-badges #{:docs :dev :test})
              badges  (find-by-data-test tree "story-sidebar-tag-badge")
              tag-attrs (map #(get (second %) :data-tag) badges)]
          (is (= 3 (count badges)))
@@ -100,14 +100,14 @@
    (deftest tag-badges-renders-nothing-when-no-tags
      (testing "no `:tags` → `tag-badges` returns nil so the row layout
                doesn't carry an empty container"
-       (is (nil? (sidebar/tag-badges nil)))
-       (is (nil? (sidebar/tag-badges #{}))))))
+       (is (nil? (rf.story.ui.sidebar/tag-badges nil)))
+       (is (nil? (rf.story.ui.sidebar/tag-badges #{}))))))
 
 #?(:cljs
    (deftest tag-badges-unknown-tag-renders-neutral-pill
      (testing "an unknown tag renders as a pill — colour comes from the
                base `:tag-badge` style with no palette override"
-       (let [tree    (sidebar/tag-badges #{:wip})
+       (let [tree    (rf.story.ui.sidebar/tag-badges #{:wip})
              badges  (find-by-data-test tree "story-sidebar-tag-badge")]
          (is (= 1 (count badges)))
          (is (= "wip" (get (second (first badges)) :data-tag)))))))
@@ -117,7 +117,7 @@
      (testing "a variant with a mix of canonical and unknown tags renders
                every tag as a badge, in `name`-sorted order. Mirrors the
                sidebar's row-level integration without booting Reagent."
-       (let [tree    (sidebar/tag-badges #{:wip :dev :test})
+       (let [tree    (rf.story.ui.sidebar/tag-badges #{:wip :dev :test})
              badges  (find-by-data-test tree "story-sidebar-tag-badge")
              attrs   (map #(get (second %) :data-tag) badges)
              container (first (find-by-data-test tree "story-sidebar-tag-badges"))]

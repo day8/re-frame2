@@ -49,15 +49,15 @@
   with `install-canonical-vocabulary!` (the canonical seven tags +
   the lifecycle machine)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story            :as story]
-            [re-frame.story.registrar  :as registrar]
-            [re-frame.story.schemas    :as schemas]))
+            [re-frame.story            :as rf.story]
+            [re-frame.story.registrar  :as rf.story.registrar]
+            [re-frame.story.schemas    :as rf.story.schemas]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-story-registry [t]
-  (story/clear-all!)
-  (story/install-canonical-vocabulary!)
+  (rf.story/clear-all!)
+  (rf.story/install-canonical-vocabulary!)
   (t))
 
 (use-fixtures :each reset-story-registry)
@@ -111,18 +111,18 @@
             tools then call registrations / handler-meta / variants-of /
             variant->edn. All four read surfaces must surface the new
             variant immediately"
-    (story/reg-story :story.mcp.boundary {:doc "boundary fixture"})
-    (story/reg-variant* :story.mcp.boundary/probe
+    (rf.story/reg-story :story.mcp.boundary {:doc "boundary fixture"})
+    (rf.story/reg-variant* :story.mcp.boundary/probe
       {:doc    "probe variant"
        :setup [[:probe/init]]
        :args   {:n 7}
        :tags   #{:dev}})
-    (is (story/registered? :variant :story.mcp.boundary/probe))
+    (is (rf.story/registered? :variant :story.mcp.boundary/probe))
     (is (= "probe variant"
-           (:doc (story/handler-meta :variant :story.mcp.boundary/probe))))
+           (:doc (rf.story/handler-meta :variant :story.mcp.boundary/probe))))
     (is (= #{:story.mcp.boundary/probe}
-           (story/variants-of :story.mcp.boundary)))
-    (let [edn (story/variant->edn :story.mcp.boundary/probe)]
+           (rf.story/variants-of :story.mcp.boundary)))
+    (let [edn (rf.story/variant->edn :story.mcp.boundary/probe)]
       (is (= [[:probe/init]] (:setup edn)))
       (is (= {:n 7} (:args edn))))))
 
@@ -132,23 +132,23 @@
             body when the agent wants source-coords preserved (per
             spec/006 — the MCP write path is programmatic, no &form
             meta is available)"
-    (story/reg-variant* :story.mcp.no-source/probe
+    (rf.story/reg-variant* :story.mcp.no-source/probe
       {:setup []})
-    (let [body (story/handler-meta :variant :story.mcp.no-source/probe)]
+    (let [body (rf.story/handler-meta :variant :story.mcp.no-source/probe)]
       (is (not (contains? body :source))
           "no auto-source-stamp when called programmatically — keeps
            the slot available for MCP-supplied source coords"))))
 
 (deftest reg-variant-star-preserves-mcp-supplied-source
   (testing "an MCP-supplied :source slot survives the registrar's merge.
-            Per registrar/merge-coords the *pending-coords* path is
+            Per rf.story.registrar/merge-coords the *pending-coords* path is
             additive — author-supplied :source wins; the dynamic Var is
             nil under programmatic registration so this case reduces to
             'whatever the caller wrote wins'"
-    (story/reg-variant* :story.mcp.src-bring/probe
+    (rf.story/reg-variant* :story.mcp.src-bring/probe
       {:setup []
        :source {:file "agent-supplied.cljs" :line 42}})
-    (let [body (story/handler-meta :variant :story.mcp.src-bring/probe)]
+    (let [body (rf.story/handler-meta :variant :story.mcp.src-bring/probe)]
       (is (= {:file "agent-supplied.cljs" :line 42}
              (:source body))))))
 
@@ -159,33 +159,33 @@
 (deftest unregister-removes-from-read-surface
   (testing "MCP's unregister-variant tool routes through (unregister!
             :variant id) — after which the read surface no longer surfaces it"
-    (story/reg-variant :story.mcp.unreg/probe {:setup []})
-    (is (story/registered? :variant :story.mcp.unreg/probe))
-    (registrar/unregister! :variant :story.mcp.unreg/probe)
-    (is (not (story/registered? :variant :story.mcp.unreg/probe))
+    (rf.story/reg-variant :story.mcp.unreg/probe {:setup []})
+    (is (rf.story/registered? :variant :story.mcp.unreg/probe))
+    (rf.story.registrar/unregister! :variant :story.mcp.unreg/probe)
+    (is (not (rf.story/registered? :variant :story.mcp.unreg/probe))
         "the variant is gone after unregister!")
-    (is (not (contains? (story/variants-of :story.mcp.unreg) :story.mcp.unreg/probe)))
-    (is (nil? (story/handler-meta :variant :story.mcp.unreg/probe)))))
+    (is (not (contains? (rf.story/variants-of :story.mcp.unreg) :story.mcp.unreg/probe)))
+    (is (nil? (rf.story/handler-meta :variant :story.mcp.unreg/probe)))))
 
 (deftest clear-kind-leaves-siblings-untouched
   (testing "clear-kind! :variant clears all variants but leaves modes,
             workspaces, and tags untouched — the contract MCP needs for
             a 'clear all variants' tool that doesn't nuke the rest of
             the registry"
-    (story/reg-variant :story.kindA/v {:setup []})
-    (story/reg-variant :story.kindB/w {:setup []})
-    (story/reg-mode :Mode.theme/dark {:args {:theme :dark}})
-    (story/reg-workspace :Workspace.kind/grid
+    (rf.story/reg-variant :story.kindA/v {:setup []})
+    (rf.story/reg-variant :story.kindB/w {:setup []})
+    (rf.story/reg-mode :Mode.theme/dark {:args {:theme :dark}})
+    (rf.story/reg-workspace :Workspace.kind/grid
       {:layout :variants-grid})
-    (registrar/clear-kind! :variant)
-    (is (empty? (story/ids :variant))
+    (rf.story.registrar/clear-kind! :variant)
+    (is (empty? (rf.story/ids :variant))
         "all variants cleared")
-    (is (contains? (story/list-modes) :Mode.theme/dark)
+    (is (contains? (rf.story/list-modes) :Mode.theme/dark)
         "modes survive")
-    (is (story/registered? :workspace :Workspace.kind/grid)
+    (is (rf.story/registered? :workspace :Workspace.kind/grid)
         "workspaces survive")
-    (is (= (into schemas/canonical-tags schemas/canonical-state-tags)
-           (story/list-tags))
+    (is (= (into rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)
+           (rf.story/list-tags))
         "canonical inclusion + :state/* magnitude tags survive")))
 
 ;; ===========================================================================
@@ -207,21 +207,21 @@
   (testing "registering a panel under an id, then re-registering under
             the same id, replaces the slot — this is the late-bind
             contract Xray's epoch-view depends on"
-    (story/reg-story-panel :rf.story/xray-epoch
+    (rf.story/reg-story-panel :rf.story/xray-epoch
       {:doc       "Story-shipped stub"
        :title     "Epochs (stub)"
        :placement :bottom
        :render    :rf.story.stubs/xray-epoch-stub})
-    (let [stub-body (story/handler-meta :story-panel :rf.story/xray-epoch)]
+    (let [stub-body (rf.story/handler-meta :story-panel :rf.story/xray-epoch)]
       (is (= "Epochs (stub)" (:title stub-body)))
       (is (= :rf.story.stubs/xray-epoch-stub (:render stub-body))))
     ;; Now Xray ships its real view — register under the same id.
-    (story/reg-story-panel :rf.story/xray-epoch
+    (rf.story/reg-story-panel :rf.story/xray-epoch
       {:doc       "Xray-shipped real view"
        :title     "Epochs (Xray)"
        :placement :bottom
        :render    :day8.re-frame2-xray.panels.time-travel/Panel})
-    (let [real-body (story/handler-meta :story-panel :rf.story/xray-epoch)]
+    (let [real-body (rf.story/handler-meta :story-panel :rf.story/xray-epoch)]
       (is (= "Epochs (Xray)" (:title real-body)))
       (is (= :day8.re-frame2-xray.panels.time-travel/Panel
              (:render real-body))
@@ -234,16 +234,16 @@
             placements fail the malli schema with :rf.error/story-panel-shape"
     (doseq [placement [:right :left :bottom :top :modal]]
       (let [pid (keyword "rf.story.test" (str "panel-" (name placement)))]
-        (story/reg-story-panel pid
+        (rf.story/reg-story-panel pid
           {:title     (str "panel " (name placement))
            :placement placement
            :render    :some/view})
         (is (= placement
-               (:placement (story/handler-meta :story-panel pid))))))
+               (:placement (rf.story/handler-meta :story-panel pid))))))
     (testing "an off-vocab placement is rejected"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf\.error/story-panel-shape"
-                            (story/reg-story-panel :rf.story.test/bad-placement
+                            (rf.story/reg-story-panel :rf.story.test/bad-placement
                               {:title     "bad"
                                :placement :nowhere
                                :render    :x/y}))))))
@@ -258,25 +258,25 @@
             Per spec/006 §Story's public read primitives this mirrors
             spec/001's `re-frame.registrar/registrations` — the shape MCP read
             tools rely on for registry walks"
-    (story/reg-story :story.handlers {:doc "h-fixture"})
-    (story/reg-variant :story.handlers/a {:setup [[:init-a]]})
-    (story/reg-variant :story.handlers/b {:setup [[:init-b]]})
-    (let [variants (story/registrations :variant)]
+    (rf.story/reg-story :story.handlers {:doc "h-fixture"})
+    (rf.story/reg-variant :story.handlers/a {:setup [[:init-a]]})
+    (rf.story/reg-variant :story.handlers/b {:setup [[:init-b]]})
+    (let [variants (rf.story/registrations :variant)]
       (is (map? variants) "registrations returns a {id → body} map")
       (is (= #{:story.handlers/a :story.handlers/b} (set (keys variants))))
       (is (every? map? (vals variants))
           "every body is a map"))
-    (let [tags (story/registrations :tag)]
-      (is (= (+ (count schemas/canonical-tags)
-                (count schemas/canonical-state-tags))
+    (let [tags (rf.story/registrations :tag)]
+      (is (= (+ (count rf.story.schemas/canonical-tags)
+                (count rf.story.schemas/canonical-state-tags))
              (count tags))
           "the canonical seven inclusion + five :state/* magnitude tags surface via registrations"))))
 
 (deftest ids-returns-the-id-set-per-kind
   (testing "(ids :kind) returns the set of registered ids for that kind"
-    (story/reg-story   :story.ids {:doc "ids fixture"})
-    (story/reg-variant :story.ids/a {:setup []})
-    (story/reg-variant :story.ids/b {:setup []})
-    (is (= #{:story.ids/a :story.ids/b} (story/ids :variant)))
-    (is (contains? (story/ids :tag) :dev)
+    (rf.story/reg-story   :story.ids {:doc "ids fixture"})
+    (rf.story/reg-variant :story.ids/a {:setup []})
+    (rf.story/reg-variant :story.ids/b {:setup []})
+    (is (= #{:story.ids/a :story.ids/b} (rf.story/ids :variant)))
+    (is (contains? (rf.story/ids :tag) :dev)
         "the canonical :dev tag id is in the tag id-set")))
