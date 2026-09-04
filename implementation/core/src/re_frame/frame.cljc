@@ -3971,7 +3971,13 @@
   hook per snapshot key and emit `:rf.machine.lifecycle/destroyed`
   with `:reason :parent-frame-destroyed`. Without the machines
   artefact there are no live `:exit` cascades to run, no actor
-  handlers to unregister, and no system-id reverse index to release."
+  handlers to unregister, and no system-id reverse index to release.
+
+  rf2-wjfm — the fallback's abort is FRAME-EXACT. An actor address is
+  frame-LOCAL (Spec 014 §Abort on actor destroy §Frame scope), so the hook
+  is called with the frame being destroyed as well as the address; its
+  frame-less ANY-FRAME arity would sweep that address in every frame and
+  abort a sibling frame's live requests."
   [id]
   (if-let [teardown! (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
     (teardown! id)
@@ -3983,7 +3989,9 @@
           abort-http (rf.late-bind/get-fn :http/abort-on-actor-destroy)]
       (doseq [[machine-id snapshot] machines]
         (when abort-http
-          (try (abort-http machine-id)
+          ;; rf2-wjfm — `id` is the frame under destruction; passing it
+          ;; selects the hook's frame-scoped arity.
+          (try (abort-http id machine-id)
                (catch #?(:clj Throwable :cljs :default) _ nil)))
         (rf.trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
                      {:frame      id

@@ -203,10 +203,15 @@
     (let [aborted (atom [])
           ;; Install the hook explicitly. `re-frame.http.managed`
           ;; isn't loaded in this leaf-artefact's classpath, so we
-          ;; register the hook directly to stand in for it.
+          ;; register the hook directly to stand in for it. rf2-wjfm — the
+          ;; cascade calls the hook's FRAME-BEARING arity, so the stub records
+          ;; the pair and the assertion below pins the frame as well as the
+          ;; address. `abort-actor-in-flight-http!` swallows any throw from the
+          ;; hook, so a 1-arg stub here would not error — it would silently
+          ;; record nothing.
           _ (rf.late-bind/set-fn!
               :http/abort-on-actor-destroy
-              (fn [actor-id] (swap! aborted conj actor-id)))
+              (fn [frame-id actor-id] (swap! aborted conj [frame-id actor-id])))
           child  {:initial :running :data {} :states {:running {}}}
           boot   {:initial :idle
                   :data    {}
@@ -222,8 +227,11 @@
       (rf/reg-machine :ha/boot boot)
       (rf/dispatch-sync [:ha/boot [:go]] {:frame :ha/auth})
       (rf/destroy-frame! :ha/auth)
-      (is (= #{:ha/child#1 :ha/child#2 :ha/boot} (set @aborted))
-          "the abort hook fired once per active actor — spawned plus singleton"))))
+      (is (= #{[:ha/auth :ha/child#1] [:ha/auth :ha/child#2] [:ha/auth :ha/boot]}
+             (set @aborted))
+          "the abort hook fired once per active actor — spawned plus singleton —
+           and each call carried the DESTROYING FRAME (rf2-wjfm), so the http
+           registry narrows the sweep to this frame's slot"))))
 
 ;; ---- multiple frames isolated -------------------------------------------
 
