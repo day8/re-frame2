@@ -322,7 +322,7 @@
                 ;; hydrates into a working SPA. A post-render recovered-to-nil
                 ;; 5xx is caught inside `build-full-response`.
                 :else
-                (pipeline/build-full-response frame-id response opts)))
+                (pipeline/build-full-response frame-id opts)))
             (catch Throwable t
               ;; A failing caller hook falls back to the locked response.
               (lifecycle/safe-on-error on-error request t))

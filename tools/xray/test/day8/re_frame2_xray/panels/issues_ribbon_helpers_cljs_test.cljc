@@ -26,8 +26,7 @@
        (rf2-ad7zx.9 — pure rows per the Figma design).
     7. **resolve-focus-status / find-epoch-record** — focus + history
        resolver.
-    8. **epoch-has-issues?** — issue-bearing epoch predicate.
-    9. **format-time** — renders a stable HH:MM:SS.mmm string."
+    8. **format-time** — renders a stable HH:MM:SS.mmm string."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as h]
@@ -435,24 +434,6 @@
       (is (= 4 (:total feed)))
       (is (= 4 (:rendered feed)))
       (is (= #{1 2 3 4} (set (map :id (:issues feed))))))))
-
-;; ---- (9) issue-bearing epoch predicate -----------------------------
-
-(deftest epoch-has-issues?-empty-record
-  (is (false? (h/epoch-has-issues? nil)))
-  (is (false? (h/epoch-has-issues? {})))
-  (is (false? (h/epoch-has-issues? (epoch-record 1 [])))))
-
-(deftest epoch-has-issues?-only-non-issues
-  (is (false? (h/epoch-has-issues?
-                (epoch-record 1 [(non-issue-ev 1) (non-issue-ev 2)])))))
-
-(deftest epoch-has-issues?-with-issue
-  (is (true? (h/epoch-has-issues?
-               (epoch-record 1 [(non-issue-ev 1)
-                                (warning-ev 2 :rf.warning/recoverable)]))))
-  (is (true? (h/epoch-has-issues?
-               (epoch-record 1 [(error-ev 1 :rf.error/handler-exception)])))))
 
 ;; ---- (10) format-time ---------------------------------------------
 

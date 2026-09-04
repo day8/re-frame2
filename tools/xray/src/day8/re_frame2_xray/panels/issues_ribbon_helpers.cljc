@@ -381,22 +381,6 @@
      :epoch-id   (:epoch-id epoch-record)
      :empty-kind empty-kind}))
 
-;; ---- issue-bearing epoch predicate --------------------------------------
-
-(defn epoch-has-issues?
-  "True iff `epoch-record`'s `:trace-events` carry at least one issue
-  (any severity). Pure data → bool; JVM-testable.
-
-  Written for the film-strip header's `:filter-fn` slot (spec/021 §8.5
-  stretch — 'next epoch with ⚠'). That header was removed unmounted by
-  rf2-6r9j.16: spine navigation is the L2 events list's, not any L4
-  panel's. The predicate survives as pure, test-covered algebra with no
-  current caller — wire it to a real surface or retire it, but do not
-  read it as evidence that a per-panel epoch filter exists."
-  [epoch-record]
-  (boolean
-    (some issue-event?
-          (or (:trace-events epoch-record) []))))
 
 ;; ---- focus-status resolver ----------------------------------------------
 ;;

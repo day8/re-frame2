@@ -592,7 +592,7 @@
   Body render, head, and hydration projection share one frame scope. This
   is required for registered lookups and frame-sensitive egress
   classification."
-  [frame-id resp
+  [frame-id
    {:keys [renderer emit-hash? version schema-digest payload
            html-shell content-type client-frame-id]
     :as   opts}]
@@ -776,9 +776,9 @@
   Content-Type negotiator, or a re-throw from the projector pipeline
   itself when no server frame is registered). Those use the fixed, no-detail
   transport fallback."
-  [frame-id resp opts]
+  [frame-id opts]
   (try
-    (build-full-response* frame-id resp opts)
+    (build-full-response* frame-id opts)
     (catch Throwable t
       ;; The projector stamps :status onto the response accumulator and
       ;; the projected (fail-closed, non-200) error body is materialised

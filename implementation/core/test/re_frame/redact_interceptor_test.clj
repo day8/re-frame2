@@ -316,7 +316,7 @@
     ;; reference it twice with different `[id arg]` args. The factory returns a
     ;; `redact-interceptor` value whose `:id` is already `:rf/redact-interceptor`
     ;; (matching the registration id the resolver re-stamps), so the router's
-    ;; `redact-interceptor?` recognition (`:id = :rf/redact-interceptor`) and the
+    ;; `collect-redaction-paths` recognition (`:id = :rf/redact-interceptor`) and the
     ;; per-value `:paths` both survive resolution — the union is scrubbed.
     (rf/reg-interceptor :rf/redact-interceptor
       {:factory (fn [paths] (rf.privacy/redact-interceptor paths))})

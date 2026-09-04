@@ -271,9 +271,6 @@
 ;; into a small flag map and the renderer reads the flags — cheaper
 ;; than walking the slot per badge and more testable.
 
-(defn- str-of [x]
-  (when (some? x) (str x)))
-
 (defn- op-namespace
   "Return the namespace string of a keyword `:operation` value, or nil
   when the operation is not a keyword. Defence-in-depth — synthetic

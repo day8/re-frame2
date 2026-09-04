@@ -150,17 +150,6 @@
    :padding          "4px 8px"
    :border-radius    "3px"})
 
-(defn- primary-button-style []
-  {:background       (:accent tokens)
-   :color            (:white tokens)
-   :border           "none"
-   :padding          "6px 14px"
-   :border-radius    "4px"
-   :cursor           "pointer"
-   :font-family      sans-stack
-   :font-size        (:body type-scale)
-   :font-weight      500})
-
 ;; ---- tab strip ----------------------------------------------------------
 
 (def ^:private tabs
