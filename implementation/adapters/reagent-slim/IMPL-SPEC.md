@@ -937,10 +937,9 @@ Lift the existing implementation from `re-frame.ssr.html-helpers/escape-html` �
   (when (seq attrs)
     (doseq [[k v] attrs]
       (cond
-        (= :style k)        (emit-style-attr sb v)
-        (true? v)           (do (.append sb " ") (.append sb (name k)))
-        (false? v)          nil           ; boolean false → omit
         (nil? v)            nil           ; nil → omit
+        (= :style k)        (emit-style-attr sb v)
+        (boolean? v)        (emit-boolean-attribute sb k v)  ; §8.4's three classes
         :else               (let [s (-> v
                                         (cond-> (named? v) name)  ; narrowed; HTML-attr names only here
                                         (str)
@@ -966,14 +965,25 @@ These rules are pinned by `parity_cljs_test.cljs` against `react-dom/server` (nu
 
 ### §8.4 Boolean attributes + void-tag handling
 
-Boolean attributes (`disabled`, `checked`, `selected`, `readOnly`, `required`, etc.): if `true`, emit just the name (HTML5 short form). If `false`, omit entirely. The list of recognised boolean attributes is a static set:
+**react-dom has THREE boolean-value classes, and this serializer models all three (rf2-4hjw).** A single presence roster — which is all `reagent2.dom.server` carried until rf2-4hjw — silently drops every boolean value outside it, so `{:aria-expanded true}` and `{:contentEditable false}` emitted *nothing* where React emits `aria-expanded="true"` and `contentEditable="false"`. That is the rf2-r9kf defect class arriving independently in this artefact: a value that carries meaning is dropped, and the markup asserts the opposite of what the author wrote. It matters here for the same reason it mattered there — this serializer's output is what `reagent2.dom.client/hydrate-root` hands React, so the divergence is an attribute-only hydration mismatch, the kind React does not guarantee to patch.
 
-```clojure
-(def boolean-attributes
-  #{:disabled :checked :selected :read-only :required :auto-focus
-    :auto-play :controls :default :hidden :loop :multiple :muted :open
-    :reversed})
-```
+| class | `true` | `false` | non-boolean value | members |
+|---|---|---|---|---|
+| **presence** | bare name (HTML5 short form) | omitted | bare name (react-dom collapses `{:disabled "yes"}` to `disabled=""`) | `allowfullscreen` `async` `autofocus` `autoplay` `checked` `controls` `default` `defer` `disabled` `disablepictureinpicture` `disableremoteplayback` `formnovalidate` `hidden` `inert` `itemscope` `loop` `multiple` `muted` `nomodule` `novalidate` `open` `playsinline` `readonly` `required` `reversed` `scoped` `seamless` `selected` |
+| **stringifying** | `="true"` | `="false"` | value verbatim | `aria-*` and `data-*` (prefix rule), `contentEditable` `draggable` `spellCheck` `autoReverse` `externalResourcesRequired` `focusable` `preserveAlpha` `value` |
+| **overloaded** | bare name | omitted | value verbatim | `download` `capture` |
+
+Anything else takes no boolean: both `true` and `false` emit nothing, which is what react-dom does for `{:children true}`, `{:is true}`, `{:defaultChecked true}` and every non-boolean attribute it warns about.
+
+Three details that are each load-bearing:
+
+- **The rosters are keyed on the LOWERCASE name** so all three hiccup spellings of a camelCase attribute reach the same row — `:read-only`, `:readOnly` and `:readonly` all classify. Presence and overloaded names therefore also *emit* lowercase; React preserves camelCase for most of them (`readOnly=""`, `noModule=""`) while lowercasing others (`autoFocus` → `autofocus`). HTML attribute names are ASCII case-insensitive and every presence-class member is an HTML rather than an SVG attribute, so this is a cosmetic divergence, allow-listed with the short form under §8.7.
+- **The stringifying class is NOT lowercased.** Four of its members (`autoReverse`, `externalResourcesRequired`, `focusable`, `preserveAlpha`) are case-sensitive SVG attributes, so the emitted name comes from `attribute-name` — which already pins React's exact casing through `react-attribute-name-overrides` (§8.3).
+- **`overloaded` cannot simply join `presence`**: the presence rule collapses every truthy value to the bare name, which would throw `{:download "report.pdf"}`'s filename away.
+
+`value` is stringifying here on the measurement. `re-frame.ssr` classifies it as ordinary, because there the roster is shared with the Spec 004B structural-tree serializer where `value` is a form-control special form; this artefact has no such coupling and one contract only — byte-parity with `react-dom/server.renderToStaticMarkup` — so it follows what react-dom does. A boolean `value` is an authoring error either way; the only question is whose markup it produces.
+
+Every name above was **measured against the installed react-dom (19.2.0) rather than transcribed from a specification**, and `boolean_attr_react_parity_cljs_test.cljs` re-derives the same classification from react-dom at run time (§8.7).
 
 Void elements (self-closing in HTML5):
 
@@ -983,7 +993,7 @@ Void elements (self-closing in HTML5):
     :track :wbr})
 ```
 
-Lift both sets from `re-frame.ssr/void-elements` (`ssr.cljc:90+`). Reuse the same definitions to guarantee parity with the SSR seam's HTML output.
+The void-tag set mirrors `re-frame.ssr/void-elements` (`ssr.cljc:90+`) membership-for-membership, so the two seams agree on self-closing. The boolean rosters deliberately do **not** mirror the SSR ones: bundle isolation forbids requiring that artefact (§12.3 S3-008), and a copied roster is a roster that cannot be checked — pinning them against react-dom itself is what §8.7 buys.
 
 ### §8.5 Edge cases
 
@@ -999,7 +1009,15 @@ Stage 2 §2.5 estimated 150-200 LoC. The mid-point (~175 LoC) is the budget Stag
 
 ### §8.7 Parity test (R-004 mitigation)
 
-A test-time-only build pulls in `react-dom/server` and runs both implementations against a corpus of representative shapes:
+Two test namespaces, and the difference between them is the point.
+
+**`boolean_attr_react_parity_cljs_test.cljs` — the external anchor for the boolean rosters (rf2-4hjw).** The corpus test below is the right *shape* of check: the reference genuinely is outside this artefact. But its candidate set is a hand-written corpus, so it can only catch what the corpus happens to contain — and the corpus contained exactly two boolean rows (`{:disabled true}`, `{:disabled false}`) while six presence names were missing from the roster and the whole stringifying class was absent. Every assertion stayed green. **A parity test can only validate what something OUTSIDE the thing under test SUPPLIES, and supplying the questions is half of that**, so this namespace takes its candidate names from react-dom too: the values of react-dom's own `possibleStandardNames` table, scraped out of the development build. A candidate list derived from our own roster would reproduce the blind spot verbatim. Boolean-ness is React's verdict as well — a candidate is boolean-class iff React's development build renders `{name: true}` *without* its "Received `true` for a non-boolean attribute" warning, which is what bounds this to a roster check rather than a react-dom clone (the numeric attributes `cols`/`rows`/`size`/`span`/`rowSpan`/`start` coerce a boolean into markup through arithmetic, they warn, and they are excluded on React's verdict rather than ours). It checks **both directions** over that whole candidate space — a name React classifies that the serializer does not, and a name the serializer treats as boolean-class that React puts no boolean into markup for — and it reads the serializer's class from its *emitted markup* through the public `render-to-static-markup`, never from the (private) rosters.
+
+It is **measured live rather than from a fixture**, which is the one place this artefact can do better than the SSR equivalent: `implementation/ssr/test/react_dom_probe/boolean_attr_classes.cjs` writes react-dom's bytes to a committed `.edn` because its consumer is a JVM suite that must not need `node_modules`, and that fixture is regenerated by hand, so a react-dom bump does not automatically red. This suite already runs under `:node-test` with react-dom resolvable, so it re-derives everything at run time: a react-dom bump that moves a name into, out of, or between classes reds the gate on the next `npm run test:cljs`, with no regeneration step and nothing to forget.
+
+Two allow-listed divergences are applied by the class derivation itself rather than by a global diff filter — the presence short form (`disabled` for React's `disabled=""`) and presence-name *case* (see §8.4). The stringifying class is compared byte-exact, because four of its members are case-sensitive SVG attributes.
+
+**`parity_cljs_test.cljs` — the corpus diff.** A test-time-only build pulls in `react-dom/server` and runs both implementations against a corpus of representative shapes:
 
 - A full re-com `dropdown` rendering.
 - An error boundary.
@@ -1145,7 +1163,7 @@ Per the bead description and Stage 2 §5 risk register R-001..R-007.
 | `reagent2.core` | `core_cljs_test.cljs` | All 14 public surfaces (re-export integrity); the `reaction` macro from the consumer side — body deferred until the first deref, reagent2-atom dependency capture and recompute, and the expansion shape `(make-reaction (fn [] body...))`. |
 | `reagent2.ratom` | `ratom_cljs_test.cljs` | RAtom + Reaction lifecycle; protocol satisfaction; equality memoisation; `IDisposable` reify; cross-substrate cache-wiring contract. |
 | `reagent2.dom.client` | `dom/client_cljs_test.cljs` | create-root / render / unmount / hydrate-root happy-paths; flush-views! determinism contract per §4.6; React-19 `act` cooperation (a spy on `react.act` proves the drain routes through it — rf2-6r9j.35). |
-| `reagent2.dom.server` | `dom/server_cljs_test.cljs` + `dom/parity_cljs_test.cljs` + `dom/server_subscribe_ssr_cljs_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7; the SSR non-reactive deref branch. |
+| `reagent2.dom.server` | `dom/server_cljs_test.cljs` + `dom/parity_cljs_test.cljs` + `dom/boolean_attr_react_parity_cljs_test.cljs` + `dom/server_subscribe_ssr_cljs_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7; the boolean attribute-value classes, over a candidate space taken from react-dom's own `possibleStandardNames`; the SSR non-reactive deref branch. |
 | `reagent2.impl.template` | `impl/template_cljs_test.cljs` (+ the reserved-head and keyword-prop-warn-once siblings) | hiccup → React-element shapes; narrowed convert-prop-value (R-001); kebab-camel cache; tag parsing; sequence-children handling; `:>` / `:<>` / `:r>` / `:f>` interop. |
 | `reagent2.impl.component` | `impl/component_cljs_test.cljs` (runtime) + `impl/component_test.clj` (the compile-time classifiers, §5.2) | create-class 7-key cap (R-002); throw-on-unsupported-key per banned key; lifecycle method mapping per §6.4; `:component-did-catch` error-boundary integration per §6.5; `:get-snapshot-before-update` pairing per §6.6; and, on the CLJ side, `classify-form-body` / `tag-form-meta` — including that there is no separate `defview` macro. |
 | `reagent2.impl.batching` | `impl/batching_cljs_test.cljs` (+ `re_frame/adapter/reagent_slim_after_render_dom_cljs_test.cljs` for the real-DOM half) | microtask scheduling; dirty-flag dedup; flush! synchronous drain; after-render queue; React 19 transition cooperation (R-005). The focused file drives fake components whose `forceUpdate` body is synchronous, so it can pin call ORDER but not commit timing; the `-dom-` sibling reads `textContent` from INSIDE the callback on a real React 19 root and is what pins the post-COMMIT promise (rf2-cdoo). |
@@ -1185,7 +1203,7 @@ Per §1.5 — Stage 4 confirms `verify-version-lockstep.sh` recognises the new a
 | **R-001** Narrowed `convert-prop-value` may break apps relying on silent stringification | `impl/template_cljs_test.cljs` exercises every `html-attr-name?` branch; tests assert the dev-mode `console.warn` fires once per `[k name-of-v]` pair. |
 | **R-002** 7-key Form-3 cap may break niche consumers | `impl/component_cljs_test.cljs` constructs `create-class` with each of {`:component-will-mount`, `:UNSAFE_componentWillMount`, `:component-will-receive-props`, `:UNSAFE_componentWillReceiveProps`, `:component-will-update`, `:UNSAFE_componentWillUpdate`, `:should-component-update`, `:get-derived-state-from-props`, `:get-initial-state`} and asserts each throws `:rf.error/create-class-key-unsupported` with the unsupported key in `:keys`. |
 | **R-003** Compile-time Form-detection changes user-facing API | Retired as a risk: no separate `defview` surface ships (rf2-yfbx; §5.2 + §14.1), so the classification is invisible to users. The runtime path in `wrap-render` remains the canonical (mandatory) implementation, and tests assert plain `defn` + `reg-view` works with all three Form shapes whether or not the fold applies. |
-| **R-004** Pure-CLJS `render-to-static-markup` differs from `react-dom/server` | `dom/parity_cljs_test.cljs` per §8.7 — corpus-based diff. Known-difference allow-list documented in the parity test itself. |
+| **R-004** Pure-CLJS `render-to-static-markup` differs from `react-dom/server` | `dom/parity_cljs_test.cljs` per §8.7 — corpus-based diff, plus `dom/boolean_attr_react_parity_cljs_test.cljs`, whose candidate names come from react-dom rather than from a corpus, so the roster under test cannot bound it (rf2-4hjw). Known-difference allow-list documented in the tests themselves. |
 | **R-005** Microtask scheduler interacts unexpectedly with React 19 transitions | `dom/client_cljs_test.cljs` exercises `useTransition` boundaries; `flush-views!` drains React's pending work without race. |
 | **R-006** 10x v1 monkey-patches break | NOT tested in this artefact — documented as a known breakage in the migration corpus (`migration/from-re-frame-v1/README.md`). 10x v1 doesn't load against the rewrite; Xray is the contract. Apps running 10x v1 stay on the bridge `day8/re-frame2-reagent`. |
 | **R-007** Bundle estimates may be off by 30-50% | Per S3-008, the comparison build is delivered (rf2-5lbx) — see §12.2 + §12.3. The S3-008 *contract* (no stock-Reagent impl-leak, no `react-dom/server` leak) is enforced quantitatively by the symbol grep. The *size* half of R-007 remains a Stage-5 follow-up: in the in-tree shadow-cljs build both adapter trees live on the same classpath, and `re-frame.interop` still statically `:require`s stock `reagent.core` / `reagent.ratom`, so a per-build classpath-pruning hook is needed before the realised-gzip-reduction measurement is meaningful. The current in-tree numbers (stock counter ~93 KB gz, slim counter ~93 KB gz) reflect that shared-classpath shape and are NOT the binding "slim" claim. |
