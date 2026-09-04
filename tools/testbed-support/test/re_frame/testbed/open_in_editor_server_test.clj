@@ -66,15 +66,21 @@
 ;; Launch is stubbed while the method, Host, Origin, and CORS guards are tested.
 
 (defn ^:private req
-  "Build a minimal endpoint request; nil host/origin values omit the header."
-  [{:keys [method host origin file]
-    :or   {method :post host "localhost:8031"}}]
-  {:uri            rf.testbed.open-in-editor-server/endpoint-path
-   :request-method method
-   :query-string   (when file (str "file=" file "&line=10"))
-   :headers        (cond-> {}
-                     host   (assoc "host" host)
-                     origin (assoc "origin" origin))})
+  "Build a minimal endpoint request; nil host/origin values omit the header.
+
+  `:remote-addr` carries the TCP peer the way shadow-cljs's Ring adapter does
+  — a bare numeric address from `InetAddress.getHostAddress` — and defaults to
+  loopback because every honest testbed caller is one. Pass `:peer` to model a
+  remote caller; pass `:peer :absent` to model an adapter that supplied none."
+  [{:keys [method host origin file peer]
+    :or   {method :post host "localhost:8031" peer "127.0.0.1"}}]
+  (cond-> {:uri            rf.testbed.open-in-editor-server/endpoint-path
+           :request-method method
+           :query-string   (when file (str "file=" file "&line=10"))
+           :headers        (cond-> {}
+                             host   (assoc "host" host)
+                             origin (assoc "origin" origin))}
+    (not= :absent peer) (assoc :remote-addr peer)))
 
 (defmacro ^:private with-launch-spy
   "Record launch calls without opening an editor."
@@ -147,6 +153,134 @@
                            :file "/etc/passwd"}))]
           (is (= 403 (:status resp)))
           (is (zero? (count @calls))))))))
+
+;; The TCP peer is the only caller fact the client cannot forge. Host, Origin
+;; and every forwarding header are client-supplied, so the guard treats them as
+;; defence in depth on top of the transport check — never as the discriminator.
+
+(deftest guard-rejects-spoofed-loopback-host-from-remote-peer
+  (testing "a POST from a NON-loopback peer that spoofs `Host: localhost` and
+            sends no Origin — the shape a direct HTTP client can produce
+            against a testbed bound to 0.0.0.0 — is 403 before path resolution
+            and never launches"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     (req {:method :post
+                           :host   "localhost:8031"
+                           :origin nil
+                           :peer   "203.0.113.7"
+                           :file   "/etc/passwd"}))]
+          (is (= 403 (:status resp))
+              "a forged loopback Host does not admit a remote peer")
+          (is (re-find #"\"error\":\"forbidden\"" (:body resp)))
+          (is (zero? (count @calls)) "launch! was not called")))))
+  (testing "spoofing a loopback ORIGIN as well does not help — the peer still
+            decides"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     (req {:method :post
+                           :host   "127.0.0.1:8031"
+                           :origin "http://localhost:8042"
+                           :peer   "10.0.0.5"
+                           :file   "/etc/passwd"}))]
+          (is (= 403 (:status resp)))
+          (is (zero? (count @calls)))))))
+  (testing "an IPv6 remote peer is refused on the same footing"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     (req {:method :post
+                           :host   "localhost:8031"
+                           :peer   "2001:db8::5"
+                           :file   "/etc/passwd"}))]
+          (is (= 403 (:status resp)))
+          (is (zero? (count @calls))))))))
+
+(deftest guard-fails-closed-on-unknown-peer
+  (testing "an absent :remote-addr is refused — a missing transport fact is
+            never read as permission"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     (req {:method :post :host "localhost:8031"
+                           :peer :absent :file "/etc/passwd"}))]
+          (is (= 403 (:status resp)))
+          (is (zero? (count @calls)))))))
+  (testing "blank and malformed peer values are refused too"
+    (doseq [bad ["" "   " "not-an-address" "127.0.0.1.evil.example"
+                 "127.0.0.1, 10.0.0.5" "localhost"]]
+      (let [calls (atom [])]
+        (with-launch-spy calls
+          (let [resp (rf.testbed.open-in-editor-server/handle
+                       (req {:method :post :host "localhost:8031"
+                             :peer bad :file "/etc/passwd"}))]
+            (is (= 403 (:status resp)) (str "refused peer value: " (pr-str bad)))
+            (is (zero? (count @calls)))))))))
+
+(deftest guard-ignores-forwarding-headers
+  (testing "X-Forwarded-For cannot launder a remote peer into a loopback one —
+            these dev servers are direct listeners, so a forwarding header is
+            just another client-supplied string"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     (-> (req {:method :post :host "localhost:8031"
+                               :peer "203.0.113.7" :file "/etc/passwd"})
+                         (assoc-in [:headers "x-forwarded-for"] "127.0.0.1")
+                         (assoc-in [:headers "x-real-ip"] "127.0.0.1")))]
+          (is (= 403 (:status resp)))
+          (is (zero? (count @calls))))))))
+
+(deftest guard-rejects-remote-peer-before-method-and-preflight
+  (testing "the transport check is the OUTERMOST gate: a remote peer gets 403
+            for a GET (not 405) and for an OPTIONS preflight (not 204)"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
+                              (req {:method :get :host "localhost:8031"
+                                    :peer "203.0.113.7" :file "/etc/passwd"})))))
+        (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
+                              (req {:method :options :host "localhost:8031"
+                                    :origin "http://localhost:8042"
+                                    :peer "203.0.113.7"})))))
+        (is (zero? (count @calls)) "launch! was not called")))))
+
+(deftest guard-allows-every-loopback-peer-representation
+  (testing "each address a Ring adapter can put in :remote-addr for a genuine
+            loopback caller still reaches launch!"
+    ;; shadow-cljs's adapter emits `InetAddress.getHostAddress`, so IPv6
+    ;; loopback arrives EXPANDED as 0:0:0:0:0:0:0:1 — never the `::1` spelling.
+    (doseq [peer ["127.0.0.1" "127.0.0.53" "0:0:0:0:0:0:0:1" "::1"
+                  "::ffff:127.0.0.1" "::1%1"]]
+      (let [calls (atom [])]
+        (with-launch-spy calls
+          (let [resp (rf.testbed.open-in-editor-server/handle
+                       (req {:method :post :host "localhost:8031"
+                             :peer peer :file "fake_ns/core.cljs"}))]
+            (is (= 200 (:status resp)) (str "accepted peer: " peer))
+            (is (= 1 (count @calls)) (str "launch! ran for peer: " peer))))))))
+
+(deftest loopback-peer?-classifies-correctly
+  (testing "the IPv4 loopback block, both IPv6 loopback spellings, and the
+            IPv4-mapped form are accepted"
+    (doseq [addr ["127.0.0.1" "127.0.0.53" "127.255.255.254"
+                  "::1" "0:0:0:0:0:0:0:1"
+                  "0000:0000:0000:0000:0000:0000:0000:0001"
+                  "::ffff:127.0.0.1" "0:0:0:0:0:ffff:7f00:1"
+                  "::1%1"]]
+      (is (#'rf.testbed.open-in-editor-server/loopback-peer? addr)
+          (str "loopback peer: " addr))))
+  (testing "everything else is refused, including values that merely LOOK
+            loopback and anything that would need name resolution"
+    (doseq [addr [nil "" "   " "0.0.0.0" "10.0.0.5" "192.168.1.5"
+                  "203.0.113.7" "2001:db8::1" "::" "0:0:0:0:0:0:0:2"
+                  "128.0.0.1" "27.0.0.1" "1127.0.0.1" "127.0.0.1.evil.example"
+                  "127malicious.example" "localhost" "127.0.0.999"
+                  "127.0.0.1, 10.0.0.5" "127.0.0.1:52344" 12345]]
+      (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? addr))
+          (str "refused peer: " (pr-str addr))))))
 
 (deftest guard-rejects-non-post-drive-by
   (testing "a simple GET drive-by (the `<img>`/`<form>`/`no-cors` class) is
@@ -241,6 +375,7 @@
                      {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=%"
+                      :remote-addr    "127.0.0.1"
                       :headers        {"host" "localhost:8031"}})]
           (is (= 400 (:status resp)) "malformed query is a clean 400, not a throw")
           (is (re-find #"\"ok\":false" (:body resp)))
@@ -254,6 +389,7 @@
                      {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=abc%zz"
+                      :remote-addr    "127.0.0.1"
                       :headers        {"host" "localhost:8031"}})]
           (is (= 400 (:status resp)))
           (is (re-find #"\"error\":\"malformed-query\"" (:body resp)))
@@ -286,6 +422,7 @@
                      {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=deep/re-frame2+wip/core.cljs&line=7"
+                      :remote-addr    "127.0.0.1"
                       :headers        {"host" "localhost:8031"}})]
           (is (= 200 (:status resp)) "the launch path is reached")
           (is (= 1 (count @calls)) "launch! invoked once")
@@ -427,6 +564,7 @@
                      {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=fake_ns/core.cljs&column=7"
+                      :remote-addr    "127.0.0.1"
                       :headers        {"host" "localhost:8031"}})]
           (is (= 200 (:status resp)))
           (is (= 1 (count @calls)))
@@ -635,6 +773,7 @@
                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
                      :request-method :post
                      :query-string   (str "file=" missing "&line=10&column=3")
+                     :remote-addr    "127.0.0.1"
                      :headers        {"host" "localhost:8031"}})]
       (is (= 422 (:status resp)) "missing file is a non-2xx, not a false 200")
       (is (re-find #"\"ok\":false" (:body resp)))
@@ -652,6 +791,7 @@
                        {:uri            rf.testbed.open-in-editor-server/endpoint-path
                         :request-method :post
                         :query-string   "line=10&column=3"
+                        :remote-addr    "127.0.0.1"
                         :headers        {"host" "localhost:8031"}})]
             (is (= 400 (:status resp)))
             (is (re-find #"\"ok\":false" (:body resp)))
@@ -661,6 +801,7 @@
                        {:uri            rf.testbed.open-in-editor-server/endpoint-path
                         :request-method :post
                         :query-string   "file=&line=10"
+                        :remote-addr    "127.0.0.1"
                         :headers        {"host" "localhost:8031"}})]
             (is (= 400 (:status resp)))
             (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
@@ -669,6 +810,7 @@
                        {:uri            rf.testbed.open-in-editor-server/endpoint-path
                         :request-method :post
                         :query-string   nil
+                        :remote-addr    "127.0.0.1"
                         :headers        {"host" "localhost:8031"}})]
             (is (= 400 (:status resp)))
             (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
@@ -715,6 +857,7 @@
                      {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=fake_ns/core.cljs&line=3&editor=vscode"
+                      :remote-addr    "127.0.0.1"
                       :headers        {"host" "localhost:8031"}})]
           (is (= 200 (:status resp)))
           (is (= 1 (count @calls)))
@@ -729,6 +872,7 @@
           {:uri            rf.testbed.open-in-editor-server/endpoint-path
            :request-method :post
            :query-string   "file=fake_ns/core.cljs&editor=emacs"
+           :remote-addr    "127.0.0.1"
            :headers        {"host" "localhost:8031"}})
         (is (nil? (nth (first @calls) 3))
             "unknown editor → nil hint"))))
@@ -739,6 +883,7 @@
           {:uri            rf.testbed.open-in-editor-server/endpoint-path
            :request-method :post
            :query-string   "file=fake_ns/core.cljs"
+           :remote-addr    "127.0.0.1"
            :headers        {"host" "localhost:8031"}})
         (is (nil? (nth (first @calls) 3))
             "no editor param → nil hint")))))
@@ -799,6 +944,7 @@
                      {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=fake_ns/core.cljs&line=27&column=9&editor=windsurf"
+                      :remote-addr    "127.0.0.1"
                       :headers        {"host" "localhost:8031"}})]
           (is (= 422 (:status resp))
               "a 200 here would be a false claim that 27:9 reached the editor")
@@ -819,6 +965,7 @@
                      {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=fake_ns/core.cljs&editor=windsurf"
+                      :remote-addr    "127.0.0.1"
                       :headers        {"host" "localhost:8031"}})]
           (is (= 200 (:status resp)))
           (is (= 1 (count @calls)))
@@ -842,6 +989,7 @@
                          {:uri            rf.testbed.open-in-editor-server/endpoint-path
                           :request-method :post
                           :query-string   (str "file=fake_ns/core.cljs&line=27&column=9&editor=" editor)
+                          :remote-addr    "127.0.0.1"
                           :headers        {"host" "localhost:8031"}})]
               (is (<= 200 (:status resp) 299)
                   "the endpoint is still preferred for this editor")
@@ -1000,6 +1148,7 @@
                            {:uri            rf.testbed.open-in-editor-server/endpoint-path
                             :request-method :post
                             :query-string   (str "file=" file "&line=12&column=3")
+                            :remote-addr    "127.0.0.1"
                             :headers        {"host" "localhost:8042"}})]
                 (is (= 200 (:status resp))
                     (str tool " relative coordinate was accepted"))
@@ -1264,6 +1413,7 @@
                    {:uri            rf.testbed.open-in-editor-server/endpoint-path
                     :request-method :post
                     :query-string   "file=fake_ns/core.cljs&line=27&column=9"
+                    :remote-addr    "127.0.0.1"
                     :headers        {"host" "localhost:8031"}})]
         (is (= 422 (:status resp))
             "a 200 here would claim 27:9 reached an editor that never got it")
@@ -1288,6 +1438,7 @@
                    {:uri            rf.testbed.open-in-editor-server/endpoint-path
                     :request-method :post
                     :query-string   "file=fake_ns/core.cljs&column=7"
+                    :remote-addr    "127.0.0.1"
                     :headers        {"host" "localhost:8031"}})]
         (is (= 422 (:status resp))
             "a 200 here would claim 1:7 reached an editor that never got it")
