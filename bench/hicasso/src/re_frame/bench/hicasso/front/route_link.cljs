@@ -124,7 +124,8 @@
 
   If HD-027 is deliberately reopened to admit prefetch, what replaces
   this is routing's full three-handler behaviour
-  (`:routing/prefetch-on-intent!` at `:on-mouse-enter` / `:on-focus` /
+  (`rf.routing.link/prefetch-on-intent!`, called directly at each
+  `prefetch-intent-keys` position — `:on-mouse-enter` / `:on-focus` /
   `:on-touch-start`). A passthrough is not the middle ground between the
   two."
   [{:keys [to] :as props}]
