@@ -126,19 +126,101 @@
 ;; **Lockstep**: the void-tag set above (in template.cljs) duplicates
 ;; `re-frame.ssr.emit/void-elements` (keyword form vs string form,
 ;; same membership). If HTML5 extends the void-element list, both
-;; copies update. Boolean-attributes is local to this artefact (re-frame.ssr
-;; takes value-driven booleans through `html-helpers/attr-string`
-;; instead of carrying its own name set).
+;; copies update. The boolean-attribute rosters are local to this
+;; artefact — `re-frame.ssr` carries its own, and bundle isolation
+;; forbids sharing (§8.4) — so they are pinned against react-dom
+;; itself rather than against the SSR copy; see
+;; `boolean_attr_react_parity_cljs_test.cljs`.
+;;
+;; THREE CLASSES, because react-dom has three (rf2-4hjw). A single
+;; presence roster — which is all this namespace carried until
+;; rf2-4hjw — silently drops every boolean value outside it, so
+;; `{:aria-expanded true}` and `{:contentEditable false}` emitted
+;; NOTHING where React emits `aria-expanded="true"` and
+;; `contentEditable="false"`. That is the rf2-r9kf defect class
+;; arriving independently in this artefact: a false (or true) value
+;; that carries meaning is dropped, and the markup asserts the
+;; opposite of what the author wrote. Because this serializer's
+;; output is what `reagent2.dom.client/hydrate-root` hands React,
+;; the divergence is an attribute-only hydration mismatch — the kind
+;; React does not guarantee to patch.
+;;
+;; Every name below was measured against the INSTALLED react-dom
+;; (19.2.0) rather than transcribed from a specification; the test
+;; re-derives the same classification from react-dom at run time, so
+;; a react-dom bump that moves a name reds the gate.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private boolean-attributes
-  "HTML5 boolean attributes (post-lowercase form): emit name only
-  when truthy; omit when falsy. The set is the union of stock-
-  Reagent and React's lists."
+(def ^:private presence-attributes
+  "PRESENCE class: `true` emits the bare (lowercased) name, `false`
+  omits it, and any other truthy value also emits the bare name
+  (react-dom collapses `{:disabled \"yes\"}` to `disabled=\"\"`).
+
+  Keyed on the LOWERCASE name so all three hiccup spellings of a
+  camelCase attribute reach the same row — `:read-only`, `:readOnly`
+  and `:readonly` all classify. React emits the HTML5 empty-value
+  form (`disabled=\"\"`); this serializer emits the equivalent HTML5
+  short form (`disabled`), an allow-listed §8.7 divergence."
   #{"allowfullscreen" "async" "autofocus" "autoplay" "checked"
     "controls" "default" "defer" "disabled" "formnovalidate" "hidden"
     "loop" "multiple" "muted" "novalidate" "open" "playsinline"
-    "readonly" "required" "reversed" "selected" "itemscope"})
+    "readonly" "required" "reversed" "selected" "itemscope"
+    ;; rf2-4hjw — the six react-dom 19.2 presence names this roster
+    ;; omitted. Each was re-measured against the installed package
+    ;; before it was added (the `ismap` row in spec/004B is the
+    ;; cautionary case: react-dom carries no such name at all).
+    "inert" "nomodule" "scoped" "seamless"
+    "disablepictureinpicture" "disableremoteplayback"})
+
+(def ^:private stringifying-attributes
+  "STRINGIFYING class: `true` emits `=\"true\"` and `false` emits
+  `=\"false\"`. Dropping the `false` here is what changes meaning —
+  `contentEditable=\"false\"` is how a child opts out of an editable
+  ancestor, and its absence makes the child inherit editability.
+
+  `aria-*` and `data-*` are a PREFIX rule rather than named rows (see
+  `boolean-attr-class`); react-dom treats them the same way.
+
+  Four of these are case-SENSITIVE SVG attributes, so the emitted
+  name comes from `attribute-name` (which preserves React's casing
+  via `react-attribute-name-overrides`) and is NOT lowercased."
+  #{"contenteditable" "draggable" "spellcheck"
+    "autoreverse" "externalresourcesrequired" "focusable" "preservealpha"
+    ;; react-dom stringifies a boolean `value` too. `re-frame.ssr`
+    ;; deliberately classifies `value` as ordinary, because there the
+    ;; roster is shared with the Spec 004B structural-tree serializer
+    ;; where `value` is a form-control special form. This artefact has
+    ;; no such coupling and one contract only — byte-parity with
+    ;; `react-dom/server.renderToStaticMarkup` — so it follows the
+    ;; measurement. A boolean `value` is an authoring error either
+    ;; way; the question is only whose markup it produces.
+    "value"})
+
+(def ^:private overloaded-boolean-attributes
+  "OVERLOADED class: `true` emits the bare name, `false` omits, and a
+  NON-boolean value stringifies — `{:download true}` → `download`,
+  `{:download \"report.pdf\"}` → `download=\"report.pdf\"`.
+
+  This is why they cannot simply join `presence-attributes`: the
+  presence rule collapses every truthy value to the bare name, which
+  would throw the filename away."
+  #{"download" "capture"})
+
+(defn- boolean-attr-class
+  "Classify an attribute NAME (as produced by `attribute-name`) into
+  react-dom's boolean-value classes: `:presence`, `:stringify`,
+  `:overloaded`, or `nil` for a name that takes no boolean value at
+  all (React drops `{:children true}`, `{:is true}`, … and so does
+  this serializer)."
+  [n]
+  (let [lower (str/lower-case n)]
+    (cond
+      (or (str/starts-with? lower "aria-")
+          (str/starts-with? lower "data-"))       :stringify
+      (contains? stringifying-attributes lower)   :stringify
+      (contains? overloaded-boolean-attributes lower) :overloaded
+      (contains? presence-attributes lower)       :presence
+      :else                                       nil)))
 
 ;; ---------------------------------------------------------------------------
 ;; Attribute name conversion
@@ -616,9 +698,35 @@
                          (<= (.charCodeAt ch 0) 90)))) ; 'Z'
              (contains? event-handler-allowlist (str/lower-case n))))))
 
+(defn- emit-boolean-attribute
+  "Emit one attribute whose VALUE is a boolean, per react-dom's three
+  boolean classes (`boolean-attr-class`). A name in no class emits
+  nothing for either boolean — React drops those too.
+
+  Presence and overloaded names emit the lowercase HTML5 short form;
+  stringifying names emit `attribute-name`'s output verbatim, which
+  preserves React's casing for the case-sensitive SVG members
+  (`preserveAlpha`, `autoReverse`, …)."
+  [^StringBuffer sb k v]
+  (let [n (attribute-name k)]
+    (case (boolean-attr-class n)
+      (:presence :overloaded)
+      (when v
+        (.append sb " ")
+        (.append sb (str/lower-case n)))
+
+      :stringify
+      (do (.append sb " ")
+          (.append sb n)
+          (.append sb "=\"")
+          (.append sb (if v "true" "false"))
+          (.append sb "\""))
+
+      nil)))
+
 (defn- emit-attribute
-  "Emit one [k v] attribute pair to the StringBuilder. Skips nil and
-  false values; emits boolean-attribute short form for true.
+  "Emit one [k v] attribute pair to the StringBuilder. Skips nil
+  values; routes boolean values through `emit-boolean-attribute`.
 
   Drops React-internal / non-HTML props (rf2-dwds9 HIGH):
     - `:key` / `:ref` — React-internal.
@@ -631,7 +739,6 @@
   [^StringBuffer sb k v]
   (cond
     (nil? v)   nil
-    (false? v) nil
 
     ;; The :key prop is React-internal — don't emit it.
     (= :key k) nil
@@ -660,25 +767,25 @@
       (.append sb (escape-attribute (style-string v)))
       (.append sb "\""))
 
-    (true? v)
-    (let [n      (attribute-name k)
-          ;; HTML5 boolean attributes are lowercase (`readonly`,
-          ;; `disabled`, …); `attribute-name` may preserve React's casing
-          ;; (`readOnly`), so the boolean-attr membership test + the
-          ;; emitted short-form use the lowercased name (rf2-ygknv
-          ;; finding 3 follow-on: the case-preserving override must not
-          ;; defeat the lowercase boolean-attr set).
-          bool-n (str/lower-case n)]
-      (when (contains? boolean-attributes bool-n)
-        (.append sb " ")
-        (.append sb bool-n)))
+    ;; Boolean VALUE — the three-class path (rf2-4hjw). HTML5 boolean
+    ;; attributes are lowercase (`readonly`, `disabled`, …) while
+    ;; `attribute-name` may preserve React's casing (`readOnly`), so
+    ;; the membership test uses the lowercased name (rf2-ygknv
+    ;; finding 3 follow-on: the case-preserving override must not
+    ;; defeat the lowercase boolean-attr rosters).
+    (boolean? v)
+    (emit-boolean-attribute sb k v)
 
     :else
     (let [n      (attribute-name k)
           bool-n (str/lower-case n)]
-      (if (contains? boolean-attributes bool-n)
-        ;; Boolean attribute with non-true truthy value: emit the
-        ;; (lowercase HTML5) name.
+      (if (contains? presence-attributes bool-n)
+        ;; Presence attribute with a non-boolean truthy value: emit the
+        ;; (lowercase HTML5) name. react-dom collapses the same way —
+        ;; `{:disabled "yes"}` → `disabled=""`. Overloaded and
+        ;; stringifying names deliberately fall through to the ordinary
+        ;; path, which is what keeps `{:download "report.pdf"}` and
+        ;; `{:contentEditable "plaintext-only"}` intact.
         (do (.append sb " ")
             (.append sb bool-n))
         (do (.append sb " ")
