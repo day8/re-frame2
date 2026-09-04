@@ -76,6 +76,75 @@
   (testing "an in-place edit before any current route rejects loud"
     (is (= :no-current-route (:reason (rf.routing.address/classify {:query {:a 1}} nil))))))
 
+;; ---- rf2-16w8 — the `:query-merge` VALUE is a map of query deltas ---------
+
+(deftest classify-rejects-non-map-query-merge
+  ;; Per Spec 012 §Validity rules rule 9 / §In-place navigation: `:query-merge`
+  ;; is a MAP of query deltas. Key PRESENCE discriminates the in-place branch,
+  ;; so the gate is the ONLY place that can speak about the VALUE — before
+  ;; this rule a present non-map value sailed through `classify` and reached
+  ;; `navigate-handler`'s unguarded `merge` fold, where Clojure's own
+  ;; collection semantics decided the outcome three different ways.
+  (let [current {:route-id :route/search :query {:q "x"}}]
+
+    (testing "POSITIVE CONTROL — the hazard this rule closes is real on this host"
+      ;; Without these rows the rejections below would prove only that the
+      ;; gate says no to something; these prove WHY it must. If a future
+      ;; Clojure stopped accepting a 2-vector as a map entry this control
+      ;; goes red and tells the reader the rule's rationale has moved.
+      (is (= {:page 2} (merge {} [:page 2]))
+          "a two-element VECTOR really is a map entry to `merge` — an unguarded
+           fold SUCCEEDS on it and commits a real navigation")
+      (is (not (map? [:page 2]))
+          "…and it is not a map, so only an explicit map? check can tell")
+      (is (thrown? ClassCastException (merge {} "oops"))
+          "a string reaches a RAW host throw in the same fold (no ex-data)")
+      (is (= {:q "x"} (merge {:q "x"} nil))
+          "a present nil VANISHES in the fold — a silent no-op, not a reject"))
+
+    (testing "a two-element vector rejects (it would otherwise NAVIGATE)"
+      (is (= {:reason :query-merge-not-map :keys [:query-merge]}
+             (rf.routing.address/classify {:query-merge [:page 2]} current))))
+    (testing "a string rejects (it would otherwise raise ClassCastException)"
+      (is (= {:reason :query-merge-not-map :keys [:query-merge]}
+             (rf.routing.address/classify {:query-merge "oops"} current))))
+    (testing "a present nil rejects — omission is the spelling for 'no merge'"
+      (is (= {:reason :query-merge-not-map :keys [:query-merge]}
+             (rf.routing.address/classify {:query-merge nil} current))))
+    (testing "a sequence of pairs rejects (a fold would have accepted it)"
+      (is (= :query-merge-not-map
+             (:reason (rf.routing.address/classify {:query-merge [[:page 2]]} current))))
+      (is (= :query-merge-not-map
+             (:reason (rf.routing.address/classify {:query-merge #{:page}} current)))))
+
+    (testing "a MAP value still passes — the valid surface is unchanged"
+      (is (nil? (rf.routing.address/classify {:query-merge {}} current))
+          "{} remains a valid exact no-op")
+      (is (nil? (rf.routing.address/classify {:query-merge {:page 2}} current)))
+      (is (nil? (rf.routing.address/classify {:query-merge {:sort nil}} current))
+          "a nil INSIDE the delta map still deletes a key — the rule is about
+           the delta map itself, never its members")
+      (is (nil? (rf.routing.address/classify {:query-merge {:page 0 :flag ""}} current))
+          "falsy member values are legitimate and untouched")
+      (is (nil? (rf.routing.address/classify {:query-merge (sorted-map :page 2)} current))
+          "any map implementation qualifies, not just the literal one")
+      (is (not= (class (sorted-map :page 2)) (class {:page 2}))
+          "control: that last row really did exercise a DIFFERENT map type"))
+
+    (testing "the pre-existing exclusions keep precedence over the value check"
+      ;; The value rule sits AFTER the roster / mutual-exclusion rules, so a
+      ;; request that is wrong in two ways still reports the relationship it
+      ;; always reported. This is what stops the new rule silently re-labelling
+      ;; existing rejections.
+      (is (= :unknown-keys
+             (:reason (rf.routing.address/classify {:query-merge "oops" :bogus 1} current))))
+      (is (= :url-excludes-address
+             (:reason (rf.routing.address/classify {:url "/b" :query-merge "oops"} current))))
+      (is (= :query-exclusive
+             (:reason (rf.routing.address/classify {:query {} :query-merge "oops"} current))))
+      (is (= :query-merge-in-place-only
+             (:reason (rf.routing.address/classify {:to :route/b :query-merge "oops"} current)))))))
+
 ;; ---- extract-address: only the extracted address is an address ------------
 
 (deftest extract-address-selects-only-the-address-key-class
