@@ -239,7 +239,12 @@
             payload, its frame keyword and its veto to the browser as an
             attribute"
     (fresh!)
-    (let [html (server-html [byline {}])]
+    ;; Spec 006's dev-mode view annotations come out first: the
+    ;; `re-frame\.hicasso` scan below is for a leaked reserved keyword, and
+    ;; `data-rf2-source-coord` carries the declaring namespace on purpose,
+    ;; so leaving it in would red this row on the framework obeying 006.
+    ;; `sup/without-view-annotations` carries the argument in full.
+    (let [html (sup/without-view-annotations (server-html [byline {}]))]
       (is (not (re-find #"onclick|onClick" html))
           (str "no DOM event attribute on the anchor: " html))
       (is (not (re-find #"re-frame\.hicasso" html))

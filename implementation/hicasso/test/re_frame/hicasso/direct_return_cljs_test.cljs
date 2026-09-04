@@ -155,6 +155,7 @@
             [re-frame.hicasso.impl.controlled :as controlled]
             [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
@@ -290,10 +291,18 @@
 (defn- render!
   "`view` as the page's root, to static markup. `renderToStaticMarkup`
   rather than `renderToString`: hydration markers are React's bookkeeping
-  and would put a difference between the arms that is not in the page."
+  and would put a difference between the arms that is not in the page.
+
+  Spec 006's two dev-mode view annotations come out for the same reason
+  and it is the same sentence: they are keyed to the DECLARATION, so the
+  arms below — which are the same page written three ways — carry three
+  different view names and would part on the one difference this file's
+  every comparison exists to exclude. `sup/without-view-annotations`
+  carries the argument in full."
   [view]
-  (react-dom-server/renderToStaticMarkup
-    (mount/provider frame-id (codec/root-element frame-id [view {:id 1}]))))
+  (sup/without-view-annotations
+    (react-dom-server/renderToStaticMarkup
+      (mount/provider frame-id (codec/root-element frame-id [view {:id 1}])))))
 
 (defn- probe
   "Entries into the shipping var `install!` wraps, while `view` renders.

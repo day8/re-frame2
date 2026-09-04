@@ -248,6 +248,18 @@
    (react-dom-server/renderToString
      (mount/provider kw (codec/root-element kw hiccup)))))
 
+(defn- page-bytes
+  "`server-html` with Spec 006's dev-mode view annotations taken out — for
+  the rows whose subject is the PAGE: an exact opening tag, or vocabulary
+  that must not reach the markup.
+
+  A separate door rather than a change to `server-html` above, because
+  the hydration rows must keep reading the REAL bytes: they adopt what
+  they baked, and a client render annotates too, so stripping one side
+  would manufacture the mismatch those rows exist to rule out."
+  [hiccup]
+  (sup/without-view-annotations (server-html hiccup)))
+
 (defn- query-node [root selector] (.querySelector root selector))
 
 (defn- hydration-row
@@ -298,8 +310,8 @@
             key, a counter, a `useId`), which would make the two strings
             differ while both looked plausible in isolation"
     (fresh!)
-    (let [a (server-html [article {}])
-          b (server-html [article {}])]
+    (let [a (page-bytes [article {}])
+          b (page-bytes [article {}])]
       (is (= a b) (str "two renders, one snapshot, identical bytes: " a))
       (is (re-find #"<article class=\"article\">" a)
           (str "the boundary contributed its own element and no wrapper
@@ -445,7 +457,7 @@
             Narrowing caught: a lowering that ran on the client only,
             leaving the raw vectors to be stringified on the server"
     (fresh!)
-    (let [html (server-html [intents {}])]
+    (let [html (page-bytes [intents {}])]
       (is (re-find #"<form class=\"intents\">" html)
           (str "the form is there, so the row is about what was OMITTED
                 from a real render: " html))
@@ -521,7 +533,7 @@
 (deftest an-error-boundary-contributes-its-child-and-no-wrapper
   (testing "HS-09's succeeding arm"
     (fresh!)
-    (let [html (server-html [guarded {}])]
+    (let [html (page-bytes [guarded {}])]
       (is (re-find #"<div class=\"guarded\"><p class=\"kid\">quarterly</p></div>" html)
           (str "the child's output, immediately inside the boundary's
                 parent — the boundary is a component and contributes no

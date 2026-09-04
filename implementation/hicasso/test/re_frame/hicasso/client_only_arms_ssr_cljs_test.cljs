@@ -105,6 +105,7 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.overlay :as overlay]
+            [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.test.forms :as tf]
             [re-frame.test-support :as test-support]
             ["react" :as react]
@@ -154,10 +155,19 @@
   server bytes, so what these rows read is the arm's own server
   behaviour and nothing else. The package's own server door is
   `re-frame.hicasso.server/render`; this harness sits beside it, not
-  instead of it."
+  instead of it.
+
+  Spec 006's two dev-mode view annotations are taken out before the rows
+  read the bytes. Every scan below is for vocabulary that must NOT be in
+  the markup — `#\"hicasso\"`, `#\"popover\"`, `#\"dialog\"` — and each of
+  those matches a view's own name, which the annotation puts in the
+  bytes on purpose. Left in, they would turn a real guard into a row that
+  reds on the framework doing exactly what Spec 006 requires.
+  `sup/without-view-annotations` carries the argument in full."
   [hiccup]
-  (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+  (sup/without-view-annotations
+    (react-dom-server/renderToString
+      (mount/provider frame-id (codec/root-element frame-id hiccup)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The subjects — one surface per view, so a red row names a surface

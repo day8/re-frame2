@@ -68,6 +68,7 @@
   MOVES a suite rather than copying it. Its landed form is the sibling
   `re-frame.hicasso.frame-doors-dom-cljs-test`, a file in this package."
   (:require [cljs.test :refer-macros [is]]
+            [clojure.string :as str]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
             [re-frame.hicasso.impl.mount :as mount]
@@ -525,6 +526,34 @@
   whichever slots the envelope hoists."
   [ev]
   (merge (:tags ev) ev))
+
+(defn without-view-annotations
+  "`html` with Spec 006's two dev-mode view annotations taken out.
+
+  `data-rf2-source-coord` and `data-rf-view` are stamped on every
+  `defview` boundary's rendered root in a dev build (Spec 006
+  §Source-coord annotation and §View tagging contract, which Spec 011
+  carries into the server render as well), and they elide entirely under
+  `:advanced` + `goog.DEBUG=false`. They are framework bookkeeping keyed
+  to the DECLARATION rather than anything the page said — the same
+  category as the hydration markers `renderToStaticMarkup` is chosen over
+  `renderToString` to avoid.
+
+  So an assertion whose subject is THE PAGE has to take them out first,
+  and two failure modes make that mandatory rather than tidy. A byte
+  comparison of two authoring spellings parts on the view NAME, which is
+  the one difference the comparison exists to exclude. And a scan for
+  vocabulary that must not reach the markup — `#\"hicasso\"`, a view's own
+  name, a reserved keyword — matches the annotation and reports it as the
+  leak it was hunting, which is a false RED that reads exactly like a
+  true one.
+
+  Use it where the subject is the page. Do NOT use it where the subject
+  is the annotation: `view-annotation-dom-cljs-test` asserts these
+  attributes directly, and this helper would erase the very thing that
+  suite exists to see."
+  [html]
+  (str/replace html #"\s+data-rf(?:2-source-coord|-view)=\"[^\"]*\"" ""))
 
 ;; ---------------------------------------------------------------------------
 ;; The sabotage — the page-global adoption window, restored and executing
