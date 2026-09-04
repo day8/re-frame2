@@ -674,7 +674,31 @@ A subsequent `:rf.http/managed-abort` fx with the same id (compared by `=`) canc
 {:fx [[:rf.http/managed-abort [:articles :load "hello"]]]}
 ```
 
-When a fresh request supersedes a prior one with the same `:request-id`, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersession records the superseded attempt the [uniform reply-envelope way](Managed-Effects.md#stale-suppression): a canonical `:rf.http/stale-suppressed` trace row carrying `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed` (`:rf.reply/stale-reason :rf.http/request-id-superseded`) and the **carried** (the superseded attempt's `:work/id`) and **current** (the superseding attempt's `:work/id`) correlation — the two being `=`-distinct because the per-`request-id` issuance counter bumped. The legacy `:rf.http/aborted` trace (with `:reason :request-id-superseded`) still emits for abort-telemetry consumers; consumers wanting either subscribe via `register-listener!`. No app target runs for the superseded attempt. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id and DOES dispatch `:on-failure` with `:reason :user`.
+When a fresh request supersedes a prior one with the same `:request-id` **in the same frame**, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersession records the superseded attempt the [uniform reply-envelope way](Managed-Effects.md#stale-suppression): a canonical `:rf.http/stale-suppressed` trace row carrying `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed` (`:rf.reply/stale-reason :rf.http/request-id-superseded`) and the **carried** (the superseded attempt's `:work/id`) and **current** (the superseding attempt's `:work/id`) correlation — the two being `=`-distinct because the per-`request-id` issuance counter bumped. The legacy `:rf.http/aborted` trace (with `:reason :request-id-superseded`) still emits for abort-telemetry consumers; consumers wanting either subscribe via `register-listener!`. No app target runs for the superseded attempt. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id **in the frame the abort was dispatched from**, and DOES dispatch `:on-failure` with `:reason :user`.
+
+#### Frame scope — a `:request-id` is frame-local
+
+**A `:request-id` names a request within its issuing frame, never across frames.** Supersession, `:rf.http/managed-abort`, and the per-`:request-id` issuance counter are all scoped to the frame that issued the request:
+
+1. a fresh request supersedes only a **prior request from the same frame**; a sibling frame holding the same `:request-id` keeps its request live and its reply undisturbed;
+2. `[:rf.http/managed-abort id]` aborts only the **dispatching frame's** request under that id;
+3. the issuance counter that discriminates a superseded attempt from its superseder runs **per frame**, so a frame's first issuance under an id is `1` however many times a sibling has re-issued.
+
+This is the [frame-isolation contract](002-Frames.md#routing-the-dispatch-envelope) applied to request *lifetime*, matching what [§Frame awareness](#frame-awareness) already promises for reply *routing* and what [§Chain order and frame scope](#chain-order-and-frame-scope) already states for the interceptor chain: "an interceptor registered against frame A does NOT fire for a request dispatched from frame B". Cancellation is the third such surface, and it is scoped the same way.
+
+The point is ergonomic as much as it is correct. The frame is information the runtime already carries on every request, so an app writes one ordinary stable id in reusable code —
+
+```clojure
+:request-id :articles/load
+```
+
+— and mounts that code in as many isolated frames as it likes (per-request SSR frames, Story variants, side-by-side mounts) without the ids colliding. Callers are **not** asked to hand-qualify an id with a frame; doing so would leak a runtime implementation detail into every call site and make otherwise-reusable event code unsafe in exactly the multi-frame modes the framework advertises.
+
+The caller's raw `:request-id` remains the **public correlation value** — it is what rides in the reply envelope's `:correlation` and in trace rows, unchanged. The frame qualification is internal to the runtime's cancellation index and is never surfaced to the app.
+
+There is deliberately **no** cross-frame cancellation through this effect. A frame cannot reach another frame's in-flight request by naming its id; if such orchestration is ever wanted it deserves an explicit surface rather than an accidental reach-through.
+
+> **Framework-internal identities are qualified separately.** [Spec 016](016-Resources.md#ledger-row-retention-and-identity)'s resource / mutation transport ids are already frame-qualified (`[:rf.req frame-id work-id]`) because they are process-global transport correlation values. That qualification is orthogonal to — and unaffected by — the frame scoping described here.
 
 ### `:abort-signal` (external)
 
@@ -747,6 +771,12 @@ A spawned actor may issue multiple `:rf.http/managed` requests in its lifetime. 
 
 When actor A is destroyed, only A's in-flight requests are aborted. Actor B's in-flight requests — a sibling under the same `:spawn-all` that has not yet been told to stop — are unaffected until B itself is torn down.
 
+#### Frame scope
+
+A spawned actor's address is **frame-local**, exactly as a `:request-id` is (see [§Frame scope — a `:request-id` is frame-local](#frame-scope--a-request-id-is-frame-local)): two isolated frames running the same application code spawn actors under the same address. The in-flight index therefore keys actor-owned work on the **(frame, actor-id)** pair, so a frame's actor slot is independent of a same-named actor's slot in a sibling frame, and the isolation is structural rather than dependent on an actor-naming convention.
+
+Whether a given destroy narrows to one frame is decided by what the destroying caller supplies. The runtime's abort entry point accepts the destroyed actor's address **with** its owning frame — the frame-scoped form, which aborts only that frame's actor-owned HTTP — and, for a caller that holds only an address, an any-frame form that sweeps the address in every frame. The `:http/abort-on-actor-destroy` hook as currently invoked by the state-machine destroy cascade passes an address alone and so takes the any-frame form; threading the frame the cascade already holds is what makes an actor destroy frame-exact, and it is a change on the *calling* side of the hook.
+
 `:spawn-all` sibling cancellation on join resolution (per [Spec 005 §Cancel-on-decision](005-StateMachines.md#cancel-on-decision-default-true)) emits one `:rf.machine/destroy` per surviving sibling, so each sibling's HTTP cascade independently fires the `:http/abort-on-actor-destroy` hook against its own actor-id.
 
 #### Direct dispatches from event handlers — NOT covered
@@ -788,6 +818,8 @@ The sweep is idempotent and a no-op for a frame with no in-flight managed HTTP �
 ## Frame awareness
 
 The reply dispatch lands in the **same frame** the request was issued from. The fx reads the issuing frame's stamp from the dispatch **envelope's** `:frame` key — one of the **sanctioned** sites the bare `:frame` spelling survives at (the binary fx-handler ctx and the dispatch envelope; there is no bare `:frame` *coeffect* — the event-context spelling is `:rf.frame/id`, per [002 §One carrier, one name — the frame stamp](002-Frames.md#one-carrier-one-name--the-frame-stamp)) — and threads it through to the reply dispatch's `{:frame ...}` opt. Multi-frame apps work without extra ceremony.
+
+Frame awareness covers a request's **lifetime**, not only where its reply lands. The same issuing-frame stamp scopes cancellation: supersession, `:rf.http/managed-abort`, and the issuance counter are all frame-local (see [§Frame scope — a `:request-id` is frame-local](#frame-scope--a-request-id-is-frame-local)), and actor-owned work is indexed per frame (see [§Frame scope](#frame-scope)). Without that, "without extra ceremony" would be false in the multi-frame case it is written for: two frames running the same code would cancel each other through their shared ids, and callers would have to hand-qualify every `:request-id` to get the isolation back.
 
 ## Middleware
 
@@ -1179,8 +1211,8 @@ For test suites that need to inspect or reset the in-flight request registry dir
 | Helper | Signature | Purpose |
 |---|---|---|
 | `clear-all-in-flight!` | `(clear-all-in-flight!)` → nil | Drops both the request-id-keyed and actor-id-keyed in-flight maps. Consumed by `re-frame.test-support/make-reset-runtime-fixture` to restore a clean registry between tests; the `:http/clear-all-in-flight!` hook is published via the late-bind table so `test-support` can call it without statically requiring the http artefact. |
-| `in-flight-snapshot` | `(in-flight-snapshot)` → map | Reads the current value of the request-id-keyed in-flight map. For tests that need to assert "this request-id is in flight" without poking the atom directly. |
-| `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` → map | Reads the current value of the actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy) and). For tests that need to assert the actor → request-id reverse index. |
+| `in-flight-snapshot` | `(in-flight-snapshot)` / `(in-flight-snapshot frame-id)` → map | Reads the in-flight request index keyed by the **caller's raw `:request-id`**, never the internal frame-scoped key. For tests that need to assert "this request-id is in flight" without poking the atom directly. The 0-arity flattens every frame onto the raw id and is therefore lossy when two frames hold the same id — a multi-frame assertion uses the 1-arity, which reads one frame's requests. |
+| `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` / `(actor-in-flight-snapshot frame-id)` → map | Reads the actor-owned in-flight index keyed by the raw actor-id (per [§Abort on actor destroy](#abort-on-actor-destroy)). For tests that need to assert the actor → request-id reverse index. The 0-arity concatenates same-named actors across frames; the 1-arity reads one frame's actors. |
 | `seed-in-flight-for-test!` | `(seed-in-flight-for-test! handle)` / `(seed-in-flight-for-test! request-id actor-id handle)` → handle | Registers a fabricated in-flight handle through the SAME `record-in-flight!` path production uses, so BOTH indexes stay consistent. For fixtures that need an in-flight slot present without issuing a real request. The 1-arity reads `:request-id` / `:actor-id` off the handle. The raw in-flight atoms are NOT exported — a fixture must seed through this helper rather than `swap!`-ing an atom directly. |
 
 These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe, seed, and reset registry state without reaching into the namespace's atoms. The underlying `in-flight` / `actor-in-flight` storage atoms are **not** re-exported from `re-frame.http.managed` — exposing mutable internal storage as API would let callers bypass `record-in-flight!` / `clear-in-flight!` and the actor-index cleanup invariants. The per-frame HTTP-interceptor chain has the symmetric pair: `interceptors-snapshot` (`(interceptors-snapshot)` → `frame-id → [slot …]`, or `(interceptors-snapshot frame-id)` → `[slot …]`) reads the chain for assertions; registration / clearing route through `reg-http-interceptor` / `clear-http-interceptor`, never a raw atom `swap!`.
