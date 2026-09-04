@@ -461,16 +461,28 @@
 (defn- maybe-emit-schema-violation!
   "Emit `:rf.schema/violation` when a re-registration changes the schema
   at `(frame-id, path)` AND the live `app-db` value at `path` fails the
-  NEW schema. `prior-schema` is the schema the path carried before this
-  registration (nil when first registration). No-op when there is no
-  prior schema, the schema is unchanged, no validator is registered, or
-  the live value still validates.
+  NEW schema. No-op when the path was not registered before this call,
+  the schema is unchanged, no validator is registered, or the live value
+  still validates.
+
+  `prior-registered?` is whether the registry held an ENTRY for
+  `(frame-id, path)` before this registration, and `prior-schema` is the
+  exact token that entry stored. The two are separate arguments on
+  purpose (rf2-4thn): a schema value is opaque to re-frame, so `nil` is a
+  legitimate token a custom validator may interpret, and Spec 010
+  §The `:schema` value is opaque makes \"registered\" a question about
+  DECLARATION PRESENCE rather than token truthiness (the rf2-6eh5h law
+  the validation seams already follow). Inferring presence from
+  `(some? prior-schema)` conflated a real entry carrying a nil token with
+  no entry at all, so re-registering that path emitted nothing and the
+  schema-evolution diagnostic went silent on exactly the state it exists
+  to explain.
 
   Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
   §Production builds)."
-  [frame-id path prior-schema new-schema]
-  (when (and (some? prior-schema)
+  [frame-id path prior-registered? prior-schema new-schema]
+  (when (and prior-registered?
              (not= prior-schema new-schema))
     (when-let [validate-fn @validator/validator-fn]
       (let [app-db      (frame/frame-app-db-value frame-id)
@@ -568,13 +580,22 @@
                         (assoc (dissoc metadata :schema :frame)
                                :schema schema :path path :frame frame-id))
          ;; Capture before replacement for the dev-only hot-reload check.
-         prior-schema (get-in @schemas-by-frame [frame-id path :schema])]
+         ;; Presence and token come from ONE deref so they cannot disagree,
+         ;; and presence is `contains?` on the frame's path map rather than
+         ;; the truthiness of the stored token (rf2-4thn): a schema value is
+         ;; opaque to re-frame, so a registered nil is a real declaration a
+         ;; custom validator may interpret, and only an ABSENT entry means
+         ;; "no schema" (Spec 010 §The `:schema` value is opaque).
+         prior-paths  (get @schemas-by-frame frame-id)
+         prior-known? (contains? prior-paths path)
+         prior-schema (:schema (get prior-paths path))]
      (swap! schemas-by-frame assoc-in [frame-id path] schema-meta)
      ;; Read-only diagnostics are absent from production builds.
      (when interop/debug-enabled?
        (maybe-warn-validator-unavailable!)
        (maybe-warn-walker-opaque! schema path)
-       (maybe-emit-schema-violation! frame-id path prior-schema schema))
+       (maybe-emit-schema-violation! frame-id path prior-known? prior-schema
+                                     schema))
      path))))
 
 (defn reg-app-schemas
