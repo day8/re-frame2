@@ -29,8 +29,7 @@
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
             [re-frame.views])
-  (:require-macros [re-frame.core :refer [reg-view]]
-                   [re-frame.test-support :refer [with-trace-recorder!]]))
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
