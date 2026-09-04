@@ -13,8 +13,16 @@ left to caveat.)
 The invariant this gate enforces — in-package link resolution (rf2-deo2zp):
 
     For every packaged skill, every INTRA-package relative link from a shipped
-    doc (SKILL.md / README.md / references/**.md) MUST resolve to a file the
-    package.json `files` allow-list ships.
+    doc MUST resolve to a file the package.json `files` allow-list ships.
+
+"Shipped doc" is DERIVED from that same allow-list rather than from a roster of
+directory names (rf2-pp72). The docs a packaged install can resolve links inside
+are exactly the markdown files the tarball contains, so `patterns/`,
+`decision-trees/` and a top-level `examples-map.md` are scanned on the day
+`files` starts shipping them — there is no second list to keep in step, which is
+what let the roster fall behind the allow-list in the first place. A doc `files`
+omits is not in the tarball at all, so its links cannot break a packaged install
+and it is correctly out of scope.
 
 "Intra-package" is decided by where a link RESOLVES, not by how it is spelled
 (rf2-kgw8z). A `../` from a nested doc usually lands back inside the package —
@@ -142,19 +150,21 @@ def _is_shipped(rel_target: str, allow: list[str]) -> bool:
     return False
 
 
-def _shipped_docs_with_links(skill_dir: Path) -> Iterable[Path]:
+def _shipped_docs_with_links(skill_dir: Path, allow: list[str]) -> Iterable[Path]:
     """Yield shipped markdown docs whose intra-package links we validate.
 
-    SKILL.md, README.md, and every references/**.md leaf — the docs that ship in
-    the package and that a packaged install resolves links inside.
+    Every markdown file the `files` allow-list ships — decided by the same
+    [[_is_shipped]] predicate the link TARGETS are checked against, so the two
+    halves of the invariant cannot drift apart (rf2-pp72).
+
+    This replaced a hardcoded SKILL.md / README.md / references/**.md roster
+    that had already fallen behind: `skills/re-frame2` ships `patterns/`,
+    `decision-trees/` and `examples-map.md`, and `skills/re-frame2-pair` ships
+    `docs/` and `STATUS.md`, none of which the roster named — so a link from
+    any of them to an unshipped path was invisible here.
     """
-    for name in ("SKILL.md", "README.md"):
-        p = skill_dir / name
-        if p.is_file():
-            yield p
-    refs = skill_dir / "references"
-    if refs.is_dir():
-        for md in sorted(refs.rglob("*.md")):
+    for md in sorted(skill_dir.rglob("*.md")):
+        if _is_shipped(md.relative_to(skill_dir).as_posix(), allow):
             yield md
 
 
@@ -164,7 +174,7 @@ def _broken_package_links(skill_dir: Path) -> list[str]:
     if allow is None:
         return []
     findings: list[str] = []
-    for doc in _shipped_docs_with_links(skill_dir):
+    for doc in _shipped_docs_with_links(skill_dir, allow):
         rel_doc = doc.relative_to(skill_dir)
         text = doc.read_text(encoding="utf-8", errors="replace")
         for line in text.splitlines():
@@ -267,6 +277,7 @@ def _make_skill(
     files: list[str] | None = None,  # package.json `files`; None -> ["SKILL.md"]
     skill_link: str | None = None,   # an intra-package link to embed in SKILL.md
     ref_link: str | None = None,     # a link to embed in references/lens.md
+    pattern_link: str | None = None, # a link to embed in patterns/example.md
     create_docs: bool = False,       # create docs/SETUP.md on disk
     monorepo_only: bool = False,     # mark the link's line monorepo-only
 ) -> None:
@@ -294,6 +305,13 @@ def _make_skill(
     if ref_link is not None:
         ref_body += f"See [design]({ref_link}){suffix}.\n"
     _write(d / "references" / "lens.md", ref_body)
+    # patterns/example.md is the rf2-pp72 shape: a doc the old hardcoded
+    # roster never scanned, shipped or not.
+    if pattern_link is not None:
+        _write(
+            d / "patterns" / "example.md",
+            f"# pattern\nSee [setup]({pattern_link}){suffix}.\n",
+        )
     _write(d / "README.md", "# readme\n")
 
 
@@ -392,6 +410,45 @@ def _run_self_tests(verbose: bool = False) -> int:
                 package=True,
                 files=["SKILL.md", "README.md", "references/", "docs/"],
                 ref_link="../docs/NEVER-CREATED.md",
+            ),
+            0,
+        ),
+        # rf2-pp72 — THE WIDENING CASE. A shipped `patterns/` doc links to a
+        # path `files` omits. Under the old hardcoded SKILL/README/references
+        # roster this doc was never opened, so the finding was invisible and
+        # this case returned 0. It is the negative fixture proving the scan
+        # surface is genuinely derived from the allow-list.        -> 1
+        (
+            "bad_patterns_doc_unshipped_link",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md", "patterns"],
+                pattern_link="../docs/SETUP.md",
+                create_docs=True,
+            ),
+            1,
+        ),
+        # the same shipped `patterns/` doc, but the target IS shipped   -> 0
+        (
+            "ok_patterns_doc_shipped_link",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md", "patterns", "docs"],
+                pattern_link="../docs/SETUP.md",
+                create_docs=True,
+            ),
+            0,
+        ),
+        # the derivation's OTHER half: `patterns/` is NOT in `files`, so the
+        # doc is absent from the tarball and its links cannot break a packaged
+        # install. Out of scope by construction rather than by omission. -> 0
+        (
+            "ok_unshipped_patterns_dir_is_not_scanned",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md"],
+                pattern_link="../docs/SETUP.md",
+                create_docs=True,
             ),
             0,
         ),
