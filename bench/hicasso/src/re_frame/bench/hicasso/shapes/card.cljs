@@ -56,7 +56,7 @@
   `.cljc`-compatible by construction: no interop, no JS literal."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
             [re-frame.bench.hicasso.front.route-link :refer [route-link]]
-            [re-frame.bench.hicasso.shapes.model :as m]))
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]))
 
 (def elements-per-card
   "The element count of one rendered card, with the two tags
@@ -89,7 +89,7 @@
      [:div.article-meta
       (route-link {:to :conduit.profile/show :params {:username (:username author)}
                    :class "author-link"}
-        [:img.user-pic {:src (m/avatar-src (:image author)) :alt ""}])
+        [:img.user-pic {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}])
       [:div.info
        (route-link {:to :conduit.profile/show :params {:username (:username author)}
                     :class "author"}

@@ -36,7 +36,7 @@
 
   ## It is `p0-uix-views`' spine, on this page
 
-  `uixa/use-subscribe` — the published spine — one read per boundary, no
+  `rf.adapter.uix/use-subscribe` — the published spine — one read per boundary, no
   `use-memo` around the subscription args, no `set-hiccup-emitter!`. The
   reasons are that namespace's and are not repeated here; what matters is
   that this arm is the same UIx the red zones were derived from, so a
@@ -46,8 +46,8 @@
   with both other arms. The DOM is gated identical across all three.
 
   Owner: rf2-rguy1."
-  (:require [re-frame.adapter.uix :as uixa]
-            [re-frame.bench.hicasso.jsfb-model :as m]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.jsfb-model :as rf.bench.hicasso.jsfb-model]
             [re-frame.core :as rf]
             [uix.core :refer [$ defui]]
             [uix.dom :as uix-dom]))
@@ -57,11 +57,11 @@
   after the render that created it returned, so it resolves no frame from
   context. `dispatch-sync` inside the click turn, like every other arm."
   [event]
-  (rf/with-frame m/frame-id (rf/dispatch-sync event)))
+  (rf/with-frame rf.bench.hicasso.jsfb-model/frame-id (rf/dispatch-sync event)))
 
 (defui row [{:keys [id]}]
-  (let [{:keys [label]} (uixa/use-subscribe [:jsfb/row id])
-        selected?       (uixa/use-subscribe [:jsfb/selected? id])]
+  (let [{:keys [label]} (rf.adapter.uix/use-subscribe [:jsfb/row id])
+        selected?       (rf.adapter.uix/use-subscribe [:jsfb/selected? id])]
     ($ :tr {:class (when selected? "danger")}
        ($ :td.col-md-1 id)
        ($ :td.col-md-4
@@ -73,7 +73,7 @@
 
 (defui table []
   ($ :tbody
-     (for [id (uixa/use-subscribe [:jsfb/order])]
+     (for [id (rf.adapter.uix/use-subscribe [:jsfb/order])]
        ($ row {:key id :id id}))))
 
 (defui button [{:keys [id label event]}]
@@ -100,10 +100,10 @@
 
 (defn ^:export -main
   []
-  (rf/init! uixa/adapter)
-  (m/reset-seed!)
-  (m/register!)
-  (m/make-frame!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.jsfb-model/reset-seed!)
+  (rf.bench.hicasso.jsfb-model/register!)
+  (rf.bench.hicasso.jsfb-model/make-frame!)
   (uix-dom/render-root
-    ($ uixa/frame-provider {:frame m/frame-id} ($ app))
+    ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.jsfb-model/frame-id} ($ app))
     (uix-dom/create-root (js/document.getElementById "main"))))

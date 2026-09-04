@@ -36,7 +36,7 @@
   (`the-collectors-conditional-read-costs-fewer-edges-than-the-declaration`),
   and for no other reason."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [use-subs]]
-            [re-frame.bench.hicasso.front.dogfood :as d])
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (defview head [_]
@@ -46,13 +46,13 @@
      [:span.remaining {:data-remaining remaining} (str remaining " left")]]))
 
 (defview new-item [_]
-  (let [{:keys [draft]} (use-subs {:draft [:dogfood/draft d/new-draft-key]})]
+  (let [{:keys [draft]} (use-subs {:draft [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key]})]
     [:form.new {:on-submit [:dogfood/create]}
      [:input.new-input {:type        "text"
                         :value       draft
-                        :on-input    [:dogfood/edit-draft d/new-draft-key :re-frame.hicasso/value]
+                        :on-input    [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key :re-frame.hicasso/value]
                         :on-key-down {"Enter"  [:dogfood/create]
-                                      "Escape" [:dogfood/cancel d/new-draft-key]}}]
+                                      "Escape" [:dogfood/cancel rf.bench.hicasso.front.dogfood/new-draft-key]}}]
      [:button.add {:type "submit"} "Add"]]))
 
 (defn- filter-button

@@ -34,8 +34,8 @@
   ## The term that was priced, and the schedule on which it is recovered
 
   `re-frame.substrate.spine/use-subscribe` USED TO take a BALANCED
-  render-phase round trip — `subs/subscribe` immediately followed by
-  `subs/unsubscribe` (the rf2-es09qq net-zero rule) — so a render that
+  render-phase round trip — `rf.subs/subscribe` immediately followed by
+  `rf.subs/unsubscribe` (the rf2-es09qq net-zero rule) — so a render that
   never commits retained no ref-count. For a query with NO live cache
   entry that is `0 -> 1 -> 0`, and `1 -> 0` is the disposal edge:
   `re-frame.subs.cache/unsubscribe!` disposes in-tick with no grace
@@ -65,7 +65,7 @@
   | `xcript`  | subscribe + unsubscribe (build #1, dispose #1) | subscribe (build #2) | **2** |
   | `handoff` | subscribe (build #1, +1 held provisionally)    | subscribe (hit) + unsubscribe (2 -> 1) | **1** |
 
-  Both make exactly TWO `subs/subscribe` and TWO `subs/unsubscribe` calls
+  Both make exactly TWO `rf.subs/subscribe` and TWO `rf.subs/unsubscribe` calls
   per mounted read (render, commit, unmount); both install the same
   watch, the same refs, the same six hooks. `xcript - handoff` is
   therefore the build/dispose/rebuild churn ALONE — the clock the shipped
@@ -124,7 +124,7 @@
   `subscribe-fn`; the shipped hook has no such seam, and adding one would
   make the arm a fourth transcription rather than the code under test. So
   the shipped arm reads the same two integers off OBSERVABLE STATE, with
-  the same meanings and no spy on `subs/subscribe` (a spy that substituted
+  the same meanings and no spy on `rf.subs/subscribe` (a spy that substituted
   the reaction would defeat the hand-off's own identity guard and measure
   the instrument):
 
@@ -147,11 +147,11 @@
   (`p0_reagent_views.cljs` / `p0_uix_views.cljs`); the canonical-DOM
   parity gate proves it rather than this docstring."
   (:require ["react" :as react]
-            [re-frame.adapter.uix :as uixa]
-            [re-frame.bench.hicasso.p0-reagent-views :as v]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.subs :as subs]
+            [re-frame.frame :as rf.frame]
+            [re-frame.subs :as rf.subs]
             [reagent.dom.client :as rdc]
             [uix.core :refer [$ defui]]
             [uix.dom :as uix-dom]
@@ -182,12 +182,12 @@
 
 (defn register!
   "The full sub graph for one segment: the converged set's layer-1
-  `:p0/cell` (via `v/register!`, unchanged), the identity `:<-` chain the
+  `:p0/cell` (via `rf.bench.hicasso.p0-reagent-views/register!`, unchanged), the identity `:<-` chain the
   layer-2/3 rows read, and the counter-instrumented witness chain.
   Re-registering overwrites with identical handlers, so the per-segment
   re-register is idempotent (the converged arm's own pattern)."
   []
-  (v/register!)
+  (rf.bench.hicasso.p0-reagent-views/register!)
   ;; Parametric `:<-` producers — the index rides the query vector, which
   ;; the static literal `:<-` form cannot express. A parametric single
   ;; input is delivered as `[value]` (Spec 006 §Single input contract).
@@ -201,7 +201,7 @@
   (rf/reg-sub :cm/w1
     (fn [db [_ i]]
       (aset witness-counters "body1" (inc (aget witness-counters "body1")))
-      (nth (:cells db) (mod i v/cells-n))))
+      (nth (:cells db) (mod i rf.bench.hicasso.p0-reagent-views/cells-n))))
   (rf/reg-sub :cm/w2
     (fn [qv] [[:cm/w1 (second qv)]])
     (fn [[cell] _]
@@ -253,8 +253,8 @@
         reaction
         (uix-hooks/use-memo
           (fn []
-            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})]
-              (subs/unsubscribe stable-frame-kw stable-query-v)
+            (let [r (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})]
+              (rf.subs/unsubscribe stable-frame-kw stable-query-v)
               r))
           #js [stable-key])
         get-snap
@@ -272,7 +272,7 @@
           (fn [on-change]
             ;; Cold cache (the render round trip disposed the entry), so
             ;; this MISSES and constructs the SECOND reaction.
-            (let [committed (subs/subscribe stable-query-v
+            (let [committed (rf.subs/subscribe stable-query-v
                                             {:frame stable-frame-kw})]
               (set! (.-current committed-ref) #js [stable-key committed])
               (let [k (keyword watch-ns (str (gensym "watch-")))]
@@ -283,7 +283,7 @@
                   (let [stored (.-current committed-ref)]
                     (when (and stored (identical? (aget stored 1) committed))
                       (set! (.-current committed-ref) nil)))
-                  (subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
           #js [stable-key])]
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 
@@ -311,7 +311,7 @@
         stable-query-v  (aget stable-key 1)
         reaction
         (uix-hooks/use-memo
-          (fn [] (subs/subscribe stable-query-v {:frame stable-frame-kw}))
+          (fn [] (rf.subs/subscribe stable-query-v {:frame stable-frame-kw}))
           #js [stable-key])
         get-snap
         (uix-hooks/use-callback
@@ -329,10 +329,10 @@
             ;; Live entry at ref-count 1, so this HITS: `committed` is
             ;; `identical?` the render-phase handle. Adopt, then release
             ;; the provisional +1 (2 -> 1).
-            (let [committed (subs/subscribe stable-query-v
+            (let [committed (rf.subs/subscribe stable-query-v
                                             {:frame stable-frame-kw})]
               (set! (.-current committed-ref) #js [stable-key committed])
-              (subs/unsubscribe stable-frame-kw stable-query-v)
+              (rf.subs/unsubscribe stable-frame-kw stable-query-v)
               (let [k (keyword watch-ns (str (gensym "watch-")))]
                 (when committed
                   (add-watch committed k (fn [_ _ _ _] (on-change))))
@@ -341,7 +341,7 @@
                   (let [stored (.-current committed-ref)]
                     (when (and stored (identical? (aget stored 1) committed))
                       (set! (.-current committed-ref) nil)))
-                  (subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
           #js [stable-key])]
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 
@@ -363,55 +363,55 @@
 ;; comment.
 
 (defui s-m1-l1 [{:keys [i]}]
-  (let [cell (uixa/use-subscribe [:p0/cell i])]
+  (let [cell (rf.adapter.uix/use-subscribe [:p0/cell i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui s-m1-l2 [{:keys [i]}]
-  (let [cell (uixa/use-subscribe [:cm/l2 i])]
+  (let [cell (rf.adapter.uix/use-subscribe [:cm/l2 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui s-m1-l3 [{:keys [i]}]
-  (let [cell (uixa/use-subscribe [:cm/l3 i])]
+  (let [cell (rf.adapter.uix/use-subscribe [:cm/l3 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui x-m1-l1 [{:keys [i]}]
-  (let [cell (use-sub-xcript v/subs-frame [:p0/cell i])]
+  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:p0/cell i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui x-m1-l2 [{:keys [i]}]
-  (let [cell (use-sub-xcript v/subs-frame [:cm/l2 i])]
+  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l2 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui x-m1-l3 [{:keys [i]}]
-  (let [cell (use-sub-xcript v/subs-frame [:cm/l3 i])]
+  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l3 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui h-m1-l1 [{:keys [i]}]
-  (let [cell (use-sub-handoff v/subs-frame [:p0/cell i])]
+  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:p0/cell i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui h-m1-l2 [{:keys [i]}]
-  (let [cell (use-sub-handoff v/subs-frame [:cm/l2 i])]
+  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l2 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui h-m1-l3 [{:keys [i]}]
-  (let [cell (use-sub-handoff v/subs-frame [:cm/l3 i])]
+  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l3 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
@@ -421,70 +421,70 @@
 ;; ---------------------------------------------------------------------------
 
 (defui s-m2-l1 [{:keys [i]}]
-  (let [cell (uixa/use-subscribe [:p0/cell i])]
+  (let [cell (rf.adapter.uix/use-subscribe [:p0/cell i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (v/field-value i cell)
+                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (v/field-error i)))))
+       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
 
 (defui s-m2-l2 [{:keys [i]}]
-  (let [cell (uixa/use-subscribe [:cm/l2 i])]
+  (let [cell (rf.adapter.uix/use-subscribe [:cm/l2 i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (v/field-value i cell)
+                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (v/field-error i)))))
+       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
 
 (defui x-m2-l1 [{:keys [i]}]
-  (let [cell (use-sub-xcript v/subs-frame [:p0/cell i])]
+  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:p0/cell i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (v/field-value i cell)
+                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (v/field-error i)))))
+       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
 
 (defui x-m2-l2 [{:keys [i]}]
-  (let [cell (use-sub-xcript v/subs-frame [:cm/l2 i])]
+  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l2 i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (v/field-value i cell)
+                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (v/field-error i)))))
+       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
 
 (defui h-m2-l1 [{:keys [i]}]
-  (let [cell (use-sub-handoff v/subs-frame [:p0/cell i])]
+  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:p0/cell i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (v/field-value i cell)
+                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (v/field-error i)))))
+       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
 
 (defui h-m2-l2 [{:keys [i]}]
-  (let [cell (use-sub-handoff v/subs-frame [:cm/l2 i])]
+  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l2 i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (v/field-value i cell)
+                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (v/field-error i)))))
+       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The UIx grids and root
@@ -508,7 +508,7 @@
   ignore it) and renders no DOM of its own, so it cannot move the parity
   gate."
   [grid cell n]
-  ($ uixa/frame-provider {:frame v/subs-frame}
+  ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame}
      ($ grid {:cell cell :n n})))
 
 (def uix-m1-cells
@@ -562,9 +562,9 @@
      [:input.inp {:id        (str "f" i)
                   :name      (str "f" i)
                   :type      "text"
-                  :value     (v/field-value i cell)
+                  :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
                   :read-only true}]
-     [:p.err (v/field-error i)]]))
+     [:p.err (rf.bench.hicasso.p0-reagent-views/field-error i)]]))
 
 (reg-view ^{:rf/id :cm/m2-l2} rg-m2-l2
   [fields]
@@ -574,8 +574,8 @@
       ^{:key i} [rg-m2-field-l2 i])]
    [:button.submit {:type "submit" :disabled true} "Submit"]])
 
-(def reagent-m1-views {1 v/m1-subs 2 rg-m1-l2 3 rg-m1-l3})
-(def reagent-m2-views {1 v/m2-subs 2 rg-m2-l2})
+(def reagent-m1-views {1 rf.bench.hicasso.p0-reagent-views/m1-subs 2 rg-m1-l2 3 rg-m1-l3})
+(def reagent-m2-views {1 rf.bench.hicasso.p0-reagent-views/m2-subs 2 rg-m2-l2})
 
 ;; ---------------------------------------------------------------------------
 ;; THE COUNTING WITNESS — the same claim, settled exactly
@@ -597,8 +597,8 @@
         reaction
         (uix-hooks/use-memo
           (fn []
-            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})]
-              (subs/unsubscribe stable-frame-kw stable-query-v)
+            (let [r (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})]
+              (rf.subs/unsubscribe stable-frame-kw stable-query-v)
               r))
           #js [stable-key])
         get-snap
@@ -614,7 +614,7 @@
         subscribe-fn
         (uix-hooks/use-callback
           (fn [on-change]
-            (let [committed (subs/subscribe stable-query-v
+            (let [committed (rf.subs/subscribe stable-query-v
                                             {:frame stable-frame-kw})]
               (aset witness-counters "commits"
                     (inc (aget witness-counters "commits")))
@@ -634,7 +634,7 @@
                   (let [stored (.-current committed-ref)]
                     (when (and stored (identical? (aget stored 1) committed))
                       (set! (.-current committed-ref) nil)))
-                  (subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
           #js [stable-key reaction])]
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 
@@ -646,7 +646,7 @@
         stable-query-v  (aget stable-key 1)
         reaction
         (uix-hooks/use-memo
-          (fn [] (subs/subscribe stable-query-v {:frame stable-frame-kw}))
+          (fn [] (rf.subs/subscribe stable-query-v {:frame stable-frame-kw}))
           #js [stable-key])
         get-snap
         (uix-hooks/use-callback
@@ -661,7 +661,7 @@
         subscribe-fn
         (uix-hooks/use-callback
           (fn [on-change]
-            (let [committed (subs/subscribe stable-query-v
+            (let [committed (rf.subs/subscribe stable-query-v
                                             {:frame stable-frame-kw})]
               (aset witness-counters "commits"
                     (inc (aget witness-counters "commits")))
@@ -669,7 +669,7 @@
                 (aset witness-counters "rebuilt"
                       (inc (aget witness-counters "rebuilt"))))
               (set! (.-current committed-ref) #js [stable-key committed])
-              (subs/unsubscribe stable-frame-kw stable-query-v)
+              (rf.subs/unsubscribe stable-frame-kw stable-query-v)
               (let [k (keyword watch-ns (str (gensym "watch-")))]
                 (when committed
                   (add-watch committed k (fn [_ _ _ _] (on-change))))
@@ -678,7 +678,7 @@
                   (let [stored (.-current committed-ref)]
                     (when (and stored (identical? (aget stored 1) committed))
                       (set! (.-current committed-ref) nil)))
-                  (subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
           #js [stable-key reaction])]
     (react/useSyncExternalStore subscribe-fn get-snap get-snap)))
 
@@ -687,39 +687,39 @@
 (defn- wq [layer i] [(case layer 1 :cm/w1 2 :cm/w2 3 :cm/w3) i])
 
 (defui wx-cell-1 [{:keys [base]}]
-  (let [a (use-sub-witness-xcript v/subs-frame (wq 1 (+ base 0)))
-        b (use-sub-witness-xcript v/subs-frame (wq 1 (+ base 1)))
-        c (use-sub-witness-xcript v/subs-frame (wq 1 (+ base 2)))]
+  (let [a (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 0)))
+        b (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 1)))
+        c (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wx-cell-2 [{:keys [base]}]
-  (let [a (use-sub-witness-xcript v/subs-frame (wq 2 (+ base 0)))
-        b (use-sub-witness-xcript v/subs-frame (wq 2 (+ base 1)))
-        c (use-sub-witness-xcript v/subs-frame (wq 2 (+ base 2)))]
+  (let [a (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 0)))
+        b (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 1)))
+        c (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wx-cell-3 [{:keys [base]}]
-  (let [a (use-sub-witness-xcript v/subs-frame (wq 3 (+ base 0)))
-        b (use-sub-witness-xcript v/subs-frame (wq 3 (+ base 1)))
-        c (use-sub-witness-xcript v/subs-frame (wq 3 (+ base 2)))]
+  (let [a (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 0)))
+        b (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 1)))
+        c (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wh-cell-1 [{:keys [base]}]
-  (let [a (use-sub-witness-handoff v/subs-frame (wq 1 (+ base 0)))
-        b (use-sub-witness-handoff v/subs-frame (wq 1 (+ base 1)))
-        c (use-sub-witness-handoff v/subs-frame (wq 1 (+ base 2)))]
+  (let [a (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 0)))
+        b (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 1)))
+        c (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wh-cell-2 [{:keys [base]}]
-  (let [a (use-sub-witness-handoff v/subs-frame (wq 2 (+ base 0)))
-        b (use-sub-witness-handoff v/subs-frame (wq 2 (+ base 1)))
-        c (use-sub-witness-handoff v/subs-frame (wq 2 (+ base 2)))]
+  (let [a (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 0)))
+        b (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 1)))
+        c (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wh-cell-3 [{:keys [base]}]
-  (let [a (use-sub-witness-handoff v/subs-frame (wq 3 (+ base 0)))
-        b (use-sub-witness-handoff v/subs-frame (wq 3 (+ base 1)))
-        c (use-sub-witness-handoff v/subs-frame (wq 3 (+ base 2)))]
+  (let [a (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 0)))
+        b (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 1)))
+        c (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 ;; -- the SHIPPED witness: the real hook, counted off observable state -------
@@ -737,7 +737,7 @@
   boundary more than once, and only the first render is the cold one."
   (atom {}))
 
-(defn- sub-cache-atom [] (:sub-cache (frame/frame v/subs-frame)))
+(defn- sub-cache-atom [] (:sub-cache (rf.frame/frame rf.bench.hicasso.p0-reagent-views/subs-frame)))
 
 (defn- tenant-of [query-v]
   (get-in @(sub-cache-atom) [query-v :reaction]))
@@ -746,7 +746,7 @@
   "The shipped hook, plus one render-phase observation. Reading an atom during
   render is a bench affordance, not a pattern: it records, it does not decide."
   [query-v]
-  (let [value (uixa/use-subscribe v/subs-frame query-v)]
+  (let [value (rf.adapter.uix/use-subscribe rf.bench.hicasso.p0-reagent-views/subs-frame query-v)]
     (swap! shipped-render-observed
            (fn [m] (if (contains? m query-v) m (assoc m query-v (tenant-of query-v)))))
     value))
@@ -801,7 +801,7 @@
                 (if (< k 3)
                   (recur (inc k)
                          (+ acc @(rf/subscribe (wq layer (+ base k))
-                                               {:frame v/subs-frame})))
+                                               {:frame rf.bench.hicasso.p0-reagent-views/subs-frame})))
                   acc))]
     [:span.wcell {:data-i base} (str total)]))
 

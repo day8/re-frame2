@@ -136,7 +136,7 @@
 
   `batch-k` commits of one operation on one already-mounted page, under
   ONE clock, then — with the clock stopped — two cell-addressed probes
-  read back and banked into `lane/tally`. The batch is `rf2-9zysg`'s
+  read back and banked into `rf.bench.hicasso.lane/tally`. The batch is `rf2-9zysg`'s
   repair for Chrome's 100 µs clamp and the same number the control uses;
   the read-back is `control-app`'s, cell-addressed by `data-testid`
   rather than by the row's own text, because a row's text node
@@ -164,13 +164,13 @@
   [§1.4](../../../../../../../docs/design/hicasso/product/topology-tournament.md#14-the-estimand-and-the-one-substitution-that-is-refused)
   forbids a work census standing in for a clock, and a driver that printed
   them in one table would be doing exactly that."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.topo.arms :as arms]
-            [re-frame.bench.hicasso.topo.control-app :as ctl]
-            [re-frame.bench.hicasso.topo.model :as m]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.topo.arms :as rf.bench.hicasso.topo.arms]
+            [re-frame.bench.hicasso.topo.control-app :as rf.bench.hicasso.topo.control-app]
+            [re-frame.bench.hicasso.topo.model :as rf.bench.hicasso.topo.model]
             [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
@@ -182,9 +182,9 @@
 
   Three of the tournament's four, and the missing one is a RULING rather
   than an omission — see [[unaddressed]]. The order is the roster's own
-  (`arms/arm-ids` less the unaddressed arm), so a reader comparing this
+  (`rf.bench.hicasso.topo.arms/arm-ids` less the unaddressed arm), so a reader comparing this
   table against the census reads the columns in the same order."
-  (into [] (remove #{:virtual}) arms/arm-ids))
+  (into [] (remove #{:virtual}) rf.bench.hicasso.topo.arms/arm-ids))
 
 (def unaddressed
   "The arms this driver deliberately starts no clock on, with the reason
@@ -224,7 +224,7 @@
   "`B ∈ {100, 300, 1000}` — the tournament's own, read from the model
   rather than restated, so the clock table and the census table are
   about the same three pages."
-  m/row-counts)
+  rf.bench.hicasso.topo.model/row-counts)
 
 (def target
   "The row `sparse` and `edit` move, and the row `reorder`'s unchanged
@@ -252,15 +252,15 @@
   `control-app` already carries the value this lane batches at; two
   numbers for one decision is how a table comes to be taken at a depth
   its control was never certified at."
-  ctl/batch-k)
+  rf.bench.hicasso.topo.control-app/batch-k)
 
 (def sampling
   "The control's sampling, for the same reason [[batch-k]] is the
   control's: a cell licensed by a control taken at one depth and measured
   at another is licensed by an experiment that was not run."
-  ctl/sampling)
+  rf.bench.hicasso.topo.control-app/sampling)
 
-(def rounds ctl/rounds)
+(def rounds rf.bench.hicasso.topo.control-app/rounds)
 
 ;; ---------------------------------------------------------------------------
 ;; The deterministic gate every cell passes BEFORE its clock starts
@@ -285,7 +285,7 @@
     (:sparse :edit) (case arm
                       :fine    1
                       :coarse  b
-                      :chunked (min m/chunk-size b))
+                      :chunked (min rf.bench.hicasso.topo.model/chunk-size b))
     :bulk           b
     :reorder        (case arm
                       :fine    0
@@ -319,23 +319,23 @@
   counter."
   [op b committed]
   (case op
-    :sparse  [{:probe :changed   :cell [:n target]              :want (str (+ (:n (m/row target)) committed))}
-              {:probe :unchanged :cell [:n unchanged-probe]     :want (str (:n (m/row unchanged-probe)))}]
+    :sparse  [{:probe :changed   :cell [:n target]              :want (str (+ (:n (rf.bench.hicasso.topo.model/row target)) committed))}
+              {:probe :unchanged :cell [:n unchanged-probe]     :want (str (:n (rf.bench.hicasso.topo.model/row unchanged-probe)))}]
     ;; A broad write leaves no unchanged cell to read, so the second probe is
-    ;; the FAR END of the table — `lane/bulk-probes`' rule, in this file's
+    ;; the FAR END of the table — `rf.bench.hicasso.lane/bulk-probes`' rule, in this file's
     ;; cell-addressed spelling: a commit that got as far as the front of the
     ;; page and no further satisfies the first probe on its own.
-    :bulk    [{:probe :changed   :cell [:n target]              :want (str (+ (:n (m/row target)) committed))}
-              {:probe :far-end   :cell [:n (dec b)]             :want (str (+ (:n (m/row (dec b))) committed))}]
+    :bulk    [{:probe :changed   :cell [:n target]              :want (str (+ (:n (rf.bench.hicasso.topo.model/row target)) committed))}
+              {:probe :far-end   :cell [:n (dec b)]             :want (str (+ (:n (rf.bench.hicasso.topo.model/row (dec b))) committed))}]
     ;; A permutation moves the ORDER and no row's data, so the pair reads
     ;; one of each: the head of the list must have rotated exactly
     ;; `committed` places, and the target row's own `n` must not have moved
     ;; at all.
     :reorder [{:probe :changed   :cell [:head]                  :want (str (mod committed b))}
-              {:probe :unchanged :cell [:n target]              :want (str (:n (m/row target)))}]
+              {:probe :unchanged :cell [:n target]              :want (str (:n (rf.bench.hicasso.topo.model/row target)))}]
     :edit    [{:probe :changed   :cell [:draft target]          :want (draft-value committed)}
               {:probe :unchanged :cell [:draft unchanged-probe] :want ""}]
-    :noop    [{:probe :unchanged :cell [:n target]              :want (str (:n (m/row target)))}
+    :noop    [{:probe :unchanged :cell [:n target]              :want (str (:n (rf.bench.hicasso.topo.model/row target)))}
               {:probe :unchanged :cell [:head]                  :want "0"}]))
 
 (defn- read-cell
@@ -373,11 +373,11 @@
   satisfied by a commit that never happened."
   [frame-id op committed]
   (case op
-    :sparse  (rt/dispatch! frame-id [:topo/bump target])
-    :bulk    (rt/dispatch! frame-id [:topo/bump-all])
-    :reorder (rt/dispatch! frame-id [:topo/rotate])
-    :edit    (rt/dispatch! frame-id [:topo/edit target (draft-value (inc committed))])
-    :noop    (rt/dispatch! frame-id [:topo/noop-write])))
+    :sparse  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:topo/bump target])
+    :bulk    (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:topo/bump-all])
+    :reorder (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:topo/rotate])
+    :edit    (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:topo/edit target (draft-value (inc committed))])
+    :noop    (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:topo/noop-write])))
 
 (defn window!
   "[[batch-k]] commits of `op` on `page` under ONE clock, then — with the
@@ -386,7 +386,7 @@
   Answers the elapsed milliseconds for the whole batch.
 
   The read-back is outside the window and after the last drain, which is
-  the batched shape `lane/verified-writes!` documents and defends: no
+  the batched shape `rf.bench.hicasso.lane/verified-writes!` documents and defends: no
   macrotask runs between the first write and the last drain, so a commit
   React has parked cannot land inside the window however many microtasks
   pass. What the batch relaxes is microtask-scale lateness, on a
@@ -397,14 +397,14 @@
   window touches shared state that the clock would then be measuring."
   [t {:keys [frame-id container b committed]} op]
   (let [start @committed
-        t0    (lane/now-ms)]
+        t0    (rf.bench.hicasso.lane/now-ms)]
     (dotimes [i batch-k]
       (write! frame-id op (+ start i))
-      (mount/settle!))
-    (let [ms     (- (lane/now-ms) t0)
+      (rf.bench.hicasso.arm1.mount/settle!))
+    (let [ms     (- (rf.bench.hicasso.lane/now-ms) t0)
           total  (swap! committed + batch-k)
           misses (probe-misses container op b total)]
-      ;; `lane/verified-writes!`'s own `bank!`, over this file's probes: one
+      ;; `rf.bench.hicasso.lane/verified-writes!`'s own `bank!`, over this file's probes: one
       ;; tally, one meaning of "verified", one `assert-verified!`.
       (swap! t (fn [{:keys [of bad]}]
                  {:of (+ of (count (expectations op b total)))
@@ -424,13 +424,13 @@
 (defn- structure-of
   "`container`'s own structure. `:boundaries` and `:edges` come from a
   DELTA against the runtime's live table, because all three arms' pages
-  are mounted at once and `rt/stats` counts every live cell in the
+  are mounted at once and `rf.bench.hicasso.arm1.runtime/stats` counts every live cell in the
   process rather than one container's."
   [container before]
-  (let [{:keys [boundaries edges]} (rt/stats)]
+  (let [{:keys [boundaries edges]} (rf.bench.hicasso.arm1.runtime/stats)]
     {:boundaries    (- boundaries (:boundaries before))
      :edges         (- edges (:edges before))
-     :elements      (lane/element-count container)
+     :elements      (rf.bench.hicasso.lane/element-count container)
      :rendered-rows (.-length (.querySelectorAll container "li.topo-row"))}))
 
 (defn- mount-page!
@@ -439,9 +439,9 @@
   mounted, taken as a delta against `before`."
   [arm b before]
   (let [frame-id (get frame-ids [arm b])]
-    (m/make-frame! frame-id b)
-    (m/reseed! frame-id b)
-    (let [handle (mount/root! (mount/fresh-container!) frame-id [(arms/view-of arm) {}])]
+    (rf.bench.hicasso.topo.model/make-frame! frame-id b)
+    (rf.bench.hicasso.topo.model/reseed! frame-id b)
+    (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [(rf.bench.hicasso.topo.arms/view-of arm) {}])]
       {:arm       arm
        :b         b
        :frame-id  frame-id
@@ -455,8 +455,8 @@
   clock. The commit counter is zeroed AFTER the settle, so the probe
   arithmetic of the row about to run starts where the seed does."
   [{:keys [frame-id committed b]}]
-  (rt/dispatch! frame-id [:topo/seed b m/window-size])
-  (mount/settle!)
+  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:topo/seed b rf.bench.hicasso.topo.model/window-size])
+  (rf.bench.hicasso.arm1.mount/settle!)
   (reset! committed 0)
   nil)
 
@@ -467,11 +467,11 @@
   The counters are a single shared atom, so this runs one page at a time
   and resets immediately before its commit."
   [page op]
-  (arms/reset-counters!)
+  (rf.bench.hicasso.topo.arms/reset-counters!)
   (write! (:frame-id page) op @(:committed page))
-  (mount/settle!)
+  (rf.bench.hicasso.arm1.mount/settle!)
   (swap! (:committed page) inc)
-  (:markup (arms/runs)))
+  (:markup (rf.bench.hicasso.topo.arms/runs)))
 
 ;; ---------------------------------------------------------------------------
 ;; One row of the table — one operation, one row count, every measured arm
@@ -490,7 +490,7 @@
   the topology or it is the floor, and the floor row is measured so a
   reader can tell which."
   [pages op b]
-  (let [t     (lane/tally)
+  (let [t     (rf.bench.hicasso.lane/tally)
         legs  (mapv (fn [arm] {:id arm}) measured-arms)]
     (doseq [arm measured-arms] (reseed-page! (get pages arm)))
     (let [built (into {} (map (fn [arm] [arm (markup-of (get pages arm) op)])) measured-arms)
@@ -500,7 +500,7 @@
                      "publishes for it, so the clock is about to read a page the tournament "
                      "is not about — expected " (pr-str want) ", built " (pr-str built))}
         (let [{:keys [readings samples]}
-              (lane/rounds! legs sampling rounds
+              (rf.bench.hicasso.lane/rounds! legs sampling rounds
                             (fn [a] (window! t (get pages (:id a)) op))
                             (fn [a] (str (name (:id a)) "/" (name op) "@" b)))
               ;; One p50 per arm per round — the within-round median every
@@ -508,10 +508,10 @@
               ;; caller so a published row cannot be read as a mean of
               ;; samples (rf2-pqyxz's correction, on the other instrument).
               per-round (mapv (fn [r]
-                                (into {} (map (fn [[id xs]] [id (:p50 (lane/summarise xs))])) r))
+                                (into {} (map (fn [[id xs]] [id (:p50 (rf.bench.hicasso.lane/summarise xs))])) r))
                               readings)
               centre    (into {} (map (fn [arm]
-                                        [arm (lane/summarise (mapv #(get % arm) per-round))]))
+                                        [arm (rf.bench.hicasso.lane/summarise (mapv #(get % arm) per-round))]))
                               measured-arms)]
           {:markup    built
            :cells     centre
@@ -521,9 +521,9 @@
            ;; is the honesty flag: a range containing 1.0 means the two arms
            ;; are INDISTINGUISHABLE here and the row says so rather than
            ;; quoting a mean as a winner.
-           :ratios    (into {} (map (fn [arm] [arm (lane/ratio-between per-round arm :fine)]))
+           :ratios    (into {} (map (fn [arm] [arm (rf.bench.hicasso.lane/ratio-between per-round arm :fine)]))
                             (remove #{:fine} measured-arms))
-           :guard     (lane/guard! samples (str "topo clock " (name op) " @B=" b))
+           :guard     (rf.bench.hicasso.lane/guard! samples (str "topo clock " (name op) " @B=" b))
            :tally     t})))))
 
 ;; ---------------------------------------------------------------------------
@@ -560,7 +560,7 @@
               :let [f (get-in table [[floor-op b] :cells arm :p50])
                     o (get-in table [[op b] :cells arm :p50])]
               :when (and f o (pos? o))]
-          [[arm op b] (lane/round4 (/ f o))])))
+          [[arm op b] (rf.bench.hicasso.lane/round4 (/ f o))])))
 
 ;; ---------------------------------------------------------------------------
 ;; The control, called rather than reimplemented
@@ -580,17 +580,17 @@
   the caller takes no cell for that arm, which is §1.5 as registered."
   []
   (reduce (fn [acc arm]
-            (let [r (ctl/run-arm! arm)]
+            (let [r (rf.bench.hicasso.topo.control-app/run-arm! arm)]
               (if-let [f (:fatal r)]
                 (reduced (assoc acc arm {:ok? false :why f}))
                 (do
-                  (lane/record! (keyword (str "control-" (name arm)))
+                  (rf.bench.hicasso.lane/record! (keyword (str "control-" (name arm)))
                                 (select-keys r [:verdict :structure :markup]))
                   (when (:refuse? (:guard r))
                     (set! (.-HICASSO_GUARD_REFUSED js/window) true))
                   ;; The lane's ONE adjudication of a read-back. It throws, and
                   ;; it is called AFTER the record above is published.
-                  (lane/assert-verified! (:tally r)
+                  (rf.bench.hicasso.lane/assert-verified! (:tally r)
                                          (str "topo clock control (" (name arm) ")"))
                   (assoc acc arm (:verdict r))))))
           {}
@@ -612,35 +612,35 @@
   []
   (reduce
     (fn [table b]
-      (let [pages (reduce (fn [acc arm] (assoc acc arm (mount-page! arm b (rt/stats))))
+      (let [pages (reduce (fn [acc arm] (assoc acc arm (mount-page! arm b (rf.bench.hicasso.arm1.runtime/stats))))
                           {} measured-arms)]
         (try
           (let [wrong (into [] (remove (fn [arm]
-                                         (= (select-keys (arms/expected arm b)
+                                         (= (select-keys (rf.bench.hicasso.topo.arms/expected arm b)
                                                          [:boundaries :edges :elements :rendered-rows])
                                             (:structure (get pages arm)))))
                             measured-arms)]
             (when (seq wrong)
               (throw (ex-info (str "at B=" b " these pages are not the arms they claim: "
                                    (pr-str (into {} (map (fn [arm]
-                                                           [arm {:expected (arms/expected arm b)
+                                                           [arm {:expected (rf.bench.hicasso.topo.arms/expected arm b)
                                                                  :mounted  (:structure (get pages arm))}]))
                                                  wrong)))
                               {:b b :arms wrong})))
             (reduce (fn [acc op]
                       (let [r (run-row! pages op b)]
                         (when-let [f (:fatal r)] (throw (ex-info f {:op op :b b})))
-                        (lane/record! (keyword (str (name op) "-" b))
+                        (rf.bench.hicasso.lane/record! (keyword (str (name op) "-" b))
                                       (select-keys r [:markup :cells :ratios]))
                         (when (:refuse? (:guard r))
                           (set! (.-HICASSO_GUARD_REFUSED js/window) true))
-                        (lane/assert-verified! (:tally r)
+                        (rf.bench.hicasso.lane/assert-verified! (:tally r)
                                                (str "topo clock " (name op) " @B=" b))
                         (assoc acc [op b] r)))
                     table
                     rows))
           (finally
-            (doseq [arm measured-arms] (mount/release! (:handle (get pages arm))))))))
+            (doseq [arm measured-arms] (rf.bench.hicasso.arm1.mount/release! (:handle (get pages arm))))))))
     {}
     row-counts))
 
@@ -649,11 +649,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (lane/self-test!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/self-test!)
   (try
-    (lane/record! :design
+    (rf.bench.hicasso.lane/record! :design
                   {:arms        measured-arms
                    :unaddressed unaddressed
                    :operations  operations
@@ -665,29 +665,29 @@
                    :target      target
                    :markup      (into {} (for [b row-counts op rows arm measured-arms]
                                            [[arm op b] (markup-expected arm op b)]))})
-    (lane/record! :runtime (lane/runtime-label))
+    (rf.bench.hicasso.lane/record! :runtime (rf.bench.hicasso.lane/runtime-label))
     ;; THE CONTROL RUNS FIRST AND ALONE. If it refuses, the tournament's
     ;; clock half refuses with it and the cells are never taken — which is a
     ;; result, not a failure.
     (let [controls (run-controls!)]
-      (lane/record! :controls (into {} (map (fn [[arm v]] [arm (select-keys v [:predicted :band :rounds :ok? :why])]))
+      (rf.bench.hicasso.lane/record! :controls (into {} (map (fn [[arm v]] [arm (select-keys v [:predicted :band :rounds :ok? :why])]))
                                     controls))
       (if-not (every? :ok? (vals controls))
         (do
           (set! (.-HICASSO_CONTROL_FAILED js/window) true)
-          (lane/fail! (str "the registered positive control refused on "
+          (rf.bench.hicasso.lane/fail! (str "the registered positive control refused on "
                            (pr-str (into [] (comp (remove (comp :ok? val)) (map key)) controls))
                            " — no clock cell is taken for an arm whose instrument is not certified, "
                            "which is topology-tournament.md §1.5 as registered")))
         (let [table (run-table!)]
-          (lane/record! :floor-share (floor-shares table))
-          (lane/record! :summary
+          (rf.bench.hicasso.lane/record! :floor-share (floor-shares table))
+          (rf.bench.hicasso.lane/record! :summary
                         (into {} (for [[[op b] r] table]
-                                   [[op b] {:cells  (into {} (map (fn [[arm s]] [arm (lane/round4 (:p50 s))])) (:cells r))
+                                   [[op b] {:cells  (into {} (map (fn [[arm s]] [arm (rf.bench.hicasso.lane/round4 (:p50 s))])) (:cells r))
                                             :ratios (into {} (map (fn [[arm v]]
                                                                     [arm (select-keys v [:mean :min :max :straddles-1?])]))
                                                           (:ratios r))}]))))))
     (catch :default e
       (set! (.-HICASSO_CONTROL_FAILED js/window) true)
-      (lane/fail! (str "topo clock threw: " (or (ex-message e) (.-message e))))))
-  (lane/done!))
+      (rf.bench.hicasso.lane/fail! (str "topo clock threw: " (or (ex-message e) (.-message e))))))
+  (rf.bench.hicasso.lane/done!))

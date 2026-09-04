@@ -43,7 +43,7 @@
 
   ## What closes it
 
-  `codec/realize-deep`, called once on `body-props` in
+  `rf.bench.hicasso.front.codec/realize-deep`, called once on `body-props` in
   `boundary-element`. It forces every lazy sequence reachable from the
   props map — including the `:children` vector, whose one-level flatten
   leaves a nested seq unrealised — and returns the map itself, by
@@ -69,22 +69,22 @@
   layer, so a subscription under it never notifies and every commit
   assertion below would pass by never firing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
-     :init-fn (fn [] (rt/reset-runtime!))}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
+     :init-fn (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-boundary-crossing)
 
 (defn- seeded! []
-  (rt/reset-runtime!)
-  (dogfood/make-frame! frame-id 3)
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (rf.bench.hicasso.front.dogfood/make-frame! frame-id 3)
   frame-id)
 
 (defn- key-of [query] [frame-id query])
@@ -102,17 +102,17 @@
 (defn- child-body [{:keys [rows]}]
   [:ul.child (for [r rows] [:li.cell (str r)])])
 
-(def ^:private child-view (rt/mint-view! "boundary-crossing/child" child-body))
+(def ^:private child-view (rf.bench.hicasso.arm1.runtime/mint-view! "boundary-crossing/child" child-body))
 
 (defn- parent-body [_]
-  [child-view {:rows (for [id (rt/sub [:dogfood/visible-ids])]
-                       (:title (rt/sub [:dogfood/todo id])))}])
+  [child-view {:rows (for [id (rf.bench.hicasso.arm1.runtime/sub [:dogfood/visible-ids])]
+                       (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo id])))}])
 
 (defn- nested-child-body [{:keys [children]}]
   (into [:ul.nested] children))
 
 (def ^:private nested-child-view
-  (rt/mint-view! "boundary-crossing/nested-child" nested-child-body))
+  (rf.bench.hicasso.arm1.runtime/mint-view! "boundary-crossing/nested-child" nested-child-body))
 
 (defn- nested-parent-body
   "Carrier (b): the seqs are in the CHILDREN position, one level below the
@@ -121,9 +121,9 @@
   `for` on as an element, unrealised."
   [_]
   [nested-child-view
-   (for [chunk (partition-all 2 (rt/sub [:dogfood/visible-ids]))]
+   (for [chunk (partition-all 2 (rf.bench.hicasso.arm1.runtime/sub [:dogfood/visible-ids]))]
      (for [id chunk]
-       [:li.cell {:key id} (str (:title (rt/sub [:dogfood/todo id])))]))])
+       [:li.cell {:key id} (str (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo id])))]))])
 
 (defn- crossing-props
   "The props map the codec built for the crossing — precisely what the
@@ -132,8 +132,8 @@
   (unchecked-get (.-props element) "rfProps"))
 
 (defn- render [body-fn props]
-  (let [element (rt/render-body frame-id body-fn props)]
-    {:element element :entry (rt/last-reads) :reads (rt/reads-of (rt/last-reads))}))
+  (let [element (rf.bench.hicasso.arm1.runtime/render-body frame-id body-fn props)]
+    {:element element :entry (rf.bench.hicasso.arm1.runtime/last-reads) :reads (rf.bench.hicasso.arm1.runtime/reads-of (rf.bench.hicasso.arm1.runtime/last-reads))}))
 
 (defn- mounted!
   "A boundary at the seam React occupies: render the body, commit its
@@ -141,7 +141,7 @@
   [body-fn props]
   (let [{:keys [element entry reads]} (render body-fn props)
         hits    (volatile! 0)
-        release (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
+        release (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
     {:element element :entry entry :reads reads :hits hits :release! release}))
 
 (def ^:private row-keys
@@ -214,10 +214,10 @@
            props are the same object and its seq is already realised."
     (let [parent (mounted! parent-body {})
           child  (mounted! child-body (crossing-props (:element parent)))]
-      (is (= 4 (:edges (rt/stats)))
+      (is (= 4 (:edges (rf.bench.hicasso.arm1.runtime/stats)))
           "four edges, all of them the parent's: the ids query and one per row")
-      (rt/dispatch! frame-id [:dogfood/edit-draft 1 "crossed"])
-      (rt/dispatch! frame-id [:dogfood/commit 1])
+      (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft 1 "crossed"])
+      (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/commit 1])
       (is (= 1 @(:hits parent))
           "the parent re-runs, so the seq is rebuilt and the child receives
            a new one")
@@ -233,8 +233,8 @@
         child  (mounted! child-body (crossing-props (:element parent)))]
     ((:release! child))
     ((:release! parent))
-    (rt/reset-runtime!)
-    (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0} (rt/residue)))))
+    (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+    (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0} (rf.bench.hicasso.arm1.runtime/residue)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the walk itself: what it forces, and what it must not disturb
@@ -245,12 +245,12 @@
            nothing and the props map the child receives is the map the
            codec built — no copy, no fresh identity for React to see"
     (let [m {:rows (map inc (range 3)) :label "x"}]
-      (is (identical? m (codec/realize-deep m)))
-      (is (identical? (:rows m) (:rows (codec/realize-deep m))))))
+      (is (identical? m (rf.bench.hicasso.front.codec/realize-deep m)))
+      (is (identical? (:rows m) (:rows (rf.bench.hicasso.front.codec/realize-deep m))))))
   (testing "a scalar and a nil pass straight through"
-    (is (= 7 (codec/realize-deep 7)))
-    (is (nil? (codec/realize-deep nil)))
-    (is (= "s" (codec/realize-deep "s")))))
+    (is (= 7 (rf.bench.hicasso.front.codec/realize-deep 7)))
+    (is (nil? (rf.bench.hicasso.front.codec/realize-deep nil)))
+    (is (= "s" (rf.bench.hicasso.front.codec/realize-deep "s")))))
 
 (deftest realize-deep-forces-every-lazy-seq-it-can-reach
   (testing "the reach is the one `clj->js` already has at a native prop
@@ -263,7 +263,7 @@
                            ["a seq inside a set"    (fn [!n] {:v #{(map (fn [i] (vswap! !n inc) i) (range 3))}})]]]
       (let [!n (volatile! 0)
             v  (build !n)]
-        (codec/realize-deep v)
+        (rf.bench.hicasso.front.codec/realize-deep v)
         (is (= 3 @!n) label)))))
 
 (deftest realize-deep-walks-map-keys-without-disturbing-the-map
@@ -274,7 +274,7 @@
            the map hashed has moved"
     (let [composite [:composite 1]
           m         {composite :a :plain :b "s" :c 7 :d}
-          walked    (codec/realize-deep m)]
+          walked    (rf.bench.hicasso.front.codec/realize-deep m)]
       (is (identical? m walked))
       (is (= m walked))
       (is (= (keys m) (keys walked)))
@@ -287,7 +287,7 @@
   (testing "a map big enough to be a hash map rather than an array map is
            equally untouched"
     (let [m      (into {} (map (fn [i] [[:k i] i]) (range 32)))
-          walked (codec/realize-deep m)]
+          walked (rf.bench.hicasso.front.codec/realize-deep m)]
       (is (identical? m walked))
       (is (= 32 (count walked)))
       (is (= 17 (get walked [:k 17]))))))
@@ -304,7 +304,7 @@
           at-construction @!n]
       (is (zero? at-construction)
           "constructing the map neither hashed nor compared the key")
-      (codec/realize-deep m)
+      (rf.bench.hicasso.front.codec/realize-deep m)
       (is (= 3 @!n)
           "and the walk reaches it, inside the window of the body that
            wrote it"))))
@@ -320,16 +320,16 @@
   (testing "and the guard skips the KEY, never the entry: a keyword-keyed
            entry's value half is walked exactly as before"
     (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
-                          (codec/realize-deep {:k (delay 1)})))
+                          (rf.bench.hicasso.front.codec/realize-deep {:k (delay 1)})))
     (let [!n (volatile! 0)]
-      (codec/realize-deep {:k (map (fn [i] (vswap! !n inc) i) (range 3))})
+      (rf.bench.hicasso.front.codec/realize-deep {:k (map (fn [i] (vswap! !n inc) i) (range 3))})
       (is (= 3 @!n)))))
 
 (deftest realize-deep-does-not-walk-into-a-react-element-or-a-function
   (testing "a React element is an opaque JS object and a function is a
            value, not a structure; neither is a collection and neither is
            descended into"
-    (let [el (codec/as-element [:li "a"])
+    (let [el (rf.bench.hicasso.front.codec/as-element [:li "a"])
           f  (fn [] :never-called)]
-      (is (identical? el (codec/realize-deep el)))
-      (is (identical? f (codec/realize-deep f))))))
+      (is (identical? el (rf.bench.hicasso.front.codec/realize-deep el)))
+      (is (identical? f (rf.bench.hicasso.front.codec/realize-deep f))))))

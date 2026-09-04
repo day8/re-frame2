@@ -65,16 +65,16 @@
   assertions are unchanged by the term, which is the cleanest available
   proof that the option taken is not the option declined."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; The rebuild rows resume on a later tick, and `cljs.test` refuses a
      ;; fn-form fixture for an `async` test — the fn-form's ambient scope is
      ;; a dynamic binding that would be unwound before the body resumes.
@@ -83,7 +83,7 @@
      ;; BEFORE React context, so a fixture-installed ambient frame would
      ;; answer reads for a frame this file never made.
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 ;; This file's OWN queries. Every row here turns on a query being
 ;; UNREGISTERED when the boundary mounts, so these ids must be ones no
@@ -95,15 +95,15 @@
 (def ^:private q-live  [:firstreg/live])
 
 (defn- make-frame! [id db]
-  (live-frame/make-frame {:id id})
-  (frame/replace-app-db! id db)
+  (rf.live-frame/make-frame {:id id})
+  (rf.frame/replace-app-db! id db)
   id)
 
 (defn- reader
   "A boundary whose whole body is one read, so the read set is one key
   and the snapshot arithmetic is one term."
   [q seen]
-  (fn [_] (let [v (rt/sub q)] (vreset! seen v) [:li (str v)])))
+  (fn [_] (let [v (rf.bench.hicasso.arm1.runtime/sub q)] (vreset! seen v) [:li (str v)])))
 
 (defn- settle!
   "Run the macrotask queue once. The repair's rebuild is deferred — it
@@ -131,14 +131,14 @@
         ;; NO `reg-sub` yet. This is the boot-order / lazy-load shape: a
         ;; boundary mounts, reads a query whose module has not registered
         ;; its subs, and stays mounted while it does.
-        (rt/render-body f (reader q-first seen) {})
+        (rf.bench.hicasso.arm1.runtime/render-body f (reader q-first seen) {})
         (is (nil? @seen)
             "the recovery contract, unchanged: an unregistered read emits
              `:rf.error/no-such-sub` and derefs to nil")
-        (let [entry    (rt/last-reads)
+        (let [entry    (rf.bench.hicasso.arm1.runtime/last-reads)
               hits     (volatile! 0)
-              release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
-          (is (= 1 (:cells (rt/stats)))
+              release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
+          (is (= 1 (:cells (rf.bench.hicasso.arm1.runtime/stats)))
               "and the COMMIT is what makes it a problem: the boundary now
                holds a cell for the key, so the read is a pure deref of
                whatever that cell caught — and what it caught is the
@@ -151,7 +151,7 @@
 
           (testing "the next render computes against the registration that
                     now exists"
-            (rt/render-body f (reader q-first seen) {})
+            (rf.bench.hicasso.arm1.runtime/render-body f (reader q-first seen) {})
             (is (= 1 @seen)
                 "1, not nil: the cell dropped the recovery, so the read falls
                  through to `subscribe-once`, which resolves the handler that
@@ -162,13 +162,13 @@
               (testing "and the durable attachment is built against it, so
                         later writes notify"
                 (let [before @hits]
-                  (frame/replace-app-db! f {:v 2})
+                  (rf.frame/replace-app-db! f {:v 2})
                   (is (pos? (- @hits before))
                       "the boundary was notified — without the repair the cell
                        is deaf for the life of the mount, because the watch it
                        installed is on a reaction the registration never
                        reaches")))
-              (rt/render-body f (reader q-first seen) {})
+              (rf.bench.hicasso.arm1.runtime/render-body f (reader q-first seen) {})
               (is (= 2 @seen) "and it reads the registered handler over the new db")
               (release!)
               (done))))))))
@@ -181,13 +181,13 @@
             cell that keeps it answers nil for as long as the boundary
             lives."
     (let [f (make-frame! ::held {:v 1})]
-      (rt/render-body f (reader q-held (volatile! nil)) {})
-      (let [entry    (rt/last-reads)
-            release! (rt/commit-boundary! entry (fn []))
+      (rf.bench.hicasso.arm1.runtime/render-body f (reader q-held (volatile! nil)) {})
+      (let [entry    (rf.bench.hicasso.arm1.runtime/last-reads)
+            release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn []))
             ;; Reach past the repair and hold the object the cell caught.
             ;; This is exactly what the cell kept before the first
             ;; registration was made an event.
-            held     (rt/cell-reaction [f q-held])]
+            held     (rf.bench.hicasso.arm1.runtime/cell-reaction [f q-held])]
         (is (some? held)
             "precondition: the commit acquired a reaction, and it is the
              substrate's uncached nil-recovery")
@@ -196,7 +196,7 @@
             "the held recovery answers nil where the live registration answers
              1 — and it will answer nil after every later write too, because
              it derives from nothing")
-        (is (nil? (rt/cell-reaction [f q-held]))
+        (is (nil? (rf.bench.hicasso.arm1.runtime/cell-reaction [f q-held]))
             "which is why the cell drops the reference instead: the repair is
              to stop reading through it, not to re-read it")
         (release!)))))
@@ -227,32 +227,32 @@
             zero is that distinction on the board."
     (let [seen (volatile! :unread)
           f    (make-frame! ::gap {:v 1})]
-      (rt/render-body f (reader q-gap seen) {})
+      (rf.bench.hicasso.arm1.runtime/render-body f (reader q-gap seen) {})
       (is (nil? @seen) "the body ran against no registration")
-      (let [entry     (rt/last-reads)
-            at-render (rt/snapshot-of entry)
-            epoch     (rt/registry-epoch)
+      (let [entry     (rf.bench.hicasso.arm1.runtime/last-reads)
+            at-render (rf.bench.hicasso.arm1.runtime/snapshot-of entry)
+            epoch     (rf.bench.hicasso.arm1.runtime/registry-epoch)
             hits      (volatile! 0)]
         ;; THE REGISTRATION, inside the gap: after the body returned and
         ;; before React's effect acquires the edge.
         (rf/reg-sub (first q-gap) (fn [db _] (:v db)))
-        (is (> (rt/registry-epoch) epoch)
+        (is (> (rf.bench.hicasso.arm1.runtime/registry-epoch) epoch)
             "precondition: the arm counted the registration — the term the
              rest of this row turns on actually moved")
-        (let [release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
-          (is (not= at-render (rt/snapshot-of entry))
+        (let [release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
+          (is (not= at-render (rf.bench.hicasso.arm1.runtime/snapshot-of entry))
               "the snapshot MOVED across the commit, so React's
                post-`subscribe` re-check sees a tear and schedules the
                re-render the boundary needs to stop painting `nil`")
           (is (zero? @hits)
               "and it is the tear check that does it, not a notification —
                a `reg-sub` reaches `flush!` by no route")
-          (is (= 1 @(rt/cell-reaction [f q-gap]))
+          (is (= 1 @(rf.bench.hicasso.arm1.runtime/cell-reaction [f q-gap]))
               "and the cell the commit acquired holds the REAL handler, so
                the render React just scheduled reads the right value")
           (testing "which the re-render then does, at once rather than at
                     the next write"
-            (rt/render-body f (reader q-gap seen) {})
+            (rf.bench.hicasso.arm1.runtime/render-body f (reader q-gap seen) {})
             (is (= 1 @seen) "1, not nil: the delayed paint is gone"))
           (release!))))))
 
@@ -273,20 +273,20 @@
     (rf/reg-sub (first q-live) (fn [db _] (:v db)))
     (let [seen  (volatile! nil)
           f     (make-frame! ::unrelated {:v 1})
-          _     (rt/render-body f (reader q-live seen) {})
-          entry (rt/last-reads)
+          _     (rf.bench.hicasso.arm1.runtime/render-body f (reader q-live seen) {})
+          entry (rf.bench.hicasso.arm1.runtime/last-reads)
           hits  (volatile! 0)
-          release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))
-          before   (rt/snapshot-of entry)
-          held     (rt/cell-reaction [f q-live])]
+          release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))
+          before   (rf.bench.hicasso.arm1.runtime/snapshot-of entry)
+          held     (rf.bench.hicasso.arm1.runtime/cell-reaction [f q-live])]
       (is (= 1 @seen) "the control: a registered key, read and committed")
       (is (some? held) "and holding its reaction")
       (rf/reg-sub :firstreg/nobody-reads-this (fn [db _] (:v db)))
-      (is (= before (rt/snapshot-of entry))
+      (is (= before (rf.bench.hicasso.arm1.runtime/snapshot-of entry))
           "the snapshot did not move: nothing about an unrelated first
            registration is in this key's contribution")
       (is (zero? @hits) "and nothing notified the boundary")
-      (is (identical? held (rt/cell-reaction [f q-live]))
+      (is (identical? held (rf.bench.hicasso.arm1.runtime/cell-reaction [f q-live]))
           "and the cell still holds the SAME reaction — an unrelated
            registration is not a reason to rebuild an attachment")
       (release!))))
@@ -296,12 +296,12 @@
             disposal half. The held-cell half is repaired by an event and
             the gap half by one term shared by every key, so neither buys
             a React hook and neither buys a per-boundary object."
-    (is (= 2 (count rt/shell-hook-ledger))
+    (is (= 2 (count rf.bench.hicasso.arm1.runtime/shell-hook-ledger))
         "still two hooks — a registrar hook is not a React hook")
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
-           rt/shell-hook-ledger)
+           rf.bench.hicasso.arm1.runtime/shell-hook-ledger)
         "and the same two, in the same order")
-    (let [inv (rt/retained-inventory)]
+    (let [inv (rf.bench.hicasso.arm1.runtime/retained-inventory)]
       (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
              (into #{} (map :token) (:absent inv)))
           "the enumerated absences are unchanged: no per-boundary object was

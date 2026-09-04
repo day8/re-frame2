@@ -30,11 +30,11 @@
   be inventing a schedule to make a witness easier to write. So that one
   door returns before the tree is adopted, and a witness for it waits for
   the closer instead of for a flush."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.interop :as interop]
-            [re-frame.trace :as trace]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace :as rf.trace]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
@@ -43,7 +43,7 @@
   "Scope `frame-kw` for a subtree. Renders no DOM of its own, so it cannot
   move a canonical-DOM parity comparison."
   [frame-kw child]
-  (react/createElement (.-Provider adapter-context/frame-context)
+  (react/createElement (.-Provider rf.adapter.context/frame-context)
                        #js {:value frame-kw}
                        child))
 
@@ -78,7 +78,7 @@
   `re-frame.bench.hicasso.arm1.runtime/retained-inventory`."
   [handle hiccup]
   (let [app (provider (:frame handle)
-                      (codec/root-element (:frame handle) hiccup))]
+                      (rf.bench.hicasso.front.codec/root-element (:frame handle) hiccup))]
     (if (:hydrated? handle)
       (react/createElement (.-Fragment react) nil
                            (react/createElement adoption-window-closer nil)
@@ -121,11 +121,11 @@
   adds nothing for `hydrateRoot` to match and cannot itself mismatch.
 
   Public because that is what makes adoption OBSERVABLE without a probe:
-  `(rt/adopting?)` answering false is this effect having run, which is
+  `(rf.bench.hicasso.arm1.runtime/adopting?)` answering false is this effect having run, which is
   the completion signal a witness waits on in place of the `flushSync`
   [[hydrate-root!]] refuses to perform."
   [_props]
-  (react/useEffect (fn close-window [] (rt/close-adoption-window!) js/undefined)
+  (react/useEffect (fn close-window [] (rf.bench.hicasso.arm1.runtime/close-adoption-window!) js/undefined)
                    #js [])
   nil)
 
@@ -134,7 +134,7 @@
 ;; happens not to enforce. Both emit the same `(x["displayName"] = ...)`,
 ;; and it is the STRING key that keeps the property off Closure's renamer
 ;; under `:advanced` — the reason the arm's other stamps
-;; (`runtime/mint-view!`, `codec/memoize-boundary!`) are spelled this way.
+;; (`runtime/mint-view!`, `rf.bench.hicasso.front.codec/memoize-boundary!`) are spelled this way.
 (unchecked-set adoption-window-closer "displayName" "hicasso/adoption-window-closer")
 
 ;; ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@
   Not an event and it mints no epoch: it fires from a React root-error
   callback, outside any dispatch scope."
   [error]
-  (trace/emit! :warning :rf.ssr/hydration-mismatch
+  (rf.trace/emit! :warning :rf.ssr/hydration-mismatch
                {:error    (some-> error .-message)
                 :where    're-frame.bench.hicasso.arm1.mount/hydrate-root!
                 :recovery :warned-and-replaced}))
@@ -211,14 +211,14 @@
   across the window boundary rather than a copy of it — the spine's own
   reason for publishing `native-hydration-reporter`."
   [error _error-info]
-  (when (rt/adopting?)
+  (when (rf.bench.hicasso.arm1.runtime/adopting?)
     (emit-hydration-mismatch! error))
   (report-recoverable-default! error))
 
 (defn- hydrate-root-options
   "The `react-dom/client` root options for a hydrating root, or nil.
 
-  Nil in production, where the emit DCEs behind `interop/debug-enabled?`
+  Nil in production, where the emit DCEs behind `rf.interop/debug-enabled?`
   and the only thing left to install would be a replica of the default
   React would have run anyway — so the caller passes no options at all
   and the shipped path is exactly what it was. The spine gates the same
@@ -226,7 +226,7 @@
   `:on-recoverable-error`, and this arm has no host-authored callback to
   compose with."
   []
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     #js {:onRecoverableError hydration-reporter}))
 
 (defn hydrate-root!
@@ -281,7 +281,7 @@
   the adopted tree down and rebuilds it. [[tree]] is the one place that
   decision is made and `:hydrated?` is what it reads."
   [container frame-kw hiccup]
-  (rt/open-adoption-window!)
+  (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
   (let [handle  {:frame frame-kw :container container :hydrated? true}
         element (tree handle hiccup)
         opts    (hydrate-root-options)]
@@ -319,7 +319,7 @@
   **Not the door a residue assertion takes** — see [[unmount!]]."
   [handle]
   (unmount! handle)
-  (rt/reset-runtime!)
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
   nil)
 
 (defn dispatch!
@@ -327,7 +327,7 @@
   witness door; an intent written in a view reaches
   `runtime/dispatch!` on its own."
   [handle event]
-  (rt/dispatch! (:frame handle) event)
+  (rf.bench.hicasso.arm1.runtime/dispatch! (:frame handle) event)
   (settle!)
   nil)
 

@@ -51,19 +51,19 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.core :as r]
             [reagent.ratom :as ratom]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
      ;; The rebuild claim rides a macrotask — `invalidate-cell!` defers
      ;; the re-attachment on purpose — so the map shape, with `async`.
      :async?        true
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-ratom-activation)
 
@@ -75,7 +75,7 @@
 (defn- fresh!
   ([] (fresh! 1))
   ([n]
-   (rt/reset-runtime!)
+   (rf.bench.hicasso.arm1.runtime/reset-runtime!)
    (register!)
    (rf/make-frame {:id frame-id :initial-events [[:hic/set-n n]]})
    frame-id))
@@ -94,12 +94,12 @@
   reads, and hand back the notification counter and the release. The
   same shape `arm1/runtime-cljs-test` uses, under a different adapter."
   [body-fn]
-  (rt/render-body frame-id body-fn {})
-  (let [entry (rt/last-reads)
+  (rf.bench.hicasso.arm1.runtime/render-body frame-id body-fn {})
+  (let [entry (rf.bench.hicasso.arm1.runtime/last-reads)
         hits  (volatile! 0)]
     {:entry    entry
      :hits     hits
-     :release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))}))
+     :release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))}))
 
 (defn- write!
   "The arm's synchronous door, then Reagent's own drain.
@@ -112,7 +112,7 @@
   reaction that never captured is not enqueued by anything, so this call
   moves precisely nothing until [[wire-cell!]] activates."
   [event]
-  (rt/dispatch! frame-id event)
+  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id event)
   (r/flush)
   nil)
 
@@ -123,7 +123,7 @@
   (atom ::never))
 
 (defn- readout-body [_]
-  (let [n (rt/sub [:hic/n])]
+  (let [n (rf.bench.hicasso.arm1.runtime/sub [:hic/n])]
     (reset! !last-read n)
     [:span (str n)]))
 
@@ -140,7 +140,7 @@
             for the life of the mount"
     (fresh! 1)
     (let [b  (mounted! readout-body)
-          rx (rt/cell-reaction (key-of [:hic/n]))]
+          rx (rf.bench.hicasso.arm1.runtime/cell-reaction (key-of [:hic/n]))]
       (try
         (is (some? rx)
             "precondition — the commit built a cell and it holds a reaction")
@@ -170,7 +170,7 @@
         (testing "…and the boundary reads the moved value back through the
                   cell it holds, so the notification is not a bare ping"
           (reset! !last-read ::never)
-          (rt/render-body frame-id readout-body {})
+          (rf.bench.hicasso.arm1.runtime/render-body frame-id readout-body {})
           (is (= 3 @!last-read)
               "the re-render the notification bought read 3 — a WARM read,
                straight off the cell's reaction"))
@@ -223,7 +223,7 @@
         (js/setTimeout
           (fn []
             (try
-              (let [rx     (rt/cell-reaction (key-of [:hic/n]))
+              (let [rx     (rf.bench.hicasso.arm1.runtime/cell-reaction (key-of [:hic/n]))
                     before @(:hits b)]
                 (is (some? rx) "the rebuild re-subscribed")
                 (is (capturing? rx)

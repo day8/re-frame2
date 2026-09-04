@@ -4,7 +4,7 @@
   rf2-y1jkm cut the interpreter walk ~39% and its closing decomposition
   moved the surviving mount gap off the walk: hicasso in-page 3.300 ms vs
   uix 1.900 ms on the acceptance shape, concentrated in the 141
-  per-instance collector reads — each a cold `subs/subscribe-once`
+  per-instance collector reads — each a cold `rf.subs/subscribe-once`
   (subscribe + deref + unsubscribe per read per mount; cells only exist
   after commit). None of the prior instruments says where INSIDE one cold
   read the time goes. This entry answers that: the acceptance page's own
@@ -27,13 +27,13 @@
   The profiled reads are HARVESTED, not transcribed: the real
   [[re-frame.bench.hicasso.shapes.large-template/page]] is mounted once
   and the read-set entry the mount resolved is read back through the
-  runtime's own [[rt/last-reads]] — its key array IS the page's read
+  runtime's own [[rf.bench.hicasso.arm1.runtime/last-reads]] — its key array IS the page's read
   sequence, in realization order, straight from the machinery under test.
   Boot is fatal unless the roster is exactly the page arithmetic's
   3 + 2 x 69 = 141 reads, all distinct, and the mounted page is the
   1,202-element acceptance page.
 
-  Timed passes run through the runtime's public [[rt/render-body]] door —
+  Timed passes run through the runtime's public [[rf.bench.hicasso.arm1.runtime/render-body]] door —
   one door per pass, the window OUTSIDE the door — so a sample bills
   everything a mount bills per boundary render: the scratch reset, the
   generation fence's two basis reads, the read-set entry resolve, and the
@@ -46,7 +46,7 @@
   |---------------|--------------------------------------------------------|----------------|
   | `ship`        | 141 x `(sub q)` — the shipping collector read          | the whole render-side read term |
   | `local`       | faithful copy of the read shell + `subscribe-once`     | the FROZEN pre-rf2-6c237 path — the ablation baseline, validated against `ship` |
-  | `no-shell`    | 141 x bare `subs/subscribe-once`                       | `local - no-shell` = the Hicasso shell (key alloc, scratch push, cells probe, entry-hit compare) |
+  | `no-shell`    | 141 x bare `rf.subs/subscribe-once`                       | `local - no-shell` = the Hicasso shell (key alloc, scratch push, cells probe, entry-hit compare) |
   | `probe`       | 141 x the candidate: cache peek, else pass-scoped value map, else fresh-memo `compute-sub-with-memo` against one frame-state snapshot | the no-churn cold read (the observation port's cold-probe discipline, value-mapped per pass) |
   | `probe-fresh` | 141 x `compute-sub` (fresh memo per read, no wrap/peek/map) | the bare-compute lower bound the candidate is priced against |
   | `floor`       | 141 x registrar lookup + raw handler call on app-db    | the irreducible compute floor |
@@ -67,7 +67,7 @@
   ## The commit half (phase B — async, settled between samples)
 
   What the render's cold read deliberately does not pay, the commit does:
-  one durable cell per unique key — `subs/subscribe`, the ACTIVATION, the
+  one durable cell per unique key — `rf.subs/subscribe`, the ACTIVATION, the
   baseline deref, the value-change watch, the disposal hook, the `!cells`
   insert — plus one reader membership per key. **That last term re-shaped under
   rf2-dabt3**: the dependency index used to be a second process-global
@@ -75,7 +75,7 @@
   `record-reads!` into it; the readers now live on the cell, so the
   commit pushes one slot per key and the copy prices that instead.
   Phase B prices that half through the runtime's own
-  [[rt/commit-boundary!]] seam on [[frames-per-window]] identically-seeded
+  [[rf.bench.hicasso.arm1.runtime/commit-boundary!]] seam on [[frames-per-window]] identically-seeded
   frames per window, released and settled between samples with a residue
   equality gate.
 
@@ -91,12 +91,12 @@
 
   | arm         | one window is                                     | what it prices |
   |-------------|---------------------------------------------------|----------------|
-  | `commit`    | [[frames-per-window]] frames x `rt/commit-boundary!` on the harvested entry | the shipping commit half |
+  | `commit`    | [[frames-per-window]] frames x `rf.bench.hicasso.arm1.runtime/commit-boundary!` on the harvested entry | the shipping commit half |
   | `c-local`   | faithful copy: cell mint + subscribe + activation + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
   | `c-null`    | `c-local` with NOTHING ablated — the same `C-FULL` mode, under a second id | THE NEGATIVE CONTROL: `c-local - c-null` has a true cost of exactly zero, so what it reads is the instrument's own error and nothing else (rf2-3l6hf) |
   | `c-null-twin` | `c-local` again, at the slot whose kept-sample POSITION FOOTPRINT is `c-local`'s own | the POSITION null: any cost that is a function of sweep position cancels term by term between these two arms, so what it reads is error position cannot explain (rf2-lo7uy) |
   | `c-null-curve` | `c-local` again, at a slot sharing `c-local`'s MEAN position on a different footprint | the CURVATURE null: a linear position drift cancels here too, a curved one does not (rf2-lo7uy) |
-  | `c-noactivate` | `c-local` minus `interop/activate-derived-value!` | ON THIS HOST the uncached hook resolution, a real term (rf2-tcffa); the substrate's capture run under a ratom host (rf2-lzpfj) |
+  | `c-noactivate` | `c-local` minus `rf.interop/activate-derived-value!` | ON THIS HOST the uncached hook resolution, a real term (rf2-tcffa); the substrate's capture run under a ratom host (rf2-lzpfj) |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
   | `c-noreaders` | `c-local` minus the cell's reader array and the membership push | the fused reverse edge (rf2-dabt3) |
@@ -194,7 +194,7 @@
   one null is one pair of slots (rf2-lo7uy).
 
   **An arm's SLOT is a measured property of it, not a presentation
-  detail.** [[rounds-async!]] visits the arms in [[lane/slot-order]]'s
+  detail.** [[rounds-async!]] visits the arms in [[rf.bench.hicasso.lane/slot-order]]'s
   order, which rotates by the sample index and reflects on odd ones — and
   it is handed the SAMPLE index, not the round, so every round runs the
   identical schedule. An arm therefore occupies the same multiset of sweep
@@ -203,7 +203,7 @@
   within a grid step across three runs: a random error would not, and a
   fixed positional bias would.
 
-  [[slot-footprint]] computes that multiset from [[lane/slot-order]] itself
+  [[slot-footprint]] computes that multiset from [[rf.bench.hicasso.lane/slot-order]] itself
   rather than restating its arithmetic. At the eleven arms this roster now
   carries and this window's `2 + 8` sampling it reads:
 
@@ -246,24 +246,24 @@
   slot — `commit` 0, `c-local` 1, `c-null` 2, through `b-build` 8 — and
   every subject, mode, frame, [[frames-per-window]], [[b-rounds]] and
   [[b-sampling]] is exactly what it was. What cannot be held fixed is `n`,
-  which is an input to [[lane/slot-order]]: eleven arms is a different sweep
+  which is an input to [[rf.bench.hicasso.lane/slot-order]]: eleven arms is a different sweep
   and therefore a new series, the same way nine arms was a new series
   against the eight-arm runs before it. Absolutes are not arm-by-arm
   comparable across that line, and no reading here is.
 
   Owner bead: rf2-6c237. Driver: `run.cjs` with
   HICASSO_INIT_FN=re-frame.bench.hicasso.read-profile-app/-main."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as arm1-mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt :refer [sub]]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.large-template :as lt]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime :refer [sub]]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]))
 
 ;; ---------------------------------------------------------------------------
 ;; Frames
@@ -277,9 +277,9 @@
   (rf2-3l6hf). It was 4, and 4 could not decompose the commit half.
 
   **A window's resolution is set here and by the KEPT SAMPLE COUNT'S
-  PARITY, because the reported statistic is a p50.** `lane/now-ms` is
+  PARITY, because the reported statistic is a p50.** `rf.bench.hicasso.lane/now-ms` is
   `performance.now`, which Chrome clamps to 100 µs, so every raw window
-  reading is a multiple of 0.1 ms; [[lane/summarise]] takes the mean of
+  reading is a multiple of 0.1 ms; [[rf.bench.hicasso.lane/summarise]] takes the mean of
   the two middle order statistics on an EVEN sample count, which halves
   that to 0.05 ms, and a single order statistic on an ODD one, which does
   not halve it at all; and the row divides by the frame count. So the
@@ -343,8 +343,8 @@
         (range 1 (inc frames-per-window))))
 
 (defn- seed-frame! [id]
-  (lt/make-frame! id)
-  (lt/reseed! id)
+  (rf.bench.hicasso.shapes.large-template/make-frame! id)
+  (rf.bench.hicasso.shapes.large-template/reseed! id)
   id)
 
 ;; ---------------------------------------------------------------------------
@@ -357,19 +357,19 @@
   Fatal unless the page is the 1,202-element page and the roster is the
   arithmetic's 141 distinct reads."
   [frame-id]
-  (let [container (arm1-mount/fresh-container!)
-        handle    (arm1-mount/root! container frame-id [lt/page {}])
-        entry     (rt/last-reads)
+  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
+        handle    (rf.bench.hicasso.arm1.mount/root! container frame-id [rf.bench.hicasso.shapes.large-template/page {}])
+        entry     (rf.bench.hicasso.arm1.runtime/last-reads)
         keys'     (.-keys ^js entry)
-        n         (lane/element-count container)
-        expected  (lt/element-arithmetic)
+        n         (rf.bench.hicasso.lane/element-count container)
+        expected  (rf.bench.hicasso.shapes.large-template/element-arithmetic)
         roster    (let [a #js []]
                     (dotimes [i (alength keys')]
                       (.push a (nth (aget keys' i) 1)))
                     a)
         distinct-n (count (into #{} (array-seq roster)))
-        expected-reads (+ 3 (* 2 lt/article-count))]
-    (arm1-mount/unmount! handle)
+        expected-reads (+ 3 (* 2 rf.bench.hicasso.shapes.large-template/article-count))]
+    (rf.bench.hicasso.arm1.mount/unmount! handle)
     (when-not (= expected n)
       (throw (ex-info (str "harvest FAILED: mounted page has " n
                            " elements, expected " expected)
@@ -388,7 +388,7 @@
   (let [by-id (reduce (fn [m q] (update m (nth q 0) (fnil inc 0)))
                       {} (array-seq roster))
         kinds (reduce (fn [m q]
-                        (let [k (:input-kind (registrar/lookup :sub (nth q 0)))]
+                        (let [k (:input-kind (rf.registrar/lookup :sub (nth q 0)))]
                           (update m k (fnil inc 0))))
                       {} (array-seq roster))]
     {:reads      (alength roster)
@@ -413,10 +413,10 @@
   "One sample: K render-body doors on `frame-id`, `pass!` inside each,
   one clock around all K. Answers ms for the window."
   [frame-id pass!]
-  (let [t0 (lane/now-ms)]
+  (let [t0 (rf.bench.hicasso.lane/now-ms)]
     (dotimes [_ passes-per-sample]
-      (rt/render-body frame-id (fn [_] (pass!) [:span]) {}))
-    (- (lane/now-ms) t0)))
+      (rf.bench.hicasso.arm1.runtime/render-body frame-id (fn [_] (pass!) [:span]) {}))
+    (- (rf.bench.hicasso.lane/now-ms) t0)))
 
 ;; ---------------------------------------------------------------------------
 ;; The faithful local copy of the pre-rf2-6c237 read (the frozen baseline)
@@ -465,7 +465,7 @@
         (.push local-scratch sub-key)
         (if-some [^js r (some-> ^js (get local-cells sub-key) (.-reaction))]
           @r
-          (subs/subscribe-once q {:frame frame-id})))))
+          (rf.subs/subscribe-once q {:frame frame-id})))))
   (local-bucket-hash)
   (when (nil? local-entry-keys)
     (set! local-entry-keys (.slice local-scratch)))
@@ -484,7 +484,7 @@
   and deref a live reaction without acquire/release churn; else consult
   the pass-scoped VALUE map, and on a genuine first read compute PURE
   against the pass's one frame-state snapshot with a FRESH per-read memo
-  seeded with `subs/observation-opts-key` (so an unregistered read emits
+  seeded with `rf.subs/observation-opts-key` (so an unregistered read emits
   the always-on `:rf.error/no-such-sub` exactly as the reactive build
   does). The snapshot and the value map are per PASS — the render-scoped
   lifetime the candidate resets at the top of every body run. The
@@ -497,8 +497,8 @@
         n      (alength roster)]
     (dotimes [i n]
       (let [q            (aget roster i)
-            frame-record (frame/frame frame-id)]
-        (live-frame/call-with-frame-resolution
+            frame-record (rf.frame/frame frame-id)]
+        (rf.live-frame/call-with-frame-resolution
           frame-id
           (fn []
             (if-some [r (:reaction (get @(:sub-cache frame-record) q))]
@@ -506,11 +506,11 @@
               (if-some [kv (find (unchecked-get pstate "vals") q)]
                 (val kv)
                 (let [fs (or (unchecked-get pstate "fs")
-                             (let [v (frame/frame-state-value frame-id)]
+                             (let [v (rf.frame/frame-state-value frame-id)]
                                (unchecked-set pstate "fs" v)
                                v))
-                      v  (subs/compute-sub-with-memo
-                           q fs (atom {subs/observation-opts-key
+                      v  (rf.subs/compute-sub-with-memo
+                           q fs (atom {rf.subs/observation-opts-key
                                        {:frame frame-id}}))]
                   (unchecked-set pstate "vals"
                                  (assoc (unchecked-get pstate "vals") q v))
@@ -523,24 +523,24 @@
 (defn- once-pass! [frame-id ^js roster]
   (let [n (alength roster)]
     (dotimes [i n]
-      (subs/subscribe-once (aget roster i) {:frame frame-id}))))
+      (rf.subs/subscribe-once (aget roster i) {:frame frame-id}))))
 
 (defn- fresh-memo-pass! [frame-id ^js roster]
-  (let [fs (frame/frame-state-value frame-id)
+  (let [fs (rf.frame/frame-state-value frame-id)
         n  (alength roster)]
     (dotimes [i n]
-      (subs/compute-sub (aget roster i) fs))))
+      (rf.subs/compute-sub (aget roster i) fs))))
 
 (defn- floor-pass!
   "The irreducible floor: one registrar lookup and one raw layer-1
   handler call per read, against the app-db partition read once."
   [frame-id ^js roster]
-  (let [app-db (:rf.db/app (frame/frame-state-value frame-id))
+  (let [app-db (:rf.db/app (rf.frame/frame-state-value frame-id))
         n      (alength roster)
         sink   (volatile! nil)]
     (dotimes [i n]
       (let [q (aget roster i)]
-        (vreset! sink ((:handler-fn (registrar/lookup :sub (nth q 0)))
+        (vreset! sink ((:handler-fn (rf.registrar/lookup :sub (nth q 0)))
                        app-db q))))
     @sink))
 
@@ -598,7 +598,7 @@
   original no longer builds is an instrument measuring itself (rf2-6wh9o).
 
   Uniqueness is structural here for the same reason it is there: a mode's
-  cells are built one per key of a read SET, `subs/subscribe` hands back
+  cells are built one per key of a read SET, `rf.subs/subscribe` hands back
   the cached reaction for that `(frame, query)`, and [[rounds-async!]]
   runs every teardown and clears every sub-cache between arms behind the
   residue gate — so no two live cells ever hold the same reaction. The
@@ -610,7 +610,7 @@
 (defn- commit-local!
   "Faithful copy of the commit half `make-subscribe` performs for one
   boundary at `mode`: the registration object, one cell per key of the
-  read SET (`subs/subscribe` + the ACTIVATION + the baseline deref + the
+  read SET (`rf.subs/subscribe` + the ACTIVATION + the baseline deref + the
   value-change watch + the disposal hook + the map insert), each cell
   taking the registration onto its reader list. Answers a teardown fn
   that mirrors the returned unsubscribe closure — run OUTSIDE the window.
@@ -649,22 +649,22 @@
       (let [q  (nth sub-key 1)
             r  (if (identical? mode C-NOSUB)
                  nil
-                 (subs/subscribe q {:frame frame-id}))
+                 (rf.subs/subscribe q {:frame frame-id}))
             ^js cell #js {"subKey"   sub-key
                           "frameKw"  frame-id
                           "queryV"   q
                           "reaction" r
-                          "epoch"    (rt/commit-basis frame-id)
+                          "epoch"    (rf.bench.hicasso.arm1.runtime/commit-basis frame-id)
                           "disposed" false}]
         (if (identical? mode C-NOSUB)
-          (subs/compute-sub q fs)
+          (rf.subs/compute-sub q fs)
           (do ;; ACTIVATE, then baseline, then watch — `wire-cell!`'s order.
               (when-not (identical? mode C-NOACTIVATE)
-                (interop/activate-derived-value! r))
+                (rf.interop/activate-derived-value! r))
               @r
               (when-not (identical? mode C-NOWATCH)
                 (add-watch r cell-watch-key (fn [_ _ _ _] nil))
-                (interop/add-on-dispose! r (fn [] nil)))))
+                (rf.interop/add-on-dispose! r (fn [] nil)))))
         ;; The fused reverse edge: one slot per key, which is the
         ;; boundary's edge and its reference at once (rf2-dabt3). The
         ;; array is minted with the registration already in it, exactly
@@ -681,7 +681,7 @@
         (let [^js cell (aget cells i)]
           (when-some [r (.-reaction cell)]
             (remove-watch r cell-watch-key)
-            (subs/unsubscribe frame-id (.-queryV cell))))))))
+            (rf.subs/unsubscribe frame-id (.-queryV cell))))))))
 
 (defn- build-only!
   "141 bare `subscribe` + deref on `frame-id`, holding every reference.
@@ -690,10 +690,10 @@
   [frame-id ^js roster]
   (let [n (alength roster)]
     (dotimes [i n]
-      @(subs/subscribe (aget roster i) {:frame frame-id}))
+      @(rf.subs/subscribe (aget roster i) {:frame frame-id}))
     (fn teardown []
       (dotimes [i n]
-        (subs/unsubscribe frame-id (aget roster i))))))
+        (rf.subs/unsubscribe frame-id (aget roster i))))))
 
 (def phase-b-arm-ids
   "The phase-B roster IN SLOT ORDER — **the vector index IS the arm's
@@ -747,7 +747,7 @@
         ;; drift from the arm it nulls is not one (rf2-3l6hf).
         arms [{:id :commit
                :run (fn []
-                      (mapv (fn [f] (rt/commit-boundary! (get entries f) (fn [] nil)))
+                      (mapv (fn [f] (rf.bench.hicasso.arm1.runtime/commit-boundary! (get entries f) (fn [] nil)))
                             commit-frames))}
               {:id :c-local   :run (mk-local C-FULL)}
               {:id :c-null    :run (mk-local C-FULL)}
@@ -797,10 +797,10 @@
 
 (defn slot-positions
   "The sweep POSITIONS `slot` occupies across ONE round's KEPT samples,
-  with `n` arms under [[lane/slot-order]] and this `sampling`.
+  with `n` arms under [[rf.bench.hicasso.lane/slot-order]] and this `sampling`.
 
   Read OUT of the schedule, never restated: the positions come from
-  `lane/slot-order` itself, which takes them from the order guard, so a
+  `rf.bench.hicasso.lane/slot-order` itself, which takes them from the order guard, so a
   change to the plan moves these numbers instead of leaving them behind
   as a second authority nothing holds in step.
 
@@ -813,7 +813,7 @@
   [n slot {:keys [warmup samples]}]
   (into []
         (map (fn [s]
-               (let [order (lane/slot-order n s)]
+               (let [order (rf.bench.hicasso.lane/slot-order n s)]
                  (first (keep-indexed (fn [pos j] (when (= j slot) pos)) order)))))
         (range warmup (+ warmup samples))))
 
@@ -842,7 +842,7 @@
            (range n) arm-ids))))
 
 (def clock-clamp-ms
-  "The quantum of [[lane/now-ms]] on this host: Chrome clamps
+  "The quantum of [[rf.bench.hicasso.lane/now-ms]] on this host: Chrome clamps
   `performance.now` to 100 µs, so the difference of two readings — which
   is every raw window sample phase B takes — is a multiple of 0.1 ms."
   0.1)
@@ -853,7 +853,7 @@
 
   Three steps, and the middle one is the one that was being taken for
   granted. Raw samples are multiples of [[clock-clamp-ms]].
-  [[lane/summarise]]'s p50 is the MEAN OF THE TWO MIDDLE order statistics
+  [[rf.bench.hicasso.lane/summarise]]'s p50 is the MEAN OF THE TWO MIDDLE order statistics
   when the kept count is even, which puts it on a half-clamp grid, and a
   SINGLE order statistic when it is odd, which leaves it on the full
   clamp. The row then divides by the frame count. A delta is a difference
@@ -874,7 +874,7 @@
   "**The one point behind which every phase-B residue reading is taken** —
   the baseline, the between-sample gate, and the final zero.
 
-  It is [[rt/quiesced!]] and not [[lane/settle!]], and the difference is
+  It is [[rf.bench.hicasso.arm1.runtime/quiesced!]] and not [[rf.bench.hicasso.lane/settle!]], and the difference is
   the whole of rf2-981nt. `settle!` yields ONE macrotask, which is the
   right point for a substrate that queues its disposals there and the
   wrong one for a runtime that arms its entry reaper at a horizon
@@ -894,34 +894,34 @@
 
   The arms are unaffected. A reaped entry is dropped from the runtime's
   entry CACHE, not destroyed — the object survives in the closure phase B
-  holds — and [[rt/commit-boundary!]] reads the entry, never the cache,
+  holds — and [[rf.bench.hicasso.arm1.runtime/commit-boundary!]] reads the entry, never the cache,
   so the `commit` arm acquires the same 141 cells through the same seam
   either way.
 
   **Named rather than spelled out three times**, because this defect was
   invisible for exactly as long as the concept was unnamed: three
-  `lane/settle!` calls look like three ordinary yields, and there was
+  `rf.bench.hicasso.lane/settle!` calls look like three ordinary yields, and there was
   nowhere for the reason to live. Public because
   `read-profile-baseline-cljs-test` drives THIS fn — a witness that
-  called `rt/quiesced!` itself would go green however this instrument
+  called `rf.bench.hicasso.arm1.runtime/quiesced!` itself would go green however this instrument
   settled, which is the vacuous test that let the horizon move under a
   faithful rig in the first place."
   []
-  (rt/quiesced!))
+  (rf.bench.hicasso.arm1.runtime/quiesced!))
 
 (defn- probe-caches-empty? []
-  (every? (fn [f] (zero? (count @(:sub-cache (frame/frame f)))))
+  (every? (fn [f] (zero? (count @(:sub-cache (rf.frame/frame f)))))
           commit-frames))
 
 (defn- rounds-async!
   "The reflecting-schedule sampler, promise-chained: every sample index
-  visits every arm in [[lane/slot-order]]'s order; warm-up samples are
+  visits every arm in [[rf.bench.hicasso.lane/slot-order]]'s order; warm-up samples are
   taken and discarded; between samples the arm's teardowns run, the
   runtime settles behind [[residue-settle!]], and the residue gate must
-  answer clean. Mirrors `lane/rounds!`, which cannot yield.
+  answer clean. Mirrors `rf.bench.hicasso.lane/rounds!`, which cannot yield.
 
   **Readings come back BUCKETED BY ROUND**, one map per round, which is
-  what `lane/rounds!` has always answered and what this fn used to
+  what `rf.bench.hicasso.lane/rounds!` has always answered and what this fn used to
   flatten into a single bucket. Pooling is unchanged — [[arm-rows]]
   `mapcat`s the buckets before it summarises, so the published p50 is the
   same number over the same 64 samples — but the per-round structure now
@@ -929,24 +929,24 @@
   without being re-taken (rf2-3l6hf)."
   [arms {:keys [warmup samples]} rounds' baseline]
   (let [k    (count arms)
-        coll (lane/sample-collector)
+        coll (rf.bench.hicasso.lane/sample-collector)
         acc  (atom (vec (repeat rounds' (zipmap (map :id arms) (repeat [])))))]
-    (-> (lane/chain
+    (-> (rf.bench.hicasso.lane/chain
           nil
           (for [round (range rounds')
                 s     (range (+ warmup samples))
-                j     (lane/slot-order k s)]
+                j     (rf.bench.hicasso.lane/slot-order k s)]
             [round s j])
           (fn [_ [round s j]]
             (let [{:keys [id run]} (nth arms j)
-                  t0        (lane/now-ms)
+                  t0        (rf.bench.hicasso.lane/now-ms)
                   teardowns (run)
-                  ms        (- (lane/now-ms) t0)]
+                  ms        (- (rf.bench.hicasso.lane/now-ms) t0)]
               (doseq [t teardowns] (t))
               (-> (residue-settle!)
                   (.then
                     (fn [_]
-                      (let [now (rt/residue)]
+                      (let [now (rf.bench.hicasso.arm1.runtime/residue)]
                         (when-not (and (= baseline now) (probe-caches-empty?))
                           (throw (ex-info (str "phase-B residue after " (name id)
                                                " — expected " (pr-str baseline)
@@ -955,7 +955,7 @@
                                                  ", and a probe frame's sub-cache is not empty"))
                                           {:arm id :baseline baseline :residue now})))
                         (when (>= s warmup)
-                          (lane/collect! coll (name id) ms)
+                          (rf.bench.hicasso.lane/collect! coll (name id) ms)
                           (swap! acc update-in [round id] conj ms))
                         nil)))))))
         (.then (fn [_] {:readings @acc :samples (:samples @coll)})))))
@@ -968,23 +968,23 @@
   [reps ^js arr f]
   (let [sink (volatile! nil)
         n    (.-length arr)
-        t0   (lane/now-ms)]
+        t0   (rf.bench.hicasso.lane/now-ms)]
     (dotimes [_ reps]
       (dotimes [i n]
         (vreset! sink (f (aget arr i)))))
-    (let [ms (- (lane/now-ms) t0)]
+    (let [ms (- (rf.bench.hicasso.lane/now-ms) t0)]
       (/ (* 1e6 ms) (* reps n)))))
 
 (defn- micro-table [^js roster]
-  (let [fs     (frame/frame-state-value cold-frame)
+  (let [fs     (rf.frame/frame-state-value cold-frame)
         app-db (:rf.db/app fs)
-        cache  (:sub-cache (frame/frame cold-frame))]
-    [[:subscribe-once     (ns-per-op 20 roster (fn [q] (subs/subscribe-once q {:frame cold-frame})))]
-     [:compute-sub        (ns-per-op 20 roster (fn [q] (subs/compute-sub q fs)))]
-     [:handler-invoke     (ns-per-op 200 roster (fn [q] ((:handler-fn (registrar/lookup :sub (nth q 0))) app-db q)))]
-     [:registrar-lookup   (ns-per-op 200 roster (fn [q] (registrar/lookup :sub (nth q 0))))]
-     [:frame-state-value  (ns-per-op 200 roster (fn [_] (frame/frame-state-value cold-frame)))]
-     [:resolution-wrap    (ns-per-op 200 roster (fn [_] (live-frame/call-with-frame-resolution cold-frame (fn [] nil))))]
+        cache  (:sub-cache (rf.frame/frame cold-frame))]
+    [[:subscribe-once     (ns-per-op 20 roster (fn [q] (rf.subs/subscribe-once q {:frame cold-frame})))]
+     [:compute-sub        (ns-per-op 20 roster (fn [q] (rf.subs/compute-sub q fs)))]
+     [:handler-invoke     (ns-per-op 200 roster (fn [q] ((:handler-fn (rf.registrar/lookup :sub (nth q 0))) app-db q)))]
+     [:registrar-lookup   (ns-per-op 200 roster (fn [q] (rf.registrar/lookup :sub (nth q 0))))]
+     [:frame-state-value  (ns-per-op 200 roster (fn [_] (rf.frame/frame-state-value cold-frame)))]
+     [:resolution-wrap    (ns-per-op 200 roster (fn [_] (rf.live-frame/call-with-frame-resolution cold-frame (fn [] nil))))]
      [:cache-peek-miss    (ns-per-op 200 roster (fn [q] (:reaction (get @cache q))))]
      [:sub-key-mint       (ns-per-op 200 roster (fn [q] [cold-frame q]))]]))
 
@@ -1018,7 +1018,7 @@
   (into {}
         (map (fn [id]
                (let [xs (mapcat #(get % id) readings)]
-                 [id (lane/summarise (mapv #(/ % per-window) xs))])))
+                 [id (rf.bench.hicasso.lane/summarise (mapv #(/ % per-window) xs))])))
         arm-ids))
 
 (defn- per-round-p50s
@@ -1036,8 +1036,8 @@
   (into {}
         (map (fn [id]
                [id (mapv (fn [round]
-                           (lane/round4
-                             (:p50 (lane/summarise
+                           (rf.bench.hicasso.lane/round4
+                             (:p50 (rf.bench.hicasso.lane/summarise
                                      (mapv #(/ % per-window) (get round id))))))
                          readings)]))
         arm-ids))
@@ -1049,7 +1049,7 @@
   (let [base (get p50s base-id)]
     (into {}
           (map (fn [id]
-                 [id (mapv (fn [b a] (lane/round4 (- b a)))
+                 [id (mapv (fn [b a] (rf.bench.hicasso.lane/round4 (- b a)))
                            base (get p50s id))]))
           arm-ids)))
 
@@ -1067,9 +1067,9 @@
          (fmt (* 100 (/ d base)) 1) "% of the baseline)")))
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (lane/self-test!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
@@ -1081,20 +1081,20 @@
                                  (:reads census) " reads ("
                                  (:distinct census) " distinct), from the real page's own entry"))
             ;; Commit the warm frame's cells once, and hold them.
-            (rt/render-body warm-frame (fn [_] (sub-pass! roster) [:span]) {})
-            (let [warm-release (rt/commit-boundary! (rt/last-reads) (fn [] nil))]
-              (-> (lane/settle!)
+            (rf.bench.hicasso.arm1.runtime/render-body warm-frame (fn [_] (sub-pass! roster) [:span]) {})
+            (let [warm-release (rf.bench.hicasso.arm1.runtime/commit-boundary! (rf.bench.hicasso.arm1.runtime/last-reads) (fn [] nil))]
+              (-> (rf.bench.hicasso.lane/settle!)
                   (.then
                     (fn [_]
                       ;; ---- Phase A: the render half, sync + interleaved.
                       (let [arms  (phase-a-arms roster)
                             {:keys [readings samples]}
-                            (lane/rounds! arms sampling rounds
+                            (rf.bench.hicasso.lane/rounds! arms sampling rounds
                                           (fn [{:keys [frame pass]}]
                                             (timed-doors frame pass)))
                             rows  (arm-rows (map :id arms) readings passes-per-sample)
-                            gv    (lane/guard! samples "read-profile phase A (in-page ms, diagnostic)")
-                            ctl   (lane/control-verdict
+                            gv    (rf.bench.hicasso.lane/guard! samples "read-profile phase A (in-page ms, diagnostic)")
+                            ctl   (rf.bench.hicasso.lane/control-verdict
                                     (* 2.0 (:p50 (get rows :no-shell)))
                                     (let [s (get rows :ctl2)]
                                       {:min (:min s) :max (:max s) :mean (:p50 s)})
@@ -1103,17 +1103,17 @@
                           (throw (ex-info (str "phase-A positive control failed: " (:why ctl)) {})))
                         ;; The warm frame's cells must have stayed committed and
                         ;; the cold frame must have stayed cold.
-                        (let [{:keys [cells cell-refs]} (rt/stats)]
+                        (let [{:keys [cells cell-refs]} (rf.bench.hicasso.arm1.runtime/stats)]
                           (when-not (and (= 141 cells) (= 141 cell-refs))
                             (throw (ex-info (str "phase-A residue: cells " cells
                                                  " refs " cell-refs ", expected 141/141 "
                                                  "(the warm frame's held commit and nothing else)")
                                             {}))))
-                        (lane/record! :read-profile-census census)
-                        (lane/record! :read-profile-arms
-                                      (into {} (map (fn [[k v]] [k (-> v (update :min lane/round4)
-                                                                       (update :max lane/round4)
-                                                                       (update :p50 lane/round4))])) rows))
+                        (rf.bench.hicasso.lane/record! :read-profile-census census)
+                        (rf.bench.hicasso.lane/record! :read-profile-arms
+                                      (into {} (map (fn [[k v]] [k (-> v (update :min rf.bench.hicasso.lane/round4)
+                                                                       (update :max rf.bench.hicasso.lane/round4)
+                                                                       (update :p50 rf.bench.hicasso.lane/round4))])) rows))
                         (js/console.log ";; ==== READ PROFILE, PHASE A (ms per 141-read pass; diagnostic in-page clock) ====")
                         (js/console.log (str ";;   reads/pass 141  passes/sample " passes-per-sample
                                              "  design " rounds "x(" (:warmup sampling) "+" (:samples sampling) ")"))
@@ -1139,14 +1139,14 @@
                         ;; harvested through the door.
                         (doseq [f commit-frames] (seed-frame! f))
                         (let [entries (into {} (map (fn [f]
-                                                      (rt/render-body f (fn [_] (sub-pass! roster) [:span]) {})
-                                                      [f (rt/last-reads)]))
+                                                      (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (sub-pass! roster) [:span]) {})
+                                                      [f (rf.bench.hicasso.arm1.runtime/last-reads)]))
                                             commit-frames)
-                              sets    (into {} (map (fn [f] [f (rt/reads-of (get entries f))])) commit-frames)
-                              fss     (into {} (map (fn [f] [f (frame/frame-state-value f)])) commit-frames)]
+                              sets    (into {} (map (fn [f] [f (rf.bench.hicasso.arm1.runtime/reads-of (get entries f))])) commit-frames)
+                              fss     (into {} (map (fn [f] [f (rf.frame/frame-state-value f)])) commit-frames)]
                           (-> (residue-settle!)
                               (.then (fn [_]
-                                       (let [baseline (rt/residue)]
+                                       (let [baseline (rf.bench.hicasso.arm1.runtime/residue)]
                                          (rounds-async! (phase-b-arms entries sets fss roster)
                                                         b-sampling b-rounds baseline))))
                               (.then
@@ -1155,16 +1155,16 @@
                                         plan (phase-b-slot-plan)
                                         rows (arm-rows ids readings frames-per-window)
                                         p50s (per-round-p50s ids readings frames-per-window)
-                                        gv-b (lane/guard! samples "read-profile phase B (in-page ms, diagnostic)")]
-                                    (lane/record! :read-profile-commit
-                                                  (into {} (map (fn [[k v]] [k (-> v (update :min lane/round4)
-                                                                                   (update :max lane/round4)
-                                                                                   (update :p50 lane/round4))])) rows))
-                                    (lane/record! :read-profile-commit-per-round p50s)
-                                    (lane/record! :read-profile-commit-per-round-deltas
+                                        gv-b (rf.bench.hicasso.lane/guard! samples "read-profile phase B (in-page ms, diagnostic)")]
+                                    (rf.bench.hicasso.lane/record! :read-profile-commit
+                                                  (into {} (map (fn [[k v]] [k (-> v (update :min rf.bench.hicasso.lane/round4)
+                                                                                   (update :max rf.bench.hicasso.lane/round4)
+                                                                                   (update :p50 rf.bench.hicasso.lane/round4))])) rows))
+                                    (rf.bench.hicasso.lane/record! :read-profile-commit-per-round p50s)
+                                    (rf.bench.hicasso.lane/record! :read-profile-commit-per-round-deltas
                                                   (per-round-deltas p50s :c-local delta-arm-ids))
-                                    (lane/record! :read-profile-slot-plan
-                                                  (mapv #(update % :mean-position lane/round4) plan))
+                                    (rf.bench.hicasso.lane/record! :read-profile-slot-plan
+                                                  (mapv #(update % :mean-position rf.bench.hicasso.lane/round4) plan))
                                     (js/console.log ";; ==== READ PROFILE, PHASE B — THE COMMIT HALF (ms per 141-key boundary commit) ====")
                                     (js/console.log (phase-b-design-line b-rounds b-sampling frames-per-window))
                                     (js/console.log ";;   slot plan (each arm's kept-sample sweep positions — the schedule is indexed by SAMPLE, so this footprint repeats identically every round; rf2-lo7uy):")
@@ -1198,8 +1198,8 @@
                                       (set! (.-HICASSO_GUARD_REFUSED js/window) true))
                                     ;; ---- Micro table.
                                     (let [micro (micro-table roster)]
-                                      (lane/record! :read-profile-micro
-                                                    (into {} (map (fn [[k v]] [k (lane/round4 v)])) micro))
+                                      (rf.bench.hicasso.lane/record! :read-profile-micro
+                                                    (into {} (map (fn [[k v]] [k (rf.bench.hicasso.lane/round4 v)])) micro))
                                       (js/console.log ";; ==== MICRO (ns/op over the page's own roster) ====")
                                       (doseq [[k v] micro]
                                         (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns"))))
@@ -1215,11 +1215,11 @@
                                     (residue-settle!))))
                               (.then
                                 (fn [_]
-                                  (let [res (rt/residue)]
+                                  (let [res (rf.bench.hicasso.arm1.runtime/residue)]
                                     (when-not (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0} res)
                                       (throw (ex-info (str "final residue not clean: " (pr-str res)) {}))))
-                                  (lane/done!)))))))))))))
+                                  (rf.bench.hicasso.lane/done!)))))))))))))
       (.catch (fn [e]
-                (lane/fail! (or (some-> e .-message) (str e)))
-                (lane/done!)))))
+                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.hicasso.lane/done!)))))
 

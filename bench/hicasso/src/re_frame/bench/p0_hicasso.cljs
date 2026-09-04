@@ -65,22 +65,22 @@
   Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
   2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
   this arm rf2-2rtt6.34."
-  (:require [re-frame.bench.p0-fixture :as fx]
-            [re-frame.bench.p0-workcount :as wc]
+  (:require [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
+            [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [re-frame.hicasso :refer [sub]])
   (:require-macros [re-frame.hicasso :refer [defview]]))
 
 (defview lad-cell
   "One Hicasso boundary reading `r` DISTINCT subscriptions — the same
-  `:p0/fan` key space, the same `fx/fan-key` rule and the same
+  `:p0/fan` key space, the same `rf.bench.p0-fixture/fan-key` rule and the same
   `span.cell` element the Reagent and UIx ladder cells build, so the three
   arms differ in how a subscription value reaches a boundary and in
   nothing else."
   [{:keys [j n r]}]
-  (wc/render!)
+  (rf.bench.p0-workcount/render!)
   (let [v (loop [k 0 acc 0]
             (if (< k r)
-              (recur (inc k) (+ acc (sub [:p0/fan (fx/fan-key n r k)])))
+              (recur (inc k) (+ acc (sub [:p0/fan (rf.bench.p0-fixture/fan-key n r k)])))
               acc))]
     [:span.cell {:data-i j} (str v)]))
 

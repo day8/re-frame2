@@ -32,24 +32,24 @@
   Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
   stated skip."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt :refer [sub]]
-            [re-frame.bench.hicasso.front.route-link :as link]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.card :as card]
-            [re-frame.bench.hicasso.shapes.model :as m]
-            [re-frame.bench.hicasso.shapes.ordinary :as ordinary]
-            [re-frame.subs :as subs]
-            [re-frame.test-support :as test-support])
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime :refer [sub]]
+            [re-frame.bench.hicasso.front.route-link :as rf.bench.hicasso.front.route-link]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.card :as rf.bench.hicasso.shapes.card]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.hicasso.shapes.ordinary :as rf.bench.hicasso.shapes.ordinary]
+            [re-frame.subs :as rf.subs]
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::shape-route-link)
 
@@ -86,17 +86,17 @@
   anchors the clicks below land on."
   [_]
   (ran! :card-host)
-  (card/card (:slug (m/article 0))))
+  (rf.bench.hicasso.shapes.card/card (:slug (rf.bench.hicasso.shapes.model/article 0))))
 
 (defview veto-pair
   [_]
   (ran! :veto-pair)
   [:div
-   (link/route-link {:to :conduit.profile/show :params {:username "jane"}
+   (rf.bench.hicasso.front.route-link/route-link {:to :conduit.profile/show :params {:username "jane"}
                      :class "vetoed" :data-testid "vetoed-link"
                      :on-click [:re-frame.hicasso/prevent [:conduit/show-your-feed]]}
      "vetoed")
-   (link/route-link {:to :conduit.profile/show :params {:username "riku"}
+   (rf.bench.hicasso.front.route-link/route-link {:to :conduit.profile/show :params {:username "riku"}
                      :class "unvetoed" :data-testid "unvetoed-link"}
      "control")])
 
@@ -113,14 +113,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh! []
-  (lane/leave-act-environment!)
-  (m/make-frame! frame-id seed)
-  (m/reseed! frame-id seed)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.shapes.model/make-frame! frame-id seed)
+  (rf.bench.hicasso.shapes.model/reseed! frame-id seed)
   (reset-runs!)
   frame-id)
 
 (defn- mount! []
-  (mount/root! (mount/fresh-container!) frame-id [nav-page {}]))
+  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [nav-page {}]))
 
 (defn- q [handle sel] (.querySelector (:container handle) sel))
 
@@ -128,7 +128,7 @@
   (some-> (q handle (str "[data-testid=\"" testid "\"]")) (.-textContent)))
 
 (defn- current-route []
-  (subs/subscribe-once [:rf/route] {:frame frame-id}))
+  (rf.subs/subscribe-once [:rf/route] {:frame frame-id}))
 
 (defn- click!
   "Fire a real `MouseEvent` at `node` under a document-level guard that
@@ -149,7 +149,7 @@
   `assert-fn` and `done`."
   [assert-fn done]
   (js/setTimeout (fn []
-                   (mount/settle!)
+                   (rf.bench.hicasso.arm1.mount/settle!)
                    (assert-fn)
                    (done))
                  15))
@@ -159,54 +159,54 @@
 ;; ===========================================================================
 
 (deftest the-ported-census-anchors-are-real-routed-anchors
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [handle (mount!)]
         (try
-          (let [author (:username (:author (m/article 0)))]
-            ;; `#`-prefixed: `m/make-frame!` declares the census's own
+          (let [author (:username (:author (rf.bench.hicasso.shapes.model/article 0)))]
+            ;; `#`-prefixed: `rf.bench.hicasso.shapes.model/make-frame!` declares the census's own
             ;; hash `:url-strategy` (Conduit is a hash-URL app), so the
             ;; router's synthesis IS the census's `#/…` form — rf2-6c237,
             ;; repairing the rf2-2rtt6.54 parity gap against the
             ;; hand-ported twins in `census_clock_arms`.
             (doseq [[sel href] [[".author-link" (str "#/profile/" author)]
                                 [".author"      (str "#/profile/" author)]
-                                [".preview-link" (str "#/article/" (:slug (m/article 0)))]]]
+                                [".preview-link" (str "#/article/" (:slug (rf.bench.hicasso.shapes.model/article 0)))]]]
               (let [a (q handle sel)]
                 (is (instance? js/HTMLAnchorElement a)
                     (str sel " is a real anchor"))
                 (is (= href (.getAttribute a "href"))
                     (str sel "'s href is the router's synthesis — the port no "
                          "longer hand-builds the URL the router owns")))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 (deftest the-comment-byline-is-a-routed-anchor-too
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [ordinary/screen {}])]
+      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [rf.bench.hicasso.shapes.ordinary/screen {}])]
         (try
           (let [a (q handle ".comment-author")]
             (is (instance? js/HTMLAnchorElement a))
             (is (re-matches #"#/profile/.+" (.getAttribute a "href"))
                 "ordinary.cljs's byline names a route, not a URL — encoded
                  through the frame's declared census hash strategy"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ===========================================================================
 ;; 2 — a real click, a real route change, a real re-render
 ;; ===========================================================================
 
 (deftest a-plain-click-navigates-and-the-page-re-renders
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
       (let [handle (mount!)
-            author (:username (:author (m/article 0)))]
+            author (:username (:author (rf.bench.hicasso.shapes.model/article 0)))]
         (is (= "nowhere" (text handle "where-am-i")) "no route yet")
         (reset-runs!)
         (click! (q handle ".author"))
@@ -221,11 +221,11 @@
                  navigation commit reached the index like any other")
             (is (= 1 (runs :where)) "exactly one body ran for it")
             (is (= 0 (runs :card-host)) "the card did not — it reads no route")
-            (mount/release! handle))
+            (rf.bench.hicasso.arm1.mount/release! handle))
           done)))))
 
 (deftest a-modifier-click-stays-native
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
@@ -239,7 +239,7 @@
                  open-in-new-tab meaning")
             (is (= "nowhere" (text handle "where-am-i")))
             (is (= 0 (runs :where)) "and nothing re-rendered")
-            (mount/release! handle))
+            (rf.bench.hicasso.arm1.mount/release! handle))
           done)))))
 
 ;; ===========================================================================
@@ -247,20 +247,20 @@
 ;; ===========================================================================
 
 (deftest a-prevent-veto-cancels-the-navigation-and-dispatches-instead
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
       (let [handle (mount!)]
-        (is (false? (subs/subscribe-once [:conduit/your-feed?] {:frame frame-id})))
+        (is (false? (rf.subs/subscribe-once [:conduit/your-feed?] {:frame frame-id})))
         (click! (q handle ".vetoed"))
         (js/setTimeout
           (fn []
-            (mount/settle!)
+            (rf.bench.hicasso.arm1.mount/settle!)
             (is (nil? (:route-id (current-route)))
                 "the navigation was vetoed — activate-link! saw
                  defaultPrevented and stood down")
-            (is (true? (subs/subscribe-once [:conduit/your-feed?] {:frame frame-id}))
+            (is (true? (rf.subs/subscribe-once [:conduit/your-feed?] {:frame frame-id}))
                 "and the wrapped app intent dispatched in its place: one
                  click, one semantic event")
             ;; The MUTATION CONTROL: the same anchor without the veto
@@ -268,12 +268,12 @@
             (click! (q handle ".unvetoed"))
             (js/setTimeout
               (fn []
-                (mount/settle!)
+                (rf.bench.hicasso.arm1.mount/settle!)
                 (is (= :conduit.profile/show (:route-id (current-route)))
                     "the unvetoed sibling navigates — the veto, not the
                      machinery, is what cancelled the first click")
                 (is (= {:username "riku"} (:params (current-route))))
-                (mount/release! handle)
+                (rf.bench.hicasso.arm1.mount/release! handle)
                 (done))
               15))
           15)))))
@@ -283,7 +283,7 @@
 ;; ===========================================================================
 
 (deftest the-route-link-page-leaves-no-residue
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
@@ -291,12 +291,12 @@
         (click! (q handle ".author"))
         (js/setTimeout
           (fn []
-            (mount/settle!)
-            (mount/unmount! handle)
+            (rf.bench.hicasso.arm1.mount/settle!)
+            (rf.bench.hicasso.arm1.mount/unmount! handle)
             (js/setTimeout (fn []
                              (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                                    (rt/residue)))
-                             (rt/reset-runtime!)
+                                    (rf.bench.hicasso.arm1.runtime/residue)))
+                             (rf.bench.hicasso.arm1.runtime/reset-runtime!)
                              (done))
                            8))
           15)))))

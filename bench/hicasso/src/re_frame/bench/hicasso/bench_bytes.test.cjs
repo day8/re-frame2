@@ -25,7 +25,7 @@
 //
 // So the split is by RUNTIME and not by taste:
 //
-//   lane_bytes_cljs_test.cljs   what `lane/utf8-bytes` computes — browser-safe,
+//   lane_bytes_cljs_test.cljs   what `rf.bench.hicasso.lane/utf8-bytes` computes — browser-safe,
 //                               discriminating fixtures, both directions
 //   THIS FILE                   that every repaired site calls it — Node, source
 //                               text, both polarities
@@ -85,19 +85,19 @@ function src(rel) {
 // the alignment, so a half-edit that left `(count …)` in one arm of a `#js`
 // literal cannot satisfy it.
 const CONVERTED = {
-  'clock_app.cljs': ':bytes (lane/utf8-bytes s)',
-  'hd8_clock_app.cljs': ':bytes   (lane/utf8-bytes s)',
-  'shapes/census_clock_app.cljs': ':bytes   (lane/utf8-bytes s)',
-  'walk_profile_app.cljs': ':bytes (lane/utf8-bytes canon-real)',
-  'walk_vs_reagent_app.cljs': ':bytes    (lane/utf8-bytes canon)',
-  'ssr/spike_cljs_test.cljs': ':bytes        (lane/utf8-bytes (:document a))',
-  'ssr/spike_dom_cljs_test.cljs': ':canonical-bytes  (lane/utf8-bytes hydrated-dom)',
+  'clock_app.cljs': ':bytes (rf.bench.hicasso.lane/utf8-bytes s)',
+  'hd8_clock_app.cljs': ':bytes   (rf.bench.hicasso.lane/utf8-bytes s)',
+  'shapes/census_clock_app.cljs': ':bytes   (rf.bench.hicasso.lane/utf8-bytes s)',
+  'walk_profile_app.cljs': ':bytes (rf.bench.hicasso.lane/utf8-bytes canon-real)',
+  'walk_vs_reagent_app.cljs': ':bytes    (rf.bench.hicasso.lane/utf8-bytes canon)',
+  'ssr/spike_cljs_test.cljs': ':bytes        (rf.bench.hicasso.lane/utf8-bytes (:document a))',
+  'ssr/spike_dom_cljs_test.cljs': ':canonical-bytes  (rf.bench.hicasso.lane/utf8-bytes hydrated-dom)',
   'ssr/instance_key_payload_dom_cljs_test.cljs':
-    ':green-edn-bytes (lane/utf8-bytes (:payload-edn green))',
+    ':green-edn-bytes (rf.bench.hicasso.lane/utf8-bytes (:payload-edn green))',
 };
 
 for (const [file, expr] of Object.entries(CONVERTED)) {
-  test(`${file} publishes its byte figure through lane/utf8-bytes`, () => {
+  test(`${file} publishes its byte figure through rf.bench.hicasso.lane/utf8-bytes`, () => {
     assert(src(file).includes(expr), `${file} must read \`${expr}\``);
   });
 }
@@ -105,7 +105,7 @@ for (const [file, expr] of Object.entries(CONVERTED)) {
 test('instance_key_payload also converts the RED arm, not just the green one', () => {
   assert(
     src('ssr/instance_key_payload_dom_cljs_test.cljs').includes(
-      ':red-edn-bytes   (lane/utf8-bytes (:payload-edn red))',
+      ':red-edn-bytes   (rf.bench.hicasso.lane/utf8-bytes (:payload-edn red))',
     ),
     'the red row is half of the obligation witness and is measured the same way',
   );
@@ -174,7 +174,7 @@ test('keywarn_elision asks the FILE for its size, not the decoded string', () =>
 // The helper itself
 // ---------------------------------------------------------------------------
 
-test('lane/utf8-bytes is TextEncoder, which carries no encoding to drop', () => {
+test('rf.bench.hicasso.lane/utf8-bytes is TextEncoder, which carries no encoding to drop', () => {
   // `driver.cjs`'s `utf8Bytes` has to name `'utf8'` explicitly and
   // `bake_bytes.test.cjs` pins that spelling, because `Buffer.byteLength`
   // takes an encoding a later edit could silently change. `TextEncoder`
@@ -190,12 +190,12 @@ test('lane/utf8-bytes is TextEncoder, which carries no encoding to drop', () => 
 });
 
 test('the lane helper is reachable from every file that claims to use it', () => {
-  // A require check, so a converted site cannot read `lane/utf8-bytes` while
+  // A require check, so a converted site cannot read `rf.bench.hicasso.lane/utf8-bytes` while
   // aliasing some other namespace to `lane`.
   for (const file of Object.keys(CONVERTED)) {
     assert(
-      /\[re-frame\.bench\.hicasso\.lane :as lane\]/.test(src(file)),
-      `${file} must alias the lane namespace as \`lane\``,
+      /\[re-frame\.bench\.hicasso\.lane :as rf\.bench\.hicasso\.lane\]/.test(src(file)),
+      `${file} must alias the lane namespace as \`rf.bench.hicasso.lane\``,
     );
   }
 });

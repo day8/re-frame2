@@ -214,7 +214,7 @@
 
   ## The control is adjudicated STRICTLY, and per round (rf2-egdaq)
 
-  `lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
+  `rf.bench.hicasso.lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
   `:expanded` ratio must sit inside ±25% of 2.00x, and one bad round
   refuses the run however good the others were. This instrument is
   entitled to that rule and the coarse-leg rows are not — the 2026-07-31
@@ -240,7 +240,7 @@
 
   ## What is published
 
-  `lane/ratio-between :merged :expanded` over the per-round
+  `rf.bench.hicasso.lane/ratio-between :merged :expanded` over the per-round
   floor-normalised ratios, with its range and its `:straddles-1?` flag —
   and beside it the same statistic for `:expanded-b`, which carries no
   effect by construction. A `:merged` range that straddles 1.0 means
@@ -265,10 +265,10 @@
   cannot be timed. Instrument: `lane.cljs`, ridden through `run.cjs` on
   the existing `:hicasso-bench` build id via `HICASSO_INIT_FN` — no
   `shadow-cljs.edn` edit."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.lane :as lane]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.hicasso :as rf.hicasso]))
 
 (def frame-id ::amp-merge-clock)
 
@@ -302,7 +302,7 @@
 ;; Two reads per boundary, the same two in both arms. The ERROR TEXT is
 ;; per-boundary and lands in the DOM as text, which is what makes the
 ;; far-end read-back and the mutation gate able to see the page at all: a
-;; controlled input's `value` is a DOM PROPERTY, and `lane/canonical`
+;; controlled input's `value` is a DOM PROPERTY, and `rf.bench.hicasso.lane/canonical`
 ;; reads attributes.
 
 (rf/reg-sub :amp/draft  (fn [db [_ id]] (get-in db [:drafts id])))
@@ -331,8 +331,8 @@
 
 (defn expanded-body
   [{:keys [id]}]
-  (let [draft  (h/sub [:amp/draft id])
-        errors (h/sub [:amp/errors id])
+  (let [draft  (rf.hicasso/sub [:amp/draft id])
+        errors (rf.hicasso/sub [:amp/errors id])
         busy?  (:busy? draft)]
     [:fieldset
      [:fieldset.form-group
@@ -341,7 +341,7 @@
         :data-testid "editor-title"
         :value (:title draft) :disabled busy?
         :on-blur  [:amp/blur id :title]
-        :on-input [:amp/edit id :title ::h/value]}]
+        :on-input [:amp/edit id :title ::rf.hicasso/value]}]
       (when-some [e (:title errors)] [:div.error-messages e])]
      [:fieldset.form-group
       [:input.form-control
@@ -349,7 +349,7 @@
         :data-testid "editor-description"
         :value (:description draft) :disabled busy?
         :on-blur  [:amp/blur id :description]
-        :on-input [:amp/edit id :description ::h/value]}]
+        :on-input [:amp/edit id :description ::rf.hicasso/value]}]
       (when-some [e (:description errors)] [:div.error-messages e])]
      [:fieldset.form-group
       [:input.form-control
@@ -357,7 +357,7 @@
         :data-testid "editor-body"
         :value (:body draft) :disabled busy?
         :on-blur  [:amp/blur id :body]
-        :on-input [:amp/edit id :body ::h/value]}]
+        :on-input [:amp/edit id :body ::rf.hicasso/value]}]
       (when-some [e (:body errors)] [:div.error-messages e])]
      [:fieldset.form-group
       [:input.form-control
@@ -365,7 +365,7 @@
         :data-testid "editor-tags"
         :value (:tagList draft) :disabled busy?
         :on-blur  [:amp/blur id :tagList]
-        :on-input [:amp/edit id :tagList ::h/value]}]
+        :on-input [:amp/edit id :tagList ::rf.hicasso/value]}]
       (when-some [e (:tagList errors)] [:div.error-messages e])]]))
 
 ;; ---------------------------------------------------------------------------
@@ -397,13 +397,13 @@
                          :value    (get draft k)
                          :disabled busy?
                          :on-blur  [:amp/blur id k]
-                         :on-input [:amp/edit id k ::h/value]}]
+                         :on-input [:amp/edit id k ::rf.hicasso/value]}]
    (when-some [e (get errors k)] [:div.error-messages e])])
 
 (defn merged-body
   [{:keys [id]}]
-  (let [draft  (h/sub [:amp/draft id])
-        errors (h/sub [:amp/errors id])
+  (let [draft  (rf.hicasso/sub [:amp/draft id])
+        errors (rf.hicasso/sub [:amp/errors id])
         busy?  (:busy? draft)]
     [:fieldset
      (field draft errors id
@@ -464,7 +464,7 @@
                          :value       (get draft k)
                          :disabled    busy?
                          :on-blur     [:amp/blur id k]
-                         :on-input    [:amp/edit id k ::h/value]}]
+                         :on-input    [:amp/edit id k ::rf.hicasso/value]}]
    (when-some [e (get errors k)] [:div.error-messages e])])
 
 (defn field-no-dissoc
@@ -478,13 +478,13 @@
                          :value    (get draft k)
                          :disabled busy?
                          :on-blur  [:amp/blur id k]
-                         :on-input [:amp/edit id k ::h/value]}]
+                         :on-input [:amp/edit id k ::rf.hicasso/value]}]
    (when-some [e (get errors k)] [:div.error-messages e])])
 
 (defn explicit-body
   [{:keys [id]}]
-  (let [draft  (h/sub [:amp/draft id])
-        errors (h/sub [:amp/errors id])
+  (let [draft  (rf.hicasso/sub [:amp/draft id])
+        errors (rf.hicasso/sub [:amp/errors id])
         busy?  (:busy? draft)]
     [:fieldset
      (field-explicit draft errors id :title busy?
@@ -509,8 +509,8 @@
 
 (defn no-dissoc-body
   [{:keys [id]}]
-  (let [draft  (h/sub [:amp/draft id])
-        errors (h/sub [:amp/errors id])
+  (let [draft  (rf.hicasso/sub [:amp/draft id])
+        errors (rf.hicasso/sub [:amp/errors id])
         busy?  (:busy? draft)]
     [:fieldset
      (field-no-dissoc draft errors id :title busy?
@@ -569,7 +569,7 @@
                          :value       (get draft k)
                          :disabled    busy?
                          :on-blur     [:amp/blur id k]
-                         :on-input    [:amp/edit id k ::h/value]}]
+                         :on-input    [:amp/edit id k ::rf.hicasso/value]}]
    (when-some [e (get errors k)] [:div.error-messages e])])
 
 (defn field-lean-lg
@@ -592,13 +592,13 @@
                                          :value       (get draft k)
                                          :disabled    busy?
                                          :on-blur     [:amp/blur id k]
-                                         :on-input    [:amp/edit id k ::h/value]}]
+                                         :on-input    [:amp/edit id k ::rf.hicasso/value]}]
    (when-some [e (get errors k)] [:div.error-messages e])])
 
 (defn lean-body
   [{:keys [id]}]
-  (let [draft  (h/sub [:amp/draft id])
-        errors (h/sub [:amp/errors id])
+  (let [draft  (rf.hicasso/sub [:amp/draft id])
+        errors (rf.hicasso/sub [:amp/errors id])
         busy?  (:busy? draft)]
     [:fieldset
      (field-lean-lg draft errors id :title busy?
@@ -626,8 +626,8 @@
   the title, absent everywhere else. So the only thing this arm and
   `:merged` do differently is where `:k` and `:busy?` travel."
   [{:keys [id]}]
-  (let [draft  (h/sub [:amp/draft id])
-        errors (h/sub [:amp/errors id])
+  (let [draft  (rf.hicasso/sub [:amp/draft id])
+        errors (rf.hicasso/sub [:amp/errors id])
         busy?  (:busy? draft)]
     [:fieldset
      (field-no-dissoc draft errors id :title busy?
@@ -654,14 +654,14 @@
   [_]
   nil)
 
-(h/defview expanded-arm       [props] (expanded-body props))
-(h/defview expanded-arm-b     [props] (expanded-body props))
-(h/defview merged-arm         [props] (merged-body props))
-(h/defview explicit-arm       [props] (explicit-body props))
-(h/defview no-dissoc-arm      [props] (no-dissoc-body props))
-(h/defview lean-arm           [props] (lean-body props))
-(h/defview no-dissoc-lean-arm [props] (no-dissoc-lean-body props))
-(h/defview floor-arm          [props] (floor-body props))
+(rf.hicasso/defview expanded-arm       [props] (expanded-body props))
+(rf.hicasso/defview expanded-arm-b     [props] (expanded-body props))
+(rf.hicasso/defview merged-arm         [props] (merged-body props))
+(rf.hicasso/defview explicit-arm       [props] (explicit-body props))
+(rf.hicasso/defview no-dissoc-arm      [props] (no-dissoc-body props))
+(rf.hicasso/defview lean-arm           [props] (lean-body props))
+(rf.hicasso/defview no-dissoc-lean-arm [props] (no-dissoc-lean-body props))
+(rf.hicasso/defview floor-arm          [props] (floor-body props))
 
 ;; ---------------------------------------------------------------------------
 ;; The page — identical for every arm but the body
@@ -687,9 +687,9 @@
 
 (defn- mount-page
   [view]
-  (fn [container _props _n] (h/mount! container {:frame frame-id} (page view))))
+  (fn [container _props _n] (rf.hicasso/mount! container {:frame frame-id} (page view))))
 
-(defn- unmount-page [handle] (h/unmount! handle))
+(defn- unmount-page [handle] (rf.hicasso/unmount! handle))
 
 (def ^:private arms
   [{:id :floor :k 1 :elements floor-elements :parity-exempt? true
@@ -733,7 +733,7 @@
   claimed no term inside instrument resolution, its own included.
 
   ROUND TWO IS A WARM-UP ROUND, and that is the connection to `rf2-h904p`
-  on `direct_return_clock_app`. Replaying [[lane/rounds!]] against
+  on `direct_return_clock_app`. Replaying [[rf.bench.hicasso.lane/rounds!]] against
   `order-guard/slot-order` puts every arm's FIRST-THIRD phase stratum at
   rounds one and two — 3 to 15 prior executions of the arm — and its
   LAST-THIRD at rounds four and five, 32 to 44. The null degraded inside
@@ -747,7 +747,7 @@
   `run.cjs` names `fewer arms per round` as one of the three moves, and
   `rf2-z143r` taking the schedule from five arms to seven is the lead the
   bead was filed on. The schedule arithmetic answers it: replaying
-  [[lane/rounds!]] against `order-guard/slot-order` at n = 5, 7, 8 and 9
+  [[rf.bench.hicasso.lane/rounds!]] against `order-guard/slot-order` at n = 5, 7, 8 and 9
   on the sampling that failed, every arm still banks 30 samples per run,
   every arm's phase strata are still rounds 1-2 against rounds 4-5 at the
   same prior-execution counts, and the null's true predecessor
@@ -763,8 +763,8 @@
   10.26 10.26 10.33 10.28` and then `8.12` for ever, a +27% step falling
   after the SIXTH execution of the site. `{:warmup 8 :samples 12}` puts
   that step inside the warm-up, doubles each phase stratum to n = 20, and
-  is what every other harness riding [[lane/mount-batch!]] already runs.
-  That set is checkable and small — `(lane/mount-batch!` has five call
+  is what every other harness riding [[rf.bench.hicasso.lane/mount-batch!]] already runs.
+  That set is checkable and small — `(rf.bench.hicasso.lane/mount-batch!` has five call
   sites on this lane, this file, `direct_return_clock_app`,
   `coldmount_app`, `p0_converge_app` and `p0_reagent_app` — and the last
   three all sample at 8/12, so the two clocks were the lane's only
@@ -804,7 +804,7 @@
   probe that cannot pass manufactures a defect and hides real ones behind
   it."
   [arm container]
-  (and (= (:elements arm) (lane/element-count container))
+  (and (= (:elements arm) (rf.bench.hicasso.lane/element-count container))
        (or (= :floor (:id arm))
            (= (expected-far-end) (far-end container)))))
 
@@ -814,10 +814,10 @@
 
 (defn parity!
   "Mount every arm at once and compare the judged arms' canonical DOM.
-  Answers `lane/parity`'s verdict with the mounts already released."
+  Answers `rf.bench.hicasso.lane/parity`'s verdict with the mounts already released."
   []
-  (let [{:keys [mounts] :as p} (lane/parity arms nil)]
-    (doseq [m mounts] (lane/release! m))
+  (let [{:keys [mounts] :as p} (rf.bench.hicasso.lane/parity arms nil)]
+    (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
     p))
 
 (defn parity-can-fail?
@@ -826,15 +826,15 @@
   to the run's own data afterwards, so nothing downstream is measured on
   the mutated page."
   []
-  (let [before (let [m (lane/mount-arm! (arm-named :expanded) nil)
-                     s (lane/canonical (:container m))]
-                 (lane/release! m)
+  (let [before (let [m (rf.bench.hicasso.lane/mount-arm! (arm-named :expanded) nil)
+                     s (rf.bench.hicasso.lane/canonical (:container m))]
+                 (rf.bench.hicasso.lane/release! m)
                  s)]
     (rf/with-frame frame-id
       (rf/dispatch-sync [:amp/seed (seed-db boundaries mutated-error)]))
-    (let [after (let [m (lane/mount-arm! (arm-named :merged) nil)
-                      s (lane/canonical (:container m))]
-                  (lane/release! m)
+    (let [after (let [m (rf.bench.hicasso.lane/mount-arm! (arm-named :merged) nil)
+                      s (rf.bench.hicasso.lane/canonical (:container m))]
+                  (rf.bench.hicasso.lane/release! m)
                   s)]
       (rf/with-frame frame-id
         (rf/dispatch-sync [:amp/seed (seed-db boundaries default-error)]))
@@ -846,12 +846,12 @@
 
 (defn- measure-one!
   [tally arm]
-  (let [{:keys [ms mounts]} (lane/mount-batch! arm nil (:k arm))]
+  (let [{:keys [ms mounts]} (rf.bench.hicasso.lane/mount-batch! arm nil (:k arm))]
     (doseq [m mounts]
       (let [ok? (verified? arm (:container m))]
         (swap! tally (fn [{:keys [of bad]}]
                        {:of (inc of) :bad (if ok? bad (inc bad))}))))
-    (doseq [m mounts] (lane/release! m))
+    (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
     ms))
 
 (defn- fmt [x n] (.toFixed (double x) n))
@@ -887,9 +887,9 @@
   reader can check `{:min :max :p50}` against the printed `:per-round` and
   get an exact match instead of a near one."
   [p50s a b]
-  (let [vs (mapv (fn [r] (lane/round4 (/ (* 1e6 (- (get r a) (get r b))) amp-sites)))
+  (let [vs (mapv (fn [r] (rf.bench.hicasso.lane/round4 (/ (* 1e6 (- (get r a) (get r b))) amp-sites)))
                  p50s)]
-    (assoc (lane/summarise vs) :per-round vs)))
+    (assoc (rf.bench.hicasso.lane/summarise vs) :per-round vs)))
 
 (defn- ns-combine
   "Combine two or more [[ns-terms]] records with `f`, term by term and
@@ -907,9 +907,9 @@
   residual, which is a difference of two such sums."
   [f & terms]
   (let [vs (apply mapv
-                  (fn [& xs] (lane/round4 (apply f xs)))
+                  (fn [& xs] (rf.bench.hicasso.lane/round4 (apply f xs)))
                   (map :per-round terms))]
-    (assoc (lane/summarise vs) :per-round vs)))
+    (assoc (rf.bench.hicasso.lane/summarise vs) :per-round vs)))
 
 (defn- ladder-rung
   "One rung: the ratio of two arms over the floor-normalised per-round
@@ -920,7 +920,7 @@
   {:from      b
    :to        a
    :standing  standing
-   :ratio     (lane/ratio-between ratios a b)
+   :ratio     (rf.bench.hicasso.lane/ratio-between ratios a b)
    :ns-per-site (ns-terms p50s a b)})
 
 (defn- derived-ns
@@ -954,7 +954,7 @@
        "BEFORE the clock starts; the :ctl-2x arm's sample is the SAME operation "
        "performed TWICE inside one window, so its per-sample constants double "
        "with its work and its prediction is 2.00x by construction rather than by "
-       "model — adjudicated by lane/control-verdict-strict, which requires EVERY "
+       "model — adjudicated by rf.bench.hicasso.lane/control-verdict-strict, which requires EVERY "
        "round's ctl-2x/expanded ratio to sit inside ±"
        (.toFixed (* 100.0 control-slack) 0)
        "% of it rather than merely the range, and records the per-round values so "
@@ -985,9 +985,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (lane/self-test!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
@@ -1000,12 +1000,12 @@
           ;; known able to disagree.
           (let [p         (parity!)
                 can-fail? (parity-can-fail?)]
-            (lane/record! :amp-merge-clock-parity
+            (rf.bench.hicasso.lane/record! :amp-merge-clock-parity
                           {:agree?    (:agree? p)
                            :disagree  (:disagree p)
                            :counts    (:counts p)
                            :can-fail? can-fail?
-                           :bytes     (lane/utf8-bytes (or (:reference p) ""))})
+                           :bytes     (rf.bench.hicasso.lane/utf8-bytes (or (:reference p) ""))})
             (when-not (:agree? p)
               (throw (ex-info (str "FAIRNESS GATE: the arms do not build the same "
                                    "mounted page, so no ratio between them is about the "
@@ -1018,34 +1018,34 @@
                                    "that cannot answer false is not a gate, and the "
                                    "agreement above is worth nothing.")
                               {}))))
-          (lane/assert-teardown-clean! "the fairness gate")
-          (.then (lane/settle!) (fn [_] nil))))
+          (rf.bench.hicasso.lane/assert-teardown-clean! "the fairness gate")
+          (.then (rf.bench.hicasso.lane/settle!) (fn [_] nil))))
       (.then
         (fn [_]
-          (let [baseline (lane/residue frame-id)
-                tally    (lane/tally)
+          (let [baseline (rf.bench.hicasso.lane/residue frame-id)
+                tally    (rf.bench.hicasso.lane/tally)
                 {:keys [readings samples]}
-                (lane/rounds! arms sampling rounds (partial measure-one! tally))
-                norm     (mapv #(lane/normalise % :floor) readings)
+                (rf.bench.hicasso.lane/rounds! arms sampling rounds (partial measure-one! tally))
+                norm     (mapv #(rf.bench.hicasso.lane/normalise % :floor) readings)
                 ratios   (mapv :ratio norm)
-                summ     (lane/across-rounds ratios)
+                summ     (rf.bench.hicasso.lane/across-rounds ratios)
                 p50s     (mapv :p50 norm)
                 abs      (into {}
                                (map (fn [{:keys [id]}]
-                                      [id (lane/summarise (mapv #(get % id) p50s))]))
+                                      [id (rf.bench.hicasso.lane/summarise (mapv #(get % id) p50s))]))
                                arms)
-                effect   (lane/ratio-between ratios :merged :expanded)
-                null     (lane/ratio-between ratios :expanded-b :expanded)
+                effect   (rf.bench.hicasso.lane/ratio-between ratios :merged :expanded)
+                null     (rf.bench.hicasso.lane/ratio-between ratios :expanded-b :expanded)
                 eff-ns   (ns-terms p50s :merged :expanded)
                 null-ns  (ns-terms p50s :expanded-b :expanded)
-                gv       (lane/guard! samples "amp-merge clock arms (in-page ms)")
+                gv       (rf.bench.hicasso.lane/guard! samples "amp-merge clock arms (in-page ms)")
                 ;; THE POSITIVE CONTROL, per round and strictly (rf2-egdaq).
                 ;; `:ctl-2x` is `:expanded`'s own operation performed twice
                 ;; in one window, so 2.00x is arithmetic rather than a
                 ;; model, and dividing each round by ITS OWN `:expanded`
                 ;; leaves the floor and the round's drift out of it.
-                ctl-ratio (lane/ratio-between ratios :ctl-2x :expanded)
-                ctl      (lane/control-verdict-strict
+                ctl-ratio (rf.bench.hicasso.lane/ratio-between ratios :ctl-2x :expanded)
+                ctl      (rf.bench.hicasso.lane/control-verdict-strict
                            2.0 (:per-round ctl-ratio) control-slack)
                 ;; THE APPORTIONMENT (rf2-z143r). A chain, so the three
                 ;; rungs sum to `:whole` term by term and there is no
@@ -1090,19 +1090,19 @@
                                                                [:author :author-clean]
                                                                (ns-combine - author author-c))
                                                    :zero-by-construction? false)}
-                sum-check (mapv (fn [w r m t] (lane/round4 (- w (+ r m t))))
+                sum-check (mapv (fn [w r m t] (rf.bench.hicasso.lane/round4 (- w (+ r m t))))
                                 (:per-round (:ns-per-site whole))
                                 (:per-round (:ns-per-site wrapper))
                                 (:per-round (:ns-per-site merge-r))
                                 (:per-round (:ns-per-site trip)))
-                tv       (lane/tally-value tally)]
-            (lane/assert-teardown-clean! "the measured rounds")
-            (lane/record! :amp-merge-clock
+                tv       (rf.bench.hicasso.lane/tally-value tally)]
+            (rf.bench.hicasso.lane/assert-teardown-clean! "the measured rounds")
+            (rf.bench.hicasso.lane/record! :amp-merge-clock
                           {:benchmark   :hicasso.HD-023/amp-merge-clock
                            :bead        "rf2-pqyxz"
                            :discharges  "HD-023 'Cost, stated' — the clock cost named there as unmeasured"
                            :grade       :distributional
-                           :runtime     (lane/runtime-label)
+                           :runtime     (rf.bench.hicasso.lane/runtime-label)
                            :boundaries  boundaries
                            :amp-sites   amp-sites
                            :elements    {:floor floor-elements :page page-elements}
@@ -1195,10 +1195,10 @@
               (set! (.-HICASSO_GUARD_REFUSED js/window) true))
             (when-not (:ok? ctl)
               (set! (.-HICASSO_CONTROL_FAILED js/window) true))
-            (.then (lane/settle!)
+            (.then (rf.bench.hicasso.lane/settle!)
                    (fn [_]
-                     (lane/assert-residue! baseline frame-id "the measured rounds")
-                     (lane/done!))))))
+                     (rf.bench.hicasso.lane/assert-residue! baseline frame-id "the measured rounds")
+                     (rf.bench.hicasso.lane/done!))))))
       (.catch (fn [e]
-                (lane/fail! (or (some-> e .-message) (str e)))
-                (lane/done!)))))
+                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.hicasso.lane/done!)))))

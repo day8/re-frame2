@@ -46,7 +46,7 @@
   This is a test over known inputs. It runs on a loaded box, touches no
   clock, mounts nothing, and pins no figure any budget row reads."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.lane :as lane]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]))
 
 ;; ---------------------------------------------------------------------------
 ;; The fixture — rf2-9wmqd's `:locale` pair, evidence run 1
@@ -61,8 +61,8 @@
    :locale       {:p50 17.05}})
 
 (def round-ratios
-  "Three rounds of ARM-TO-FLOOR ratios, the shape `lane/normalise`
-  answers and the only shape `lane/ratio-between` accepts.
+  "Three rounds of ARM-TO-FLOOR ratios, the shape `rf.bench.hicasso.lane/normalise`
+  answers and the only shape `rf.bench.hicasso.lane/ratio-between` accepts.
 
   `:donor-locale` is held at `1.046` — `17.05 / 16.30`, so the two inputs
   describe one run rather than two — and `:locale` is that times
@@ -73,7 +73,7 @@
    {:locale 1.06692  :donor-locale 1.046}])
 
 (defn locale-like []
-  (lane/resolution (lane/ratio-between round-ratios :locale :donor-locale)
+  (rf.bench.hicasso.lane/resolution (rf.bench.hicasso.lane/ratio-between round-ratios :locale :donor-locale)
                    summary
                    :idle-frame))
 
@@ -91,9 +91,9 @@
     (let [{:keys [own-work own-work-share]} (locale-like)]
       (is (= 0.75 own-work)
           "the denominator arm's median less the floor's, in ms")
-      (is (= 0.011 (lane/round4 (* 0.25 own-work-share)))
+      (is (= 0.011 (rf.bench.hicasso.lane/round4 (* 0.25 own-work-share)))
           "a 1.25x difference displaces the window ratio to 1.011")
-      (is (= 0.022 (lane/round4 (* 0.5 own-work-share)))
+      (is (= 0.022 (rf.bench.hicasso.lane/round4 (* 0.5 own-work-share)))
           "a 1.5x difference displaces it to 1.022"))))
 
 (deftest the-pair-clears-the-floor-and-still-cannot-resolve-the-line
@@ -103,12 +103,12 @@
            work, because `:resolves-at` sits above it. One test answering
            yes and the other no on the SAME run is what makes them
            different questions rather than two spellings of one."
-    (let [over-floor (lane/across-rounds round-ratios)]
+    (let [over-floor (rf.bench.hicasso.lane/across-rounds round-ratios)]
       (is (false? (:straddles-1? (:locale over-floor)))
           "the measured arm separated from the floor in every round")
       (is (false? (:straddles-1? (:donor-locale over-floor)))
           "so did the donor arm — the shipped gate passes this pair")
-      (is (true? (:straddles-1? (lane/ratio-between round-ratios
+      (is (true? (:straddles-1? (rf.bench.hicasso.lane/ratio-between round-ratios
                                                     :locale :donor-locale)))
           "and the pair itself reads ~1.00x, straddling 1.0")
       (is (> (:resolves-at (locale-like)) 1.5)
@@ -128,7 +128,7 @@
       (is (= 0.0375 spread)
           "the width of `ratio-between`'s `:per-round`")
       (is (= 1.8525 resolves-at))
-      (is (= spread (lane/round4 (* (- resolves-at 1.0) own-work-share)))
+      (is (= spread (rf.bench.hicasso.lane/round4 (* (- resolves-at 1.0) own-work-share)))
           "the figure and the spread are the same statement"))))
 
 (deftest the-floor-and-not-the-noise-is-what-makes-a-run-coarse
@@ -137,8 +137,8 @@
            of `1.85x`. A figure that answered the same either way would
            be reporting noise and nothing about the frame grid, which is
            the term this whole finding is about."
-    (let [lifted (lane/resolution
-                   (lane/ratio-between round-ratios :locale :donor-locale)
+    (let [lifted (rf.bench.hicasso.lane/resolution
+                   (rf.bench.hicasso.lane/ratio-between round-ratios :locale :donor-locale)
                    {:idle-frame {:p50 1.0} :donor-locale {:p50 10.0}}
                    :idle-frame)]
       (is (= 0.9 (:own-work-share lifted))
@@ -156,10 +156,10 @@
            any difference whatever, so the honest answer is `nil` rather
            than a large number that looks like an answer. `:own-work`
            stays published either way, because it is the reason."
-    (let [pair (lane/ratio-between round-ratios :locale :donor-locale)
-          at   (lane/resolution pair {:idle-frame   {:p50 16.30}
+    (let [pair (rf.bench.hicasso.lane/ratio-between round-ratios :locale :donor-locale)
+          at   (rf.bench.hicasso.lane/resolution pair {:idle-frame   {:p50 16.30}
                                       :donor-locale {:p50 16.30}} :idle-frame)
-          below (lane/resolution pair {:idle-frame   {:p50 16.30}
+          below (rf.bench.hicasso.lane/resolution pair {:idle-frame   {:p50 16.30}
                                        :donor-locale {:p50 16.00}} :idle-frame)]
       (is (nil? (:resolves-at at))
           "exactly at the floor")
@@ -175,8 +175,8 @@
            bounds nothing — not that any difference is visible — and the
            `:spread` of `0.0` sitting beside it is what tells a reader
            which of the two it is."
-    (let [flat (lane/resolution
-                 (lane/ratio-between [{:locale 1.046 :donor-locale 1.046}
+    (let [flat (rf.bench.hicasso.lane/resolution
+                 (rf.bench.hicasso.lane/ratio-between [{:locale 1.046 :donor-locale 1.046}
                                       {:locale 1.046 :donor-locale 1.046}]
                                      :locale :donor-locale)
                  summary

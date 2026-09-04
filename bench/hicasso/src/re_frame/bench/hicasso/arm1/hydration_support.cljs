@@ -21,13 +21,13 @@
     cannot survive re-serialisation: a node still carrying it after
     hydration is the very node the server markup produced.
   - [[adopted!]] is the only completion signal a plain `hydrateRoot`
-    offers. `mount/hydrate-root!` refuses to `flushSync` (inventing a
+    offers. `rf.bench.hicasso.arm1.mount/hydrate-root!` refuses to `flushSync` (inventing a
     schedule no shipped caller has), so a witness waits for the closer's
     passive effect on real timers instead.
 
   Not a namespace anything outside the bench lane may depend on."
-  (:require [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]))
+  (:require [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]))
 
 ;; ---------------------------------------------------------------------------
 ;; The page as it arrives
@@ -37,7 +37,7 @@
   "A container carrying `html`, attached to the document — the page as it
   arrives, before any JavaScript has adopted it."
   [html]
-  (let [container (mount/fresh-container!)]
+  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)]
     (set! (.-innerHTML container) html)
     container))
 
@@ -59,7 +59,7 @@
 
   ## Why the window is the CALLER's to close
 
-  `hydrateRoot` is called plain (`mount/hydrate-root!` refuses to
+  `hydrateRoot` is called plain (`rf.bench.hicasso.arm1.mount/hydrate-root!` refuses to
   `flushSync`), so it RETURNS BEFORE THE TREE IS ADOPTED: React schedules
   the hydration render and the bodies run in a later turn. A capture
   whose window closes when the call returns is therefore open across the
@@ -87,7 +87,7 @@
   **It is off by default and it belongs at a call site that MANUFACTURES
   a recoverable error and asserts on it — nowhere else.** Anywhere else
   it would be exactly the fail-open the runner's rule exists to prevent.
-  The uncaught error stays uncaught at the DOOR: `mount/hydrate-root!`'s
+  The uncaught error stays uncaught at the DOOR: `rf.bench.hicasso.arm1.mount/hydrate-root!`'s
   reporter emits the framework diagnostic and then ALWAYS reports
   (rf2-2rtt6.97), so composing a diagnostic in did not — and must not —
   make a mismatch quieter than React left it. Every call site that sets
@@ -179,7 +179,7 @@
        (let [deadline (+ (js/Date.now) budget-ms)]
          (letfn [(tick []
                    (cond
-                     (not (rt/adopting?))
+                     (not (rf.bench.hicasso.arm1.runtime/adopting?))
                      ;; Past the closer AND past `entry-reap-horizon-ms`,
                      ;; so a reading of the entry cache is a reading taken
                      ;; on the far side of the race.

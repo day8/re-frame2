@@ -30,14 +30,14 @@
   presence tray all render inside or around the refusing extent, and any
   one of them reaching for an ambient frame would take this suite down."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview defhost]]))
 
@@ -45,17 +45,17 @@
 (rf/reg-event :rt122d/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::rt122-dom)
 
 (defn- frame! []
-  (lane/leave-act-environment!)
-  (live-frame/make-frame {:id frame-id})
-  (frame/replace-app-db! frame-id {:v 7})
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.live-frame/make-frame {:id frame-id})
+  (rf.frame/replace-app-db! frame-id {:v 7})
   frame-id)
 
 (defn- skip! [why]
@@ -83,7 +83,7 @@
   island's is the ambient one, in the one position where it stays legal."
   [_]
   [:div.page
-   [:output.collector (str (rt/sub [:rt122d/v]))]
+   [:output.collector (str (rf.bench.hicasso.arm1.runtime/sub [:rt122d/v]))]
    [island {}]])
 
 (defn- text-in [handle selector]
@@ -92,13 +92,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest an-adapter-island-under-a-hicasso-tree-still-resolves-ambiently
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! "the child-render ordering claim is React's, not the runtime's")
     (testing "a foreign component rendered from a Hicasso body reads its
              frame ambiently and renders the value — the binding unwound
              when the body returned, before React ever called the child"
       (let [f      (frame!)
-            handle (mount/root! (mount/fresh-container!) f [page])]
+            handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) f [page])]
         (try
           (is (= "7" (text-in handle ".collector"))
               "precondition: the boundary itself rendered through its collector")
@@ -106,25 +106,25 @@
               "and the ambient read inside the island resolved the same frame —
                a refusal leaking past the body would have thrown here instead")
           (testing "and it keeps following the frame when the state moves"
-            (mount/dispatch! handle [:rt122d/bump])
-            (mount/settle!)
+            (rf.bench.hicasso.arm1.mount/dispatch! handle [:rt122d/bump])
+            (rf.bench.hicasso.arm1.mount/settle!)
             (is (= "8" (text-in handle ".collector")))
             (is (= "8" (text-in handle ".island"))
                 "the island re-read ambiently on the boundary's re-render"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 (deftest mounting-the-page-at-all-is-the-shells-own-witness
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! "no DOM")
     (testing "the shell's `useContext`, the codec's root element and the
              boundary machinery all run inside or around the refusing
              extent; a page that mounts and paints is each of them proven
              not to have reached for an ambient frame"
       (let [f      (frame!)
-            handle (mount/root! (mount/fresh-container!) f [page])]
+            handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) f [page])]
         (try
           (is (some? (.querySelector (:container handle) ".page"))
               "the tree rendered")
-          (is (nil? frame/*ambient-frame-refusal*)
+          (is (nil? rf.frame/*ambient-frame-refusal*)
               "and the extent is not live outside a body run")
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))

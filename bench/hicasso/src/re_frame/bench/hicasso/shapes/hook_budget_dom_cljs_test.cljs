@@ -60,22 +60,22 @@
   whose internals slot has moved, the claims degrade to a stated skip or
   to **unwitnessed** — never to a false green."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.hook-probe :as probe]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.feed :as feed]
-            [re-frame.bench.hicasso.shapes.large-template :as large-template]
-            [re-frame.bench.hicasso.shapes.model :as m]
-            [re-frame.bench.hicasso.shapes.ordinary :as ordinary]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.hook-probe :as rf.bench.hicasso.arm1.hook-probe]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.feed :as rf.bench.hicasso.shapes.feed]
+            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.hicasso.shapes.ordinary :as rf.bench.hicasso.shapes.ordinary]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::shape-hooks)
 
@@ -93,15 +93,15 @@
   while it mounted, alongside the runtime's own boundary and edge counts —
   read BEFORE the release that would empty them."
   [seed hiccup]
-  (lane/leave-act-environment!)
-  (m/make-frame! frame-id seed)
-  (m/reseed! frame-id seed)
-  (let [container (mount/fresh-container!)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.shapes.model/make-frame! frame-id seed)
+  (rf.bench.hicasso.shapes.model/reseed! frame-id seed)
+  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
         handle    (volatile! nil)
-        names     (probe/record!
-                    (fn [] (vreset! handle (mount/root! container frame-id hiccup))))
-        stats     (rt/stats)]
-    (mount/release! @handle)
+        names     (rf.bench.hicasso.arm1.hook-probe/record!
+                    (fn [] (vreset! handle (rf.bench.hicasso.arm1.mount/root! container frame-id hiccup))))
+        stats     (rf.bench.hicasso.arm1.runtime/stats)]
+    (rf.bench.hicasso.arm1.mount/release! @handle)
     {:hooks      names
      :boundaries (:boundaries stats)
      :edges      (:edges stats)}))
@@ -122,16 +122,16 @@
   controlled field exists reds the row that names it."
   [{:label   "1 — ordinary views"
     :seed    {:articles 2 :comments 5 :tags 2}
-    :tree    [ordinary/screen {}]
+    :tree    [rf.bench.hicasso.shapes.ordinary/screen {}]
     ;; The comment draft — `shapes/ordinary`'s one controlled `<textarea>`.
     :shadows 1}
    {:label   "2 — large templates"
-    :seed    large-template/seed
-    :tree    [large-template/page {}]
+    :seed    rf.bench.hicasso.shapes.large-template/seed
+    :tree    [rf.bench.hicasso.shapes.large-template/page {}]
     :shadows 0}
    {:label   "3/4 — bulk + narrow"
-    :seed    feed/seed
-    :tree    [feed/page {}]
+    :seed    rf.bench.hicasso.shapes.feed/seed
+    :tree    [rf.bench.hicasso.shapes.feed/page {}]
     :shadows 0}])
 
 ;; ---------------------------------------------------------------------------
@@ -139,9 +139,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest every-shape-costs-exactly-two-hooks-per-boundary
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (probe/install!)
+    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
       (unwitnessed!)
       (doseq [{:keys [label seed tree shadows]} shapes]
         (testing label
@@ -161,7 +161,7 @@
                      React runs a component's hooks to completion before it
                      starts the next, so the whole page's sequence is the
                      declared pair repeated"))
-            (is (= (count rt/shell-hook-ledger) 2)
+            (is (= (count rf.bench.hicasso.arm1.runtime/shell-hook-ledger) 2)
                 "and the ledger the runtime declares is still two entries long")
             (testing "the composition shadow's hook, and only it (rf2-digtt)"
               (is (= shadows (count (filter #{shadow-hook} hooks)))
@@ -186,9 +186,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-read-count-cannot-reach-the-hook-count
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (probe/install!)
+    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "shape 2 is one boundary making 141 subscription reads, every
                one of them inside a `for` and inside a plain helper called
@@ -196,7 +196,7 @@
                one read, because `subscribe` closes over the read SET and
                nothing else."
         (let [{:keys [hooks boundaries edges]}
-              (mount-and-count large-template/seed [large-template/page {}])]
+              (mount-and-count rf.bench.hicasso.shapes.large-template/seed [rf.bench.hicasso.shapes.large-template/page {}])]
           (is (= 1 boundaries))
           (is (= 141 edges) "141 reads")
           (is (= 2 (count hooks))
@@ -205,15 +205,15 @@
               "in the declared order"))))))
 
 (deftest the-budget-does-not-move-when-the-page-grows
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (probe/install!)
+    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "hooks per boundary is 2 at 50, 150 and 300 mounted card
                boundaries — the axis a bulk row grows along"
         (doseq [n [50 150 300]]
           (let [{:keys [hooks boundaries]}
-                (mount-and-count {:articles n :tags feed/tag-count} [feed/page {}])]
+                (mount-and-count {:articles n :tags rf.bench.hicasso.shapes.feed/tag-count} [rf.bench.hicasso.shapes.feed/page {}])]
             (is (= (inc n) boundaries))
             (is (= (* 2 (inc n)) (count hooks))
                 (str "B = " n ": " (count hooks) " hooks over " boundaries

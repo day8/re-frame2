@@ -57,13 +57,13 @@
   this arm rf2-2rtt6.4."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.p0-fixture :as fx]
-            [re-frame.bench.p0-floor :as floor]
-            [re-frame.bench.p0-harness :as h]
-            [re-frame.bench.p0-reagent :as rg]
-            [re-frame.bench.p0-uix :as ux]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
+            [re-frame.bench.p0-floor :as rf.bench.p0-floor]
+            [re-frame.bench.p0-harness :as rf.bench.p0-harness]
+            [re-frame.bench.p0-reagent :as rf.bench.p0-reagent]
+            [re-frame.bench.p0-uix :as rf.bench.p0-uix]
             [re-frame.core :as rf]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
@@ -82,8 +82,8 @@
 (def segments
   "The two adapter segments. `:id` is the substrate arm's id, which is also
   how a published record names the segment."
-  [{:id :reagent-subs :adapter reagent-adapter/adapter :name "Reagent-on-subs"}
-   {:id :uix-subs     :adapter uix-adapter/adapter     :name "UIx-on-subs"}])
+  [{:id :reagent-subs :adapter rf.adapter.reagent/adapter :name "Reagent-on-subs"}
+   {:id :uix-subs     :adapter rf.adapter.uix/adapter     :name "UIx-on-subs"}])
 
 (defonce ^:private captured (atom nil))
 
@@ -143,18 +143,18 @@
   ARGUMENT rather than an ambient volatile (rf2-2rtt6.140): a width set
   after seeding would be a page whose sub graph and whose db disagree, and
   a parameter that is never ambient cannot be set in the wrong order. It
-  defaults to `fx/cells-n`, so the clock rows and the retention rows —
+  defaults to `rf.bench.p0-fixture/cells-n`, so the clock rows and the retention rows —
   which pass nothing — seed the published page to the byte.
 
   A teardown that throws STOPS the instrument and names the phase — see
   [[teardown!]]."
-  ([segment] (enter-segment! segment fx/cells-n))
+  ([segment] (enter-segment! segment rf.bench.p0-fixture/cells-n))
   ([{:keys [adapter]} grid-width]
    (teardown! "destroy-frame!" #(rf/destroy-frame! frame-id))
    (when (rf/current-adapter)
      (teardown! "destroy-adapter!" #(rf/destroy-adapter!)))
    (rf/init! adapter)
-   (fx/register!)
+   (rf.bench.p0-fixture/register!)
    (rf/make-frame {:id frame-id :initial-events [[:p0/seed (long grid-width)]]})
    (reset! captured (rf/capture-frame frame-id))
    nil))
@@ -183,7 +183,7 @@
   allocation row's warm re-render still has to be the write a real
   application pays for. What differs is that `:p0/write-page` rebuilds
   `:cells` at the width the mounted page actually reads, where
-  `:p0/write-all` rebuilds `fx/cells-n` of them whatever is mounted. That
+  `:p0/write-all` rebuilds `rf.bench.p0-fixture/cells-n` of them whatever is mounted. That
   fixed cost measured 24.4 KB per write on this rig — 57% of the retired
   masking budget before a single boundary had been measured — and it does
   not shrink when the page does.
@@ -233,25 +233,25 @@
   always `[floor <substrate>]` in that declaration order — the harness
   reorders them per sample index, so declaration order decides nothing."
   [{:id        :W1-list
-    :doc       (str "a large template — " fx/w1-rows " rows, one boundary and ONE "
+    :doc       (str "a large template — " rf.bench.p0-fixture/w1-rows " rows, one boundary and ONE "
                     "re-frame2 subscription read per row")
-    :elements   (fx/w1-elements fx/w1-rows)
+    :elements   (rf.bench.p0-fixture/w1-elements rf.bench.p0-fixture/w1-rows)
     ;; 1,203 elements mounts in tens of timer quanta on every arm, so one
     ;; mount is a sample.
     :per-sample 1
     :arms-for (fn [segment-id]
-                [(floor-arm :floor #(floor/w1 (mapv fx/row-value (range fx/w1-rows))))
+                [(floor-arm :floor #(rf.bench.p0-floor/w1 (mapv rf.bench.p0-fixture/row-value (range rf.bench.p0-fixture/w1-rows))))
                  (case segment-id
                    :reagent-subs (reagent-arm :reagent-subs
-                                              #(rg/w1-root frame-id fx/w1-rows))
+                                              #(rf.bench.p0-reagent/w1-root frame-id rf.bench.p0-fixture/w1-rows))
                    :uix-subs     (uix-arm :uix-subs
-                                          #(ux/w1-root frame-id fx/w1-rows)))])}
+                                          #(rf.bench.p0-uix/w1-root frame-id rf.bench.p0-fixture/w1-rows)))])}
 
    {:id        :W3-form
-    :doc       (str "an ordinary " fx/w3-fields "-field form with controlled inputs — "
+    :doc       (str "an ordinary " rf.bench.p0-fixture/w3-fields "-field form with controlled inputs — "
                     "the shape most applications are made of; one subscription read "
                     "per field")
-    :elements   (fx/w3-elements fx/w3-fields)
+    :elements   (rf.bench.p0-fixture/w3-elements rf.bench.p0-fixture/w3-fields)
     ;; 51 elements sits three to eight quanta above Chrome's 100 us clamp,
     ;; and at one mount a sample this instrument MEASURED both segments
     ;; returning exactly 0.75 ms — a ratio of precisely 1.0000 that was the
@@ -260,14 +260,14 @@
     :per-sample 8
     :arms-for (fn [segment-id]
                 [(floor-arm :floor
-                            #(floor/w3 (mapv (fn [i] {:value (fx/field-value i)
-                                                      :error (fx/field-error i)})
-                                             (range fx/w3-fields))))
+                            #(rf.bench.p0-floor/w3 (mapv (fn [i] {:value (rf.bench.p0-fixture/field-value i)
+                                                      :error (rf.bench.p0-fixture/field-error i)})
+                                             (range rf.bench.p0-fixture/w3-fields))))
                  (case segment-id
                    :reagent-subs (reagent-arm :reagent-subs
-                                              #(rg/w3-root frame-id fx/w3-fields))
+                                              #(rf.bench.p0-reagent/w3-root frame-id rf.bench.p0-fixture/w3-fields))
                    :uix-subs     (uix-arm :uix-subs
-                                          #(ux/w3-root frame-id fx/w3-fields)))])}])
+                                          #(rf.bench.p0-uix/w3-root frame-id rf.bench.p0-fixture/w3-fields)))])}])
 
 ;; ---------------------------------------------------------------------------
 ;; THE POSITIVE CONTROL — predicted before it is measured
@@ -284,10 +284,10 @@
   FLOOR so it prices the instrument rather than a substrate, and therefore
   reads the same in both segments."
   []
-  [(floor-arm :control-1x #(floor/w1 (mapv fx/row-value (range fx/w1-rows))))
-   (floor-arm :control-2x #(floor/w1-double (mapv fx/row-value (range fx/w1-rows))))])
+  [(floor-arm :control-1x #(rf.bench.p0-floor/w1 (mapv rf.bench.p0-fixture/row-value (range rf.bench.p0-fixture/w1-rows))))
+   (floor-arm :control-2x #(rf.bench.p0-floor/w1-double (mapv rf.bench.p0-fixture/row-value (range rf.bench.p0-fixture/w1-rows))))])
 
-(def control-predicted floor/control-predicted-ratio)
+(def control-predicted rf.bench.p0-floor/control-predicted-ratio)
 
 ;; ---------------------------------------------------------------------------
 ;; BULK arms
@@ -305,20 +305,20 @@
   read-back caught exactly that on the predecessor's harness: 80 of 320
   floor samples ending on a stale cell."
   []
-  (let [state (atom (vec (repeat fx/cells-n 0)))
+  (let [state (atom (vec (repeat rf.bench.p0-fixture/cells-n 0)))
         root  (volatile! nil)]
     {:id      :floor
      :mount   (fn [container]
                 (let [rt (react-dom-client/createRoot container)]
                   (vreset! root rt)
-                  (react-dom/flushSync (fn [] (.render rt (floor/u-grid @state))))
+                  (react-dom/flushSync (fn [] (.render rt (rf.bench.p0-floor/u-grid @state))))
                   rt))
      :write!  (fn [i v]
                 (if (= i :all)
-                  (reset! state (vec (repeat fx/cells-n v)))
+                  (reset! state (vec (repeat rf.bench.p0-fixture/cells-n v)))
                   (swap! state assoc i v)))
      :force!  (fn [] (react-dom/flushSync
-                       (fn [] (.render ^js @root (floor/u-grid @state)))))
+                       (fn [] (.render ^js @root (rf.bench.p0-floor/u-grid @state)))))
      ;; NOT inside a flushSync — a root's own unmount opens one, and a
      ;; nested flush is scheduled rather than performed (p0-harness).
      :unmount (fn [rt] (.unmount rt))}))
@@ -345,7 +345,7 @@
     :reagent-subs
     (fn [container]
       (let [rt (rdc/create-root container)]
-        (react-dom/flushSync (fn [] (rdc/render rt (rg/u-root frame-id))))
+        (react-dom/flushSync (fn [] (rdc/render rt (rf.bench.p0-reagent/u-root frame-id))))
         rt))
     (fn [rt] (rdc/unmount rt))
     (fn [] (react-dom/flushSync (fn [] (r/flush))))))
@@ -355,7 +355,7 @@
     :uix-subs
     (fn [container]
       (let [rt (uix-dom/create-root container)]
-        (react-dom/flushSync (fn [] (uix-dom/render-root (ux/u-root frame-id) rt)))
+        (react-dom/flushSync (fn [] (uix-dom/render-root (rf.bench.p0-uix/u-root frame-id) rt)))
         rt))
     (fn [rt] (uix-dom/unmount-root rt))
     (fn [] (react-dom/flushSync (fn [] nil)))))
@@ -370,7 +370,7 @@
 
 (defn mount-bulk-arms! [arms]
   (mapv (fn [a]
-          (let [c (h/container!)]
+          (let [c (rf.bench.p0-harness/container!)]
             {:arm a :container c :handle ((:mount a) c)}))
         arms))
 
@@ -396,14 +396,14 @@
   does, it does it in `:gap-ms`, and the floor — which needs no yield —
   is the in-situ control that says what an empty gap costs."
   [{:keys [arm container]} i v]
-  (let [t0 (h/now-ms)]
+  (let [t0 (rf.bench.p0-harness/now-ms)]
     ((:write! arm) i v)
-    (let [t1 (h/now-ms)]
+    (let [t1 (rf.bench.p0-harness/now-ms)]
       (-> (js/Promise.resolve nil)
           (.then (fn [_]
-                   (let [t2 (h/now-ms)]
+                   (let [t2 (rf.bench.p0-harness/now-ms)]
                      ((:force! arm))
-                     (let [t3    (h/now-ms)
+                     (let [t3    (rf.bench.p0-harness/now-ms)
                            probe (if (= i :all) 0 i)]
                        {:ms       (- t3 t0)
                         :write-ms (- t1 t0)
@@ -412,7 +412,7 @@
                         :ok?      (and (= (str v) (cell-text container probe))
                                        (or (not= i :all)
                                            (= (str v) (cell-text container
-                                                                 (dec fx/cells-n)))))}))))))))
+                                                                 (dec rf.bench.p0-fixture/cells-n)))))}))))))))
 
 (defn chain
   "Fold `xs` into a serial promise chain, threading an accumulator."
@@ -441,7 +441,7 @@
   (chain {:ms 0 :write-ms 0 :gap-ms 0 :force-ms 0 :bad 0 :total 0} (range n)
          (fn [acc _]
            (let [v (next-gen!)
-                 i (if (= kind :broad) :all (mod v fx/cells-n))]
+                 i (if (= kind :broad) :all (mod v rf.bench.p0-fixture/cells-n))]
              (-> (timed-write! mnt i v)
                  (.then (fn [{:keys [ms write-ms gap-ms force-ms ok?]}]
                           (cond-> (-> acc
@@ -468,7 +468,7 @@
   (let [k     (count mounts)
         n     (get writes-per-sample kind)
         total (+ warmup samples)
-        sched (h/choose-schedule k total)
+        sched (rf.bench.p0-harness/choose-schedule k total)
         order (:fn sched)]
     (chain {:readings (zipmap (map #(:id (:arm %)) mounts) (repeat []))
             :legs     (zipmap (map #(:id (:arm %)) mounts) (repeat []))
@@ -486,7 +486,7 @@
                    (.then (fn [{:keys [ms write-ms gap-ms force-ms bad total]}]
                             ;; Between samples, never inside a window — see
                             ;; `p0-harness/collect!` for the drift it removes.
-                            (h/collect!)
+                            (rf.bench.p0-harness/collect!)
                             (cond-> (assoc acc :previous id)
                               (>= s warmup)
                               (-> (update :bad + bad)
@@ -507,9 +507,9 @@
   (into {}
         (map (fn [[id xs]]
                [id (when (seq xs)
-                     {:write-ms (h/p50 (map :write xs))
-                      :gap-ms   (h/p50 (map :gap xs))
-                      :force-ms (h/p50 (map :force xs))})]))
+                     {:write-ms (rf.bench.p0-harness/p50 (map :write xs))
+                      :gap-ms   (rf.bench.p0-harness/p50 (map :gap xs))
+                      :force-ms (rf.bench.p0-harness/p50 (map :force xs))})]))
         legs))
 
-(defn canon-of [mounts] (mapv (fn [m] (h/canonical (:container m))) mounts))
+(defn canon-of [mounts] (mapv (fn [m] (rf.bench.p0-harness/canonical (:container m))) mounts))

@@ -98,7 +98,7 @@
 
   ## Three arms a segment, and why not two
 
-  rf2-ouwh8: `lane/slot-order` rotated and then REFLECTED, and at k=2 those
+  rf2-ouwh8: `rf.bench.hicasso.lane/slot-order` rotated and then REFLECTED, and at k=2 those
   two operations cancelled — `[0 1]` rotates to `[1 0]` and reflects back
   to `[0 1]`, at every sample index, for ever. A two-arm plan therefore ran
   in ONE order and `both orders` was a claim it could not support. This
@@ -144,7 +144,7 @@
   ## And the order is ADJUDICATED, not merely run (rf2-a4x1o)
 
   Running both orders is not the same as testing whether the answer
-  depends on them. `lane/guard!` adjudicates arms INSIDE a segment; the
+  depends on them. `rf.bench.hicasso.lane/guard!` adjudicates arms INSIDE a segment; the
   red-zone is a ratio ACROSS the seam and no guard on this page ever
   looked at it by segment order, while `:segment-seam-control` recorded
   the floor's drift and stopped there. [[segment-order-verdict]] asks the
@@ -192,7 +192,7 @@
   pointer without banking a sample, so every recorded sample carries its
   real predecessor). The tolerance was not touched. That second repair
   lived HERE, as a private `mark-predecessor!`, until `rf2-6ta5r` found
-  the same fault still standing in `lane/rounds!` — the shared loop this
+  the same fault still standing in `rf.bench.hicasso.lane/rounds!` — the shared loop this
   entry does not use — and moved the one copy to the lane.
 
   ## What this entry does NOT measure
@@ -213,14 +213,14 @@
   touches no build id and no `implementation/shadow-cljs.edn`."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.p0-reagent-views :as v]
-            [re-frame.bench.hicasso.p0-uix-views :as ux]
-            [re-frame.bench.order-guard :as guard]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
+            [re-frame.bench.hicasso.p0-uix-views :as rf.bench.hicasso.p0-uix-views]
+            [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [uix.dom :as uix-dom]))
@@ -256,8 +256,8 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private segments
-  [{:id :reagent-subs :adapter reagent-adapter/adapter :name "Reagent-on-subs"}
-   {:id :uix-subs     :adapter uix-adapter/adapter     :name "UIx-on-subs"}])
+  [{:id :reagent-subs :adapter rf.adapter.reagent/adapter :name "Reagent-on-subs"}
+   {:id :uix-subs     :adapter rf.adapter.uix/adapter     :name "UIx-on-subs"}])
 
 (defn- query-start
   "Which segment runs FIRST in round 0 — `?start=uix` or `?start=reagent`.
@@ -312,16 +312,16 @@
   segment is a figure for a page carrying the previous segment's
   reactive graph (rf2-f5roa, from the PR #7268 audit)."
   [{:keys [adapter]}]
-  (try (rf/destroy-frame! v/subs-frame)
-       (catch :default e (lane/teardown-failure! "enter-segment! destroy-frame!" e)))
+  (try (rf/destroy-frame! rf.bench.hicasso.p0-reagent-views/subs-frame)
+       (catch :default e (rf.bench.hicasso.lane/teardown-failure! "enter-segment! destroy-frame!" e)))
   (when (rf/current-adapter)
     (try (rf/destroy-adapter!)
-         (catch :default e (lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
+         (catch :default e (rf.bench.hicasso.lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
   (rf/init! adapter)
-  (v/register!)
-  (rf/make-frame {:id v/subs-frame})
-  (frame/replace-app-db! v/subs-frame (v/seed-cells v/cells-n 0))
-  (lane/leave-act-environment!)
+  (rf.bench.hicasso.p0-reagent-views/register!)
+  (rf/make-frame {:id rf.bench.hicasso.p0-reagent-views/subs-frame})
+  (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0))
+  (rf.bench.hicasso.lane/leave-act-environment!)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -386,8 +386,8 @@
   past its first half."
   [n]
   (fn [container]
-    (and (= "0" (lane/text-at container 0))
-         (= "0" (lane/text-at container (dec n))))))
+    (and (= "0" (rf.bench.hicasso.lane/text-at container 0))
+         (= "0" (rf.bench.hicasso.lane/text-at container (dec n))))))
 
 (defn- verify-m2
   "The first and last field AT THE ARM'S OWN SIZE. Fixed at the witness's
@@ -395,8 +395,8 @@
   from a base one."
   [n]
   (fn [container]
-    (and (= (v/field-value 0 0) (input-value container "#f0"))
-         (= (v/field-value (dec n) 0)
+    (and (= (rf.bench.hicasso.p0-reagent-views/field-value 0 0) (input-value container "#f0"))
+         (= (rf.bench.hicasso.p0-reagent-views/field-value (dec n) 0)
             (input-value container (str "#f" (dec n)))))))
 
 (defn- expectation
@@ -421,41 +421,41 @@
   [{:id          :M1
     :grade       :bar
     :verify-of   verify-m1
-    :elements-of v/m1-elements
+    :elements-of rf.bench.hicasso.p0-reagent-views/m1-elements
     :doc      (str "the 300-boundary sub-reading list — the bulk shape's mount "
                    "counterpart, one subscription read per boundary. "
                    "rf2-2rtt6.2's M1, unchanged")
-    :props    {:n v/cells-n}
-    :control  {:predicted (/ (double (v/m1-elements (* 2 v/cells-n)))
-                             (double (v/m1-elements v/cells-n)))
-               :basis     (str "element count: " (v/m1-elements (* 2 v/cells-n)) " / "
-                               (v/m1-elements v/cells-n))}
+    :props    {:n rf.bench.hicasso.p0-reagent-views/cells-n}
+    :control  {:predicted (/ (double (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)))
+                             (double (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n)))
+               :basis     (str "element count: " (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)) " / "
+                               (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n))}
     ;; The `:reagent-ratom` arm sits between the denominator and the
     ;; control, which is rf2-2rtt6.2's own order — the plan is that arm's
     ;; plan with the UIx segment's arm swapped in on the other side of the
     ;; seam, so a reader comparing the two legs is comparing two authors
     ;; and not two orderings.
     :arms-for (fn [segment-id ratom?]
-                (-> [(floor-mount-arm :floor v/m1-floor (fn [{:keys [n]}] (zeros n)))]
+                (-> [(floor-mount-arm :floor rf.bench.hicasso.p0-reagent-views/m1-floor (fn [{:keys [n]}] (zeros n)))]
                     (into (case segment-id
                             :reagent-subs
                             (cond-> [(reagent-mount-arm
                                        :reagent-subs
-                                       (fn [{:keys [n]}] [v/subs-root v/m1-subs n]))]
+                                       (fn [{:keys [n]}] [rf.bench.hicasso.p0-reagent-views/subs-root rf.bench.hicasso.p0-reagent-views/m1-subs n]))]
                               ratom? (conj (reagent-mount-arm
                                              :reagent-ratom
-                                             (fn [{:keys [n]}] [v/m1-ratom n]))))
+                                             (fn [{:keys [n]}] [rf.bench.hicasso.p0-reagent-views/m1-ratom n]))))
                             :uix-subs
                             [(uix-mount-arm
                                :uix-subs
-                               (fn [{:keys [n]}] (ux/subs-root ux/m1 n)))]))
-                    (conj (floor-mount-arm :ctl-2x v/m1-floor
+                               (fn [{:keys [n]}] (rf.bench.hicasso.p0-uix-views/subs-root rf.bench.hicasso.p0-uix-views/m1 n)))]))
+                    (conj (floor-mount-arm :ctl-2x rf.bench.hicasso.p0-reagent-views/m1-floor
                                            (fn [{:keys [n]}] (zeros (* 2 n))) 2))))}
 
    {:id          :M2
     :grade       :diagnostic
     :verify-of   verify-m2
-    :elements-of v/m2-elements
+    :elements-of rf.bench.hicasso.p0-reagent-views/m2-elements
     ;; A SMALLER MOUNT BUDGET THAN THE PAGE DEFAULT, and only here
     ;; (rf2-6i0i2). The sixth round pushed this page over the arm-order
     ;; guard's phase gate: at the default 8+12 sampling a six-round M2
@@ -502,11 +502,11 @@
                      "1.0000 — the quantum wearing a tie's clothes.")
     :doc      (str "the ordinary 12-field form on subs — the shape most "
                    "applications are made of. rf2-2rtt6.2's M2, unchanged")
-    :props    {:n v/fields-n}
-    :control  {:predicted (/ (double (v/m2-elements (* 2 v/fields-n)))
-                             (double (v/m2-elements v/fields-n)))
-               :basis     (str "element count: " (v/m2-elements (* 2 v/fields-n)) " / "
-                               (v/m2-elements v/fields-n))}
+    :props    {:n rf.bench.hicasso.p0-reagent-views/fields-n}
+    :control  {:predicted (/ (double (rf.bench.hicasso.p0-reagent-views/m2-elements (* 2 rf.bench.hicasso.p0-reagent-views/fields-n)))
+                             (double (rf.bench.hicasso.p0-reagent-views/m2-elements rf.bench.hicasso.p0-reagent-views/fields-n)))
+               :basis     (str "element count: " (rf.bench.hicasso.p0-reagent-views/m2-elements (* 2 rf.bench.hicasso.p0-reagent-views/fields-n)) " / "
+                               (rf.bench.hicasso.p0-reagent-views/m2-elements rf.bench.hicasso.p0-reagent-views/fields-n))}
     ;; `ratom?` is IGNORED here, and it is ignored for two reasons rather
     ;; than for want of a `conj` (rf2-2rtt6.21). This is the one row whose
     ;; mount budget already refuses — 720 mounts refused four of six, and
@@ -518,15 +518,15 @@
     ;; witness whose window is three to six of Chrome's 100 us quanta.
     ;; A second author cannot corroborate a number that is the clamp.
     :arms-for (fn [segment-id _ratom?]
-                [(floor-mount-arm :floor v/m2-floor (fn [{:keys [n]}] (zeros n)))
+                [(floor-mount-arm :floor rf.bench.hicasso.p0-reagent-views/m2-floor (fn [{:keys [n]}] (zeros n)))
                  (case segment-id
                    :reagent-subs (reagent-mount-arm
                                    :reagent-subs
-                                   (fn [{:keys [n]}] [v/subs-root v/m2-subs n]))
+                                   (fn [{:keys [n]}] [rf.bench.hicasso.p0-reagent-views/subs-root rf.bench.hicasso.p0-reagent-views/m2-subs n]))
                    :uix-subs     (uix-mount-arm
                                    :uix-subs
-                                   (fn [{:keys [n]}] (ux/subs-root ux/m2 n))))
-                 (floor-mount-arm :ctl-2x v/m2-floor
+                                   (fn [{:keys [n]}] (rf.bench.hicasso.p0-uix-views/subs-root rf.bench.hicasso.p0-uix-views/m2 n))))
+                 (floor-mount-arm :ctl-2x rf.bench.hicasso.p0-reagent-views/m2-floor
                                   (fn [{:keys [n]}] (zeros (* 2 n))) 2)])}])
 
 (defn- witness-named [id] (first (filter #(= id (:id %)) mount-witnesses)))
@@ -552,14 +552,14 @@
      :mount          (fn [container]
                        (let [root (react-dom-client/createRoot container)]
                          (vreset! rt root)
-                         (react-dom/flushSync (fn [] (.render root (v/m1-floor @state))))
+                         (react-dom/flushSync (fn [] (.render root (rf.bench.hicasso.p0-reagent-views/m1-floor @state))))
                          root))
      :write!         (fn [i val]
                        (if (= i :all)
                          (reset! state (vec (repeat n val)))
                          (swap! state assoc i val)))
      :force!         (fn [] (react-dom/flushSync
-                              (fn [] (.render ^js @rt (v/m1-floor @state)))))
+                              (fn [] (.render ^js @rt (rf.bench.hicasso.p0-reagent-views/m1-floor @state)))))
      :unmount        (fn [root] (react-dom/flushSync (fn [] (.unmount root))))}))
 
 (defn- subs-bulk-arm
@@ -567,7 +567,7 @@
   two places: the mount door and the drain.
 
   THE WRITE IS IDENTICAL and it is rf2-2rtt6.2's write —
-  `frame/replace-app-db!` — not a `dispatch-sync`. HD-012 states the bar
+  `rf.frame/replace-app-db!` — not a `dispatch-sync`. HD-012 states the bar
   over VIEW WORK, and rf2-2rtt6.3 measured the event drain at 11%-16% of
   a write on this substrate; routing the converged row through the event
   pipeline would add that leg to both arms, shrink the view-work
@@ -581,16 +581,16 @@
   application actually meets it, and it is the same operation on both
   substrate arms."
   [id mount unmount force!]
-  (let [cells (atom (zeros v/cells-n))]
+  (let [cells (atom (zeros rf.bench.hicasso.p0-reagent-views/cells-n))]
     {:id      id
-     :cells   v/cells-n
+     :cells   rf.bench.hicasso.p0-reagent-views/cells-n
      :mount   mount
      :unmount unmount
      :write!  (fn [i val]
                 (if (= i :all)
-                  (reset! cells (vec (repeat v/cells-n val)))
+                  (reset! cells (vec (repeat rf.bench.hicasso.p0-reagent-views/cells-n val)))
                   (swap! cells assoc i val))
-                (frame/replace-app-db! v/subs-frame {:cells @cells}))
+                (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame {:cells @cells}))
      :force!  force!}))
 
 (defn- reagent-bulk-arm []
@@ -599,7 +599,7 @@
     (fn [container]
       (let [root (rdc/create-root container)]
         (react-dom/flushSync
-          (fn [] (rdc/render root [v/subs-root v/m1-subs v/cells-n])))
+          (fn [] (rdc/render root [rf.bench.hicasso.p0-reagent-views/subs-root rf.bench.hicasso.p0-reagent-views/m1-subs rf.bench.hicasso.p0-reagent-views/cells-n])))
         root))
     (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))
     ;; `reagent.core/flush` is Reagent's own documented synchronous render
@@ -612,12 +612,12 @@
     (fn [container]
       (let [root (uix-dom/create-root container)]
         (react-dom/flushSync
-          (fn [] (uix-dom/render-root (ux/subs-root ux/m1 v/cells-n) root)))
+          (fn [] (uix-dom/render-root (rf.bench.hicasso.p0-uix-views/subs-root rf.bench.hicasso.p0-uix-views/m1 rf.bench.hicasso.p0-reagent-views/cells-n) root)))
         root))
     (fn [root] (react-dom/flushSync (fn [] (uix-dom/unmount-root root))))
     ;; `useSyncExternalStore` notifications schedule at React's SYNC lane,
     ;; so an EMPTY flushSync commits them inside the window. Not
-    ;; `uix-adapter/flush-views!`, which wraps React's `act()` — `act`
+    ;; `rf.adapter.uix/flush-views!`, which wraps React's `act()` — `act`
     ;; diverts work to a queue that is not the browser's, and every
     ;; window in this lane is taken outside it.
     (fn [] (react-dom/flushSync (fn [] nil)))))
@@ -628,7 +628,7 @@
   `reagent.core/atom` instead of through a subscription.
 
   It is NOT built by [[subs-bulk-arm]], and the difference is the whole
-  point of the arm: the write installs into `v/ratom-cells` rather than
+  point of the arm: the write installs into `rf.bench.hicasso.p0-reagent-views/ratom-cells` rather than
   into the frame's app-db, so this arm pays no subscription graph, no
   query cache and no frame. Everything else is held identical to the
   `:reagent-subs` arm beside it — the same mount door
@@ -642,16 +642,16 @@
   it in a plan."
   []
   {:id      :reagent-ratom
-   :cells   v/cells-n
+   :cells   rf.bench.hicasso.p0-reagent-views/cells-n
    :mount   (fn [container]
               (let [root (rdc/create-root container)]
                 (react-dom/flushSync
-                  (fn [] (rdc/render root [v/m1-ratom v/cells-n])))
+                  (fn [] (rdc/render root [rf.bench.hicasso.p0-reagent-views/m1-ratom rf.bench.hicasso.p0-reagent-views/cells-n])))
                 root))
    :write!  (fn [i val]
               (if (= i :all)
-                (reset! v/ratom-cells (vec (repeat v/cells-n val)))
-                (swap! v/ratom-cells assoc i val)))
+                (reset! rf.bench.hicasso.p0-reagent-views/ratom-cells (vec (repeat rf.bench.hicasso.p0-reagent-views/cells-n val)))
+                (swap! rf.bench.hicasso.p0-reagent-views/ratom-cells assoc i val)))
    :force!  (fn [] (react-dom/flushSync (fn [] (r/flush))))
    :unmount (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))})
 
@@ -662,31 +662,31 @@
   ratom arm there would be a new figure rather than a corroboration, and
   this entry does not mint one while it is answering a different question."
   [segment-id row-key ratom?]
-  (-> [(floor-bulk-arm :floor v/cells-n)]
+  (-> [(floor-bulk-arm :floor rf.bench.hicasso.p0-reagent-views/cells-n)]
       (into (case segment-id
               :reagent-subs (cond-> [(reagent-bulk-arm)]
                               (and ratom? (= row-key :broad))
                               (conj (ratom-bulk-arm)))
               :uix-subs     [(uix-bulk-arm)]))
-      (conj (floor-bulk-arm :ctl-2x (* 2 v/cells-n) 2))))
+      (conj (floor-bulk-arm :ctl-2x (* 2 rf.bench.hicasso.p0-reagent-views/cells-n) 2))))
 
 (defn- mount-bulk-arms!
   "Mount every bulk arm once and CHECK THE PAGE IT BUILT, before a clock is
   read.
 
-  Every bulk arm declares `:cells` and `v/m1-elements` turns that into an
+  Every bulk arm declares `:cells` and `rf.bench.hicasso.p0-reagent-views/m1-elements` turns that into an
   element count by written arithmetic, so this is what makes the bulk
   `:ctl-2x` arm's doubled page load-bearing. Its far-end read-back already
-  derives from `:cells` (`lane/bulk-probes` probes index `cells - 1`), so a
+  derives from `:cells` (`rf.bench.hicasso.lane/bulk-probes` probes index `cells - 1`), so a
   control shrunk to the base 300 cells would still have probed a cell it
   owns; the COUNT is the check a smaller page cannot satisfy. Outside every
   timed window — the arms are mounted once and written to thereafter."
   [arms]
   (mapv (fn [a]
-          (let [c        (lane/fresh-container!)
+          (let [c        (rf.bench.hicasso.lane/fresh-container!)
                 handle   ((:mount a) c)
-                expected (v/m1-elements (:cells a))
-                got      (lane/element-count c)]
+                expected (rf.bench.hicasso.p0-reagent-views/m1-elements (:cells a))
+                got      (rf.bench.hicasso.lane/element-count c)]
             (when-not (= expected got)
               (throw (ex-info (str "the bulk arm " (:id a) " built " got
                                    " elements where its own " (:cells a)
@@ -697,8 +697,8 @@
 
 (defn- release-bulk-arms!
   "Release every bulk arm. A throw is RECORDED, never swallowed — and a
-  normal return is not taken at its word: `lane/container-released!` reads
-  each container before it is removed, exactly as `lane/release!` and
+  normal return is not taken at its word: `rf.bench.hicasso.lane/container-released!` reads
+  each container before it is removed, exactly as `rf.bench.hicasso.lane/release!` and
   `p0_reagent_app`'s sibling do, because a root that survives its own
   unmount does so on a DETACHED tree no later census can see (rf2-jk3vj)."
   [mounts]
@@ -706,8 +706,8 @@
     (when (try ((:unmount arm) handle)
                true
                (catch :default e
-                 (lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
-      (lane/container-released! (str "release-bulk-arms! " (:id arm)) container))
+                 (rf.bench.hicasso.lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
+      (rf.bench.hicasso.lane/container-released! (str "release-bulk-arms! " (:id arm)) container))
     (.remove container)))
 
 (def ^:private assert-teardown-clean!
@@ -716,7 +716,7 @@
   authority with nothing holding it in step. Aliased rather than inlined at
   the call sites so this entry's four `assert-teardown-clean!` calls still
   read as the sentences they are."
-  lane/assert-teardown-clean!)
+  rf.bench.hicasso.lane/assert-teardown-clean!)
 
 ;; ---------------------------------------------------------------------------
 ;; One round of one mount witness in one segment
@@ -731,9 +731,9 @@
         expect (into {} (map (juxt :id #(expectation witness %))) arms)
         acc    (atom (zipmap (map :id arms) (repeat [])))]
     (dotimes [s (+ warmup samples)]
-      (doseq [j (lane/slot-order n s)]
+      (doseq [j (rf.bench.hicasso.lane/slot-order n s)]
         (let [arm (nth arms j)
-              {:keys [ms mounts]} (lane/mount-batch! arm props k)
+              {:keys [ms mounts]} (rf.bench.hicasso.lane/mount-batch! arm props k)
               {exp-elements :elements verify :verify} (get expect (:id arm))]
           ;; EVERY mount is read back out of the document against THIS
           ;; ARM'S OWN arithmetic — its exact element count, and both ends
@@ -742,18 +742,18 @@
           ;; rendered only its base prefix is the cheapest 2x arm; this is
           ;; the line that catches both.
           (doseq [m mounts]
-            (let [ok? (and (= exp-elements (lane/element-count (:container m)))
+            (let [ok? (and (= exp-elements (rf.bench.hicasso.lane/element-count (:container m)))
                            (verify (:container m)))]
               (swap! t (fn [{:keys [of bad]}]
                          {:of (inc of) :bad (if ok? bad (inc bad))}))))
-          (doseq [m mounts] (lane/release! m))
+          (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
           (let [label (str (name id) "/" (name segment-id) "/" (name (:id arm)))]
             (if (>= s warmup)
-              (do (lane/collect! coll label ms)
+              (do (rf.bench.hicasso.lane/collect! coll label ms)
                   (swap! acc update (:id arm) conj ms))
               ;; A warm-up sample is DISCARDED but it still ran, so it is
               ;; still the next sample's predecessor.
-              (lane/observe! coll label))))))
+              (rf.bench.hicasso.lane/observe! coll label))))))
     @acc))
 
 ;; ---------------------------------------------------------------------------
@@ -780,7 +780,7 @@
   DISTINCT (they are `(mod (* 7 o) 300)` over consecutive `o`, and 7 is
   coprime with 300, so any run of ten is ten different cells), and the
   microtask-scale tolerance an early op receives grows with `k`
-  ([[lane/verified-writes!]]). Ten buys the clamp headroom and keeps that
+  ([[rf.bench.hicasso.lane/verified-writes!]]). Ten buys the clamp headroom and keeps that
   tolerance at nine turns.
 
   THE BROAD ROW DOES NOT USE THIS. It passes a batch of ONE — the pre-batch
@@ -811,8 +811,8 @@
   (let [n (:cells (:arm mnt))]
     (if (= kind :broad)
       (let [val (next-gen!)]
-        (lane/verified-writes! t mnt [[:all val (lane/bulk-probes val n)]]))
-      (lane/verified-writes!
+        (rf.bench.hicasso.lane/verified-writes! t mnt [[:all val (rf.bench.hicasso.lane/bulk-probes val n)]]))
+      (rf.bench.hicasso.lane/verified-writes!
         t mnt
         (mapv (fn [_]
                 (let [o    (next-op!)
@@ -823,8 +823,8 @@
 
 (defn- seed-bulk!
   [mounts t]
-  (lane/chain nil mounts
-              (fn [_ mnt] (-> (lane/verified-write! t mnt :all 0
+  (rf.bench.hicasso.lane/chain nil mounts
+              (fn [_ mnt] (-> (rf.bench.hicasso.lane/verified-write! t mnt :all 0
                                                     [0 (dec (:cells (:arm mnt)))])
                               (.then (fn [_] nil))))))
 
@@ -837,8 +837,8 @@
   (let [n     (count mounts)
         total (+ (:warmup bulk-sampling) (:samples bulk-sampling))
         acc0  (zipmap (map #(:id (:arm %)) mounts) (repeat []))]
-    (lane/chain {:readings acc0}
-                (for [s (range total) j (lane/slot-order n s)] [s j])
+    (rf.bench.hicasso.lane/chain {:readings acc0}
+                (for [s (range total) j (rf.bench.hicasso.lane/slot-order n s)] [s j])
                 (fn [acc [s j]]
                   (let [mnt   (nth mounts j)
                         id    (:id (:arm mnt))
@@ -846,11 +846,11 @@
                     (-> (bulk-write! t mnt kind s)
                         (.then (fn [{:keys [ms write-ms gap-ms force-ms]}]
                                  (if (>= s (:warmup bulk-sampling))
-                                   (do (lane/collect! coll label ms)
+                                   (do (rf.bench.hicasso.lane/collect! coll label ms)
                                        (swap! legs update [kind segment-id id] (fnil conj [])
                                               {:write write-ms :gap gap-ms :force force-ms})
                                        (update-in acc [:readings id] conj ms))
-                                   (do (lane/observe! coll label)
+                                   (do (rf.bench.hicasso.lane/observe! coll label)
                                        acc))))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -861,13 +861,13 @@
   "One segment-round's raw readings as `{:p50 {id ms} :ratio {id r}}`,
   every ratio against the floor measured in THAT segment of THAT round."
   [readings]
-  (lane/normalise readings :floor))
+  (rf.bench.hicasso.lane/normalise readings :floor))
 
 (defn- range-of [vs]
-  {:mean (lane/round4 (/ (reduce + 0.0 vs) (count vs)))
-   :min  (lane/round4 (apply min vs))
-   :max  (lane/round4 (apply max vs))
-   :per-round (mapv lane/round4 vs)
+  {:mean (rf.bench.hicasso.lane/round4 (/ (reduce + 0.0 vs) (count vs)))
+   :min  (rf.bench.hicasso.lane/round4 (apply min vs))
+   :max  (rf.bench.hicasso.lane/round4 (apply max vs))
+   :per-round (mapv rf.bench.hicasso.lane/round4 vs)
    :straddles-1? (and (<= (apply min vs) 1.0) (>= (apply max vs) 1.0))})
 
 ;; ---------------------------------------------------------------------------
@@ -892,7 +892,7 @@
 
   ## What the arm-order guard cannot see, and why this exists
 
-  `lane/guard!` adjudicates arms INSIDE a segment: it asks whether an arm
+  `rf.bench.hicasso.lane/guard!` adjudicates arms INSIDE a segment: it asks whether an arm
   reads differently for where in the plan it was measured. The red-zone is
   not an arm — it is a ratio of one segment's floor-normalised arm to the
   OTHER segment's, and no guard on this page ever looked at it by segment
@@ -986,7 +986,7 @@
       {:start               start
        :reagent-first       (assoc rf :direction d-rf :n (count (:reagent-first strata)))
        :uix-first           (assoc uf :direction d-uf :n (count (:uix-first strata)))
-       :order-balanced-mean (lane/round4 (/ (+ (:mean rf) (:mean uf)) 2.0))
+       :order-balanced-mean (rf.bench.hicasso.lane/round4 (/ (+ (:mean rf) (:mean uf)) 2.0))
        :balanced-design?    balanced?
        :strata-overlap?     overlap?
        :magnitude-resolved? overlap?
@@ -1023,7 +1023,7 @@
   BOTH TERMS ARE THE REAGENT SEGMENT'S OWN, so the floor divides out
   exactly and the seam is not in the arithmetic at all. The leg is formed
   from the floor-normalised ratios rather than from the raw p50s only
-  because that is the arithmetic `lane/ratio-between` performs on the
+  because that is the arithmetic `rf.bench.hicasso.lane/ratio-between` performs on the
   first author's page, and two authors disagreeing about a division is
   not a finding anybody wants to chase.
 
@@ -1090,7 +1090,7 @@
                          norm)
         ctl-rg     (mapv #(get-in % [:reagent-subs :ratio :ctl-2x]) norm)
         ctl-ux     (mapv #(get-in % [:uix-subs :ratio :ctl-2x]) norm)
-        verdict-of (fn [vs] (lane/control-verdict (:predicted control)
+        verdict-of (fn [vs] (rf.bench.hicasso.lane/control-verdict (:predicted control)
                                                   (select-keys (range-of vs) [:min :max :mean])
                                                   control-slack))
         c-rg       (verdict-of ctl-rg)
@@ -1191,7 +1191,7 @@
   "Canonical-DOM equality across the judged arms, and the element count of
   EVERY arm — the control included — against its own arithmetic.
 
-  The count used to be checked over `lane/parity`'s `counts` map, which
+  The count used to be checked over `rf.bench.hicasso.lane/parity`'s `counts` map, which
   excludes the parity-exempt arms by design, so the one arm building a
   deliberately different page had that page checked nowhere. Exempt from
   the EQUALITY is not exempt from arithmetic: the control is exempt
@@ -1199,12 +1199,12 @@
   exists to make."
   [{:keys [id props arms-for] :as witness} segment-id ratom?]
   (let [{:keys [mounts agree? disagree reference]}
-        (lane/parity (arms-for segment-id ratom?) props)
+        (rf.bench.hicasso.lane/parity (arms-for segment-id ratom?) props)
         wrong (into {}
                     (comp (map (fn [{:keys [arm container]}]
                                  [(:id arm)
                                   {:expected (:elements (expectation witness arm))
-                                   :got      (lane/element-count container)}]))
+                                   :got      (rf.bench.hicasso.lane/element-count container)}]))
                           (remove (fn [[_ {:keys [expected got]}]] (= expected got))))
                     mounts)]
     (try
@@ -1217,7 +1217,7 @@
                     (seq wrong)
                     (conj {:segment segment-id :witness id :problem :element-count
                            :arms wrong}))}
-      (finally (doseq [m mounts] (lane/release! m))))))
+      (finally (doseq [m mounts] (rf.bench.hicasso.lane/release! m))))))
 
 (defn- parity!
   "Both segments' parity for this page's witness, plus the CROSS-segment
@@ -1274,12 +1274,12 @@
   arm runs is part of its window: changing it would move numbers that
   nothing here is re-running."
   []
-  (> (count (distinct (map #(guard/slot-order 2 %) (range 8)))) 1))
+  (> (count (distinct (map #(rf.bench.order-guard/slot-order 2 %) (range 8)))) 1))
 
 (defn- slot-order-varies-at-3?
   "And the three-arm plan this entry actually runs must NOT degenerate."
   []
-  (> (count (distinct (map #(guard/slot-order 3 %) (range 8)))) 1))
+  (> (count (distinct (map #(rf.bench.order-guard/slot-order 3 %) (range 8)))) 1))
 
 (defn- slot-order-varies-at-4?
   "Nor the FOUR-arm plan the Reagent segment runs under `?ratom=on`.
@@ -1289,17 +1289,17 @@
   that only fires on the days it is needed is an assertion nobody
   maintains. That is precisely how the `k = 2` one rotted."
   []
-  (> (count (distinct (map #(guard/slot-order 4 %) (range 8)))) 1))
+  (> (count (distinct (map #(rf.bench.order-guard/slot-order 4 %) (range 8)))) 1))
 
 ;; ---------------------------------------------------------------------------
 ;; The run
 ;; ---------------------------------------------------------------------------
 
 (def ^:private bulk-control
-  {:predicted (/ (double (v/m1-elements (* 2 v/cells-n)))
-                 (double (v/m1-elements v/cells-n)))
-   :basis (str "element count: " (v/m1-elements (* 2 v/cells-n)) " / "
-               (v/m1-elements v/cells-n))})
+  {:predicted (/ (double (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)))
+                 (double (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n)))
+   :basis (str "element count: " (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)) " / "
+               (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n))})
 
 (def ^:private row-specs
   "ONE ROW PER PAGE. The first cut ran all four in one page and the guard
@@ -1311,11 +1311,11 @@
   {:M1     {:kind :mount :witness :M1 :row :mount-M1 :grade :bar}
    :M2     {:kind :mount :witness :M2 :row :mount-M2 :grade :diagnostic}
    :broad  {:kind :bulk  :witness :M1 :row :bulk-broad :grade :bar
-            :doc (str "one commit that all " v/cells-n " sub-reading boundaries read, on "
+            :doc (str "one commit that all " rf.bench.hicasso.p0-reagent-views/cells-n " sub-reading boundaries read, on "
                       "rf2-2rtt6.2's M1 page — the make-or-break row")
             :control bulk-control}
    :narrow {:kind :bulk  :witness :M1 :row :bulk-narrow :grade :bar
-            :doc (str narrow-batch-k " commits, each of which exactly ONE of " v/cells-n
+            :doc (str narrow-batch-k " commits, each of which exactly ONE of " rf.bench.hicasso.p0-reagent-views/cells-n
                       " sub-reading boundaries reads, all inside ONE timed window — the "
                       "localisation row. The per-commit figure is the sample divided by "
                       narrow-batch-k)
@@ -1356,7 +1356,7 @@
   `start` leads round 0 and the order alternates from there. Answers a
   promise of `{segment-id readings}`."
   [{:keys [kind witness] :as _spec} row-key start ratom? r coll t legs]
-  (lane/chain
+  (rf.bench.hicasso.lane/chain
     {}
     (segment-order start r)
     (fn [acc {:keys [id] :as segment}]
@@ -1382,9 +1382,9 @@
 (defn- leg-summary [legs]
   (into {}
         (map (fn [[k xs]]
-               [k {:write-ms (:p50 (lane/summarise (map :write xs)))
-                   :gap-ms   (:p50 (lane/summarise (map :gap xs)))
-                   :force-ms (:p50 (lane/summarise (map :force xs)))}]))
+               [k {:write-ms (:p50 (rf.bench.hicasso.lane/summarise (map :write xs)))
+                   :gap-ms   (:p50 (rf.bench.hicasso.lane/summarise (map :gap xs)))
+                   :force-ms (:p50 (rf.bench.hicasso.lane/summarise (map :force xs)))}]))
         legs))
 
 (defn- publish!
@@ -1401,10 +1401,10 @@
                      :writes-per-sample (if (= row :bulk-narrow) narrow-batch-k 1)
                      :start start}
                     slices)]
-    (lane/record! (name row) record)
-    (lane/record! "verification" {row-key (lane/tally-value t)})
-    (when (= kind :bulk) (lane/record! "write-legs" (leg-summary @legs)))
-    (lane/record! "red-zone"
+    (rf.bench.hicasso.lane/record! (name row) record)
+    (rf.bench.hicasso.lane/record! "verification" {row-key (rf.bench.hicasso.lane/tally-value t)})
+    (when (= kind :bulk) (rf.bench.hicasso.lane/record! "write-legs" (leg-summary @legs)))
+    (rf.bench.hicasso.lane/record! "red-zone"
                   {:row row
                    :axis :clock
                    :witness-set "rf2-2rtt6.2"
@@ -1452,7 +1452,7 @@
                               "own witnesses — that figure remains sound as a ratio and is "
                               "simply not comparable with the bar rows.")})
     (when-let [leg (:reactive-leg record)]
-      (lane/record! "reactive-leg"
+      (rf.bench.hicasso.lane/record! "reactive-leg"
                     {:row row
                      :axis :clock
                      :witness-set "rf2-2rtt6.2"
@@ -1482,9 +1482,9 @@
                           "systematic error in how the arm is written; this row is the "
                           "second implementation, and agreement or disagreement with those "
                           "figures is the finding either way.")}))
-    (let [vd (lane/guard! (:samples @coll)
+    (let [vd (rf.bench.hicasso.lane/guard! (:samples @coll)
                           (str "Hicasso P0 converged — " (name row)))]
-      (lane/record! "arm-order-guard"
+      (rf.bench.hicasso.lane/record! "arm-order-guard"
                     {:row row
                      :tolerance (:tolerance vd)
                      :contaminated? (:contaminated? vd)
@@ -1511,40 +1511,40 @@
     ;; M` with N > 0 and the driver would still exit 0, which is what left
     ;; every read-back in this entry — the written cell, the mount's element
     ;; count, the far end of the page — decorative.
-    (lane/assert-verified! t (str "row " (name row)))
+    (rf.bench.hicasso.lane/assert-verified! t (str "row " (name row)))
     nil))
 
 (defn ^:export -main
   []
   (try
-    (lane/leave-act-environment!)
+    (rf.bench.hicasso.lane/leave-act-environment!)
     (cond
-      (not (lane/self-test!))
-      (do (lane/fail! (str "the arm-order guard's SELF-TEST failed — this copy of the rule "
+      (not (rf.bench.hicasso.lane/self-test!))
+      (do (rf.bench.hicasso.lane/fail! (str "the arm-order guard's SELF-TEST failed — this copy of the rule "
                            "no longer behaves like the one the .cjs drivers use, so nothing "
                            "was measured"))
-          (lane/done!))
+          (rf.bench.hicasso.lane/done!))
 
       (not (slot-order-varies-at-2?))
-      (do (lane/fail! (str "slot-order has DEGENERATED at k=2 — it emits one order at every "
+      (do (rf.bench.hicasso.lane/fail! (str "slot-order has DEGENERATED at k=2 — it emits one order at every "
                            "sample index, which is the rf2-ouwh8 defect returning. This entry "
                            "runs three arms and is not itself affected, but the shared rule it "
                            "takes its schedule from is, so nothing here is measured until the "
                            "rule is repaired. The repair belongs to the schedule, never to the "
                            "tolerance"))
-          (lane/done!))
+          (rf.bench.hicasso.lane/done!))
 
       (not (slot-order-varies-at-3?))
-      (do (lane/fail! (str "slot-order emits ONE order at k=3, so the three-arm plan this "
+      (do (rf.bench.hicasso.lane/fail! (str "slot-order emits ONE order at k=3, so the three-arm plan this "
                            "entry runs is a single-order plan and `both orders` would be a "
                            "claim it cannot support"))
-          (lane/done!))
+          (rf.bench.hicasso.lane/done!))
 
       (not (slot-order-varies-at-4?))
-      (do (lane/fail! (str "slot-order emits ONE order at k=4, so the four-arm Reagent "
+      (do (rf.bench.hicasso.lane/fail! (str "slot-order emits ONE order at k=4, so the four-arm Reagent "
                            "segment `?ratom=on` runs would be a single-order plan and the "
                            "reactive leg could not claim `both orders` either"))
-          (lane/done!))
+          (rf.bench.hicasso.lane/done!))
 
       :else
       (let [row-key (query-row)
@@ -1560,7 +1560,7 @@
             ;; reactions whose roots have unmounted but not yet been
             ;; disposed, and every one of them would re-render. Outside the
             ;; window, but it is work the page does not need to do.
-            _       (reset! v/ratom-cells (:cells (v/seed-cells v/cells-n 0)))
+            _       (reset! rf.bench.hicasso.p0-reagent-views/ratom-cells (:cells (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0)))
             {:keys [problems]} (parity! w ratom?)]
         (js/console.log (str ";; HICASSO row " (name row-key)
                              " — round 0 led by " (name start) ", alternating"
@@ -1569,7 +1569,7 @@
                                     "segment runs "
                                     (pr-str (reagent-segment-arm-ids row-key true))
                                     " (rf2-2rtt6.21)"))))
-        (lane/record! "parity"
+        (rf.bench.hicasso.lane/record! "parity"
                       {:row row-key :problems problems :ok? (empty? problems)
                        :note (str "canonical DOM with attribute names sorted, inside each "
                                   "segment AND across the seam. The element count is checked "
@@ -1579,23 +1579,23 @@
                                   "rendered nothing, and for a 2x control that rendered "
                                   "only its base prefix.")})
         (if (seq problems)
-          (do (lane/fail! (str "the arms do not build the same page under :advanced — "
+          (do (rf.bench.hicasso.lane/fail! (str "the arms do not build the same page under :advanced — "
                                (pr-str problems)))
-              (lane/done!))
-          (let [coll (lane/sample-collector)
-                t    (lane/tally)
+              (rf.bench.hicasso.lane/done!))
+          (let [coll (rf.bench.hicasso.lane/sample-collector)
+                t    (rf.bench.hicasso.lane/tally)
                 legs (atom {})]
-            (-> (lane/chain [] (range rounds)
+            (-> (rf.bench.hicasso.lane/chain [] (range rounds)
                             (fn [acc r]
                               (-> (run-round! spec row-key start ratom? r coll t legs)
                                   (.then (fn [slice] (conj acc slice))))))
                 (.then (fn [slices]
                          (publish! spec row-key start slices t legs coll)
-                         (lane/done!)
+                         (rf.bench.hicasso.lane/done!)
                          nil))
                 (.catch (fn [e]
-                          (lane/fail! (str "the run rejected: " e))
-                          (lane/done!))))))))
+                          (rf.bench.hicasso.lane/fail! (str "the run rejected: " e))
+                          (rf.bench.hicasso.lane/done!))))))))
     (catch :default e
-      (lane/fail! (str "the run threw: " e))
-      (lane/done!))))
+      (rf.bench.hicasso.lane/fail! (str "the run threw: " e))
+      (rf.bench.hicasso.lane/done!))))

@@ -1,8 +1,8 @@
 (ns re-frame.bench.hicasso.lane-control-strict-cljs-test
   "THE LANE'S TWO CONTROL RULES MUST STAY TWO — pinned (rf2-egdaq).
 
-  `lane/control-verdict` adjudicates a positive control on OVERLAP: the
-  measured range need only meet the ±slack band. `lane/control-verdict-
+  `rf.bench.hicasso.lane/control-verdict` adjudicates a positive control on OVERLAP: the
+  measured range need only meet the ±slack band. `rf.bench.hicasso.lane/control-verdict-
   strict` requires EVERY ROUND inside it. Both are correct for their own
   case — the 2026-07-31 ruling keeps overlap for legs sitting on Chrome's
   100 µs `performance.now()` clamp, where a low round is the quantum
@@ -41,7 +41,7 @@
   Companion to `walk_profile_control_cljs_test`, which pins the same
   every-round discipline for the walk profile's own bespoke control."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.lane :as lane]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]))
 
 ;; ---------------------------------------------------------------------------
 ;; The shape `amp_merge_clock_app` hands the rule
@@ -54,7 +54,7 @@
 (def ^:private predicted 2.0)
 (def ^:private slack 0.25)
 
-(defn- strict [per-round] (lane/control-verdict-strict predicted per-round slack))
+(defn- strict [per-round] (rf.bench.hicasso.lane/control-verdict-strict predicted per-round slack))
 
 (def ^:private held
   "Five rounds a real instrument with signal produces."
@@ -75,7 +75,7 @@
     (let [s (strict one-bad-round)
           ;; The same five rounds offered to the overlap rule as the
           ;; `{:min :max :mean}` range it takes.
-          o (lane/control-verdict predicted
+          o (rf.bench.hicasso.lane/control-verdict predicted
                                   {:min 1.400 :max 2.104 :mean 1.904}
                                   slack)]
       (is (true? (:ok? o))
@@ -110,8 +110,8 @@
   0.05)
 
 (defn- floor-normalised
-  "The per-round `{id ratio-to-floor}` maps `lane/normalise` produces, which
-  is what an instrument hands `lane/ratio-between`."
+  "The per-round `{id ratio-to-floor}` maps `rf.bench.hicasso.lane/normalise` produces, which
+  is what an instrument hands `rf.bench.hicasso.lane/ratio-between`."
   []
   (mapv (fn [{:keys [hiccup ctl]}]
           {:floor 1.0 :hiccup (/ hiccup floor-ms) :ctl-2x (/ ctl floor-ms)})
@@ -127,14 +127,14 @@
             denominator, and a cross-round prediction never has one"
     (let [hiccups   (mapv :hiccup rounds-ms)
           ctls      (mapv :ctl rounds-ms)
-          predicted (* 2.0 (:p50 (lane/summarise hiccups)))
-          s-ctl     (lane/summarise ctls)
-          aggregate (lane/control-verdict predicted
+          predicted (* 2.0 (:p50 (rf.bench.hicasso.lane/summarise hiccups)))
+          s-ctl     (rf.bench.hicasso.lane/summarise ctls)
+          aggregate (rf.bench.hicasso.lane/control-verdict predicted
                                           {:min  (:min s-ctl)
                                            :max  (:max s-ctl)
                                            :mean (:p50 s-ctl)}
                                           slack)
-          per-round (:per-round (lane/ratio-between (floor-normalised)
+          per-round (:per-round (rf.bench.hicasso.lane/ratio-between (floor-normalised)
                                                     :ctl-2x :hiccup))
           strict'   (strict per-round)]
       (is (= 4.5 predicted)
@@ -145,7 +145,7 @@
           "and the control's whole measured range is 4.40 – 4.60 ms. Named
            fields rather than whole-map equality: this row is about the
            RANGE, and spelling it as `=` on the whole summary also froze
-           `lane/summarise`'s key set here, a long way from the function
+           `rf.bench.hicasso.lane/summarise`'s key set here, a long way from the function
            and from any reader who would think to look. `rf2-xa8wo` adding
            `:p95`/`:p99` reddened it for a reason this row has no opinion
            about. The key set is frozen in `lane_quantile_cljs_test`, where
@@ -230,18 +230,18 @@
   (testing "the mode merged-PR audit #8149 found on the walk profile: a
             band around a prediction of zero is cleared by any reading
             whatever, so passing there is passing on nothing"
-    (let [r (lane/control-verdict-strict 0.0 [0.0 0.0 0.0] slack)]
+    (let [r (rf.bench.hicasso.lane/control-verdict-strict 0.0 [0.0 0.0 0.0] slack)]
       (is (false? (:ok? r)))
       (is (false? (:stated? r)))
       (is (re-find #"states no prediction" (:why r)))))
   (testing "and a NEGATIVE prediction inverts the band rather than
             narrowing it, which is on its own enough to refuse"
-    (is (false? (:ok? (lane/control-verdict-strict -2.0 [-2.0 -2.0] slack))))))
+    (is (false? (:ok? (rf.bench.hicasso.lane/control-verdict-strict -2.0 [-2.0 -2.0] slack))))))
 
 (deftest the-refusal-is-attributed-to-the-right-half
   (testing "two refusals, two causes, two repairs — the arms are innocent
             in one of them"
-    (let [vacuous (lane/control-verdict-strict 0.0 held slack)
+    (let [vacuous (rf.bench.hicasso.lane/control-verdict-strict 0.0 held slack)
           missed  (strict one-bad-round)]
       (is (false? (:stated? vacuous)) "the PREDICTION failed")
       (is (true? (:stated? missed)) "the prediction was real; the ARMS missed it"))))

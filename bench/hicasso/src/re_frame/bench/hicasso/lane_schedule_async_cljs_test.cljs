@@ -7,7 +7,7 @@
   second driver over the same plan, and the failure mode of a second
   driver is the one this lane has already paid for twice: `slot-order`'s
   `k = 2` degeneracy survived a fix to its own sibling because
-  `b6-harness` held a copy of the rule, and `lane/observe!`'s missing call
+  `b6-harness` held a copy of the rule, and `rf.bench.hicasso.lane/observe!`'s missing call
   was repaired privately in two hand-rolled loops while the ten apps
   riding the shared one kept the fault.
 
@@ -30,7 +30,7 @@
   `rounds-async!` that measured nothing at all — which is exactly what a
   promise chain that dropped its tail would produce."
   (:require [cljs.test :refer-macros [async deftest is testing]]
-            [re-frame.bench.hicasso.lane :as lane]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]))
 
 (def ^:private sampling
   "`lane-schedule-cljs-test`'s numbers, carried rather than chosen: this
@@ -56,7 +56,7 @@
   `truth` is every execution in order — warm-up and measured alike."
   [n]
   (let [truth (atom [])
-        out   (lane/rounds! (arms n) sampling rounds
+        out   (rf.bench.hicasso.lane/rounds! (arms n) sampling rounds
                             (fn [arm]
                               (let [i (count @truth)]
                                 (swap! truth conj (name (:id arm)))
@@ -76,7 +76,7 @@
   (let [truth    (atom [])
         in-fl    (atom 0)
         overlaps (atom 0)]
-    (.then (lane/rounds-async! (arms n) sampling rounds
+    (.then (rf.bench.hicasso.lane/rounds-async! (arms n) sampling rounds
                                (fn [arm]
                                  (when (pos? @in-fl) (swap! overlaps inc))
                                  (swap! in-fl inc)
@@ -116,7 +116,7 @@
            test."
     (async done
       (.then
-        (lane/chain nil arm-counts
+        (rf.bench.hicasso.lane/chain nil arm-counts
                     (fn [_ n]
                       (.then (async-run n)
                              (fn [a]
@@ -148,7 +148,7 @@
            tare — needs no wrapper of its own."
     (async done
       (let [as (arms 3)]
-        (.then (lane/rounds-async! as sampling rounds (fn [_] 1.0))
+        (.then (rf.bench.hicasso.lane/rounds-async! as sampling rounds (fn [_] 1.0))
                (fn [{:keys [samples readings]}]
                  (is (= (* rounds (:samples sampling) 3) (count samples)))
                  (is (every? (fn [round]

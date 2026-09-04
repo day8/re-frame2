@@ -9,10 +9,10 @@
   `link-model` is built out of as arms of their own:
 
     :floor       the loop and the `aget`, and nothing else
-    :cedn        `identity/canonical-bytes` on ONE path-param value — the
+    :cedn        `rf.identity/canonical-bytes` on ONE path-param value — the
                  call `route-url`'s `assert-url-value!` fail-closed guard
                  makes per path param per render, whose result it discards
-    :lookup      `registrar/lookup :route` — the route-meta read
+    :lookup      `rf.registrar/lookup :route` — the route-meta read
     :route-url   the whole path-form URL synthesis
     :strategy    `url-strategy-for-frame-id` — the render-time strategy
                  consult, which reads `frame/frame-meta`
@@ -23,17 +23,17 @@
   An arm here is NOT a bar row: these are in-page microsecond figures for
   a diagnostic, interleaved under the arm-order guard so a stage's figure
   does not depend on where in the plan it was measured."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.large-template :as lt]
-            [re-frame.bench.hicasso.shapes.model :as m]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
             [re-frame.core :as rf]
-            [re-frame.identity :as identity]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing :as routing]
-            [re-frame.routing.strategy :as strategy]))
+            [re-frame.identity :as rf.identity]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.strategy :as rf.routing.strategy]))
 
 (def frame-id ::frame)
 
@@ -44,8 +44,8 @@
   links and one article link, from the model's own seed."
   []
   (let [a #js []]
-    (dotimes [i lt/article-count]
-      (let [art (m/article i)
+    (dotimes [i rf.bench.hicasso.shapes.large-template/article-count]
+      (let [art (rf.bench.hicasso.shapes.model/article i)
             u   (:username (:author art))]
         (.push a {:to :conduit.profile/show :params {:username u}})
         (.push a {:to :conduit.profile/show :params {:username u}})
@@ -65,26 +65,26 @@
 (def ^:private passes-per-sample 4)
 
 (defn- timed-door [pass!]
-  (let [t0 (lane/now-ms)]
+  (let [t0 (rf.bench.hicasso.lane/now-ms)]
     (dotimes [_ passes-per-sample]
-      (rt/render-body frame-id (fn [_] (pass!) [:span]) {}))
-    (- (lane/now-ms) t0)))
+      (rf.bench.hicasso.arm1.runtime/render-body frame-id (fn [_] (pass!) [:span]) {}))
+    (- (rf.bench.hicasso.lane/now-ms) t0)))
 
 (def ^:private arm-ids [:floor :cedn :lookup :route-url :strategy :link-model :ctl2])
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (lane/self-test!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
-          (lt/make-frame! frame-id)
-          (lt/reseed! frame-id)
+          (rf.bench.hicasso.shapes.large-template/make-frame! frame-id)
+          (rf.bench.hicasso.shapes.large-template/reseed! frame-id)
           (let [targets    (link-targets)
                 values     (param-values targets)
                 n          (alength targets)
-                link-model (late-bind/require-fn! :routing/link-model
+                link-model (rf.late-bind/require-fn! :routing/link-model
                                                   'link-decomp-probe {} {})
                 sink       (volatile! nil)
                 arms
@@ -95,19 +95,19 @@
                  {:id :cedn
                   :pass (fn []
                           (dotimes [i n]
-                            (vreset! sink (identity/canonical-bytes (aget values i)))))}
+                            (vreset! sink (rf.identity/canonical-bytes (aget values i)))))}
                  {:id :lookup
                   :pass (fn []
                           (dotimes [i n]
-                            (vreset! sink (registrar/lookup :route (:to (aget targets i))))))}
+                            (vreset! sink (rf.registrar/lookup :route (:to (aget targets i))))))}
                  {:id :route-url
                   :pass (fn []
                           (dotimes [i n]
-                            (vreset! sink (routing/route-url (aget targets i)))))}
+                            (vreset! sink (rf.routing/route-url (aget targets i)))))}
                  {:id :strategy
                   :pass (fn []
                           (dotimes [_ n]
-                            (vreset! sink (strategy/url-strategy-for-frame-id frame-id))))}
+                            (vreset! sink (rf.routing.strategy/url-strategy-for-frame-id frame-id))))}
                  {:id :link-model
                   :pass (fn []
                           (dotimes [i n]
@@ -118,21 +118,21 @@
                             (dotimes [i n]
                               (vreset! sink (link-model (aget targets i) frame-id)))))}]
                 {:keys [readings samples]}
-                (lane/rounds! arms {:warmup 4 :samples 8} 5
+                (rf.bench.hicasso.lane/rounds! arms {:warmup 4 :samples 8} 5
                               (fn [{:keys [pass]}] (timed-door pass)))
                 rows (into {}
                            (map (fn [id]
                                   (let [xs (mapcat #(get % id) readings)]
-                                    [id (lane/summarise (mapv #(/ % passes-per-sample) xs))])))
+                                    [id (rf.bench.hicasso.lane/summarise (mapv #(/ % passes-per-sample) xs))])))
                            arm-ids)
-                gv   (lane/guard! samples "link decomposition (in-page ms, diagnostic)")
-                ctl  (lane/control-verdict (* 2.0 (:p50 (get rows :link-model)))
+                gv   (rf.bench.hicasso.lane/guard! samples "link decomposition (in-page ms, diagnostic)")
+                ctl  (rf.bench.hicasso.lane/control-verdict (* 2.0 (:p50 (get rows :link-model)))
                                            (let [s (get rows :ctl2)]
                                              {:min (:min s) :max (:max s) :mean (:p50 s)})
                                            0.25)]
             (when-not (:ok? ctl)
               (throw (ex-info (str "positive control failed: " (:why ctl)) {})))
-            (lane/record! :link-decomp rows)
+            (rf.bench.hicasso.lane/record! :link-decomp rows)
             (js/console.log ";; ==== LINK DECOMPOSITION (ms per 207-call pass; diagnostic in-page clock) ====")
             (doseq [id arm-ids]
               (let [{:keys [p50 min max]} (get rows id)]
@@ -143,7 +143,7 @@
             (js/console.log (str ";;   control: " (:why ctl)))
             (when (:refuse? gv)
               (set! (.-HICASSO_GUARD_REFUSED js/window) true))
-            (lane/done!))))
+            (rf.bench.hicasso.lane/done!))))
       (.catch (fn [e]
-                (lane/fail! (or (some-> e .-message) (str e)))
-                (lane/done!)))))
+                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.hicasso.lane/done!)))))

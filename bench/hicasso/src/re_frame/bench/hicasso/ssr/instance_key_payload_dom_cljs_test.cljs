@@ -92,22 +92,22 @@
   under `:node-test` too; every DOM claim degrades to a stated skip
   there."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.hicasso.arm1.hydration-support
              :refer [adopted! every-server-node? open-console-capture! server-dom!
                      server-node? stamp-server-nodes!]]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.ssr.entry :as entry]
-            [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
-            [re-frame.bench.hicasso.ssr.instance-key :as instance-key]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.ssr.entry :as rf.bench.hicasso.ssr.entry]
+            [re-frame.bench.hicasso.ssr.fixtures :as rf.bench.hicasso.ssr.fixtures]
+            [re-frame.bench.hicasso.ssr.instance-key :as rf.bench.hicasso.ssr.instance-key]
             [re-frame.core :as rf]
             ;; rf2-2rtt6.91 — the entry emits no hash, so the exclusion row
             ;; takes the measurement it excludes directly.
-            [re-frame.ssr.hash :as ssr-hash]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.ssr.hash :as rf.ssr.hash]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (def ^:private frame-id ::instance-key-payload)
 
@@ -119,14 +119,14 @@
   "instance-key-payload-omitted")
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
-                      (fixtures/register!)
-                      (rt/reset-runtime!)
-                      (rt/reset-body-runs!))}))
+                      (rf.bench.hicasso.ssr.fixtures/register!)
+                      (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+                      (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
 
 (defn- skip! [why]
   (is true (str "a payload-obligation hydration claim needs a real React DOM — " why)))
@@ -140,11 +140,11 @@
   both sides so the hydration measured afterwards starts from an empty
   table."
   [row-id]
-  (rt/reset-runtime!)
-  (rt/reset-body-runs!)
-  (let [result (entry/render (fixtures/row row-id))]
-    (rt/reset-runtime!)
-    (rt/reset-body-runs!)
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+  (let [result (rf.bench.hicasso.ssr.entry/render (rf.bench.hicasso.ssr.fixtures/row row-id))]
+    (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+    (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
     result))
 
 (defn- client-frame!
@@ -164,7 +164,7 @@
   payload, so the seeding door is deliberately the least interesting
   part of the row."
   [payload]
-  (lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/leave-act-environment!)
   (rf/make-frame {:id             frame-id
                   :initial-events [[:rf/set-db (:rf/app-db payload)]]})
   frame-id)
@@ -178,10 +178,10 @@
   []
   (let [seen (atom [])
         k    (keyword (str "rf2-2rtt6-99-" (gensym)))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.ssr/hydration-mismatch (:operation ev))
                    (swap! seen conj ev))))
-    {:seen seen :stop! (fn [] (trace-tooling/unregister-listener! k) @seen)}))
+    {:seen seen :stop! (fn [] (rf.trace.tooling/unregister-listener! k) @seen)}))
 
 (defn- tags-of
   "The diagnostic's tags, merged with its top level, so a read is robust
@@ -207,7 +207,7 @@
         {:keys [seen stop!]} (watch-mismatches!)
         {:keys [captured close!]} (open-console-capture! capture-opts)
         before    (some? (open-panel-in container))
-        handle    (mount/hydrate-root! container frame-id [instance-key/screen {}])]
+        handle    (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id [rf.bench.hicasso.ssr.instance-key/screen {}])]
     (-> (adopted!)
         (.then (fn [ok]
                  (close!)
@@ -248,7 +248,7 @@
                 obliged about: " (:html green)))
 
       (testing "the green row ships the instance state at the documented tier"
-        (is (= true (get-in gdb instance-key/state-path))
+        (is (= true (get-in gdb rf.bench.hicasso.ssr.instance-key/state-path))
             (str "[:ui ::open? \"billing\"] crossed the wire as written. Saw: "
                  (pr-str gdb))))
 
@@ -256,11 +256,11 @@
         (is (not (contains? rdb :ui))
             (str "no :ui partition at all — not an empty one, not a
                   defaulted one; absent: " (pr-str rdb)))
-        (is (nil? (get-in rdb instance-key/state-path))))
+        (is (nil? (get-in rdb rf.bench.hicasso.ssr.instance-key/state-path))))
 
       (testing "and everything else is identical, so `:ui` is the whole
                difference"
-        (is (= (:panels gdb) (:panels rdb) instance-key/panels))
+        (is (= (:panels gdb) (:panels rdb) rf.bench.hicasso.ssr.instance-key/panels))
         (is (= #{:panels :ui} (set (keys gdb))))
         (is (= #{:panels} (set (keys rdb)))))
 
@@ -273,12 +273,12 @@
       (report! "payload"
                {:green-keys (vec (sort-by str (keys gdb)))
                 :red-keys   (vec (sort-by str (keys rdb)))
-                ;; `lane/utf8-bytes` and not `count`, which answers UTF-16
+                ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count`, which answers UTF-16
                 ;; code units (rf2-2rtt6.121). These two are a claim about
                 ;; the WIRE — the testing block above says so in as many
                 ;; words — and the wire carries bytes.
-                :green-edn-bytes (lane/utf8-bytes (:payload-edn green))
-                :red-edn-bytes   (lane/utf8-bytes (:payload-edn red))
+                :green-edn-bytes (rf.bench.hicasso.lane/utf8-bytes (:payload-edn green))
+                :red-edn-bytes   (rf.bench.hicasso.lane/utf8-bytes (:payload-edn red))
                 :html-identical? (= (:html green) (:html red))}))))
 
 ;; ===========================================================================
@@ -295,14 +295,14 @@
            for why it could not be stated over the hash"
     (doseq [row-id [green-id red-id]]
       (let [{:keys [identical? differs-at] a :first b :second}
-            (entry/render-twice (fixtures/row row-id))]
+            (rf.bench.hicasso.ssr.entry/render-twice (rf.bench.hicasso.ssr.fixtures/row row-id))]
         (is identical?
             (str "row " row-id " rendered two DIFFERENT documents"
                  (when differs-at
                    (str " — first difference at character " differs-at))))
         (is (not= (:frame-id a) (:frame-id b))
             (str "row " row-id " took two different per-request frames"))
-        (doseq [{ikey :id ptitle :title} instance-key/panels]
+        (doseq [{ikey :id ptitle :title} rf.bench.hicasso.ssr.instance-key/panels]
           (is (re-find (re-pattern (str "data-ikey=\"" ikey "\"")) (:html a))
               (str "the authored instance key " (pr-str ikey) " is in the
                     markup as written — not an ordinal, not a counter, not
@@ -320,8 +320,8 @@
            rows and the dogfood screen — a different page entirely — take
            one shared constant. Neither an absent value nor a constant one
            can carry a claim, so no claim in this file rests on it"
-    (let [payload (:payload (entry/render (fixtures/row green-id)))
-          hash-of #(ssr-hash/render-tree-hash (:hiccup (fixtures/row %)))
+    (let [payload (:payload (rf.bench.hicasso.ssr.entry/render (rf.bench.hicasso.ssr.fixtures/row green-id)))
+          hash-of #(rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.hicasso.ssr.fixtures/row %)))
           dogfood (hash-of "dogfood-snapshot")
           green   (hash-of green-id)
           red     (hash-of red-id)]
@@ -343,11 +343,11 @@
            finds nothing to reconcile — asserted on the framework's own
            diagnostic AND on both channels React 19 complains through"
     (async done
-      (if-not (mount/browser?)
+      (if-not (rf.bench.hicasso.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (let [{:keys [html payload]} (server! green-id)]
           (client-frame! payload)
-          (is (= true (get-in (rf/app-db-value frame-id) instance-key/state-path))
+          (is (= true (get-in (rf/app-db-value frame-id) rf.bench.hicasso.ssr.instance-key/state-path))
               "the client frame booted holding the instance state the
                server wrote — which is the whole of what the allowlist
                bought")
@@ -394,7 +394,7 @@
                               :warnings   (count warnings)
                               :panels     (panel-count container)
                               :open-after? (some? (open-panel-in container))})
-                    (finally (mount/release! handle)))))
+                    (finally (rf.bench.hicasso.arm1.mount/release! handle)))))
               ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
               ;; the whole remainder of the run synchronously, so a `.catch`
               ;; downstream of it would claim a later namespace's throw as this
@@ -424,11 +424,11 @@
            row goes on to assert that the door reported it as well as
            emitting it"
     (async done
-      (if-not (mount/browser?)
+      (if-not (rf.bench.hicasso.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (let [{:keys [html payload]} (server! red-id)]
           (client-frame! payload)
-          (is (nil? (get-in (rf/app-db-value frame-id) instance-key/state-path))
+          (is (nil? (get-in (rf/app-db-value frame-id) rf.bench.hicasso.ssr.instance-key/state-path))
               "the client frame booted WITHOUT the instance state — the
                entry is absent, so `reg-state`'s sub will read its
                `:default`, which is `false`")
@@ -487,7 +487,7 @@
                               :where      (str (:where (tags-of (first mismatches))))
                               :panels     (panel-count container)
                               :open-after? (some? (open-panel-in container))})
-                    (finally (mount/release! handle)))))
+                    (finally (rf.bench.hicasso.arm1.mount/release! handle)))))
               ;; Reports and RELEASES, as above.
               (.catch (fn [e] (is false (str "row 2 threw: " e)) nil))
               (.then (fn [_] (done)))))))))

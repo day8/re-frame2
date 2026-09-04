@@ -52,11 +52,11 @@
   compared. If the ported screen were not the same screen, the diff in
   the PR would be measuring two different things."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.controlled :as controlled]
-            [re-frame.bench.hicasso.front.intent :as intent]))
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]))
 
-(use-fixtures :each {:before (fn [] (codec/reset-caches!))})
+(use-fixtures :each {:before (fn [] (rf.bench.hicasso.front.codec/reset-caches!))})
 
 (def ^:private draft
   {:title "A title" :description "A description" :body "A body" :tagList "a,b"})
@@ -158,7 +158,7 @@
   unchanged; only the type moved."
   [e]
   (into [] (mapcat (fn [group] (filter #(and (some? %)
-                                             (= "input" (controlled/element-tag %)))
+                                             (= "input" (rf.bench.hicasso.front.controlled/element-tag %)))
                                        (children-of group))))
         (children-of e)))
 
@@ -171,8 +171,8 @@
         (js->clj (.-props e))))
 
 (defn- render [hiccup dispatched]
-  (intent/with-frame (fn [ev] (swap! dispatched conj ev))
-                     (fn [] (codec/as-element hiccup))))
+  (rf.bench.hicasso.front.intent/with-frame (fn [ev] (swap! dispatched conj ev))
+                     (fn [] (rf.bench.hicasso.front.codec/as-element hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; The port is the same screen

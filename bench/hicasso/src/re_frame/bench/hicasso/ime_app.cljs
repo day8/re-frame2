@@ -62,10 +62,10 @@
   model over `window`, and leaves every verdict to the driver — the same
   division every bench page in this directory keeps."
   (:require [clojure.string :as str]
-            [re-frame.adapter.uix :as uixa]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
             [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.intent :as intent]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
             [re-frame.core :as rf]
             [uix.core :refer [$ defui]]
             [uix.compiler.input]
@@ -209,8 +209,8 @@
   `front.intent/composing?` the hicasso key-map is gated by — so one gate
   is witnessed through both event plumbings, reading the native event."
   [{:keys [field]}]
-  (let [v (uixa/use-subscribe [:ime/cell field])
-        {:keys [dispatch-sync]} (uixa/use-frame)]
+  (let [v (rf.adapter.uix/use-subscribe [:ime/cell field])
+        {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
     ($ :input
        {:id        field
         :type      "text"
@@ -221,7 +221,7 @@
         :on-key-down (fn [^js e]
                        (probe-handler-event! field "keydown" e)
                        (when (and (= "Enter" (.-key e))
-                                  (not (intent/composing? e)))
+                                  (not (rf.bench.hicasso.front.intent/composing? e)))
                          (dispatch-sync [:ime/commit field])))
         :on-composition-start  (fn [^js e] (probe-handler-event! field "compositionstart" e))
         :on-composition-update (fn [^js e] (probe-handler-event! field "compositionupdate" e))
@@ -253,11 +253,11 @@
 
 (defn- mount-impl! [impl]
   (case impl
-    "hicasso" (mount/root! (container!) frame-id [ime-grid {}])
+    "hicasso" (rf.bench.hicasso.arm1.mount/root! (container!) frame-id [ime-grid {}])
     (let [c    (container!)
           root (react-dom-client/createRoot c)]
       (react-dom/flushSync
-       (fn [] (.render root ($ uixa/frame-provider {:frame frame-id}
+       (fn [] (.render root ($ rf.adapter.uix/frame-provider {:frame frame-id}
                               ($ ime-grid-uix {})))))
       {:root root :container c})))
 
@@ -283,7 +283,7 @@
     (let [impl (or (some-> (js/URLSearchParams. (.. js/window -location -search))
                            (.get "impl"))
                    "react")]
-      (rf/init! uixa/adapter)
+      (rf/init! rf.adapter.uix/adapter)
       (pin! impl)
       (rf/make-frame {:id frame-id :initial-events [[:ime/seed]]})
       (mount-impl! impl)

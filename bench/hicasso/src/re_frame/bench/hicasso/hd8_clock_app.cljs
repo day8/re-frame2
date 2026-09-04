@@ -17,7 +17,7 @@
   [[re-frame.bench.hicasso.hd8-rows]]'s OWN mount arms, unchanged: the same
   mount doors, the same per-arm frames, the same witnesses (`M`, 300
   boundary rows, `3 + 3N` elements; `U`, a 300-cell grid, `1 + N`), the
-  same `lane/mount-arm!` window for the in-page diagnostic reading. It
+  same `rf.bench.hicasso.lane/mount-arm!` window for the in-page diagnostic reading. It
   measures MOUNT ONLY. The write rows are not here: `rf2-d2tzk` records
   that the bulk row's floor sits on the clock clamp on the in-page
   instrument, and on this box the bulk-class rows cannot hold a
@@ -54,12 +54,12 @@
 
   Owner: rf2-2rtt6.1 (standard); this entry rf2-2rtt6.31."
   (:require ["react-dom/client" :as react-dom-client]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.adapter.reagent-slim :as slim-adapter]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.hd8-rows :as rows]
-            [re-frame.bench.hicasso.hd8-witnesses :as w]
-            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.hd8-rows :as rf.bench.hicasso.hd8-rows]
+            [re-frame.bench.hicasso.hd8-witnesses :as rf.bench.hicasso.hd8-witnesses]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
@@ -77,9 +77,9 @@
 
 (defn- install! [which]
   (rf/init! (case which
-              :reagent reagent-adapter/adapter
-              :slim    slim-adapter/adapter
-              uix-adapter/adapter))
+              :reagent rf.adapter.reagent/adapter
+              :slim    rf.adapter.reagent-slim/adapter
+              rf.adapter.uix/adapter))
   which)
 
 ;; ---------------------------------------------------------------------------
@@ -115,9 +115,9 @@
 (def ^:private ctl2x-m-rows
   "The doubling control's data — 600 rows of the same shape `:hd8/seed`
   writes, built once at load so no measured window pays for it."
-  (mapv #(str "r" %) (range (* 2 w/rows-n))))
+  (mapv #(str "r" %) (range (* 2 rf.bench.hicasso.hd8-witnesses/rows-n))))
 
-(def ^:private ctl2x-u-cells (vec (repeat (* 2 w/cells-n) "0")))
+(def ^:private ctl2x-u-cells (vec (repeat (* 2 rf.bench.hicasso.hd8-witnesses/cells-n) "0")))
 
 (defn- ctl2x-arm
   "The floor at TWICE the witness's boundaries — `clock_run.cjs`'s mount
@@ -129,13 +129,13 @@
   SIGNAL; what it cannot certify is exactness, and the driver states both."
   [witness-id]
   {:id       :ctl-2x
-   :cells    (* 2 w/rows-n)
+   :cells    (* 2 rf.bench.hicasso.hd8-witnesses/rows-n)
    :control? true
    :mount    (fn [container _props _n]
                (let [r (react-dom-client/createRoot container)]
                  (.render r (case witness-id
-                              :M (w/floor-m {:rows ctl2x-m-rows :n (* 2 w/rows-n)})
-                              :U (w/floor-u {:cells ctl2x-u-cells :n (* 2 w/cells-n)})))
+                              :M (rf.bench.hicasso.hd8-witnesses/floor-m {:rows ctl2x-m-rows :n (* 2 rf.bench.hicasso.hd8-witnesses/rows-n)})
+                              :U (rf.bench.hicasso.hd8-witnesses/floor-u {:cells ctl2x-u-cells :n (* 2 rf.bench.hicasso.hd8-witnesses/cells-n)})))
                  r))
    :unmount  (fn [r] (.unmount r))})
 
@@ -143,8 +143,8 @@
 
 (defn- witness-arm [witness-id arm-id]
   (case witness-id
-    :M (rows/m-arm arm-id)
-    :U (rows/u-arm arm-id)))
+    :M (rf.bench.hicasso.hd8-rows/m-arm arm-id)
+    :U (rf.bench.hicasso.hd8-rows/u-arm arm-id)))
 
 (defonce ^:private state (atom {:adapter nil :pending nil :tally nil}))
 
@@ -159,11 +159,11 @@
 
 (defn- expected-elements [row-key arm]
   (let [wid (get row-witness row-key)
-        n   (if (= :ctl-2x (:id arm)) (* 2 w/rows-n) w/rows-n)]
+        n   (if (= :ctl-2x (:id arm)) (* 2 rf.bench.hicasso.hd8-witnesses/rows-n) rf.bench.hicasso.hd8-witnesses/rows-n)]
     (cond
       (:plumb? arm) 0
-      (= :M wid)    (w/m-elements n)
-      :else         (w/u-elements n))))
+      (= :M wid)    (rf.bench.hicasso.hd8-witnesses/m-elements n)
+      :else         (rf.bench.hicasso.hd8-witnesses/u-elements n))))
 
 ;; ---------------------------------------------------------------------------
 ;; The frame settle — what makes the driver's delta frame-inclusive
@@ -183,7 +183,7 @@
     ok?))
 
 (defn sample!
-  "ONE mount through `lane/mount-arm!` — the SAME `flushSync` window the
+  "ONE mount through `rf.bench.hicasso.lane/mount-arm!` — the SAME `flushSync` window the
   hd8 instrument times, so the in-page diagnostic reading rides beside the
   protocol one on the same operation — left STANDING, settled to the next
   frame. The tare's operation is the settle and nothing else."
@@ -191,7 +191,7 @@
   (let [arm (arm-named row-key arm-id)]
     (if (:plumb? arm)
       (.then (settle-frame) (fn [_] (bank! true) #js {:inPageMs 0 :ok true}))
-      (let [mnt (lane/mount-arm! arm {:n w/rows-n})]
+      (let [mnt (rf.bench.hicasso.lane/mount-arm! arm {:n rf.bench.hicasso.hd8-witnesses/rows-n})]
         (swap! state assoc :pending {:mnt mnt :arm arm})
         (.then (settle-frame) (fn [_] #js {:inPageMs (:ms mnt) :ok true}))))))
 
@@ -202,9 +202,9 @@
   [row-key]
   (if-some [{:keys [mnt arm]} (:pending @state)]
     (let [ok? (= (expected-elements row-key arm)
-                 (lane/element-count (:container mnt)))]
+                 (rf.bench.hicasso.lane/element-count (:container mnt)))]
       (bank! ok?)
-      (lane/release! mnt)
+      (rf.bench.hicasso.lane/release! mnt)
       (swap! state assoc :pending nil)
       (.then (settle-frame) (fn [_] #js {:ok ok?})))
     (.then (settle-frame) (fn [_] #js {:ok true}))))
@@ -232,14 +232,14 @@
   (let [arm (arm-named row-key arm-id)]
     (if (:plumb? arm)
       #js {:arm (name arm-id) :hash 0 :bytes 0 :control true}
-      (let [mnt (lane/mount-arm! arm {:n w/rows-n})
-            s   (lane/canonical (:container mnt))]
-        (lane/release! mnt)
-        ;; `lane/utf8-bytes` and not `count`: the driver prints this under a
+      (let [mnt (rf.bench.hicasso.lane/mount-arm! arm {:n rf.bench.hicasso.hd8-witnesses/rows-n})
+            s   (rf.bench.hicasso.lane/canonical (:container mnt))]
+        (rf.bench.hicasso.lane/release! mnt)
+        ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count`: the driver prints this under a
         ;; `bytes` label, and `count` answers UTF-16 code units (rf2-2rtt6.121).
         #js {:arm     (name arm-id)
              :hash    (str-hash s)
-             :bytes   (lane/utf8-bytes s)
+             :bytes   (rf.bench.hicasso.lane/utf8-bytes s)
              :control (boolean (:control? arm))}))))
 
 ;; ---------------------------------------------------------------------------
@@ -249,26 +249,26 @@
 (defn ^:export -main []
   (let [which (query-adapter)]
     (install! which)
-    (lane/leave-act-environment!)
-    (swap! state assoc :adapter which :tally (lane/tally))
-    (doseq [id (get arm-ids-for which)] (rows/ensure-frame! id))
+    (rf.bench.hicasso.lane/leave-act-environment!)
+    (swap! state assoc :adapter which :tally (rf.bench.hicasso.lane/tally))
+    (doseq [id (get arm-ids-for which)] (rf.bench.hicasso.hd8-rows/ensure-frame! id))
     ;; hd8's OWN fairness gate, whole and fatal-on-fail: every arm of this
     ;; run builds one page at the stress size and at a small size, and the
     ;; comparison is proven able to answer false. Runs before the driver
     ;; reads a single counter; the driver refuses the run if it failed.
-    (let [problems  (rows/parity-problems (get arm-ids-for which))
+    (let [problems  (rf.bench.hicasso.hd8-rows/parity-problems (get arm-ids-for which))
           can-fail? (when (empty? problems)
-                      (rows/parity-can-fail? (get arm-ids-for which)))]
+                      (rf.bench.hicasso.hd8-rows/parity-can-fail? (get arm-ids-for which)))]
       (set! (.-HD8CLOCK_PARITY js/window)
             (clj->js {"ok"       (and (empty? problems) (boolean can-fail?))
                       "canFail"  (boolean can-fail?)
                       "problems" (mapv pr-str problems)})))
     (set! (.-HD8CLOCK js/window)
-          (lane/legible-doors
+          (rf.bench.hicasso.lane/legible-doors
           #js {:adapter       (name which)
                :plan          (fn [row]
                                 (clj->js (mapv (fn [a] {:id      (name (:id a))
-                                                        :cells   (or (:cells a) w/rows-n)
+                                                        :cells   (or (:cells a) rf.bench.hicasso.hd8-witnesses/rows-n)
                                                         :control (boolean (:control? a))
                                                         :plumb   (boolean (:plumb? a))})
                                                (arms-for (keyword row)))))
@@ -276,10 +276,10 @@
                :sample        (fn [row arm] (sample! (keyword row) (keyword arm)))
                :reap          (fn [row] (reap! (keyword row)))
                :settle        (fn [] (settle-frame))
-               :tally         (fn [] (clj->js (lane/tally-value (:tally @state))))
-               :teardownCheck (fn [] (clj->js (mapv :where (lane/drain-teardown-failures!))))
-               :runtime       (fn [] (pr-str (lane/runtime-label)))
-               :residue       (fn [] (pr-str (lane/residue (rows/frame-of :floor))))}))
+               :tally         (fn [] (clj->js (rf.bench.hicasso.lane/tally-value (:tally @state))))
+               :teardownCheck (fn [] (clj->js (mapv :where (rf.bench.hicasso.lane/drain-teardown-failures!))))
+               :runtime       (fn [] (pr-str (rf.bench.hicasso.lane/runtime-label)))
+               :residue       (fn [] (pr-str (rf.bench.hicasso.lane/residue (rf.bench.hicasso.hd8-rows/frame-of :floor))))}))
     (set! (.-HD8CLOCK_READY js/window) true)
     (js/console.log ";; HD8CLOCK ready")
     nil))

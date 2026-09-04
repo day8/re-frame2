@@ -11,7 +11,7 @@
   ([[re-frame.bench.hicasso.front.codec/mark-frame-prop!]]).
 
   **This file is the CORRECTNESS half only.** The bead's heap ladder, its
-  mount/bulk clock and its studio row are measurement work on a quiet box
+  rf.bench.hicasso.arm1.mount/bulk clock and its studio row are measurement work on a quiet box
   and are not taken here (rf2-2rtt6.72). What is settled here is what a
   measurement is not allowed to be taken without:
 
@@ -44,26 +44,26 @@
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every claim degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.hook-probe :as probe]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt :refer [sub]]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.hook-probe :as rf.bench.hicasso.arm1.hook-probe]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime :refer [sub]]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; Same reason as the hook-ledger fixture: the default leaves a
      ;; dynamic-var frame stamp in scope, and a frame resolved from there
      ;; instead of from the prop would make an isolation miss look like a
      ;; rendering difference.
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-a ::arm1-frame-prop-a)
 (def ^:private frame-b ::arm1-frame-prop-b)
@@ -95,7 +95,7 @@
 
 (def frame-prop-row
   "The challenger: the frame arrives as `rfFrame` on the element."
-  (rt/mint-frame-prop-view! "frame-prop-row" row-body))
+  (rf.bench.hicasso.arm1.runtime/mint-frame-prop-view! "frame-prop-row" row-body))
 
 ;; ---------------------------------------------------------------------------
 ;; The foreign component in the middle (claim 3)
@@ -109,7 +109,7 @@
   (react/createElement "div" #js {"className" "hatch"} (.-children props)))
 
 (def ^:private hatch
-  (codec/mint-host! "frame-prop-test/hatch" passthrough-component))
+  (rf.bench.hicasso.front.codec/mint-host! "frame-prop-test/hatch" passthrough-component))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture helpers
@@ -125,14 +125,14 @@
                  " rather than reading this as a pass.")))
 
 (defn- frames! []
-  (lane/leave-act-environment!)
-  (dogfood/make-frame! frame-a todos)
-  (dogfood/make-frame! frame-b todos)
-  (dogfood/reseed! frame-a todos)
-  (dogfood/reseed! frame-b todos))
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.front.dogfood/make-frame! frame-a todos)
+  (rf.bench.hicasso.front.dogfood/make-frame! frame-b todos)
+  (rf.bench.hicasso.front.dogfood/reseed! frame-a todos)
+  (rf.bench.hicasso.front.dogfood/reseed! frame-b todos))
 
 (defn- mount! [frame-kw hiccup]
-  (mount/root! (mount/fresh-container!) frame-kw hiccup))
+  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-kw hiccup))
 
 (defn- text-of [handle]
   (.-textContent (:container handle)))
@@ -143,8 +143,8 @@
   root, page and frame so only the component varies."
   [hiccup]
   (let [handle (volatile! nil)
-        names  (probe/record! (fn [] (vreset! handle (mount! frame-a hiccup))))]
-    (mount/release! @handle)
+        names  (rf.bench.hicasso.arm1.hook-probe/record! (fn [] (vreset! handle (mount! frame-a hiccup))))]
+    (rf.bench.hicasso.arm1.mount/release! @handle)
     names))
 
 ;; ---------------------------------------------------------------------------
@@ -152,9 +152,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-frame-prop-shell-calls-one-hook-where-the-context-shell-calls-two
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (probe/install!)
+    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "the same body, minted twice, counted by the same probe on
                the same page — the frame hook is the whole difference"
@@ -165,22 +165,22 @@
               (str "the incumbent's ledger, unchanged: " (pr-str ctx)))
           (is (= ["useSyncExternalStore"] prop)
               (str "and the frame-fed shell asks for one hook: " (pr-str prop)))
-          (is (= (count rt/shell-hook-ledger) (count ctx))
+          (is (= (count rf.bench.hicasso.arm1.runtime/shell-hook-ledger) (count ctx))
               "each declared ledger is the measured one")
-          (is (= (count rt/frame-prop-shell-hook-ledger) (count prop))
+          (is (= (count rf.bench.hicasso.arm1.runtime/frame-prop-shell-hook-ledger) (count prop))
               "for both variants")
           (is (= 1 (- (count ctx) (count prop)))
               "one slot of the ≤2 budget is freed, and it is exactly one"))))))
 
 (deftest the-freed-slot-does-not-come-back-with-the-read-count
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (probe/install!)
+    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "1, 7 and 20 reads all cost ONE hook — the budget claim the
                ledger test makes at two, restated at one"
         (frames!)
-        (let [many (rt/mint-frame-prop-view!
+        (let [many (rf.bench.hicasso.arm1.runtime/mint-frame-prop-view!
                      "frame-prop-many"
                      (fn [{:keys [n]}]
                        [:ul.reads
@@ -196,7 +196,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest one-app-in-two-isolated-frames-and-no-read-crosses
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (testing "the same view mounted in two frames reads two app-dbs, and a
              write to one moves only one"
@@ -206,21 +206,21 @@
         (is (= "no" (text-of a)) "frame A starts undone")
         (is (= "no" (text-of b)) "frame B starts undone")
 
-        (mount/dispatch! a [:dogfood/toggle 0])
+        (rf.bench.hicasso.arm1.mount/dispatch! a [:dogfood/toggle 0])
         (is (= "yes" (text-of a)) "the write lands in the frame it was sent to")
         (is (= "no" (text-of b))
             "and NOTHING crosses — a prop-threaded frame isolates as
              completely as the context it replaces")
 
-        (mount/dispatch! b [:dogfood/toggle 0])
+        (rf.bench.hicasso.arm1.mount/dispatch! b [:dogfood/toggle 0])
         (is (= "yes" (text-of a)) "A is undisturbed by B's write")
         (is (= "yes" (text-of b)) "and B moves on its own")
 
-        (mount/release! a)
-        (mount/release! b)))))
+        (rf.bench.hicasso.arm1.mount/release! a)
+        (rf.bench.hicasso.arm1.mount/release! b)))))
 
 (deftest the-two-variants-isolate-identically
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (testing "the incumbent is put through the identical witness, so
              'isolation holds' is a comparison and not an assertion about
@@ -228,45 +228,45 @@
       (frames!)
       (let [a (mount! frame-a [context-row {:id 0}])
             b (mount! frame-b [context-row {:id 0}])]
-        (mount/dispatch! a [:dogfood/toggle 0])
+        (rf.bench.hicasso.arm1.mount/dispatch! a [:dogfood/toggle 0])
         (is (= "yes" (text-of a)))
         (is (= "no" (text-of b)))
-        (mount/release! a)
-        (mount/release! b)))))
+        (rf.bench.hicasso.arm1.mount/release! a)
+        (rf.bench.hicasso.arm1.mount/release! b)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. A foreign component in the middle
 ;; ---------------------------------------------------------------------------
 
 (deftest a-foreign-component-between-two-boundaries-preserves-the-frame
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (testing "the children handed to a foreign component were created by
              the Hicasso body ABOVE it, with the frame already in them, so
              `props.children` carries it through untouched"
       (frames!)
-      (let [outer (rt/mint-frame-prop-view!
+      (let [outer (rf.bench.hicasso.arm1.runtime/mint-frame-prop-view!
                     "frame-prop-outer"
                     (fn [_] [hatch {} [frame-prop-row {:id 0}]]))
             a     (mount! frame-a [outer {}])
             b     (mount! frame-b [outer {}])]
         (is (= "no" (text-of a)))
         (is (= "no" (text-of b)))
-        (mount/dispatch! a [:dogfood/toggle 0])
+        (rf.bench.hicasso.arm1.mount/dispatch! a [:dogfood/toggle 0])
         (is (= "yes" (text-of a))
             "the inner boundary resolved a frame at all — no crossing threw")
         (is (= "no" (text-of b))
             "and it resolved the RIGHT one, through a component that knows
              nothing about frames")
-        (mount/release! a)
-        (mount/release! b)))))
+        (rf.bench.hicasso.arm1.mount/release! a)
+        (rf.bench.hicasso.arm1.mount/release! b)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. The memo does not swallow a frame change (the mutation witness)
 ;; ---------------------------------------------------------------------------
 
 (deftest a-frame-change-with-unchanged-props-still-re-renders
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (testing "same root, same element, same props map, different frame.
              The props-equality bail-out would otherwise leave the body
@@ -277,24 +277,24 @@
       ;; Frame A's row is done; frame B's is not. Props are `{:id 0}` in
       ;; both renders, so `=` on `rfProps` is true and the comparator is
       ;; the only thing that can decide to re-render.
-      (rt/dispatch! frame-a [:dogfood/toggle 0])
+      (rf.bench.hicasso.arm1.runtime/dispatch! frame-a [:dogfood/toggle 0])
       (let [handle (mount! frame-a [frame-prop-row {:id 0}])]
         (is (= "yes" (text-of handle)) "mounted in A, reading A")
-        (mount/render! (assoc handle :frame frame-b) [frame-prop-row {:id 0}])
+        (rf.bench.hicasso.arm1.mount/render! (assoc handle :frame frame-b) [frame-prop-row {:id 0}])
         (is (= "no" (text-of handle))
             "re-rendered into B and reading B — the comparator saw the
              frame move even though the props did not")
-        (mount/release! handle)))))
+        (rf.bench.hicasso.arm1.mount/release! handle)))))
 
 (deftest the-incumbent-survives-the-same-frame-change
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (testing "for free, and by a different mechanism: React propagates a
              context change to its consumers ahead of the comparator"
       (frames!)
-      (rt/dispatch! frame-a [:dogfood/toggle 0])
+      (rf.bench.hicasso.arm1.runtime/dispatch! frame-a [:dogfood/toggle 0])
       (let [handle (mount! frame-a [context-row {:id 0}])]
         (is (= "yes" (text-of handle)))
-        (mount/render! (assoc handle :frame frame-b) [context-row {:id 0}])
+        (rf.bench.hicasso.arm1.mount/render! (assoc handle :frame frame-b) [context-row {:id 0}])
         (is (= "no" (text-of handle)))
-        (mount/release! handle)))))
+        (rf.bench.hicasso.arm1.mount/release! handle)))))

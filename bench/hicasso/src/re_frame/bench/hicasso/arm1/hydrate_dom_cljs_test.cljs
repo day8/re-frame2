@@ -49,7 +49,7 @@
   2. **`act` and `flushSync` are not the browser's schedule.** Adoption
      is React's own concurrent business, so `hydration-support/adopted!`
      waits on real timers for the closer's passive effect and never pulls
-     it forward. `mount/dispatch!` still flushes, but only in rows whose
+     it forward. `rf.bench.hicasso.arm1.mount/dispatch!` still flushes, but only in rows whose
      claim is about the model rather than about the turn.
 
   Both live in `arm1/hydration_support.cljs` — one copy, shared with the
@@ -60,17 +60,17 @@
   React DOM; under `:node-test` every DOM claim degrades to a stated
   skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.hicasso.arm1.hydration-support
              :refer [adopted! open-console-capture! server-dom! server-node?
                      stamp-server-nodes!]]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
             [re-frame.bench.hicasso.arm1.presence :refer [presence]]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.controlled :as controlled]
-            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support])
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (def ^:private frame-id ::arm1-hydrate-dom)
@@ -105,21 +105,21 @@
   (fn [{:keys [db]} [_ v]] {:db (assoc db :field v)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rt/reset-runtime!) (rt/reset-body-runs!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!) (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
 
 (defn- skip! [why]
   (is true (str "a hydration claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:hyd/seed]))
-  (rt/reset-runtime!)
-  (rt/reset-body-runs!)
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
   frame-id)
 
 ;; ---------------------------------------------------------------------------
@@ -133,13 +133,13 @@
   known divergence (rf2-2rtt6.88's text-separator row) instead of this
   door."
   [{:keys [i]}]
-  [:li.row {:data-i i} (rt/sub [:hyd/row i])])
+  [:li.row {:data-i i} (rf.bench.hicasso.arm1.runtime/sub [:hyd/row i])])
 
 (defview screen
   "Four boundaries: this one and three rows."
   [_]
   [:div.screen
-   [:h1.title (rt/sub [:hyd/title])]
+   [:h1.title (rf.bench.hicasso.arm1.runtime/sub [:hyd/title])]
    [:ul.rows (for [i (range 3)] [row {:key i :i i}])]])
 
 (def ^:private boundary-count
@@ -172,7 +172,7 @@
   that entered is visibly different from one that was born present."
   [_]
   [presence {:timeout-ms toast-timeout-ms}
-   (for [t (rt/sub [:hyd/toasts])]
+   (for [t (rf.bench.hicasso.arm1.runtime/sub [:hyd/toasts])]
      [:div.toast {:key (:id t)
                   :data-id (:id t)
                   :re-frame.hicasso/mounting   {:class "toast toast--enter"}
@@ -183,7 +183,7 @@
   "One controlled text input — HD-019's shape, on the hydrated path."
   [_]
   [:input#hyd-field.field {:type     "text"
-                           :value    (rt/sub [:hyd/field])
+                           :value    (rf.bench.hicasso.arm1.runtime/sub [:hyd/field])
                            :on-input [:hyd/set-field :re-frame.hicasso/value]}])
 
 (defview revision-field-screen
@@ -192,8 +192,8 @@
   the model owns rather than a literal."
   [_]
   [:input#hyd-field.field {:type     "text"
-                           :value    (rt/sub [:hyd/field])
-                           :re-frame.hicasso/revision (rt/sub [:hyd/revision])
+                           :value    (rf.bench.hicasso.arm1.runtime/sub [:hyd/field])
+                           :re-frame.hicasso/revision (rf.bench.hicasso.arm1.runtime/sub [:hyd/revision])
                            :on-input [:hyd/set-field :re-frame.hicasso/value]}])
 
 (defn- drift!
@@ -221,11 +221,11 @@
   window, which is the state a server render is in, and released
   afterwards so the runtime the hydration is measured on is empty."
   [hiccup]
-  (rt/open-adoption-window!)
-  (let [container (mount/fresh-container!)
-        handle    (mount/root! container frame-id hiccup)
+  (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
+  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
+        handle    (rf.bench.hicasso.arm1.mount/root! container frame-id hiccup)
         html      (.-innerHTML container)]
-    (mount/release! handle)
+    (rf.bench.hicasso.arm1.mount/release! handle)
     html))
 
 ;; `server-dom!`, `stamp-server-nodes!`, `server-node?`, `capture-console!`
@@ -244,7 +244,7 @@
 
 (deftest hydrate-root-adopts-the-server-dom-and-the-closer-shuts-the-window
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
@@ -252,10 +252,10 @@
               container (stamp-server-nodes! (server-dom! html))
               title     (.querySelector container ".title")]
           (is (server-node? title) "the stamp is on the server's own node")
-          (rt/reset-body-runs!)
+          (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
           (let [{:keys [captured close!]} (open-console-capture!)
-                handle (mount/hydrate-root! container frame-id [screen {}])]
-            (is (true? (rt/adopting?))
+                handle (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id [screen {}])]
+            (is (true? (rf.bench.hicasso.arm1.runtime/adopting?))
                 "the window is OPEN the instant `hydrate-root!` returns —
                  `hydrateRoot` was called plain, so this returns before the
                  tree is adopted and the window has to outlive the call")
@@ -265,9 +265,9 @@
                     (close!)
                     (try
                       (is (true? ok) "the closer's passive effect ran")
-                      (is (false? (rt/adopting?))
+                      (is (false? (rf.bench.hicasso.arm1.runtime/adopting?))
                           "and shut the window — adoption is complete, and
-                           `(rt/adopting?)` answering false IS that effect
+                           `(rf.bench.hicasso.arm1.runtime/adopting?)` answering false IS that effect
                            having run, which is the completion signal this
                            door offers in place of a `flushSync`")
                       (is (= [] @captured)
@@ -281,7 +281,7 @@
                           "and so is every row")
                       (is (= "hydrated" (text-of container ".title")))
                       (is (= "alpha" (text-of container ".row[data-i=\"0\"]")))
-                      (finally (mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
 
 ;; ===========================================================================
 ;; 2 — the reap horizon does not detach the adopted subscriptions
@@ -289,19 +289,19 @@
 
 (deftest the-reaper-does-not-evict-the-entries-hydration-subscribed-to
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (let [html      (server-html! [screen {}])
               container (server-dom! html)
-              handle    (mount/hydrate-root! container frame-id [screen {}])]
+              handle    (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id [screen {}])]
           (-> (adopted!)
               (.then
                 (fn [ok]
                   (try
                     (is (true? ok) "adoption completed")
-                    (let [stats (rt/stats)]
+                    (let [stats (rf.bench.hicasso.arm1.runtime/stats)]
                       (is (= boundary-count (:boundaries stats))
                           "every boundary committed its reads")
                       (is (= boundary-count (:entries stats))
@@ -317,26 +317,26 @@
                            of something"))
                     ;; The adopted subscription is LIVE, and re-rendering
                     ;; through it does not rebuild the cache.
-                    (mount/dispatch! handle [:hyd/set-row 1 "BETA"])
+                    (rf.bench.hicasso.arm1.mount/dispatch! handle [:hyd/set-row 1 "BETA"])
                     (is (= "BETA" (text-of container ".row[data-i=\"1\"]"))
                         "a write after adoption reaches the adopted boundary")
-                    (is (= boundary-count (:entries (rt/stats)))
+                    (is (= boundary-count (:entries (rf.bench.hicasso.arm1.runtime/stats)))
                         "and mints no second entry — the read sequence is
                          unchanged, so the cache hit keeps `subscribe`'s
                          identity and React never re-subscribes")
-                    (finally (mount/release! handle) (done)))))))))))
+                    (finally (rf.bench.hicasso.arm1.mount/release! handle) (done)))))))))))
 
 ;; ===========================================================================
 ;; 3 — presence is BORN PRESENT under adoption
 ;; ===========================================================================
 
 (deftest a-client-mounted-tray-enters-so-the-row-below-can-answer-false
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [container (mount/fresh-container!)
-            handle    (mount/root! container frame-id [toast-tray {}])]
+      (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
+            handle    (rf.bench.hicasso.arm1.mount/root! container frame-id [toast-tray {}])]
         (try
           (testing "**the control.** An ordinary client mount meets its
                    children for the first time, so they are `:mounting` and
@@ -347,11 +347,11 @@
               (is (some? toast))
               (is (.contains (.-classList toast) "toast--enter")
                   "the enter override is on the freshly mounted node")))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 (deftest a-hydrated-tray-is-born-present-and-never-replays-its-enter
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
@@ -367,7 +367,7 @@
                 toast     (.querySelector container ".toast")]
             (is (server-node? toast))
             (let [{:keys [captured close!]} (open-console-capture!)
-                  handle (mount/hydrate-root! container frame-id [toast-tray {}])]
+                  handle (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id [toast-tray {}])]
               (-> (adopted!)
                   (.then
                     (fn [ok]
@@ -387,7 +387,7 @@
                                entering it would replay an animation the user
                                has already watched")
                           (is (= "Saved" (.-textContent after))))
-                        (finally (mount/release! handle) (done)))))))))))))
+                        (finally (rf.bench.hicasso.arm1.mount/release! handle) (done)))))))))))))
 
 ;; ===========================================================================
 ;; 4 — HD-019's rider: the hydrated controlled input
@@ -395,7 +395,7 @@
 
 (deftest the-hydrated-controlled-input-keeps-its-mirror
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
@@ -411,9 +411,9 @@
             (is (server-node? before))
             (is (= "abc" (.-value before))
                 "the field shows the server's value before any JS ran")
-            (rt/reset-body-runs!)
+            (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
             (let [{:keys [captured close!]} (open-console-capture!)
-                  handle (mount/hydrate-root! container frame-id [field-screen {}])]
+                  handle (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id [field-screen {}])]
               (-> (adopted!)
                   (.then
                     (fn [ok]
@@ -432,18 +432,18 @@
                                runs at the end of a change handler and
                                hydration fires none, so the field holds
                                exactly what the server rendered")
-                          (is (= "abc" (controlled/last-rendered after))
+                          (is (= "abc" (rf.bench.hicasso.front.controlled/last-rendered after))
                               "**and the `defaultValue` mirror is established
                                on the hydrated path too** — the one dependency
                                `front.controlled` has on React, extended to
                                adoption. Without it every caret restore on a
                                hydrated field would converge to the wrong
                                string"))
-                        (is (= 1 (rt/body-runs))
+                        (is (= 1 (rf.bench.hicasso.arm1.runtime/body-runs))
                             (str "one boundary, one body run across the whole "
                                  "adoption — no converge, and so no extra "
-                                 "render; read " (rt/body-runs)))
-                        (finally (mount/release! handle) (done)))))))))))))
+                                 "render; read " (rf.bench.hicasso.arm1.runtime/body-runs)))
+                        (finally (rf.bench.hicasso.arm1.mount/release! handle) (done)))))))))))))
 
 ;; ===========================================================================
 ;; 5 — HD-028's rider: the memo cannot fake adoption
@@ -451,23 +451,23 @@
 
 (deftest the-body-run-count-across-adoption-is-counted-and-not-inferred
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (let [html      (server-html! [screen {}])
               container (stamp-server-nodes! (server-dom! html))]
-          (rt/reset-body-runs!)
-          (let [handle (mount/hydrate-root! container frame-id [screen {}])]
+          (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+          (let [handle (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id [screen {}])]
             (-> (adopted!)
                 (.then
                   (fn [ok]
                     (try
                       (is (true? ok) "adoption completed")
-                      (is (= boundary-count (rt/body-runs))
+                      (is (= boundary-count (rf.bench.hicasso.arm1.runtime/body-runs))
                           (str "**each boundary's body ran exactly once to "
                                "adopt.** Counted in `run-once`, where a body "
-                               "is invoked — read " (rt/body-runs)))
+                               "is invoked — read " (rf.bench.hicasso.arm1.runtime/body-runs)))
                       (testing "**and the count is real, not memo-inferred**
                                (HD-028's rider). Re-rendering the same tree
                                with equal props bails out at `mint-view!`'s
@@ -478,7 +478,7 @@
                                genuine adoption from a skipped one.
 
                                **This row also pins the hydrated root's
-                               SHAPE** (`mount/tree`). The closer rides as a
+                               SHAPE** (`rf.bench.hicasso.arm1.mount/tree`). The closer rides as a
                                Fragment sibling, and a `render!` that handed
                                the same root a bare provider instead would not
                                be a cheap re-render — React would reconcile a
@@ -487,16 +487,16 @@
                                repair: four body runs and four replaced nodes,
                                i.e. everything the adoption achieved, undone by
                                the first ordinary render"
-                        (rt/reset-body-runs!)
-                        (mount/render! handle [screen {}])
-                        (is (zero? (rt/body-runs))
+                        (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+                        (rf.bench.hicasso.arm1.mount/render! handle [screen {}])
+                        (is (zero? (rf.bench.hicasso.arm1.runtime/body-runs))
                             (str "a props-equal re-render ran no body; read "
-                                 (rt/body-runs)))
+                                 (rf.bench.hicasso.arm1.runtime/body-runs)))
                         (is (every? server-node?
                                     (array-seq (.querySelectorAll container ".row")))
                             "and every row is still the SERVER'S node — the
                              render did not remount the adopted tree"))
-                      (finally (mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
 
 ;; ===========================================================================
 ;; 6 — HD-019's OTHER rider: a `::h/revision` arriving mid-adoption
@@ -513,12 +513,12 @@
 ;;
 ;; **The row below is not a re-run of that race, because `mid-adoption` is
 ;; a fact here rather than a wait.** `hydrate-root!` refuses to `flushSync`,
-;; so it returns before the tree is adopted and `(rt/adopting?)` is TRUE on
+;; so it returns before the tree is adopted and `(rf.bench.hicasso.arm1.runtime/adopting?)` is TRUE on
 ;; the line after — asserted, exactly as §1 asserts it. The dispatch is
 ;; synchronous in that same turn, so no timer, no retry loop and no
 ;; tolerance stands between the two: nothing can interleave and there is
-;; nothing to settle. It goes through `rt/dispatch!` rather than
-;; `mount/dispatch!` deliberately — the latter's `settle!` is a `flushSync`,
+;; nothing to settle. It goes through `rf.bench.hicasso.arm1.runtime/dispatch!` rather than
+;; `rf.bench.hicasso.arm1.mount/dispatch!` deliberately — the latter's `settle!` is a `flushSync`,
 ;; and flushing React mid-adoption would manufacture the very schedule this
 ;; door exists to refuse.
 ;;
@@ -543,7 +543,7 @@
 
 (deftest a-revision-arriving-mid-adoption-is-absorbed-by-the-adoption
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
@@ -561,14 +561,14 @@
                 "the draft really landed, and it landed BEFORE any JS adopted
                  the page — which is the only way a hydrated field can be
                  carrying one at all")
-            (rt/reset-body-runs!)
+            (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
             (let [{:keys [captured close!]} (open-console-capture!)
-                  handle (mount/hydrate-root! container frame-id
+                  handle (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id
                                               [revision-field-screen {}])]
-              (is (true? (rt/adopting?))
+              (is (true? (rf.bench.hicasso.arm1.runtime/adopting?))
                   "**the window is OPEN**, so the dispatch on the next line is
                    mid-adoption by construction rather than by timing")
-              (rt/dispatch! frame-id [:hyd/set-revision "rev-2"])
+              (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:hyd/set-revision "rev-2"])
               (-> (adopted!)
                   (.then
                     (fn [ok]
@@ -596,20 +596,20 @@
                                not an update, so the per-commit re-assert that
                                carries the whole reset never ran — the draft is
                                exactly where the user left it")
-                          (is (= "abc" (controlled/last-rendered after))
+                          (is (= "abc" (rf.bench.hicasso.front.controlled/last-rendered after))
                               "while the mirror is the MODEL's, so the field is
                                one ordinary commit away from converging"))
-                        (is (= 1 (rt/body-runs))
+                        (is (= 1 (rf.bench.hicasso.arm1.runtime/body-runs))
                             (str "one boundary, ONE body run across the whole "
                                  "adoption — the mid-adoption revision produced "
                                  "no render of its own, which is what ABSORBED "
-                                 "means; read " (rt/body-runs)))
+                                 "means; read " (rf.bench.hicasso.arm1.runtime/body-runs)))
                         (testing "**and the field is not stranded.** The next
                                  revision change after the window shuts resets
                                  it, on the SERVER's own node — the half of
                                  R3's claim that does survive"
-                          (rt/reset-body-runs!)
-                          (mount/dispatch! handle [:hyd/set-revision "rev-3"])
+                          (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+                          (rf.bench.hicasso.arm1.mount/dispatch! handle [:hyd/set-revision "rev-3"])
                           (let [after (.querySelector container "#hyd-field")]
                             (is (= "abc" (.-value after))
                                 "the draft is discarded and the field
@@ -617,7 +617,7 @@
                             (is (identical? before after)
                                 "WITHOUT REMOUNT — still the server's own node")
                             (is (server-node? after))
-                            (is (= 1 (rt/body-runs))
+                            (is (= 1 (rf.bench.hicasso.arm1.runtime/body-runs))
                                 (str "on one ordinary commit; read "
-                                     (rt/body-runs)))))
-                        (finally (mount/release! handle) (done)))))))))))))
+                                     (rf.bench.hicasso.arm1.runtime/body-runs)))))
+                        (finally (rf.bench.hicasso.arm1.mount/release! handle) (done)))))))))))))

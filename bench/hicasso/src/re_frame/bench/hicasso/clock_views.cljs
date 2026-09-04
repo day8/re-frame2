@@ -59,11 +59,11 @@
   directly would price Hicasso's event pipeline against the donors' bare
   write and then call the difference view work. So all three substrate
   arms share one handler, [[write-draft!]] — Hicasso's behind
-  `intent/callback`, HD-024's one callback form, which returns the
+  `rf.bench.hicasso.front.intent/callback`, HD-024's one callback form, which returns the
   function itself.
 
   React's `onChange` fires on the native `input` event, and Hicasso's
-  `:on-change` lowers to the same prop: `intent/lower-prop` claims every
+  `:on-change` lowers to the same prop: `rf.bench.hicasso.front.intent/lower-prop` claims every
   `^on-` position and `slot/prop-name` camelCases it to `onChange`. Same
   prop, same event, same handler.
 
@@ -86,13 +86,13 @@
 
   Owner: rf2-2rtt6.1 (standard); these witnesses rf2-0qj9w."
   (:require ["react" :as react]
-            [re-frame.adapter.uix :as uixa]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.bench.hicasso.p0-reagent-views :as v]
-            [re-frame.bench.hicasso.p0-uix-views :as ux]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
+            [re-frame.bench.hicasso.p0-uix-views :as rf.bench.hicasso.p0-uix-views]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [uix.core :refer [$ defui]])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]
                    [re-frame.core :refer [reg-view]]))
@@ -157,7 +157,7 @@
   `p0-reagent-views/register!` because the census has to see it: the grid
   is 100 of the 104 subscriptions a keystroke recomputes, and a census
   that could only see the fields would answer the easy quarter of
-  validation.md's question. It delegates to `v/cell-value`, so there is
+  validation.md's question. It delegates to `rf.bench.hicasso.p0-reagent-views/cell-value`, so there is
   still exactly one body for that computation.
 
   `:p0/draft` is INDEXED and keeps a query id of its own rather than
@@ -169,7 +169,7 @@
   an adapter once per segment and re-registers on every segment entry,
   and a re-register overwrites with the identical handler."
   []
-  (rf/reg-sub :p0/cell  (fn [db [_ i]] (tick! "p0/cell")  (v/cell-value db i)))
+  (rf/reg-sub :p0/cell  (fn [db [_ i]] (tick! "p0/cell")  (rf.bench.hicasso.p0-reagent-views/cell-value db i)))
   (rf/reg-sub :p0/draft (fn [db [_ i]] (tick! "p0/draft") (get-in db [:draft i] "")))
   nil)
 
@@ -178,7 +178,7 @@
 (defn seed
   "The keystroke witness's app-db — the grid's cells plus empty drafts."
   [n]
-  (assoc (v/seed-cells n 0) :draft (vec (repeat kb-fields-n ""))))
+  (assoc (rf.bench.hicasso.p0-reagent-views/seed-cells n 0) :draft (vec (repeat kb-fields-n ""))))
 
 (defn write-draft!
   "THE ONE HANDLER, shared by all three substrate arms.
@@ -200,9 +200,9 @@
   rather than a footnote."
   [i e]
   (let [s      (.. e -target -value)
-        drafts (or (:draft (rf/app-db-value v/subs-frame))
+        drafts (or (:draft (rf/app-db-value rf.bench.hicasso.p0-reagent-views/subs-frame))
                    (vec (repeat kb-fields-n "")))]
-    (frame/replace-app-db! v/subs-frame
+    (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame
                            (assoc (seed kb-cells-n) :draft (assoc drafts i s))))
   nil)
 
@@ -237,7 +237,7 @@
   [:input.draft {:type      "text"
                  :data-i    (str "draft-" i)
                  :value     (sub [:p0/draft i])
-                 :on-change (intent/callback (fn [e] (write-draft! i e)))}])
+                 :on-change (rf.bench.hicasso.front.intent/callback (fn [e] (write-draft! i e)))}])
 
 (defn kb-form
   "The keystroke page: four fields above the grid."
@@ -261,10 +261,10 @@
   [n]
   (into [:form.kbform]
         (conj (mapv (fn [i] ^{:key i} [r-kb-field i]) (range kb-fields-n))
-              [v/m1-subs n])))
+              [rf.bench.hicasso.p0-reagent-views/m1-subs n])))
 
 (defn r-kb-root [n]
-  [rf/frame-provider {:frame v/subs-frame} [r-kb-form n]])
+  [rf/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame} [r-kb-form n]])
 
 ;; ---------------------------------------------------------------------------
 ;; UIx — the co-instrumented comparator
@@ -273,7 +273,7 @@
 (defui u-kb-field [{:keys [i]}]
   ($ :input.draft {:type      "text"
                    :data-i    (str "draft-" i)
-                   :value     (uixa/use-subscribe [:p0/draft i])
+                   :value     (rf.adapter.uix/use-subscribe [:p0/draft i])
                    :on-change (fn [e] (write-draft! i e))}))
 
 (defui u-kb-form [{:keys [n]}]
@@ -284,10 +284,10 @@
   ;; the canonical-DOM gate checks rather than takes on trust.
   ($ :form.kbform
      (into-array (mapv (fn [i] ($ u-kb-field {:key i :i i})) (range kb-fields-n)))
-     ($ ux/m1 {:n n})))
+     ($ rf.bench.hicasso.p0-uix-views/m1 {:n n})))
 
 (defn u-kb-root [n]
-  ($ uixa/frame-provider {:frame v/subs-frame}
+  ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame}
      ($ u-kb-form {:n n})))
 
 ;; ---------------------------------------------------------------------------
@@ -336,7 +336,7 @@
           drafts (aget state 0)
           put!   (aget state 1)]
       ;; Children as VARARGS rather than as an array: an array child needs
-      ;; a `key` per entry and `v/m1-floor` — which is the M1 floor
+      ;; a `key` per entry and `rf.bench.hicasso.p0-reagent-views/m1-floor` — which is the M1 floor
       ;; unchanged, so that the two floors are one page — does not carry
       ;; one. Varargs is React's own escape from that and costs the page
       ;; nothing.
@@ -357,7 +357,7 @@
                                                                (aset nx i s)
                                                                nx)))))}))
                      (range kb-fields-n))
-               (v/m1-floor (vec (repeat n 0))))))))
+               (rf.bench.hicasso.p0-reagent-views/m1-floor (vec (repeat n 0))))))))
 
 (defn kb-floor-element
   "The floor's element, at `n` boundaries and `busy` milliseconds of

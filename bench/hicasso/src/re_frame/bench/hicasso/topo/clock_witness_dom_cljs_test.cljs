@@ -31,7 +31,7 @@
      proves the source changed; it does not prove the runtime observed
      the plant. So the witness below mounts a real arm and drives
      `clock-app/window!` itself — the same function the clock run calls,
-     banking into the same `lane/tally` — with the ONE difference that
+     banking into the same `rf.bench.hicasso.lane/tally` — with the ONE difference that
      the commits are dispatched into a frame nothing is mounted over. The
      page therefore never moves while the clock runs and the probes read
      it afterwards, which is the exact fault the read-back exists to
@@ -45,21 +45,21 @@
   they touch no DOM — and every DOM claim degrades to a stated skip
   there."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.topo.arms :as arms]
-            [re-frame.bench.hicasso.topo.clock-app :as clock]
-            [re-frame.bench.hicasso.topo.model :as m]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.topo.arms :as rf.bench.hicasso.topo.arms]
+            [re-frame.bench.hicasso.topo.clock-app :as rf.bench.hicasso.topo.clock-app]
+            [re-frame.bench.hicasso.topo.model :as rf.bench.hicasso.topo.model]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (defn- skip! [why]
   (is true (str "the topology clock witness needs a real React DOM — " why)))
@@ -73,12 +73,12 @@
            tournament's committed window. A driver that measured it anyway and
            labelled the number would publish a figure a reader can quote, so it
            is absent from the roster and its reason travels in the file"
-    (is (= [:fine :coarse :chunked] clock/measured-arms))
-    (is (= #{:virtual} (set (keys clock/unaddressed))))
-    (is (re-find #"rf2-4t36" (:virtual clock/unaddressed))
+    (is (= [:fine :coarse :chunked] rf.bench.hicasso.topo.clock-app/measured-arms))
+    (is (= #{:virtual} (set (keys rf.bench.hicasso.topo.clock-app/unaddressed))))
+    (is (re-find #"rf2-4t36" (:virtual rf.bench.hicasso.topo.clock-app/unaddressed))
         "the reason names the ruling that made it, not this file")
-    (is (= (set arms/arm-ids)
-           (into (set clock/measured-arms) (keys clock/unaddressed)))
+    (is (= (set rf.bench.hicasso.topo.arms/arm-ids)
+           (into (set rf.bench.hicasso.topo.clock-app/measured-arms) (keys rf.bench.hicasso.topo.clock-app/unaddressed)))
         "every arm of the tournament is either measured or unaddressed — an arm
          that fell out of both lists would vanish from the table silently")))
 
@@ -86,9 +86,9 @@
   (testing "`:noop` is measured beside the cells and is not a cell. Folding it
            into `operations` would put a row in the published table that the
            tournament never registered"
-    (is (= [:sparse :bulk :reorder :edit] clock/operations))
-    (is (not (contains? (set clock/operations) clock/floor-op)))
-    (is (= (conj clock/operations clock/floor-op) clock/rows))))
+    (is (= [:sparse :bulk :reorder :edit] rf.bench.hicasso.topo.clock-app/operations))
+    (is (not (contains? (set rf.bench.hicasso.topo.clock-app/operations) rf.bench.hicasso.topo.clock-app/floor-op)))
+    (is (= (conj rf.bench.hicasso.topo.clock-app/operations rf.bench.hicasso.topo.clock-app/floor-op) rf.bench.hicasso.topo.clock-app/rows))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the pre-clock gate is the census's published table
@@ -118,20 +118,20 @@
   (testing "a clock cell is only taken on a page that builds the markup the
            census publishes for it, so the arithmetic that decides it must be
            that census and not a near neighbour of it"
-    (doseq [b  m/row-counts
-            op clock/operations]
+    (doseq [b  rf.bench.hicasso.topo.model/row-counts
+            op rf.bench.hicasso.topo.clock-app/operations]
       (is (= (get published-markup [op b])
-             (into {} (map (fn [arm] [arm (clock/markup-expected arm op b)]))
-                   clock/measured-arms))
+             (into {} (map (fn [arm] [arm (rf.bench.hicasso.topo.clock-app/markup-expected arm op b)]))
+                   rf.bench.hicasso.topo.clock-app/measured-arms))
           (str op " at B=" b)))))
 
 (deftest the-floor-row-builds-nothing-in-any-arm
   (testing "`[:topo/noop-write]` moves a key no arm reads, so the floor window
            holds the per-commit cost and no row of markup. A floor that built
            markup would be measuring an operation"
-    (doseq [b   m/row-counts
-            arm clock/measured-arms]
-      (is (= 0 (clock/markup-expected arm clock/floor-op b))
+    (doseq [b   rf.bench.hicasso.topo.model/row-counts
+            arm rf.bench.hicasso.topo.clock-app/measured-arms]
+      (is (= 0 (rf.bench.hicasso.topo.clock-app/markup-expected arm rf.bench.hicasso.topo.clock-app/floor-op b))
           (str arm " at B=" b)))))
 
 ;; ---------------------------------------------------------------------------
@@ -142,9 +142,9 @@
   (testing "a changed probe alone is satisfied by a write that reached every
            row and by a page rebuilt from a stale seed. The second half of
            every pair is what refuses both"
-    (doseq [b  m/row-counts
-            op clock/rows]
-      (let [es (clock/expectations op b 20)]
+    (doseq [b  rf.bench.hicasso.topo.model/row-counts
+            op rf.bench.hicasso.topo.clock-app/rows]
+      (let [es (rf.bench.hicasso.topo.clock-app/expectations op b 20)]
         (is (= 2 (count es)) (str op " at B=" b " must carry exactly two probes"))
         (is (not= #{:changed} (set (map :probe es)))
             (str op " at B=" b " is verified by changed probes alone"))
@@ -155,9 +155,9 @@
   (testing "the read-back's whole arithmetic: whatever the operation moves must
            be a pure function of the commit count, or a window that committed
            nineteen of its twenty writes reads as verified"
-    (doseq [b  m/row-counts
-            op clock/operations]
-      (let [changed (fn [n] (->> (clock/expectations op b n)
+    (doseq [b  rf.bench.hicasso.topo.model/row-counts
+            op rf.bench.hicasso.topo.clock-app/operations]
+      (let [changed (fn [n] (->> (rf.bench.hicasso.topo.clock-app/expectations op b n)
                                  (remove (comp #{:unchanged} :probe))
                                  (map :want)
                                  vec))]
@@ -170,10 +170,10 @@
   (testing "the negative control, written as a read-back: a window over a
            commit no arm reads must leave the page exactly where the seed put
            it, and BOTH probes say so"
-    (doseq [b m/row-counts]
-      (let [es (clock/expectations clock/floor-op b 20)]
+    (doseq [b rf.bench.hicasso.topo.model/row-counts]
+      (let [es (rf.bench.hicasso.topo.clock-app/expectations rf.bench.hicasso.topo.clock-app/floor-op b 20)]
         (is (= [:unchanged :unchanged] (mapv :probe es)) (str "at B=" b))
-        (is (= (mapv :want es) (mapv :want (clock/expectations clock/floor-op b 40)))
+        (is (= (mapv :want es) (mapv :want (rf.bench.hicasso.topo.clock-app/expectations rf.bench.hicasso.topo.clock-app/floor-op b 40)))
             (str "at B=" b ": and the expectation does not depend on how many
                  no-op commits ran, because none of them may reach the page"))))))
 
@@ -189,12 +189,12 @@
   "One real `fine` page at [[witness-b]] rows, seeded. Answers the page map
   `clock-app/window!` takes."
   []
-  (lane/leave-act-environment!)
-  (m/make-frame! page-frame witness-b)
-  (m/reseed! page-frame witness-b)
-  (arms/reset-counters!)
-  (let [handle (mount/root! (mount/fresh-container!) page-frame
-                            [(arms/view-of :fine) {}])]
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.topo.model/make-frame! page-frame witness-b)
+  (rf.bench.hicasso.topo.model/reseed! page-frame witness-b)
+  (rf.bench.hicasso.topo.arms/reset-counters!)
+  (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) page-frame
+                            [(rf.bench.hicasso.topo.arms/view-of :fine) {}])]
     {:handle    handle
      :frame-id  page-frame
      :container (:container handle)
@@ -205,17 +205,17 @@
   (testing "the refusal below has to be a discrimination, so the same window
            over the same page's own frame must read 0 unverified — a probe pair
            that always failed would prove nothing about the one that does"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
-      (doseq [op clock/rows]
+      (doseq [op rf.bench.hicasso.topo.clock-app/rows]
         (let [page (mount-witness!)
-              t    (lane/tally)]
+              t    (rf.bench.hicasso.lane/tally)]
           (try
-            (clock/window! t page op)
-            (is (= {:writes 2 :unverified 0} (lane/tally-value t))
+            (rf.bench.hicasso.topo.clock-app/window! t page op)
+            (is (= {:writes 2 :unverified 0} (rf.bench.hicasso.lane/tally-value t))
                 (str op ": every probe of a page that committed what it claims
                      must read back, or the instrument refuses healthy runs"))
-            (finally (mount/release! (:handle page)))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! (:handle page)))))))))
 
 (deftest the-window-refuses-a-page-that-did-not-commit
   (testing "THE FAULT THE READ-BACK EXISTS TO CATCH. The commits are dispatched
@@ -223,19 +223,19 @@
            `batch-k` settles happen and the observed page never moves. The
            clock still returns a plausible number; the probes are what refuse
            it"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       ;; `:noop` is excluded and the exclusion is the point: its pair is two
       ;; UNCHANGED cells, so a page that committed nothing satisfies it by
       ;; construction. That is what a floor row is, and it is why the floor is
       ;; reported beside the cells rather than trusted as one.
-      (doseq [op clock/operations]
+      (doseq [op rf.bench.hicasso.topo.clock-app/operations]
         (let [page (mount-witness!)
-              _    (m/make-frame! decoy-frame witness-b)
-              t    (lane/tally)]
+              _    (rf.bench.hicasso.topo.model/make-frame! decoy-frame witness-b)
+              t    (rf.bench.hicasso.lane/tally)]
           (try
-            (let [ms     (clock/window! t (assoc page :frame-id decoy-frame) op)
-                  misses (clock/probe-misses (:container page) op witness-b
+            (let [ms     (rf.bench.hicasso.topo.clock-app/window! t (assoc page :frame-id decoy-frame) op)
+                  misses (rf.bench.hicasso.topo.clock-app/probe-misses (:container page) op witness-b
                                              @(:committed page))]
               (is (number? ms)
                   (str op ": the clock still answers — a withheld commit does not
@@ -250,16 +250,16 @@
               (is (contains? (set (map :probe misses)) :changed)
                   (str op ": the probe that must have moved must refuse a page
                        that never moved"))
-              (is (= {:writes 2 :unverified (count misses)} (lane/tally-value t))
+              (is (= {:writes 2 :unverified (count misses)} (rf.bench.hicasso.lane/tally-value t))
                   (str op ": and the window banks exactly what the probes found —
                        a tally that disagreed with a direct read is the accounting
                        fault, one level out from the page"))
               (is (thrown? js/Error
-                    (lane/assert-verified! t (str "topo clock witness " (name op))))
+                    (rf.bench.hicasso.lane/assert-verified! t (str "topo clock witness " (name op))))
                   (str op ": and the lane's ONE adjudication of a read-back must
                        throw on it — a count that is published and never
                        adjudicated is the fault `assert-verified!` exists for")))
-            (finally (mount/release! (:handle page)))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! (:handle page)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — and the gate the driver runs before any clock, live
@@ -270,19 +270,19 @@
            here it is checked against a page. Both are needed: the first says
            the driver states the tournament's numbers, this says the tournament's
            numbers still describe the arm"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
-      (doseq [arm clock/measured-arms
-              op  clock/rows]
-        (lane/leave-act-environment!)
-        (m/make-frame! page-frame witness-b)
-        (m/reseed! page-frame witness-b)
-        (let [handle (mount/root! (mount/fresh-container!) page-frame
-                                  [(arms/view-of arm) {}])]
+      (doseq [arm rf.bench.hicasso.topo.clock-app/measured-arms
+              op  rf.bench.hicasso.topo.clock-app/rows]
+        (rf.bench.hicasso.lane/leave-act-environment!)
+        (rf.bench.hicasso.topo.model/make-frame! page-frame witness-b)
+        (rf.bench.hicasso.topo.model/reseed! page-frame witness-b)
+        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) page-frame
+                                  [(rf.bench.hicasso.topo.arms/view-of arm) {}])]
           (try
-            (arms/reset-counters!)
-            (clock/write! page-frame op 0)
-            (mount/settle!)
-            (is (= (clock/markup-expected arm op witness-b) (:markup (arms/runs)))
+            (rf.bench.hicasso.topo.arms/reset-counters!)
+            (rf.bench.hicasso.topo.clock-app/write! page-frame op 0)
+            (rf.bench.hicasso.arm1.mount/settle!)
+            (is (= (rf.bench.hicasso.topo.clock-app/markup-expected arm op witness-b) (:markup (rf.bench.hicasso.topo.arms/runs)))
                 (str arm "/" op " at B=" witness-b))
-            (finally (mount/release! handle))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! handle))))))))

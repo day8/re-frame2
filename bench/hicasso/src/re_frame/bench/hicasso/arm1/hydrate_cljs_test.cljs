@@ -26,32 +26,32 @@
   a measurement. Setting the horizon back to 0 turns this row red;
   raising it to 32 does not."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; The horizon rows are `async` — a reap horizon is not observable
      ;; inside one synchronous test body.
      :async?  true
-     :init-fn (fn [] (rt/reset-runtime!) (rt/reset-body-runs!))}))
+     :init-fn (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!) (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
 
 (def ^:private frame-id ::arm1-hydrate)
 
 (defn- seeded! []
-  (rt/reset-runtime!)
-  (rt/reset-body-runs!)
-  (dogfood/make-frame! frame-id 3)
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+  (rf.bench.hicasso.front.dogfood/make-frame! frame-id 3)
   frame-id)
 
 (defn- one-body-run!
   "One boundary body through the shell's own fence, minus React."
   []
-  (rt/render-body frame-id (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))]) {})
-  (rt/last-reads))
+  (rf.bench.hicasso.arm1.runtime/render-body frame-id (fn [_] [:li (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo 0]))]) {})
+  (rf.bench.hicasso.arm1.runtime/last-reads))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the reap horizon is past a bare `setTimeout 0`
@@ -76,15 +76,15 @@
       (let [entry (one-body-run!)]
         (is (some? entry) "the render minted an entry")
         (is (zero? (.-refs entry)) "unclaimed — no commit has run")
-        (is (= 1 (:entries (rt/stats))) "and it is in the cache")
+        (is (= 1 (:entries (rf.bench.hicasso.arm1.runtime/stats))) "and it is in the cache")
         (js/setTimeout
           (fn []
-            (is (= 1 (:entries (rt/stats)))
+            (is (= 1 (:entries (rf.bench.hicasso.arm1.runtime/stats)))
                 "one bare macrotask later it is STILL cached — a commit
                  arriving here would find the entry its render minted")
             (js/setTimeout
               (fn []
-                (is (zero? (:entries (rt/stats)))
+                (is (zero? (:entries (rf.bench.hicasso.arm1.runtime/stats)))
                     "and the horizon is bounded, not disabled: an entry
                      nothing claimed is still evicted")
                 (done))
@@ -98,15 +98,15 @@
              an entry a commit claimed is held by its `refs`, so no delay
              can drop it and correctness never depended on the race"
       (let [entry (one-body-run!)
-            stop  (rt/commit-boundary! entry (fn [] nil))]
+            stop  (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] nil))]
         (is (= 1 (.-refs entry)))
         (js/setTimeout
           (fn []
-            (is (= 1 (:entries (rt/stats))) "claimed, so past the horizon it stands")
+            (is (= 1 (:entries (rf.bench.hicasso.arm1.runtime/stats))) "claimed, so past the horizon it stands")
             (stop)
             (js/setTimeout
               (fn []
-                (is (zero? (:entries (rt/stats)))
+                (is (zero? (:entries (rf.bench.hicasso.arm1.runtime/stats)))
                     "and released, it is evicted on the ordinary edge")
                 (done))
               8))
@@ -123,14 +123,14 @@
            charter's one-mode law intact — and `reset-runtime!` shuts it,
            so a fixture that throws between `hydrateRoot` and the closer's
            effect cannot leave the page adopting for every row after it"
-    (is (false? (rt/adopting?)) "shut by default")
-    (rt/open-adoption-window!)
-    (is (true? (rt/adopting?)) "opened by the door")
-    (rt/close-adoption-window!)
-    (is (false? (rt/adopting?)) "shut by the closer")
-    (rt/open-adoption-window!)
-    (rt/reset-runtime!)
-    (is (false? (rt/adopting?)) "and shut by a runtime reset, whatever threw")))
+    (is (false? (rf.bench.hicasso.arm1.runtime/adopting?)) "shut by default")
+    (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
+    (is (true? (rf.bench.hicasso.arm1.runtime/adopting?)) "opened by the door")
+    (rf.bench.hicasso.arm1.runtime/close-adoption-window!)
+    (is (false? (rf.bench.hicasso.arm1.runtime/adopting?)) "shut by the closer")
+    (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
+    (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+    (is (false? (rf.bench.hicasso.arm1.runtime/adopting?)) "and shut by a runtime reset, whatever threw")))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the body-run counter (HD-028's rider)
@@ -145,19 +145,19 @@
            was asked for — which is the whole of HD-028's rider, because a
            `React.memo` bail-out has to read as an increment that did not
            happen"
-    (is (zero? (rt/body-runs)) "the fixture zeroed it")
+    (is (zero? (rf.bench.hicasso.arm1.runtime/body-runs)) "the fixture zeroed it")
     (one-body-run!)
-    (is (= 1 (rt/body-runs)))
+    (is (= 1 (rf.bench.hicasso.arm1.runtime/body-runs)))
     (one-body-run!)
     (one-body-run!)
-    (is (= 3 (rt/body-runs)) "one per body, counted")
-    (rt/reset-runtime!)
-    (is (= 3 (rt/body-runs))
+    (is (= 3 (rf.bench.hicasso.arm1.runtime/body-runs)) "one per body, counted")
+    (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+    (is (= 3 (rf.bench.hicasso.arm1.runtime/body-runs))
         "and a teardown does NOT zero it — an instrument a teardown door
          resets is one a reading taken on the wrong side of the reset can
          pass with")
-    (rt/reset-body-runs!)
-    (is (zero? (rt/body-runs)) "only the explicit door zeroes it")))
+    (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+    (is (zero? (rf.bench.hicasso.arm1.runtime/body-runs)) "only the explicit door zeroes it")))
 
 (deftest a-fenced-re-run-is-two-body-runs-because-two-bodies-ran
   (seeded!)
@@ -169,19 +169,19 @@
     ;; A mid-body write is only observable when the key is already held —
     ;; a key nothing holds has no watch to fire (`runtime_cljs_test`'s
     ;; own fence row states it).
-    (rt/render-body frame-id (fn [_] [:li (str (rt/sub [:dogfood/done? 0]))]) {})
-    (let [stop (rt/commit-boundary! (rt/last-reads) (fn [] nil))
+    (rf.bench.hicasso.arm1.runtime/render-body frame-id (fn [_] [:li (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/done? 0]))]) {})
+    (let [stop (rf.bench.hicasso.arm1.runtime/commit-boundary! (rf.bench.hicasso.arm1.runtime/last-reads) (fn [] nil))
           runs (volatile! 0)]
-      (rt/reset-body-runs!)
-      (rt/render-body frame-id
+      (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+      (rf.bench.hicasso.arm1.runtime/render-body frame-id
                       (fn [_]
                         (vswap! runs inc)
-                        (rt/sub [:dogfood/done? 0])
+                        (rf.bench.hicasso.arm1.runtime/sub [:dogfood/done? 0])
                         (when (= 1 @runs)
-                          (rt/dispatch! frame-id [:dogfood/toggle 0]))
-                        [:li (str (rt/sub [:dogfood/done? 0]))])
+                          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0]))
+                        [:li (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/done? 0]))])
                       {})
       (is (= 2 @runs) "the fence re-ran the body")
-      (is (= 2 (rt/body-runs))
+      (is (= 2 (rf.bench.hicasso.arm1.runtime/body-runs))
           "and the counter reads two, because two bodies ran")
       (stop))))

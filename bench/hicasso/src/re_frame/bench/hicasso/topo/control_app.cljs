@@ -133,7 +133,7 @@
   work alone.
 
   So every window here banks TWO cell-addressed probes into
-  `lane/tally`, outside the clock, and [[lane/assert-verified!]] — the
+  `rf.bench.hicasso.lane/tally`, outside the clock, and [[rf.bench.hicasso.lane/assert-verified!]] — the
   lane's one meaning of *verified* — turns any miss into a throw and a
   non-zero exit:
 
@@ -146,12 +146,12 @@
   `data-testid`, so neither can be satisfied by a neighbour's commit.
   `topo/control_witness_dom_cljs_test` mounts a real arm, withholds the
   commit, and asserts this refuses."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.topo.arms :as arms]
-            [re-frame.bench.hicasso.topo.model :as m]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.topo.arms :as rf.bench.hicasso.topo.arms]
+            [re-frame.bench.hicasso.topo.model :as rf.bench.hicasso.topo.model]
             [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@
   [[re-frame.bench.hicasso.topo.model/window-size]] — with the large page
   at twice it. `B` is held at [[virtual-rows]] throughout, so the ONLY
   thing that moves for this arm is the size of the page it renders."
-  m/window-size)
+  rf.bench.hicasso.topo.model/window-size)
 
 (def virtual-rows
   "The table the windowed arm windows. Fixed across its manipulation."
@@ -234,14 +234,14 @@
   (if (= :virtual arm)
     [{:b virtual-rows :w base-window}
      {:b virtual-rows :w (* scale base-window)}]
-    [{:b base-rows :w m/window-size}
-     {:b (* scale base-rows) :w m/window-size}]))
+    [{:b base-rows :w rf.bench.hicasso.topo.model/window-size}
+     {:b (* scale base-rows) :w rf.bench.hicasso.topo.model/window-size}]))
 
 (defn rendered-of
   "How many rows `arm` renders on page `size` — the control's scale
   parameter, read from the model rather than restated here."
   [arm {:keys [b w]}]
-  (m/rendered-rows arm b w))
+  (rf.bench.hicasso.topo.model/rendered-rows arm b w))
 
 (defn predicted
   "`arm`'s predicted factor, from `model/elements-for` at the two rendered
@@ -251,8 +251,8 @@
   (5001/2501) and 1.9901 for the windowed one (201/101)."
   [arm]
   (let [[small large] (sizes arm)]
-    (/ (m/elements-for (rendered-of arm large))
-       (m/elements-for (rendered-of arm small)))))
+    (/ (rf.bench.hicasso.topo.model/elements-for (rendered-of arm large))
+       (rf.bench.hicasso.topo.model/elements-for (rendered-of arm small)))))
 
 (defn band-of
   "`arm`'s registered band — ±[[slack]] of its own [[predicted]]."
@@ -286,7 +286,7 @@
   - **in band**, round-wise rather than pooled, so one bad round refuses
     instead of being averaged away (`census_clock_run/controlVerdict`'s
     rule, and the strict side of the rf2-egdaq split, which kept
-    `lane/control-verdict`'s overlap rule only for clamp-limited clock
+    `rf.bench.hicasso.lane/control-verdict`'s overlap rule only for clamp-limited clock
     legs);
   - **positive in sign**, which is PR #7634's fix — a band alone admits a
     control certifying that more work reads faster;
@@ -304,8 +304,8 @@
         clean   (and (pos? (long (or writes 0))) (zero? (long (or unverified 0))))]
     {:arm          arm
      :rounds       rs
-     :predicted    (lane/round4 predicted)
-     :band         [(lane/round4 lo) (lane/round4 hi)]
+     :predicted    (rf.bench.hicasso.lane/round4 predicted)
+     :band         [(rf.bench.hicasso.lane/round4 lo) (rf.bench.hicasso.lane/round4 hi)]
      :verification verification
      :in-band?     in-band
      :positive?    signed
@@ -318,8 +318,8 @@
                                         " probes; the clock measured a page that did not commit what it claims")
                      (not signed)  "REFUSED ON THE SIGN — a round read the doubled page as no slower, which is a control certifying that more work costs less"
                      (not in-band) (str "REFUSED ON THE BAND — a round fell outside ["
-                                        (lane/round4 lo) ", " (lane/round4 hi) "] around the derived "
-                                        (lane/round4 predicted))
+                                        (rf.bench.hicasso.lane/round4 lo) ", " (rf.bench.hicasso.lane/round4 hi) "] around the derived "
+                                        (rf.bench.hicasso.lane/round4 predicted))
                      :else         "in band, positive and verified in every round")}))
 
 ;; ---------------------------------------------------------------------------
@@ -344,8 +344,8 @@
   `(:n (model/row i))`, and the changed probe advances by exactly one per
   commit because the write is an `inc`."
   [container commits]
-  (let [want-changed   (str (+ (:n (m/row changed-probe)) commits))
-        want-unchanged (str (:n (m/row unchanged-probe)))]
+  (let [want-changed   (str (+ (:n (rf.bench.hicasso.topo.model/row changed-probe)) commits))
+        want-unchanged (str (:n (rf.bench.hicasso.topo.model/row unchanged-probe)))]
     (remove nil?
             [(let [got (n-at container changed-probe)]
                (when-not (= want-changed got)
@@ -359,7 +359,7 @@
   the two probes back and BANK them in `t`.
 
   The read-back is outside the window and after the last drain, which is
-  the batched shape [[lane/verified-writes!]] documents and defends: no
+  the batched shape [[rf.bench.hicasso.lane/verified-writes!]] documents and defends: no
   macrotask runs between the first write and the last drain, so a commit
   React has parked cannot land inside the window however many microtasks
   pass. What the batch relaxes is microtask-scale lateness, on a
@@ -369,14 +369,14 @@
   the page's running commit count, which the probe arithmetic needs and
   which is why it is a page-scoped atom rather than a local."
   [t {:keys [frame-id container limit committed]}]
-  (let [t0 (lane/now-ms)]
+  (let [t0 (rf.bench.hicasso.lane/now-ms)]
     (dotimes [_ batch-k]
-      (rt/dispatch! frame-id [:topo/bump-indexed limit stride])
-      (mount/settle!))
-    (let [ms     (- (lane/now-ms) t0)
+      (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:topo/bump-indexed limit stride])
+      (rf.bench.hicasso.arm1.mount/settle!))
+    (let [ms     (- (rf.bench.hicasso.lane/now-ms) t0)
           total  (swap! committed + batch-k)
           misses (probe-misses container total)]
-      ;; `lane/verified-writes!`'s own `bank!`, over this control's probes:
+      ;; `rf.bench.hicasso.lane/verified-writes!`'s own `bank!`, over this control's probes:
       ;; one tally, one meaning of "verified", one `assert-verified!`.
       (swap! t (fn [{:keys [of bad]}]
                  {:of (+ of 2) :bad (+ bad (count misses))}))
@@ -389,7 +389,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private frame-ids
-  (into {} (for [arm arms/arm-ids tag [:small :large]]
+  (into {} (for [arm rf.bench.hicasso.topo.arms/arm-ids tag [:small :large]]
              [[arm tag] (keyword "topo.control" (str (name arm) "-" (name tag)))])))
 
 (defn- mount-page!
@@ -398,9 +398,9 @@
   [arm tag size]
   (let [{:keys [b w]} size
         frame-id (get frame-ids [arm tag])]
-    (m/make-frame! frame-id b w)
-    (m/reseed! frame-id b w)
-    (let [handle (mount/root! (mount/fresh-container!) frame-id [(arms/view-of arm) {}])]
+    (rf.bench.hicasso.topo.model/make-frame! frame-id b w)
+    (rf.bench.hicasso.topo.model/reseed! frame-id b w)
+    (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [(rf.bench.hicasso.topo.arms/view-of arm) {}])]
       {:tag       tag
        :size      size
        :frame-id  frame-id
@@ -412,14 +412,14 @@
 (defn- structure-of
   "`page`'s own structure. `:boundaries` and `:edges` come from a DELTA
   against the runtime's live table, because two pages are mounted at once
-  and `rt/stats` counts every live cell in the process rather than one
+  and `rf.bench.hicasso.arm1.runtime/stats` counts every live cell in the process rather than one
   container's."
   [page before]
-  (let [{:keys [boundaries edges]} (rt/stats)
+  (let [{:keys [boundaries edges]} (rf.bench.hicasso.arm1.runtime/stats)
         container (:container page)]
     {:boundaries    (- boundaries (:boundaries before))
      :edges         (- edges (:edges before))
-     :elements      (lane/element-count container)
+     :elements      (rf.bench.hicasso.lane/element-count container)
      :rendered-rows (.-length (.querySelectorAll container "li.topo-row"))}))
 
 (defn- markup-of
@@ -428,11 +428,11 @@
   [[markup-expected]], which is how a page that is not doing the work its
   arithmetic predicts is caught BEFORE a clock reads it."
   [arm page]
-  (arms/reset-counters!)
-  (rt/dispatch! (:frame-id page) [:topo/bump-indexed (:limit page) stride])
-  (mount/settle!)
+  (rf.bench.hicasso.topo.arms/reset-counters!)
+  (rf.bench.hicasso.arm1.runtime/dispatch! (:frame-id page) [:topo/bump-indexed (:limit page) stride])
+  (rf.bench.hicasso.arm1.mount/settle!)
   (swap! (:committed page) inc)
-  (:markup (arms/runs)))
+  (:markup (rf.bench.hicasso.topo.arms/runs)))
 
 (defn run-arm!
   "One arm's whole control: mount both pages, check each is the arm it
@@ -444,16 +444,16 @@
   arm's two pages and never eight."
   [arm]
   (let [[small large] (sizes arm)
-        t      (lane/tally)
-        base   (rt/stats)
+        t      (rf.bench.hicasso.lane/tally)
+        base   (rf.bench.hicasso.arm1.runtime/stats)
         p-s    (mount-page! arm :small small)
         st-s   (structure-of p-s base)
-        mid    (rt/stats)
+        mid    (rf.bench.hicasso.arm1.runtime/stats)
         p-l    (mount-page! arm :large large)
         st-l   (structure-of p-l mid)
-        want-s (select-keys (arms/expected arm (:b small) (:w small))
+        want-s (select-keys (rf.bench.hicasso.topo.arms/expected arm (:b small) (:w small))
                             [:boundaries :edges :elements :rendered-rows])
-        want-l (select-keys (arms/expected arm (:b large) (:w large))
+        want-l (select-keys (rf.bench.hicasso.topo.arms/expected arm (:b large) (:w large))
                             [:boundaries :edges :elements :rendered-rows])]
     (try
       (cond
@@ -477,42 +477,42 @@
                          " large=" want-mk-l ", built small=" mk-s " large=" mk-l)}
             (let [pages {:small p-s :large p-l}
                   {:keys [readings samples]}
-                  (lane/rounds! [{:id :small} {:id :large}]
+                  (rf.bench.hicasso.lane/rounds! [{:id :small} {:id :large}]
                                 sampling rounds
                                 (fn [a] (window! t (get pages (:id a))))
                                 (fn [a] (str (name arm) "-" (name (:id a)))))
                   ratios (mapv (fn [r]
-                                 (let [p (fn [id] (:p50 (lane/summarise (get r id))))]
-                                   (lane/round4 (/ (p :large) (p :small)))))
+                                 (let [p (fn [id] (:p50 (rf.bench.hicasso.lane/summarise (get r id))))]
+                                   (rf.bench.hicasso.lane/round4 (/ (p :large) (p :small)))))
                                readings)
                   ;; PUBLISHED BEFORE ADJUDICATED: `assert-verified!` throws, and
                   ;; the evidence a reader needs has to be on the console first.
-                  vv     (lane/tally-value t)
+                  vv     (rf.bench.hicasso.lane/tally-value t)
                   v      (verdict arm ratios vv)
-                  gv     (lane/guard! samples (str "topo rendered-scale control (" (name arm) ")"))]
+                  gv     (rf.bench.hicasso.lane/guard! samples (str "topo rendered-scale control (" (name arm) ")"))]
               {:verdict   v
                :guard     gv
                :structure {:small st-s :large st-l}
                :markup    {:small mk-s :large mk-l
-                           :ratio (lane/round4 (/ mk-l mk-s))}
-               :per-round (mapv (fn [r] {:small (lane/summarise (get r :small))
-                                         :large (lane/summarise (get r :large))})
+                           :ratio (rf.bench.hicasso.lane/round4 (/ mk-l mk-s))}
+               :per-round (mapv (fn [r] {:small (rf.bench.hicasso.lane/summarise (get r :small))
+                                         :large (rf.bench.hicasso.lane/summarise (get r :large))})
                                 readings)
                :tally     t}))))
       (finally
-        (mount/release! (:handle p-s))
-        (mount/release! (:handle p-l))))))
+        (rf.bench.hicasso.arm1.mount/release! (:handle p-s))
+        (rf.bench.hicasso.arm1.mount/release! (:handle p-l))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The run
 ;; ---------------------------------------------------------------------------
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (lane/self-test!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/self-test!)
   (try
-    (lane/record! :design
+    (rf.bench.hicasso.lane/record! :design
                   {:scale scale :stride stride :batch-k batch-k
                    :rounds rounds :sampling sampling :slack slack
                    :probes {:changed changed-probe :unchanged unchanged-probe}
@@ -522,16 +522,16 @@
                                                  :rendered [(rendered-of arm s) (rendered-of arm l)]
                                                  :markup [(markup-expected arm s) (markup-expected arm l)]
                                                  :band (band-of arm)}])))
-                                 arms/arm-ids)})
-    (lane/record! :runtime (lane/runtime-label))
+                                 rf.bench.hicasso.topo.arms/arm-ids)})
+    (rf.bench.hicasso.lane/record! :runtime (rf.bench.hicasso.lane/runtime-label))
     (let [results (reduce
                     (fn [acc arm]
                       (let [r (run-arm! arm)]
                         (if-let [f (:fatal r)]
                           (do (set! (.-HICASSO_CONTROL_FAILED js/window) true)
-                              (lane/fail! f)
+                              (rf.bench.hicasso.lane/fail! f)
                               (reduced (assoc acc arm {:fatal f})))
-                          (do (lane/record! (keyword (str "control-" (name arm)))
+                          (do (rf.bench.hicasso.lane/record! (keyword (str "control-" (name arm)))
                                             (select-keys r [:verdict :structure :markup :per-round]))
                               (when (:refuse? (:guard r))
                                 (set! (.-HICASSO_GUARD_REFUSED js/window) true))
@@ -541,16 +541,16 @@
                                                        (:why (:verdict r)))))
                               ;; The lane's ONE adjudication of a read-back. It throws,
                               ;; and it is called AFTER the record above is published.
-                              (lane/assert-verified! (:tally r)
+                              (rf.bench.hicasso.lane/assert-verified! (:tally r)
                                                      (str "topo rendered-scale control (" (name arm) ")"))
                               (assoc acc arm (:verdict r))))))
                     {}
-                    arms/arm-ids)]
-      (lane/record! :summary
+                    rf.bench.hicasso.topo.arms/arm-ids)]
+      (rf.bench.hicasso.lane/record! :summary
                     (into {} (map (fn [[arm v]]
                                     [arm (select-keys v [:predicted :band :rounds :ok? :why])]))
                           results)))
     (catch :default e
       (set! (.-HICASSO_CONTROL_FAILED js/window) true)
-      (lane/fail! (str "topo control threw: " (or (ex-message e) (.-message e))))))
-  (lane/done!))
+      (rf.bench.hicasso.lane/fail! (str "topo control threw: " (or (ex-message e) (.-message e))))))
+  (rf.bench.hicasso.lane/done!))

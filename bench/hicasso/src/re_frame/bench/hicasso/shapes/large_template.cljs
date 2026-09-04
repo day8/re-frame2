@@ -65,8 +65,8 @@
 
   `.cljc`-compatible by construction (HD-020(d))."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.shapes.card :as card]
-            [re-frame.bench.hicasso.shapes.model :as m])
+            [re-frame.bench.hicasso.shapes.card :as rf.bench.hicasso.shapes.card]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (def article-count
@@ -98,7 +98,7 @@
 (defn element-arithmetic
   "The page's element count, predicted rather than measured."
   []
-  (+ chrome-elements tag-count (* card/elements-per-card article-count)))
+  (+ chrome-elements tag-count (* rf.bench.hicasso.shapes.card/elements-per-card article-count)))
 
 (def !body-runs
   "How many times the page's one body has run."
@@ -138,7 +138,7 @@
            ;; A plain call. It inlines into THIS boundary and donates its
            ;; two reads to it — the whole difference between this shape and
            ;; the next one.
-           (card/card slug))]]
+           (rf.bench.hicasso.shapes.card/card slug))]]
        [:div.col-md-3
         [:div.sidebar
          [:p "Popular Tags"]
@@ -149,5 +149,5 @@
                                       :data-testid (str "tag-" tag)}
              tag])]]]]]]))
 
-(defn make-frame! [frame-id] (m/make-frame! frame-id seed))
-(defn reseed! [frame-id] (m/reseed! frame-id seed))
+(defn make-frame! [frame-id] (rf.bench.hicasso.shapes.model/make-frame! frame-id seed))
+(defn reseed! [frame-id] (rf.bench.hicasso.shapes.model/reseed! frame-id seed))

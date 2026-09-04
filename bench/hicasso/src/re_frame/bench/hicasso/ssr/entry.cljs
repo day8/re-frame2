@@ -59,11 +59,11 @@
        two concurrent requests cannot read each other's app-db;
     2. seeded through the FRAMEWORK'S doors — `:initial-events`, and the
        reserved `:rf/set-db` for a snapshot handed in whole;
-    3. rendered as `(provider frame (codec/root-element frame hiccup))`,
+    3. rendered as `(provider frame (rf.bench.hicasso.front.codec/root-element frame hiccup))`,
        the same two calls `arm1/mount/render!` makes in the browser,
        **inside an open adoption window** — see below;
     4. the payload built out of the FRAMEWORK'S OWN BYTES —
-       `payload-policy/apply-policy` (the fail-closed `:payload`
+       `rf.ssr.payload-policy/apply-policy` (the fail-closed `:payload`
        contract), `project-app-db-egress`, `build-payload`, and
        `html-helpers/escape-edn-script-body` under the pinned
        `__rf_payload` script id. Nothing Hicasso-specific touches the
@@ -75,7 +75,7 @@
 
   ## The wire frame-id is nil, deliberately
 
-  `payload-policy/build-payload`'s first argument is the WIRE
+  `rf.ssr.payload-policy/build-payload`'s first argument is the WIRE
   `:rf/frame-id`, which its docstring is explicit must be a stable id both
   ends agreed on ahead of time and **never a per-request server gensym**
   (rf2-lm2yzy: stamping the gensym guarantees
@@ -105,7 +105,7 @@
   `:rf.ssr/hydration-mismatch` diagnostic. 011 says of that tier, in as
   many words, that it \"deliberately carries **no** such hash\".
 
-  This entry is that tier. `codec/root-element` hands React an element
+  This entry is that tier. `rf.bench.hicasso.front.codec/root-element` hands React an element
   and the tree is walked INSIDE `renderToString`, so at no point does a
   data tree describing the page exist for anything to hash.
 
@@ -128,7 +128,7 @@
   compared two different pages and found them equal. Absence is also the
   shape the wire contract already wants: `:rf/render-hash` is
   `{:optional true} :string` in Spec-Schemas, and
-  `payload-policy/build-payload` omits the key on a nil hash, so nothing
+  `rf.ssr.payload-policy/build-payload` omits the key on a nil hash, so nothing
   Hicasso-specific touches the payload path (R0 holds — this namespace
   supplies the app-db and gets out of the way).
 
@@ -205,13 +205,13 @@
   touched by this bead. [[document]] mirrors `ssr-ring`'s own envelope
   shape closely enough to be recognisable and is a BENCH-LANE page, priced
   and ruled elsewhere."
-  (:require [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
+  (:require [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
             [re-frame.core :as rf]
-            [re-frame.ssr.constants :as ssr-constants]
-            [re-frame.ssr.html-helpers :as ssr-html]
-            [re-frame.ssr.payload-policy :as payload-policy]
+            [re-frame.ssr.constants :as rf.ssr.constants]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             ["react-dom/server" :as rdom-server]))
 
 ;; ---------------------------------------------------------------------------
@@ -258,8 +258,8 @@
   lines are re-spelled here rather than required; the two CONSTANTS they
   are made of are shared, which is the part that could drift."
   [payload-edn]
-  (str "<script id=\"" ssr-constants/payload-script-id "\" type=\"application/edn\">"
-       (ssr-html/escape-edn-script-body payload-edn)
+  (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
+       (rf.ssr.html-helpers/escape-edn-script-body payload-edn)
        "</script>"))
 
 (defn document
@@ -289,14 +289,14 @@
   (str "<!DOCTYPE html>"
        "<html lang=\"en\">"
        "<head><meta charset=\"utf-8\"><title>"
-       (ssr-html/escape-html (or title "Hicasso SSR")) "</title></head>"
+       (rf.ssr.html-helpers/escape-html (or title "Hicasso SSR")) "</title></head>"
        "<body>"
-       "<div id=\"" (ssr-html/escape-attr (or app-element-id "app")) "\">"
+       "<div id=\"" (rf.ssr.html-helpers/escape-attr (or app-element-id "app")) "\">"
        html
        "</div>"
        script
        (when script-src
-         (str "<script src=\"" (ssr-html/escape-attr script-src) "\"></script>"))
+         (str "<script src=\"" (rf.ssr.html-helpers/escape-attr script-src) "\"></script>"))
        "</body></html>"))
 
 ;; ---------------------------------------------------------------------------
@@ -352,24 +352,24 @@
       ;; The server half of an adoption renders inside the same window as
       ;; the client half — see the namespace docstring. Closed in the
       ;; `finally`.
-      (rt/open-adoption-window!)
+      (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
       (let [;; The hiccup as WRITTEN — there is no server-only tree here.
             ;; `defhost`'s `:ssr` policy is honoured by the gate that is
             ;; the host element's own type, so this entry hands React the
             ;; same form the browser mount hands it; see the namespace
             ;; docstring's §`defhost`'s `:ssr` policy needs nothing here.
             html        (rdom-server/renderToString
-                          (mount/provider frame-id (codec/root-element frame-id hiccup)))
+                          (rf.bench.hicasso.arm1.mount/provider frame-id (rf.bench.hicasso.front.codec/root-element frame-id hiccup)))
             policy-opts (cond-> {:payload payload}
                           (some? client-frame-id) (assoc :client-frame-id client-frame-id)
                           (some? version)         (assoc :version version)
                           (some? schema-digest)   (assoc :schema-digest schema-digest))
-            payload-map (payload-policy/build-payload
+            payload-map (rf.ssr.payload-policy/build-payload
                           ;; WIRE id — the caller's stable one or nil.
                           ;; NEVER `frame-id`.
                           (:client-frame-id policy-opts)
-                          (payload-policy/project-app-db-egress
-                            (payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
+                          (rf.ssr.payload-policy/project-app-db-egress
+                            (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
                             ;; PROJECTION frame — the real per-request one.
                             frame-id)
                           ;; NO RENDER HASH — nil, and `build-payload` omits the
@@ -393,7 +393,7 @@
         ;; so a throw here that skipped it would leave the whole process
         ;; adopting. `destroy-frame!` is the per-request cleanup that may
         ;; itself throw; the window must already be shut when it runs.
-        (rt/close-adoption-window!)
+        (rf.bench.hicasso.arm1.runtime/close-adoption-window!)
         (rf/destroy-frame! frame-id)))))
 
 (defn render-twice

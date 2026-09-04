@@ -48,7 +48,7 @@
   both rows are written the way an author writes them —
   `(defhost … {:ssr …})` — and the server HTML they assert on is
   therefore evidence about the public declaration."
-  (:require [re-frame.bench.hicasso.arm1.dogfood-collector :as collector]
+  (:require [re-frame.bench.hicasso.arm1.dogfood-collector :as rf.bench.hicasso.arm1.dogfood-collector]
             [re-frame.bench.hicasso.arm1.presence :refer [presence]]
             ;; `defview` and `defhost` are not compilers — they expand to
             ;; `runtime/mint-view!` and `codec/mint-host!` calls, so the
@@ -56,11 +56,11 @@
             ;; this one even though no alias is spelled below.
             [re-frame.bench.hicasso.arm1.runtime]
             [re-frame.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.bench.hicasso.shapes.large-template :as large-template]
-            [re-frame.bench.hicasso.shapes.model :as model]
-            [re-frame.bench.hicasso.ssr.instance-key :as instance-key]
-            [re-frame.routing :as routing]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.hicasso.ssr.instance-key :as rf.bench.hicasso.ssr.instance-key]
+            [re-frame.routing :as rf.routing]
             ["react" :as react])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defhost defview]]))
 
@@ -219,31 +219,31 @@
   "The ordered roster. See the namespace docstring."
   [{:id     "dogfood-snapshot"
     :why    "the dogfood screen, seeded through the :rf/set-db snapshot-in door, with a key allowlist"
-    :hiccup [collector/screen {}]
-    :snapshot (dogfood/seed-db 8)
+    :hiccup [rf.bench.hicasso.arm1.dogfood-collector/screen {}]
+    :snapshot (rf.bench.hicasso.front.dogfood/seed-db 8)
     :payload  dogfood-payload-keys
     :title    "Hicasso SSR — dogfood (snapshot-in)"
     :script-src "/main.js"}
 
    {:id     "dogfood-initial-events"
     :why    "the same screen through the :initial-events door, and the whole-app-db payload opt-in"
-    :hiccup [collector/screen {}]
+    :hiccup [rf.bench.hicasso.arm1.dogfood-collector/screen {}]
     :initial-events [[:dogfood/seed 3]
                      [:dogfood/toggle 1]
-                     [:dogfood/edit-draft dogfood/new-draft-key "half typed"]]
+                     [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "half typed"]]
     :payload  :rf.ssr.payload/whole-app-db
     :title    "Hicasso SSR — dogfood (initial-events)"
     :script-src "/main.js"}
 
    {:id     "conduit-feed"
     :why    "a tier-1 bulk shape — the ~1,200-element Conduit feed page, at the size the bar rows are taken at"
-    :hiccup [large-template/page {}]
-    :snapshot   (model/seed-db large-template/seed)
+    :hiccup [rf.bench.hicasso.shapes.large-template/page {}]
+    :snapshot   (rf.bench.hicasso.shapes.model/seed-db rf.bench.hicasso.shapes.large-template/seed)
     ;; The census is a HASH-URL app and its anchors go through routing's
     ;; `link-model`, whose strategy consult defaults to the history
     ;; strategy when a frame declares none — so the frame declares the
     ;; one `shapes/model/make-frame!` declares, through the same door.
-    :frame-opts {:url-strategy routing/hash-url-strategy}
+    :frame-opts {:url-strategy rf.routing/hash-url-strategy}
     :payload    [:articles :order :tags :user :page :your-feed?]
     :title      "Hicasso SSR — conduit feed"
     :script-src "/main.js"}
@@ -288,17 +288,17 @@
    ;; React's own hydration-mismatch machinery and nothing else.
    {:id     "instance-key-payload"
     :why    "server boot events write reg-state instance state and the allowlist NAMES :ui — the obligation met"
-    :hiccup [instance-key/screen {}]
-    :initial-events instance-key/boot-events
-    :payload  (conj instance-key/domain-keys :ui)
+    :hiccup [rf.bench.hicasso.ssr.instance-key/screen {}]
+    :initial-events rf.bench.hicasso.ssr.instance-key/boot-events
+    :payload  (conj rf.bench.hicasso.ssr.instance-key/domain-keys :ui)
     :title    "Hicasso SSR — instance state, :ui shipped"
     :script-src "/main.js"}
 
    {:id     "instance-key-payload-omitted"
     :why    "the SAME page with :ui OMITTED — a well-formed allowlist that strands the instance state, and the red-by-design half of the obligation witness"
-    :hiccup [instance-key/screen {}]
-    :initial-events instance-key/boot-events
-    :payload  instance-key/domain-keys
+    :hiccup [rf.bench.hicasso.ssr.instance-key/screen {}]
+    :initial-events rf.bench.hicasso.ssr.instance-key/boot-events
+    :payload  rf.bench.hicasso.ssr.instance-key/domain-keys
     :title    "Hicasso SSR — instance state, :ui stranded"
     :script-src "/main.js"}])
 
@@ -320,5 +320,5 @@
   Idempotent, and called by every driver and every witness before the
   first render so no caller has to remember an ordering."
   []
-  (model/register-routes!)
+  (rf.bench.hicasso.shapes.model/register-routes!)
   nil)

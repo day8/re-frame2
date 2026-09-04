@@ -28,8 +28,8 @@
   body for the result rather than trusting this paragraph.
 
   Owner: rf2-rguy1."
-  (:require [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.bench.hicasso.jsfb-model :as m]
+  (:require [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.bench.hicasso.jsfb-model :as rf.bench.hicasso.jsfb-model]
             [re-frame.core :as rf]
             [reagent.dom.client :as rdc])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
@@ -51,7 +51,7 @@
   then differ in WHEN they did the work as well as in how, and the ratio
   would stop being a substrate ratio."
   [event]
-  (with-frame m/frame-id (rf/dispatch-sync event)))
+  (with-frame rf.bench.hicasso.jsfb-model/frame-id (rf/dispatch-sync event)))
 
 (reg-view ^{:rf/id :jsfb/row-view} row
   "One row boundary — two subscription reads, one `<tr>`.
@@ -110,9 +110,9 @@
 
 (defn ^:export -main
   []
-  (rf/init! reagent-adapter/adapter)
-  (m/reset-seed!)
-  (m/register!)
-  (m/make-frame!)
+  (rf/init! rf.adapter.reagent/adapter)
+  (rf.bench.hicasso.jsfb-model/reset-seed!)
+  (rf.bench.hicasso.jsfb-model/register!)
+  (rf.bench.hicasso.jsfb-model/make-frame!)
   (let [root (rdc/create-root (js/document.getElementById "main"))]
-    (rdc/render root [rf/frame-provider {:frame m/frame-id} [app]])))
+    (rdc/render root [rf/frame-provider {:frame rf.bench.hicasso.jsfb-model/frame-id} [app]])))

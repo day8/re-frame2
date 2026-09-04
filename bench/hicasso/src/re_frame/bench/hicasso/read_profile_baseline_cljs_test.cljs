@@ -10,7 +10,7 @@
 
   Phase B's setup harvests one unclaimed read-set entry per commit frame
   — minted by a render, `refs` still zero, reaper armed. `arm1/runtime`
-  arms that reaper at [[rt/quiesced!]]'s horizon, which rf2-2rtt6.84 moved
+  arms that reaper at [[rf.bench.hicasso.arm1.runtime/quiesced!]]'s horizon, which rf2-2rtt6.84 moved
   from 0 ms to 4 ms so an entry survives long enough for `hydrateRoot`'s
   passive subscribe to claim it. A baseline read one bare macrotask later
   therefore counts every one of those entries, and by the first sampled
@@ -27,7 +27,7 @@
 
   The rows below drive `read-profile-app/residue-settle!` itself rather
   than the runtime primitive underneath it, and that is deliberate: a
-  witness that called [[rt/quiesced!]] directly would stay green however
+  witness that called [[rf.bench.hicasso.arm1.runtime/quiesced!]] directly would stay green however
   the instrument settled, which is precisely the vacuum this file exists
   to fill. Put the instrument back on a bare macrotask and both rows go
   red; move the horizon again and they stay green, because the settle
@@ -37,8 +37,8 @@
 
   Four frames — see [[commit-frames]] for why four is right here and why
   it is NOT phase B's count — one body run each through the same
-  [[rt/render-body]] door phase B's setup uses, and the same
-  [[rt/commit-boundary!]] seam its `commit` arm rides. Nothing here is
+  [[rf.bench.hicasso.arm1.runtime/render-body]] door phase B's setup uses, and the same
+  [[rf.bench.hicasso.arm1.runtime/commit-boundary!]] seam its `commit` arm rides. Nothing here is
   timed and no number is published — the claim is about reachability,
   not cost.
 
@@ -48,20 +48,20 @@
   setup's wall-clock and nothing else. Timing the harvest is not this
   file's business, and this is how it declines to."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.read-profile-app :as app]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.read-profile-app :as rf.bench.hicasso.read-profile-app]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; The map shape, because a reap horizon is not observable inside
      ;; one synchronous test body — every row here is `async`.
      :async?  true
-     :init-fn (fn [] (rt/reset-runtime!))}))
+     :init-fn (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private commit-frames
   "Phase B's identically-seeded commit frames, in miniature — FOUR here
@@ -75,22 +75,22 @@
   [::b1 ::b2 ::b3 ::b4])
 
 (defn- seeded! []
-  (rt/reset-runtime!)
-  (doseq [f commit-frames] (dogfood/make-frame! f 3))
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (doseq [f commit-frames] (rf.bench.hicasso.front.dogfood/make-frame! f 3))
   nil)
 
 (defn- render-one!
   "One body run through the runtime's own door, and the read-set entry
-  that run minted read back off [[rt/last-reads]]. The entry comes back
+  that run minted read back off [[rf.bench.hicasso.arm1.runtime/last-reads]]. The entry comes back
   UNCLAIMED — `refs` zero, reaper armed **from this instant** — which is
   the state the real setup leaves behind and the state the baseline is
   taken in."
   [f]
-  (rt/render-body f
-                  (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
-                           (str (rt/sub [:dogfood/remaining]))])
+  (rf.bench.hicasso.arm1.runtime/render-body f
+                  (fn [_] [:li (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo 0]))
+                           (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/remaining]))])
                   {})
-  (rt/last-reads))
+  (rf.bench.hicasso.arm1.runtime/last-reads))
 
 (defn- harvest!
   "Phase B's setup: [[render-one!]] per frame."
@@ -102,7 +102,7 @@
   through the seam React occupies, for every harvested entry, released
   again outside any window."
   [entries]
-  (let [stops (mapv (fn [e] (rt/commit-boundary! e (fn [] nil))) entries)]
+  (let [stops (mapv (fn [e] (rf.bench.hicasso.arm1.runtime/commit-boundary! e (fn [] nil))) entries)]
     (doseq [stop stops] (stop))
     nil))
 
@@ -120,17 +120,17 @@
              reapers are about to drop — a baseline the run can never
              return to, and the six-against-five the gate threw on"
       (let [!baseline (volatile! nil)]
-        (-> (app/residue-settle!)
-            (.then (fn [_] (vreset! !baseline (rt/residue)) (rt/quiesced!)))
+        (-> (rf.bench.hicasso.read-profile-app/residue-settle!)
+            (.then (fn [_] (vreset! !baseline (rf.bench.hicasso.arm1.runtime/residue)) (rf.bench.hicasso.arm1.runtime/quiesced!)))
             (.then (fn [_]
-                     (is (= @!baseline (rt/residue))
+                     (is (= @!baseline (rf.bench.hicasso.arm1.runtime/residue))
                          "the baseline is a fixed point of the runtime's own
                           settling, so every later sample can reach it")
                      (is (zero? (:entries @!baseline))
                          "and it is the post-reap state: four unclaimed
                           entries, none of them cached by the time the
                           baseline is taken")
-                     (rt/reset-runtime!)
+                     (rf.bench.hicasso.arm1.runtime/reset-runtime!)
                      (done))))))))
 
 ;; ===========================================================================
@@ -155,24 +155,24 @@
     ;; 4 ms goes back to being React's commit margin rather than a budget
     ;; for a test's own setup.
     (render-one! (first commit-frames))
-    (let [settled (lane/settle!)]
+    (let [settled (rf.bench.hicasso.lane/settle!)]
       (run! render-one! (rest commit-frames))
-      (testing "why row 1 is not free: one `lane/settle!` after the render
+      (testing "why row 1 is not free: one `rf.bench.hicasso.lane/settle!` after the render
                every unclaimed entry is STILL cached — that survival is the
                hydration margin rf2-2rtt6.84 bought, and it is what makes a
                residue reading taken there disagree with one taken after the
                runtime has quiesced"
         (-> settled
             (.then (fn [_]
-                     (is (= (count commit-frames) (:entries (rt/residue)))
+                     (is (= (count commit-frames) (:entries (rf.bench.hicasso.arm1.runtime/residue)))
                          "a bare macrotask is inside the horizon: every
                           harvested entry is still in the cache")
-                     (app/residue-settle!)))
+                     (rf.bench.hicasso.read-profile-app/residue-settle!)))
             (.then (fn [_]
-                     (is (zero? (:entries (rt/residue)))
+                     (is (zero? (:entries (rf.bench.hicasso.arm1.runtime/residue)))
                          "past it they are gone — two readings, two answers,
                           and only the second is a baseline")
-                     (rt/reset-runtime!)
+                     (rf.bench.hicasso.arm1.runtime/reset-runtime!)
                      (done))))))))
 
 ;; ===========================================================================
@@ -188,20 +188,20 @@
                end: baseline, one `commit` arm with its teardown, and the
                reading a row's worth of time later. The real run takes
                hundreds of samples over eight arms, so only its very first
-               reading can fall inside the horizon at all — `rt/quiesced!`
+               reading can fall inside the horizon at all — `rf.bench.hicasso.arm1.runtime/quiesced!`
                behind the instrument's own settle is the shortest honest
                stand-in for that, and it is what makes this row decide the
                gate rather than race it"
-        (-> (app/residue-settle!)
+        (-> (rf.bench.hicasso.read-profile-app/residue-settle!)
             (.then (fn [_]
-                     (vreset! !baseline (rt/residue))
+                     (vreset! !baseline (rf.bench.hicasso.arm1.runtime/residue))
                      (commit-arm! entries)
-                     (app/residue-settle!)))
-            (.then (fn [_] (rt/quiesced!)))
+                     (rf.bench.hicasso.read-profile-app/residue-settle!)))
+            (.then (fn [_] (rf.bench.hicasso.arm1.runtime/quiesced!)))
             (.then (fn [_]
-                     (is (= @!baseline (rt/residue))
+                     (is (= @!baseline (rf.bench.hicasso.arm1.runtime/residue))
                          "the commit half acquired 4 x 2 cells and gave
                           every one of them back, and the entry cache is
                           where the baseline left it")
-                     (rt/reset-runtime!)
+                     (rf.bench.hicasso.arm1.runtime/reset-runtime!)
                      (done))))))))

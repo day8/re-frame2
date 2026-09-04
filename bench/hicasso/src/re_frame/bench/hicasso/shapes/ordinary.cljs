@@ -71,7 +71,7 @@
   on a server."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
             [re-frame.bench.hicasso.front.route-link :refer [route-link]]
-            [re-frame.bench.hicasso.shapes.model :as m])
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 ;; ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@
      [:div.card-footer
       (route-link {:to :conduit.profile/show :params {:username (:username author)}
                    :class "comment-author"}
-        [:img.comment-author-img {:src (m/avatar-src (:image author)) :alt ""}]
+        [:img.comment-author-img {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}]
         " "
         (:username author))
       [:span.date-posted createdAt]
@@ -173,9 +173,9 @@
       [:textarea.form-control {:data-testid "comment-body-input"
                                :rows        3
                                :placeholder "Write a comment..."
-                               :value       (sub [:conduit/draft m/comment-draft-key])
+                               :value       (sub [:conduit/draft rf.bench.hicasso.shapes.model/comment-draft-key])
                                :disabled    pending?
-                               :on-input    [:conduit/edit-draft m/comment-draft-key
+                               :on-input    [:conduit/edit-draft rf.bench.hicasso.shapes.model/comment-draft-key
                                              :re-frame.hicasso/value]}]]
      [:div.card-footer
       [:button.btn.btn-sm.btn-primary {:type        "submit"

@@ -54,10 +54,10 @@
   beside the gate, never as a second gate.
 
   Owner: rf2-2rtt6.1 (standard); this entry rf2-2rtt6.56."
-  (:require [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.census-clock-arms :as arms]
+  (:require [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.census-clock-arms :as rf.bench.hicasso.shapes.census-clock-arms]
             [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
@@ -73,8 +73,8 @@
 
 (defn- install! [which]
   (rf/init! (case which
-              :reagent reagent-adapter/adapter
-              uix-adapter/adapter))
+              :reagent rf.adapter.reagent/adapter
+              rf.adapter.uix/adapter))
   which)
 
 ;; ---------------------------------------------------------------------------
@@ -91,9 +91,9 @@
 (defonce ^:private state (atom {:adapter nil :pending nil :tally nil}))
 
 (defn- arms-for [row-key]
-  (-> [arms/plumb-arm]
-      (into (map #(arms/arm row-key %)) (get arm-ids-for (:adapter @state)))
-      (conj (arms/arm row-key :ctl-2x))))
+  (-> [rf.bench.hicasso.shapes.census-clock-arms/plumb-arm]
+      (into (map #(rf.bench.hicasso.shapes.census-clock-arms/arm row-key %)) (get arm-ids-for (:adapter @state)))
+      (conj (rf.bench.hicasso.shapes.census-clock-arms/arm row-key :ctl-2x))))
 
 (defn- arm-named [row-key arm-id]
   (first (filter #(= arm-id (:id %)) (arms-for row-key))))
@@ -116,7 +116,7 @@
     ok?))
 
 (defn sample!
-  "ONE mount through `lane/mount-arm!` — the in-page flushSync window
+  "ONE mount through `rf.bench.hicasso.lane/mount-arm!` — the in-page flushSync window
   rides beside the protocol reading on the same operation — left
   STANDING, settled to the next frame. The tare's operation is the settle
   and nothing else."
@@ -124,7 +124,7 @@
   (let [arm (arm-named row-key arm-id)]
     (if (:plumb? arm)
       (.then (settle-frame) (fn [_] (bank! true) #js {:inPageMs 0 :ok true}))
-      (let [mnt (lane/mount-arm! arm {})]
+      (let [mnt (rf.bench.hicasso.lane/mount-arm! arm {})]
         (swap! state assoc :pending {:mnt mnt :arm arm})
         (.then (settle-frame) (fn [_] #js {:inPageMs (:ms mnt) :ok true}))))))
 
@@ -134,10 +134,10 @@
   row must not be charged for."
   [row-key]
   (if-some [{:keys [mnt arm]} (:pending @state)]
-    (let [ok? (= (arms/expected-elements row-key (:id arm))
-                 (lane/element-count (:container mnt)))]
+    (let [ok? (= (rf.bench.hicasso.shapes.census-clock-arms/expected-elements row-key (:id arm))
+                 (rf.bench.hicasso.lane/element-count (:container mnt)))]
       (bank! ok?)
-      (lane/release! mnt)
+      (rf.bench.hicasso.lane/release! mnt)
       (swap! state assoc :pending nil)
       (.then (settle-frame) (fn [_] #js {:ok ok?})))
     (.then (settle-frame) (fn [_] #js {:ok true}))))
@@ -164,14 +164,14 @@
   (let [arm (arm-named row-key arm-id)]
     (if (:plumb? arm)
       #js {:arm (name arm-id) :hash 0 :bytes 0 :control true}
-      (let [mnt (lane/mount-arm! arm {})
-            s   (lane/canonical (:container mnt))]
-        (lane/release! mnt)
-        ;; `lane/utf8-bytes` and not `count`: the driver prints this under a
+      (let [mnt (rf.bench.hicasso.lane/mount-arm! arm {})
+            s   (rf.bench.hicasso.lane/canonical (:container mnt))]
+        (rf.bench.hicasso.lane/release! mnt)
+        ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count`: the driver prints this under a
         ;; `bytes` label, and `count` answers UTF-16 code units (rf2-2rtt6.121).
         #js {:arm     (name arm-id)
              :hash    (str-hash s)
-             :bytes   (lane/utf8-bytes s)
+             :bytes   (rf.bench.hicasso.lane/utf8-bytes s)
              :control (boolean (:control? arm))}))))
 
 ;; ---------------------------------------------------------------------------
@@ -182,23 +182,23 @@
   (let [which   (query-adapter)
         arm-ids (get arm-ids-for which)]
     (install! which)
-    (lane/leave-act-environment!)
-    (swap! state assoc :adapter which :tally (lane/tally))
-    (arms/ensure-frames! arm-ids)
+    (rf.bench.hicasso.lane/leave-act-environment!)
+    (swap! state assoc :adapter which :tally (rf.bench.hicasso.lane/tally))
+    (rf.bench.hicasso.shapes.census-clock-arms/ensure-frames! arm-ids)
     ;; The fairness gate, whole and fatal-on-fail: every arm of this run
     ;; builds each row's page at the stress size and at a small size, the
     ;; counts match the arithmetic, and the comparison is proven able to
     ;; answer false. Runs before the driver reads a single counter; the
     ;; driver refuses the run if it failed.
-    (let [problems  (arms/parity-problems arm-ids)
+    (let [problems  (rf.bench.hicasso.shapes.census-clock-arms/parity-problems arm-ids)
           can-fail? (when (empty? problems)
-                      (arms/parity-can-fail? arm-ids))]
+                      (rf.bench.hicasso.shapes.census-clock-arms/parity-can-fail? arm-ids))]
       (set! (.-C56CLOCK_PARITY js/window)
             (clj->js {"ok"       (and (empty? problems) (boolean can-fail?))
                       "canFail"  (boolean can-fail?)
                       "problems" (mapv pr-str problems)})))
     (set! (.-C56CLOCK js/window)
-          (lane/legible-doors
+          (rf.bench.hicasso.lane/legible-doors
           #js {:adapter       (name which)
                :plan          (fn [row]
                                 (clj->js (mapv (fn [a] {:id      (name (:id a))
@@ -206,16 +206,16 @@
                                                         :plumb   (boolean (:plumb? a))})
                                                (arms-for (keyword row)))))
                :elements      (fn [row arm]
-                                (arms/expected-elements (keyword row) (keyword arm)))
-               :ctlPredicted  (fn [row] (arms/ctl-predicted (keyword row)))
+                                (rf.bench.hicasso.shapes.census-clock-arms/expected-elements (keyword row) (keyword arm)))
+               :ctlPredicted  (fn [row] (rf.bench.hicasso.shapes.census-clock-arms/ctl-predicted (keyword row)))
                :canon         (fn [row arm] (canon! (keyword row) (keyword arm)))
                :sample        (fn [row arm] (sample! (keyword row) (keyword arm)))
                :reap          (fn [row] (reap! (keyword row)))
                :settle        (fn [] (settle-frame))
-               :tally         (fn [] (clj->js (lane/tally-value (:tally @state))))
-               :teardownCheck (fn [] (clj->js (mapv :where (lane/drain-teardown-failures!))))
-               :runtime       (fn [] (pr-str (lane/runtime-label)))
-               :residue       (fn [] (pr-str (lane/residue (arms/frame-of :feed :hicasso))))}))
+               :tally         (fn [] (clj->js (rf.bench.hicasso.lane/tally-value (:tally @state))))
+               :teardownCheck (fn [] (clj->js (mapv :where (rf.bench.hicasso.lane/drain-teardown-failures!))))
+               :runtime       (fn [] (pr-str (rf.bench.hicasso.lane/runtime-label)))
+               :residue       (fn [] (pr-str (rf.bench.hicasso.lane/residue (rf.bench.hicasso.shapes.census-clock-arms/frame-of :feed :hicasso))))}))
     (set! (.-C56CLOCK_READY js/window) true)
     (js/console.log ";; C56CLOCK ready")
     nil))

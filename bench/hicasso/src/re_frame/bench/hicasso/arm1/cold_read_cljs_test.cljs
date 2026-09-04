@@ -27,24 +27,24 @@
   both drive their repairs THROUGH the cold path this file pins, and
   both stay green over it)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.subs :as subs]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.subs :as rf.subs]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (defn- make-frame! [id db]
-  (live-frame/make-frame {:id id})
-  (frame/replace-app-db! id db)
+  (rf.live-frame/make-frame {:id id})
+  (rf.frame/replace-app-db! id db)
   id)
 
 (def ^:private !runs
@@ -62,10 +62,10 @@
   captured records."
   [thunk]
   (let [records (volatile! [])]
-    (error-emit/register-error-listener! ::cold-read
+    (rf.error-emit/register-error-listener! ::cold-read
                                          (fn [r] (vswap! records conj r)))
     (try (thunk)
-         (finally (error-emit/unregister-error-listener! ::cold-read)))
+         (finally (rf.error-emit/unregister-error-listener! ::cold-read)))
     @records))
 
 ;; ---------------------------------------------------------------------------
@@ -80,9 +80,9 @@
           a (volatile! nil)
           b (volatile! nil)]
       (reg-counted! :coldread/once)
-      (rt/render-body f (fn [_]
-                          (vreset! a (rt/sub [:coldread/once]))
-                          (vreset! b (rt/sub [:coldread/once]))
+      (rf.bench.hicasso.arm1.runtime/render-body f (fn [_]
+                          (vreset! a (rf.bench.hicasso.arm1.runtime/sub [:coldread/once]))
+                          (vreset! b (rf.bench.hicasso.arm1.runtime/sub [:coldread/once]))
                           [:li])
                       {})
       (is (= 7 @a))
@@ -97,12 +97,12 @@
            THEN, never a stale snapshot"
     (let [f    (make-frame! ::fresh {:v 1})
           seen (volatile! nil)
-          body (fn [_] (vreset! seen (rt/sub [:coldread/fresh])) [:li])]
+          body (fn [_] (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:coldread/fresh])) [:li])]
       (reg-counted! :coldread/fresh)
-      (rt/render-body f body {})
+      (rf.bench.hicasso.arm1.runtime/render-body f body {})
       (is (= 1 @seen))
-      (frame/replace-app-db! f {:v 2})
-      (rt/render-body f body {})
+      (rf.frame/replace-app-db! f {:v 2})
+      (rf.bench.hicasso.arm1.runtime/render-body f body {})
       (is (= 2 @seen)
           "the second render minted a fresh snapshot and a fresh memo —
            a probe box surviving the run would answer 1 here")
@@ -114,14 +114,14 @@
            needs no cleanup because nothing happened"
     (let [f (make-frame! ::clean {:v 3})]
       (reg-counted! :coldread/clean)
-      (let [before (rt/stats)]
-        (rt/render-body f (fn [_] (rt/sub [:coldread/clean]) [:li]) {})
-        (let [after (rt/stats)]
+      (let [before (rf.bench.hicasso.arm1.runtime/stats)]
+        (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf.bench.hicasso.arm1.runtime/sub [:coldread/clean]) [:li]) {})
+        (let [after (rf.bench.hicasso.arm1.runtime/stats)]
           (is (= (:cells before) (:cells after)) "no cell built")
           (is (= (:cell-refs before) (:cell-refs after)) "no reference taken")
           (is (= (:boundaries before) (:boundaries after)) "no boundary registered")
           (is (= (:edges before) (:edges after)) "no edge added"))
-        (is (zero? (count @(:sub-cache (frame/frame f))))
+        (is (zero? (count @(:sub-cache (rf.frame/frame f))))
             "and the frame's sub-cache holds nothing — where the
              subscribe-once crossing paid an insert and an evict per read,
              the probe never touched it")))))
@@ -137,14 +137,14 @@
     (let [f (make-frame! ::reuse {:v 11})]
       (reg-counted! :coldread/reuse)
       ;; The outside holder — a tool, a test, another runtime. One build.
-      (let [held (subs/subscribe [:coldread/reuse] {:frame f})
+      (let [held (rf.subs/subscribe [:coldread/reuse] {:frame f})
             _    @held
             runs-after-hold @!runs
-            cache (:sub-cache (frame/frame f))
+            cache (:sub-cache (rf.frame/frame f))
             entry-before (get @cache [:coldread/reuse])
             seen (volatile! nil)]
         (is (= 1 runs-after-hold))
-        (rt/render-body f (fn [_] (vreset! seen (rt/sub [:coldread/reuse])) [:li]) {})
+        (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:coldread/reuse])) [:li]) {})
         (is (= 11 @seen) "the cold read answered the held reaction's value")
         (is (= 1 @!runs)
             "by deref alone: the probe's first rung reused the live
@@ -154,14 +154,14 @@
               "the same reaction, not a rebuild")
           (is (= (:ref-count entry-before) (:ref-count entry-after))
               "and the same ref-count — no acquire/release churn"))
-        (subs/unsubscribe f [:coldread/reuse])))))
+        (rf.subs/unsubscribe f [:coldread/reuse])))))
 
 ;; ---------------------------------------------------------------------------
 ;; The error contract the probe must keep
 ;; ---------------------------------------------------------------------------
 
 (deftest a-cold-unregistered-read-emits-no-such-sub-once-and-recovers-nil
-  (testing "the probe's memo is seeded with `subs/observation-opts-key`,
+  (testing "the probe's memo is seeded with `rf.subs/observation-opts-key`,
            so an unregistered cold read emits the always-on
            `:rf.error/no-such-sub` exactly as the reactive build does —
            and the memo dedupes, so two reads of the same unknown query
@@ -171,9 +171,9 @@
           records
           (capture-errors
             (fn []
-              (rt/render-body f (fn [_]
-                                  (vreset! seen (rt/sub [:coldread/nope]))
-                                  (rt/sub [:coldread/nope])
+              (rf.bench.hicasso.arm1.runtime/render-body f (fn [_]
+                                  (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:coldread/nope]))
+                                  (rf.bench.hicasso.arm1.runtime/sub [:coldread/nope])
                                   [:li])
                               {})))]
       (is (nil? @seen) "recovered to nil, the contract unchanged")
@@ -192,7 +192,7 @@
           seen (volatile! :unread)]
       ;; Registered AFTER the frame exists, read in the SAME tick.
       (reg-counted! :coldread/sametick)
-      (rt/render-body f (fn [_] (vreset! seen (rt/sub [:coldread/sametick])) [:li]) {})
+      (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:coldread/sametick])) [:li]) {})
       (is (= 5 @seen)
           "the very next cold read resolved the handler registered this
            tick — a probe that skipped the resolution seam's flush could
