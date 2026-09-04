@@ -38,26 +38,26 @@
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.story :as story]
-            [re-frame.story.ui.xray-embed :as xray-embed]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]))
 
 ;; `panel-host-component` is `defn-` in xray_embed.cljs; the established
 ;; Story-test seam for reaching a private fn is the var-quote (e.g.
 ;; `viewport-toggle-app-db-dom-cljs-test`'s `framed-canvas`).
-(def ^:private panel-host-component @#'xray-embed/panel-host-component)
+(def ^:private panel-host-component @#'rf.story.ui.xray-embed/panel-host-component)
 
 ;; ---- fixture ---------------------------------------------------------------
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! reagent-adapter/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.adapter.reagent/adapter)
        (catch :default _ nil))
-  (frame/ensure-default-frame!))
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -83,7 +83,7 @@
             the panel-host's lifetime)"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
-      (with-redefs [xray-embed/mount-fn-for
+      (with-redefs [rf.story.ui.xray-embed/mount-fn-for
                     (fn [_pid] (fn [_container] (throw (js/Error. "boom"))))]
         (let [mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)]
@@ -115,7 +115,7 @@
             Xray's own mount internals."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
-      (with-redefs [xray-embed/mount-fn-for
+      (with-redefs [rf.story.ui.xray-embed/mount-fn-for
                     (fn [pid]
                       (case pid
                         :epoch  (fn [_container] (throw (js/Error. "boom")))

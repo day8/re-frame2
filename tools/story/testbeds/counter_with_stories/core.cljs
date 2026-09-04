@@ -14,9 +14,9 @@
   `implementation/scripts/check-bundle-isolation.cjs` verifies the
   Story-sentinel set is absent under that build."
   (:require [re-frame.core      :as rf]
-            [re-frame.story     :as story]
-            [re-frame.story.play.ci-runner :as story-ci]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.story     :as rf.story]
+            [re-frame.story.play.ci-runner :as rf.story.play.ci-runner]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.config :as xray-config]
             ;; Source the events + subs + views via the stories ns,
             ;; which itself requires them. When Story is elided the
@@ -32,7 +32,7 @@
             [counter-with-stories.stories]
             ;; Shared Story-host helper: owns the live-app↔Story-shell
             ;; hash router + React-root handle.
-            [re-frame.testbed.story-host :as story-host])
+            [re-frame.testbed.story-host :as rf.testbed.story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- The live-app root view ------------------------------------------------
@@ -71,8 +71,8 @@
   ;; launch; app pages that want Xray inline still provide the normal
   ;; `[data-rf-xray-host]` contract.
   (xray-config/configure! {:rf.xray/auto-open? false})
-  (rf/init! reagent-adapter/adapter)
-  ;; No explicit `(story/install-canonical-vocabulary!)` call — the
+  (rf/init! rf.adapter.reagent/adapter)
+  ;; No explicit `(rf.story/install-canonical-vocabulary!)` call — the
   ;; first `reg-*` in `counter-with-stories.stories` (loaded via
   ;; :require above) auto-installs the canonical vocabulary on demand
   ;; per spec/001 §Boot. Canonical testbeds carry no explicit boot call.
@@ -82,7 +82,7 @@
   ;; here: the dev server's open-in-editor endpoint resolves source
   ;; coordinates at request time, so this call carries only the
   ;; global-args layer.
-  (story/configure! {:rf.story/global-args {:locale :en}})
+  (rf.story/configure! {:rf.story/global-args {:locale :en}})
   ;; EP-0002: `init!` installs the adapter only — register the
   ;; testbed's `:rf/default` app frame explicitly, then run the frame-local
   ;; boot work (seed dispatch + elision listener install) inside its scope.
@@ -112,11 +112,11 @@
   ;; play-script runner reads. Inert until the runner polls it; safe
   ;; to install unconditionally because the function body is gated
   ;; on Story being enabled (the ns itself is Story-tooling).
-  (story-ci/install-ci-hooks!)
+  (rf.story.play.ci-runner/install-ci-hooks!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
   ;; `#/stories` lands on the shell without a manual click-through. No
   ;; open-in-editor root is configured: the dev server's
   ;; `POST /__rf-open-in-editor` endpoint resolves this testbed's
   ;; classpath-relative source coordinates against the live JVM source paths
   ;; at request time.
-  (story-host/mount-with-hash-routing! live-app-root))
+  (rf.testbed.story-host/mount-with-hash-routing! live-app-root))

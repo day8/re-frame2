@@ -50,8 +50,8 @@
   ## Sensitive input redaction (record-but-redact for DOM)
 
   The dispatched-event rail redacts `:sensitive? true` events
-  (`recorder/trace-listener` → `config/suppress-sensitive?` →
-  `recorder/redacted-event`) per the record-but-redact policy. The
+  (`rf.story.recorder/trace-listener` → `rf.story.config/suppress-sensitive?` →
+  `rf.story.recorder/redacted-event`) per the record-but-redact policy. The
   DOM-capture rail is the SECOND egress and carries the SAME obligation:
   a user recording a login flow types a real password, and (with
   `:entries` the primary codegen source) that plaintext would otherwise
@@ -65,7 +65,7 @@
   (`\"[:rf/redacted]\"`, the string mirror of the dispatch rail's
   `[:rf/redacted]` placeholder) for the typed value BEFORE it is
   buffered, so the secret never reaches the recorder atom. The
-  suppressed-events counter is bumped (`config/note-suppressed!`) so the
+  suppressed-events counter is bumped (`rf.story.config/note-suppressed!`) so the
   UI's REDACTED hint reflects the scrubbed rows, exactly as the dispatch
   rail does. Hosts debugging redaction policy opt into the trusted-local
   boundary via `(story/configure! {:rf.story/egress-profile
@@ -76,11 +76,11 @@
   is not a typed secret); only typed `<input>` fields are scrubbed."
   (:require [clojure.set                     :as set]
             [clojure.string                  :as str]
-            [re-frame.story.config           :as config]
-            [re-frame.story.late-bind        :as late-bind]
-            [re-frame.story.recorder         :as recorder]
-            [re-frame.story.recorder.selector :as selector]
-            [re-frame.story.ui.canvas-listeners :as canvas-listeners]))
+            [re-frame.story.config           :as rf.story.config]
+            [re-frame.story.late-bind        :as rf.story.late-bind]
+            [re-frame.story.recorder         :as rf.story.recorder]
+            [re-frame.story.recorder.selector :as rf.story.recorder.selector]
+            [re-frame.story.ui.canvas-listeners :as rf.story.ui.canvas-listeners]))
 
 ;; ---- runtime knobs -----------------------------------------------------
 
@@ -130,7 +130,7 @@
   "ms since the recording started, or nil when no recording is in
   flight. The recorder atom carries `:started-ms`; we just subtract."
   []
-  (let [{:keys [started-ms recording?]} (recorder/current-state)]
+  (let [{:keys [started-ms recording?]} (rf.story.recorder/current-state)]
     (when (and recording? started-ms)
       (max 0 (- (now-ms) started-ms)))))
 
@@ -141,13 +141,13 @@
   trace. Public so browser tests + the DOM listener share one path."
   [selector]
   (when-let [t (recording-now-ms)]
-    (recorder/record-dom-event! [:dom/click selector t])))
+    (rf.story.recorder/record-dom-event! [:dom/click selector t])))
 
 (defn record-dom-type!
   "Append a `[:dom/type selector text t]` entry."
   [selector text]
   (when-let [t (recording-now-ms)]
-    (recorder/record-dom-event! [:dom/type selector text t])))
+    (rf.story.recorder/record-dom-event! [:dom/type selector text t])))
 
 (defn record-dom-submit!
   "Append a `[:dom/submit form-selector t]` entry. The translator
@@ -155,7 +155,7 @@
   time."
   [form-selector]
   (when-let [t (recording-now-ms)]
-    (recorder/record-dom-event! [:dom/submit form-selector t])))
+    (rf.story.recorder/record-dom-event! [:dom/submit form-selector t])))
 
 ;; ---- type-debounce flush ------------------------------------------------
 
@@ -171,7 +171,7 @@
 
   Each buffered entry is appended with its capture-time `:t` (stamped at
   BUFFER time, while `:recording?` was true) via
-  `recorder/record-dom-event-buffered!` — NOT via `record-dom-type!`'s
+  `rf.story.recorder/record-dom-event-buffered!` — NOT via `record-dom-type!`'s
   `recording-now-ms` re-read. This is what lets the final
   keystroke survive a flush that fires AFTER the recording was stopped: the
   debounce timer (or the `remove!`/stop drain) can run once `:recording?` is
@@ -186,7 +186,7 @@
        (when-let [entry (get snapshot k)]
          (clear-buffer-timer! entry)
          (when-let [t (or (:t entry) (recording-now-ms))]
-           (recorder/record-dom-event-buffered! [:dom/type k (:value entry) t]))))
+           (rf.story.recorder/record-dom-event-buffered! [:dom/type k (:value entry) t]))))
      (if selector
        (swap! type-buffer dissoc selector)
        (reset! type-buffer {})))
@@ -243,11 +243,11 @@
   (reset! type-buffer {})
   nil)
 
-;; Register the buffer-drain seam so `recorder/start-recording!` + `clear!`
+;; Register the buffer-drain seam so `rf.story.recorder/start-recording!` + `clear!`
 ;; can cancel + drop pending keystrokes at the recording boundary. Runs at
 ;; ns load (dom-capture requires recorder, so recorder is loaded first and
 ;; the runtime lookup resolves this at call time). rf2-x76af2.18.
-(late-bind/set-fn! :recorder/reset-dom-buffer cancel-pending-flushes!)
+(rf.story.late-bind/set-fn! :recorder/reset-dom-buffer cancel-pending-flushes!)
 
 ;; ---- predicates ---------------------------------------------------------
 
@@ -275,7 +275,7 @@
 (def ^:const redacted-type-text
   "The placeholder text the DOM rail substitutes for a SENSITIVE input's
   typed value. The STRING mirror of the dispatch rail's
-  `recorder/redacted-event` `[:rf/redacted]` placeholder — a string
+  `rf.story.recorder/redacted-event` `[:rf/redacted]` placeholder — a string
   because the `:dom/type` → `[:type selector text]` play-step requires a
   string `text` slot (the runner's `step-arity-ok?`). Reads the same way
   the dispatch rail's `[:rf/redacted]` placeholder does, so a recording
@@ -340,20 +340,20 @@
   REDACTED hint stays accurate."
   [el]
   (let [v       (target-value el)
-        variant (recorder/recording-variant)]
+        variant (rf.story.recorder/recording-variant)]
     ;; Resolve the reveal decision against the RECORDING's frame
     ;; (per-(tool,frame) visibility). Revealing a sibling frame never reveals
     ;; this capture; a nil recording-variant fails closed (redacts).
-    (if (and (sensitive-element? el) (not (config/include-sensitive? variant)))
-      (do (config/note-suppressed! variant)
+    (if (and (sensitive-element? el) (not (rf.story.config/include-sensitive? variant)))
+      (do (rf.story.config/note-suppressed! variant)
           redacted-type-text)
       v)))
 
 (defn- should-capture?
   "Top-level gate: is the recorder running AND DOM capture enabled?"
   []
-  (and config/enabled?
-       (recorder/recording?)
+  (and rf.story.config/enabled?
+       (rf.story.recorder/recording?)
        (enabled?)))
 
 ;; ---- listener handlers --------------------------------------------------
@@ -368,7 +368,7 @@
       ;; The flush emits the buffered :dom/type entries first so
       ;; the resulting recording is well-ordered: type-then-click.
       (flush-type-buffer!)
-      (when-let [sel (selector/pick-for-element el)]
+      (when-let [sel (rf.story.recorder.selector/pick-for-element el)]
         (record-dom-click! sel)))))
 
 (defn- handle-input!
@@ -380,7 +380,7 @@
   (when (should-capture?)
     (when-let [el (.-target ev)]
       (when (typeable-element? el)
-        (when-let [sel (selector/pick-for-element el)]
+        (when-let [sel (rf.story.recorder.selector/pick-for-element el)]
           (buffer-type! sel (capture-value el)))))))
 
 (defn- handle-change!
@@ -392,7 +392,7 @@
   (when (should-capture?)
     (when-let [el (.-target ev)]
       (when (typeable-element? el)
-        (let [sel (selector/pick-for-element el)]
+        (let [sel (rf.story.recorder.selector/pick-for-element el)]
           ;; Stash the most-recent value FIRST (so a `change` on a
           ;; `<select>` — which never fires `input` — still has a
           ;; value to flush). Sensitive `<input>` values are redacted at
@@ -412,7 +412,7 @@
   (when (should-capture?)
     (when-let [el (.-target ev)]
       (flush-type-buffer!)
-      (when-let [sel (selector/pick-for-element el)]
+      (when-let [sel (rf.story.recorder.selector/pick-for-element el)]
         (record-dom-submit! sel)))))
 
 ;; ---- install / remove --------------------------------------------------
@@ -420,7 +420,7 @@
 ;; The idempotent canvas-root install/remove scaffold is shared with the
 ;; element inspector via `re-frame.story.ui.canvas-listeners`. This rail
 ;; keeps only its own listener bodies + the recorder-specific pre/post
-;; hooks: the `config/enabled?` opt-in gate on install and the
+;; hooks: the `rf.story.config/enabled?` opt-in gate on install and the
 ;; type-buffer drain on remove.
 
 (defonce ^:private installed-root (atom nil))
@@ -445,19 +445,19 @@
   (.removeEventListener root "submit" handle-submit! false))
 
 (def ^:private lifecycle
-  (canvas-listeners/make-lifecycle installed-root attach-listeners! detach-listeners!))
+  (rf.story.ui.canvas-listeners/make-lifecycle installed-root attach-listeners! detach-listeners!))
 
 (defn install!
   "Install the DOM-capture listeners on `root` (or the canvas root
   when called with no arg). Idempotent — re-installing removes the
   previous listener set first.
 
-  No-op when production elision is active (`config/enabled?` false).
+  No-op when production elision is active (`rf.story.config/enabled?` false).
   Returns the root node on success, nil otherwise."
   ([]
-   (install! (canvas-listeners/canvas-root)))
+   (install! (rf.story.ui.canvas-listeners/canvas-root)))
   ([root]
-   (when config/enabled?
+   (when rf.story.config/enabled?
      ((:install! lifecycle) root))))
 
 (defn remove!

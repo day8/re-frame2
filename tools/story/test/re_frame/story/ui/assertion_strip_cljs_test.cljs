@@ -26,19 +26,19 @@
   - `render-row`      — status / label / glyph wiring; click toggles
                         through the `on-toggle` callback"
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.story.ui.assertion-strip :as strip]))
+            [re-frame.story.ui.assertion-strip :as rf.story.ui.assertion-strip]))
 
 ;; ---- pure: truncate ------------------------------------------------------
 
 (deftest truncate-short-passthrough
   (testing "strings shorter than the limit pass through unchanged"
-    (is (= "abc"   (strip/truncate "abc" 10)))
-    (is (= ""      (strip/truncate nil 10)))
-    (is (= "1"     (strip/truncate "1" 10)))))
+    (is (= "abc"   (rf.story.ui.assertion-strip/truncate "abc" 10)))
+    (is (= ""      (rf.story.ui.assertion-strip/truncate nil 10)))
+    (is (= "1"     (rf.story.ui.assertion-strip/truncate "1" 10)))))
 
 (deftest truncate-long-ellipsis
   (testing "strings longer than the limit truncate with a single ellipsis char"
-    (let [out (strip/truncate "aaaaaaaaaaaaaaaaaa" 5)]
+    (let [out (rf.story.ui.assertion-strip/truncate "aaaaaaaaaaaaaaaaaa" 5)]
       (is (= 5 (count out))
           "output length matches the limit (ellipsis included)")
       (is (= "aaaa…" out)
@@ -46,7 +46,7 @@
 
 (deftest truncate-coerces-non-string
   (testing "non-string input is coerced through pr-str-ish (str)"
-    (is (= "42"    (strip/truncate 42 10)))))
+    (is (= "42"    (rf.story.ui.assertion-strip/truncate 42 10)))))
 
 ;; ---- pure: summary-line --------------------------------------------------
 
@@ -55,34 +55,34 @@
             the assertion and the strip stays compact"
     (let [row {:status :pass
                :detail {:expected 1 :actual 1}}]
-      (is (= "" (strip/summary-line row))))))
+      (is (= "" (rf.story.ui.assertion-strip/summary-line row))))))
 
 (deftest summary-line-fail-reason
   (testing "failing rows surface the :reason when present"
     (let [row {:status :fail
                :detail {:reason "values differ"}}]
-      (is (= "values differ" (strip/summary-line row))))))
+      (is (= "values differ" (rf.story.ui.assertion-strip/summary-line row))))))
 
 (deftest summary-line-fail-expected-actual
   (testing "failing rows with no :reason fall back to expected vs actual"
     (let [row {:status :fail
                :detail {:expected 99 :actual 0}}]
-      (is (= "expected 99 · actual 0" (strip/summary-line row))))))
+      (is (= "expected 99 · actual 0" (rf.story.ui.assertion-strip/summary-line row))))))
 
 (deftest summary-line-skip-reason
   (testing "skipped rows surface the :reason (or a default placeholder)"
     (is (= "feature gated"
-           (strip/summary-line {:status :skip
+           (rf.story.ui.assertion-strip/summary-line {:status :skip
                                 :detail {:reason "feature gated"}})))
     (is (= "skipped"
-           (strip/summary-line {:status :skip :detail {}}))
+           (rf.story.ui.assertion-strip/summary-line {:status :skip :detail {}}))
         "no :reason → 'skipped' placeholder")))
 
 (deftest summary-line-fail-truncates
   (testing "long :reason values clamp to the strip's character limit"
     (let [long-reason (apply str (repeat 200 "x"))
           row         {:status :fail :detail {:reason long-reason}}
-          out         (strip/summary-line row)]
+          out         (rf.story.ui.assertion-strip/summary-line row)]
       (is (<= (count out) 72)
           "output respects the truncate-len cap")
       (is (re-find #"…$" out)
@@ -96,7 +96,7 @@
     (let [records [{:assertion :rf.assert/path-equals :event [:counter/inc]}
                    {:assertion :rf.assert/path-equals :event [:counter/inc]}
                    {:assertion :rf.assert/path-equals :event [:counter/dec]}]
-          groups  (strip/group-by-event records)]
+          groups  (rf.story.ui.assertion-strip/group-by-event records)]
       (is (= 2 (count groups)))
       (is (= [:counter/inc] (-> groups (nth 0) :event)))
       (is (= 2 (-> groups (nth 0) :records count)))
@@ -107,7 +107,7 @@
   (testing "the first occurrence of each :event sets that group's position
             in the output, even if the records interleave later"
     (let [records [{:event [:a]} {:event [:b]} {:event [:a]} {:event [:c]}]
-          groups  (strip/group-by-event records)]
+          groups  (rf.story.ui.assertion-strip/group-by-event records)]
       (is (= [[:a] [:b] [:c]] (mapv :event groups))
           "groups appear in first-seen order")
       (is (= 2 (-> groups (nth 0) :records count))
@@ -119,7 +119,7 @@
     (let [records [{:assertion :rf.assert/x}
                    {:assertion :rf.assert/y :event [:click]}
                    {:assertion :rf.assert/z}]
-          groups  (strip/group-by-event records)]
+          groups  (rf.story.ui.assertion-strip/group-by-event records)]
       (is (= 2 (count groups)))
       (is (nil? (-> groups (nth 0) :event))
           ":event nil cluster is its own group")
@@ -128,8 +128,8 @@
 
 (deftest group-by-event-empty
   (testing "empty input → empty groups vector"
-    (is (= [] (strip/group-by-event [])))
-    (is (= [] (strip/group-by-event nil)))))
+    (is (= [] (rf.story.ui.assertion-strip/group-by-event [])))
+    (is (= [] (rf.story.ui.assertion-strip/group-by-event nil)))))
 
 ;; ---- pure: status-glyph map ----------------------------------------------
 
@@ -137,9 +137,9 @@
   (testing "the three status glyphs (Storybook-inspired pattern #1)
             are exposed publicly so tests + downstream consumers can
             pin them"
-    (is (= "✓" (:pass strip/status-glyph)))
-    (is (= "✗" (:fail strip/status-glyph)))
-    (is (= "⊘" (:skip strip/status-glyph)))))
+    (is (= "✓" (:pass rf.story.ui.assertion-strip/status-glyph)))
+    (is (= "✗" (:fail rf.story.ui.assertion-strip/status-glyph)))
+    (is (= "⊘" (:skip rf.story.ui.assertion-strip/status-glyph)))))
 
 ;; ---- rendered: render-row ------------------------------------------------
 
@@ -167,7 +167,7 @@
                   :label    ":rf.assert/path-equals [[:counter] 1]"
                   :row-key  ":rf.assert/path-equals [[:counter] 1]"
                   :detail   {:expected 1 :actual 1}}
-          hiccup (strip/render-row row false (fn [_]))]
+          hiccup (rf.story.ui.assertion-strip/render-row row false (fn [_]))]
       (is (some? (find-prop hiccup :data-test "story-canvas-assertion-row"))
           "row wrapper carries the canonical data-test")
       (let [row-wrapper (find-prop hiccup :data-test "story-canvas-assertion-row")]
@@ -183,7 +183,7 @@
                   :label   ":rf.assert/path-equals [[:counter] 99]"
                   :row-key ":rf.assert/path-equals [[:counter] 99]"
                   :detail  {:expected 99 :actual 0 :reason "values differ"}}
-          hiccup (strip/render-row row true (fn [_]))
+          hiccup (rf.story.ui.assertion-strip/render-row row true (fn [_]))
           wrap   (find-prop hiccup :data-test "story-canvas-assertion-row")]
       (is (= "fail" (:data-status wrap)))
       (is (some? (find-prop hiccup :data-test "story-canvas-assertion-summary"))
@@ -198,7 +198,7 @@
                   :label   ":rf.assert/skipped"
                   :row-key ":rf.assert/skipped"
                   :detail  {:reason "feature gated"}}
-          hiccup (strip/render-row row false (fn [_]))]
+          hiccup (rf.story.ui.assertion-strip/render-row row false (fn [_]))]
       (is (some? (find-prop hiccup :data-test "story-canvas-assertion-summary"))
           ":skip rows surface the reason summary even when collapsed")
       (is (nil? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
@@ -207,7 +207,7 @@
 ;; ---- rendered: assertion-strip component ---------------------------------
 ;;
 ;; The component returns a reagent inner-fn (closure-with-state pattern).
-;; Calling `(strip/assertion-strip assertions)` returns the outer fn; we
+;; Calling `(rf.story.ui.assertion-strip/assertion-strip assertions)` returns the outer fn; we
 ;; invoke it once with the assertions vector to get the inner fn, then
 ;; invoke that with the same vector to get the hiccup. This is the
 ;; standard reagent-with-init shape; tests pin the rendered tree without
@@ -217,16 +217,16 @@
   "Invoke the assertion-strip component and return its rendered hiccup.
 
   The strip renders each row as a Reagent component vector
-  `[strip/render-row row open? toggle]` (the key MUST sit on a vector
+  `[rf.story.ui.assertion-strip/render-row row open? toggle]` (the key MUST sit on a vector
   literal — rf2-5lw9w), so the raw hiccup carries un-expanded row
   elements. Tests that assert per-row `:key` meta read this raw form;
   tests that walk the row's inner shape use `render-strip-expanded`."
   [assertions]
-  (let [inner (strip/assertion-strip assertions)]
+  (let [inner (rf.story.ui.assertion-strip/assertion-strip assertions)]
     (inner assertions)))
 
 (defn- expand-row-elements
-  "Walk `hiccup` and replace each `[strip/render-row row open? toggle]`
+  "Walk `hiccup` and replace each `[rf.story.ui.assertion-strip/render-row row open? toggle]`
   component vector with the hiccup that `render-row` produces — i.e. what
   Reagent expands the element into at mount time. Lets the shape-walking
   tests below assert the row's inner `data-test` tree even though the
@@ -235,10 +235,10 @@
   [hiccup]
   (letfn [(render-row-element? [x]
             (and (vector? x)
-                 (= strip/render-row (first x))))
+                 (= rf.story.ui.assertion-strip/render-row (first x))))
           (expand [node]
             (cond
-              (render-row-element? node) (apply strip/render-row (rest node))
+              (render-row-element? node) (apply rf.story.ui.assertion-strip/render-row (rest node))
               (vector? node)             (mapv expand node)
               (seq? node)                (map expand node)
               :else                      node))]
@@ -365,7 +365,7 @@
         row-element? (fn [x]
                        (and (vector? x)
                             (fn? (first x))
-                            (= strip/render-row (first x))))]
+                            (= rf.story.ui.assertion-strip/render-row (first x))))]
     (letfn [(walk [node]
               (cond
                 (row-element? node) (swap! found conj node)
@@ -480,12 +480,12 @@
 (deftest value-display-short-no-clamp
   (testing "a short value's :clamped equals :full and :long? is false —
             no click-to-reveal chord needed"
-    (let [out (strip/value-display 42)]
+    (let [out (rf.story.ui.assertion-strip/value-display 42)]
       (is (= "42" (:full out)))
       (is (= "42" (:clamped out)))
       (is (false? (:long? out)))))
   (testing "a moderate map under the cap also passes through unclamped"
-    (let [out (strip/value-display {:a 1 :b 2})]
+    (let [out (rf.story.ui.assertion-strip/value-display {:a 1 :b 2})]
       (is (false? (:long? out)))
       (is (= (:full out) (:clamped out))))))
 
@@ -494,7 +494,7 @@
             ellipsis and flags :long? so the renderer attaches the
             click-to-reveal chord"
     (let [big {:k (apply str (repeat 300 "x"))}
-          out (strip/value-display big)]
+          out (rf.story.ui.assertion-strip/value-display big)]
       (is (true? (:long? out)))
       (is (re-find #"…$" (:clamped out))
           ":clamped ends in an ellipsis")
@@ -505,7 +505,7 @@
 
 (deftest value-display-respects-explicit-cap
   (testing "the 2-arity form clamps at the caller-supplied length"
-    (let [out (strip/value-display "abcdefghij" 5)]
+    (let [out (rf.story.ui.assertion-strip/value-display "abcdefghij" 5)]
       (is (true? (:long? out)))
       (is (= 5 (count (:clamped out)))))))
 
@@ -517,7 +517,7 @@
 
 (defn- render-detail-value
   [label v]
-  (let [inner (strip/detail-value label v)]
+  (let [inner (rf.story.ui.assertion-strip/detail-value label v)]
     (inner label v)))
 
 (deftest detail-value-short-no-reveal-chord

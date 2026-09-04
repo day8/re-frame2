@@ -30,21 +30,21 @@
   picked up by both `cljs-test$` and `-cljs-test$` regexes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             #?(:cljs [re-frame.core :as rf])
-            #?(:cljs [re-frame.story :as story])
-            #?(:cljs [re-frame.story.ui.controls :as controls])
-            [re-frame.story.ui.state :as state]))
+            #?(:cljs [re-frame.story :as rf.story])
+            #?(:cljs [re-frame.story.ui.controls :as rf.story.ui.controls])
+            [re-frame.story.ui.state :as rf.story.ui.state]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 #?(:cljs
    (defn reset-fixture [test-fn]
-     (story/clear-all!)
-     (state/reset-shell-state!)
-     (story/install-canonical-vocabulary!)
+     (rf.story/clear-all!)
+     (rf.story.ui.state/reset-shell-state!)
+     (rf.story/install-canonical-vocabulary!)
      (test-fn))
    :clj
    (defn reset-fixture [test-fn]
-     (state/reset-shell-state!)
+     (rf.story.ui.state/reset-shell-state!)
      (test-fn)))
 
 (use-fixtures :each reset-fixture)
@@ -103,7 +103,7 @@
    (defn- render
      "Render the Form-2 args-editor for `variant-id` to hiccup."
      [variant-id]
-     ((controls/args-editor variant-id) variant-id)))
+     ((rf.story.ui.controls/args-editor variant-id) variant-id)))
 
 ;; ---- pure: violations-by-key --------------------------------------------
 
@@ -113,7 +113,7 @@
                {arg-key → violation} map"
        (let [viols [{:key :name :value 42 :schema :string :explain nil}
                     {:key :age  :value "x" :schema :int    :explain nil}]
-             by-k  (controls/violations-by-key viols)]
+             by-k  (rf.story.ui.controls/violations-by-key viols)]
          (is (= 2 (count by-k)))
          (is (= 42 (get-in by-k [:name :value])))
          (is (= "x" (get-in by-k [:age :value])))))))
@@ -125,14 +125,14 @@
                collides with a real arg-key but still counts"
        (let [viols [{:key :re-frame.story.ui.schema-validation/root
                      :value {:a 1} :schema :string :explain nil}]
-             by-k  (controls/violations-by-key viols)]
+             by-k  (rf.story.ui.controls/violations-by-key viols)]
          (is (contains? by-k :rf.story.controls/root))
          (is (= {:a 1} (get-in by-k [:rf.story.controls/root :value])))))))
 
 #?(:cljs
    (deftest violations-by-key-empty
      (testing "an empty violations vector indexes to an empty map"
-       (is (= {} (controls/violations-by-key []))))))
+       (is (= {} (rf.story.ui.controls/violations-by-key []))))))
 
 ;; ---- pure: arg-changed? -------------------------------------------------
 
@@ -140,42 +140,42 @@
    (deftest arg-changed?-true-on-diff
      (testing "an arg whose effective value differs from its saved value
                is flagged changed"
-       (is (controls/arg-changed? {:a 2} {:a 1} :a)))))
+       (is (rf.story.ui.controls/arg-changed? {:a 2} {:a 1} :a)))))
 
 #?(:cljs
    (deftest arg-changed?-false-on-equal
      (testing "an arg whose effective value equals its saved value is not
                flagged changed — even with an override present (same-value
                override)"
-       (is (not (controls/arg-changed? {:a 1} {:a 1} :a))))))
+       (is (not (rf.story.ui.controls/arg-changed? {:a 1} {:a 1} :a))))))
 
 #?(:cljs
    (deftest arg-changed?-handles-missing-keys
      (testing "a key absent from saved but present in effective is changed;
                a key absent from both is not"
-       (is (controls/arg-changed? {:a 1} {} :a))
-       (is (not (controls/arg-changed? {} {} :a))))))
+       (is (rf.story.ui.controls/arg-changed? {:a 1} {} :a))
+       (is (not (rf.story.ui.controls/arg-changed? {} {} :a))))))
 
 ;; ---- pure: summarize-value ----------------------------------------------
 
 #?(:cljs
    (deftest summarize-value-collections
      (testing "summarize-value gives a non-recursive one-line summary"
-       (is (= "empty"   (controls/summarize-value nil)))
-       (is (= "1 key"   (controls/summarize-value {:a 1})))
-       (is (= "2 keys"  (controls/summarize-value {:a 1 :b 2})))
-       (is (= "1 item"  (controls/summarize-value [:x])))
-       (is (= "3 items" (controls/summarize-value [:x :y :z])))
-       (is (= "2 items" (controls/summarize-value #{:x :y})))
+       (is (= "empty"   (rf.story.ui.controls/summarize-value nil)))
+       (is (= "1 key"   (rf.story.ui.controls/summarize-value {:a 1})))
+       (is (= "2 keys"  (rf.story.ui.controls/summarize-value {:a 1 :b 2})))
+       (is (= "1 item"  (rf.story.ui.controls/summarize-value [:x])))
+       (is (= "3 items" (rf.story.ui.controls/summarize-value [:x :y :z])))
+       (is (= "2 items" (rf.story.ui.controls/summarize-value #{:x :y})))
        ;; a scalar landing under a collection widget pr-strs
-       (is (= "\"x\""   (controls/summarize-value "x"))))))
+       (is (= "\"x\""   (rf.story.ui.controls/summarize-value "x"))))))
 
 #?(:cljs
    (deftest summarize-value-does-not-recurse
      (testing "deep contents are NOT walked — only the top-level count
                appears (the point of summarising before expanding)"
        (is (= "1 key"
-              (controls/summarize-value
+              (rf.story.ui.controls/summarize-value
                 {:deep {:and {:nested {:tree :here}}}}))))))
 
 ;; ---- CLJS render: summarise-before-expand -------------------------------
@@ -191,7 +191,7 @@
        (rf/reg-view* :view.ba86n/grp
          {:rf/props [:map [:meta [:map [:author :string] [:rating :int]]]]}
          (fn [_] [:div]))
-       (story/reg-variant :story.ba86n/grp
+       (rf.story/reg-variant :story.ba86n/grp
          {:component :view.ba86n/grp
           :args      {:meta {:author "ada" :rating 5}}
           :setup    []})
@@ -211,13 +211,13 @@
        (rf/reg-view* :view.ba86n/grp2
          {:rf/props [:map [:meta [:map [:author :string]]]]}
          (fn [_] [:div]))
-       (story/reg-variant :story.ba86n/grp2
+       (rf.story/reg-variant :story.ba86n/grp2
          {:component :view.ba86n/grp2
           :args      {:meta {:author "ada"}}
           :setup    []})
        ;; ONE editor instance — the expand ratom lives on its closure, so
        ;; the toggle + re-render must go through the same instance.
-       (let [editor (controls/args-editor :story.ba86n/grp2)
+       (let [editor (rf.story.ui.controls/args-editor :story.ba86n/grp2)
              tree-1 (editor :story.ba86n/grp2)
              toggle (button-with-action tree-1 "toggle-expand")
              on-click (:on-click (attrs toggle))]
@@ -236,7 +236,7 @@
      (testing "every arg row carries a data-controls-invalid attribute so
                downstream tooling / the browser smoke can detect blocked
                renders"
-       (story/reg-variant :story.ba86n/val
+       (rf.story/reg-variant :story.ba86n/val
          {:args {:title "hi"} :setup []})
        (let [tree (render :story.ba86n/val)
              row  (node-with-attr tree :data-controls-arg ":title")]
@@ -251,7 +251,7 @@
        (rf/reg-view* :view.ba86n/bad
          {:rf/props [:map [:age :int]]}
          (fn [_] [:div]))
-       (story/reg-variant :story.ba86n/bad
+       (rf.story/reg-variant :story.ba86n/bad
          {:component :view.ba86n/bad
           ;; :age is a string but the schema says :int.
           :args      {:age "not-a-number"}
@@ -280,11 +280,11 @@
      (testing "an arg overridden to a value differing from saved shows the
                changed dot (data-controls-changed=\"true\") and a per-arg
                reset button; clicking reset clears only that arg's override"
-       (story/reg-variant :story.ba86n/diff
+       (rf.story/reg-variant :story.ba86n/diff
          {:args {:title "saved" :other "keep"} :setup []})
-       (state/swap-state! state/set-cell-override-scalar
+       (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override-scalar
                           :story.ba86n/diff :title "edited")
-       (state/swap-state! state/set-cell-override-scalar
+       (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override-scalar
                           :story.ba86n/diff :other "changed-too")
        (let [tree      (render :story.ba86n/diff)
              title-row (node-with-attr tree :data-controls-arg ":title")]
@@ -293,17 +293,17 @@
            (is (some? reset-btn))
            ((:on-click (attrs reset-btn)) nil)
            ;; :title override gone, :other override survives.
-           (is (nil? (get-in (state/get-state)
+           (is (nil? (get-in (rf.story.ui.state/get-state)
                              [:cell-overrides :story.ba86n/diff :title])))
            (is (= "changed-too"
-                  (get-in (state/get-state)
+                  (get-in (rf.story.ui.state/get-state)
                           [:cell-overrides :story.ba86n/diff :other]))))))))
 
 #?(:cljs
    (deftest unchanged-arg-has-no-changed-dot
      (testing "an arg at its saved value carries data-controls-changed=
                \"false\" — no diff dot"
-       (story/reg-variant :story.ba86n/same
+       (rf.story/reg-variant :story.ba86n/same
          {:args {:title "saved"} :setup []})
        (let [tree (render :story.ba86n/same)
              row  (node-with-attr tree :data-controls-arg ":title")]
@@ -313,11 +313,11 @@
    (deftest reset-overrides-button-present-when-overrides-exist
      (testing "the panel-level 'reset overrides' button appears only when
                at least one override exists for the focused variant"
-       (story/reg-variant :story.ba86n/resetall
+       (rf.story/reg-variant :story.ba86n/resetall
          {:args {:a 1} :setup []})
        ;; No overrides yet → no reset-all button.
        (is (nil? (button-with-action (render :story.ba86n/resetall) "reset-all")))
        ;; Add an override → reset-all appears.
-       (state/swap-state! state/set-cell-override-scalar
+       (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override-scalar
                           :story.ba86n/resetall :a 2)
        (is (some? (button-with-action (render :story.ba86n/resetall) "reset-all"))))))

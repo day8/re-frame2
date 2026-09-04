@@ -67,10 +67,10 @@
   Behind `re-frame.story.config/enabled?` per the same posture as the
   rest of `tools/story`. Production builds short-circuit before the
   preset is reached."
-  (:require [re-frame.story.predicates :as pred]
-            [re-frame.story.registrar  :as registrar]
+  (:require [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.registrar  :as rf.story.registrar]
             #?(:cljs [re-frame.core           :as rf])
-            #?(:cljs [re-frame.story.config   :as config])
+            #?(:cljs [re-frame.story.config   :as rf.story.config])
             ;; Direct :require's against the declared `day8/re-frame2-xray`
             ;; dependency (tools/story/deps.edn). A runtime `find-ns-obj`
             ;; + `aget` walk is NOT used for these: it returns a
@@ -81,7 +81,7 @@
             ;; `implementation/` → `tools/` requires, not
             ;; `tools/story` → `tools/xray` (the inverse is explicitly
             ;; fine, and neither artefact reaches a production bundle).
-            #?(:cljs [re-frame.frame :as frame])
+            #?(:cljs [re-frame.frame :as rf.frame])
             #?@(:cljs [[day8.re-frame2-xray.mount :as xray-mount]
                        [day8.re-frame2-xray.config :as xray-config]
                        [day8.re-frame2-xray.keybinding :as xray-keybinding]])))
@@ -107,10 +107,10 @@
   story's `:xray` slot with the variant's `:xray` slot. Returns nil
   when neither carries a preset. Pure-ish (reads the registrar)."
   [variant-id]
-  (let [variant-body (registrar/handler-meta :variant variant-id)
-        story-id     (pred/parent-story-id variant-id)
+  (let [variant-body (rf.story.registrar/handler-meta :variant variant-id)
+        story-id     (rf.story.predicates/parent-story-id variant-id)
         story-body   (when story-id
-                       (registrar/handler-meta :story story-id))
+                       (rf.story.registrar/handler-meta :story story-id))
         story-preset (:xray story-body)
         var-preset   (:xray variant-body)]
     (when (or story-preset var-preset)
@@ -219,8 +219,8 @@
      a different root from Story should call `xray-config/configure!`
      directly AFTER `story/configure!` to override the bridge."
      []
-     (when config/enabled?
-       (when-let [root (config/get-project-root)]
+     (when rf.story.config/enabled?
+       (when-let [root (rf.story.config/get-project-root)]
          ;; Xray's configure! keys live under :rf.xray/* per the
          ;; :rf.<tool>/* convention.
          (safe-call! "config/configure!" xray-config/configure!
@@ -278,7 +278,7 @@
      preload already installed under the default-true posture (runtime
      mechanism). Both fire from `wire-cross-host!` in that order."
      []
-     (when config/enabled?
+     (when rf.story.config/enabled?
        (safe-call! "config/configure!" xray-config/configure!
                    {:rf.xray/keybinding-enabled? false})
        true)))
@@ -321,7 +321,7 @@
      preload was suppressed (e.g. host already set the slot to `false`
      before Xray's preload ran)."
      []
-     (when config/enabled?
+     (when rf.story.config/enabled?
        (safe-call! "keybinding/detach!" xray-keybinding/detach!)
        true)))
 
@@ -337,7 +337,7 @@
 
      Idempotent — each bridge is a plain reset! / no-op on repeat."
      []
-     (when config/enabled?
+     (when rf.story.config/enabled?
        (propagate-project-root!)
        (disable-keybinding!)
        (detach-keybinding!))))
@@ -411,9 +411,9 @@
      mount (a chip-driven panel swap) does not re-apply a preset the user
      may since have edited through the ribbon."
      []
-     (when config/enabled?
+     (when rf.story.config/enabled?
        (when-let [lowered @pending-filters]
-         (when (some? (frame/frame :rf/xray))
+         (when (some? (rf.frame/frame :rf/xray))
            (reset! pending-filters nil)
            (hydrate-filters! lowered)
            lowered)))))
@@ -445,7 +445,7 @@
        (let [lowered (lower-filters filters)]
          (safe-call! "config/configure!" xray-config/configure!
                      {:rf.xray/filters lowered})
-         (if (some? (frame/frame :rf/xray))
+         (if (some? (rf.frame/frame :rf/xray))
            (do (reset! pending-filters nil)
                (hydrate-filters! lowered))
            (reset! pending-filters lowered))
@@ -479,7 +479,7 @@
      Returns the resolved preset (or nil) so the shell can log /
      debug-introspect what fired."
      [variant-id]
-     (when config/enabled?
+     (when rf.story.config/enabled?
        (when-let [preset (resolve-preset variant-id)]
          (when (:open? preset)
            (apply-open!))

@@ -11,7 +11,7 @@
 
   The parent ns `re-frame.story.ui.state` re-exports every Var here,
   so consumer requires keep working unchanged."
-  (:require [re-frame.story.registrar :as registrar]))
+  (:require [re-frame.story.registrar :as rf.story.registrar]))
 
 ;; ---- selection / filters -------------------------------------------------
 
@@ -62,7 +62,7 @@
   testable (the helper consults the registrar; pass an explicit
   `axis-fn` to bypass it in pure tests)."
   [mode-id]
-  (:axis (registrar/handler-meta :mode mode-id)))
+  (:axis (rf.story.registrar/handler-meta :mode mode-id)))
 
 (defn toggle-mode
   "Toggle `mode-id` against the current `active-modes` vector. Honors
@@ -104,7 +104,7 @@
   "Build the toolbar's chip layout. Pure data → data; JVM-testable.
 
   `id->body` is the `{mode-id → mode-body}` map from
-  `(registrar/registrations :mode)`. Returns
+  `(rf.story.registrar/registrations :mode)`. Returns
 
       {:axes   [[axis [mode-id ...]] ...]  ; sorted alphabetically by axis-name
        :unaxed [mode-id ...]}              ; un-grouped modes, sorted alphabetically

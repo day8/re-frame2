@@ -23,13 +23,13 @@
   it deliberately does not emit `aria-pressed` so the reset assertion
   is never tripped by viewport state."
   (:require [reagent.core :as r]
-            [re-frame.story.config           :as config]
-            [re-frame.story.predicates       :as pred]
-            [re-frame.story.registrar        :as registrar]
-            [re-frame.story.ui.state         :as state]
-            [re-frame.story.viewport         :as viewport]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.config           :as rf.story.config]
+            [re-frame.story.predicates       :as rf.story.predicates]
+            [re-frame.story.registrar        :as rf.story.registrar]
+            [re-frame.story.ui.state         :as rf.story.ui.state]
+            [re-frame.story.viewport         :as rf.story.viewport]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- dropdown state ------------------------------------------------------
 ;;
@@ -55,10 +55,10 @@
   chrome-wide viewport. nil clears the toolbar selection back to the
   default. Also writes through to localStorage."
   [sel]
-  (when config/enabled?
-    (let [normalised (viewport/coerce sel)]
-      (state/swap-state! assoc :viewport normalised)
-      (viewport/save-to-storage! normalised)
+  (when rf.story.config/enabled?
+    (let [normalised (rf.story.viewport/coerce sel)]
+      (rf.story.ui.state/swap-state! assoc :viewport normalised)
+      (rf.story.viewport/save-to-storage! normalised)
       (close!))))
 
 (defn submit-custom!
@@ -70,7 +70,7 @@
         w (some-> width (js/parseInt 10))
         h (some-> height (js/parseInt 10))
         cand {:width w :height h}]
-    (when (viewport/valid-custom? cand)
+    (when (rf.story.viewport/valid-custom? cand)
       (select! cand)
       (reset! custom-input-atom {:width "" :height ""}))))
 
@@ -80,10 +80,10 @@
   "Seed `:viewport` on shell mount from localStorage. Idempotent. No-ops
   when localStorage carries no value or the slot is already populated."
   []
-  (when (and config/enabled?
-             (nil? (:viewport @state/shell-state-atom)))
-    (when-some [persisted (viewport/load-from-storage)]
-      (state/swap-state! assoc :viewport persisted))))
+  (when (and rf.story.config/enabled?
+             (nil? (:viewport @rf.story.ui.state/shell-state-atom)))
+    (when-some [persisted (rf.story.viewport/load-from-storage)]
+      (rf.story.ui.state/swap-state! assoc :viewport persisted))))
 
 ;; ---- per-story override lookup -------------------------------------------
 
@@ -92,48 +92,48 @@
   variant. Pure-ish — reads the registrar + shell-state. Returns the
   preset map `{:label :width :height}` (with nils on `:full`)."
   []
-  (let [shell      @state/shell-state-atom
+  (let [shell      @rf.story.ui.state/shell-state-atom
         variant-id (:selected-variant shell)
         var-body   (when variant-id
-                     (registrar/handler-meta :variant variant-id))
-        story-id   (some-> variant-id pred/parent-story-id)
+                     (rf.story.registrar/handler-meta :variant variant-id))
+        story-id   (some-> variant-id rf.story.predicates/parent-story-id)
         story-body (when story-id
-                     (registrar/handler-meta :story story-id))
+                     (rf.story.registrar/handler-meta :story story-id))
         override   (or (:viewport var-body)
                        (:viewport story-body))]
-    (viewport/resolve override (:viewport shell))))
+    (rf.story.viewport/resolve override (:viewport shell))))
 
 (defn effective-id
   "Like `effective-viewport` but returns the resolved id (preset keyword
   or `:custom`). Used for `data-*` attributes."
   []
-  (let [shell      @state/shell-state-atom
+  (let [shell      @rf.story.ui.state/shell-state-atom
         variant-id (:selected-variant shell)
         var-body   (when variant-id
-                     (registrar/handler-meta :variant variant-id))
-        story-id   (some-> variant-id pred/parent-story-id)
+                     (rf.story.registrar/handler-meta :variant variant-id))
+        story-id   (some-> variant-id rf.story.predicates/parent-story-id)
         story-body (when story-id
-                     (registrar/handler-meta :story story-id))
+                     (rf.story.registrar/handler-meta :story story-id))
         override   (or (:viewport var-body)
                        (:viewport story-body))]
-    (viewport/resolve-id override (:viewport shell))))
+    (rf.story.viewport/resolve-id override (:viewport shell))))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private styles
   {:chip        {:padding         "3px 10px"
-                 :background      (:bg-3 colors/tokens)
-                 :color           (:text-primary colors/tokens)
+                 :background      (:bg-3 rf.story.theme.colors/tokens)
+                 :color           (:text-primary rf.story.theme.colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :user-select     "none"
                  :display         "inline-flex"
                  :align-items     "center"
                  :gap             "6px"}
-   :chip-icon   {:font-size (:micro typography/type-scale)
+   :chip-icon   {:font-size (:micro rf.story.theme.typography/type-scale)
                  :opacity   "0.85"}
    :wrap        {:position "relative"
                  :display  "inline-block"}
@@ -151,30 +151,30 @@
                  :flex-direction  "column"
                  :gap             "2px"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)}
+                 :font-size       (:caption rf.story.theme.typography/type-scale)}
    :item        {:display         "flex"
                  :align-items     "center"
                  :justify-content "space-between"
                  :padding         "5px 8px"
                  :background      "transparent"
-                 :color           (:text-primary colors/tokens)
+                 :color           (:text-primary rf.story.theme.colors/tokens)
                  :border          "none"
                  :border-radius   "3px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:caption typography/type-scale)
+                 :font-size       (:caption rf.story.theme.typography/type-scale)
                  :text-align      "left"
                  :width           "100%"}
-   :item-active {:background (:accent-amber colors/tokens)
+   :item-active {:background (:accent-amber rf.story.theme.colors/tokens)
                  :color      "white"}
    :item-label  {:display "flex"
                  :align-items "center"
                  :gap "8px"}
    :item-size   {:color     "#888"
-                 :font-size (:micro typography/type-scale)
+                 :font-size (:micro rf.story.theme.typography/type-scale)
                  :font-style "italic"}
    :divider     {:height          "1px"
-                 :background      (:border-subtle colors/tokens)
+                 :background      (:border-subtle rf.story.theme.colors/tokens)
                  :margin          "4px 0"}
    :custom-row  {:display "flex"
                  :gap "4px"
@@ -182,22 +182,22 @@
                  :padding "4px"}
    :custom-input {:width        "60px"
                   :padding      "3px 5px"
-                  :background   (:bg-2 colors/tokens)
+                  :background   (:bg-2 rf.story.theme.colors/tokens)
                   :color        "white"
                   :border       "1px solid #444"
                   :border-radius "3px"
                   :font-family  mono-stack
-                  :font-size    (:caption typography/type-scale)}
+                  :font-size    (:caption rf.story.theme.typography/type-scale)}
    :custom-x    {:color "#888"
-                 :font-size (:micro typography/type-scale)}
+                 :font-size (:micro rf.story.theme.typography/type-scale)}
    :custom-go   {:padding         "3px 8px"
-                 :background      (:accent-amber colors/tokens)
+                 :background      (:accent-amber rf.story.theme.colors/tokens)
                  :color           "white"
                  :border          "none"
                  :border-radius   "3px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       (:micro typography/type-scale)}
+                 :font-size       (:micro rf.story.theme.typography/type-scale)}
    :backdrop    {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
                  :z-index 1499
@@ -223,7 +223,7 @@
 
 (defn- preset-row
   [id active-id]
-  (let [{:keys [label width height]} (get viewport/presets id)
+  (let [{:keys [label width height]} (get rf.story.viewport/presets id)
         active? (= id active-id)]
     [:button
      {:style       (merge (:item styles)
@@ -304,7 +304,7 @@
        [:div {:style     (:menu styles)
               :role      "menu"
               :data-test "story-viewport-menu"}
-        (for [id viewport/preset-order]
+        (for [id rf.story.viewport/preset-order]
           ^{:key id} [preset-row id active-id])
         [:div {:style (:divider styles)}]
         (custom-row)])]))
@@ -313,4 +313,4 @@
   "Render the chip only when Story is enabled. Production builds with
   `re-frame.story.config/enabled?` false get nothing."
   []
-  (when config/enabled? [chip]))
+  (when rf.story.config/enabled? [chip]))

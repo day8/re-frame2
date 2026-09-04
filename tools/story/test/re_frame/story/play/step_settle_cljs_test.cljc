@@ -23,7 +23,7 @@
   the next step's read of app-db was one blind `setTimeout` 0.
 
   The load-bearing subtlety, and the reason the queue is the predicate:
-  `router/dispatch-sync!` pushes its seed at the FRONT of the queue and
+  `rf.router/dispatch-sync!` pushes its seed at the FRONT of the queue and
   drains, so an assertion dispatched at the next step JUMPS AHEAD of the
   click's still-queued event and reads app-db before it lands. Draining
   harder cannot fix an ordering inversion — only waiting for the queue
@@ -50,29 +50,29 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer [deftest is testing use-fixtures]])
             [re-frame.core   :as rf]
-            [re-frame.router :as router]
-            [re-frame.frame  :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story  :as story]
-            [re-frame.story.play.runner-events :as re]))
+            [re-frame.router :as rf.router]
+            [re-frame.frame  :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story  :as rf.story]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]))
 
 ;; The two private decisions under witness, reached by var-quote — the
 ;; established Story-test seam for a runner internal.
-(def ^:private step-required-selector   @#'re/step-required-selector)
-(def ^:private step-precondition-unmet  @#'re/step-precondition-unmet)
+(def ^:private step-required-selector   @#'rf.story.play.runner-events/step-required-selector)
+(def ^:private step-precondition-unmet  @#'rf.story.play.runner-events/step-precondition-unmet)
 
 (def ^:private settle-frame :story.step-settle/frame)
 
 (defn- reset-rf! [test-fn]
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-  (reset! re/run-state {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (reset! rf.story.play.runner-events/run-state {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (rf/make-frame {:id settle-frame :doc "step-settle witness frame"})
   (rf/reg-event :settle/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
   (test-fn))
@@ -170,14 +170,14 @@
 
 #?(:cljs
    (deftest queue-not-drained-is-an-unmet-precondition
-     (testing "THE HOLE rf2-n0sz4 measured. `router/dispatch!` enqueues and
+     (testing "THE HOLE rf2-n0sz4 measured. `rf.router/dispatch!` enqueues and
                schedules the drain through `interop/next-tick` — a
                MACROTASK, so it provably has not run on the statement after
                the dispatch. That is the state a step lands in right after a
                synthetic DOM event fires a handler that dispatches, and it
                is exactly the state the runner used to execute the next step
                in, reading app-db before the event landed"
-       (router/dispatch! [:settle/inc] {:frame settle-frame})
+       (rf.router/dispatch! [:settle/inc] {:frame settle-frame})
        (let [unmet (step-precondition-unmet settle-frame
                                             [:assert [:rf.assert/path-equals [:n] 1]])]
          (is (some? unmet)
@@ -186,7 +186,7 @@
              "and the timeout message must name what never settled"))
        (testing "and it clears once the queue really has drained — the poll
                  proceeds on the OBSERVED condition, not on a timer"
-         (router/dispatch-sync! [:settle/inc] {:frame settle-frame})
+         (rf.router/dispatch-sync! [:settle/inc] {:frame settle-frame})
          (is (nil? (step-precondition-unmet
                      settle-frame
                      [:assert [:rf.assert/path-equals [:n] 1]])))))))

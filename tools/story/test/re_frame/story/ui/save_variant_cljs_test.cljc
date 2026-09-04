@@ -20,14 +20,14 @@
   `:node-test` / `:browser-test` targets (ns suffix `-cljs-test`)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.story.save-variant :as save-variant]
-            #?(:cljs [re-frame.story.ui.save-variant :as ui-sv])))
+            [re-frame.story.save-variant :as rf.story.save-variant]
+            #?(:cljs [re-frame.story.ui.save-variant :as rf.story.ui.save-variant])))
 
 ;; ---- JVM + CLJS: contract surface ----------------------------------------
 
 (deftest gen-variant-snippet-emits-reg-variant-form
   (testing "the generator emits an EDN (reg-variant ...) form the UI previews"
-    (let [snip (save-variant/gen-variant-snippet
+    (let [snip (rf.story.save-variant/gen-variant-snippet
                  {:variant-id :story.x/y
                   :extends    :story.x/source
                   :args       {:n 1}})]
@@ -38,9 +38,9 @@
 
 (deftest dialog-state-machine-open-close
   (testing "open + close are the two transitions the UI ratom swaps"
-    (let [opened (save-variant/open save-variant/initial-dialog-state
+    (let [opened (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                     :story.x/y {:n 1} 0)
-          closed (save-variant/close opened)]
+          closed (rf.story.save-variant/close opened)]
       (is (:open? opened))
       (is (= :story.x/y (:source-id opened)))
       (is (= {:n 1} (:args opened)))
@@ -49,8 +49,8 @@
 
 (deftest dialog-set-draft-id-replaces-id-slot
   (testing "set-draft-id is the per-keystroke transition the UI calls on edit"
-    (let [s (save-variant/set-draft-id
-              (save-variant/open save-variant/initial-dialog-state
+    (let [s (rf.story.save-variant/set-draft-id
+              (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                  :story.x/y {} 0)
               :story.x/edited)]
       (is (= :story.x/edited (:draft-id s))))))
@@ -60,7 +60,7 @@
 #?(:cljs
    (deftest save-variant-button-disabled-without-variant
      (testing "the button is disabled + carries a hinted title when no variant focused"
-       (let [hiccup (ui-sv/save-variant-button nil)
+       (let [hiccup (rf.story.ui.save-variant/save-variant-button nil)
              attrs  (second hiccup)]
          (is (true? (:disabled attrs)))
          (is (str/includes? (:title attrs) "Select a variant"))
@@ -69,7 +69,7 @@
 #?(:cljs
    (deftest save-variant-button-enabled-with-variant
      (testing "the button enables when a variant is in focus"
-       (let [hiccup (ui-sv/save-variant-button :story.x/y)
+       (let [hiccup (rf.story.ui.save-variant/save-variant-button :story.x/y)
              attrs  (second hiccup)]
          (is (false? (:disabled attrs)))
          (is (str/includes? (:title attrs) "Capture"))
@@ -78,7 +78,7 @@
 #?(:cljs
    (deftest save-variant-button-on-click-callable
      (testing "the on-click handler is a 1-arg fn (event); calling does not throw"
-       (let [hiccup (ui-sv/save-variant-button :story.x/y)
+       (let [hiccup (rf.story.ui.save-variant/save-variant-button :story.x/y)
              attrs  (second hiccup)
              on-click (:on-click attrs)]
          (is (fn? on-click))))))
@@ -88,18 +88,18 @@
 #?(:cljs
    (deftest save-dialog-not-rendered-when-closed
      (testing "the dialog renders nil when the ratom :open? is false"
-       (reset! ui-sv/ui-dialog save-variant/initial-dialog-state)
-       (is (nil? (ui-sv/save-dialog))))))
+       (reset! rf.story.ui.save-variant/ui-dialog rf.story.save-variant/initial-dialog-state)
+       (is (nil? (rf.story.ui.save-variant/save-dialog))))))
 
 #?(:cljs
    (deftest save-dialog-renders-snippet-when-open
      (testing "the dialog renders a hiccup tree with the snippet preview"
-       (reset! ui-sv/ui-dialog
-               (save-variant/open save-variant/initial-dialog-state
+       (reset! rf.story.ui.save-variant/ui-dialog
+               (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                   :story.x/source
                                   {:label "hello" :n 42}
                                   12345))
-       (let [hiccup (ui-sv/save-dialog)
+       (let [hiccup (rf.story.ui.save-variant/save-dialog)
              flat   (str hiccup)]
          (is (vector? hiccup) "the dialog renders a hiccup tree")
          (is (str/includes? flat "story-save-variant-dialog"))
@@ -112,12 +112,12 @@
 #?(:cljs
    (deftest save-dialog-snippet-renders-extends
      (testing "the rendered snippet pins :extends to the source variant"
-       (reset! ui-sv/ui-dialog
-               (save-variant/open save-variant/initial-dialog-state
+       (reset! rf.story.ui.save-variant/ui-dialog
+               (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                   :story.x/source
                                   {}
                                   12345))
-       (let [flat (str (ui-sv/save-dialog))]
+       (let [flat (str (rf.story.ui.save-variant/save-dialog))]
          (is (str/includes? flat ":extends"))
          (is (str/includes? flat ":story.x/source"))))))
 
@@ -127,13 +127,13 @@
   (testing "rf2-lancu — snapshot-violations is a thin pass-through to
             schema-validation/args-violations; soft-passes per Spec 010
             when no validator / no schema (returns empty vec)"
-    (is (= [] (save-variant/snapshot-violations {:a 1} nil nil)))
-    (is (= [] (save-variant/snapshot-violations
+    (is (= [] (rf.story.save-variant/snapshot-violations {:a 1} nil nil)))
+    (is (= [] (rf.story.save-variant/snapshot-violations
                 {:a 1}
                 [:map [:a :int]]
                 nil))
         "no validator-fns → soft-pass per Spec 010")
-    (is (= [] (save-variant/snapshot-violations
+    (is (= [] (rf.story.save-variant/snapshot-violations
                 {:a 1}
                 [:map [:a :int]]
                 {:validate (fn [_ _] true)}))
@@ -143,7 +143,7 @@
   (testing "rf2-lancu — when args break the schema the violation list
             names the offending keys + their values so the save dialog
             can render the 'paste at your own risk' hint pre-paste"
-    (let [violations (save-variant/snapshot-violations
+    (let [violations (rf.story.save-variant/snapshot-violations
                        {:a 1 :b "oops"}
                        [:map [:a :int] [:b :int]]
                        {:validate (fn [s v]
@@ -154,11 +154,11 @@
       (is (= "oops" (-> violations first :value))))))
 
 (deftest open-stamps-violations-on-dialog-state
-  (testing "rf2-lancu — save-variant/open's 5-arity stamps the violations
+  (testing "rf2-lancu — rf.story.save-variant/open's 5-arity stamps the violations
             vector on the dialog state so the save dialog can render the
             non-blocking hint above the snippet"
     (let [vs [{:key :b :value "oops" :schema :int :explain nil}]
-          s  (save-variant/open save-variant/initial-dialog-state
+          s  (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                 :story.x/y {:a 1 :b "oops"} 0 vs)]
       (is (true? (:open? s)))
       (is (= vs (:violations s))
@@ -168,7 +168,7 @@
   (testing "rf2-lancu — back-compat: the legacy 3-arity (without
             violations) stamps an empty vec so the dialog hint path
             renders nothing"
-    (let [s (save-variant/open save-variant/initial-dialog-state
+    (let [s (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                :story.x/y {:a 1} 0)]
       (is (= [] (:violations s))))))
 
@@ -176,13 +176,13 @@
    (deftest save-dialog-renders-no-violations-hint-when-empty
      (testing "rf2-lancu — when the snapshot conforms (no violations) the
                dialog renders the snippet without the violations hint"
-       (reset! ui-sv/ui-dialog
-               (save-variant/open save-variant/initial-dialog-state
+       (reset! rf.story.ui.save-variant/ui-dialog
+               (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                   :story.x/source
                                   {:label "hi"}
                                   12345
                                   []))
-       (let [flat (str (ui-sv/save-dialog))]
+       (let [flat (str (rf.story.ui.save-variant/save-dialog))]
          (is (not (str/includes? flat "story-save-variant-violations-hint"))
              "no hint when violations is empty")
          (is (not (str/includes? flat "paste at your own risk"))
@@ -195,14 +195,14 @@
                listing the offending keys. Non-blocking — the user can
                still copy / paste; the snippet carries the violating
                args as captured"
-       (reset! ui-sv/ui-dialog
-               (save-variant/open save-variant/initial-dialog-state
+       (reset! rf.story.ui.save-variant/ui-dialog
+               (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                   :story.x/source
                                   {:label "hi" :count "not-an-int"}
                                   12345
                                   [{:key :count :value "not-an-int"
                                     :schema :int :explain nil}]))
-       (let [flat (str (ui-sv/save-dialog))]
+       (let [flat (str (rf.story.ui.save-variant/save-dialog))]
          (is (str/includes? flat "story-save-variant-violations-hint")
              "the hint container is present")
          (is (str/includes? flat "paste at your own risk")
@@ -218,16 +218,16 @@
 
 (deftest capture-slices-covers-all-eight-slices
   (testing "every slice in spec/019 §3 is classified — none silently dropped"
-    (let [report (save-variant/capture-slices {:n 1} nil {})
+    (let [report (rf.story.save-variant/capture-slices {:n 1} nil {})
           slices (set (map :slice report))]
-      (is (= (set save-variant/slice-order) slices)
+      (is (= (set rf.story.save-variant/slice-order) slices)
           "the report covers exactly the eight canonical slices")
-      (is (= save-variant/slice-order (mapv :slice report))
+      (is (= rf.story.save-variant/slice-order (mapv :slice report))
           "rows render in the canonical slice-order"))))
 
 (deftest capture-slices-args-is-projectable
   (testing "args (+ transient-controls) are the projectable pair; args emits"
-    (let [report   (save-variant/capture-slices {:n 7} nil {})
+    (let [report   (rf.story.save-variant/capture-slices {:n 7} nil {})
           by-slice (into {} (map (juxt :slice identity)) report)]
       (is (= :projectable (-> by-slice :args :status)))
       (is (true? (-> by-slice :args :emit?)) "args contributes the :args slot")
@@ -239,7 +239,7 @@
 (deftest capture-slices-unwired-slices-warn-not-fabricate
   (testing "with a bare source body, the not-yet-wired slices are :not-wired
             — captured nothing, honest warning, never a fabricated value"
-    (let [report   (save-variant/capture-slices {:n 1} nil {:viewport :tablet})
+    (let [report   (rf.story.save-variant/capture-slices {:n 1} nil {:viewport :tablet})
           by-slice (into {} (map (juxt :slice identity)) report)]
       (doseq [s [:sub-overrides :db-seed :route :network :fx-overrides :viewport]]
         (is (= :not-wired (-> by-slice s :status))
@@ -263,7 +263,7 @@
                     :fx-overrides  {:my/fx 1}
                     :setup         [[:e]]
                     :viewport      :tablet}
-          report   (save-variant/capture-slices {:n 1} body {})
+          report   (rf.story.save-variant/capture-slices {:n 1} body {})
           by-slice (into {} (map (juxt :slice identity)) report)]
       (doseq [[s v] {:sub-overrides {[:s] :v}
                      :network       {[:get "/u"] {:reply {}}}
@@ -279,8 +279,8 @@
 (deftest slice-warnings-filters-projectable
   (testing "slice-warnings keeps only the rows the user must see — every slice
             that is NOT a clean live projection"
-    (let [report   (save-variant/capture-slices {:n 1} nil {})
-          warnings (save-variant/slice-warnings report)]
+    (let [report   (rf.story.save-variant/capture-slices {:n 1} nil {})
+          warnings (rf.story.save-variant/slice-warnings report)]
       (is (every? #(not= :projectable (:status %)) warnings)
           "no projectable rows in the warnings")
       (is (not (some #(= :args (:slice %)) warnings))
@@ -290,25 +290,25 @@
 
 (deftest open-6-arity-stamps-slices
   (testing "rf2-ba86n.6 — open's 6-arity stamps the slice report on the dialog"
-    (let [report (save-variant/capture-slices {:n 1} nil {})
-          s      (save-variant/open save-variant/initial-dialog-state
+    (let [report (rf.story.save-variant/capture-slices {:n 1} nil {})
+          s      (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                     :story.x/y {:n 1} 0 [] report)]
       (is (true? (:open? s)))
       (is (= report (:slices s)) "the slice report rides the dialog state"))))
 
 (deftest open-4-arity-defaults-slices-to-empty-vec
   (testing "rf2-ba86n.6 — back-compat: pre-slices arities default :slices to []"
-    (is (= [] (:slices (save-variant/open save-variant/initial-dialog-state
+    (is (= [] (:slices (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                           :story.x/y {:n 1} 0))))
-    (is (= [] (:slices (save-variant/open save-variant/initial-dialog-state
+    (is (= [] (:slices (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                           :story.x/y {:n 1} 0 []))))))
 
 #?(:cljs
    (deftest slice-report-renders-warnings-when-present
      (testing "rf2-ba86n.6 — the slice-report component renders a row per
                non-projectable slice with its status + honest note"
-       (let [report (save-variant/capture-slices {:n 1} nil {:viewport :tablet})
-             flat   (str (ui-sv/slice-report report))]
+       (let [report (rf.story.save-variant/capture-slices {:n 1} nil {:viewport :tablet})
+             flat   (str (rf.story.ui.save-variant/slice-report report))]
          (is (str/includes? flat "story-save-variant-slice-report")
              "the report container is present")
          (is (str/includes? flat "story-save-variant-slice-row")
@@ -324,20 +324,20 @@
                nothing to warn about and the report renders nil"
        (let [all-clean [{:slice :args :status :projectable}
                         {:slice :transient-controls :status :projectable}]]
-         (is (nil? (ui-sv/slice-report all-clean)))))))
+         (is (nil? (rf.story.ui.save-variant/slice-report all-clean)))))))
 
 #?(:cljs
    (deftest save-dialog-renders-slice-report-when-open
      (testing "rf2-ba86n.6 — the open dialog renders the slice report below
                the snippet so the save is honest about what it captures"
-       (reset! ui-sv/ui-dialog
-               (save-variant/open save-variant/initial-dialog-state
+       (reset! rf.story.ui.save-variant/ui-dialog
+               (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                   :story.x/source
                                   {:n 1}
                                   12345
                                   []
-                                  (save-variant/capture-slices {:n 1} nil {})))
-       (let [flat (str (ui-sv/save-dialog))]
+                                  (rf.story.save-variant/capture-slices {:n 1} nil {})))
+       (let [flat (str (rf.story.ui.save-variant/save-dialog))]
          (is (str/includes? flat "story-save-variant-slice-report")
              "the slice report renders inside the open dialog")
          (is (str/includes? flat "story-save-variant-snippet")

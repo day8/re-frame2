@@ -12,11 +12,11 @@
 
   The two panels share:
 
-  - The CDN-load gate + opt-in persistence (`a11y/cdn-opt-in?`,
-    `a11y/set-cdn-opt-in!`, `a11y/ensure-axe-loaded!`) — one consent
+  - The CDN-load gate + opt-in persistence (`rf.story.ui.a11y/cdn-opt-in?`,
+    `rf.story.ui.a11y/set-cdn-opt-in!`, `rf.story.ui.a11y/ensure-axe-loaded!`) — one consent
     decision approves loading axe-core for both panels.
   - The violations stylesheet that renders red outlines on offending
-    elements (`a11y/ensure-stylesheet!`).
+    elements (`rf.story.ui.a11y/ensure-stylesheet!`).
   - The violation-row hiccup + impact-style colour scheme — pure UI
     leaves, identical for both panels.
   - The `record-violation-overlay!` decorator that stamps
@@ -43,7 +43,7 @@
   ## Pre-alpha posture
 
   No toggle to opt out — the panel is always available, runs on demand
-  via the 'run' button. Production builds with `config/enabled?` false
+  via the 'run' button. Production builds with `rf.story.config/enabled?` false
   never reach this ns.
 
   ## State
@@ -53,11 +53,11 @@
   structured."
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.story.config :as config]
-            [re-frame.story.registrar :as story-registrar]
-            [re-frame.story.ui.a11y :as a11y]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.a11y :as rf.story.ui.a11y]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- chrome root selector ------------------------------------------------
 
@@ -95,7 +95,7 @@
          read it through `status`.
 
          `:token` identifies the run currently OWNING the chrome scan —
-         see `a11y/new-run-token` and `stale-run?` below. Mirrors the
+         see `rf.story.ui.a11y/new-run-token` and `stale-run?` below. Mirrors the
          per-frame run-state slot in `ui/a11y.cljs` for UX parity with
          the variant panel, and fences the same way."}
   run-state
@@ -109,7 +109,7 @@
 (defn- stale-run?
   "True when the run carrying `token` no longer owns the chrome scan.
 
-  The singleton counterpart of `a11y/stale-run?`, and narrower for it:
+  The singleton counterpart of `rf.story.ui.a11y/stale-run?`, and narrower for it:
   the chrome slot is one atom that always exists, so there is no
   teardown-resurrection to refuse — only supersession. A run loses the
   slot when a newer `run-axe!` claims it, or when `reset-state!` returns
@@ -157,7 +157,7 @@
 ;; ## Persistence
 ;;
 ;; The toggle survives reload via `localStorage` under
-;; `force-colors-opt-in-key`. The pattern mirrors `a11y/cdn-opt-in-key`
+;; `force-colors-opt-in-key`. The pattern mirrors `rf.story.ui.a11y/cdn-opt-in-key`
 ;; (same module): in-memory ratom for the live read, persisted string
 ;; for the round-trip across reloads. Browsers that block localStorage
 ;; (private mode, embedded contexts, file://) degrade to in-memory-only
@@ -307,11 +307,11 @@
   Returns a `js/Promise` resolving to the violations vector — or nil
   when the chrome root cannot be resolved (e.g. shell not mounted).
 
-  Reuses `a11y/ensure-axe-loaded!` so the CDN load + consent gate is
+  Reuses `rf.story.ui.a11y/ensure-axe-loaded!` so the CDN load + consent gate is
   shared with the variant panel: one opt-in approves both.
 
   Per `005-SOTA-Features.md` §a11y (axe-core) panel surfaces violations into the global trace bus
-  via `a11y/emit-warning-for-violation` keyed on `chrome-frame-id`."
+  via `rf.story.ui.a11y/emit-warning-for-violation` keyed on `chrome-frame-id`."
   ([] (run-axe! (find-chrome-root)))
   ([context]
    (cond
@@ -328,7 +328,7 @@
 
      ;; CDN opt-in gate — same prompt the variant panel uses; one
      ;; consent approves both panels.
-     (not (a11y/cdn-opt-in?))
+     (not (rf.story.ui.a11y/cdn-opt-in?))
      (do
        (reset! run-state {:status :no-consent})
        (js/Promise.resolve nil))
@@ -338,9 +338,9 @@
      ;; this panel's singleton slot. Every mutation on the far side of an
      ;; await is gated on the token claimed here, in the same synchronous
      ;; turn as the mutation it guards.
-     (let [token (a11y/new-run-token)]
+     (let [token (rf.story.ui.a11y/new-run-token)]
        (reset! run-state {:status :loading :token token})
-       (-> (a11y/ensure-axe-loaded!)
+       (-> (rf.story.ui.a11y/ensure-axe-loaded!)
            (.then
              (fn [^js axe]
                ;; A superseded run declines to SCAN, not merely to
@@ -360,8 +360,8 @@
                                    context)]
                    (reset! violations (vec (array-seq vs)))
                    (doseq [v (array-seq vs)]
-                     (a11y/record-violation-overlay! scope-el v)
-                     (a11y/emit-warning-for-violation chrome-frame-id v))
+                     (rf.story.ui.a11y/record-violation-overlay! scope-el v)
+                     (rf.story.ui.a11y/emit-warning-for-violation chrome-frame-id v))
                    (reset! run-state {:status :done :token token})
                    vs))))
            (.catch
@@ -377,24 +377,24 @@
 
 (def ^:private styles
   {:wrap      {:padding "8px"
-               :background (:bg-2 colors/tokens)
+               :background (:bg-2 rf.story.theme.colors/tokens)
                :border-top "1px solid #444"
-               :color (:text-primary colors/tokens)
+               :color (:text-primary rf.story.theme.colors/tokens)
                :font-family mono-stack
-               :font-size (:caption typography/type-scale)}
+               :font-size (:caption rf.story.theme.typography/type-scale)}
    :header    {:display "flex"
                :justify-content "space-between"
                :align-items "center"
                :margin-bottom "8px"}
    :section-h {:font-weight "bold"
-               :color (:text-secondary colors/tokens)
+               :color (:text-secondary rf.story.theme.colors/tokens)
                :text-transform "uppercase"
-               :font-size (:micro typography/type-scale)
+               :font-size (:micro rf.story.theme.typography/type-scale)
                :letter-spacing "0.5px"}
-   :status    {:color (:text-secondary colors/tokens)
-               :font-size (:micro typography/type-scale)
+   :status    {:color (:text-secondary rf.story.theme.colors/tokens)
+               :font-size (:micro rf.story.theme.typography/type-scale)
                :margin-top "4px"}
-   :empty     {:color (:text-tertiary colors/tokens)
+   :empty     {:color (:text-tertiary rf.story.theme.colors/tokens)
                :font-style "italic"
                :padding "4px 0"}})
 
@@ -407,31 +407,31 @@
   [:div {:style {:padding "8px 0"
                  :border-top "1px dashed #555"
                  :margin-top "4px"
-                 :color (:text-primary colors/tokens)}}
+                 :color (:text-primary rf.story.theme.colors/tokens)}}
    [:div {:style {:font-weight "bold"
-                  :color (:danger colors/tokens)
+                  :color (:danger rf.story.theme.colors/tokens)
                   :margin-bottom "6px"}}
     "axe-core not loaded"]
-   [:div {:style {:font-size (:micro typography/type-scale)
+   [:div {:style {:font-size (:micro rf.story.theme.typography/type-scale)
                   :line-height "1.4"
-                  :color (:text-secondary colors/tokens)
+                  :color (:text-secondary rf.story.theme.colors/tokens)
                   :margin-bottom "6px"}}
     "Running an a11y scan loads "
-    [:code {:style {:color (:info colors/tokens)}} "axe-core@4.10.0"]
+    [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "axe-core@4.10.0"]
     " from a public CDN ("
-    [:code {:style {:color (:info colors/tokens)}} "cdn.jsdelivr.net"]
+    [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "cdn.jsdelivr.net"]
     "). The remote JS gets full DOM access to this Story page; the SRI "
     "hash pinned in the loader detects tampering, but the dependency "
     "itself is a trust call. No shell state leaves the browser."]
-   [:div {:style {:font-size (:micro typography/type-scale)
-                  :color (:text-secondary colors/tokens)
+   [:div {:style {:font-size (:micro rf.story.theme.typography/type-scale)
+                  :color (:text-secondary rf.story.theme.colors/tokens)
                   :margin-bottom "8px"}}
     "Approve once per browser; the opt-in is remembered in "
-    [:code {:style {:color (:info colors/tokens)}} "localStorage"]
+    [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "localStorage"]
     " and shared with the per-variant a11y panel."]
-   [:button {:style    (:run-button a11y/styles)
+   [:button {:style    (:run-button rf.story.ui.a11y/styles)
              :on-click (fn [_]
-                         (a11y/set-cdn-opt-in! true)
+                         (rf.story.ui.a11y/set-cdn-opt-in! true)
                          (run-axe!))}
     "enable axe-core + scan"]])
 
@@ -447,12 +447,12 @@
            :style     {:padding "8px 0 4px 0"
                        :border-top "1px dashed #444"
                        :margin-top "8px"
-                       :color (:text-primary colors/tokens)}}
+                       :color (:text-primary rf.story.theme.colors/tokens)}}
      [:label {:style {:display     "flex"
                       :align-items "center"
                       :gap         "8px"
                       :cursor      "pointer"
-                      :font-size   (:caption typography/type-scale)}}
+                      :font-size   (:caption rf.story.theme.typography/type-scale)}}
       [:input {:data-test "story-chrome-a11y-use-system-colors-input"
                :type      "checkbox"
                :checked   (boolean on?)
@@ -460,23 +460,23 @@
                             (set-force-colors-opt-in!
                               (boolean (.. e -target -checked))))}]
       [:span "Use system colors"]]
-     [:div {:style {:font-size   (:micro typography/type-scale)
+     [:div {:style {:font-size   (:micro rf.story.theme.typography/type-scale)
                     :line-height "1.4"
-                    :color       (:text-secondary colors/tokens)
+                    :color       (:text-secondary rf.story.theme.colors/tokens)
                     :margin-top  "4px"}}
       "Render the Story chrome using your OS' high-contrast palette ("
-      [:code {:style {:color (:info colors/tokens)}} "Highlight"]
+      [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "Highlight"]
       ", "
-      [:code {:style {:color (:info colors/tokens)}} "CanvasText"]
+      [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "CanvasText"]
       ", "
-      [:code {:style {:color (:info colors/tokens)}} "Mark"]
+      [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "Mark"]
       ", "
-      [:code {:style {:color (:info colors/tokens)}} "GrayText"]
+      [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "GrayText"]
       ") — the same chrome Windows High Contrast Mode paints, on "
       "demand without flipping the OS-level switch. Default OFF; the "
       "OS HCM detection still works either way. Persists across "
       "reloads in "
-      [:code {:style {:color (:info colors/tokens)}} "localStorage"]
+      [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "localStorage"]
       "."]]))
 
 (defn panel
@@ -489,15 +489,15 @@
   stamped by `shell.cljs`), NOT the variant root. Variant a11y lives
   in the sibling `re-frame.story.ui.a11y` panel."
   [_variant-id]
-  (a11y/ensure-stylesheet!)
+  (rf.story.ui.a11y/ensure-stylesheet!)
   (let [vs    @violations
         state (status)
         busy? (or (= state :loading) (= state :running))]
     [:div {:style (:wrap styles) :data-test "story-chrome-a11y-panel"}
      [:div {:style (:header styles)}
       [:span {:style (:section-h styles)} "Chrome A11y (axe-core)"]
-      [:button {:style    (merge (:run-button a11y/styles)
-                                 (when busy? (:run-busy a11y/styles)))
+      [:button {:style    (merge (:run-button rf.story.ui.a11y/styles)
+                                 (when busy? (:run-busy rf.story.ui.a11y/styles)))
                 :data-test "story-chrome-a11y-run"
                 :disabled busy?
                 :on-click (fn [_] (when-not busy? (run-axe!)))}
@@ -531,7 +531,7 @@
        :else
        [:div {:data-test "story-chrome-a11y-violations"}
         (for [[i v] (map-indexed vector vs)]
-          ^{:key i} [a11y/violation-row v])])
+          ^{:key i} [rf.story.ui.a11y/violation-row v])])
      ;; 'Use system colors' toggle rendered at the foot of
      ;; the panel so the operator-controlled HCM preview shares the
      ;; same accessibility surface as the axe-core consent + run knobs.
@@ -554,7 +554,7 @@
   alongside the variant a11y panel.
 
   Idempotent. Production builds with `:rf.story/enabled?` false skip
-  registration via the `config/enabled?` gate.
+  registration via the `rf.story.config/enabled?` gate.
 
   Also schedules a one-tick `bootstrap-force-colors!`
   so the persisted 'Use system colors' opt-in re-applies to the live
@@ -563,7 +563,7 @@
   React tree has committed `[data-rf-story-root]` before the
   attribute write tries to find it."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     ;; `[:div]` wrap REQUIRED for source-coord annotation — see the
     ;; full rationale on `:rf.story.panel/a11y-view` registration in
     ;; `re-frame.story.ui.a11y`. Per Spec 006 §Source-coord annotation
@@ -571,7 +571,7 @@
     ;; `data-rf2-source-coord` to; a bare `[panel variant-id]` root
     ;; silences Story / Xray Inspect Mode for this panel.
     (rf/reg-view* panel-render-id (fn [variant-id] [:div [panel variant-id]]))
-    (story-registrar/reg-story-panel*
+    (rf.story.registrar/reg-story-panel*
       panel-id
       {:doc       "axe-core accessibility scanner scoped to the Story chrome root."
        :title     "Chrome a11y"

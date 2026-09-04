@@ -77,17 +77,17 @@
 
   ## Elision
 
-  CLJS rendering reaches the spine only via the `config/enabled?`-gated
+  CLJS rendering reaches the spine only via the `rf.story.config/enabled?`-gated
   shell mount, so production builds never invoke it; closure DCEs the lot."
-  (:require [re-frame.story.play.evidence :as evidence]
+  (:require [re-frame.story.play.evidence :as rf.story.play.evidence]
             #?@(:cljs [[reagent.core :as r]
-                       [re-frame.story.config :as config]
-                       [re-frame.story.review-dialog :as review-dialog]
-                       [re-frame.story.ui.state :as state]
-                       [re-frame.story.ui.test-mode.state :as test-state]
+                       [re-frame.story.config :as rf.story.config]
+                       [re-frame.story.review-dialog :as rf.story.review-dialog]
+                       [re-frame.story.ui.state :as rf.story.ui.state]
+                       [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]
                        [day8.re-frame2-xray.core :as xray-core]
-                       [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-                       [re-frame.story.theme.colors :as colors]])))
+                       [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
+                       [re-frame.story.theme.colors :as rf.story.theme.colors]])))
 
 ;; ===========================================================================
 ;; THE PANEL VOCABULARY  (the host-facing focus-panel ids — spec/020 §2.1)
@@ -140,7 +140,7 @@
   carry both, and the renderer labels each present strength distinctly so
   attributed evidence is never presented as direct.
 
-  Note the db test compares VALUES, not key presence: `evidence/epoch-beat`
+  Note the db test compares VALUES, not key presence: `rf.story.play.evidence/epoch-beat`
   ALWAYS materializes `:db-before` / `:db-after` (they sit in its base map,
   not its `cond->` tail), so `contains?` would read true for every projected
   beat — including a read-only dispatch that changed nothing. A beat counts
@@ -170,7 +170,7 @@
 
   `:schemas` is the count of `:rf.error/schema-validation-failure` trace
   events in the beat — a derived count over the SAME `:trace-events` slot
-  the agreement-floor projection reads (`evidence/schema-violation-trace?`),
+  the agreement-floor projection reads (`rf.story.play.evidence/schema-violation-trace?`),
   so the spine and the test pane agree about how many violations a beat
   carries.
 
@@ -178,11 +178,11 @@
   transition (its `:db-before` / `:db-after` values DIFFER) or it did not.
   The rendered shape `db Δ` reads as 'app-db changed at this beat' rather
   than inventing a diff (the diff itself is Xray's, surfaced via focus).
-  The test compares values, not key presence: `evidence/epoch-beat` always
+  The test compares values, not key presence: `rf.story.play.evidence/epoch-beat` always
   materializes both keys, so a key-presence test would show the `db Δ` chip
   on every beat — even a dispatch that changed nothing."
   [beat]
-  (let [schema-n (count (filter evidence/schema-violation-trace?
+  (let [schema-n (count (filter rf.story.play.evidence/schema-violation-trace?
                                 (:trace-events beat)))
         db?      (not= (:db-before beat) (:db-after beat))
         entries  [{:k :db       :label "db Δ"     :count (if db? 1 0) :strength :direct}
@@ -208,12 +208,12 @@
   them as causally equivalent to dispatch spans — so the renderer can mark
   a beatless span as 'this step committed no epoch' rather than reading as
   'this dispatch produced nothing'. A span whose step IS a dispatch step
-  (`evidence/dispatch-step?`) but committed no epoch is still `:dispatch`
+  (`rf.story.play.evidence/dispatch-step?`) but committed no epoch is still `:dispatch`
   (it tried to dispatch); the empty-beats marker is the renderer's job."
   [{:keys [step] :as _span}]
   (cond
     (nil? step)                       :setup
-    (evidence/dispatch-step? step)    :dispatch
+    (rf.story.play.evidence/dispatch-step? step)    :dispatch
     :else                             :non-dispatch))
 
 (defn step-label
@@ -352,7 +352,7 @@
        :beat-count <int>        ; epochs the span committed
        :beats    [<beat-row> …]}
 
-  Each beat-row is the flattened `evidence/narrative-beats` beat augmented
+  Each beat-row is the flattened `rf.story.play.evidence/narrative-beats` beat augmented
   with:
 
       {:strength {:direct? … :attributed? …}   ; spec/020 §3 evidence strength
@@ -361,13 +361,13 @@
        :focus    {:precise? … :reason …}}      ; can a precise focus pin?
 
   The beats are the SAME flattened, addressable sequence the scrub backbone
-  walks (`evidence/narrative-beats`) — the spine never re-implements the
+  walks (`rf.story.play.evidence/narrative-beats`) — the spine never re-implements the
   flatten; it decorates the canonical projection. A span with no beats
   (a non-dispatch step, or a dispatch step that committed nothing) carries
   an empty `:beats` and the renderer marks it per its `:kind`."
   [narrative]
   (let [spans (vec (or narrative []))
-        beats (evidence/narrative-beats narrative)
+        beats (rf.story.play.evidence/narrative-beats narrative)
         by-span (group-by :span-idx beats)
         decorate (fn [beat]
                    (let [coords (beat-focus-coords beat)]
@@ -407,7 +407,7 @@
   [narrative epoch-id]
   (when (some? epoch-id)
     (some (fn [b] (when (= epoch-id (:epoch-id b)) (:beat-idx b)))
-          (evidence/narrative-beats narrative))))
+          (rf.story.play.evidence/narrative-beats narrative))))
 
 (defn beat-index-for-dispatch
   "The 0-based `:beat-idx` of the FIRST flattened beat whose `:dispatch-id`
@@ -418,7 +418,7 @@
   [narrative dispatch-id]
   (when (some? dispatch-id)
     (some (fn [b] (when (= dispatch-id (:dispatch-id b)) (:beat-idx b)))
-          (evidence/narrative-beats narrative))))
+          (rf.story.play.evidence/narrative-beats narrative))))
 
 (defn row->beat-index
   "Resolve a run-result `row` (an assertion record or a schema-violation
@@ -492,7 +492,7 @@
      No-op when Story is disabled. Returns the focus result map (or nil)
      so a caller can introspect what fired."
      [variant-id beat panel]
-     (when config/enabled?
+     (when rf.story.config/enabled?
        (let [coords  (beat-focus-coords beat)
              source  (focus-source :story/evidence-beat variant-id
                                     {:beat-idx (:beat-idx beat)
@@ -505,49 +505,49 @@
 #?(:cljs
    (def ^:private styles
      {:wrap        {:font-family    sans-stack
-                    :font-size      (:body-tight typography/type-scale)
-                    :color          (:text-primary colors/tokens)
+                    :font-size      (:body-tight rf.story.theme.typography/type-scale)
+                    :color          (:text-primary rf.story.theme.colors/tokens)
                     :padding-bottom "12px"}
       :variant-id  {:font-family  mono-stack
-                    :font-size    (:caption typography/type-scale)
-                    :color        (:accent-amber colors/tokens)
+                    :font-size    (:caption rf.story.theme.typography/type-scale)
+                    :color        (:accent-amber rf.story.theme.colors/tokens)
                     :margin       "0 0 2px 0"
                     :word-break   "break-all"}
-      :blurb       {:color         (:text-tertiary colors/tokens)
-                    :font-size     (:caption typography/type-scale)
+      :blurb       {:color         (:text-tertiary rf.story.theme.colors/tokens)
+                    :font-size     (:caption rf.story.theme.typography/type-scale)
                     :margin-bottom "10px"
-                    :line-height   (:line-height-tight typography/type-scale)}
-      :no-variant  {:color      (:text-tertiary colors/tokens)
+                    :line-height   (:line-height-tight rf.story.theme.typography/type-scale)}
+      :no-variant  {:color      (:text-tertiary rf.story.theme.colors/tokens)
                     :font-style "italic"
-                    :font-size  (:caption typography/type-scale)
+                    :font-size  (:caption rf.story.theme.typography/type-scale)
                     :padding    "4px 0"}
-      :empty       {:color      (:text-tertiary colors/tokens)
+      :empty       {:color      (:text-tertiary rf.story.theme.colors/tokens)
                     :font-style "italic"
-                    :font-size  (:caption typography/type-scale)
+                    :font-size  (:caption rf.story.theme.typography/type-scale)
                     :padding    "4px 0"}
       ;; ---- span ----
       :span        {:margin-top   "8px"
-                    :border-left  (str "2px solid " (:border-subtle colors/tokens))
+                    :border-left  (str "2px solid " (:border-subtle rf.story.theme.colors/tokens))
                     :padding-left "8px"}
       :span-h      {:display      "flex"
                     :align-items  "baseline"
                     :gap          "6px"
                     :margin-bottom "2px"}
       :span-label  {:font-family mono-stack
-                    :font-size   (:caption typography/type-scale)
-                    :color       (:info colors/tokens)
+                    :font-size   (:caption rf.story.theme.typography/type-scale)
+                    :color       (:info rf.story.theme.colors/tokens)
                     :word-break  "break-all"}
-      :span-kind   {:font-size      (:nano typography/type-scale)
+      :span-kind   {:font-size      (:nano rf.story.theme.typography/type-scale)
                     :text-transform "uppercase"
-                    :letter-spacing (:label typography/letter-spacing)
-                    :color          (:text-tertiary colors/tokens)}
-      :span-caption {:color     (:text-secondary colors/tokens)
-                     :font-size (:caption typography/type-scale)
+                    :letter-spacing (:label rf.story.theme.typography/letter-spacing)
+                    :color          (:text-tertiary rf.story.theme.colors/tokens)}
+      :span-caption {:color     (:text-secondary rf.story.theme.colors/tokens)
+                     :font-size (:caption rf.story.theme.typography/type-scale)
                      :font-style "italic"
                      :margin-bottom "2px"}
-      :span-empty  {:color      (:text-tertiary colors/tokens)
+      :span-empty  {:color      (:text-tertiary rf.story.theme.colors/tokens)
                     :font-style "italic"
-                    :font-size  (:micro typography/type-scale)
+                    :font-size  (:micro rf.story.theme.typography/type-scale)
                     :padding    "1px 0 3px 0"}
       ;; ---- beat ----
       :beat        {:display       "flex"
@@ -556,48 +556,48 @@
                     :padding       "4px 6px"
                     :margin        "2px 0"
                     :border-radius "4px"
-                    :background    (:bg-2 colors/tokens)
-                    :border        (str "1px solid " (:border-subtle colors/tokens))
+                    :background    (:bg-2 rf.story.theme.colors/tokens)
+                    :border        (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                     :cursor        "pointer"}
-      :beat-selected {:border    (str "1px solid " (:accent-amber colors/tokens))
-                      :background (:bg-3 colors/tokens)}
+      :beat-selected {:border    (str "1px solid " (:accent-amber rf.story.theme.colors/tokens))
+                      :background (:bg-3 rf.story.theme.colors/tokens)}
       :beat-h      {:display     "flex"
                     :align-items "baseline"
                     :gap         "6px"}
       :beat-trigger {:font-family mono-stack
-                     :font-size   (:caption typography/type-scale)
-                     :color       (:text-primary colors/tokens)
+                     :font-size   (:caption rf.story.theme.typography/type-scale)
+                     :color       (:text-primary rf.story.theme.colors/tokens)
                      :word-break  "break-all"
                      :flex        "1"}
       :beat-epoch  {:font-family mono-stack
-                    :font-size   (:nano typography/type-scale)
-                    :color       (:text-tertiary colors/tokens)
+                    :font-size   (:nano rf.story.theme.typography/type-scale)
+                    :color       (:text-tertiary rf.story.theme.colors/tokens)
                     :white-space "nowrap"}
       :strength-row {:display    "flex"
                      :gap        "4px"
                      :flex-wrap  "wrap"
                      :margin-top "1px"}
       :strength-tag {:font-family mono-stack
-                     :font-size   (:nano typography/type-scale)
+                     :font-size   (:nano rf.story.theme.typography/type-scale)
                      :border-radius "8px"
                      :padding     "0 6px"}
-      :strength-direct {:background (:success-bg colors/tokens)
-                        :color      (:success colors/tokens)}
-      :strength-attr   {:background (:info-bg colors/tokens)
-                        :color      (:info colors/tokens)}
+      :strength-direct {:background (:success-bg rf.story.theme.colors/tokens)
+                        :color      (:success rf.story.theme.colors/tokens)}
+      :strength-attr   {:background (:info-bg rf.story.theme.colors/tokens)
+                        :color      (:info rf.story.theme.colors/tokens)}
       :summary-row {:display     "flex"
                     :gap         "6px"
                     :flex-wrap   "wrap"
                     :margin-top  "1px"}
       :summary-chip {:font-family mono-stack
-                     :font-size   (:nano typography/type-scale)
-                     :color       (:text-secondary colors/tokens)
-                     :background   (:bg-1 colors/tokens)
-                     :border       (str "1px solid " (:border-subtle colors/tokens))
+                     :font-size   (:nano rf.story.theme.typography/type-scale)
+                     :color       (:text-secondary rf.story.theme.colors/tokens)
+                     :background   (:bg-1 rf.story.theme.colors/tokens)
+                     :border       (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                      :border-radius "8px"
                      :padding      "0 6px"}
-      :summary-chip-attr {:color (:info colors/tokens)}
-      :summary-chip-schema {:color (:danger colors/tokens)}
+      :summary-chip-attr {:color (:info rf.story.theme.colors/tokens)}
+      :summary-chip-schema {:color (:danger rf.story.theme.colors/tokens)}
       ;; ---- focus link ----
       :focus-row   {:display     "flex"
                     :align-items "center"
@@ -605,31 +605,31 @@
                     :flex-wrap   "wrap"
                     :margin-top  "3px"}
       :focus-link  {:font-family sans-stack
-                    :font-size   (:caption typography/type-scale)
-                    :background  (:bg-3 colors/tokens)
-                    :color       (:info colors/tokens)
-                    :border      (str "1px solid " (:border-default colors/tokens))
+                    :font-size   (:caption rf.story.theme.typography/type-scale)
+                    :background  (:bg-3 rf.story.theme.colors/tokens)
+                    :color       (:info rf.story.theme.colors/tokens)
+                    :border      (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                     :border-radius "6px"
                     :padding     "2px 8px"
                     :cursor      "pointer"
                     :user-select "none"}
-      :focus-note  {:font-size  (:nano typography/type-scale)
-                    :color      (:text-tertiary colors/tokens)
+      :focus-note  {:font-size  (:nano rf.story.theme.typography/type-scale)
+                    :color      (:text-tertiary rf.story.theme.colors/tokens)
                     :font-style "italic"}
       :toolbar     {:display       "flex"
                     :gap           "6px"
                     :margin-bottom "8px"}
       :btn         {:font-family sans-stack
-                    :font-size   (:caption typography/type-scale)
-                    :background  (:bg-3 colors/tokens)
-                    :color       (:text-secondary colors/tokens)
-                    :border      (str "1px solid " (:border-default colors/tokens))
+                    :font-size   (:caption rf.story.theme.typography/type-scale)
+                    :background  (:bg-3 rf.story.theme.colors/tokens)
+                    :color       (:text-secondary rf.story.theme.colors/tokens)
+                    :border      (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                     :border-radius "6px"
                     :padding     "3px 9px"
                     :cursor      "pointer"
                     :user-select "none"}
-      :copied      {:color      (:success colors/tokens)
-                    :font-size  (:caption typography/type-scale)
+      :copied      {:color      (:success rf.story.theme.colors/tokens)
+                    :font-size  (:caption rf.story.theme.typography/type-scale)
                     :align-self "center"}}))
 
 ;; ---- focus panel picker --------------------------------------------------
@@ -766,16 +766,16 @@
 ;;
 ;; Test mode renders a graceful 'evidence pending' row; the
 ;; spine is its target. The spine reads the same result slot Test mode wrote
-;; (`test-state/results-atom`), so it shows the SAME run's narrative — Story
+;; (`rf.story.ui.test-mode.state/results-atom`), so it shows the SAME run's narrative — Story
 ;; never re-runs the variant for the spine.
 
 #?(:cljs
    (defn result-for
      "Read the unified run-result for `variant-id` from the Test-mode result
-     slot (`test-state/results-atom`), or nil. The spine projects the SAME
+     slot (`rf.story.ui.test-mode.state/results-atom`), or nil. The spine projects the SAME
      run Test mode captured — one tape, one narrative."
      [variant-id]
-     (get-in @test-state/results-atom [variant-id :result])))
+     (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :result])))
 
 ;; ---- the panel -----------------------------------------------------------
 
@@ -797,7 +797,7 @@
      []
      (let [copied? (r/atom false)]
        (fn []
-         (let [shell      @state/shell-state-atom
+         (let [shell      @rf.story.ui.state/shell-state-atom
                variant-id (:selected-variant shell)]
            (cond
              (not variant-id)
@@ -829,7 +829,7 @@
                       :data-test "story-evidence-copy"
                       :title     "Copy the run narrative as EDN to the clipboard"
                       :on-click  (fn [_]
-                                   (review-dialog/copy-to-clipboard! (pr-str narrative))
+                                   (rf.story.review-dialog/copy-to-clipboard! (pr-str narrative))
                                    (reset! copied? true)
                                    (js/setTimeout #(reset! copied? false) 1400))}
                      "Copy narrative EDN"]
@@ -853,8 +853,8 @@
      is disabled. Mirrors `explain-panel/open!`."
      ([] (open! nil nil))
      ([variant-id beat-idx]
-      (when config/enabled?
-        (state/swap-state! assoc-in [:panel-visibility panel-key] true)
+      (when rf.story.config/enabled?
+        (rf.story.ui.state/swap-state! assoc-in [:panel-visibility panel-key] true)
         (when (and variant-id (some? beat-idx))
           (select-beat! variant-id beat-idx))
         (js/setTimeout

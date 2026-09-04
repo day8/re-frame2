@@ -2,25 +2,25 @@
   "Pure unit tests for the rich-DSL play runner's step executor +
   state machine (rf2-8i2a9). JVM-runnable; no re-frame dependency."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.play.runner :as runner]))
+            [re-frame.story.play.runner :as rf.story.play.runner]))
 
 ;; ---- step-type sniffing ---------------------------------------------------
 
 (deftest step-type-known
   (testing "step-type returns the tag for every canonical step"
-    (is (= :dispatch       (runner/step-type [:dispatch [:foo]])))
-    (is (= :dispatch-sync  (runner/step-type [:dispatch-sync [:foo]])))
-    (is (= :wait           (runner/step-type [:wait 100])))
-    (is (= :assert-db      (runner/step-type [:assert-db [:k] 1])))
-    (is (= :assert-dom     (runner/step-type [:assert-dom "sel" :visible])))
-    (is (= :click          (runner/step-type [:click "sel"])))
-    (is (= :type           (runner/step-type [:type "sel" "text"])))))
+    (is (= :dispatch       (rf.story.play.runner/step-type [:dispatch [:foo]])))
+    (is (= :dispatch-sync  (rf.story.play.runner/step-type [:dispatch-sync [:foo]])))
+    (is (= :wait           (rf.story.play.runner/step-type [:wait 100])))
+    (is (= :assert-db      (rf.story.play.runner/step-type [:assert-db [:k] 1])))
+    (is (= :assert-dom     (rf.story.play.runner/step-type [:assert-dom "sel" :visible])))
+    (is (= :click          (rf.story.play.runner/step-type [:click "sel"])))
+    (is (= :type           (rf.story.play.runner/step-type [:type "sel" "text"])))))
 
 (deftest step-type-unknown
   (testing "step-type returns the head keyword for unknown steps too"
-    (is (= :counter/inc (runner/step-type [:counter/inc])))
-    (is (nil? (runner/step-type "not-a-vec")))
-    (is (nil? (runner/step-type [])))))
+    (is (= :counter/inc (rf.story.play.runner/step-type [:counter/inc])))
+    (is (nil? (rf.story.play.runner/step-type "not-a-vec")))
+    (is (nil? (rf.story.play.runner/step-type [])))))
 
 (deftest async-yield-classification
   (testing "async-yield? returns true for steps whose effects queue
@@ -28,81 +28,81 @@
             re-entering dispatch) and :wait (explicit sleep). Used by
             run-loop! to decide whether to recur synchronously or yield.
             rf2-ftow6."
-    (is (true? (runner/async-yield? [:click "[data-test=x]"])))
-    (is (true? (runner/async-yield? [:type "[data-test=x]" "text"])))
-    (is (true? (runner/async-yield? [:wait 0])))
-    (is (true? (runner/async-yield? [:wait 100]))))
+    (is (true? (rf.story.play.runner/async-yield? [:click "[data-test=x]"])))
+    (is (true? (rf.story.play.runner/async-yield? [:type "[data-test=x]" "text"])))
+    (is (true? (rf.story.play.runner/async-yield? [:wait 0])))
+    (is (true? (rf.story.play.runner/async-yield? [:wait 100]))))
   (testing "sync-class steps must NOT yield — that's the bug the race
             fix corrects. :dispatch (now settled through settled-boundary
             — the dispatch-sync! drain, rf2-5x1wt.2), :dispatch-sync,
             :assert-db, :assert-dom are synchronous at the step boundary
             on CLJS; yielding between them allowed concurrent runs to
             interleave and overshoot counter incs."
-    (is (false? (runner/async-yield? [:dispatch [:foo]])))
-    (is (false? (runner/async-yield? [:dispatch-sync [:foo]])))
-    (is (false? (runner/async-yield? [:assert-db [:k] 1])))
-    (is (false? (runner/async-yield? [:assert-db [:k] :pred even?])))
-    (is (false? (runner/async-yield? [:assert-dom "sel" :visible])))
-    (is (false? (runner/async-yield? [:assert-dom "sel" :hidden])))
-    (is (false? (runner/async-yield? [:assert-dom "sel" :text "x"])))))
+    (is (false? (rf.story.play.runner/async-yield? [:dispatch [:foo]])))
+    (is (false? (rf.story.play.runner/async-yield? [:dispatch-sync [:foo]])))
+    (is (false? (rf.story.play.runner/async-yield? [:assert-db [:k] 1])))
+    (is (false? (rf.story.play.runner/async-yield? [:assert-db [:k] :pred even?])))
+    (is (false? (rf.story.play.runner/async-yield? [:assert-dom "sel" :visible])))
+    (is (false? (rf.story.play.runner/async-yield? [:assert-dom "sel" :hidden])))
+    (is (false? (rf.story.play.runner/async-yield? [:assert-dom "sel" :text "x"])))))
 
 (deftest known-step-pred
   (testing "known-step? is true only for registered step tags"
-    (is (true?  (runner/known-step? [:dispatch [:foo]])))
-    (is (true?  (runner/known-step? [:wait 0])))
-    (is (false? (runner/known-step? [:counter/inc])))
-    (is (false? (runner/known-step? [])))
-    (is (false? (runner/known-step? nil)))))
+    (is (true?  (rf.story.play.runner/known-step? [:dispatch [:foo]])))
+    (is (true?  (rf.story.play.runner/known-step? [:wait 0])))
+    (is (false? (rf.story.play.runner/known-step? [:counter/inc])))
+    (is (false? (rf.story.play.runner/known-step? [])))
+    (is (false? (rf.story.play.runner/known-step? nil)))))
 
 ;; ---- step-arity checks ----------------------------------------------------
 
 (deftest step-arity-dispatch
   (testing ":dispatch and :dispatch-sync require a non-empty event vector"
-    (is (true?  (runner/step-arity-ok? [:dispatch [:foo]])))
-    (is (true?  (runner/step-arity-ok? [:dispatch [:foo {:a 1}]])))
-    (is (true?  (runner/step-arity-ok? [:dispatch-sync [:foo]])))
-    (is (false? (runner/step-arity-ok? [:dispatch])))
-    (is (false? (runner/step-arity-ok? [:dispatch []])))
-    (is (false? (runner/step-arity-ok? [:dispatch ["not-keyword"]])))))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:dispatch [:foo]])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:dispatch [:foo {:a 1}]])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:dispatch-sync [:foo]])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:dispatch])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:dispatch []])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:dispatch ["not-keyword"]])))))
 
 (deftest step-arity-wait
   (testing ":wait requires a non-negative number"
-    (is (true?  (runner/step-arity-ok? [:wait 0])))
-    (is (true?  (runner/step-arity-ok? [:wait 100])))
-    (is (true?  (runner/step-arity-ok? [:wait 1.5])))
-    (is (false? (runner/step-arity-ok? [:wait -1])))
-    (is (false? (runner/step-arity-ok? [:wait "100"])))
-    (is (false? (runner/step-arity-ok? [:wait])))))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait 0])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait 100])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait 1.5])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:wait -1])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:wait "100"])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:wait])))))
 
 (deftest step-arity-assert-db
   (testing ":assert-db accepts equality and :pred forms"
-    (is (true?  (runner/step-arity-ok? [:assert-db [:k] 1])))
-    (is (true?  (runner/step-arity-ok? [:assert-db [:a :b] nil])))
-    (is (true?  (runner/step-arity-ok? [:assert-db [:k] :pred 'my-ns/pos-int?])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] 1])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:a :b] nil])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred 'my-ns/pos-int?])))
     ;; rf2-inbad: fn-direct is the advanced-CLJS-safe authoring path.
-    (is (true?  (runner/step-arity-ok? [:assert-db [:k] :pred pos?])))
-    (is (true?  (runner/step-arity-ok? [:assert-db [:k] :pred (fn [_] true)])))
-    (is (false? (runner/step-arity-ok? [:assert-db [:k] :pred "not-a-sym-or-fn"])))
-    (is (false? (runner/step-arity-ok? [:assert-db [:k] :pred 42])))
-    (is (false? (runner/step-arity-ok? [:assert-db [:k]])))
-    (is (false? (runner/step-arity-ok? [:assert-db "not-a-vec" 1])))
-    (is (false? (runner/step-arity-ok? [:assert-db [:k] :pred])))))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred pos?])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred (fn [_] true)])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred "not-a-sym-or-fn"])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred 42])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k]])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db "not-a-vec" 1])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred])))))
 
 (deftest step-arity-assert-dom
   (testing ":assert-dom accepts :visible / :hidden / :text"
-    (is (true?  (runner/step-arity-ok? [:assert-dom "sel" :visible])))
-    (is (true?  (runner/step-arity-ok? [:assert-dom "sel" :hidden])))
-    (is (true?  (runner/step-arity-ok? [:assert-dom "sel" :text "hi"])))
-    (is (false? (runner/step-arity-ok? [:assert-dom "sel" :unknown])))
-    (is (false? (runner/step-arity-ok? [:assert-dom 1 :visible])))))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-dom "sel" :visible])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-dom "sel" :hidden])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-dom "sel" :text "hi"])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-dom "sel" :unknown])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-dom 1 :visible])))))
 
 (deftest step-arity-click-type
   (testing ":click and :type accept string selectors"
-    (is (true?  (runner/step-arity-ok? [:click "sel"])))
-    (is (true?  (runner/step-arity-ok? [:type "sel" "text"])))
-    (is (false? (runner/step-arity-ok? [:click])))
-    (is (false? (runner/step-arity-ok? [:type "sel"])))
-    (is (false? (runner/step-arity-ok? [:type "sel" 1])))))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:click "sel"])))
+    (is (true?  (rf.story.play.runner/step-arity-ok? [:type "sel" "text"])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:click])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:type "sel"])))
+    (is (false? (rf.story.play.runner/step-arity-ok? [:type "sel" 1])))))
 
 ;; ---- script coercion ------------------------------------------------------
 
@@ -112,7 +112,7 @@
             [:dispatch [:counter/dec]]
             [:wait 100]
             [:assert-db [:n] 0]]
-           (runner/coerce-script
+           (rf.story.play.runner/coerce-script
              [[:counter/inc]
               [:counter/dec]
               [:wait 100]
@@ -121,23 +121,23 @@
 (deftest coerce-script-passthrough
   (testing "already-tagged steps round-trip unchanged"
     (let [script [[:dispatch [:a]] [:wait 50] [:assert-db [:x] 1]]]
-      (is (= script (runner/coerce-script script))))))
+      (is (= script (rf.story.play.runner/coerce-script script))))))
 
 (deftest coerce-script-empty
-  (is (= [] (runner/coerce-script nil)))
-  (is (= [] (runner/coerce-script []))))
+  (is (= [] (rf.story.play.runner/coerce-script nil)))
+  (is (= [] (rf.story.play.runner/coerce-script []))))
 
 ;; ---- spec parsing ---------------------------------------------------------
 
 (deftest parse-spec-bare-vector
   (testing "a bare vector is sugar for {:script <vec> :auto-run? true}"
-    (let [spec (runner/parse-spec [[:dispatch [:a]] [:wait 100]])]
+    (let [spec (rf.story.play.runner/parse-spec [[:dispatch [:a]] [:wait 100]])]
       (is (= [[:dispatch [:a]] [:wait 100]] (:script spec)))
       (is (true? (:auto-run? spec))))))
 
 (deftest parse-spec-map
   (testing "a map body preserves :auto-run? and :name"
-    (let [spec (runner/parse-spec
+    (let [spec (rf.story.play.runner/parse-spec
                  {:script [[:dispatch [:a]]]
                   :auto-run? false
                   :name "manual-only"})]
@@ -147,19 +147,19 @@
 
 (deftest parse-spec-defaults
   (testing "missing :auto-run? defaults to true"
-    (is (true? (:auto-run? (runner/parse-spec {:script []})))))
+    (is (true? (:auto-run? (rf.story.play.runner/parse-spec {:script []})))))
   (testing "nil body produces an empty script"
-    (is (= [] (:script (runner/parse-spec nil))))))
+    (is (= [] (:script (rf.story.play.runner/parse-spec nil))))))
 
 (deftest parse-spec-lifts-bare-vectors-inside-map
   (testing "the lift applies inside a map's :script too"
-    (let [spec (runner/parse-spec {:script [[:counter/inc] [:wait 10]]})]
+    (let [spec (rf.story.play.runner/parse-spec {:script [[:counter/inc] [:wait 10]]})]
       (is (= [[:dispatch [:counter/inc]] [:wait 10]] (:script spec))))))
 
 ;; ---- state-machine driving ----------------------------------------------
 
 (deftest initial-state-shape
-  (let [s (runner/initial-state {:script [[:dispatch [:a]] [:wait 50]]
+  (let [s (rf.story.play.runner/initial-state {:script [[:dispatch [:a]] [:wait 50]]
                                   :name "happy"})]
     (is (= :idle (:status s)))
     (is (= 0 (:step-idx s)))
@@ -170,19 +170,19 @@
 
 (deftest start-transitions-to-running
   (let [s (-> {:script [[:dispatch [:a]]]}
-              runner/parse-spec
-              runner/initial-state
-              (runner/start 1000))]
+              rf.story.play.runner/parse-spec
+              rf.story.play.runner/initial-state
+              (rf.story.play.runner/start 1000))]
     (is (= :running (:status s)))
     (is (= 1000 (:started-ms s)))))
 
 (deftest record-step-result-bumps-idx-and-failures
-  (let [s0 (-> (runner/parse-spec {:script [[:assert-db [:k] 1]
+  (let [s0 (-> (rf.story.play.runner/parse-spec {:script [[:assert-db [:k] 1]
                                             [:assert-db [:k] 2]]})
-               runner/initial-state
-               (runner/start 0))
-        s1 (runner/record-step-result s0 (runner/step-pass 0 [:assert-db [:k] 1]))
-        s2 (runner/record-step-result s1 (runner/step-fail 1 [:assert-db [:k] 2]
+               rf.story.play.runner/initial-state
+               (rf.story.play.runner/start 0))
+        s1 (rf.story.play.runner/record-step-result s0 (rf.story.play.runner/step-pass 0 [:assert-db [:k] 1]))
+        s2 (rf.story.play.runner/record-step-result s1 (rf.story.play.runner/step-fail 1 [:assert-db [:k] 2]
                                                             {:message "no"}))]
     (is (= 1 (:step-idx s1)))
     (is (= 2 (:step-idx s2)))
@@ -191,10 +191,10 @@
 
 (deftest record-step-result-skip-is-not-a-failure
   (let [s0 (-> {:script [[:dispatch [:a]]]}
-               runner/parse-spec
-               runner/initial-state
-               (runner/start 0))
-        s1 (runner/record-step-result s0 (runner/step-skip 0 [:dispatch [:a]]))]
+               rf.story.play.runner/parse-spec
+               rf.story.play.runner/initial-state
+               (rf.story.play.runner/start 0))
+        s1 (rf.story.play.runner/record-step-result s0 (rf.story.play.runner/step-skip 0 [:dispatch [:a]]))]
     (is (= 1 (:step-idx s1)))
     (is (zero? (:failures s1)))))
 
@@ -207,22 +207,22 @@
   (testing "a no-DOM :skipped? refusal does NOT bump :failures"
     (let [step  [:assert-dom "[data-test=x]" :visible]
           s0    (-> {:script [step]}
-                    runner/parse-spec
-                    runner/initial-state
-                    (runner/start 0))
-          s1    (runner/record-step-result
-                  s0 (runner/step-fail 0 step {:skipped? true :message "no DOM"}))]
+                    rf.story.play.runner/parse-spec
+                    rf.story.play.runner/initial-state
+                    (rf.story.play.runner/start 0))
+          s1    (rf.story.play.runner/record-step-result
+                  s0 (rf.story.play.runner/step-fail 0 step {:skipped? true :message "no DOM"}))]
       (is (= 1 (:step-idx s1)))
       (is (zero? (:failures s1))
           "a :skipped? refusal is not a genuine failure")))
   (testing "a boundary :cannot-run? refusal does NOT bump :failures"
     (let [step  [:assert-dom "[data-test=x]" :visible]
           s0    (-> {:script [step]}
-                    runner/parse-spec
-                    runner/initial-state
-                    (runner/start 0))
-          s1    (runner/record-step-result
-                  s0 (runner/step-fail 0 step {:cannot-run? true :message "refused"}))]
+                    rf.story.play.runner/parse-spec
+                    rf.story.play.runner/initial-state
+                    (rf.story.play.runner/start 0))
+          s1    (rf.story.play.runner/record-step-result
+                  s0 (rf.story.play.runner/step-fail 0 step {:cannot-run? true :message "refused"}))]
       (is (zero? (:failures s1))
           "a :cannot-run? refusal is not a genuine failure"))))
 
@@ -232,37 +232,37 @@
   ;; :failures 0 so the two fields cannot disagree in the CI/JSON report.
   (let [step  [:assert-dom "[data-test=x]" :visible]
         state (-> {:script [[:dispatch [:a]] step]}
-                  runner/parse-spec
-                  runner/initial-state
-                  (runner/start 0)
-                  (runner/record-step-result (runner/step-pass 0 [:dispatch [:a]]))
-                  (runner/record-step-result
-                    (runner/step-fail 1 step {:skipped? true :message "no DOM"}))
-                  (runner/finish 100))]
+                  rf.story.play.runner/parse-spec
+                  rf.story.play.runner/initial-state
+                  (rf.story.play.runner/start 0)
+                  (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 [:dispatch [:a]]))
+                  (rf.story.play.runner/record-step-result
+                    (rf.story.play.runner/step-fail 1 step {:skipped? true :message "no DOM"}))
+                  (rf.story.play.runner/finish 100))]
     (is (= :cannot-run (:status state)))
     (is (zero? (:failures state))
         ":failures and :status must agree — a cannot-run-only run is NOT red")))
 
 (deftest finish-transitions-by-failure-count
   (let [base (-> {:script [[:assert-db [:k] 1]]}
-                 runner/parse-spec
-                 runner/initial-state
-                 (runner/start 0))
-        pass (runner/record-step-result base (runner/step-pass 0 [:assert-db [:k] 1]))
-        fail (runner/record-step-result base (runner/step-fail 0 [:assert-db [:k] 1]
+                 rf.story.play.runner/parse-spec
+                 rf.story.play.runner/initial-state
+                 (rf.story.play.runner/start 0))
+        pass (rf.story.play.runner/record-step-result base (rf.story.play.runner/step-pass 0 [:assert-db [:k] 1]))
+        fail (rf.story.play.runner/record-step-result base (rf.story.play.runner/step-fail 0 [:assert-db [:k] 1]
                                                                 {:message "no"}))]
-    (is (= :pass (:status (runner/finish pass 100))))
-    (is (= :fail (:status (runner/finish fail 100))))
-    (is (= 100 (:finished-ms (runner/finish pass 100))))))
+    (is (= :pass (:status (rf.story.play.runner/finish pass 100))))
+    (is (= :fail (:status (rf.story.play.runner/finish fail 100))))
+    (is (= 100 (:finished-ms (rf.story.play.runner/finish pass 100))))))
 
 (deftest finish-exception-counts-as-failure
   (let [base (-> {:script [[:dispatch [:bad]]]}
-                 runner/parse-spec
-                 runner/initial-state
-                 (runner/start 0))
-        exc  (runner/record-step-result base
-                                         (runner/step-exception 0 [:dispatch [:bad]] "boom"))]
-    (is (= :fail (:status (runner/finish exc 1))))))
+                 rf.story.play.runner/parse-spec
+                 rf.story.play.runner/initial-state
+                 (rf.story.play.runner/start 0))
+        exc  (rf.story.play.runner/record-step-result base
+                                         (rf.story.play.runner/step-exception 0 [:dispatch [:bad]] "boom"))]
+    (is (= :fail (:status (rf.story.play.runner/finish exc 1))))))
 
 ;; ---- finish :cannot-run aggregation (rf2-taq2j) -------------------------
 ;;
@@ -282,28 +282,28 @@
             terminates :cannot-run, NOT a silent :pass"
     (let [step  [:assert-dom "[data-test=x]" :visible]
           base  (-> {:script [[:dispatch [:a]] step]}
-                    runner/parse-spec
-                    runner/initial-state
-                    (runner/start 0))
+                    rf.story.play.runner/parse-spec
+                    rf.story.play.runner/initial-state
+                    (rf.story.play.runner/start 0))
           state (-> base
-                    (runner/record-step-result (runner/step-pass 0 [:dispatch [:a]]))
-                    (runner/record-step-result
-                      (runner/step-fail 1 step {:skipped? true :message "no DOM — cannot prove"})))]
-      (is (= :cannot-run (:status (runner/finish state 100)))
+                    (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 [:dispatch [:a]]))
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-fail 1 step {:skipped? true :message "no DOM — cannot prove"})))]
+      (is (= :cannot-run (:status (rf.story.play.runner/finish state 100)))
           "skip-only refusal → :cannot-run (the fail-closed third status)")
-      (is (not= :pass (:status (runner/finish state 100)))
+      (is (not= :pass (:status (rf.story.play.runner/finish state 100)))
           "the refusal must NOT collapse into a vacuous green"))))
 
 (deftest finish-cannot-run-refusal-only-is-cannot-run
   (testing "a boundary :cannot-run? refusal (no skip) also terminates :cannot-run"
     (let [step  [:assert-dom "[data-test=x]" :visible]
           state (-> {:script [step]}
-                    runner/parse-spec
-                    runner/initial-state
-                    (runner/start 0)
-                    (runner/record-step-result
-                      (runner/step-fail 0 step {:cannot-run? true :message "capability refused"})))]
-      (is (= :cannot-run (:status (runner/finish state 100)))))))
+                    rf.story.play.runner/parse-spec
+                    rf.story.play.runner/initial-state
+                    (rf.story.play.runner/start 0)
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-fail 0 step {:cannot-run? true :message "capability refused"})))]
+      (is (= :cannot-run (:status (rf.story.play.runner/finish state 100)))))))
 
 (deftest finish-fail-outranks-refusal
   (testing ":fail wins over :cannot-run — a genuine failing assertion
@@ -311,14 +311,14 @@
     (let [fail-step [:assert-db [:k] 1]
           skip-step [:assert-dom "[data-test=x]" :visible]
           state     (-> {:script [fail-step skip-step]}
-                        runner/parse-spec
-                        runner/initial-state
-                        (runner/start 0)
-                        (runner/record-step-result
-                          (runner/step-fail 0 fail-step {:message "expected 1"}))
-                        (runner/record-step-result
-                          (runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
-      (is (= :fail (:status (runner/finish state 100)))
+                        rf.story.play.runner/parse-spec
+                        rf.story.play.runner/initial-state
+                        (rf.story.play.runner/start 0)
+                        (rf.story.play.runner/record-step-result
+                          (rf.story.play.runner/step-fail 0 fail-step {:message "expected 1"}))
+                        (rf.story.play.runner/record-step-result
+                          (rf.story.play.runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
+      (is (= :fail (:status (rf.story.play.runner/finish state 100)))
           ":fail (a real failing step) outranks the refusal"))))
 
 (deftest finish-exception-outranks-refusal
@@ -326,14 +326,14 @@
     (let [exc-step  [:dispatch [:bad]]
           skip-step [:assert-dom "[data-test=x]" :visible]
           state     (-> {:script [exc-step skip-step]}
-                        runner/parse-spec
-                        runner/initial-state
-                        (runner/start 0)
-                        (runner/record-step-result
-                          (runner/step-exception 0 exc-step "boom"))
-                        (runner/record-step-result
-                          (runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
-      (is (= :fail (:status (runner/finish state 100)))))))
+                        rf.story.play.runner/parse-spec
+                        rf.story.play.runner/initial-state
+                        (rf.story.play.runner/start 0)
+                        (rf.story.play.runner/record-step-result
+                          (rf.story.play.runner/step-exception 0 exc-step "boom"))
+                        (rf.story.play.runner/record-step-result
+                          (rf.story.play.runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
+      (is (= :fail (:status (rf.story.play.runner/finish state 100)))))))
 
 ;; ---- run-state-refusals projection (rf2-taq2j) --------------------------
 
@@ -345,15 +345,15 @@
           skip-step [:assert-dom "[data-test=x]" :visible]
           cr-step   [:click "[data-test=y]"]
           state     (-> {:script [pass-step skip-step cr-step]}
-                        runner/parse-spec
-                        runner/initial-state
-                        (runner/start 0)
-                        (runner/record-step-result (runner/step-pass 0 pass-step))
-                        (runner/record-step-result
-                          (runner/step-fail 1 skip-step {:skipped? true :message "no DOM — cannot prove"}))
-                        (runner/record-step-result
-                          (runner/step-fail 2 cr-step {:cannot-run? true :message "capability refused"})))
-          refusals  (runner/run-state-refusals state)]
+                        rf.story.play.runner/parse-spec
+                        rf.story.play.runner/initial-state
+                        (rf.story.play.runner/start 0)
+                        (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 pass-step))
+                        (rf.story.play.runner/record-step-result
+                          (rf.story.play.runner/step-fail 1 skip-step {:skipped? true :message "no DOM — cannot prove"}))
+                        (rf.story.play.runner/record-step-result
+                          (rf.story.play.runner/step-fail 2 cr-step {:cannot-run? true :message "capability refused"})))
+          refusals  (rf.story.play.runner/run-state-refusals state)]
       (is (= 2 (count refusals)) "one refusal record per refusing step (skip + cannot-run?)")
       (is (= [{:status :cannot-run :unit skip-step
                :reason :runner-cannot-attempt-step :message "no DOM — cannot prove"}
@@ -366,71 +366,71 @@
 (deftest run-state-refusals-empty-when-none-refused
   (testing "run-state-refusals is empty for a clean pass run (no step refused)"
     (let [state (-> {:script [[:assert-db [:k] 1]]}
-                    runner/parse-spec
-                    runner/initial-state
-                    (runner/start 0)
-                    (runner/record-step-result (runner/step-pass 0 [:assert-db [:k] 1])))]
-      (is (= [] (runner/run-state-refusals state))))))
+                    rf.story.play.runner/parse-spec
+                    rf.story.play.runner/initial-state
+                    (rf.story.play.runner/start 0)
+                    (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 [:assert-db [:k] 1])))]
+      (is (= [] (rf.story.play.runner/run-state-refusals state))))))
 
 (deftest run-state-refusals-omits-message-when-absent
   (testing "a refusal with no :message omits the :message slot (cond-> shape)"
     (let [step  [:assert-dom "[data-test=x]" :visible]
           state (-> {:script [step]}
-                    runner/parse-spec
-                    runner/initial-state
-                    (runner/start 0)
-                    (runner/record-step-result (runner/step-fail 0 step {:skipped? true})))
-          [r]   (runner/run-state-refusals state)]
+                    rf.story.play.runner/parse-spec
+                    rf.story.play.runner/initial-state
+                    (rf.story.play.runner/start 0)
+                    (rf.story.play.runner/record-step-result (rf.story.play.runner/step-fail 0 step {:skipped? true})))
+          [r]   (rf.story.play.runner/run-state-refusals state)]
       (is (= {:status :cannot-run :unit step :reason :runner-cannot-attempt-step} r)
           "no :message slot when the step-result carried none"))))
 
 (deftest done-pred
-  (let [empty-state (runner/initial-state {:script []})
-        with-steps  (runner/initial-state {:script [[:wait 1]]})]
-    (is (true? (runner/done? empty-state)))
-    (is (false? (runner/done? with-steps)))))
+  (let [empty-state (rf.story.play.runner/initial-state {:script []})
+        with-steps  (rf.story.play.runner/initial-state {:script [[:wait 1]]})]
+    (is (true? (rf.story.play.runner/done? empty-state)))
+    (is (false? (rf.story.play.runner/done? with-steps)))))
 
 (deftest current-step-returns-next-step
-  (let [s (-> (runner/parse-spec {:script [[:dispatch [:a]] [:wait 5]]})
-              runner/initial-state)]
-    (is (= [:dispatch [:a]] (runner/current-step s)))))
+  (let [s (-> (rf.story.play.runner/parse-spec {:script [[:dispatch [:a]] [:wait 5]]})
+              rf.story.play.runner/initial-state)]
+    (is (= [:dispatch [:a]] (rf.story.play.runner/current-step s)))))
 
 (deftest progress-str-by-status
-  (let [s (runner/initial-state {:script [[:wait 1] [:wait 2] [:wait 3]]})]
-    (is (= "IDLE" (runner/progress-str (assoc s :status :idle))))
+  (let [s (rf.story.play.runner/initial-state {:script [[:wait 1] [:wait 2] [:wait 3]]})]
+    (is (= "IDLE" (rf.story.play.runner/progress-str (assoc s :status :idle))))
     (is (= "RUNNING (step 2/3)"
-           (runner/progress-str (assoc s :status :running :step-idx 1))))
-    (is (= "PASS (3 steps)" (runner/progress-str (assoc s :status :pass))))
+           (rf.story.play.runner/progress-str (assoc s :status :running :step-idx 1))))
+    (is (= "PASS (3 steps)" (rf.story.play.runner/progress-str (assoc s :status :pass))))
     (is (= "FAIL (2/3 steps)"
-           (runner/progress-str (assoc s :status :fail :step-idx 2))))))
+           (rf.story.play.runner/progress-str (assoc s :status :fail :step-idx 2))))))
 
 ;; ---- step humanisation --------------------------------------------------
 
 (deftest step-summary-shapes
   (is (= "dispatch [:counter/inc]"
-         (runner/step-summary [:dispatch [:counter/inc]])))
-  (is (= "wait 100ms" (runner/step-summary [:wait 100])))
-  (is (= "assert-db [:k] = 1" (runner/step-summary [:assert-db [:k] 1])))
+         (rf.story.play.runner/step-summary [:dispatch [:counter/inc]])))
+  (is (= "wait 100ms" (rf.story.play.runner/step-summary [:wait 100])))
+  (is (= "assert-db [:k] = 1" (rf.story.play.runner/step-summary [:assert-db [:k] 1])))
   (is (= "assert-db [:k] :pred my/pred?"
-         (runner/step-summary [:assert-db [:k] :pred 'my/pred?])))
+         (rf.story.play.runner/step-summary [:assert-db [:k] :pred 'my/pred?])))
   ;; rf2-inbad: fn-direct refs render as <fn> so messages don't leak
   ;; compiler-munged identifiers under advanced CLJS.
   (is (= "assert-db [:k] :pred <fn>"
-         (runner/step-summary [:assert-db [:k] :pred pos?])))
+         (rf.story.play.runner/step-summary [:assert-db [:k] :pred pos?])))
   (is (= "assert-dom \"sel\" visible"
-         (runner/step-summary [:assert-dom "sel" :visible])))
-  (is (= "click \"sel\""  (runner/step-summary [:click "sel"])))
+         (rf.story.play.runner/step-summary [:assert-dom "sel" :visible])))
+  (is (= "click \"sel\""  (rf.story.play.runner/step-summary [:click "sel"])))
   (is (= "type \"sel\" \"text\""
-         (runner/step-summary [:type "sel" "text"]))))
+         (rf.story.play.runner/step-summary [:type "sel" "text"]))))
 
 ;; ---- script validation --------------------------------------------------
 
 (deftest validate-script-clean
-  (is (= [] (runner/validate-script
+  (is (= [] (rf.story.play.runner/validate-script
               [[:dispatch [:a]] [:wait 10] [:assert-db [:k] 1]]))))
 
 (deftest validate-script-flags-unknown-and-bad-arity
-  (let [results (runner/validate-script
+  (let [results (rf.story.play.runner/validate-script
                   [[:dispatch [:a]]
                    [:totally-unknown-step]
                    [:wait -5]
@@ -443,43 +443,43 @@
 ;; ---- summary helpers ------------------------------------------------------
 
 (deftest fail-summary-returns-nil-when-not-failed
-  (let [s (-> (runner/parse-spec {:script [[:dispatch [:a]]]})
-              runner/initial-state
+  (let [s (-> (rf.story.play.runner/parse-spec {:script [[:dispatch [:a]]]})
+              rf.story.play.runner/initial-state
               (assoc :status :pass))]
-    (is (nil? (runner/fail-summary s)))))
+    (is (nil? (rf.story.play.runner/fail-summary s)))))
 
 (deftest fail-summary-counts-failures
   (let [base (-> {:script [[:assert-db [:k] 1] [:assert-db [:k] 2]]}
-                 runner/parse-spec
-                 runner/initial-state
-                 (runner/start 0))
+                 rf.story.play.runner/parse-spec
+                 rf.story.play.runner/initial-state
+                 (rf.story.play.runner/start 0))
         s    (-> base
-                 (runner/record-step-result
-                   (runner/step-fail 0 [:assert-db [:k] 1] {:message "no"}))
-                 (runner/record-step-result
-                   (runner/step-pass 1 [:assert-db [:k] 2]))
-                 (runner/finish 10))
-        summ (runner/fail-summary s)]
+                 (rf.story.play.runner/record-step-result
+                   (rf.story.play.runner/step-fail 0 [:assert-db [:k] 1] {:message "no"}))
+                 (rf.story.play.runner/record-step-result
+                   (rf.story.play.runner/step-pass 1 [:assert-db [:k] 2]))
+                 (rf.story.play.runner/finish 10))
+        summ (rf.story.play.runner/fail-summary s)]
     (is (= 1 (:count summ)))
     (is (= 0 (:idx (:first summ))))))
 
 ;; ---- selector accessors --------------------------------------------------
 
 (deftest step-selector-extraction
-  (is (= "btn"  (runner/step-selector [:click "btn"])))
-  (is (= "inp"  (runner/step-selector [:type "inp" "x"])))
-  (is (= "div"  (runner/step-selector [:assert-dom "div" :visible])))
-  (is (nil?     (runner/step-selector [:wait 1]))))
+  (is (= "btn"  (rf.story.play.runner/step-selector [:click "btn"])))
+  (is (= "inp"  (rf.story.play.runner/step-selector [:type "inp" "x"])))
+  (is (= "div"  (rf.story.play.runner/step-selector [:assert-dom "div" :visible])))
+  (is (nil?     (rf.story.play.runner/step-selector [:wait 1]))))
 
 (deftest step-event-extraction
-  (is (= [:foo 1] (runner/step-event [:dispatch [:foo 1]])))
-  (is (= [:foo]   (runner/step-event [:dispatch-sync [:foo]])))
-  (is (nil?       (runner/step-event [:wait 10]))))
+  (is (= [:foo 1] (rf.story.play.runner/step-event [:dispatch [:foo 1]])))
+  (is (= [:foo]   (rf.story.play.runner/step-event [:dispatch-sync [:foo]])))
+  (is (nil?       (rf.story.play.runner/step-event [:wait 10]))))
 
 ;; ---- trace record builder ------------------------------------------------
 
 (deftest trace-record-shape
-  (let [r (runner/trace-record
+  (let [r (rf.story.play.runner/trace-record
             {:variant-id :story.foo/v
              :idx        2
              :step       [:dispatch [:a]]
@@ -494,23 +494,23 @@
 ;; ---- any-failure? --------------------------------------------------------
 
 (deftest any-failure-pred
-  (is (false? (runner/any-failure?
+  (is (false? (rf.story.play.runner/any-failure?
                 {:results [{:passed? true} {:passed? nil}]})))
-  (is (true?  (runner/any-failure?
+  (is (true?  (rf.story.play.runner/any-failure?
                 {:results [{:passed? true} {:passed? false}]})))
-  (is (true?  (runner/any-failure?
+  (is (true?  (rf.story.play.runner/any-failure?
                 {:results [{:exception true :passed? false}]}))))
 
 ;; ---- multi-play (rf2-tl7zk) ----------------------------------------------
 
 (deftest parse-plays-empty
   (testing "parse-plays of nil / [] returns []"
-    (is (= [] (runner/parse-plays nil)))
-    (is (= [] (runner/parse-plays [])))))
+    (is (= [] (rf.story.play.runner/parse-plays nil)))
+    (is (= [] (rf.story.play.runner/parse-plays [])))))
 
 (deftest parse-plays-first-auto-runs-by-default
   (testing "the first entry defaults :auto-run? to true; subsequent entries default to false"
-    (let [plays (runner/parse-plays
+    (let [plays (rf.story.play.runner/parse-plays
                   [{:name "happy" :script [[:dispatch [:a]]]}
                    {:name "error" :script [[:dispatch [:b]]]}
                    {:name "edge"  :script [[:dispatch [:c]]]}])]
@@ -521,7 +521,7 @@
 
 (deftest parse-plays-respects-explicit-auto-run
   (testing "explicit :auto-run? overrides the per-position default"
-    (let [plays (runner/parse-plays
+    (let [plays (rf.story.play.runner/parse-plays
                   [{:name "first" :auto-run? false :script [[:dispatch [:a]]]}
                    {:name "second" :auto-run? true :script [[:dispatch [:b]]]}])]
       (is (false? (:auto-run? (nth plays 0))))
@@ -529,13 +529,13 @@
 
 (deftest parse-plays-coerces-bare-event-vectors
   (testing "bare event vectors inside a play's :script lift to [:dispatch ...]"
-    (let [plays (runner/parse-plays
+    (let [plays (rf.story.play.runner/parse-plays
                   [{:name "p" :script [[:foo/bar 1] [:wait 0]]}])]
       (is (= [[:dispatch [:foo/bar 1]] [:wait 0]]
              (:script (first plays)))))))
 
 (deftest parse-plays-preserves-name
-  (let [plays (runner/parse-plays
+  (let [plays (rf.story.play.runner/parse-plays
                 [{:name "happy path" :script [[:dispatch [:a]]]}])]
     (is (= "happy path" (:name (first plays))))))
 
@@ -543,7 +543,7 @@
   (testing "if both :plays and :script are present, :plays wins"
     (let [body  {:script [[:dispatch [:legacy]]]
                  :plays       [{:name "p1" :script [[:dispatch [:plays]]]}]}
-          plays (runner/variant-body->plays body)]
+          plays (rf.story.play.runner/variant-body->plays body)]
       (is (= 1 (count plays)))
       (is (= "p1" (:name (first plays))))
       (is (= [[:dispatch [:plays]]] (:script (first plays)))))))
@@ -551,7 +551,7 @@
 (deftest variant-body->plays-wraps-play-script
   (testing "a :script-only variant produces a single-entry vector"
     (let [body  {:script {:name "single" :script [[:dispatch [:a]]]}}
-          plays (runner/variant-body->plays body)]
+          plays (rf.story.play.runner/variant-body->plays body)]
       (is (= 1 (count plays)))
       (is (= "single" (:name (first plays))))
       (is (= [[:dispatch [:a]]] (:script (first plays)))))))
@@ -559,59 +559,59 @@
 (deftest variant-body->plays-bare-play-script-without-name
   (testing "a bare :script without a :name produces a one-entry vector with :name nil"
     (let [body  {:script [[:dispatch [:a]]]}
-          plays (runner/variant-body->plays body)]
+          plays (rf.story.play.runner/variant-body->plays body)]
       (is (= 1 (count plays)))
       (is (nil? (:name (first plays)))))))
 
 (deftest variant-body->plays-empty
   (testing "no play surface yields an empty vector"
-    (is (= [] (runner/variant-body->plays nil)))
-    (is (= [] (runner/variant-body->plays {})))
-    (is (= [] (runner/variant-body->plays {:setup []})))))
+    (is (= [] (rf.story.play.runner/variant-body->plays nil)))
+    (is (= [] (rf.story.play.runner/variant-body->plays {})))
+    (is (= [] (rf.story.play.runner/variant-body->plays {:setup []})))))
 
 (deftest find-play-by-name
-  (let [plays (runner/parse-plays
+  (let [plays (rf.story.play.runner/parse-plays
                 [{:name "happy" :script [[:dispatch [:a]]]}
                  {:name "error" :script [[:dispatch [:b]]]}])]
-    (is (= "happy" (:name (runner/find-play plays "happy"))))
-    (is (= "error" (:name (runner/find-play plays "error"))))
-    (is (nil? (runner/find-play plays "missing")))))
+    (is (= "happy" (:name (rf.story.play.runner/find-play plays "happy"))))
+    (is (= "error" (:name (rf.story.play.runner/find-play plays "error"))))
+    (is (nil? (rf.story.play.runner/find-play plays "missing")))))
 
 (deftest find-play-nil-key-returns-first
-  (let [plays (runner/parse-plays
+  (let [plays (rf.story.play.runner/parse-plays
                 [{:name "first" :script [[:dispatch [:a]]]}
                  {:name "second" :script [[:dispatch [:b]]]}])]
-    (is (= "first" (:name (runner/find-play plays nil))))))
+    (is (= "first" (:name (rf.story.play.runner/find-play plays nil))))))
 
 (deftest default-play-key-shape
-  (let [multi  (runner/parse-plays
+  (let [multi  (rf.story.play.runner/parse-plays
                  [{:name "alpha" :script [[:dispatch [:a]]]}
                   {:name "beta"  :script [[:dispatch [:b]]]}])
-        single-bare (runner/variant-body->plays {:script [[:dispatch [:a]]]})
-        single-named (runner/variant-body->plays {:script {:name "n" :script [[:dispatch [:a]]]}})]
-    (is (= "alpha" (runner/default-play-key multi)))
+        single-bare (rf.story.play.runner/variant-body->plays {:script [[:dispatch [:a]]]})
+        single-named (rf.story.play.runner/variant-body->plays {:script {:name "n" :script [[:dispatch [:a]]]}})]
+    (is (= "alpha" (rf.story.play.runner/default-play-key multi)))
     ;; Single-script wrap preserves the original :name (nil for bare, "n" for named).
-    (is (nil? (runner/default-play-key single-bare)))
-    (is (= "n" (runner/default-play-key single-named)))
-    (is (nil? (runner/default-play-key [])))))
+    (is (nil? (rf.story.play.runner/default-play-key single-bare)))
+    (is (= "n" (rf.story.play.runner/default-play-key single-named)))
+    (is (nil? (rf.story.play.runner/default-play-key [])))))
 
 (deftest multi?-predicate
-  (is (false? (runner/multi? [])))
-  (is (false? (runner/multi? [{:name "one"}])))
-  (is (true?  (runner/multi? [{:name "one"} {:name "two"}]))))
+  (is (false? (rf.story.play.runner/multi? [])))
+  (is (false? (rf.story.play.runner/multi? [{:name "one"}])))
+  (is (true?  (rf.story.play.runner/multi? [{:name "one"} {:name "two"}]))))
 
 (deftest auto-runnable?-predicate
   ;; rf2-jh42p sibling rf2-4gw9p: the ONE definition of "this play
   ;; auto-runs" — :auto-run? true AND a non-empty :script.
   (testing "auto-run? true + non-empty script → runnable"
-    (is (true? (runner/auto-runnable? {:auto-run? true :script [[:dispatch [:a]]]}))))
+    (is (true? (rf.story.play.runner/auto-runnable? {:auto-run? true :script [[:dispatch [:a]]]}))))
   (testing ":auto-run? false → not runnable, even with a script"
-    (is (false? (runner/auto-runnable? {:auto-run? false :script [[:dispatch [:a]]]}))))
+    (is (false? (rf.story.play.runner/auto-runnable? {:auto-run? false :script [[:dispatch [:a]]]}))))
   (testing "empty / missing :script → not runnable, even when opted in"
-    (is (false? (runner/auto-runnable? {:auto-run? true :script []})))
-    (is (false? (runner/auto-runnable? {:auto-run? true}))))
+    (is (false? (rf.story.play.runner/auto-runnable? {:auto-run? true :script []})))
+    (is (false? (rf.story.play.runner/auto-runnable? {:auto-run? true}))))
   (testing "missing :auto-run? → not runnable"
-    (is (false? (runner/auto-runnable? {:script [[:dispatch [:a]]]})))))
+    (is (false? (rf.story.play.runner/auto-runnable? {:script [[:dispatch [:a]]]})))))
 
 (deftest auto-runnable-plays-filters-order-preserving
   (testing "the shared filter both runtime/run-phase-4! and
@@ -621,15 +621,15 @@
                  {:name "b" :auto-run? false :script [[:dispatch [:b]]]}
                  {:name "c" :auto-run? true  :script []}
                  {:name "d" :auto-run? true  :script [[:dispatch [:d]]]}]]
-      (is (= ["a" "d"] (mapv :name (runner/auto-runnable-plays plays))))
+      (is (= ["a" "d"] (mapv :name (rf.story.play.runner/auto-runnable-plays plays))))
       (testing "result is a vector (filterv), matching both call sites"
-        (is (vector? (runner/auto-runnable-plays plays))))))
+        (is (vector? (rf.story.play.runner/auto-runnable-plays plays))))))
   (testing "no auto-run plays → empty vector"
-    (is (= [] (runner/auto-runnable-plays
+    (is (= [] (rf.story.play.runner/auto-runnable-plays
                 [{:name "x" :auto-run? false :script [[:dispatch [:x]]]}])))
-    (is (= [] (runner/auto-runnable-plays [])))))
+    (is (= [] (rf.story.play.runner/auto-runnable-plays [])))))
 
 (deftest play-key-extraction
-  (is (= "p" (runner/play-key {:name "p"})))
-  (is (nil?  (runner/play-key {:name nil})))
-  (is (nil?  (runner/play-key nil))))
+  (is (= "p" (rf.story.play.runner/play-key {:name "p"})))
+  (is (nil?  (rf.story.play.runner/play-key {:name nil})))
+  (is (nil?  (rf.story.play.runner/play-key nil))))

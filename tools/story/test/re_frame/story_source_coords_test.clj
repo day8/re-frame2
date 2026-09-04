@@ -55,9 +55,9 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.story :as story]
-            [re-frame.story.macros :as macros]))
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
+            [re-frame.story :as rf.story]
+            [re-frame.story.macros :as rf.story.macros]))
 
 ;; ---- helpers ----------------------------------------------------------------
 
@@ -68,7 +68,7 @@
   `(quote sym)` form, so `eval` is still how the test reads back the map
   the macro expansion would bind."
   [form-meta file ns-sym]
-  (eval (macros/coords-form form-meta file ns-sym)))
+  (eval (rf.story.macros/coords-form form-meta file ns-sym)))
 
 ;; A real Story source file that IS on this JVM gate's classpath, so the
 ;; classpath probe inside `absolutise-file` has something to resolve.
@@ -84,10 +84,10 @@
 
 (defn- assert-absolute-and-real!
   "Shared shape assertions for an absolutised `:file`: absolute per the
-  same predicate `editor-uri/compose-path` uses, present on disk, and
+  same predicate `rf.source-coords.editor-uri/compose-path` uses, present on disk, and
   still ending in the classpath-relative tail it started as."
   [path tail because]
-  (is (editor-uri/absolute-path? path)
+  (is (rf.source-coords.editor-uri/absolute-path? path)
       (str because " — :file must be ABSOLUTE, got " (pr-str path)))
   (is (str/ends-with? (str/replace path "\\" "/") tail)
       (str because " — the absolutised path must still end in the "
@@ -145,7 +145,7 @@
                    'some.ns)]
       (is (= "no/such/story_file.cljs" (:file coords))
           "unresolvable :file ships verbatim — no fabricated absolute path")
-      (is (not (editor-uri/absolute-path? (:file coords)))))))
+      (is (not (rf.source-coords.editor-uri/absolute-path? (:file coords)))))))
 
 (deftest file-omitted-when-both-sources-are-sentinel
   (testing "rf2-ulxi: if BOTH (meta &form) :file and *file* resolve to
@@ -177,7 +177,7 @@
             path Story uses for variants whose :script sequences emit
             :rf.assert/* events"
     (let [form-meta {:line 42 :column 3 :file on-classpath-story-file}
-          expansion (macros/gen-reg-call
+          expansion (rf.story.macros/gen-reg-call
                       form-meta
                       "NO_SOURCE_PATH"             ; simulate CLJS *file*
                       'my.app.stories
@@ -203,9 +203,9 @@
 ;; ---- rf2-3xq1v: a REAL Story registration, pinned absolute -----------------
 ;;
 ;; Everything above drives `coords-form` directly. This drives the actual
-;; `story/reg-story` macro at a real source location in a real Story
+;; `rf.story/reg-story` macro at a real source location in a real Story
 ;; artefact file, and reads the coordinate back off the registrar the way
-;; every consumer does — `(story/handler-meta :story id)` → `:source`.
+;; every consumer does — `(rf.story/handler-meta :story id)` → `:source`.
 ;; The file this registration sits in IS on the gate's classpath, so the
 ;; class-loader probe has a genuine resolution to make.
 
@@ -214,9 +214,9 @@
             one carries an ABSOLUTE :file in its :source slot. Before the
             fix this was `re_frame/story_source_coords_test.clj` — the
             classpath-relative tail on its own."
-    (story/reg-story :story.source-coords.absolute-pin
+    (rf.story/reg-story :story.source-coords.absolute-pin
       {:doc "rf2-3xq1v fixture — the coordinate under test IS this form's."})
-    (let [coord (:source (story/handler-meta :story :story.source-coords.absolute-pin))]
+    (let [coord (:source (rf.story/handler-meta :story :story.source-coords.absolute-pin))]
       (is (some? coord) "the registration carries a :source coord at all")
       (assert-absolute-and-real!
         (:file coord) "re_frame/story_source_coords_test.clj"
@@ -233,7 +233,7 @@
 ;; `re-frame.testbed.open-in-editor-server` answers when launch-editor
 ;; declines a coordinate-bearing request (the Windsurf case the audit
 ;; measured). The fallback resolves the coord through
-;; `editor-uri/editor-uri` with whatever `:project-root` the host set —
+;; `rf.source-coords.editor-uri/editor-uri` with whatever `:project-root` the host set —
 ;; nil for a repository dev testbed, since the browser-side checkout-root
 ;; pipeline is gone. That composition is `.cljc` and pure, so the shape the
 ;; fallback ships is pinnable here; the CLJS half drives the same coordinate
@@ -244,12 +244,12 @@
             repository dev testbed is in since the checkout-root pipeline
             was retired — the URI the 422 fallback ships for a real Story
             coordinate names an absolute path the editor can open"
-    (story/reg-story :story.source-coords.fallback-pin
+    (rf.story/reg-story :story.source-coords.fallback-pin
       {:doc "rf2-3xq1v fixture — this form's coordinate feeds the URI below."})
-    (let [coord (:source (story/handler-meta :story :story.source-coords.fallback-pin))
+    (let [coord (:source (rf.story/handler-meta :story :story.source-coords.fallback-pin))
           ;; Exactly what `open-in-editor/resolve-uri` builds when
           ;; `config/get-project-root` returns nil.
-          uri   (editor-uri/editor-uri :windsurf coord {:project-root nil})]
+          uri   (rf.source-coords.editor-uri/editor-uri :windsurf coord {:project-root nil})]
       (is (str/starts-with? uri "windsurf://file/")
           "the fallback is the historic editor:// URI path, unchanged")
       (let [path (-> uri
@@ -265,9 +265,9 @@
             NOT double-prefix an already-absolute coord. The knob is kept
             for external / static / non-shadow hosts, and it stays inert
             over a coordinate the macro already absolutised."
-    (let [coord (:source (story/handler-meta :story :story.source-coords.fallback-pin))
-          bare  (editor-uri/editor-uri :windsurf coord {:project-root nil})
-          rooted (editor-uri/editor-uri :windsurf coord
+    (let [coord (:source (rf.story/handler-meta :story :story.source-coords.fallback-pin))
+          bare  (rf.source-coords.editor-uri/editor-uri :windsurf coord {:project-root nil})
+          rooted (rf.source-coords.editor-uri/editor-uri :windsurf coord
                                         {:project-root "/some/external/root"})]
       (is (= bare rooted)
           "an absolute :file passes through compose-path untouched"))))

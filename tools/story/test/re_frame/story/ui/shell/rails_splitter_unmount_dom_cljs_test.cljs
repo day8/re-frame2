@@ -3,8 +3,8 @@
   splitter's `on-mouse-down` installs document-level mousemove/mouseup
   listeners that were previously removed ONLY from inside the mouseup
   handler itself. If the splitter unmounted mid-drag — e.g. a
-  narrow-viewport flip drops `[rails/splitter :left]` from `shell.cljs`
-  (`rails/narrow-viewport?`) — mouseup never fires, so the document
+  narrow-viewport flip drops `[rf.story.ui.shell.rails/splitter :left]` from `shell.cljs`
+  (`rf.story.ui.shell.rails/narrow-viewport?`) — mouseup never fires, so the document
   listeners were never torn down and kept calling `set-width!` against the
   (by-then stale) component's closure forever: a permanent per-drag
   listener leak plus phantom rail-width writes driven by a component no
@@ -34,8 +34,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
-            [re-frame.story.ui.shell.rails :as rails]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.shell.rails :as rf.story.ui.shell.rails]
+            [re-frame.story.ui.state :as rf.story.ui.state]))
 
 ;; ---- browser gate -----------------------------------------------------
 
@@ -49,7 +49,7 @@
     node))
 
 (use-fixtures :each
-  {:before (fn [] (when (browser?) (state/reset-shell-state!)))})
+  {:before (fn [] (when (browser?) (rf.story.ui.state/reset-shell-state!)))})
 
 ;; ---- the regression ---------------------------------------------------
 
@@ -64,9 +64,9 @@
             root       (rdc/create-root mount-node)]
         (try
           (react-dom/flushSync
-            (fn [] (rdc/render root [rails/splitter :left])))
+            (fn [] (rdc/render root [rf.story.ui.shell.rails/splitter :left])))
           (let [splitter-el (.querySelector mount-node "[data-test=\"story-left-rail-splitter\"]")
-                width-0     (:left (rails/current-widths))]
+                width-0     (:left (rf.story.ui.shell.rails/current-widths))]
             (is (some? splitter-el) "splitter element mounted")
             ;; Start the drag — installs the document mousemove/mouseup
             ;; listeners.
@@ -80,7 +80,7 @@
               (fn []
                 (.dispatchEvent js/document
                   (js/MouseEvent. "mousemove" #js {:bubbles true :clientX 150}))))
-            (let [width-1 (:left (rails/current-widths))]
+            (let [width-1 (:left (rf.story.ui.shell.rails/current-widths))]
               (is (not= width-0 width-1)
                   "a live drag's mousemove moves the rail width")
               ;; Unmount MID-DRAG — no mouseup ever fired.
@@ -93,7 +93,7 @@
                 (fn []
                   (.dispatchEvent js/document
                     (js/MouseEvent. "mousemove" #js {:bubbles true :clientX 400}))))
-              (let [width-2 (:left (rails/current-widths))]
+              (let [width-2 (:left (rf.story.ui.shell.rails/current-widths))]
                 (is (= width-1 width-2)
                     "rf2-cmjly3 finding 6: a mousemove AFTER a mid-drag
                      unmount does not move the rail — the document
@@ -112,7 +112,7 @@
             root       (rdc/create-root mount-node)]
         (try
           (react-dom/flushSync
-            (fn [] (rdc/render root [rails/splitter :left])))
+            (fn [] (rdc/render root [rf.story.ui.shell.rails/splitter :left])))
           (let [splitter-el (.querySelector mount-node "[data-test=\"story-left-rail-splitter\"]")]
             (react-dom/flushSync
               (fn []
@@ -122,7 +122,7 @@
               (fn []
                 (.dispatchEvent js/document
                   (js/MouseEvent. "mousemove" #js {:bubbles true :clientX 150}))))
-            (let [width-after-move (:left (rails/current-widths))]
+            (let [width-after-move (:left (rf.story.ui.shell.rails/current-widths))]
               ;; Normal end-of-drag.
               (react-dom/flushSync
                 (fn []
@@ -132,7 +132,7 @@
                 (fn []
                   (.dispatchEvent js/document
                     (js/MouseEvent. "mousemove" #js {:bubbles true :clientX 400}))))
-              (is (= width-after-move (:left (rails/current-widths)))
+              (is (= width-after-move (:left (rf.story.ui.shell.rails/current-widths)))
                   "a mousemove after a normal mouseup is still a no-op")))
           (finally
             (try (.unmount root) (catch :default _ nil))))))))

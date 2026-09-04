@@ -63,7 +63,7 @@
 
   Pure data → data apart from the hook call itself, so both the JVM
   `clojure -M:test` gate and the node `npm run test:cljs` gate exercise it."
-  (:require [re-frame.story.late-bind :as late-bind]))
+  (:require [re-frame.story.late-bind :as rf.story.late-bind]))
 
 (def presence-flush-hook-key
   "The `re-frame.story.late-bind` hook key a presence-bearing shell registers
@@ -79,14 +79,14 @@
   `nil` for 'to quiescence' — mirroring the clock advance's two arities.
   Idempotent (re-registration replaces, per Spec 001 hot-reload semantics)."
   [flush-fn]
-  (late-bind/set-fn! presence-flush-hook-key flush-fn)
+  (rf.story.late-bind/set-fn! presence-flush-hook-key flush-fn)
   nil)
 
 (defn presence-flush-fn
   "The installed presence-advance fn, or nil when no host registered one
   (the bare JVM / a Story app with no presence boundaries)."
   []
-  (late-bind/get-fn presence-flush-hook-key))
+  (rf.story.late-bind/get-fn presence-flush-hook-key))
 
 (defn- thenable
   "`x` as a thenable, or nil. CLJS-only, and CONDITIONAL: a host whose advance

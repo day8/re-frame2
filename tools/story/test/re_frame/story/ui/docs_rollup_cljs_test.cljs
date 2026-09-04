@@ -20,37 +20,37 @@
     of the above)"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.ui.docs    :as docs]
-            [re-frame.story.ui.state   :as state]
-            [re-frame.story.ui.state.transitions :as transitions]
-            [re-frame.subs             :as subs]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.ui.docs    :as rf.story.ui.docs]
+            [re-frame.story.ui.state   :as rf.story.ui.state]
+            [re-frame.story.ui.state.transitions :as rf.story.ui.state.transitions]
+            [re-frame.subs             :as rf.subs]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
   ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
   ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
   ;; `:rf/runtime` path — mirror `re-frame.machines`.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -58,21 +58,21 @@
 
 (defn- register-story-with-variants!
   []
-  (story/reg-story :story.rollup
+  (rf.story/reg-story :story.rollup
     {:doc       "Rollup-fixture story with three variants."
      :argtypes  {:label {:doc "the label arg"}}
      :tags      #{:dev :docs}})
-  (story/reg-variant :story.rollup/alpha
+  (rf.story/reg-variant :story.rollup/alpha
     {:doc   "First variant — :alpha."
      :args  {:label "alpha"}
      :tags  #{:dev}
      :setup []})
-  (story/reg-variant :story.rollup/beta
+  (rf.story/reg-variant :story.rollup/beta
     {:doc   "Second variant — :beta."
      :args  {:label "beta"}
      :tags  #{:docs}
      :setup []})
-  (story/reg-variant :story.rollup/gamma
+  (rf.story/reg-variant :story.rollup/gamma
     {:doc   "Third variant — :gamma."
      :args  {:label "gamma"}
      :setup []}))
@@ -89,22 +89,22 @@
     (is (= [:story.rollup/alpha
             :story.rollup/beta
             :story.rollup/gamma]
-           (docs/variant-ids-for-story :story.rollup))
+           (rf.story.ui.docs/variant-ids-for-story :story.rollup))
         "all three variants surface, sorted by id")))
 
 (deftest variant-ids-for-empty-story
   (testing "a story with zero registered variants returns an empty
             vector — the renderer shows an empty-state placeholder
             rather than vanishing"
-    (story/reg-story :story.empty-rollup
+    (rf.story/reg-story :story.empty-rollup
       {:doc "no variants" :tags #{:dev}})
-    (is (= [] (docs/variant-ids-for-story :story.empty-rollup)))))
+    (is (= [] (rf.story.ui.docs/variant-ids-for-story :story.empty-rollup)))))
 
 (deftest variant-ids-for-unknown-story
   (testing "a story id with no registrations returns empty — defends
             against stale shell-state :selected-story slots after a
             hot-reload that drops a story"
-    (is (= [] (docs/variant-ids-for-story :story.does-not-exist)))))
+    (is (= [] (rf.story.ui.docs/variant-ids-for-story :story.does-not-exist)))))
 
 ;; ===========================================================================
 ;; docs-rollup-view rendering shape
@@ -113,7 +113,7 @@
 (deftest docs-rollup-view-nil-input-renders-nothing
   (testing "the view defends against a nil :selected-story slot — no
             crash, no DOM"
-    (is (nil? (docs/docs-rollup-view nil)))))
+    (is (nil? (rf.story.ui.docs/docs-rollup-view nil)))))
 
 (deftest docs-rollup-view-renders-one-block-per-variant
   (testing "the rollup pane carries N rollup-variant-block children
@@ -122,7 +122,7 @@
             land on the inner ^{:key vid} wrap; pin the count and that
             each block names its variant-id via :data-variant-id."
     (register-story-with-variants!)
-    (let [hiccup (docs/docs-rollup-view :story.rollup)]
+    (let [hiccup (rf.story.ui.docs/docs-rollup-view :story.rollup)]
       (is (vector? hiccup))
       (is (= :section (first hiccup)))
       (is (= "story-docs-rollup" (:data-test (second hiccup))))
@@ -132,9 +132,9 @@
   (testing "stories with zero variants render an empty-state notice —
             the user clicked into the rollup but there's nothing to
             project. Better than a silently-empty pane."
-    (story/reg-story :story.empty-rollup
+    (rf.story/reg-story :story.empty-rollup
       {:doc "no variants" :tags #{:dev}})
-    (let [hiccup (docs/docs-rollup-view :story.empty-rollup)
+    (let [hiccup (rf.story.ui.docs/docs-rollup-view :story.empty-rollup)
           children (drop 2 hiccup)  ; drop tag + attrs
           empty-marker (some (fn [c]
                                (and (vector? c)
@@ -152,7 +152,7 @@
   (testing "select-story writes the parent-story id into
             :selected-story"
     (let [state {:selected-story nil}
-          out   (transitions/select-story state :story.foo)]
+          out   (rf.story.ui.state.transitions/select-story state :story.foo)]
       (is (= :story.foo (:selected-story out))))))
 
 (deftest select-story-clears-variant-and-workspace
@@ -162,7 +162,7 @@
     (let [state {:selected-variant   :story.foo/v
                  :selected-workspace :Workspace.foo/ws
                  :selected-story     nil}
-          out   (transitions/select-story state :story.foo)]
+          out   (rf.story.ui.state.transitions/select-story state :story.foo)]
       (is (= :story.foo (:selected-story out)))
       (is (nil? (:selected-variant   out)))
       (is (nil? (:selected-workspace out))))))
@@ -175,7 +175,7 @@
     (let [state {:selected-variant   :story.foo/v
                  :selected-workspace nil
                  :selected-story     :story.foo}
-          out   (transitions/select-story state nil)]
+          out   (rf.story.ui.state.transitions/select-story state nil)]
       (is (nil? (:selected-story out)))
       (is (= :story.foo/v (:selected-variant out))))))
 
@@ -185,7 +185,7 @@
             from the sidebar"
     (let [state {:selected-story   :story.foo
                  :selected-variant nil}
-          out   (transitions/select-variant state :story.foo/v)]
+          out   (rf.story.ui.state.transitions/select-variant state :story.foo/v)]
       (is (= :story.foo/v (:selected-variant out)))
       (is (nil? (:selected-story out))))))
 
@@ -194,7 +194,7 @@
             exclusion contract as variant selection"
     (let [state {:selected-story     :story.foo
                  :selected-workspace nil}
-          out   (transitions/select-workspace state :Workspace.foo/ws)]
+          out   (rf.story.ui.state.transitions/select-workspace state :Workspace.foo/ws)]
       (is (= :Workspace.foo/ws (:selected-workspace out)))
       (is (nil? (:selected-story out))))))
 
@@ -204,7 +204,7 @@
             shouldn't lose their rollup focus"
     (let [state {:selected-story   :story.foo
                  :selected-variant :story.foo/v}
-          out   (transitions/select-variant state nil)]
+          out   (rf.story.ui.state.transitions/select-variant state nil)]
       (is (nil? (:selected-variant out)))
       (is (= :story.foo (:selected-story out))
           "story slot survives a variant deselection"))))
@@ -220,17 +220,17 @@
             re-populated. Mirrors the integration the sidebar drives."
     (register-story-with-variants!)
     ;; Start: nothing selected.
-    (is (nil? (:selected-story (state/get-state))))
+    (is (nil? (:selected-story (rf.story.ui.state/get-state))))
     ;; Click story header.
-    (state/swap-state! transitions/select-story :story.rollup)
-    (is (= :story.rollup (:selected-story (state/get-state))))
-    (is (nil? (:selected-variant (state/get-state))))
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/select-story :story.rollup)
+    (is (= :story.rollup (:selected-story (rf.story.ui.state/get-state))))
+    (is (nil? (:selected-variant (rf.story.ui.state/get-state))))
     ;; Click variant — story is dismissed.
-    (state/swap-state! transitions/select-variant :story.rollup/alpha)
-    (is (= :story.rollup/alpha (:selected-variant (state/get-state))))
-    (is (nil? (:selected-story (state/get-state)))
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/select-variant :story.rollup/alpha)
+    (is (= :story.rollup/alpha (:selected-variant (rf.story.ui.state/get-state))))
+    (is (nil? (:selected-story (rf.story.ui.state/get-state)))
         "selecting a variant dismisses the rollup view")
     ;; Click story header again — variant cleared.
-    (state/swap-state! transitions/select-story :story.rollup)
-    (is (= :story.rollup (:selected-story (state/get-state))))
-    (is (nil? (:selected-variant (state/get-state))))))
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/select-story :story.rollup)
+    (is (= :story.rollup (:selected-story (rf.story.ui.state/get-state))))
+    (is (nil? (:selected-variant (rf.story.ui.state/get-state))))))

@@ -26,37 +26,37 @@
     frame's `[:rf.story/assertions]`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.async      :as async-lib]
-            [re-frame.story.frames     :as frames]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.schemas    :as schemas]
-            [re-frame.subs             :as subs]
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.frames     :as rf.story.frames]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.schemas    :as rf.story.schemas]
+            [re-frame.subs             :as rf.subs]
             [malli.core                :as m]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
   ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
   ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
   ;; `:rf/runtime` path — mirror `re-frame.machines`.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (reset! frames/stub-call-log {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (reset! rf.story.frames/stub-call-log {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -67,16 +67,16 @@
 (deftest schema-accepts-loaders-teardown
   (testing ":loaders-teardown is an optional vector of event vectors on
             the Variant schema"
-    (is (m/validate schemas/Variant
+    (is (m/validate rf.story.schemas/Variant
                     {:loaders          [[:ws/open]]
                      :loaders-teardown [[:ws/close]]
                      :setup           []}))
-    (is (m/validate schemas/Variant
+    (is (m/validate rf.story.schemas/Variant
                     {:loaders-teardown [[:cleanup]]
                      :setup           []}))
-    (is (m/validate schemas/Variant
+    (is (m/validate rf.story.schemas/Variant
                     {:setup []}))
-    (is (m/validate schemas/Variant
+    (is (m/validate rf.story.schemas/Variant
                     {:loaders-teardown []
                      :setup           []})
         "an empty vector is structurally valid (no-op teardown)")))
@@ -84,10 +84,10 @@
 (deftest schema-rejects-non-vector-loaders-teardown
   (testing ":loaders-teardown must be a vector of event vectors —
             anything else fails the schema"
-    (is (not (m/validate schemas/Variant
+    (is (not (m/validate rf.story.schemas/Variant
                          {:loaders-teardown :not-a-vector
                           :setup           []})))
-    (is (not (m/validate schemas/Variant
+    (is (not (m/validate rf.story.schemas/Variant
                          {:loaders-teardown [:not-a-vector-of-vectors]
                           :setup           []})))))
 
@@ -100,18 +100,18 @@
     (let [fired (atom [])]
       (rf/reg-event :ws/open  (fn [{:keys [db]} _] {:db (assoc db :ws? :open)}))
       (rf/reg-event :ws/close (fn [{:keys [db]} _] (swap! fired conj :ws/close) {:db db}))
-      (story/reg-variant :story.lt.fires/v
+      (rf.story/reg-variant :story.lt.fires/v
         {:loaders          [[:ws/open]]
          :loaders-teardown [[:ws/close]]
          :setup           []})
-      (let [p (story/run-variant :story.lt.fires/v)]
+      (let [p (rf.story/run-variant :story.lt.fires/v)]
         (async done
           (-> p
-              (async-lib/then
+              (rf.story.async/then
                 (fn [_]
                   (is (= [] @fired)
                       "teardown has NOT fired yet — variant is still live")
-                  (story/destroy-variant! :story.lt.fires/v)
+                  (rf.story/destroy-variant! :story.lt.fires/v)
                   (is (= [:ws/close] @fired)
                       "teardown fired exactly once on destroy")
                   (done)))))))))
@@ -123,15 +123,15 @@
       (rf/reg-event :step/one   (fn [{:keys [db]} _] (swap! fired conj :one) {:db db}))
       (rf/reg-event :step/two   (fn [{:keys [db]} _] (swap! fired conj :two) {:db db}))
       (rf/reg-event :step/three (fn [{:keys [db]} _] (swap! fired conj :three) {:db db}))
-      (story/reg-variant :story.lt.order/v
+      (rf.story/reg-variant :story.lt.order/v
         {:loaders-teardown [[:step/one] [:step/two] [:step/three]]
          :setup           []})
-      (let [p (story/run-variant :story.lt.order/v)]
+      (let [p (rf.story/run-variant :story.lt.order/v)]
         (async done
           (-> p
-              (async-lib/then
+              (rf.story.async/then
                 (fn [_]
-                  (story/destroy-variant! :story.lt.order/v)
+                  (rf.story/destroy-variant! :story.lt.order/v)
                   (is (= [:one :two :three] @fired)
                       "declared order — symmetric with :loaders")
                   (done)))))))))
@@ -153,20 +153,20 @@
       (rf/reg-event :dec/init    (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :lt/cleanup
         (fn [{:keys [db]} _] (swap! fired conj :loaders-teardown) {:db db}))
-      (story/reg-decorator :outer-dec
+      (rf.story/reg-decorator :outer-dec
         {:kind     :frame-setup
          :init     [[:dec/init]]
          :teardown [[:dec/teardown]]})
-      (story/reg-variant :story.lt.order2/v
+      (rf.story/reg-variant :story.lt.order2/v
         {:decorators       [[:outer-dec]]
          :loaders-teardown [[:lt/cleanup]]
          :setup           []})
-      (let [p (story/run-variant :story.lt.order2/v)]
+      (let [p (rf.story/run-variant :story.lt.order2/v)]
         (async done
           (-> p
-              (async-lib/then
+              (rf.story.async/then
                 (fn [_]
-                  (story/destroy-variant! :story.lt.order2/v)
+                  (rf.story/destroy-variant! :story.lt.order2/v)
                   (is (= [:loaders-teardown :decorator] @fired)
                       "loaders-teardown runs first; decorator :teardown runs after")
                   (done)))))))))
@@ -181,17 +181,17 @@
             (002-Runtime.md §Loader teardown contract)."
     (rf/reg-event :boom/cleanup
       (fn [_ _] (throw (ex-info "loader-teardown boom" {:why :test}))))
-    (story/reg-variant :story.lt.boom/v
+    (rf.story/reg-variant :story.lt.boom/v
       {:loaders-teardown [[:boom/cleanup]]
        :setup           []})
-    (let [p (story/run-variant :story.lt.boom/v)]
+    (let [p (rf.story/run-variant :story.lt.boom/v)]
       (async done
         (-> p
-            (async-lib/then
+            (rf.story.async/then
               (fn [_]
-                (is (nil? (story/destroy-variant! :story.lt.boom/v))
+                (is (nil? (rf.story/destroy-variant! :story.lt.boom/v))
                     "destroy-variant! returns nil — exception caught")
-                (is (not (contains? (story/variant-frames)
+                (is (not (contains? (rf.story/variant-frames)
                                     :story.lt.boom/v))
                     "frame is destroyed despite the throw")
                 (done))))))))
@@ -207,15 +207,15 @@
         (fn [_ _] (throw (ex-info "boom" {}))))
       (rf/reg-event :step/after
         (fn [{:keys [db]} _] (swap! fired conj :after) {:db db}))
-      (story/reg-variant :story.lt.continue/v
+      (rf.story/reg-variant :story.lt.continue/v
         {:loaders-teardown [[:step/before] [:step/boom] [:step/after]]
          :setup           []})
-      (let [p (story/run-variant :story.lt.continue/v)]
+      (let [p (rf.story/run-variant :story.lt.continue/v)]
         (async done
           (-> p
-              (async-lib/then
+              (rf.story.async/then
                 (fn [_]
-                  (story/destroy-variant! :story.lt.continue/v)
+                  (rf.story/destroy-variant! :story.lt.continue/v)
                   (is (= [:before :after] @fired)
                       "the walk continues past the throw")
                   (done)))))))))
@@ -239,20 +239,20 @@
         (fn [{:keys [db]} _]
           (reset! captured (:rf.story/assertions db))
           {:db db}))
-      (story/reg-decorator :lt-probe
+      (rf.story/reg-decorator :lt-probe
         {:kind     :frame-setup
          :init     [[::probe-init]]
          :teardown [[::probe-snapshot]]})
-      (story/reg-variant :story.lt.record/v
+      (rf.story/reg-variant :story.lt.record/v
         {:decorators       [[:lt-probe]]
          :loaders-teardown [[:boom/cleanup]]
          :setup           []})
-      (let [p (story/run-variant :story.lt.record/v)]
+      (let [p (rf.story/run-variant :story.lt.record/v)]
         (async done
           (-> p
-              (async-lib/then
+              (rf.story.async/then
                 (fn [_]
-                  (story/destroy-variant! :story.lt.record/v)
+                  (rf.story/destroy-variant! :story.lt.record/v)
                   (let [asserts @captured
                         err     (first (filter
                                          #(= :rf.error/exception (:assertion %))
@@ -280,17 +280,17 @@
             tears down cleanly — destroy! is a no-op for the new step"
     (rf/reg-event :seed/init
       (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
-    (story/reg-variant :story.lt.none/v
+    (rf.story/reg-variant :story.lt.none/v
       {:setup [[:seed/init]]})
-    (let [p (story/run-variant :story.lt.none/v)]
+    (let [p (rf.story/run-variant :story.lt.none/v)]
       (async done
         (-> p
-            (async-lib/then
+            (rf.story.async/then
               (fn [_]
-                (is (nil? (story/destroy-variant! :story.lt.none/v))
+                (is (nil? (rf.story/destroy-variant! :story.lt.none/v))
                     "destroy returns nil — no-op for variants without
                      :loaders-teardown")
-                (is (not (contains? (story/variant-frames)
+                (is (not (contains? (rf.story/variant-frames)
                                     :story.lt.none/v))
                     "frame is destroyed")
                 (done))))))))

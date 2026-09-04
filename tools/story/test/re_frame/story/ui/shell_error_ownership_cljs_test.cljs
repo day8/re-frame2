@@ -22,20 +22,20 @@
   (`npm run test:story-feature-load`), which counts console errors for
   real."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.story.ui.shell :as shell]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.story.ui.shell :as rf.story.ui.shell]))
 
-(def ^:private claim!   @#'shell/claim-error-ownership!)
-(def ^:private release! @#'shell/release-error-ownership!)
+(def ^:private claim!   @#'rf.story.ui.shell/claim-error-ownership!)
+(def ^:private release! @#'rf.story.ui.shell/release-error-ownership!)
 
 ;; The registry the fallback's `(empty? @listeners)` guard reads. Private
 ;; in `error-emit` because it is not an app-facing surface; read here
 ;; because it is the precise thing this fix has to move.
-(def ^:private listeners @#'error-emit/listeners)
+(def ^:private listeners @#'rf.error-emit/listeners)
 
 (use-fixtures :each
-  {:before #(error-emit/clear-error-listeners!)
-   :after  #(error-emit/clear-error-listeners!)})
+  {:before #(rf.error-emit/clear-error-listeners!)
+   :after  #(rf.error-emit/clear-error-listeners!)})
 
 (deftest claim-makes-the-fallback-registry-non-empty
   (testing "with no shell mounted the registry is empty — the fallback fires"
@@ -66,7 +66,7 @@
   (testing "a consuming app's own `:errors` listener is registered under its
             own id — the shell's release drops only the shell's claim, and
             the app keeps ownership (and its records) across a Story unmount"
-    (error-emit/register-error-listener! ::host-app (fn [_record] nil))
+    (rf.error-emit/register-error-listener! ::host-app (fn [_record] nil))
     (claim!)
     (is (= 2 (count @listeners)))
     (release!)

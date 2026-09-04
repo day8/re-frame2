@@ -25,7 +25,7 @@
       mount [test-mode.view/test-view variant-a] (no React key)
             |
       test-view's r/with-let body -> variant-has-tests? + no stored
-      result -> state/run-variant-pane! variant-a
+      result -> rf.story.ui.state/run-variant-pane! variant-a
             |
       re-render the SAME root with [test-mode.view/test-view variant-b]
       -- same component type, no key, so React reconciles as a PROP
@@ -45,37 +45,37 @@
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.story :as story]
-            [re-frame.story.loaders :as loaders]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.test-mode.state :as tm-state]
-            [re-frame.story.ui.test-mode.view :as view]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.story :as rf.story]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]
+            [re-frame.story.ui.test-mode.view :as rf.story.ui.test-mode.view]
+            [re-frame.subs :as rf.subs]))
 
 ;; ---- fixture --------------------------------------------------------------
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! reagent-adapter/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.adapter.reagent/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar
   ;; clear (mirrors the sibling viewport-toggle-app-db-dom-cljs-test's
   ;; reset-all!).
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (reset! tm-state/results-atom {})
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (reset! rf.story.ui.test-mode.state/results-atom {})
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -108,10 +108,10 @@
           (fn [{:keys [db]} _] {:db (assoc db :v "a")}))
         (rf/reg-event :testview-switch/set-b
           (fn [{:keys [db]} _] {:db (assoc db :v "b")}))
-        (story/reg-variant va
+        (rf.story/reg-variant va
           {:setup      [[:testview-switch/set-a]]
            :script [[:dispatch-sync [:rf.assert/path-equals [:v] "a"]]]})
-        (story/reg-variant vb
+        (rf.story/reg-variant vb
           {:setup      [[:testview-switch/set-b]]
            :script [[:dispatch-sync [:rf.assert/path-equals [:v] "b"]]]})
         (let [mount-node (make-mount-node!)
@@ -120,8 +120,8 @@
             ;; Initial mount on variant A — no React key, mirroring
             ;; shell.cljs's call site.
             (react-dom/flushSync
-              (fn [] (rdc/render root [view/test-view va])))
-            (is (true? (get-in @tm-state/results-atom [va :running?]))
+              (fn [] (rdc/render root [rf.story.ui.test-mode.view/test-view va])))
+            (is (true? (get-in @rf.story.ui.test-mode.state/results-atom [va :running?]))
                 "variant A auto-ran on first mount (run-variant-pane!'s
                  begin-run! prelude stamps :running? synchronously)")
             (is (some? (.querySelector mount-node "[data-test=\"story-test-view\"]"))
@@ -132,8 +132,8 @@
             ;; a PROP UPDATE (no unmount/remount) at the same tree
             ;; position.
             (react-dom/flushSync
-              (fn [] (rdc/render root [view/test-view vb])))
-            (is (true? (get-in @tm-state/results-atom [vb :running?]))
+              (fn [] (rdc/render root [rf.story.ui.test-mode.view/test-view vb])))
+            (is (true? (get-in @rf.story.ui.test-mode.state/results-atom [vb :running?]))
                 "rf2-4e545l: variant B auto-ran too, even though React
                  reconciled the swap as a prop update rather than a
                  fresh mount — the pre-fix :component-did-mount-only

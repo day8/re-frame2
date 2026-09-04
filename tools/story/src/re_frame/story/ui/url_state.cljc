@@ -21,7 +21,7 @@
 
   - `url-from-state`     — pure: shell-state → URL string.
   - `params-from-state`  — pure: shell-state → param-vector (the same
-                           shape `share/build-params` emits).
+                           shape `rf.story.share/build-params` emits).
   - `install-popstate-listener!` — CLJS: subscribe to back/forward.
   - `install-state-watcher!`     — CLJS: subscribe to shell-state
                                    changes + push / replace URL.
@@ -57,17 +57,17 @@
   the state-watcher's reaction does NOT bounce back a push for the
   state it just absorbed."
   ;; `clojure.string` is CLJS-only here: the pure half composes through
-  ;; `share/apply-story-params` and does no string work of its own, so
+  ;; `rf.story.share/apply-story-params` and does no string work of its own, so
   ;; the alias survives solely for `embed-flag-from-current-url`'s
   ;; truthiness parse down in the `#?(:cljs ...)` block.
   (:require #?(:cljs [clojure.string :as str])
-            [re-frame.story.share :as share]))
+            [re-frame.story.share :as rf.story.share]))
 
 ;; ---- pure: shell-state → URL params -------------------------------------
 
 (defn params-from-state
   "Project the URL-relevant slots out of a shell-state map into the
-  arg-shape `share/build-params` consumes. Pure data → data;
+  arg-shape `rf.story.share/build-params` consumes. Pure data → data;
   JVM-testable.
 
   Cell-overrides are projected from the per-variant overrides map for
@@ -101,16 +101,16 @@
   current browser location. Returns a string. Pure data → data;
   JVM-testable.
 
-  Story owns exactly `share/story-query-keys` in that query and nothing
+  Story owns exactly `rf.story.share/story-query-keys` in that query and nothing
   else. This call writes the keys `shell` populates, CLEARS the ones it
   does not, and PRESERVES every unrelated param already on `:search` —
   `embed=1` (rf2-pucku chrome state, read at mount and deliberately
-  never round-tripped through `share/parse-params`), a referrer `from=`,
+  never round-tripped through `rf.story.share/parse-params`), a referrer `from=`,
   whatever a host page appended — verbatim and in order, ahead of the
   generated params.
 
   That boundary is not restated here: the merge IS
-  `share/apply-story-params`, the same function `share/variant-share-url`
+  `rf.story.share/apply-story-params`, the same function `rf.story.share/variant-share-url`
   builds on. The two writers of this URL therefore cannot disagree about
   who owns an unrelated param, which is the defect rf2-gee8n recorded —
   this fn used to compose from `{:pathname :hash}` alone and rebuild the
@@ -123,9 +123,9 @@
   hash-based routing under `#/stories`), which `apply-story-params`
   handles by splitting the fragment off first."
   [shell {:keys [pathname search hash]}]
-  (share/apply-story-params
+  (rf.story.share/apply-story-params
     (str (or pathname "") (or search "") (or hash ""))
-    (share/build-params (params-from-state shell))))
+    (rf.story.share/build-params (params-from-state shell))))
 
 ;; ---- diff predicate -----------------------------------------------------
 
@@ -167,7 +167,7 @@
 ;; ---- hydrator: URL params → shell-state apply ---------------------------
 
 (defn apply-parsed-to-state
-  "Pure: fold `parsed` (the output of `share/parse-params`) into a
+  "Pure: fold `parsed` (the output of `rf.story.share/parse-params`) into a
   shell-state map. Returns the new state map.
 
   Validation: each slot is validated against the relevant registrar /
@@ -216,7 +216,7 @@
       so the chrome falls back to its neutral default (`:full` / no bg).
     - omitted (or invalid) `substrate=` clears `:substrate` to the default
       `:reagent` (rf2-dxz4sg). The build side omits `substrate=` precisely
-      to encode the `:reagent` default (`share/build-params` only emits it
+      to encode the `:reagent` default (`rf.story.share/build-params` only emits it
       for a non-default substrate), so an omitted param MUST hydrate as
       `:reagent` rather than preserving the recipient's stale in-memory
       `:uix`. A present-but-unregistered substrate (rejected by the
@@ -331,7 +331,7 @@
       ;; rf2-dxz4sg: `:substrate` joins the unconditional authoritative-clear
       ;; — omitted/invalid ⇒ `:reagent` (computed as `substrate*` above), a
       ;; registered non-default id ⇒ that id. This mirrors the build-side
-      ;; default-omission (`share/build-params`) so the address bar stays the
+      ;; default-omission (`rf.story.share/build-params`) so the address bar stays the
       ;; source of truth for the substrate on both mount and back/forward.
       :always
       (-> (assoc :active-modes (vec active-modes))
@@ -373,7 +373,7 @@
            (str (.-pathname loc) (.-search loc) (.-hash loc)))))
 
      (defn- ^:no-doc params->getter
-       "Build the `{key → string}` getter map `share/parse-params`
+       "Build the `{key → string}` getter map `rf.story.share/parse-params`
        consumes from a `URLSearchParams` instance."
        [usp]
        (when usp
@@ -389,7 +389,7 @@
 
      (defn parse-current-url
        "Parse the current `window.location.search` into the
-       `share/parse-params` shape. Returns nil when no search params
+       `rf.story.share/parse-params` shape. Returns nil when no search params
        are present or window is unavailable."
        []
        (when-let [w (safe-window)]
@@ -397,12 +397,12 @@
            (when (and (string? search) (seq search))
              (try
                (let [usp (js/URLSearchParams. search)]
-                 (share/parse-params (params->getter usp)))
+                 (rf.story.share/parse-params (params->getter usp)))
                (catch :default _ nil))))))
 
      (defn parse-current-url-or-empty
        "Like `parse-current-url`, but returns the all-nil parsed shape
-       (`share/parse-params {}`) instead of nil when the window is present
+       (`rf.story.share/parse-params {}`) instead of nil when the window is present
        and the search is empty.
 
        Used by the popstate handler (rf2-fkmnh): navigating back/forward to
@@ -417,7 +417,7 @@
        []
        (when-let [w (safe-window)]
          (or (parse-current-url)
-             (share/parse-params {}))))
+             (rf.story.share/parse-params {}))))
 
      (defn embed-flag-from-current-url
        "Read the `?embed=1` flag (rf2-pucku) from
@@ -426,7 +426,7 @@
        case-insensitive); false otherwise.
 
        The flag is intentionally NOT round-tripped through
-       `share/parse-params` because it's chrome-state, not shell-state
+       `rf.story.share/parse-params` because it's chrome-state, not shell-state
        — it never hydrates the registrar-indexed slots and never
        writes back to the URL."
        []
@@ -492,7 +492,7 @@
 
      (defn install-popstate-listener!
        "Subscribe to `window.popstate`. Each pop parses
-       `window.location.search` via `share/parse-params` and folds the
+       `window.location.search` via `rf.story.share/parse-params` and folds the
        result into `shell-state-atom` via `apply-parsed-to-state`.
 
        `apply-fn` is the post-validation applicator — production wires
@@ -511,7 +511,7 @@
        `post-apply-fn`, a Back/Forward pop to a URL whose override arg-key
        was since renamed/removed installed it as a live orphan override
        with no drop/report, unlike the mount path. Production wires this
-       to `share/hydrate-from-url!` so both hydration paths run the
+       to `rf.story.share/hydrate-from-url!` so both hydration paths run the
        identical filter; running it inside the guard (rather than as a
        bare after-the-fact call) keeps it consistent with every other
        hydration step in this ns — none of them provoke a reactive

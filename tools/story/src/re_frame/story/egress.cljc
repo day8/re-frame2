@@ -75,7 +75,7 @@
   runtime. The fn-detection rides `re-frame.story.fingerprint`'s
   `Canonicalise` protocol — the same opaque-fn fold the plan-hash uses —
   so a value is judged exactly the way the hashing layer judges it."
-  (:require [re-frame.story.fingerprint :as fingerprint]
+  (:require [re-frame.story.fingerprint :as rf.story.fingerprint]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])))
 
@@ -108,19 +108,19 @@
 (defn contains-fn?
   "True iff `x` (walked recursively through maps / vectors / sets / seqs)
   carries a function value anywhere. Pure. Rides the SAME `Canonicalise`
-  fold the plan-hash uses (`fingerprint/canonical-form`): a genuine fn
+  fold the plan-hash uses (`rf.story.fingerprint/canonical-form`): a genuine fn
   canonicalises to the `:rf/opaque-fn` sentinel, so detecting the sentinel
   in the canonical form is exactly detecting a fn in the original — across
   JVM and CLJS, without a host-specific `fn?`/`function` walk here."
   [x]
-  (let [canon (fingerprint/canonical-form x)]
+  (let [canon (rf.story.fingerprint/canonical-form x)]
     (loop [stack [canon]]
       (cond
         (empty? stack) false
         :else
         (let [[h & t] stack]
           (cond
-            (= h fingerprint/opaque-fn) true
+            (= h rf.story.fingerprint/opaque-fn) true
             (map? h)        (recur (into (vec t) (concat (keys h) (vals h))))
             (sequential? h) (recur (into (vec t) h))
             (set? h)        (recur (into (vec t) h))

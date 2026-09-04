@@ -52,7 +52,7 @@
   `replay-run-artifact` into fresh `:rf.test.replay/*` frames (torn down by
   the replay path), so the JVM `clojure -M:test` gate exercises the full
   generated-run → artifact flow against a live frame synchronously."
-  (:require [re-frame.story.artifact :as artifact]))
+  (:require [re-frame.story.artifact :as rf.story.artifact]))
 
 ;; ===========================================================================
 ;; SEEDABLE PRNG  (pure — splitmix64)
@@ -142,7 +142,7 @@
   flow is about. The default `:source` records that the artifact came from
   the property runner, so a promoted variant explains it was generated."
   [{:keys [seed event-program fx-decisions shrink-path source] :as _parts}]
-  (artifact/make-run-artifact
+  (rf.story.artifact/make-run-artifact
     (cond-> {:seed          seed
              :event-program (vec event-program)
              :fx-decisions  (or fx-decisions {})
@@ -203,13 +203,13 @@
   has a replayable, seed-bearing artifact (artifacts first)."
   [gen-fn seed {:keys [fx-decisions hooks frame-config] :as _opts}]
   (let [program     (vec (gen-fn seed))
-        base        (artifact/make-run-artifact
+        base        (rf.story.artifact/make-run-artifact
                       {:event-program program
                        :fx-decisions  (or fx-decisions {})})
         replay-opts (cond-> {}
                       hooks        (assoc :hooks hooks)
                       frame-config (assoc :frame-config frame-config))
-        result      (artifact/replay-run-artifact base replay-opts)
+        result      (rf.story.artifact/replay-run-artifact base replay-opts)
         artifact    (generated-artifact
                       {:seed          seed
                        :event-program program
@@ -248,10 +248,10 @@
                        hooks        (assoc :hooks hooks)
                        frame-config (assoc :frame-config frame-config))
          replay!     (fn [program]
-                       (let [a (artifact/make-run-artifact
+                       (let [a (rf.story.artifact/make-run-artifact
                                  {:event-program program
                                   :fx-decisions  (or fx-decisions {})})]
-                         (artifact/replay-run-artifact a replay-opts)))]
+                         (rf.story.artifact/replay-run-artifact a replay-opts)))]
      (loop [current     (vec failing-program)
             chunk-size  (max 1 (quot (count failing-program) 2))
             shrink-path []
@@ -425,13 +425,13 @@
   (let [cells   (seq fault-lattice)
         results (mapv
                   (fn [[cell-id fx-decisions]]
-                    (let [a       (artifact/make-run-artifact
+                    (let [a       (rf.story.artifact/make-run-artifact
                                     {:event-program base-program
                                      :fx-decisions  (or fx-decisions {})})
                           ropts   (cond-> {}
                                     hooks        (assoc :hooks hooks)
                                     frame-config (assoc :frame-config frame-config))
-                          result  (artifact/replay-run-artifact a ropts)
+                          result  (rf.story.artifact/replay-run-artifact a ropts)
                           artifact (generated-artifact
                                      {:seed          seed
                                       :event-program base-program

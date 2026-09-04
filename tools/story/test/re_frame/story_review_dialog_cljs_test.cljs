@@ -9,29 +9,29 @@
   flows both depend on."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.review-dialog :as review-dialog]))
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.review-dialog :as rf.story.review-dialog]))
 
 ;; ---- parse-variant-id-string ---------------------------------------------
 
 (deftest parse-with-leading-colon
-  (is (= :foo/bar (review-dialog/parse-variant-id-string ":foo/bar")))
-  (is (= :plain   (review-dialog/parse-variant-id-string ":plain"))))
+  (is (= :foo/bar (rf.story.review-dialog/parse-variant-id-string ":foo/bar")))
+  (is (= :plain   (rf.story.review-dialog/parse-variant-id-string ":plain"))))
 
 (deftest parse-without-leading-colon
-  (is (= :foo/bar (review-dialog/parse-variant-id-string "foo/bar")))
-  (is (= :plain   (review-dialog/parse-variant-id-string "plain"))))
+  (is (= :foo/bar (rf.story.review-dialog/parse-variant-id-string "foo/bar")))
+  (is (= :plain   (rf.story.review-dialog/parse-variant-id-string "plain"))))
 
 (deftest parse-nil-for-empty-or-bad-input
-  (is (nil? (review-dialog/parse-variant-id-string nil)))
-  (is (nil? (review-dialog/parse-variant-id-string "")))
-  (is (nil? (review-dialog/parse-variant-id-string "foo/")))
-  (is (nil? (review-dialog/parse-variant-id-string "/bar"))))
+  (is (nil? (rf.story.review-dialog/parse-variant-id-string nil)))
+  (is (nil? (rf.story.review-dialog/parse-variant-id-string "")))
+  (is (nil? (rf.story.review-dialog/parse-variant-id-string "foo/")))
+  (is (nil? (rf.story.review-dialog/parse-variant-id-string "/bar"))))
 
 ;; ---- default-variant-id-with-prefix --------------------------------------
 
 (deftest default-uses-source-namespace
-  (let [k (review-dialog/default-variant-id-with-prefix
+  (let [k (rf.story.review-dialog/default-variant-id-with-prefix
             :story.counter/happy-path 12345 "saved")]
     (is (qualified-keyword? k))
     (is (= "story.counter" (namespace k)))
@@ -39,26 +39,26 @@
 
 (deftest default-honors-custom-prefix
   (is (= "recorded-0"
-         (name (review-dialog/default-variant-id-with-prefix
+         (name (rf.story.review-dialog/default-variant-id-with-prefix
                  :story.x/y 0 "recorded"))))
   (is (= "saved-0"
-         (name (review-dialog/default-variant-id-with-prefix
+         (name (rf.story.review-dialog/default-variant-id-with-prefix
                  :story.x/y 0 "saved")))))
 
 (deftest default-nil-for-unqualified-source
-  (is (nil? (review-dialog/default-variant-id-with-prefix nil 0 "saved")))
-  (is (nil? (review-dialog/default-variant-id-with-prefix
+  (is (nil? (rf.story.review-dialog/default-variant-id-with-prefix nil 0 "saved")))
+  (is (nil? (rf.story.review-dialog/default-variant-id-with-prefix
               :unqualified 0 "saved"))))
 
 ;; ---- dialog state machine ------------------------------------------------
 
 (deftest initial-state-is-idle
-  (is (false? (:open?     review-dialog/initial-state)))
-  (is (nil?   (:draft-id  review-dialog/initial-state)))
-  (is (nil?   (:source-id review-dialog/initial-state))))
+  (is (false? (:open?     rf.story.review-dialog/initial-state)))
+  (is (nil?   (:draft-id  rf.story.review-dialog/initial-state)))
+  (is (nil?   (:source-id rf.story.review-dialog/initial-state))))
 
 (deftest open-flips-open-and-seeds-defaults
-  (let [s (review-dialog/open review-dialog/initial-state
+  (let [s (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                               :story.x/y
                               {:args {:n 1}}
                               12345
@@ -69,28 +69,28 @@
     (is (qualified-keyword? (:draft-id s)))))
 
 (deftest close-returns-idle
-  (let [opened (review-dialog/open review-dialog/initial-state
+  (let [opened (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                                    :story.x/y {} 0 "saved")]
-    (is (= review-dialog/initial-state (review-dialog/close opened)))))
+    (is (= rf.story.review-dialog/initial-state (rf.story.review-dialog/close opened)))))
 
 (deftest parse-and-set-draft-id-parses-on-success
-  (let [s (-> review-dialog/initial-state
-              (review-dialog/open :story.x/y nil 0 "saved")
-              (review-dialog/parse-and-set-draft-id ":story.x/edited"))]
+  (let [s (-> rf.story.review-dialog/initial-state
+              (rf.story.review-dialog/open :story.x/y nil 0 "saved")
+              (rf.story.review-dialog/parse-and-set-draft-id ":story.x/edited"))]
     (is (= :story.x/edited (:draft-id s)))))
 
 (deftest parse-and-set-draft-id-keeps-raw-on-failure
-  (let [s (-> review-dialog/initial-state
-              (review-dialog/open :story.x/y nil 0 "saved")
-              (review-dialog/parse-and-set-draft-id "foo/"))]
+  (let [s (-> rf.story.review-dialog/initial-state
+              (rf.story.review-dialog/open :story.x/y nil 0 "saved")
+              (rf.story.review-dialog/parse-and-set-draft-id "foo/"))]
     (is (= "foo/" (:draft-id s)))))
 
 ;; ---- renderer: closed state ----------------------------------------------
 
 (deftest renderer-returns-nil-when-closed
   (testing "the renderer returns nil for the idle state"
-    (is (nil? (review-dialog/review-dialog
-                review-dialog/initial-state
+    (is (nil? (rf.story.review-dialog/review-dialog
+                rf.story.review-dialog/initial-state
                 {:title             "Test"
                  :snippet           "(snippet)"
                  :placeholder-id    :story.x/example
@@ -103,7 +103,7 @@
 ;; ---- renderer: opened state ----------------------------------------------
 
 (defn- opened-state []
-  (review-dialog/open review-dialog/initial-state
+  (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                       :story.x/source
                       {:args {:n 1}}
                       12345
@@ -111,7 +111,7 @@
 
 (deftest renderer-returns-hiccup-when-open
   (testing "the renderer returns a hiccup tree when :open? is true"
-    (let [hiccup (review-dialog/review-dialog
+    (let [hiccup (rf.story.review-dialog/review-dialog
                    (opened-state)
                    {:title             "Save"
                     :hint              "the hint"
@@ -136,7 +136,7 @@
 
 (deftest renderer-without-on-discard-omits-discard-button
   (testing "no :on-discard → no 'discard' button is rendered"
-    (let [flat (str (review-dialog/review-dialog
+    (let [flat (str (rf.story.review-dialog/review-dialog
                       (opened-state)
                       {:title             "Save"
                        :snippet           "(snippet)"
@@ -151,7 +151,7 @@
 
 (deftest renderer-with-on-discard-renders-discard-button
   (testing ":on-discard provided → 'discard' button renders"
-    (let [flat (str (review-dialog/review-dialog
+    (let [flat (str (rf.story.review-dialog/review-dialog
                      (opened-state)
                      {:title             "Save"
                       :snippet           "(snippet)"
@@ -166,12 +166,12 @@
 
 (deftest renderer-uses-placeholder-when-draft-id-nil
   (testing "with no draft-id seeded the input's default-value is the placeholder"
-    (let [state (review-dialog/open review-dialog/initial-state
+    (let [state (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                                     :unqualified-source
                                     nil
                                     0
                                     "saved")
-          flat  (str (review-dialog/review-dialog
+          flat  (str (rf.story.review-dialog/review-dialog
                        state
                        {:title             "Save"
                         :snippet           "(snippet)"
@@ -187,24 +187,24 @@
 
 (deftest copy-to-clipboard!-safe-on-node
   (testing "the shared copy helper is callable + no-ops without a clipboard API"
-    (is (nil? (review-dialog/copy-to-clipboard! "anything")))))
+    (is (nil? (rf.story.review-dialog/copy-to-clipboard! "anything")))))
 
 ;; ---- indent-after (snippet-format helper, rf2-zs0w4) ---------------------
 
 (deftest indent-after-matches-prefix-width
   (testing "indent-after returns \\n + N spaces equal to the prefix length"
-    (is (= "\n" (pred/indent-after "")))
-    (is (= "\n          " (pred/indent-after "   :name {")))
-    (is (= "\n          " (pred/indent-after "   :args {")))
-    (is (= (pred/indent-after "   :name {")
-           (pred/indent-after "   :args {"))
+    (is (= "\n" (rf.story.predicates/indent-after "")))
+    (is (= "\n          " (rf.story.predicates/indent-after "   :name {")))
+    (is (= "\n          " (rf.story.predicates/indent-after "   :args {")))
+    (is (= (rf.story.predicates/indent-after "   :name {")
+           (rf.story.predicates/indent-after "   :args {"))
         "both flows' prefixes collapse to the same indent")))
 
 ;; ---- ARIA: modal a11y posture (rf2-p1ai7) -------------------------------
 
 (deftest renderer-stamps-role-dialog-and-aria-modal
   (testing "rf2-p1ai7: the rendered modal carries role=dialog + aria-modal=true"
-    (let [flat (str (review-dialog/review-dialog
+    (let [flat (str (rf.story.review-dialog/review-dialog
                       (opened-state)
                       {:title             "Save"
                        :snippet           "(snippet)"
@@ -225,7 +225,7 @@
 
 (deftest renderer-id-input-carries-aria-label
   (testing "rf2-u01y5: the variant-id input has an accessible name"
-    (let [flat (str (review-dialog/review-dialog
+    (let [flat (str (rf.story.review-dialog/review-dialog
                       (opened-state)
                       {:title             "Save"
                        :snippet           "(snippet)"

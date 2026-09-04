@@ -21,49 +21,49 @@
     `parse-and-set-draft-id`) — JVM-testable in isolation; the CLJS
     adapter swaps a Reagent ratom around them."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.review-dialog :as review-dialog]))
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.review-dialog :as rf.story.review-dialog]))
 
 ;; ---- parse-variant-id-string ---------------------------------------------
 
 (deftest parse-with-leading-colon
   (testing "input with leading `:` strips it and parses"
-    (is (= :foo/bar (review-dialog/parse-variant-id-string ":foo/bar")))
-    (is (= :plain   (review-dialog/parse-variant-id-string ":plain")))))
+    (is (= :foo/bar (rf.story.review-dialog/parse-variant-id-string ":foo/bar")))
+    (is (= :plain   (rf.story.review-dialog/parse-variant-id-string ":plain")))))
 
 (deftest parse-without-leading-colon
   (testing "input without leading `:` parses directly"
-    (is (= :foo/bar (review-dialog/parse-variant-id-string "foo/bar")))
-    (is (= :plain   (review-dialog/parse-variant-id-string "plain")))))
+    (is (= :foo/bar (rf.story.review-dialog/parse-variant-id-string "foo/bar")))
+    (is (= :plain   (rf.story.review-dialog/parse-variant-id-string "plain")))))
 
 (deftest parse-qualified-keyword
   (testing "qualified id parses into a qualified keyword"
-    (let [k (review-dialog/parse-variant-id-string ":story.counter/saved-1")]
+    (let [k (rf.story.review-dialog/parse-variant-id-string ":story.counter/saved-1")]
       (is (qualified-keyword? k))
       (is (= "story.counter" (namespace k)))
       (is (= "saved-1"       (name k))))))
 
 (deftest parse-nil-for-empty-or-bad-input
   (testing "nil / empty / non-string returns nil"
-    (is (nil? (review-dialog/parse-variant-id-string nil)))
-    (is (nil? (review-dialog/parse-variant-id-string "")))
-    (is (nil? (review-dialog/parse-variant-id-string ":"))
+    (is (nil? (rf.story.review-dialog/parse-variant-id-string nil)))
+    (is (nil? (rf.story.review-dialog/parse-variant-id-string "")))
+    (is (nil? (rf.story.review-dialog/parse-variant-id-string ":"))
         "bare colon strips to empty → nil")
-    (is (nil? (review-dialog/parse-variant-id-string "foo/")))
-    (is (nil? (review-dialog/parse-variant-id-string "/bar")))))
+    (is (nil? (rf.story.review-dialog/parse-variant-id-string "foo/")))
+    (is (nil? (rf.story.review-dialog/parse-variant-id-string "/bar")))))
 
 (deftest parse-handles-keywords-only-strings
   (testing "an input that is a printed keyword form (with leading colon) round-trips"
-    (is (= :a (review-dialog/parse-variant-id-string ":a")))
+    (is (= :a (rf.story.review-dialog/parse-variant-id-string ":a")))
     (is (= :ns/name
-           (review-dialog/parse-variant-id-string
+           (rf.story.review-dialog/parse-variant-id-string
              (pr-str :ns/name))))))
 
 ;; ---- default-variant-id-with-prefix --------------------------------------
 
 (deftest default-uses-source-namespace
   (testing "the derived id inherits the source's namespace + prefix-N suffix"
-    (let [k (review-dialog/default-variant-id-with-prefix
+    (let [k (rf.story.review-dialog/default-variant-id-with-prefix
               :story.counter/happy-path 12345 "saved")]
       (is (qualified-keyword? k))
       (is (= "story.counter" (namespace k)))
@@ -71,23 +71,23 @@
 
 (deftest default-honors-custom-prefix
   (testing "the prefix arg drives the name's leading token"
-    (let [k (review-dialog/default-variant-id-with-prefix
+    (let [k (rf.story.review-dialog/default-variant-id-with-prefix
               :story.counter/x 0 "recorded")]
       (is (= "recorded-0" (name k))))
-    (let [k (review-dialog/default-variant-id-with-prefix
+    (let [k (rf.story.review-dialog/default-variant-id-with-prefix
               :story.counter/x 0 "snapshot")]
       (is (= "snapshot-0" (name k))))))
 
 (deftest default-nil-for-unqualified-source
   (testing "an unqualified or nil source returns nil"
-    (is (nil? (review-dialog/default-variant-id-with-prefix nil 0 "saved")))
-    (is (nil? (review-dialog/default-variant-id-with-prefix
+    (is (nil? (rf.story.review-dialog/default-variant-id-with-prefix nil 0 "saved")))
+    (is (nil? (rf.story.review-dialog/default-variant-id-with-prefix
                 :unqualified 0 "saved")))))
 
 (deftest default-suffix-bounded-by-million
   (testing "the suffix is always in [0, 999999] so it stays a short slug"
     (doseq [now-ms [0 1 1000 1000000 1700000000000 (* 1000000 99999)]]
-      (let [k     (review-dialog/default-variant-id-with-prefix
+      (let [k     (rf.story.review-dialog/default-variant-id-with-prefix
                     :story.x/y now-ms "saved")
             n-str (subs (name k) (count "saved-"))
             n     (Long/parseLong n-str)]
@@ -98,14 +98,14 @@
 
 (deftest initial-state-is-idle
   (testing "the idle state map has the expected slots"
-    (is (false? (:open?     review-dialog/initial-state)))
-    (is (nil?   (:draft-id  review-dialog/initial-state)))
-    (is (nil?   (:source-id review-dialog/initial-state)))
-    (is (nil?   (:context   review-dialog/initial-state)))))
+    (is (false? (:open?     rf.story.review-dialog/initial-state)))
+    (is (nil?   (:draft-id  rf.story.review-dialog/initial-state)))
+    (is (nil?   (:source-id rf.story.review-dialog/initial-state)))
+    (is (nil?   (:context   rf.story.review-dialog/initial-state)))))
 
 (deftest open-flips-open-and-seeds-defaults
   (testing "open builds the opened state with the source + context + default id"
-    (let [s (review-dialog/open review-dialog/initial-state
+    (let [s (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                                 :story.x/y
                                 {:args {:n 1}}
                                 12345
@@ -118,7 +118,7 @@
 
 (deftest open-with-unqualified-source-still-opens
   (testing "an unqualified source-id leaves :draft-id nil but the dialog opens"
-    (let [s (review-dialog/open review-dialog/initial-state
+    (let [s (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                                 :unqualified
                                 nil
                                 0
@@ -129,75 +129,75 @@
 
 (deftest close-returns-idle
   (testing "close returns the idle state regardless of prior state"
-    (let [opened (review-dialog/open review-dialog/initial-state
+    (let [opened (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                                      :story.x/y {:args {:n 1}} 0 "saved")
-          closed (review-dialog/close opened)]
-      (is (= review-dialog/initial-state closed)))))
+          closed (rf.story.review-dialog/close opened)]
+      (is (= rf.story.review-dialog/initial-state closed)))))
 
 (deftest set-draft-id-replaces-keyword
   (testing "set-draft-id stores a keyword as-is"
-    (let [s (-> review-dialog/initial-state
-                (review-dialog/open :story.x/y nil 0 "saved")
-                (review-dialog/set-draft-id :story.x/edited))]
+    (let [s (-> rf.story.review-dialog/initial-state
+                (rf.story.review-dialog/open :story.x/y nil 0 "saved")
+                (rf.story.review-dialog/set-draft-id :story.x/edited))]
       (is (= :story.x/edited (:draft-id s))))))
 
 (deftest set-draft-id-stores-raw-string
   (testing "set-draft-id stores a raw string when caller passes one"
-    (let [s (-> review-dialog/initial-state
-                (review-dialog/open :story.x/y nil 0 "saved")
-                (review-dialog/set-draft-id "partial-input"))]
+    (let [s (-> rf.story.review-dialog/initial-state
+                (rf.story.review-dialog/open :story.x/y nil 0 "saved")
+                (rf.story.review-dialog/set-draft-id "partial-input"))]
       (is (= "partial-input" (:draft-id s))))))
 
 (deftest parse-and-set-parses-on-success
   (testing "parse-and-set-draft-id parses a clean keyword string into a keyword"
-    (let [s (-> review-dialog/initial-state
-                (review-dialog/open :story.x/y nil 0 "saved")
-                (review-dialog/parse-and-set-draft-id ":story.x/edited"))]
+    (let [s (-> rf.story.review-dialog/initial-state
+                (rf.story.review-dialog/open :story.x/y nil 0 "saved")
+                (rf.story.review-dialog/parse-and-set-draft-id ":story.x/edited"))]
       (is (= :story.x/edited (:draft-id s))))))
 
 (deftest parse-and-set-keeps-raw-on-failure
   (testing "parse-and-set-draft-id keeps the raw string on parse failure"
-    (let [s (-> review-dialog/initial-state
-                (review-dialog/open :story.x/y nil 0 "saved")
-                (review-dialog/parse-and-set-draft-id "foo/"))]
+    (let [s (-> rf.story.review-dialog/initial-state
+                (rf.story.review-dialog/open :story.x/y nil 0 "saved")
+                (rf.story.review-dialog/parse-and-set-draft-id "foo/"))]
       (is (= "foo/" (:draft-id s))
           "the trailing-slash input doesn't parse — raw string preserved"))))
 
 (deftest parse-and-set-handles-empty-string
   (testing "empty-string input leaves the draft-id slot at the empty string"
-    (let [s (-> review-dialog/initial-state
-                (review-dialog/open :story.x/y nil 0 "saved")
-                (review-dialog/parse-and-set-draft-id ""))]
+    (let [s (-> rf.story.review-dialog/initial-state
+                (rf.story.review-dialog/open :story.x/y nil 0 "saved")
+                (rf.story.review-dialog/parse-and-set-draft-id ""))]
       (is (= "" (:draft-id s))))))
 
 ;; ---- composition ---------------------------------------------------------
 
 (deftest open-then-edit-then-close-cycle
   (testing "the full open → edit → close cycle returns the dialog to idle"
-    (let [s0 review-dialog/initial-state
-          s1 (review-dialog/open s0 :story.x/y {:args {:n 1}} 1000 "saved")
-          s2 (review-dialog/parse-and-set-draft-id s1 ":story.x/edited")
-          s3 (review-dialog/parse-and-set-draft-id s2 ":story.x/edited-again")
-          s4 (review-dialog/close s3)]
+    (let [s0 rf.story.review-dialog/initial-state
+          s1 (rf.story.review-dialog/open s0 :story.x/y {:args {:n 1}} 1000 "saved")
+          s2 (rf.story.review-dialog/parse-and-set-draft-id s1 ":story.x/edited")
+          s3 (rf.story.review-dialog/parse-and-set-draft-id s2 ":story.x/edited-again")
+          s4 (rf.story.review-dialog/close s3)]
       (is (false? (:open? s0)))
       (is (true?  (:open? s1)))
       (is (= :story.x/edited       (:draft-id s2)))
       (is (= :story.x/edited-again (:draft-id s3)))
-      (is (= review-dialog/initial-state s4)))))
+      (is (= rf.story.review-dialog/initial-state s4)))))
 
 ;; ---- indent-after (snippet-format helper, rf2-zs0w4) ---------------------
 
 (deftest indent-after-shape
   (testing "indent-after returns a newline followed by N spaces matching prefix width"
-    (is (= "\n" (pred/indent-after "")))
-    (is (= "\n " (pred/indent-after "x")))
-    (is (= "\n     " (pred/indent-after "12345")))))
+    (is (= "\n" (rf.story.predicates/indent-after "")))
+    (is (= "\n " (rf.story.predicates/indent-after "x")))
+    (is (= "\n     " (rf.story.predicates/indent-after "12345")))))
 
 (deftest indent-after-aligns-recorder-play-body
   (testing "the indent lines steps up under the first item of `:script [` on the previous line"
     (let [prefix      "   :script ["
           first-line  (str prefix "[:dispatch-sync [:counter/inc]]")
-          cont-indent (pred/indent-after prefix)
+          cont-indent (rf.story.predicates/indent-after prefix)
           full        (str first-line cont-indent "[:dispatch-sync [:counter/dec]]")
           lines       (clojure.string/split full #"\n")
           ;; column of the first step char on line 1 = (count prefix)
@@ -215,7 +215,7 @@
   (testing "the indent lines kv pairs up under the first kv of `:args {` on the previous line"
     (let [prefix      "   :args {"
           first-line  (str prefix ":a 1")
-          cont-indent (pred/indent-after prefix)
+          cont-indent (rf.story.predicates/indent-after prefix)
           full        (str first-line cont-indent ":b 2")
           lines       (clojure.string/split full #"\n")
           line1-first-kv-col (count prefix)
@@ -226,9 +226,9 @@
 
 (deftest indent-after-pure-and-deterministic
   (testing "the helper is pure — same input → same output"
-    (is (= (pred/indent-after "   :name {")
-           (pred/indent-after "   :name {")))
+    (is (= (rf.story.predicates/indent-after "   :name {")
+           (rf.story.predicates/indent-after "   :name {")))
     ;; And two equal-width body prefixes collapse to the same indent width
     ;; (both keys are 4 chars; both bodies indent 3 + key + space + bracket = 10)
-    (is (= (pred/indent-after "   :name {")
-           (pred/indent-after "   :args {")))))
+    (is (= (rf.story.predicates/indent-after "   :name {")
+           (rf.story.predicates/indent-after "   :args {")))))

@@ -13,7 +13,7 @@
     selectors documented in spec/008 all resolve.
 
   - **Tag-chip forward-link** — clicking a docs tag-chip flips the
-    sidebar's `:tag-filter` for that tag (via `state/toggle-tag-filter`).
+    sidebar's `:tag-filter` for that tag (via `rf.story.ui.state/toggle-tag-filter`).
     Re-clicking flips it back. The `aria-pressed` attribute mirrors the
     filter state — proves the chip's accessibility contract.
 
@@ -28,38 +28,38 @@
   fixtures covers the pane's contract without a DOM round-trip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.ui.docs    :as docs]
-            [re-frame.story.ui.state   :as state]
-            [re-frame.story.ui.state.transitions :as transitions]
-            [re-frame.subs             :as subs]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.ui.docs    :as rf.story.ui.docs]
+            [re-frame.story.ui.state   :as rf.story.ui.state]
+            [re-frame.story.ui.state.transitions :as rf.story.ui.state.transitions]
+            [re-frame.subs             :as rf.subs]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
   ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
   ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
   ;; `:rf/runtime` path — mirror `re-frame.machines`.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -75,26 +75,26 @@
     - one :hiccup decorator + one :fx-override decorator (the canonical
       :rf.story/force-fx-stub) so the decorators-table groups by kind"
   []
-  (story/reg-decorator :hiccup-wrap
+  (rf.story/reg-decorator :hiccup-wrap
     {:kind :hiccup
      :doc  "wraps in a centred pane"
      :wrap (fn [body _] [:div.centred body])})
-  (story/reg-story :story.docs-rich
+  (rf.story/reg-story :story.docs-rich
     {:doc       "Rich variant fixture for docs-pane scenarios."
      :argtypes  {:label {:doc "user-visible label"}
                  :n     {:doc "tick count"}}
      :tags      #{:dev :docs}
      :modes     #{:Mode.app/dark}
      :substrates #{:reagent}})
-  (story/reg-variant :story.docs-rich/v
+  (rf.story/reg-variant :story.docs-rich/v
     {:doc        "The 'happy path' variant — used by docs scenarios."
      :args       {:label "Hello" :n 42}
      :decorators [[:hiccup-wrap]
                   [:rf.story/force-fx-stub :http {:status :ok}]]
      :tags       #{:dev :docs :test}
      :setup     []})
-  (story/reg-mode :Mode.app/dark {:args {:theme :dark}})
-  (story/reg-workspace :Workspace.docs-rich/prose-ws
+  (rf.story/reg-mode :Mode.app/dark {:args {:theme :dark}})
+  (rf.story/reg-workspace :Workspace.docs-rich/prose-ws
     {:layout  :prose
      :content [{:type :variant :id :story.docs-rich/v}
                {:type :prose
@@ -119,14 +119,14 @@
     (register-rich-variant!)
     ;; Parent story id is derived from the variant id namespace.
     (is (= :story.docs-rich
-           (pred/parent-story-id :story.docs-rich/v))
+           (rf.story.predicates/parent-story-id :story.docs-rich/v))
         "parent-story chip reads :story.docs-rich")
     ;; The header chip vector is the variant's :tags set sorted.
-    (let [tags (docs/variant-tags :story.docs-rich/v)]
+    (let [tags (rf.story.ui.docs/variant-tags :story.docs-rich/v)]
       (is (= [:dev :docs :test] tags)
           "header tags vector is sorted-by-keyword"))
     ;; The doc-blurb reads the variant's :doc with fallback to the parent's.
-    (let [vb (story/handler-meta :variant :story.docs-rich/v)]
+    (let [vb (rf.story/handler-meta :variant :story.docs-rich/v)]
       (is (string? (:doc vb))
           ":doc on the variant feeds the doc-blurb"))))
 
@@ -136,7 +136,7 @@
             order. Pinning the data here covers the renderer's
             `data-test=story-docs-prose-block` rows."
     (register-rich-variant!)
-    (let [prose (docs/prose-for-variant :story.docs-rich/v)]
+    (let [prose (rf.story.ui.docs/prose-for-variant :story.docs-rich/v)]
       (is (= 2 (count prose))
           "two :prose items in the matching workspace")
       (is (every? #(= :Workspace.docs-rich/prose-ws (:workspace-id %)) prose)
@@ -151,9 +151,9 @@
   (testing "a variant referenced by ZERO :prose-layout workspaces gets
             an empty prose result — the renderer omits the section
             entirely (no 'no prose' placeholder per spec/008)"
-    (story/reg-variant :story.docs.no-prose/v
+    (rf.story/reg-variant :story.docs.no-prose/v
       {:doc "no-prose variant" :setup []})
-    (is (= [] (docs/prose-for-variant :story.docs.no-prose/v))
+    (is (= [] (rf.story.ui.docs/prose-for-variant :story.docs.no-prose/v))
         "empty result — the renderer's `when (seq entries)` clause
          omits the prose section's data-test wrapper")))
 
@@ -167,8 +167,8 @@
             rather than asserting an exact count (defends the test
             against future :global-args additions from the host)."
     (register-rich-variant!)
-    (let [eff   (story/resolve-args :story.docs-rich/v)
-          rows  (docs/args-rows :story.docs-rich/v eff)
+    (let [eff   (rf.story/resolve-args :story.docs-rich/v)
+          rows  (rf.story.ui.docs/args-rows :story.docs-rich/v eff)
           by-k  (into {} (map (juxt :key identity) rows))]
       (is (contains? by-k :label)
           ":label declared on the variant surfaces as a row")
@@ -193,8 +193,8 @@
             `data-test=story-docs-decorator-row` + `data-section`
             mapping."
     (register-rich-variant!)
-    (let [pack    (story/resolve-decorators :story.docs-rich/v)
-          rows    (docs/decorator-rows pack)
+    (let [pack    (rf.story/resolve-decorators :story.docs-rich/v)
+          rows    (rf.story.ui.docs/decorator-rows pack)
           by-sect (group-by :section rows)]
       (is (contains? by-sect :hiccup)
           ":hiccup section present — the :hiccup-wrap decorator")
@@ -215,7 +215,7 @@
             `data-test=story-docs-parameter-row` + `data-param-key`
             mapping. Per spec/008 §Parameters."
     (register-rich-variant!)
-    (let [rows   (docs/parameter-rows :story.docs-rich/v)
+    (let [rows   (rf.story.ui.docs/parameter-rows :story.docs-rich/v)
           by-k   (into {} (map (juxt :key identity) rows))]
       ;; The variant did NOT declare its own :modes / :substrates;
       ;; both fall back to the parent story.
@@ -232,16 +232,16 @@
             renders one chip per id. Sorted for stable test selectors."
     (register-rich-variant!)
     (is (= [:dev :docs :test]
-           (docs/variant-tags :story.docs-rich/v))
+           (rf.story.ui.docs/variant-tags :story.docs-rich/v))
         "rich variant exposes its full tag set, sorted")
-    (story/reg-variant :story.docs.no-tags/v {:setup []})
-    (is (= [] (docs/variant-tags :story.docs.no-tags/v))
+    (rf.story/reg-variant :story.docs.no-tags/v {:setup []})
+    (is (= [] (rf.story.ui.docs/variant-tags :story.docs.no-tags/v))
         "variant with no tags AND no parent story tags surfaces empty")))
 
 ;; ===========================================================================
 ;; rf2-ssibv — tag-chip forward-link
 ;;
-;; Clicking a docs tag chip dispatches `state/toggle-tag-filter` against
+;; Clicking a docs tag chip dispatches `rf.story.ui.state/toggle-tag-filter` against
 ;; the shell-state-atom. The chip's `aria-pressed` mirrors the resulting
 ;; filter membership. Both the header chip-row AND the bottom tag-picker
 ;; use the same state mutation — proven by exercising the transition
@@ -249,30 +249,30 @@
 ;; ===========================================================================
 
 (deftest tag-chip-toggles-shell-tag-filter
-  (testing "the forward-link contract: applying state/toggle-tag-filter
+  (testing "the forward-link contract: applying rf.story.ui.state/toggle-tag-filter
             for a tag adds it to the shell's :tag-filter set; applying
             it again removes it. The chip's `aria-pressed` reads
             `(contains? tag-filter tag)`. Per spec/008 §Tag-chip
             forward-link."
     (register-rich-variant!)
     ;; Initial state: no tag filter.
-    (is (= #{} (:tag-filter @state/shell-state-atom))
+    (is (= #{} (:tag-filter @rf.story.ui.state/shell-state-atom))
         "shell starts with no tag filter")
     ;; First toggle: :dev enters the filter set.
-    (state/swap-state! transitions/toggle-tag-filter :dev)
-    (is (= #{:dev} (:tag-filter @state/shell-state-atom))
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/toggle-tag-filter :dev)
+    (is (= #{:dev} (:tag-filter @rf.story.ui.state/shell-state-atom))
         "tag-chip click adds :dev to the filter — sidebar narrows to
          :dev-tagged variants AND the docs chip's aria-pressed flips
          to true")
     ;; Second toggle: :dev leaves the filter set.
-    (state/swap-state! transitions/toggle-tag-filter :dev)
-    (is (= #{} (:tag-filter @state/shell-state-atom))
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/toggle-tag-filter :dev)
+    (is (= #{} (:tag-filter @rf.story.ui.state/shell-state-atom))
         "tag-chip second click removes :dev — sidebar widens again AND
          the aria-pressed reads false")
     ;; Multi-toggle: :dev and :docs both end up in the filter.
-    (state/swap-state! transitions/toggle-tag-filter :dev)
-    (state/swap-state! transitions/toggle-tag-filter :docs)
-    (is (= #{:dev :docs} (:tag-filter @state/shell-state-atom))
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/toggle-tag-filter :dev)
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/toggle-tag-filter :docs)
+    (is (= #{:dev :docs} (:tag-filter @rf.story.ui.state/shell-state-atom))
         "two tag-chip clicks across two tags accumulate — the chip-row
          renders both with aria-pressed=true")))
 
@@ -293,40 +293,40 @@
             spec/008."
     (register-rich-variant!)
     ;; Seed the shell with realistic 'user-was-editing' state.
-    (state/swap-state! transitions/set-cell-override-scalar
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/set-cell-override-scalar
                        :story.docs-rich/v :label "USER-EDIT")
-    (state/swap-state! transitions/set-active-modes [:Mode.app/dark])
-    (state/swap-state! transitions/toggle-tag-filter :dev)
-    (state/swap-state! transitions/select-variant :story.docs-rich/v)
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/set-active-modes [:Mode.app/dark])
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/toggle-tag-filter :dev)
+    (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/select-variant :story.docs-rich/v)
     ;; Snapshot the slots the docs pane must NOT touch.
-    (let [before-overrides (:cell-overrides @state/shell-state-atom)
-          before-modes     (:active-modes    @state/shell-state-atom)
-          before-tags      (:tag-filter      @state/shell-state-atom)
-          before-selected  (:selected-variant @state/shell-state-atom)]
+    (let [before-overrides (:cell-overrides @rf.story.ui.state/shell-state-atom)
+          before-modes     (:active-modes    @rf.story.ui.state/shell-state-atom)
+          before-tags      (:tag-filter      @rf.story.ui.state/shell-state-atom)
+          before-selected  (:selected-variant @rf.story.ui.state/shell-state-atom)]
       ;; Switch :dev → :docs.
-      (state/swap-state! transitions/set-active-mode-tab
+      (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/set-active-mode-tab
                          :story.docs-rich/v :docs)
-      (is (= :docs (state/active-mode-tab @state/shell-state-atom
+      (is (= :docs (rf.story.ui.state/active-mode-tab @rf.story.ui.state/shell-state-atom
                                           :story.docs-rich/v))
           ":active-mode-tab flipped — the pane swap is the only effect")
-      (is (= before-overrides (:cell-overrides @state/shell-state-atom))
+      (is (= before-overrides (:cell-overrides @rf.story.ui.state/shell-state-atom))
           ":cell-overrides untouched — user's :label edit survives the
            docs detour")
-      (is (= before-modes (:active-modes @state/shell-state-atom))
+      (is (= before-modes (:active-modes @rf.story.ui.state/shell-state-atom))
           ":active-modes untouched — the dark-theme chip is still active")
-      (is (= before-tags (:tag-filter @state/shell-state-atom))
+      (is (= before-tags (:tag-filter @rf.story.ui.state/shell-state-atom))
           ":tag-filter untouched — the sidebar's :dev filter is preserved")
-      (is (= before-selected (:selected-variant @state/shell-state-atom))
+      (is (= before-selected (:selected-variant @rf.story.ui.state/shell-state-atom))
           ":selected-variant untouched — the focused row in the sidebar
            is preserved")
       ;; Switch :docs → :dev (mirror of the round-trip).
-      (state/swap-state! transitions/set-active-mode-tab
+      (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/set-active-mode-tab
                          :story.docs-rich/v :dev)
-      (is (= :dev (state/active-mode-tab @state/shell-state-atom
+      (is (= :dev (rf.story.ui.state/active-mode-tab @rf.story.ui.state/shell-state-atom
                                          :story.docs-rich/v))
           "returned to :dev — the canvas re-mounts against the same
            cell-overrides the user originally entered")
-      (is (= before-overrides (:cell-overrides @state/shell-state-atom))
+      (is (= before-overrides (:cell-overrides @rf.story.ui.state/shell-state-atom))
           "round-trip preserves :cell-overrides — the user's transient
            edit was never lost"))))
 
@@ -337,23 +337,23 @@
             data → data. Pure-data invariant; pin it so future
             registry-touching refactors break this test loudly."
     (register-rich-variant!)
-    (let [registry-before {:variant   (story/registrations :variant)
-                           :story     (story/registrations :story)
-                           :workspace (story/registrations :workspace)
-                           :decorator (story/registrations :decorator)
-                           :mode      (story/registrations :mode)}]
+    (let [registry-before {:variant   (rf.story/registrations :variant)
+                           :story     (rf.story/registrations :story)
+                           :workspace (rf.story/registrations :workspace)
+                           :decorator (rf.story/registrations :decorator)
+                           :mode      (rf.story/registrations :mode)}]
       ;; Pull every projection a docs render walks.
-      (docs/prose-for-variant :story.docs-rich/v)
-      (docs/args-rows :story.docs-rich/v
-                      (story/resolve-args :story.docs-rich/v))
-      (docs/decorator-rows (story/resolve-decorators :story.docs-rich/v))
-      (docs/parameter-rows :story.docs-rich/v)
-      (docs/variant-tags :story.docs-rich/v)
-      (let [registry-after {:variant   (story/registrations :variant)
-                            :story     (story/registrations :story)
-                            :workspace (story/registrations :workspace)
-                            :decorator (story/registrations :decorator)
-                            :mode      (story/registrations :mode)}]
+      (rf.story.ui.docs/prose-for-variant :story.docs-rich/v)
+      (rf.story.ui.docs/args-rows :story.docs-rich/v
+                      (rf.story/resolve-args :story.docs-rich/v))
+      (rf.story.ui.docs/decorator-rows (rf.story/resolve-decorators :story.docs-rich/v))
+      (rf.story.ui.docs/parameter-rows :story.docs-rich/v)
+      (rf.story.ui.docs/variant-tags :story.docs-rich/v)
+      (let [registry-after {:variant   (rf.story/registrations :variant)
+                            :story     (rf.story/registrations :story)
+                            :workspace (rf.story/registrations :workspace)
+                            :decorator (rf.story/registrations :decorator)
+                            :mode      (rf.story/registrations :mode)}]
         (is (= registry-before registry-after)
             "docs render walked the full pure-data surface; registry is
              unchanged. Documents the contract that no docs helper

@@ -55,9 +55,9 @@
   install the listener — Closure DCE drops the lot."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
-            [re-frame.story.config :as config]
+            [re-frame.story.config :as rf.story.config]
             [re-frame.story.local-storage :refer [safe-local-storage]]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as rf.story.ui.state]))
 
 ;; ---- localStorage persistence -------------------------------------------
 
@@ -78,7 +78,7 @@
         (when (string? raw)
           (let [parsed (edn/read-string raw)]
             (when (map? parsed)
-              (-> state/chrome-visibility-defaults
+              (-> rf.story.ui.state/chrome-visibility-defaults
                   (merge (select-keys parsed
                                       [:full-screen?
                                        :sidebar?
@@ -107,8 +107,8 @@
   so we don't bounce a watcher save back onto storage."
   []
   (when-let [persisted (load-from-storage)]
-    (let [shell @state/shell-state-atom
-          current (state/chrome-visibility shell)
+    (let [shell @rf.story.ui.state/shell-state-atom
+          current (rf.story.ui.state/chrome-visibility shell)
           merged  (merge current
                          (select-keys persisted
                                       [:full-screen?
@@ -116,7 +116,7 @@
                                        :rhs?
                                        :toolbar?]))]
       (when (not= current merged)
-        (state/swap-state! assoc :chrome-visibility merged)))))
+        (rf.story.ui.state/swap-state! assoc :chrome-visibility merged)))))
 
 ;; ---- dispatcher predicate ----------------------------------------------
 
@@ -165,36 +165,36 @@
   separate `Escape`-listener in the canvas's full-screen overlay (see
   `canvas/full-screen-overlay`)."
   []
-  (state/swap-state! state/toggle-chrome-visibility :full-screen?)
-  (save-to-storage! (state/chrome-visibility (state/get-state))))
+  (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-chrome-visibility :full-screen?)
+  (save-to-storage! (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state))))
 
 (defn sidebar-toggle!
   "Handler for the `s` key. Flips
   `[:chrome-visibility :sidebar?]` + persists."
   []
-  (state/swap-state! state/toggle-chrome-visibility :sidebar?)
-  (save-to-storage! (state/chrome-visibility (state/get-state))))
+  (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-chrome-visibility :sidebar?)
+  (save-to-storage! (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state))))
 
 (defn rhs-toggle!
   "Handler for the `a` key (`a` for 'addons' per Storybook
   convention). Flips `[:chrome-visibility :rhs?]` + persists."
   []
-  (state/swap-state! state/toggle-chrome-visibility :rhs?)
-  (save-to-storage! (state/chrome-visibility (state/get-state))))
+  (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-chrome-visibility :rhs?)
+  (save-to-storage! (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state))))
 
 (defn toolbar-toggle!
   "Handler for the `t` key. Flips
   `[:chrome-visibility :toolbar?]` + persists."
   []
-  (state/swap-state! state/toggle-chrome-visibility :toolbar?)
-  (save-to-storage! (state/chrome-visibility (state/get-state))))
+  (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-chrome-visibility :toolbar?)
+  (save-to-storage! (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state))))
 
 (defn exit-full-screen!
   "Public escape handler — clears `:full-screen?` regardless of prior
   state. Bound to `Escape` while full-screen is on."
   []
-  (state/swap-state! state/set-chrome-visibility :full-screen? false)
-  (save-to-storage! (state/chrome-visibility (state/get-state))))
+  (rf.story.ui.state/swap-state! rf.story.ui.state/set-chrome-visibility :full-screen? false)
+  (save-to-storage! (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state))))
 
 (def bindings
   "Canonical `{key → handler}` table. Lowercase letters only — the
@@ -226,8 +226,8 @@
   (let [raw-key   (.-key evt)
         editable? (target-is-input? evt)
         modifier? (has-modifier? evt)
-        shell     (state/get-state)
-        chrome    (state/chrome-visibility shell)]
+        shell     (rf.story.ui.state/get-state)
+        chrome    (rf.story.ui.state/chrome-visibility shell)]
     (cond
       ;; Escape exits full-screen. We gate the Escape branch on
       ;; `editable?` so typing Escape into a
@@ -253,7 +253,7 @@
   replaces the previous handler. Gated behind
   `re-frame.story.config/enabled?` so production builds DCE the lot."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (when-let [prev @listener-handle]
       (try (.removeEventListener js/window "keydown" prev true)
            (catch :default _ nil)))

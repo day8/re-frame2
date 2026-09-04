@@ -71,15 +71,15 @@
     dispatched into the frame). So the set is eight ids, only seven of
     which are registered."
   (:require [re-frame.core                :as rf]
-            [re-frame.elision             :as elision]
-            [re-frame.interop             :as interop]
-            [re-frame.subs                :as subs]
-            [re-frame.story.config        :as config]
-            [re-frame.story.late-bind     :as late-bind]
-            [re-frame.story.play.evidence :as evidence]
-            [re-frame.story.predicates    :as pred]
-            [re-frame.story.registrar     :as registrar]
-            [re-frame.story.requirements  :as requirements]
+            [re-frame.elision             :as rf.elision]
+            [re-frame.interop             :as rf.interop]
+            [re-frame.subs                :as rf.subs]
+            [re-frame.story.config        :as rf.story.config]
+            [re-frame.story.late-bind     :as rf.story.late-bind]
+            [re-frame.story.play.evidence :as rf.story.play.evidence]
+            [re-frame.story.predicates    :as rf.story.predicates]
+            [re-frame.story.registrar     :as rf.story.registrar]
+            [re-frame.story.requirements  :as rf.story.requirements]
             [malli.core                   :as malli]))
 
 ;; ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@
   Assertion events (`:rf.assert/*`) are excluded — an `[:assert …]`
   checkpoint dispatches its wrapped atom, which commits an epoch, but a
   verdict is not behaviour-under-test (the same `assertion-event?` skip
-  `evidence/narrative`'s span-attribution rule applies).
+  `rf.story.play.evidence/narrative`'s span-attribution rule applies).
 
   Privacy (Spec 009 §Privacy + EP-0015 issue 7): the
   `:trigger-event` of an epoch flagged `:rf.epoch/sensitive?` is dropped
@@ -155,12 +155,12 @@
   trusted-local `:rf.egress/local-raw` boundary do its sensitive
   trigger-events pass through — revealing a sibling frame does not."
   [frame-id]
-  (let [show? (config/include-sensitive? frame-id)]
+  (let [show? (rf.story.config/include-sensitive? frame-id)]
     (into []
           (comp (remove (fn [{:keys [rf.epoch/sensitive?]}]
                           (and sensitive? (not show?))))
                 (keep :trigger-event)
-                (remove pred/assertion-event?))
+                (remove rf.story.predicates/assertion-event?))
           (frame-tape frame-id))))
 
 (defn- non-framework-fx?
@@ -173,7 +173,7 @@
   "Project the set of USER fx-ids emitted against `frame-id`. The SSOT for
   `:rf.assert/effect-emitted`. Two sources, both tape-grounded:
 
-  1. The epoch tape's `:effects` rows (`evidence/effects`) — every fx the
+  1. The epoch tape's `:effects` rows (`rf.story.play.evidence/effects`) — every fx the
      cascade actually HANDLED (the run-result `:effects` slot reads the
      same projection), excluding the framework `:db` / `:fx` aggregators.
   2. The per-frame stub-call log (`re-frame.story.frames/stub-call-log`,
@@ -192,8 +192,8 @@
   [frame-id]
   (let [from-tape (into #{}
                         (comp (keep :fx-id) (filter non-framework-fx?))
-                        (evidence/effects (frame-tape frame-id)))
-        from-stub (if-let [f (late-bind/get-fn :stub-observed-fx-ids)]
+                        (rf.story.play.evidence/effects (frame-tape frame-id)))
+        from-stub (if-let [f (rf.story.late-bind/get-fn :stub-observed-fx-ids)]
                     (try (set (f frame-id))
                          (catch #?(:clj Throwable :cljs :default) _ #{}))
                     #{})]
@@ -201,11 +201,11 @@
 
 (defn warnings
   "Project the warning trace records emitted against `frame-id` from its
-  epoch tape (`evidence/warnings`) — the SAME projection the run-result
+  epoch tape (`rf.story.play.evidence/warnings`) — the SAME projection the run-result
   `:warnings` slot reads, so `:rf.assert/no-warnings` and the slot AGREE.
   Pure-ish (the only read is the late-bound tape)."
   [frame-id]
-  (evidence/warnings (frame-tape frame-id)))
+  (rf.story.play.evidence/warnings (frame-tape frame-id)))
 
 ;; ---------------------------------------------------------------------------
 ;; Where the trace-bus facts live (no parallel accumulator)
@@ -216,7 +216,7 @@
 ;; related concerns each live with the surface that owns them:
 ;;
 ;;   - PRIVACY suppression (default-drop `:sensitive? true` + the
-;;     `config/note-suppressed!` redaction-counter bump) is the egress seam
+;;     `rf.story.config/note-suppressed!` redaction-counter bump) is the egress seam
 ;;     in `re-frame.story.play`'s per-frame trace listener — the gate at the
 ;;     head of that listener;
 ;;   - the synchronous handler-exception capture is `re-frame.story.play`'s
@@ -244,7 +244,7 @@
 
   Returns the record."
   [frame-id record]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (try
       (rf/dispatch-sync [::append record] {:frame frame-id})
       (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -316,7 +316,7 @@
   surfaces. Returns nil when the frame is not a registered variant
   (e.g. an ad-hoc frame) or the body has no source coord."
   [frame-id]
-  (:source (registrar/handler-meta :variant frame-id)))
+  (:source (rf.story.registrar/handler-meta :variant frame-id)))
 
 (defn- assertion-record
   "Construct the assertion record per `004-Assertions.md` §Canonical assertion vocabulary. `extras` is the
@@ -404,14 +404,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- redact-at
-  "Project `v` through `elision/elide-wire-value` as if it lives at
+  "Project `v` through `rf.elision/elide-wire-value` as if it lives at
   `path` in `frame-id`'s app-db, so sensitive sub-paths (or a sensitive
   root path) substitute `:rf/redacted`. Tolerant — any elision error or
   a nil frame-id returns `v` unchanged (record-don't-throw: redaction
   failure must never break the assertion)."
   [frame-id path v]
   (try
-    (elision/elide-wire-value v (cond-> {:path (vec path)}
+    (rf.elision/elide-wire-value v (cond-> {:path (vec path)}
                                   frame-id (assoc :frame frame-id)))
     (catch #?(:clj Throwable :cljs :default) _ v)))
 
@@ -480,7 +480,7 @@
   letting Malli throw an opaque sci error)."
   [schema]
   (if (and (vector? schema) (= :fn (first schema)) (symbol? (second schema)))
-    (if-let [f (pred/resolve-sym-pred (second schema))]
+    (if-let [f (rf.story.predicates/resolve-sym-pred (second schema))]
       [:fn f]
       ::unresolved-pred)
     schema))
@@ -552,7 +552,7 @@
   ;; the value passes through unchanged.
   (let [sub-path     (vec (rest sub-vec))
         raw          (try
-                       (subs/compute-sub sub-vec frame-state)
+                       (rf.subs/compute-sub sub-vec frame-state)
                        (catch #?(:clj Throwable :cljs :default) _
                          ::compute-error))
         threw?       (= raw ::compute-error)
@@ -619,7 +619,7 @@
 
 (defn- evaluate-no-warnings
   "`warning-records` is the tape-projected warning vector (`warnings`,
-  i.e. `evidence/warnings` over the frame's epoch tape — the SAME
+  i.e. `rf.story.play.evidence/warnings` over the frame's epoch tape — the SAME
   projection the run-result `:warnings` slot reads). Pure data → data."
   [warning-records _payload]
   (let [passed? (empty? warning-records)]
@@ -677,7 +677,7 @@
 ;; assertion record are minted in the result boundary (`result.cljc`), not
 ;; here. There is deliberately NO `:rf.assert/no-schema-errors` — a
 ;; schema-clean run is the knob-free runner FLOOR (the agreement floor in
-;; `evidence/tape-shows-failure?`), refined by these expectations rather
+;; `rf.story.play.evidence/tape-shows-failure?`), refined by these expectations rather
 ;; than an opt-in.
 ;; ---------------------------------------------------------------------------
 
@@ -778,7 +778,7 @@
   ONE id source of truth rather than a hand-maintained parallel set."
   (into (into (into canonical-assertion-ids dom-assertion-ids)
               browser-assertion-ids)
-        (keys requirements/assertion-capabilities)))
+        (keys rf.story.requirements/assertion-capabilities)))
 
 (defn assertion-id-known?
   "True iff `id` is a recognised P1 assertion id (`known-assertion-ids`).
@@ -883,9 +883,9 @@
 ;; The declared atom is `[:rf.assert/schema-error {:where <surface> …}]`.
 ;; The spec map's `:where` chooses the surface; the surface-specific keys
 ;; key the EXPECTATION's selector, which the result boundary pairs against
-;; a projected violation's `:selector` (`evidence/violation-selector`) by an
+;; a projected violation's `:selector` (`rf.story.play.evidence/violation-selector`) by an
 ;; exact multiset match. The two selector builders MUST agree key-for-key —
-;; `evidence/violation-selector` keys a PROJECTED VIOLATION (read from the
+;; `rf.story.play.evidence/violation-selector` keys a PROJECTED VIOLATION (read from the
 ;; trace `:tags`), this keys a DECLARED EXPECTATION (read from the author's
 ;; spec map) — so the same surface produces the same vector on both sides:
 ;;
@@ -899,7 +899,7 @@
 ;;
 ;; A `:where` the matcher does not special-case keys by `[:where failing]`
 ;; where `failing` is the surface-named id slot (mirroring
-;; `evidence/violation-selector`'s open-surface fallback), so a novel
+;; `rf.story.play.evidence/violation-selector`'s open-surface fallback), so a novel
 ;; surface still pairs by a stable, distinct selector.
 
 (defn schema-error?
@@ -919,7 +919,7 @@
 
 (defn schema-error-selector
   "The surface SELECTOR a declared `:rf.assert/schema-error` expectation
-  pairs on — mirroring `evidence/violation-selector` so a declared
+  pairs on — mirroring `rf.story.play.evidence/violation-selector` so a declared
   expectation and a projected violation produce the SAME vector for the same
   surface (spec/017 §Schema rule). Pure data → data.
 
@@ -1106,7 +1106,7 @@
   settled — and assertion events are excluded from the projection anyway."
   [assertion-id evaluator-kind]
   (fn [{:keys [db] rt :rf.db/runtime :as cofx} event-vec]
-    (let [start-ms     (interop/now-ms)
+    (let [start-ms     (rf.interop/now-ms)
           payload      (vec (rest event-vec))
           frame-id     (frame-id-from-cofx cofx)
           dispatch-id  (dispatch-id-from-cofx cofx)
@@ -1125,7 +1125,7 @@
                          :state-is        (evaluate-state-is        (or rt {}) payload)
                          :no-warnings     (evaluate-no-warnings     (warnings frame-id) payload)
                          :effect-emitted  (evaluate-effect-emitted  (emitted-fx frame-id) payload))
-          elapsed-ms   (- (interop/now-ms) start-ms)
+          elapsed-ms   (- (rf.interop/now-ms) start-ms)
           ;; A value-comparing evaluator (`:path-equals` /
           ;; `:sub-equals`) returns a REDACTED `:payload` rebuilt from the
           ;; projected expected, so the record's `:payload` slot never
@@ -1165,7 +1165,7 @@
   No throw on failure — the play sequence runs to completion per
   `004-Assertions.md` §Record-don't-throw semantics."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     ;; Internal event handler used by `record!`. Appends a record to
     ;; the variant frame's [:rf.story/assertions] slot.
     (rf/reg-event
@@ -1192,4 +1192,4 @@
   events accumulator can skip recording assertion events themselves.
 
   Aliased from `re-frame.story.predicates` (the canonical leaf ns)."
-  pred/assertion-event?)
+  rf.story.predicates/assertion-event?)

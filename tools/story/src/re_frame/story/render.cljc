@@ -75,13 +75,13 @@
   `:render-host` hook a CLJS host installs; the bare JVM has none, so
   `render-variant` returns `:cannot-run` there — never a silent empty
   render. Per the §6 elision contract, a production CLJS build with Story
-  disabled renders nothing (`config/enabled?` is false)."
-  (:require [re-frame.story.args        :as args]
-            [re-frame.story.config      :as config]
-            [re-frame.story.error       :as story-error]
-            [re-frame.story.fingerprint :as fingerprint]
-            [re-frame.story.late-bind   :as late-bind]
-            [re-frame.story.plan        :as plan]))
+  disabled renders nothing (`rf.story.config/enabled?` is false)."
+  (:require [re-frame.story.args        :as rf.story.args]
+            [re-frame.story.config      :as rf.story.config]
+            [re-frame.story.error       :as rf.story.error]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.late-bind   :as rf.story.late-bind]
+            [re-frame.story.plan        :as rf.story.plan]))
 
 ;; ===========================================================================
 ;; Render statuses
@@ -117,14 +117,14 @@
   output map and returns the host render result (a hiccup tree / React
   element / a mounted-handle). Idempotent (re-registration replaces)."
   [render-fn]
-  (late-bind/set-fn! render-host-hook-key render-fn)
+  (rf.story.late-bind/set-fn! render-host-hook-key render-fn)
   nil)
 
 (defn render-host-fn
   "Return the installed `:render-host` fn, or nil when no host registered
   one (the bare JVM render-prep-only path)."
   []
-  (late-bind/get-fn render-host-hook-key))
+  (rf.story.late-bind/get-fn render-host-hook-key))
 
 ;; ===========================================================================
 ;; Effective-args control overrides
@@ -135,19 +135,19 @@
 ;; resolved arg-map, BEFORE controls) at `[:world :effective-args]`;
 ;; `render-variant` layers the live control overrides on top to produce the
 ;; POST-override effective args that feed the rendered view. Both are the
-;; same deep-merge precedence the run path uses (`args/deep-merge`,
+;; same deep-merge precedence the run path uses (`rf.story.args/deep-merge`,
 ;; later-wins), so a control override changes the effective args — and the
 ;; plan-hash — exactly as it would on a run.
 
 (defn apply-control-overrides
   "Layer control-panel `overrides` on top of the plan's `plan-eff-args`
   (the resolved plan-time effective args). Pure data → data — deep-merge,
-  later wins (`args/deep-merge`), matching the run-path arg precedence
+  later wins (`rf.story.args/deep-merge`), matching the run-path arg precedence
   (`re-frame.story.args/resolve-args` — `variant-args < cell-overrides`).
   A nil/empty `overrides` returns the plan effective args unchanged."
   [plan-eff-args overrides]
   (if (seq overrides)
-    (args/deep-merge (or plan-eff-args {}) overrides)
+    (rf.story.args/deep-merge (or plan-eff-args {}) overrides)
     (or plan-eff-args {})))
 
 ;; ===========================================================================
@@ -160,7 +160,7 @@
 ;; `{[:login/error] [:arg :message]}` driven by a `:message` control), the
 ;; render path must re-resolve the overrides against the POST-override
 ;; effective args so the live view reflects the control. We re-run the SAME
-;; one-level substitution (`plan/substitute-args`) the plan compiler +
+;; one-level substitution (`rf.story.plan/substitute-args`) the plan compiler +
 ;; the canvas render path use, against the post-override args. The plan
 ;; already proved the overrides valid at compile time; re-substituting a
 ;; control value cannot introduce a missing-arg (the control supplies the
@@ -175,16 +175,16 @@
 
   Re-substitutes the RAW (pre-`[:arg]`) overrides the plan kept at
   `[:render-raw :sub-overrides]` against `eff-args` — the SAME one-level
-  `plan/substitute-args` the plan compiler + the canvas render path use.
+  `rf.story.plan/substitute-args` the plan compiler + the canvas render path use.
   Falls back to the already-resolved `[:world :render :sub-overrides]` slot
   for a plan that carries no raw form (e.g. a hand-built inline plan that
   pre-resolved its overrides)."
   [plan eff-args]
   (if-let [raw (get-in plan [:render-raw :sub-overrides])]
-    (plan/substitute-args raw (or eff-args {}) (atom []))
+    (rf.story.plan/substitute-args raw (or eff-args {}) (atom []))
     (let [ovr (get-in plan [:world :render :sub-overrides])]
       (when (seq ovr)
-        (plan/substitute-args ovr (or eff-args {}) (atom []))))))
+        (rf.story.plan/substitute-args ovr (or eff-args {}) (atom []))))))
 
 ;; ===========================================================================
 ;; Render preparation — the pure, JVM-testable core
@@ -226,7 +226,7 @@
   ([target {:keys [control-overrides validator-fns] :as opts}]
    (let [compile-opts (select-keys opts [:lookup :view-lookup :validator-fns
                                          :sub-lookup :fragment-lookup :check-lookup])
-         plan         (plan/variant-plan target compile-opts)
+         plan         (rf.story.plan/variant-plan target compile-opts)
          frame        (:variant/id plan)
          plan-eff     (get-in plan [:world :effective-args] {})
          eff-args     (apply-control-overrides plan-eff control-overrides)
@@ -237,12 +237,12 @@
          ;; render path re-checks before calling the view (spec/017 §Args —
          ;; view-arg-schema failures stop render).
          validation   (when schema
-                        (plan/validate-effective-args schema eff-args validator-fns))
+                        (rf.story.plan/validate-effective-args schema eff-args validator-fns))
          ;; The plan-hash is over the normalized plan — render + run agree
          ;; on it. When controls change the effective args, reflect them in
          ;; the hashed plan so the hash tracks what is actually rendered.
          render-plan  (assoc-in plan [:world :effective-args] eff-args)
-         plan-hash    (fingerprint/plan-hash render-plan)
+         plan-hash    (rf.story.fingerprint/plan-hash render-plan)
          base         {:plan           render-plan
                        :plan-hash      plan-hash
                        :frame          frame
@@ -297,7 +297,7 @@
   ([target e prepared]
    (cond-> {:status :error
             :frame  (or (:frame prepared) (when (keyword? target) target))
-            :error  (story-error/throwable->error-map e)}
+            :error  (rf.story.error/throwable->error-map e)}
      prepared (merge (select-keys prepared
                                   [:plan :plan-hash :effective-args])))))
 
@@ -332,7 +332,7 @@
   `:cannot-run` immediately — the render verb never throws under elision."
   ([target] (render-variant target nil))
   ([target opts]
-   (if-not config/enabled?
+   (if-not rf.story.config/enabled?
      ;; Production / disabled: nothing to render. The verb fails closed
      ;; into `:cannot-run` rather than throwing (the §6 elision contract).
      {:status :cannot-run :frame (when (keyword? target) target)

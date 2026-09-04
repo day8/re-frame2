@@ -37,27 +37,27 @@
   app-db."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as rf-registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.async      :as story-async]
-            [re-frame.story.loaders    :as loaders]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.loaders    :as rf.story.loaders]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn- reset-all [t]
-  (story/clear-all!)
-  (rf-registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (require 're-frame.machines :reload)
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (t))
 
 (use-fixtures :each reset-all)
@@ -78,9 +78,9 @@
   (testing "(ids :story) returns a set of keyword ids — the MCP
             list-stories tool's return shape per spec/006 §read
             primitives"
-    (story/reg-story :story.mcp.list-s-a {:doc "story A"})
-    (story/reg-story :story.mcp.list-s-b {:doc "story B"})
-    (let [result (story/ids :story)]
+    (rf.story/reg-story :story.mcp.list-s-a {:doc "story A"})
+    (rf.story/reg-story :story.mcp.list-s-b {:doc "story B"})
+    (let [result (rf.story/ids :story)]
       (is (set? result)
           "the result is a Clojure set — agents iterate / contains? against it")
       (is (every? keyword? result)
@@ -93,11 +93,11 @@
             the MCP list-variants tool surfaces this directly. Empty
             registry returns the empty set, not nil — protects the
             agent's `(for [...])` walk from a nil punning bug"
-    (is (= #{} (story/ids :variant))
+    (is (= #{} (rf.story/ids :variant))
         "empty registry → empty set")
-    (story/reg-variant :story.mcp.list-v/probe {:setup []})
-    (story/reg-variant :story.mcp.list-v/probe-two {:setup []})
-    (let [result (story/ids :variant)]
+    (rf.story/reg-variant :story.mcp.list-v/probe {:setup []})
+    (rf.story/reg-variant :story.mcp.list-v/probe-two {:setup []})
+    (let [result (rf.story/ids :variant)]
       (is (set? result))
       (is (= #{:story.mcp.list-v/probe :story.mcp.list-v/probe-two}
              result)))))
@@ -107,15 +107,15 @@
             list-modes tool's return shape. Distinct from (ids :mode)
             only by the symbol agents are taught to call; under the
             hood both delegate to the same registrar slot"
-    (is (= #{} (story/list-modes))
+    (is (= #{} (rf.story/list-modes))
         "empty registry → empty set")
-    (story/reg-mode :Mode.mcp.list/dark  {:args {:theme :dark}})
-    (story/reg-mode :Mode.mcp.list/light {:args {:theme :light}})
-    (let [result (story/list-modes)]
+    (rf.story/reg-mode :Mode.mcp.list/dark  {:args {:theme :dark}})
+    (rf.story/reg-mode :Mode.mcp.list/light {:args {:theme :light}})
+    (let [result (rf.story/list-modes)]
       (is (set? result))
       (is (= #{:Mode.mcp.list/dark :Mode.mcp.list/light} result))
       ;; (list-modes) MUST equal (ids :mode) — they are the same data.
-      (is (= (story/list-modes) (story/ids :mode))
+      (is (= (rf.story/list-modes) (rf.story/ids :mode))
           "(list-modes) is a thin alias of (ids :mode)"))))
 
 ;; ===========================================================================
@@ -136,11 +136,11 @@
             :snapshot :decorators :errors"
     (rf/reg-event :mcp/seed
       (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (story/reg-variant :story.mcp.run/probe
+    (rf.story/reg-variant :story.mcp.run/probe
       {:setup [[:mcp/seed 42]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
-    (let [result (story-async/deref-blocking
-                   (story/run-variant :story.mcp.run/probe) 5000)]
+    (let [result (rf.story.async/deref-blocking
+                   (rf.story/run-variant :story.mcp.run/probe) 5000)]
       (is (map? result)
           "run-variant returns a map (the MCP render-story tool's payload)")
       (is (contains? result :frame)
@@ -166,9 +166,9 @@
 (deftest run-variant-empty-play-still-returns-shape
   (testing "even a variant with no :script surfaces the full return shape
             — agents must not have to special-case the no-play branch"
-    (story/reg-variant :story.mcp.run/no-play {:setup []})
-    (let [result (story-async/deref-blocking
-                   (story/run-variant :story.mcp.run/no-play) 5000)]
+    (rf.story/reg-variant :story.mcp.run/no-play {:setup []})
+    (let [result (rf.story.async/deref-blocking
+                   (rf.story/run-variant :story.mcp.run/no-play) 5000)]
       (is (= :story.mcp.run/no-play (:frame result)))
       (is (= [] (:assertions result))
           "empty :script → empty :assertions vector (not nil)")
@@ -193,12 +193,12 @@
     (rf/reg-event :mcp.dispatch/set
       (fn [{:keys [db]} [_ v]] {:db (assoc db :payload v)}))
     ;; MCP write path: programmatic registration (no &form meta).
-    (story/reg-variant* :story.mcp.dispatch/probe
+    (rf.story/reg-variant* :story.mcp.dispatch/probe
       {:setup []
        :args   {}})
     ;; Allocate the variant frame so the dispatch has somewhere to land.
-    (story-async/deref-blocking
-      (story/run-variant :story.mcp.dispatch/probe) 5000)
+    (rf.story.async/deref-blocking
+      (rf.story/run-variant :story.mcp.dispatch/probe) 5000)
     (is (some? (rf/app-db-value :story.mcp.dispatch/probe))
         "frame was allocated by run-variant")
     ;; The MCP dispatch tool's underlying call.
@@ -219,9 +219,9 @@
             app-db in order"
     (rf/reg-event :mcp.dispatch/push
       (fn [{:keys [db]} [_ v]] {:db (update db :log (fnil conj []) v)}))
-    (story/reg-variant* :story.mcp.dispatch.seq/probe {:setup []})
-    (story-async/deref-blocking
-      (story/run-variant :story.mcp.dispatch.seq/probe) 5000)
+    (rf.story/reg-variant* :story.mcp.dispatch.seq/probe {:setup []})
+    (rf.story.async/deref-blocking
+      (rf.story/run-variant :story.mcp.dispatch.seq/probe) 5000)
     (doseq [v ["a" "b" "c"]]
       (rf/dispatch-sync [:mcp.dispatch/push v]
                         {:frame :story.mcp.dispatch.seq/probe}))
@@ -246,18 +246,18 @@
             snapshot-identity hash — the agent's drift detector
             consequently does NOT re-render the variant on a source-
             coord-only change"
-    (story/reg-variant* :story.mcp.snap/probe
+    (rf.story/reg-variant* :story.mcp.snap/probe
       {:args {:label "v1"}
        :setup []})
-    (let [identity-1 (story/snapshot-identity :story.mcp.snap/probe)]
+    (let [identity-1 (rf.story/snapshot-identity :story.mcp.snap/probe)]
       (is (some? identity-1) ":content-hash present")
       ;; Re-register with the same body but a different :source slot
       ;; — cosmetic, the same as moving the registration to a new line.
-      (story/reg-variant* :story.mcp.snap/probe
+      (rf.story/reg-variant* :story.mcp.snap/probe
         {:args   {:label "v1"}
          :setup []
          :source {:file "agent.cljs" :line 99}})
-      (let [identity-2 (story/snapshot-identity :story.mcp.snap/probe)]
+      (let [identity-2 (rf.story/snapshot-identity :story.mcp.snap/probe)]
         (is (= (:content-hash identity-1) (:content-hash identity-2))
             ":source edit is cosmetic — content-hash MUST be stable")))))
 
@@ -270,19 +270,19 @@
             map (the canvas uses this path to detect control changes);
             pinning the hash on the opts path covers the surface MCP
             tools consume."
-    (story/reg-variant* :story.mcp.snap.args/probe
+    (rf.story/reg-variant* :story.mcp.snap.args/probe
       {:args   {:label "before"}
        :setup []})
     (let [base    (:content-hash
-                    (story/snapshot-identity :story.mcp.snap.args/probe))
+                    (rf.story/snapshot-identity :story.mcp.snap.args/probe))
           with-co (:content-hash
-                    (story/snapshot-identity :story.mcp.snap.args/probe
+                    (rf.story/snapshot-identity :story.mcp.snap.args/probe
                                              {:cell-overrides {:label "after"}}))]
       (is (not= base with-co)
           "cell-override mutation flips the hash — agent detects drift")
       ;; And the inverse — same cell-overrides → same hash.
       (let [with-co-2 (:content-hash
-                        (story/snapshot-identity :story.mcp.snap.args/probe
+                        (rf.story/snapshot-identity :story.mcp.snap.args/probe
                                                  {:cell-overrides {:label "after"}}))]
         (is (= with-co with-co-2)
             "same input → same hash (deterministic)")))))
@@ -292,19 +292,19 @@
             changes the resolved args and thus the snapshot-identity
             hash. The MCP boundary surfaces this via the opts map so
             the agent can compare per-mode snapshots"
-    (story/reg-mode :Mode.mcp.snap/dark  {:args {:theme :dark}})
-    (story/reg-mode :Mode.mcp.snap/light {:args {:theme :light}})
-    (story/reg-variant* :story.mcp.snap.modes/probe
+    (rf.story/reg-mode :Mode.mcp.snap/dark  {:args {:theme :dark}})
+    (rf.story/reg-mode :Mode.mcp.snap/light {:args {:theme :light}})
+    (rf.story/reg-variant* :story.mcp.snap.modes/probe
       {:args   {:label "x"}
        :setup []})
     (let [dark  (:content-hash
-                  (story/snapshot-identity :story.mcp.snap.modes/probe
+                  (rf.story/snapshot-identity :story.mcp.snap.modes/probe
                                            {:active-modes [:Mode.mcp.snap/dark]}))
           light (:content-hash
-                  (story/snapshot-identity :story.mcp.snap.modes/probe
+                  (rf.story/snapshot-identity :story.mcp.snap.modes/probe
                                            {:active-modes [:Mode.mcp.snap/light]}))
           none  (:content-hash
-                  (story/snapshot-identity :story.mcp.snap.modes/probe
+                  (rf.story/snapshot-identity :story.mcp.snap.modes/probe
                                            {:active-modes []}))]
       (is (not= dark light)
           "two different active-modes → two different hashes")

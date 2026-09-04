@@ -15,15 +15,15 @@
     `step-back!` / `rewind!` / `toggle-breakpoint!` / `end!`).
   - `re-frame.story.ui.test-mode.stepper-styles` — pure style map.
   - `re-frame.story.ui.test-mode.stepper-view`   — CLJS Reagent component."
-  (:require [re-frame.story.predicates :as pred]
-            [re-frame.story.play.runner :as runner]
-            [re-frame.story.ui.test-mode.pure :as test-mode-pure]))
+  (:require [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.play.runner :as rf.story.play.runner]
+            [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]))
 
 ;; ---- step-outcome (full-script step list) -------------------------------
 ;;
 ;; The step-debugger walks the FULL coerced :script (every step
 ;; type), driving each through the rich-DSL executor. Each step that has
-;; run carries a result record (`runner/step-pass` / `step-fail` /
+;; run carries a result record (`rf.story.play.runner/step-pass` / `step-fail` /
 ;; `step-skip` / `step-exception`); steps not yet reached carry no result.
 ;; This fold maps the full step vector + the per-step result records onto
 ;; one row per step, so the cursor / total are honest and EVERY step type
@@ -63,7 +63,7 @@
         (fn [idx step]
           {:index  idx
            :step   step
-           :label  (runner/step-summary step)
+           :label  (rf.story.play.runner/step-summary step)
            :status (step-outcome (nth recs idx nil))})
         (or steps [])))))
 
@@ -71,7 +71,7 @@
 ;;
 ;; Each step in the stepper UI has a *position* status (pending / current /
 ;; done) AND an *outcome* status (the existing :pass / :fail / :event /
-;; :skip from `test-mode-pure/play-step-statuses`). Pure: maps the cursor +
+;; :skip from `rf.story.ui.test-mode.pure/play-step-statuses`). Pure: maps the cursor +
 ;; the outcome list onto one fold the view renders directly.
 
 (defn step-position
@@ -90,7 +90,7 @@
     :else             :pending))
 
 (defn enrich-statuses
-  "Walk `test-mode-pure/play-step-statuses` output and stamp each row with
+  "Walk `rf.story.ui.test-mode.pure/play-step-statuses` output and stamp each row with
    - `:position` — :done / :current / :pending (per `step-position`)
    - `:breakpoint?` — boolean, true when the row's `:index` is in
      `breakpoints` (a set)
@@ -185,8 +185,8 @@
 ;; existing pure helper so the stepper rows and the scrubber ticks share
 ;; one label projection.
 
-(def play-step-label test-mode-pure/play-step-label)
+(def play-step-label rf.story.ui.test-mode.pure/play-step-label)
 
 ;; ---- assertion-event? re-export (used by the view to glyph rows) -------
 
-(def assertion-event? pred/assertion-event?)
+(def assertion-event? rf.story.predicates/assertion-event?)

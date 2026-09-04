@@ -14,12 +14,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [cljs.reader :as edn]
             [clojure.string :as str]
-            [re-frame.story.recorder :as recorder]))
+            [re-frame.story.recorder :as rf.story.recorder]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-recorder! [f]
-  (recorder/clear!)
+  (rf.story.recorder/clear!)
   (f))
 
 (use-fixtures :each reset-recorder!)
@@ -27,64 +27,64 @@
 ;; ---- recordable-event? ---------------------------------------------------
 
 (deftest recordable-event?-accepts-user-events
-  (is (recorder/recordable-event? [:counter/inc]))
-  (is (recorder/recordable-event? [:auth/login {:email "a@b"}])))
+  (is (rf.story.recorder/recordable-event? [:counter/inc]))
+  (is (rf.story.recorder/recordable-event? [:auth/login {:email "a@b"}])))
 
 (deftest recordable-event?-skips-assertions
-  (is (not (recorder/recordable-event? [:rf.assert/path-equals [:a] 1])))
-  (is (not (recorder/recordable-event? [:rf.assert/no-warnings]))))
+  (is (not (rf.story.recorder/recordable-event? [:rf.assert/path-equals [:a] 1])))
+  (is (not (rf.story.recorder/recordable-event? [:rf.assert/no-warnings]))))
 
 (deftest recordable-event?-skips-internal-story-events
-  (is (not (recorder/recordable-event? [:rf.story/lifecycle-tick])))
-  (is (not (recorder/recordable-event?
+  (is (not (rf.story.recorder/recordable-event? [:rf.story/lifecycle-tick])))
+  (is (not (rf.story.recorder/recordable-event?
              [:re-frame.story.runtime/append-assertion {}]))))
 
 ;; ---- pure state machine --------------------------------------------------
 
 (deftest start-replaces-state
-  (let [s (recorder/start recorder/initial-state :story.x/y 1000)]
+  (let [s (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 1000)]
     (is (:recording? s))
     (is (= :story.x/y (:variant-id s)))
     (is (= [] (:events s)))))
 
 (deftest append-captures-recordable-events
-  (let [s0 (recorder/start recorder/initial-state :story.x/y 0)
+  (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)
         s1 (-> s0
-               (recorder/append [:counter/inc])
-               (recorder/append [:rf.assert/path-equals [:a] 1])
-               (recorder/append [:counter/dec]))]
+               (rf.story.recorder/append [:counter/inc])
+               (rf.story.recorder/append [:rf.assert/path-equals [:a] 1])
+               (rf.story.recorder/append [:counter/dec]))]
     (is (= [[:counter/inc] [:counter/dec]] (:events s1)))))
 
 (deftest stop-preserves-events
-  (let [s (-> recorder/initial-state
-              (recorder/start :story.x/y 0)
-              (recorder/append [:counter/inc])
-              (recorder/stop))]
+  (let [s (-> rf.story.recorder/initial-state
+              (rf.story.recorder/start :story.x/y 0)
+              (rf.story.recorder/append [:counter/inc])
+              (rf.story.recorder/stop))]
     (is (not (:recording? s)))
     (is (= [[:counter/inc]] (:events s)))))
 
 ;; ---- impure entrypoints --------------------------------------------------
 
 (deftest start-and-stop-cycle
-  (recorder/start-recording! :story.x/y 0)
-  (is (recorder/recording?))
-  (recorder/record-event! [:counter/inc])
-  (recorder/record-event! [:counter/dec])
-  (recorder/stop-recording!)
-  (is (not (recorder/recording?)))
+  (rf.story.recorder/start-recording! :story.x/y 0)
+  (is (rf.story.recorder/recording?))
+  (rf.story.recorder/record-event! [:counter/inc])
+  (rf.story.recorder/record-event! [:counter/dec])
+  (rf.story.recorder/stop-recording!)
+  (is (not (rf.story.recorder/recording?)))
   (is (= [[:counter/inc] [:counter/dec]]
-         (recorder/recorded-events))))
+         (rf.story.recorder/recorded-events))))
 
 (deftest toggle!-flips
-  (recorder/toggle! :story.x/y)
-  (is (recorder/recording?))
-  (recorder/toggle! :story.x/y)
-  (is (not (recorder/recording?))))
+  (rf.story.recorder/toggle! :story.x/y)
+  (is (rf.story.recorder/recording?))
+  (rf.story.recorder/toggle! :story.x/y)
+  (is (not (rf.story.recorder/recording?))))
 
 ;; ---- gen-play-snippet ----------------------------------------------------
 
 (deftest gen-play-snippet-renders-reg-variant
-  (let [snippet (recorder/gen-play-snippet
+  (let [snippet (rf.story.recorder/gen-play-snippet
                   [[:counter/inc] [:counter/dec]]
                   {:variant-id :story.x/y})]
     (is (str/includes? snippet "reg-variant"))
@@ -95,7 +95,7 @@
 ;; ---- mid-recording assertion insertion (rf2-39u9e) ----------------------
 
 (deftest assertion-vocabulary-covers-canonical-seven
-  (let [ids (set (map :id recorder/assertion-vocabulary))]
+  (let [ids (set (map :id rf.story.recorder/assertion-vocabulary))]
     (is (= #{:rf.assert/path-equals
              :rf.assert/path-matches
              :rf.assert/sub-equals
@@ -107,34 +107,34 @@
 
 (deftest make-assertion-builds-well-formed-events
   (is (= [:rf.assert/path-equals [:auth :status] :ok]
-         (recorder/make-assertion :rf.assert/path-equals
+         (rf.story.recorder/make-assertion :rf.assert/path-equals
                                   {:path [:auth :status] :expected :ok})))
   (is (= [:rf.assert/sub-equals [:counter] 3]
-         (recorder/make-assertion :rf.assert/sub-equals
+         (rf.story.recorder/make-assertion :rf.assert/sub-equals
                                   {:sub [:counter] :expected 3})))
   (is (= [:rf.assert/no-warnings]
-         (recorder/make-assertion :rf.assert/no-warnings {})))
-  (is (nil? (recorder/make-assertion :rf.assert/not-a-real-one {}))))
+         (rf.story.recorder/make-assertion :rf.assert/no-warnings {})))
+  (is (nil? (rf.story.recorder/make-assertion :rf.assert/not-a-real-one {}))))
 
 (deftest insert-assertion!-interleaves-with-recorded-events
-  (recorder/start-recording! :story.x/y 0)
-  (recorder/record-event! [:counter/inc])
-  (recorder/insert-assertion! :rf.assert/sub-equals
+  (rf.story.recorder/start-recording! :story.x/y 0)
+  (rf.story.recorder/record-event! [:counter/inc])
+  (rf.story.recorder/insert-assertion! :rf.assert/sub-equals
                               {:sub [:counter] :expected 1})
-  (recorder/record-event! [:counter/inc])
-  (recorder/insert-assertion! [:rf.assert/no-warnings])
-  (recorder/stop-recording!)
+  (rf.story.recorder/record-event! [:counter/inc])
+  (rf.story.recorder/insert-assertion! [:rf.assert/no-warnings])
+  (rf.story.recorder/stop-recording!)
   (is (= [[:counter/inc]
           [:rf.assert/sub-equals [:counter] 1]
           [:counter/inc]
           [:rf.assert/no-warnings]]
-         (recorder/recorded-events))))
+         (rf.story.recorder/recorded-events))))
 
 (deftest insert-assertion!-rejects-non-assertion
-  (recorder/start-recording! :story.x/y 0)
-  (recorder/insert-assertion! [:counter/inc])
-  (recorder/insert-assertion! [:rf.story/lifecycle-tick])
-  (is (= [] (recorder/recorded-events))))
+  (rf.story.recorder/start-recording! :story.x/y 0)
+  (rf.story.recorder/insert-assertion! [:counter/inc])
+  (rf.story.recorder/insert-assertion! [:rf.story/lifecycle-tick])
+  (is (= [] (rf.story.recorder/recorded-events))))
 
 (defn- extract-play-script-vector
   "Pull the inner `:script` vector substring out of the rendered snippet
@@ -169,7 +169,7 @@
             slot; rf2-0wrud — gen-play-snippet wraps each captured event
             as a :dispatch-sync step)"
     (let [events     [[:counter/inc] [:auth/login {:id 1}]]
-          snip       (recorder/gen-play-snippet events {:variant-id :story.x/y})
+          snip       (rf.story.recorder/gen-play-snippet events {:variant-id :story.x/y})
           script-str (extract-play-script-vector snip)
           script-vec (edn/read-string script-str)]
       (is (some? script-str) "extractor found a :script vector substring")

@@ -11,7 +11,7 @@
   - the rf2-5x1wt.8 per-run stamp strip (epoch-record `:frame`, trace-event
     `:id` / `:time` / volatile tags) is host-portable too."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.story.fingerprint :as fp]))
+            [re-frame.story.fingerprint :as rf.story.fingerprint]))
 
 (def ^:private base
   {:status :pass
@@ -34,26 +34,26 @@
 
 (deftest content-hash-is-8-char-hex-on-cljs
   (testing "content-hash renders a left-padded 8-char lowercase hex string"
-    (let [h (fp/content-hash {:a 1})]
+    (let [h (rf.story.fingerprint/content-hash {:a 1})]
       (is (string? h))
       (is (= 8 (count h)))
       (is (re-matches #"[0-9a-f]{8}" h)))))
 
 (deftest order-insensitive-on-cljs
   (testing "map key order does not affect the CLJS hash"
-    (is (= (fp/content-hash {:a 1 :b 2}) (fp/content-hash {:b 2 :a 1}))))
+    (is (= (rf.story.fingerprint/content-hash {:a 1 :b 2}) (rf.story.fingerprint/content-hash {:b 2 :a 1}))))
   (testing "set element order does not affect the CLJS hash"
-    (is (= (fp/content-hash #{:x :y :z}) (fp/content-hash #{:z :y :x})))))
+    (is (= (rf.story.fingerprint/content-hash #{:x :y :z}) (rf.story.fingerprint/content-hash #{:z :y :x})))))
 
 (deftest volatile-equivalence-on-cljs
   (testing "volatile-only differences canonicalize = and run-hash equal"
-    (is (= (fp/canonicalize base) (fp/canonicalize volatile-twin)))
-    (is (= (fp/run-hash base) (fp/run-hash volatile-twin)))))
+    (is (= (rf.story.fingerprint/canonicalize base) (rf.story.fingerprint/canonicalize volatile-twin)))
+    (is (= (rf.story.fingerprint/run-hash base) (rf.story.fingerprint/run-hash volatile-twin)))))
 
 (deftest semantic-difference-on-cljs
   (testing "a semantic app-db difference perturbs the run-hash on CLJS"
-    (is (not= (fp/run-hash base)
-              (fp/run-hash (assoc-in base [:app-db :n] 2))))))
+    (is (not= (rf.story.fingerprint/run-hash base)
+              (rf.story.fingerprint/run-hash (assoc-in base [:app-db :n] 2))))))
 
 (deftest determinism-stamp-strip-on-cljs
   (testing "epoch records differing only in per-run stamps canonicalize = on CLJS
@@ -61,12 +61,12 @@
     (let [rec (fn [eid frame]
                 {:epoch-id eid :frame frame :committed-at 1 :schema-digest "d"
                  :outcome :ok :db-after {:n 1} :trace-events [] :effects []})]
-      (is (= (fp/canonicalize (rec 5 :rf.test.replay/frame-a))
-             (fp/canonicalize (rec 90 :rf.test.replay/frame-z))))
-      (is (= (fp/canonical-hash (rec 5 :rf.test.replay/frame-a))
-             (fp/canonical-hash (rec 90 :rf.test.replay/frame-z))))
-      (is (not= (fp/canonicalize (rec 5 :rf.test.replay/frame-a))
-                (fp/canonicalize (assoc (rec 5 :rf.test.replay/frame-a)
+      (is (= (rf.story.fingerprint/canonicalize (rec 5 :rf.test.replay/frame-a))
+             (rf.story.fingerprint/canonicalize (rec 90 :rf.test.replay/frame-z))))
+      (is (= (rf.story.fingerprint/canonical-hash (rec 5 :rf.test.replay/frame-a))
+             (rf.story.fingerprint/canonical-hash (rec 90 :rf.test.replay/frame-z))))
+      (is (not= (rf.story.fingerprint/canonicalize (rec 5 :rf.test.replay/frame-a))
+                (rf.story.fingerprint/canonicalize (assoc (rec 5 :rf.test.replay/frame-a)
                                         :db-after {:n 2})))
           "a real db-after difference still perturbs the canonical value")))
 
@@ -76,45 +76,45 @@
                {:operation :rf.event/run-start :op-type :event :id id :time id
                 :tags {:rf.trace/event-id :foo :frame frame
                        :rf.trace/dispatch-id id}})]
-      (is (= (fp/canonicalize {:trace-events [(ev 1 :rf.test.replay/frame-a)]})
-             (fp/canonicalize {:trace-events [(ev 9 :rf.test.replay/frame-z)]})))
-      (is (not= (fp/canonicalize {:trace-events [(ev 1 :rf.test.replay/frame-a)]})
-                (fp/canonicalize
+      (is (= (rf.story.fingerprint/canonicalize {:trace-events [(ev 1 :rf.test.replay/frame-a)]})
+             (rf.story.fingerprint/canonicalize {:trace-events [(ev 9 :rf.test.replay/frame-z)]})))
+      (is (not= (rf.story.fingerprint/canonicalize {:trace-events [(ev 1 :rf.test.replay/frame-a)]})
+                (rf.story.fingerprint/canonicalize
                   {:trace-events [(assoc-in (ev 1 :rf.test.replay/frame-a)
                                             [:tags :rf.trace/event-id] :bar)]}))
           "the event-id tag is behavioural, not a stamp")))
 
   (testing ":id / :time / :frame as plain app-db values are NOT stripped on CLJS"
-    (is (not= (fp/canonicalize {:status :pass :app-db {:id 1 :time 10 :frame :l}})
-              (fp/canonicalize {:status :pass :app-db {:id 2 :time 20 :frame :r}}))
+    (is (not= (rf.story.fingerprint/canonicalize {:status :pass :app-db {:id 1 :time 10 :frame :l}})
+              (rf.story.fingerprint/canonicalize {:status :pass :app-db {:id 2 :time 20 :frame :r}}))
         "semantic app-db data on common keys survives canonicalization")))
 
 (deftest collection-types-do-not-collide-on-cljs
   (testing "map / set / vector type tags keep the kinds distinct on CLJS
             (rf2-lvrqa) — host-portable structural tagging"
-    (is (not= (fp/content-hash {}) (fp/content-hash [])))
-    (is (not= (fp/content-hash #{}) (fp/content-hash [])))
-    (is (not= (fp/content-hash {:k 1}) (fp/content-hash [:k 1])))
-    (is (not= (fp/content-hash #{:k}) (fp/content-hash [:k])))
-    (is (not= (fp/canonical-hash {:effects [{:k 1}]})
-              (fp/canonical-hash {:effects [[:k 1]]})))))
+    (is (not= (rf.story.fingerprint/content-hash {}) (rf.story.fingerprint/content-hash [])))
+    (is (not= (rf.story.fingerprint/content-hash #{}) (rf.story.fingerprint/content-hash [])))
+    (is (not= (rf.story.fingerprint/content-hash {:k 1}) (rf.story.fingerprint/content-hash [:k 1])))
+    (is (not= (rf.story.fingerprint/content-hash #{:k}) (rf.story.fingerprint/content-hash [:k])))
+    (is (not= (rf.story.fingerprint/canonical-hash {:effects [{:k 1}]})
+              (rf.story.fingerprint/canonical-hash {:effects [[:k 1]]})))))
 
 (deftest fn-slot-deterministic-on-cljs
   (testing "a fn folds to the opaque sentinel on CLJS (rf2-4gwja) — a JS fn
             in a hashed slot hashes stably, keywords/colls are not folded"
-    (is (= fp/opaque-fn (fp/canonical-form (fn [] 1))))
-    (is (= (fp/run-hash {:status :pass :app-db {:cb (fn [] 1)}})
-           (fp/run-hash {:status :pass :app-db {:cb (fn [] 1)}})))
-    (is (not= fp/opaque-fn (fp/canonical-form :kw)))
-    (is (not= fp/opaque-fn (fp/canonical-form #{:a})))))
+    (is (= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form (fn [] 1))))
+    (is (= (rf.story.fingerprint/run-hash {:status :pass :app-db {:cb (fn [] 1)}})
+           (rf.story.fingerprint/run-hash {:status :pass :app-db {:cb (fn [] 1)}})))
+    (is (not= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form :kw)))
+    (is (not= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form #{:a})))))
 
 (deftest snapshot-fold-strip-free-on-cljs
   (testing "content-hash keeps :variant-id sensitivity; canonical-hash strips it"
     (let [tuple {:variant-id :story.x/v :variant {:a 1}}]
-      (is (not= (fp/content-hash tuple)
-                (fp/content-hash (assoc tuple :variant-id :story.y/v))))
-      (is (= (fp/canonical-hash tuple)
-             (fp/canonical-hash (assoc tuple :variant-id :story.y/v)))))))
+      (is (not= (rf.story.fingerprint/content-hash tuple)
+                (rf.story.fingerprint/content-hash (assoc tuple :variant-id :story.y/v))))
+      (is (= (rf.story.fingerprint/canonical-hash tuple)
+             (rf.story.fingerprint/canonical-hash (assoc tuple :variant-id :story.y/v)))))))
 
 ;; ===========================================================================
 ;; CROSS-HOST SCALAR STABILITY (rf2-vvqeo) — the CLJS side of the equivalence
@@ -133,35 +133,35 @@
   (testing "REGRESSION GUARD (rf2-vvqeo): ordinary-value content-hashes match
             the SAME pre-change baseline the JVM pins — no golden rebase, and
             the cross-host hash agreement for ordinary values too"
-    (is (= "211a4621" (fp/content-hash 42)))
-    (is (= "3409cbf2" (fp/content-hash "hello")))
-    (is (= "3ac20368" (fp/content-hash :foo/bar)))
-    (is (= "234450cb" (fp/content-hash [1 2 3])))
-    (is (= "418d9acd" (fp/content-hash {:a 1 :b "x" :c :k})))
-    (is (= "405ea2f0" (fp/content-hash #{:a :b :c})))
-    (is (= "98b520a4" (fp/content-hash {:status :pass :app-db {:n 1 :items [{:sku "A"}]}})))))
+    (is (= "211a4621" (rf.story.fingerprint/content-hash 42)))
+    (is (= "3409cbf2" (rf.story.fingerprint/content-hash "hello")))
+    (is (= "3ac20368" (rf.story.fingerprint/content-hash :foo/bar)))
+    (is (= "234450cb" (rf.story.fingerprint/content-hash [1 2 3])))
+    (is (= "418d9acd" (rf.story.fingerprint/content-hash {:a 1 :b "x" :c :k})))
+    (is (= "405ea2f0" (rf.story.fingerprint/content-hash #{:a :b :c})))
+    (is (= "98b520a4" (rf.story.fingerprint/content-hash {:status :pass :app-db {:n 1 :items [{:sku "A"}]}})))))
 
 (deftest doubles-and-ratios-canonicalize-host-portably-on-cljs
   (testing "the double CLJS reads `1/3` as canonicalises to the SAME bit form +
             hash the JVM Ratio `1/3` does (cross-host equivalence)"
-    (is (= [fp/double-tag "3fd5555555555555"] (fp/canonical-form (/ 1.0 3.0))))
-    (is (= "ca619b05" (fp/content-hash (/ 1.0 3.0)))
-        "matches the JVM `(fp/content-hash 1/3)` literal"))
+    (is (= [rf.story.fingerprint/double-tag "3fd5555555555555"] (rf.story.fingerprint/canonical-form (/ 1.0 3.0))))
+    (is (= "ca619b05" (rf.story.fingerprint/content-hash (/ 1.0 3.0)))
+        "matches the JVM `(rf.story.fingerprint/content-hash 1/3)` literal"))
   (testing "an integer-valued double IS the integer on CLJS — matches the JVM
             fold of `1.0` → `1`"
-    (is (= 1   (fp/canonical-form 1.0)))
-    (is (= 100 (fp/canonical-form 100.0)))
-    (is (= (fp/content-hash 1.0) (fp/content-hash 1))))
+    (is (= 1   (rf.story.fingerprint/canonical-form 1.0)))
+    (is (= 100 (rf.story.fingerprint/canonical-form 100.0)))
+    (is (= (rf.story.fingerprint/content-hash 1.0) (rf.story.fingerprint/content-hash 1))))
   (testing "a fractional double folds to the SAME `[:rf/double <hex>]` + hash
             the JVM `1.5` produces"
-    (is (= [fp/double-tag "3ff8000000000000"] (fp/canonical-form 1.5)))
-    (is (= "6ef2b29e" (fp/content-hash 1.5))
-        "matches the JVM `(fp/content-hash 1.5)` literal")
-    (is (not= (fp/canonical-form 1.5) (fp/canonical-form 1))))
+    (is (= [rf.story.fingerprint/double-tag "3ff8000000000000"] (rf.story.fingerprint/canonical-form 1.5)))
+    (is (= "6ef2b29e" (rf.story.fingerprint/content-hash 1.5))
+        "matches the JVM `(rf.story.fingerprint/content-hash 1.5)` literal")
+    (is (not= (rf.story.fingerprint/canonical-form 1.5) (rf.story.fingerprint/canonical-form 1))))
   (testing "an integer-valued double beyond the IEEE-754 safe-integer range
             takes the bit path — matches the JVM `1e21` form"
-    (is (= [fp/double-tag "444b1ae4d6e2ef50"] (fp/canonical-form 1e21)))
-    (is (= "66b23237" (fp/content-hash 1e21)))))
+    (is (= [rf.story.fingerprint/double-tag "444b1ae4d6e2ef50"] (rf.story.fingerprint/canonical-form 1e21)))
+    (is (= "66b23237" (rf.story.fingerprint/content-hash 1e21)))))
 
 (deftest large-integers-canonicalize-host-portably-on-cljs
   (testing "an integer beyond the IEEE-754 safe-integer range takes the lossy
@@ -169,35 +169,35 @@
             past 2^53, so `1e20` (what CLJS reads `100000000000000000000` as)
             canonicalises to the SAME `[:rf/double <hex>]` form + hash the JVM
             large bigint reaches. This pairing IS the cross-host proof."
-    (is (= [fp/double-tag "4415af1d78b58c40"] (fp/canonical-form 1e20)))
-    (is (= "8a4b7ac2" (fp/content-hash 1e20))
-        "matches the JVM `(fp/content-hash (bigint 100000000000000000000))`"))
+    (is (= [rf.story.fingerprint/double-tag "4415af1d78b58c40"] (rf.story.fingerprint/canonical-form 1e20)))
+    (is (= "8a4b7ac2" (rf.story.fingerprint/content-hash 1e20))
+        "matches the JVM `(rf.story.fingerprint/content-hash (bigint 100000000000000000000))`"))
   (testing "an integer AT max-safe-integer passes through verbatim on CLJS —
             no golden rebase for safe-range integers"
-    (is (= fp/max-safe-integer (fp/canonical-form fp/max-safe-integer)))
-    (is (= "9f16836d" (fp/content-hash fp/max-safe-integer))
-        "matches the JVM `(fp/content-hash 9007199254740991)` literal")))
+    (is (= rf.story.fingerprint/max-safe-integer (rf.story.fingerprint/canonical-form rf.story.fingerprint/max-safe-integer)))
+    (is (= "9f16836d" (rf.story.fingerprint/content-hash rf.story.fingerprint/max-safe-integer))
+        "matches the JVM `(rf.story.fingerprint/content-hash 9007199254740991)` literal")))
 
 (deftest nan-and-inf-canonicalize-host-portably-on-cljs
   (testing "NaN folds to the `:rf/nan` sentinel — matches the JVM, hashes stably"
-    (is (= fp/nan-tag (fp/canonical-form js/NaN)))
-    (is (= "0cf774cf" (fp/content-hash js/NaN))
-        "matches the JVM `(fp/content-hash (Double/NaN))` literal")
-    (is (= (fp/canonical-hash {:x js/NaN}) (fp/canonical-hash {:x js/NaN}))))
+    (is (= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form js/NaN)))
+    (is (= "0cf774cf" (rf.story.fingerprint/content-hash js/NaN))
+        "matches the JVM `(rf.story.fingerprint/content-hash (Double/NaN))` literal")
+    (is (= (rf.story.fingerprint/canonical-hash {:x js/NaN}) (rf.story.fingerprint/canonical-hash {:x js/NaN}))))
   (testing "±Inf canonicalise to the SAME bit-double forms + hashes the JVM
             produces, mutually distinct"
-    (is (= [fp/double-tag "7ff0000000000000"] (fp/canonical-form js/Infinity)))
-    (is (= [fp/double-tag "fff0000000000000"] (fp/canonical-form (- js/Infinity))))
-    (is (= "026c4383" (fp/content-hash js/Infinity)))
-    (is (= "69fa37b4" (fp/content-hash (- js/Infinity))))
-    (is (not= (fp/canonical-form js/Infinity) (fp/canonical-form (- js/Infinity))))))
+    (is (= [rf.story.fingerprint/double-tag "7ff0000000000000"] (rf.story.fingerprint/canonical-form js/Infinity)))
+    (is (= [rf.story.fingerprint/double-tag "fff0000000000000"] (rf.story.fingerprint/canonical-form (- js/Infinity))))
+    (is (= "026c4383" (rf.story.fingerprint/content-hash js/Infinity)))
+    (is (= "69fa37b4" (rf.story.fingerprint/content-hash (- js/Infinity))))
+    (is (not= (rf.story.fingerprint/canonical-form js/Infinity) (rf.story.fingerprint/canonical-form (- js/Infinity))))))
 
 (deftest nan-set-and-opaque-fn-tiebreak-stable-on-cljs
   (testing "a NaN-bearing set hashes stably across builds on CLJS (the NaN
             ordering hole is closed — every NaN is the `:rf/nan` sentinel)"
-    (is (= (fp/content-hash (set [js/NaN :a 1]))
-           (fp/content-hash (set [1 :a js/NaN])))))
+    (is (= (rf.story.fingerprint/content-hash (set [js/NaN :a 1]))
+           (rf.story.fingerprint/content-hash (set [1 :a js/NaN])))))
   (testing "a set of two distinct JS fns (both fold to `:rf/opaque-fn`, equal
             `pr-str`) hashes stably across builds via `stable-canon-order`"
     (let [build (fn [] #{(fn [] 1) (fn [] 2) :marker})]
-      (is (= (fp/content-hash (build)) (fp/content-hash (build)))))))
+      (is (= (rf.story.fingerprint/content-hash (build)) (rf.story.fingerprint/content-hash (build)))))))

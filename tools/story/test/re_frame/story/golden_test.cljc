@@ -21,13 +21,13 @@
     of the same program, and a divergent program does not."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
-            [re-frame.epoch     :as epoch]
-            [re-frame.frame     :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story.artifact    :as artifact]
-            [re-frame.story.fingerprint :as fingerprint]
-            [re-frame.story.golden      :as golden]))
+            [re-frame.epoch     :as rf.epoch]
+            [re-frame.frame     :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story.artifact    :as rf.story.artifact]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.golden      :as rf.story.golden]))
 
 ;; ===========================================================================
 ;; This ns is the rf2-5x1wt.32 golden-slice coverage, extended by:
@@ -51,7 +51,7 @@
 
 (defn- run-result
   "A minimal hand-built run-result over the behavioural slice
-  (`fingerprint/run-hash-input-keys`)."
+  (`rf.story.fingerprint/run-hash-input-keys`)."
   [{:keys [status app-db effects ops]
     :or   {status :pass app-db {} effects [] ops [:rf.event/run-start]}}]
   {:status status
@@ -90,20 +90,20 @@
 (deftest make-golden-shape
   (testing "a golden carries the kind tag, a frozen :canonical, the run-hash,
             and the slice keys it was taken over"
-    (let [g (golden/make-golden (run-result {:app-db {:n 1}}))]
-      (is (golden/golden? g))
+    (let [g (rf.story.golden/make-golden (run-result {:app-db {:n 1}}))]
+      (is (rf.story.golden/golden? g))
       (is (= :rf.test/golden (:golden/kind g)))
       (is (contains? g :canonical))
-      (is (= (fingerprint/run-hash (run-result {:app-db {:n 1}})) (:run-hash g)))
-      (is (= fingerprint/run-hash-input-keys (:slice-keys g)))
+      (is (= (rf.story.fingerprint/run-hash (run-result {:app-db {:n 1}})) (:run-hash g)))
+      (is (= rf.story.fingerprint/run-hash-input-keys (:slice-keys g)))
       (is (not (contains? g :golden/meta)) "no meta unless supplied")
       (is (not (contains? g :run-result)) "no run-result unless :keep-run-result"))))
 
 (deftest make-golden-meta-and-keep-run-result
   (testing ":meta rides under :golden/meta and is NOT part of :canonical"
     (let [run (run-result {:app-db {:n 1}})
-          g1  (golden/make-golden run)
-          g2  (golden/make-golden run {:meta {:variant/id :story.checkout/ok
+          g1  (rf.story.golden/make-golden run)
+          g2  (rf.story.golden/make-golden run {:meta {:variant/id :story.checkout/ok
                                               :doc "checkout happy path"}})]
       (is (= {:variant/id :story.checkout/ok :doc "checkout happy path"}
              (:golden/meta g2)))
@@ -112,19 +112,19 @@
 
   (testing ":keep-run-result retains the behavioural slice for the readable diff"
     (let [run (run-result {:app-db {:n 1}})
-          g   (golden/make-golden run {:keep-run-result true})]
-      (is (= (golden/behavioural-slice run) (:run-result g))))))
+          g   (rf.story.golden/make-golden run {:keep-run-result true})]
+      (is (= (rf.story.golden/behavioural-slice run) (:run-result g))))))
 
 (deftest golden-round-trips
   (testing "canonicalizing the same run twice yields the SAME golden :canonical
             — the round-trip property the golden contract rests on"
     (let [run (run-result {:app-db {:user {:name "ada"} :n 3}
                            :effects [{:fx :http/get :args {:url "/a"}}]})
-          g1  (golden/make-golden run)
-          g2  (golden/make-golden run)]
+          g1  (rf.story.golden/make-golden run)
+          g2  (rf.story.golden/make-golden run)]
       (is (= (:canonical g1) (:canonical g2)))
       (is (= (:run-hash g1) (:run-hash g2)))
-      (is (golden/golden-match? g1 run)
+      (is (rf.story.golden/golden-match? g1 run)
           "a golden matches the very run it was captured from"))))
 
 ;; ===========================================================================
@@ -133,29 +133,29 @@
 
 (deftest golden-match-true-for-equivalent-run
   (testing "a behaviourally-equivalent run (same slice) matches"
-    (let [g (golden/make-golden (run-result {:app-db {:n 1} :ops [:a :b]}))]
-      (is (true? (golden/golden-match? g (run-result {:app-db {:n 1} :ops [:a :b]}))))))
+    (let [g (rf.story.golden/make-golden (run-result {:app-db {:n 1} :ops [:a :b]}))]
+      (is (true? (rf.story.golden/golden-match? g (run-result {:app-db {:n 1} :ops [:a :b]}))))))
 
   (testing "map key ORDER in app-db does not affect the match (canonical)"
-    (let [g (golden/make-golden (run-result {:app-db {:a 1 :b 2}}))]
-      (is (true? (golden/golden-match? g (run-result {:app-db (sorted-map :b 2 :a 1)})))))))
+    (let [g (rf.story.golden/make-golden (run-result {:app-db {:a 1 :b 2}}))]
+      (is (true? (rf.story.golden/golden-match? g (run-result {:app-db (sorted-map :b 2 :a 1)})))))))
 
 (deftest golden-match-false-for-semantic-difference
   (testing "an app-db change fails the match"
-    (let [g (golden/make-golden (run-result {:app-db {:n 1}}))]
-      (is (false? (golden/golden-match? g (run-result {:app-db {:n 2}}))))))
+    (let [g (rf.story.golden/make-golden (run-result {:app-db {:n 1}}))]
+      (is (false? (rf.story.golden/golden-match? g (run-result {:app-db {:n 2}}))))))
 
   (testing "an effect-only change fails the match"
-    (let [g (golden/make-golden (run-result {:effects [{:fx :db/save}]}))]
-      (is (false? (golden/golden-match? g (run-result {:effects []}))))))
+    (let [g (rf.story.golden/make-golden (run-result {:effects [{:fx :db/save}]}))]
+      (is (false? (rf.story.golden/golden-match? g (run-result {:effects []}))))))
 
   (testing "a status flip fails the match"
-    (let [g (golden/make-golden (run-result {:status :pass}))]
-      (is (false? (golden/golden-match? g (run-result {:status :fail}))))))
+    (let [g (rf.story.golden/make-golden (run-result {:status :pass}))]
+      (is (false? (rf.story.golden/golden-match? g (run-result {:status :fail}))))))
 
   (testing "a diverging trace op spine fails the match"
-    (let [g (golden/make-golden (run-result {:ops [:a :b :c]}))]
-      (is (false? (golden/golden-match? g (run-result {:ops [:a :x :c]})))))))
+    (let [g (rf.story.golden/make-golden (run-result {:ops [:a :b :c]}))]
+      (is (false? (rf.story.golden/golden-match? g (run-result {:ops [:a :x :c]})))))))
 
 ;; ===========================================================================
 ;; PURE: the load-bearing property — volatile fields do NOT cause a false miss
@@ -167,19 +167,19 @@
             reusing .8's strip rules"
     (let [captured (noisy-run {:frame :rf.test.replay/frame-aaa :epoch-id 5
                                :committed-at 1000 :trace-id 17 :db-after {:n 1}})
-          g        (golden/make-golden captured)
+          g        (rf.story.golden/make-golden captured)
           rerun    (noisy-run {:frame :rf.test.replay/frame-zzz :epoch-id 99
                                :committed-at 2000 :trace-id 88 :db-after {:n 1}})]
-      (is (true? (golden/golden-match? g rerun))
+      (is (true? (rf.story.golden/golden-match? g rerun))
           "frame ids, epoch ids, timestamps, trace ids are NOT mismatches")))
 
   (testing "a real app-db change is STILL caught amid the per-run noise"
     (let [captured (noisy-run {:frame :rf.test.replay/frame-aaa :epoch-id 5
                                :committed-at 1000 :trace-id 17 :db-after {:n 1}})
-          g        (golden/make-golden captured)
+          g        (rf.story.golden/make-golden captured)
           changed  (noisy-run {:frame :rf.test.replay/frame-zzz :epoch-id 99
                                :committed-at 2000 :trace-id 88 :db-after {:n 2}})]
-      (is (false? (golden/golden-match? g changed))
+      (is (false? (rf.story.golden/golden-match? g changed))
           "the canonical compare surfaces the SEMANTIC change, not volatile drift"))))
 
 ;; ===========================================================================
@@ -189,22 +189,22 @@
 (deftest compare-golden-match-report
   (testing "a match reports {:match? true} with the run-hash"
     (let [run (run-result {:app-db {:n 1}})
-          g   (golden/make-golden run)
-          r   (golden/compare-golden g run)]
+          g   (rf.story.golden/make-golden run)
+          r   (rf.story.golden/compare-golden g run)]
       (is (true? (:match? r)))
-      (is (= (fingerprint/run-hash run) (:run-hash r)))
+      (is (= (rf.story.fingerprint/run-hash run) (:run-hash r)))
       (is (not (contains? r :diff)) "a match carries no diff"))))
 
 (deftest compare-golden-mismatch-delegates-to-diff
   (testing "a mismatch with a kept run-result DELEGATES to diff/diff-runs for a
             localised, readable report"
     (let [captured (run-result {:app-db {:n 1}})
-          g        (golden/make-golden captured {:keep-run-result true})
+          g        (rf.story.golden/make-golden captured {:keep-run-result true})
           changed  (run-result {:app-db {:n 2}})
-          r        (golden/compare-golden g changed)]
+          r        (rf.story.golden/compare-golden g changed)]
       (is (false? (:match? r)))
       (is (= (:run-hash g) (:golden-run-hash r)))
-      (is (= (fingerprint/run-hash changed) (:run-hash r)))
+      (is (= (rf.story.fingerprint/run-hash changed) (:run-hash r)))
       ;; The diff is the diff/diff-runs facet shape — NOT a reinvented diff.
       (is (false? (get-in r [:diff :same?])))
       (is (= #{:app-db} (:facets (:diff r))))
@@ -214,16 +214,16 @@
 
   (testing "an effect-only mismatch surfaces ONLY the :effects facet"
     (let [captured (run-result {:effects [{:fx :db/save}]})
-          g        (golden/make-golden captured {:keep-run-result true})
+          g        (rf.story.golden/make-golden captured {:keep-run-result true})
           changed  (run-result {:effects []})
-          r        (golden/compare-golden g changed)]
+          r        (rf.story.golden/compare-golden g changed)]
       (is (false? (:match? r)))
       (is (= #{:effects} (:facets (:diff r))))))
 
   (testing "a mismatch with NO retained run-result still states the mismatch FACT"
-    (let [g       (golden/make-golden (run-result {:app-db {:n 1}}))
+    (let [g       (rf.story.golden/make-golden (run-result {:app-db {:n 1}}))
           changed (run-result {:app-db {:n 2}})
-          r       (golden/compare-golden g changed)]
+          r       (rf.story.golden/compare-golden g changed)]
       (is (false? (:match? r)))
       (is (= :unavailable-no-run-result (:diff r))
           "without :keep-run-result the readable diff is unavailable, but the
@@ -232,9 +232,9 @@
   (testing "a supplied :golden-run-result drives the diff even when the golden
             did not retain one"
     (let [captured (run-result {:app-db {:n 1}})
-          g        (golden/make-golden captured)
+          g        (rf.story.golden/make-golden captured)
           changed  (run-result {:app-db {:n 2}})
-          r        (golden/compare-golden g changed
+          r        (rf.story.golden/compare-golden g changed
                                           {:golden-run-result captured})]
       (is (false? (:match? r)))
       (is (= #{:app-db} (:facets (:diff r)))))))
@@ -247,14 +247,14 @@
   (testing "a freshly-captured golden's :slice-keys are current; a golden whose
             frozen surface differs from run-hash-input-keys is stale; a legacy
             golden with NO :slice-keys is treated as current"
-    (let [g (golden/make-golden (run-result {:app-db {:n 1}}))]
-      (is (true? (golden/slice-keys-current? g))
+    (let [g (rf.story.golden/make-golden (run-result {:app-db {:n 1}}))]
+      (is (true? (rf.story.golden/slice-keys-current? g))
           "the surface a golden was captured over matches the current keys")
-      (is (false? (golden/slice-keys-current?
-                    (assoc g :slice-keys (conj fingerprint/run-hash-input-keys
+      (is (false? (rf.story.golden/slice-keys-current?
+                    (assoc g :slice-keys (conj rf.story.fingerprint/run-hash-input-keys
                                                :some-new-slot))))
           "a frozen surface that drifted from the current keys is stale")
-      (is (true? (golden/slice-keys-current? (dissoc g :slice-keys)))
+      (is (true? (rf.story.golden/slice-keys-current? (dissoc g :slice-keys)))
           "a golden captured before :slice-keys existed is not flagged stale"))))
 
 (deftest compare-golden-stale-slice-keys-distinct-verdict
@@ -265,25 +265,25 @@
     (let [run    (run-result {:app-db {:n 1}})
           ;; Simulate a future slice-surface change: the frozen golden was
           ;; captured over a DIFFERENT key set than the current one.
-          stale  (assoc (golden/make-golden run {:keep-run-result true})
-                        :slice-keys (conj fingerprint/run-hash-input-keys
+          stale  (assoc (rf.story.golden/make-golden run {:keep-run-result true})
+                        :slice-keys (conj rf.story.fingerprint/run-hash-input-keys
                                           :some-future-slot))
-          r      (golden/compare-golden stale run)]
+          r      (rf.story.golden/compare-golden stale run)]
       (is (false? (:match? r)) "a slice-surface drift is never a match")
       (is (true? (:stale-slice-keys r)) "surfaced as the distinct verdict")
       (is (not (contains? r :diff))
           "no diff/diff-runs is taken — diffing across surfaces would mislocalise")
-      (is (= (conj fingerprint/run-hash-input-keys :some-future-slot)
+      (is (= (conj rf.story.fingerprint/run-hash-input-keys :some-future-slot)
              (:golden-slice-keys r)))
-      (is (= fingerprint/run-hash-input-keys (:current-slice-keys r)))))
+      (is (= rf.story.fingerprint/run-hash-input-keys (:current-slice-keys r)))))
 
   (testing "golden-match? also returns false on a stale slice surface — the
             three-stage matches? gates slice-keys before canonical equality"
     (let [run   (run-result {:app-db {:n 1}})
-          stale (assoc (golden/make-golden run)
-                       :slice-keys (conj fingerprint/run-hash-input-keys
+          stale (assoc (rf.story.golden/make-golden run)
+                       :slice-keys (conj rf.story.fingerprint/run-hash-input-keys
                                          :some-future-slot))]
-      (is (false? (golden/golden-match? stale run))
+      (is (false? (rf.story.golden/golden-match? stale run))
           "even the very run the golden was captured from is NOT a match once
            the frozen surface drifts from the current keys"))))
 
@@ -295,10 +295,10 @@
   (testing "golden-match? and compare-golden's :match? agree for EVERY run —
             they route through the one shared GREEN/RED predicate, so the
             verdict can never drift between the boolean and the report"
-    (let [g      (golden/make-golden (run-result {:app-db {:n 1} :ops [:a :b]})
+    (let [g      (rf.story.golden/make-golden (run-result {:app-db {:n 1} :ops [:a :b]})
                                      {:keep-run-result true})
           ;; A stale-slice-surface golden: both paths must report a non-match.
-          stale  (assoc g :slice-keys (conj fingerprint/run-hash-input-keys
+          stale  (assoc g :slice-keys (conj rf.story.fingerprint/run-hash-input-keys
                                             :some-future-slot))
           runs  [;; equivalent ⇒ both GREEN
                  (run-result {:app-db {:n 1} :ops [:a :b]})
@@ -311,28 +311,28 @@
                  ;; op-spine change ⇒ both RED
                  (run-result {:app-db {:n 1} :ops [:a :x]})]]
       (doseq [run runs]
-        (is (= (golden/golden-match? g run)
-               (:match? (golden/compare-golden g run)))
+        (is (= (rf.story.golden/golden-match? g run)
+               (:match? (rf.story.golden/compare-golden g run)))
             (str "golden-match? and compare-golden disagree for " (pr-str run)))
-        (is (= (golden/golden-match? stale run)
-               (:match? (golden/compare-golden stale run)))
+        (is (= (rf.story.golden/golden-match? stale run)
+               (:match? (rf.story.golden/compare-golden stale run)))
             (str "stale-slice golden: golden-match? and compare-golden disagree for "
                  (pr-str run)))))))
 
 (deftest compare-golden-run-hash-matches-fingerprint
   (testing "the :run-hash compare-golden reports is the canonical
-            fingerprint/run-hash of the run — the single-canonicalize perf
+            rf.story.fingerprint/run-hash of the run — the single-canonicalize perf
             path (content-hash of the canonical slice) equals the two-stage
             run-hash, so the optimization is behaviour-preserving"
     (let [matchy   (run-result {:app-db {:n 1}})
-          g        (golden/make-golden matchy {:keep-run-result true})
+          g        (rf.story.golden/make-golden matchy {:keep-run-result true})
           changed  (run-result {:app-db {:n 2}})
-          r-match  (golden/compare-golden g matchy)
-          r-miss   (golden/compare-golden g changed)]
-      (is (= (fingerprint/run-hash matchy) (:run-hash r-match))
-          "match report :run-hash == fingerprint/run-hash")
-      (is (= (fingerprint/run-hash changed) (:run-hash r-miss))
-          "mismatch report :run-hash == fingerprint/run-hash")
+          r-match  (rf.story.golden/compare-golden g matchy)
+          r-miss   (rf.story.golden/compare-golden g changed)]
+      (is (= (rf.story.fingerprint/run-hash matchy) (:run-hash r-match))
+          "match report :run-hash == rf.story.fingerprint/run-hash")
+      (is (= (rf.story.fingerprint/run-hash changed) (:run-hash r-miss))
+          "mismatch report :run-hash == rf.story.fingerprint/run-hash")
       (is (= (:run-hash g) (:golden-run-hash r-miss))
           "the frozen golden hash is reported as :golden-run-hash"))))
 
@@ -353,40 +353,40 @@
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
             #":rf.error/golden-bad-target"
-            (golden/capture-golden bad))
+            (rf.story.golden/capture-golden bad))
           (str "capture-golden must reject " (pr-str bad)))))
 
   (testing "the rejection carries the structured :rf.error/id + the offending
             target for diagnosis"
     (let [bad {:not :recognized}
-          e   (try (golden/capture-golden bad)
+          e   (try (rf.story.golden/capture-golden bad)
                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
       (is (= :rf.error/golden-bad-target (:rf.error/id (ex-data e))))
       (is (= bad (:target (ex-data e))))))
 
   (testing "golden-match? / compare-golden ALSO fail closed on a bad run target"
-    (let [g (golden/make-golden (run-result {:app-db {:n 1}}))]
+    (let [g (rf.story.golden/make-golden (run-result {:app-db {:n 1}}))]
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
             #":rf.error/golden-bad-target"
-            (golden/golden-match? g {:no :status})))
+            (rf.story.golden/golden-match? g {:no :status})))
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
             #":rf.error/golden-bad-target"
-            (golden/compare-golden g {:no :status}))))))
+            (rf.story.golden/compare-golden g {:no :status}))))))
 
 ;; ===========================================================================
 ;; HEADLESS: capture / compare over real replays  (live frame)
 ;; ===========================================================================
 
 (defn- reset-rf! [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (try (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.epoch/clear-history!)
+  (rf.epoch/clear-epoch-listeners!)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-rf!)
@@ -396,23 +396,23 @@
             matches a re-replay of the same program — fresh-frame volatile
             drift causes no false mismatch"
     (rf/reg-event :golden/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [art (artifact/make-run-artifact
+    (let [art (rf.story.artifact/make-run-artifact
                 {:event-program [[:dispatch [:golden/inc]] [:dispatch [:golden/inc]]]})
-          g   (golden/capture-golden art {:keep-run-result true})]
-      (is (golden/golden? g))
-      (is (true? (golden/golden-match? g art))
+          g   (rf.story.golden/capture-golden art {:keep-run-result true})]
+      (is (rf.story.golden/golden? g))
+      (is (true? (rf.story.golden/golden-match? g art))
           "the same program replayed again matches the captured golden")
-      (is (true? (:match? (golden/compare-golden g art)))))))
+      (is (true? (:match? (rf.story.golden/compare-golden g art)))))))
 
 (deftest compare-golden-divergent-program-surfaces-app-db-facet
   (testing "a golden captured from one program does NOT match a divergent
             program, and the report surfaces a readable :app-db facet"
     (rf/reg-event :golden/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-    (let [a (artifact/make-run-artifact {:event-program [[:dispatch [:golden/set 1]]]})
-          b (artifact/make-run-artifact {:event-program [[:dispatch [:golden/set 2]]]})
-          g (golden/capture-golden a {:keep-run-result true})
-          r (golden/compare-golden g b)]
-      (is (false? (golden/golden-match? g b)))
+    (let [a (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:golden/set 1]]]})
+          b (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:golden/set 2]]]})
+          g (rf.story.golden/capture-golden a {:keep-run-result true})
+          r (rf.story.golden/compare-golden g b)]
+      (is (false? (rf.story.golden/golden-match? g b)))
       (is (false? (:match? r)))
       (is (contains? (:facets (:diff r)) :app-db))
       (is (= [{:path [:v] :baseline 1 :current 2}]
@@ -432,8 +432,8 @@
     (let [plan {:variant/id :story.golden/plan
                 :world  {:setup [[:dispatch [:golden/seed 10]]]}
                 :script [[:dispatch [:golden/bump]]]}
-          g    (golden/capture-golden plan {:keep-run-result true})]
-      (is (golden/golden? g))
+          g    (rf.story.golden/capture-golden plan {:keep-run-result true})]
+      (is (rf.story.golden/golden? g))
       ;; The frozen slice must be the REPLAYED run-result, not the plan map:
       ;; a real run carries a :status and a non-empty :app-db. A silently-
       ;; frozen plan would freeze {:v nil}/no :status and read near-empty.
@@ -443,16 +443,16 @@
           "the frozen slice carries the run's :status — proving it is a run-result")
       ;; And the golden re-matches a re-replay of the SAME plan (fresh-frame
       ;; volatile drift causes no false mismatch).
-      (is (true? (golden/golden-match? g plan))
+      (is (true? (rf.story.golden/golden-match? g plan))
           "the same plan replayed again matches the captured golden")
-      (is (true? (:match? (golden/compare-golden g plan))))))
+      (is (true? (:match? (rf.story.golden/compare-golden g plan))))))
 
   (testing "a golden captured from a plan does NOT match a divergent plan"
     (rf/reg-event :golden/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (let [plan-a {:variant/id :story.golden/a :world {} :script [[:dispatch [:golden/seed 1]]]}
           plan-b {:variant/id :story.golden/b :world {} :script [[:dispatch [:golden/seed 2]]]}
-          g      (golden/capture-golden plan-a {:keep-run-result true})
-          r      (golden/compare-golden g plan-b)]
-      (is (false? (golden/golden-match? g plan-b)))
+          g      (rf.story.golden/capture-golden plan-a {:keep-run-result true})
+          r      (rf.story.golden/compare-golden g plan-b)]
+      (is (false? (rf.story.golden/golden-match? g plan-b)))
       (is (false? (:match? r)))
       (is (contains? (:facets (:diff r)) :app-db)))))

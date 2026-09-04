@@ -23,7 +23,7 @@
   to a smoke / cljs test; this corpus pins the pure projection only."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.story.ui.view-state :as vs]))
+            [re-frame.story.ui.view-state :as rf.story.ui.view-state]))
 
 ;; ---------------------------------------------------------------------------
 ;; Representative compiled-plan + explain fixtures, mirroring the slots the
@@ -73,17 +73,17 @@
 (deftest ladder-is-exactly-three-rungs-strongest-to-weakest
   (testing "the fidelity ladder is exactly the three rungs, ordered
             strongest → weakest — never collapsed to two"
-    (is (= [:real-setup :db-seed :sub-overrides] vs/ladder-order))
-    (is (= 3 (count vs/ladder-rungs)))
+    (is (= [:real-setup :db-seed :sub-overrides] rf.story.ui.view-state/ladder-order))
+    (is (= 3 (count rf.story.ui.view-state/ladder-rungs)))
     (testing "each rung carries a distinct rank + tone + label"
-      (is (= [1 2 3] (mapv :rank vs/ladder-rungs)))
-      (is (= [:real :mid :low] (mapv :tone vs/ladder-rungs)))
-      (is (= 3 (count (distinct (map :label vs/ladder-rungs))))))))
+      (is (= [1 2 3] (mapv :rank rf.story.ui.view-state/ladder-rungs)))
+      (is (= [:real :mid :low] (mapv :tone rf.story.ui.view-state/ladder-rungs)))
+      (is (= 3 (count (distinct (map :label rf.story.ui.view-state/ladder-rungs))))))))
 
 (deftest ladder-marks-active-rungs-keeps-inactive
   (testing "a pure design variant marks ONLY :sub-overrides active, keeps
             the stronger rungs as inactive upgrade targets (never dropped)"
-    (let [ladder (vs/fidelity-ladder design-plan)
+    (let [ladder (rf.story.ui.view-state/fidelity-ladder design-plan)
           by-rung (into {} (map (juxt :rung identity) ladder))]
       (is (= 3 (count ladder)) "all three rungs are always shown")
       (is (true?  (:active? (by-rung :sub-overrides))))
@@ -91,16 +91,16 @@
       (is (false? (:active? (by-rung :db-seed))))))
   (testing "an events-driven variant marks :real-setup active"
     (let [by-rung (into {} (map (juxt :rung identity)
-                                (vs/fidelity-ladder events-plan)))]
+                                (rf.story.ui.view-state/fidelity-ladder events-plan)))]
       (is (true?  (:active? (by-rung :real-setup))))
       (is (false? (:active? (by-rung :sub-overrides))))))
   (testing "a bare variant marks no rung active"
-    (is (every? (complement :active?) (vs/fidelity-ladder bare-plan)))))
+    (is (every? (complement :active?) (rf.story.ui.view-state/fidelity-ladder bare-plan)))))
 
 (deftest sub-overrides-rung-labelled-low-fidelity-never-proof
   (testing "the :sub-overrides rung is labelled lowest-fidelity and as
             proving nothing — the honest reading the surface surfaces"
-    (let [r (first (filter #(= :sub-overrides (:rung %)) vs/ladder-rungs))]
+    (let [r (first (filter #(= :sub-overrides (:rung %)) rf.story.ui.view-state/ladder-rungs))]
       (is (= :low (:tone r)))
       (is (= 3 (:rank r)))
       (is (str/includes? (:note r) "never proof"))
@@ -111,27 +111,27 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest lowest-active-rank-is-the-fidelity-floor
-  (is (= 3 (vs/lowest-active-rank design-plan)))
-  (is (= 1 (vs/lowest-active-rank events-plan)))
+  (is (= 3 (rf.story.ui.view-state/lowest-active-rank design-plan)))
+  (is (= 1 (rf.story.ui.view-state/lowest-active-rank events-plan)))
   (testing "a hybrid floors at its WEAKEST active rung"
-    (is (= 3 (vs/lowest-active-rank
+    (is (= 3 (rf.story.ui.view-state/lowest-active-rank
                {:world {:fidelity #{:real-setup :sub-overrides}}}))))
   (testing "a bare variant has no floor"
-    (is (nil? (vs/lowest-active-rank bare-plan)))))
+    (is (nil? (rf.story.ui.view-state/lowest-active-rank bare-plan)))))
 
 (deftest upgrade-targets-are-the-stronger-rungs
   (testing "a pure sub-override variant can upgrade to db-seed + real-setup"
     (is (= [:real-setup :db-seed]
-           (mapv :rung (vs/upgrade-targets design-plan)))))
+           (mapv :rung (rf.story.ui.view-state/upgrade-targets design-plan)))))
   (testing "a real-setup variant has no stronger rung to upgrade to"
-    (is (empty? (vs/upgrade-targets events-plan))))
+    (is (empty? (rf.story.ui.view-state/upgrade-targets events-plan))))
   (testing "a bare variant has nothing to upgrade FROM"
-    (is (empty? (vs/upgrade-targets bare-plan)))))
+    (is (empty? (rf.story.ui.view-state/upgrade-targets bare-plan)))))
 
 (deftest upgrade-snippet-keeps-the-artifact-a-variant
   (testing "the upgrade scaffold is a reg-variant :extends-ing the source
             — same artifact kind, drops :sub-overrides, adds the rung slot"
-    (let [snip (vs/upgrade-snippet :story.login/error :real-setup)]
+    (let [snip (rf.story.ui.view-state/upgrade-snippet :story.login/error :real-setup)]
       (is (str/includes? snip "story/reg-variant")
           "stays a reg-variant — artifact kind unchanged")
       (is (str/includes? snip ":extends :story.login/error")
@@ -140,11 +140,11 @@
           "adds the :real-setup authoring slot")
       (is (str/includes? snip "drop :sub-overrides"))))
   (testing "the db-seed upgrade scaffolds the :db-seed slot"
-    (is (str/includes? (vs/upgrade-snippet :story.login/error :db-seed)
+    (is (str/includes? (rf.story.ui.view-state/upgrade-snippet :story.login/error :db-seed)
                        ":db-seed")))
   (testing "the derived upgraded id sits in the source's namespace"
     (is (= :story.login/error-upgraded
-           (vs/upgraded-variant-id :story.login/error)))))
+           (rf.story.ui.view-state/upgraded-variant-id :story.login/error)))))
 
 ;; ---------------------------------------------------------------------------
 ;; provenance summaries — source shown
@@ -153,28 +153,28 @@
 (deftest setup-summary-shows-event-provenance
   (testing "the setup summary counts setup + script steps and names the
             dispatched event ids — where the state came from"
-    (let [s (vs/setup-summary events-plan)]
+    (let [s (rf.story.ui.view-state/setup-summary events-plan)]
       (is (true? (:present? s)))
       (is (= 2 (:setup-count s)))
       (is (= 1 (:script-count s)))
       (is (= [:cart/add :cart/add :cart/checkout] (:events s)))
       (is (= :events (:source s)))))
   (testing "a design variant has no setup provenance"
-    (is (false? (:present? (vs/setup-summary design-plan))))))
+    (is (false? (:present? (rf.story.ui.view-state/setup-summary design-plan))))))
 
 (deftest network-summary-shows-route-provenance
-  (let [n (vs/network-summary events-explain)]
+  (let [n (rf.story.ui.view-state/network-summary events-explain)]
     (is (true? (:present? n)))
     (is (= 1 (:route-count n)))
     (is (= [[:get "/api/cart"]] (:routes n)))
     (is (= {:rf.http/managed :rf.http/managed-test-stub} (:lowered-to n))))
   (testing "no routes → absent"
-    (is (false? (:present? (vs/network-summary design-explain))))))
+    (is (false? (:present? (rf.story.ui.view-state/network-summary design-explain))))))
 
 (deftest fx-overrides-summary-excludes-managed-http
   (testing "the fx-override summary lists non-HTTP fx overrides, EXCLUDING
             :rf.http/managed (the Network summary owns that route channel)"
-    (let [f (vs/fx-overrides-summary events-plan)]
+    (let [f (rf.story.ui.view-state/fx-overrides-summary events-plan)]
       (is (true? (:present? f)))
       (is (= 1 (:fx-count f)))
       (is (= [:analytics/track] (:fx-ids f)))
@@ -183,14 +183,14 @@
 (deftest override-rows-show-exact-query-vectors
   (testing "the override rows name the EXACT query vectors pinned + the
             pinned values, plus the plan-time output-schema validation"
-    (let [o (vs/override-rows design-explain)]
+    (let [o (rf.story.ui.view-state/override-rows design-explain)]
       (is (true? (:present? o)))
       (is (= 2 (count (:rows o))))
       (is (= #{[:login/state] [:login/msg]}
              (set (map :query-v (:rows o)))))
       (is (= :ok (get-in o [:validation :status])))))
   (testing "no overrides → absent"
-    (is (false? (:present? (vs/override-rows events-explain))))))
+    (is (false? (:present? (rf.story.ui.view-state/override-rows events-explain))))))
 
 ;; ---------------------------------------------------------------------------
 ;; live :where :sub-override schema-fail projection (the honesty surface)
@@ -208,12 +208,12 @@
                   {:op-type :error :operation :rf.error/schema-validation-failure
                    :id 3 :time 300 :tags {:where :app-db}}
                   {:op-type :event :operation :some/event :id 4 :time 400 :tags {}}]
-          fails (vs/sub-override-failures events)]
+          fails (rf.story.ui.view-state/sub-override-failures events)]
       (is (= 1 (count fails)) "only the :sub-override failure")
       (is (= :sub-override (:where (first fails))))
       (is (= :login/state (:failing-id (first fails))))))
   (testing "no failures → empty"
-    (is (empty? (vs/sub-override-failures [])))))
+    (is (empty? (rf.story.ui.view-state/sub-override-failures [])))))
 
 ;; ---------------------------------------------------------------------------
 ;; the composed model + error trapping
@@ -222,20 +222,20 @@
 (deftest view-state-model-composes-the-full-surface
   (testing "the composed model carries the ladder, provenance, overrides,
             failures, upgrade targets, and the low-fidelity flag"
-    (let [m (vs/view-state-model design-plan design-explain [])]
+    (let [m (rf.story.ui.view-state/view-state-model design-plan design-explain [])]
       (is (= 3 (count (:ladder m))))
       (is (= 3 (:lowest-rank m)))
       (is (true? (:low-fidelity? m)) "sub-overrides is the floor")
       (is (true? (get-in m [:overrides :present?])))
       (is (= [:real-setup :db-seed] (mapv :rung (:upgrade-targets m))))))
   (testing "an events-driven plan is NOT low-fidelity and has no upgrade"
-    (let [m (vs/view-state-model events-plan events-explain [])]
+    (let [m (rf.story.ui.view-state/view-state-model events-plan events-explain [])]
       (is (false? (:low-fidelity? m)))
       (is (empty? (:upgrade-targets m)))
       (is (true? (get-in m [:network :present?]))))))
 
 (deftest compile-model-traps-unknown-variant
   (testing "an unregistered keyword target surfaces :error, not a throw"
-    (let [m (vs/compile-model :story.nope/missing [])]
+    (let [m (rf.story.ui.view-state/compile-model :story.nope/missing [])]
       (is (string? (:error m)))
       (is (not (str/blank? (:error m)))))))

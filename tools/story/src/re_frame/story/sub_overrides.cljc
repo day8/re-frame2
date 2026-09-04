@@ -46,7 +46,7 @@
   Provider + the `:subs/resolve-sub-override` hook publication below)
   reads the plan's `[:world :render :sub-overrides]` map; production
   bundles elide the whole runtime, and the core consult is gated on
-  `interop/debug-enabled?`, so nothing surfaces an override in
+  `rf.interop/debug-enabled?`, so nothing surfaces an override in
   production.
 
   ## Live subscribe seam
@@ -76,7 +76,7 @@
        `*overrides*` dynamic var is retained ONLY as a JVM / pure-test
        convenience (the resolver tests bind it directly).
     2. The consult is SUBSTITUTIVE but dev-only + honesty-bounded. It
-       sits inside `subscribe`'s `interop/debug-enabled?` gate (DCEs
+       sits inside `subscribe`'s `rf.interop/debug-enabled?` gate (DCEs
        under `:advanced` + `goog.DEBUG=false`), and the override feeds
        ONLY the constant reaction the view derefs — never app-db, never
        `compute-sub`. So `:rf.assert/sub-equals` (which evaluates a sub
@@ -85,9 +85,9 @@
   Core schema-validates a hit against the subscription's declared
   `:schema`, matching Spec 010 §`:sub-return`."
   (:refer-clojure :exclude [resolve read])
-  #?(:cljs (:require [re-frame.adapter.sub-override-context :as ovr-ctx]
-                     [re-frame.interop :as interop]
-                     [re-frame.late-bind :as late-bind])))
+  #?(:cljs (:require [re-frame.adapter.sub-override-context :as rf.adapter.sub-override-context]
+                     [re-frame.interop :as rf.interop]
+                     [re-frame.late-bind :as rf.late-bind])))
 
 ;; ============================================================================
 ;; Render-path override binding
@@ -203,7 +203,7 @@
 ;; below reads the closest enclosing Provider's override map and is
 ;; published to core via the `:subs/resolve-sub-override` late-bind hook.
 ;; `re-frame.subs/subscribe` consults the hook ONLY inside its
-;; `interop/debug-enabled?` gate, so the whole seam DCEs in production and
+;; `rf.interop/debug-enabled?` gate, so the whole seam DCEs in production and
 ;; core never `:require`s this tools ns (bundle-isolation holds).
 
 #?(:cljs
@@ -218,7 +218,7 @@
      'override pins nil' from 'no override' without importing this ns's
      `miss` sentinel; core stays tools-free."
      [query-v]
-     (let [overrides (ovr-ctx/current-overrides)
+     (let [overrides (rf.adapter.sub-override-context/current-overrides)
            v         (resolve overrides query-v)]
        (when-not (miss? v)
          [v]))))
@@ -239,22 +239,22 @@
      real subscription).
 
      Dev/tool builds only: under `goog.DEBUG=false` (e.g. the `:advanced`
-     static-export release) `ovr-ctx/override-context` is nil — the whole
+     static-export release) `rf.adapter.sub-override-context/override-context` is nil — the whole
      sub-override seam is compiled out, including the `subscribe` consult
      — so this fn returns `child` unchanged instead of mounting a
      Provider on a nil context. The gate is not this namespace's
      invention: `re-frame.adapter.sub-override-context` initialises the
      context var to nil in production WITHOUT calling
      `React.createContext`, so every mount site owes the same
-     `interop/debug-enabled?` test to avoid mounting a Provider on
+     `rf.interop/debug-enabled?` test to avoid mounting a Provider on
      nothing."
      [overrides child]
-     (if interop/debug-enabled?
-       [:r> (.-Provider ovr-ctx/override-context) #js {:value overrides} child]
+     (if rf.interop/debug-enabled?
+       [:r> (.-Provider rf.adapter.sub-override-context/override-context) #js {:value overrides} child]
        child)))
 
 ;; Publish the hook at ns-load time (CLJS only). Core consults it lazily
-;; via `late-bind/get-fn` inside the dev gate; an unpublished hook (JVM,
+;; via `rf.late-bind/get-fn` inside the dev gate; an unpublished hook (JVM,
 ;; or a build that never loads Story) simply makes the consult a no-op.
 #?(:cljs
-   (late-bind/set-fn! :subs/resolve-sub-override resolve-sub-override-hit))
+   (rf.late-bind/set-fn! :subs/resolve-sub-override resolve-sub-override-hit))

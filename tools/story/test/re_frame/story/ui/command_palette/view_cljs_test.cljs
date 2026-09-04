@@ -9,7 +9,7 @@
   `palette/move-active-index` in `re_frame/story_ui_test.clj`
   (JVM) and `re_frame/story_ui_cljs_test.cljs` (CLJS). This
   namespace pins the renderable
-  states of `view/render-palette` — the pure projection that
+  states of `rf.story.ui.command-palette.view/render-palette` — the pure projection that
   `command-palette-host` delegates to once `open?` flips true:
 
   - **testid presence** — the root scrim carries the
@@ -39,8 +39,8 @@
   every branch without booting reagent's class-3 lifecycle."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.test-helpers :as th]
-            [re-frame.story.ui.command-palette.view :as view]))
+            [re-frame.test-helpers :as rf.test-helpers]
+            [re-frame.story.ui.command-palette.view :as rf.story.ui.command-palette.view]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -85,13 +85,13 @@
   (testing "the root scrim of the rendered palette carries
             `data-test=story-command-palette` so downstream tests
             (and Xray's spine instrumentation) can anchor on it."
-    (let [tree (view/render-palette (base-props))
-          root (th/find-by-attr tree :data-test "story-command-palette")]
+    (let [tree (rf.story.ui.command-palette.view/render-palette (base-props))
+          root (rf.test-helpers/find-by-attr tree :data-test "story-command-palette")]
       (is (some? root)
           "root scrim node present with the spec/008-documented selector")
       (is (= :div (first root))
           "root is a :div — the scrim overlay container")
-      (is (some? (th/find-by-attr tree :data-test "story-command-palette-input"))
+      (is (some? (rf.test-helpers/find-by-attr tree :data-test "story-command-palette-input"))
           "input field present with its data-test selector"))))
 
 ;; ===========================================================================
@@ -105,12 +105,12 @@
   (testing "with `:results []` the panel renders the empty-state
             placeholder and zero result rows. Proves the
             `(if (seq results) ... empty)` branch."
-    (let [tree     (view/render-palette (base-props))
-          empty    (th/find-by-attr tree :data-test "story-command-palette-empty")
-          results  (th/find-all-by-attr tree :data-test "story-command-palette-result")]
+    (let [tree     (rf.story.ui.command-palette.view/render-palette (base-props))
+          empty    (rf.test-helpers/find-by-attr tree :data-test "story-command-palette-empty")
+          results  (rf.test-helpers/find-all-by-attr tree :data-test "story-command-palette-result")]
       (is (some? empty)
           "empty-state placeholder present")
-      (is (= "No matching registry entries." (th/text-content empty))
+      (is (= "No matching registry entries." (rf.test-helpers/text-content empty))
           "placeholder copy matches spec/008")
       (is (zero? (count results))
           "no result rows rendered when results is empty"))))
@@ -132,10 +132,10 @@
     (let [entries [(mk-entry :variant   ":app/login"     "Login variant")
                    (mk-entry :workspace ":app/sandbox"   "Workspace sandbox")
                    (mk-entry :story     ":app/counters"  "Counter family")]
-          tree    (view/render-palette
+          tree    (rf.story.ui.command-palette.view/render-palette
                     (assoc (base-props) :results entries))
-          rows    (th/find-all-by-attr tree :data-test "story-command-palette-result")
-          empty   (th/find-by-attr   tree :data-test "story-command-palette-empty")]
+          rows    (rf.test-helpers/find-all-by-attr tree :data-test "story-command-palette-result")
+          empty   (rf.test-helpers/find-by-attr   tree :data-test "story-command-palette-empty")]
       (is (= 3 (count rows))
           "one row per entry in the result list")
       (is (nil? empty)
@@ -167,22 +167,22 @@
     (let [entries [(mk-entry :variant   ":a/one")
                    (mk-entry :variant   ":a/two")
                    (mk-entry :workspace ":a/three")]
-          tree    (view/render-palette
+          tree    (rf.story.ui.command-palette.view/render-palette
                     (assoc (base-props)
                            :results entries
                            :active  1))
-          rows    (th/find-all-by-attr tree :data-test "story-command-palette-result")
+          rows    (rf.test-helpers/find-all-by-attr tree :data-test "story-command-palette-result")
           aria    (mapv #(get (second %) :aria-selected) rows)]
       (is (= 3 (count rows)))
       (is (= ["false" "true" "false"] aria)
           "only the row at :active carries aria-selected=true")
       ;; Sanity: shifting :active shifts the highlighted row.
-      (let [tree2 (view/render-palette
+      (let [tree2 (rf.story.ui.command-palette.view/render-palette
                     (assoc (base-props)
                            :results entries
                            :active  2))
             aria2 (mapv #(get (second %) :aria-selected)
-                        (th/find-all-by-attr tree2 :data-test
+                        (rf.test-helpers/find-all-by-attr tree2 :data-test
                                              "story-command-palette-result"))]
         (is (= ["false" "false" "true"] aria2)
             "moving :active to 2 highlights the third row only")))))

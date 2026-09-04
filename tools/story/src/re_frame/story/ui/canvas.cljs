@@ -19,7 +19,7 @@
     `:assertions`).
 
   The canvas reads the registered `:component` keyword and renders it
-  through the SUBSTRATE REGISTRY — `multi-substrate/render-view` looks the
+  through the SUBSTRATE REGISTRY — `rf.story.ui.multi-substrate/render-view` looks the
   variant's declared substrate up in `substrate->render-fn` and calls its
   render fn. Both render branches resolve the renderer that way: the
   side-by-side grid for a variant declaring two or more substrates, and the
@@ -35,44 +35,44 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.story.config :as config]
-            [re-frame.story.loaders :as story-loaders]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.args :as args]
-            [re-frame.story.decorators :as decorators]
-            [re-frame.story.plan :as plan]
-            [re-frame.story.render :as render]
-            [re-frame.story.runtime :as runtime]
-            [re-frame.story.sub-overrides :as sub-overrides]
-            [re-frame.story.ui.assertion-strip :as assertion-strip]
-            [re-frame.story.ui.multi-substrate :as multi-substrate]
-            [re-frame.story.ui.open-in-editor :as open-in-editor]
-            [re-frame.story.ui.share :as share]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-            [re-frame.story.theme.colors :as colors]
-            [re-frame.story.theme.depth :as depth]))
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.args :as rf.story.args]
+            [re-frame.story.decorators :as rf.story.decorators]
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.render :as rf.story.render]
+            [re-frame.story.runtime :as rf.story.runtime]
+            [re-frame.story.sub-overrides :as rf.story.sub-overrides]
+            [re-frame.story.ui.assertion-strip :as rf.story.ui.assertion-strip]
+            [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate]
+            [re-frame.story.ui.open-in-editor :as rf.story.ui.open-in-editor]
+            [re-frame.story.ui.share :as rf.story.ui.share]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]
+            [re-frame.story.theme.depth :as rf.story.theme.depth]))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private styles
   {:wrap     {:padding "16px"
-              :background (:bg-canvas colors/tokens)
+              :background (:bg-canvas rf.story.theme.colors/tokens)
               :flex "1"
               :min-height "200px"
               :overflow "auto"
-              :color (:text-primary colors/tokens)
+              :color (:text-primary rf.story.theme.colors/tokens)
               :font-family sans-stack}
    :frame    {;; The workshop region. Atmospheric amber-halo
               ;; backdrop + amber inset edge so the variant render lifts
               ;; visibly above the surrounding chrome — the user's eye
               ;; lands here automatically.
-              :background (:canvas-frame depth/backdrops)
+              :background (:canvas-frame rf.story.theme.depth/backdrops)
               :border "1px solid transparent"
               :border-radius "6px"
               :padding "16px"
-              :box-shadow (:canvas-edge depth/shadows)}
-   :empty    {:color (:text-tertiary colors/tokens)
+              :box-shadow (:canvas-edge rf.story.theme.depth/shadows)}
+   :empty    {:color (:text-tertiary rf.story.theme.colors/tokens)
               :font-style "italic"
               :text-align "center"
               :padding "32px"}
@@ -83,9 +83,9 @@
    ;; canvases.
    :title    {:font-weight "bold"
               :margin-bottom "8px"
-              :color (:info colors/tokens)
+              :color (:info rf.story.theme.colors/tokens)
               :font-family mono-stack
-              :font-size (:body-tight typography/type-scale)
+              :font-size (:body-tight rf.story.theme.typography/type-scale)
               :display "flex"
               :align-items "center"
               :flex-wrap "wrap"
@@ -99,13 +99,13 @@
                     :align-items "center"
                     :gap "8px"
                     :flex-shrink "0"}
-   :error    {:background (:danger-bg colors/tokens)
+   :error    {:background (:danger-bg rf.story.theme.colors/tokens)
               :border "1px solid #be4040"
-              :color (:danger colors/tokens)
+              :color (:danger rf.story.theme.colors/tokens)
               :padding "8px"
               :margin-top "8px"
               :font-family mono-stack
-              :font-size (:caption typography/type-scale)
+              :font-size (:caption rf.story.theme.typography/type-scale)
               :border-radius "3px"}
    ;; Identity-bearing loading skeleton during the
    ;; four-phase loader lifecycle. Reads as "workshop loading" — amber-
@@ -117,17 +117,17 @@
               :display "flex"
               :flex-direction "column"
               :gap "12px"
-              :background (:bg-canvas colors/tokens)
+              :background (:bg-canvas rf.story.theme.colors/tokens)
               :border-radius "6px"
               :overflow "hidden"
               :font-family mono-stack
-              :color (:text-tertiary colors/tokens)}
+              :color (:text-tertiary rf.story.theme.colors/tokens)}
    :skeleton-bar {:height "12px"
                   :width "78%"
                   :background (str "linear-gradient(90deg, "
-                                   (:bg-3 colors/tokens) " 0%, "
-                                   (:accent-amber-soft colors/tokens) " 50%, "
-                                   (:bg-3 colors/tokens) " 100%)")
+                                   (:bg-3 rf.story.theme.colors/tokens) " 0%, "
+                                   (:accent-amber-soft rf.story.theme.colors/tokens) " 50%, "
+                                   (:bg-3 rf.story.theme.colors/tokens) " 100%)")
                   :background-size "200% 100%"
                   :border-radius "3px"
                   :animation (str "rf-story-shimmer 1400ms "
@@ -137,13 +137,13 @@
    :skeleton-edge {:position "absolute"
                    :inset "0"
                    :pointer-events "none"
-                   :border (str "1px solid " (:accent-amber-deep colors/tokens))
+                   :border (str "1px solid " (:accent-amber-deep rf.story.theme.colors/tokens))
                    :border-radius "6px"
-                   :box-shadow (str "inset 0 0 0 1px " (:accent-amber-soft colors/tokens))}
-   :skeleton-label {:font-size (:micro typography/type-scale)
+                   :box-shadow (str "inset 0 0 0 1px " (:accent-amber-soft rf.story.theme.colors/tokens))}
+   :skeleton-label {:font-size (:micro rf.story.theme.typography/type-scale)
                     :text-transform "uppercase"
                     :letter-spacing "0.12em"
-                    :color (:accent-amber colors/tokens)
+                    :color (:accent-amber rf.story.theme.colors/tokens)
                     :margin-bottom "4px"}
    ;; Viewport-px indicator chip. Shows e.g. "375 × 667"
    ;; at canvas bottom-right when a viewport mode is active.
@@ -151,12 +151,12 @@
                    :bottom "12px"
                    :right "16px"
                    :padding "3px 8px"
-                   :background (:bg-overlay colors/tokens)
-                   :border (str "1px solid " (:border-subtle colors/tokens))
+                   :background (:bg-overlay rf.story.theme.colors/tokens)
+                   :border (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                    :border-radius "4px"
-                   :color (:text-secondary colors/tokens)
+                   :color (:text-secondary rf.story.theme.colors/tokens)
                    :font-family mono-stack
-                   :font-size (:micro typography/type-scale)
+                   :font-size (:micro rf.story.theme.typography/type-scale)
                    :letter-spacing "0.04em"
                    :pointer-events "none"
                    :user-select "none"}})
@@ -260,9 +260,9 @@
   parent story usually carries the component and variants vary only by
   args / events)."
   [variant-id]
-  (let [variant-body (registrar/handler-meta :variant variant-id)
-        story-id     (args/parent-story-id variant-id)
-        story-body   (when story-id (registrar/handler-meta :story story-id))]
+  (let [variant-body (rf.story.registrar/handler-meta :variant variant-id)
+        story-id     (rf.story.args/parent-story-id variant-id)
+        story-body   (when story-id (rf.story.registrar/handler-meta :story story-id))]
     (or (:component variant-body)
         (:component story-body))))
 
@@ -274,7 +274,7 @@
 ;; subscription overrides). At render the canvas resolves the variant's
 ;; override map (arg-substituting `[:arg key]` placeholders against the
 ;; effective args, the SAME one-level substitution the plan compiler uses)
-;; and binds it through `sub-overrides/with-overrides*` for the view-
+;; and binds it through `rf.story.sub-overrides/with-overrides*` for the view-
 ;; render extent. The binding never touches app-db or `compute-sub`, so
 ;; it can never satisfy a subscription assertion (`:rf.assert/sub-equals`).
 ;;
@@ -294,8 +294,8 @@
   values, `[:arg key]` placeholders substituted against `eff-args`), or nil
   when the variant authors none.
 
-  Routes through the COMPILED variant-plan (`plan/variant-plan`) and the
-  SHARED `render/resolve-render-sub-overrides` resolver — the SAME source
+  Routes through the COMPILED variant-plan (`rf.story.plan/variant-plan`) and the
+  SHARED `rf.story.render/resolve-render-sub-overrides` resolver — the SAME source
   `render-variant` reads — NOT the bare registrar body (the shared
   resolver invariant). Reading `(:sub-overrides body)` off the
   side-table saw ONLY the variant's OWN slot, dropping overrides contributed
@@ -310,7 +310,7 @@
   control-driven override value reflects the live control, exactly as on the
   render-variant path."
   [variant-id eff-args]
-  (render/resolve-render-sub-overrides (plan/variant-plan variant-id) eff-args))
+  (rf.story.render/resolve-render-sub-overrides (rf.story.plan/variant-plan variant-id) eff-args))
 
 (defn sub-overrides-scope
   "A Reagent component that wraps `child`'s render in the override-context
@@ -330,7 +330,7 @@
   render-transparent (the descendant consult misses and the view reads its
   real subscription)."
   [overrides child]
-  (sub-overrides/override-provider overrides child))
+  (rf.story.sub-overrides/override-provider overrides child))
 
 ;; ---- decorated-view wrapper ---------------------------------------------
 
@@ -346,7 +346,7 @@
   host hook (`re-frame.story.canonical/render-host-scope`), so the live
   canvas and render-variant paint the identical decorated tree. Re-exported
   here so the canvas / workspace call sites keep one import."
-  multi-substrate/safe-decorated-view)
+  rf.story.ui.multi-substrate/safe-decorated-view)
 
 ;; ---- error projection ---------------------------------------------------
 
@@ -366,7 +366,7 @@
   also consumes (single source of truth for the inline strip shape)."
   [assertions]
   (when (seq assertions)
-    [assertion-strip/assertion-strip assertions]))
+    [rf.story.ui.assertion-strip/assertion-strip assertions]))
 
 ;; ---- the canvas component ------------------------------------------------
 
@@ -425,12 +425,12 @@
   single resume owner runs the script exactly once. Returns nothing — the
   canvas reads the variant's app-db-value reactively after each run."
   [variant-id]
-  (let [shell @state/shell-state-atom
+  (let [shell @rf.story.ui.state/shell-state-atom
         opts  {:active-modes   (:active-modes shell)
                :cell-overrides (get-in shell [:cell-overrides variant-id])
                :substrate      (:substrate shell)
                :run-key        (run-key shell variant-id)}]
-    (runtime/prepare-run! variant-id opts)
+    (rf.story.runtime/prepare-run! variant-id opts)
     nil))
 
 (defn- run-if-needed!
@@ -446,8 +446,8 @@
   idempotent per generation, so the shell selection-watcher / mount-time block
   calling it too for the same generation collapses to one execution."
   []
-  (when config/enabled?
-    (let [shell      @state/shell-state-atom
+  (when rf.story.config/enabled?
+    (let [shell      @rf.story.ui.state/shell-state-atom
           variant-id (:selected-variant shell)]
       (if-not variant-id
         (reset! canvas-last-run-key nil)
@@ -457,7 +457,7 @@
             (prepare-with-shell-opts! variant-id)
             ;; RESUME the one run owner post-commit. The generation guard makes
             ;; this exactly-once even though the shell also schedules a resume.
-            (runtime/resume-run! variant-id)))))))
+            (rf.story.runtime/resume-run! variant-id)))))))
 
 (defn variant-substrate-set
   "Resolve the variant's effective substrate set. Per `001-Authoring.md` §Registration macros
@@ -472,11 +472,11 @@
   itself the answer to \"declared set or host substrate?\" — it is both,
   in that precedence, with the shell's substrate as the fallback."
   [variant-id]
-  (let [vb (registrar/handler-meta :variant variant-id)
-        sid (args/parent-story-id variant-id)
-        sb (when sid (registrar/handler-meta :story sid))]
-    (multi-substrate/resolve-substrate-set
-      vb sb (or (:substrate @state/shell-state-atom) :reagent))))
+  (let [vb (rf.story.registrar/handler-meta :variant variant-id)
+        sid (rf.story.args/parent-story-id variant-id)
+        sb (when sid (rf.story.registrar/handler-meta :story sid))]
+    (rf.story.ui.multi-substrate/resolve-substrate-set
+      vb sb (or (:substrate @rf.story.ui.state/shell-state-atom) :reagent))))
 
 (defn- canvas-inner
   "The inner render fn — reads the variant's app-db-value reactively. Split
@@ -489,7 +489,7 @@
   - >1 substrate → multi-substrate side-by-side grid (`002-Runtime.md` §Substrate hooks)."
   [variant-id]
   (let [view-id        (variant-component variant-id)
-        variant-body   (registrar/handler-meta :variant variant-id)
+        variant-body   (rf.story.registrar/handler-meta :variant variant-id)
         ;; The SAME per-run opts the `eff-args` resolve below
         ;; uses, threaded into `resolve-decorators` so the plan it
         ;; recompiles to read `[:world :decorators]` substitutes `[:arg]`
@@ -499,13 +499,13 @@
         ;; here even though the runtime's plan compile handles it — the
         ;; canvas decorator recompile needs the same opts.
         run-opts       {:active-modes
-                        (:active-modes @state/shell-state-atom)
+                        (:active-modes @rf.story.ui.state/shell-state-atom)
                         :cell-overrides
-                        (get-in @state/shell-state-atom
+                        (get-in @rf.story.ui.state/shell-state-atom
                                 [:cell-overrides variant-id])}
-        decorator-pack (decorators/resolve-decorators variant-id run-opts)
-        eff-args       (args/resolve-args variant-id run-opts)
-        assertions     (runtime/read-assertions variant-id)
+        decorator-pack (rf.story.decorators/resolve-decorators variant-id run-opts)
+        eff-args       (rf.story.args/resolve-args variant-id run-opts)
+        assertions     (rf.story.runtime/read-assertions variant-id)
         ;; Resolve the variant's view-state subscription
         ;; overrides (arg-substituted) for the render-path binding below.
         sub-ovr        (resolve-sub-overrides variant-id eff-args)
@@ -517,7 +517,7 @@
         ;; window before `frames/allocate!` runs. Pure-data check
         ;; against the variant body + decorator stack, mirroring
         ;; `loaders/events-only-variant?`.
-        events-only?   (story-loaders/events-only-variant?
+        events-only?   (rf.story.loaders/events-only-variant?
                          variant-body decorator-pack)
         ;; rf2-4iu7tu: events-only?'s skeleton suppression (below /
         ;; `loading-phase?`'s events-only? arm) means THIS render — not
@@ -554,7 +554,7 @@
         ;; loader cascade runs; once :ready / :error lands, the
         ;; first-rendered sentinel flips (in component-did-mount /
         ;; -did-update) and the skeleton hides.
-        lifecycle-phase (try (story-loaders/current-state variant-id)
+        lifecycle-phase (try (rf.story.loaders/current-state variant-id)
                              (catch :default _ nil))
         first?         (variant-first-rendered? variant-id)
         ;; A recorded assertion proves the loader cascade
@@ -570,11 +570,11 @@
      [:div {:style (:title styles)}
       [:span (str (pr-str variant-id))]
       (when view-id
-        [:span {:style {:color (:text-tertiary colors/tokens)}}
+        [:span {:style {:color (:text-tertiary rf.story.theme.colors/tokens)}}
          (str "→ " (pr-str view-id))])
       (when multi?
-        [:span {:style {:color (:text-secondary colors/tokens)
-                        :font-size (:micro typography/type-scale) :font-weight "normal"}}
+        [:span {:style {:color (:text-secondary rf.story.theme.colors/tokens)
+                        :font-size (:micro rf.story.theme.typography/type-scale) :font-weight "normal"}}
          (str " (substrates: "
               (str/join ", " (map name (sort-by name substrates)))
               ")")])
@@ -589,13 +589,13 @@
          ;; off the variant body and routes through the user's configured
          ;; editor URI scheme. Renders nothing when no source-coord was
          ;; captured at registration.
-         (open-in-editor/open-chip-for-variant variant-body)])]
+         (rf.story.ui.open-in-editor/open-chip-for-variant variant-body)])]
      ;; The share-import hint surfaces a non-blocking note when
      ;; a hydrated share URL dropped one or more overrides (variant
      ;; args refactored/renamed/removed). Renders nil when nothing
      ;; dropped, so this is unconditional-safe.
      (when variant-id
-       [share/share-import-hint variant-id])
+       [rf.story.ui.share/share-import-hint variant-id])
      (cond
        (nil? variant-id)
        [:div {:style (:empty styles)} "no variant selected"]
@@ -619,12 +619,12 @@
        ;; back to the live app/default frame.
        ^{:key (str "multi-" variant-id)}
        [rf/frame-provider {:frame variant-id}
-        [multi-substrate/multi-substrate-grid variant-id]]
+        [rf.story.ui.multi-substrate/multi-substrate-grid variant-id]]
 
        :else
        ;; SINGLE-PANE render. The renderer is resolved through the SAME
        ;; substrate registry the grid branch above consults —
-       ;; `multi-substrate/render-view` → `substrate->render-fn` — keyed on
+       ;; `rf.story.ui.multi-substrate/render-view` → `substrate->render-fn` — keyed on
        ;; the variant's ONE declared substrate.
        ;;
        ;; rf2-3afns: this branch used to call `(rf/view view-id)` itself and
@@ -677,7 +677,7 @@
          ;; wrapper when the variant authors none).
          [sub-overrides-scope sub-ovr
           (safe-decorated-view
-            (multi-substrate/render-view
+            (rf.story.ui.multi-substrate/render-view
               (first substrates) variant-id view-id eff-args)
             (:hiccup decorator-pack)
             eff-args)]]])
@@ -695,13 +695,13 @@
   user view must still render. The skeleton hides on the
   next render pass."
   []
-  (when config/enabled?
-    (let [shell      @state/shell-state-atom
+  (when rf.story.config/enabled?
+    (let [shell      @rf.story.ui.state/shell-state-atom
           variant-id (:selected-variant shell)]
       (when variant-id
-        (let [phase (try (story-loaders/current-state variant-id)
+        (let [phase (try (rf.story.loaders/current-state variant-id)
                          (catch :default _ nil))
-              assertions (try (runtime/read-assertions variant-id)
+              assertions (try (rf.story.runtime/read-assertions variant-id)
                               (catch :default _ nil))]
           (when (or (contains? #{:ready :error} phase)
                     (seq assertions))
@@ -751,13 +751,13 @@
             (reset-first-rendered!))))
      :reagent-render
      (fn []
-       (let [shell      @state/shell-state-atom
+       (let [shell      @rf.story.ui.state/shell-state-atom
              variant-id (:selected-variant shell)
              opts       {:active-modes   (:active-modes shell)
                          :cell-overrides (get-in shell [:cell-overrides variant-id])
                          :substrate      (:substrate shell)}
              snapshot   (when variant-id
-                          (runtime/snapshot-identity variant-id opts))
+                          (rf.story.runtime/snapshot-identity variant-id opts))
              _tick      (:hot-reload-tick shell)]   ;; deref to subscribe
          ;; The canvas wrap is the scrollable container
          ;; for variant content; `tab-index "0"` makes it keyboard-

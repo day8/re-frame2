@@ -30,7 +30,7 @@
   ceiling without losing locality. The parent ns re-exports the
   public defs so existing consumer requires (`re-frame.story.ui.state`)
   keep working."
-  (:require [re-frame.story.verdict :as verdict]))
+  (:require [re-frame.story.verdict :as rf.story.verdict]))
 
 ;; ---- test-runs -----------------------------------------------------------
 ;;
@@ -93,7 +93,7 @@
         legacy-skip? (fn [r] (= :rf.assert/skipped (:assertion r)))
         skipped    (count (filter legacy-skip? items))
         active     (remove legacy-skip? items)
-        buckets    (frequencies (map verdict/record-status active))
+        buckets    (frequencies (map rf.story.verdict/record-status active))
         passed     (get buckets :pass 0)
         cannot-run (get buckets :cannot-run 0)
         ;; :fail + :error both count as failures for the headline tally.
@@ -124,12 +124,12 @@
   (let [{:keys [total passed failed cannot-run skipped all-passed?
                 ran-at-ms elapsed-ms status]} (or summary {})
         status (cond
-                 (contains? verdict/statuses status)
+                 (contains? rf.story.verdict/statuses status)
                  ;; This slot carries the FIVE dot-facing run statuses
                  ;; (`test-run-statuses` — `:cannot-run` is the distinct
                  ;; third). A run-level `:error` verdict lowers to `:fail`
                  ;; HERE, at write time — the one place the four-verdict
-                 ;; vocabulary (spec/017, `verdict/statuses`) narrows; both
+                 ;; vocabulary (spec/017, `rf.story.verdict/statuses`) narrows; both
                  ;; demand attention and wear the danger tint. The
                  ;; per-assertion `:error` detail stays distinct in the
                  ;; test-mode pane's result rows (test-mode.pure), per

@@ -6,14 +6,14 @@
   exercised by the browser-side runner in
   `examples/scripts/serve-and-run-story-play-scripts.cjs`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story.play.ci-runner :as ci]
-            [re-frame.story.play.runner    :as runner]
-            [re-frame.story.registrar      :as registrar]))
+            [re-frame.story.play.ci-runner :as rf.story.play.ci-runner]
+            [re-frame.story.play.runner    :as rf.story.play.runner]
+            [re-frame.story.registrar      :as rf.story.registrar]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn- reset-registrar [test-fn]
-  (registrar/clear-all!)
+  (rf.story.registrar/clear-all!)
   (test-fn))
 
 (use-fixtures :each reset-registrar)
@@ -22,22 +22,22 @@
 
 (deftest has-play-script-missing
   (testing "has-play-script? is false when :script is absent"
-    (is (false? (ci/has-play-script? {})))
-    (is (false? (ci/has-play-script? {:setup [[:foo]]})))))
+    (is (false? (rf.story.play.ci-runner/has-play-script? {})))
+    (is (false? (rf.story.play.ci-runner/has-play-script? {:setup [[:foo]]})))))
 
 (deftest has-play-script-empty
   (testing "has-play-script? is false for empty vectors / maps"
-    (is (false? (ci/has-play-script? {:script []})))
-    (is (false? (ci/has-play-script? {:script {:script []}})))
-    (is (false? (ci/has-play-script? {:script {}})))))
+    (is (false? (rf.story.play.ci-runner/has-play-script? {:script []})))
+    (is (false? (rf.story.play.ci-runner/has-play-script? {:script {:script []}})))
+    (is (false? (rf.story.play.ci-runner/has-play-script? {:script {}})))))
 
 (deftest has-play-script-bare-vector
   (testing "has-play-script? is true for a non-empty bare vector"
-    (is (true? (ci/has-play-script? {:script [[:dispatch [:foo]]]})))))
+    (is (true? (rf.story.play.ci-runner/has-play-script? {:script [[:dispatch [:foo]]]})))))
 
 (deftest has-play-script-map-form
   (testing "has-play-script? is true for a map with at least one step"
-    (is (true? (ci/has-play-script?
+    (is (true? (rf.story.play.ci-runner/has-play-script?
                  {:script {:script [[:dispatch [:foo]]]
                                 :auto-run? true}})))))
 
@@ -53,7 +53,7 @@
                 :story.d/empty-script   {:script []}
                 :story.e/empty-map      {:script {:script []}}}]
       (is (= [:story.a/with-script :story.c/with-map-form]
-             (ci/variants-with-play-scripts regs))))))
+             (rf.story.play.ci-runner/variants-with-play-scripts regs))))))
 
 (deftest discovery-from-live-registrar
   (testing "no-arg discovery reads from the live Story registrar
@@ -61,36 +61,36 @@
     ;; Inject directly into the side-table — the schema-validated
     ;; reg-variant* path needs the canonical vocabulary which is
     ;; out of scope for a discovery test.
-    (swap! registrar/kind->id->body assoc-in
+    (swap! rf.story.registrar/kind->id->body assoc-in
            [:variant :story.t/script]
            {:script [[:dispatch [:foo]]]})
-    (swap! registrar/kind->id->body assoc-in
+    (swap! rf.story.registrar/kind->id->body assoc-in
            [:variant :story.t/no-script]
            {:setup [[:foo]]})
-    (is (= [:story.t/script] (ci/variants-with-play-scripts)))
+    (is (= [:story.t/script] (rf.story.play.ci-runner/variants-with-play-scripts)))
 
     ;; A third variant with a `:script` lands in sorted order.
-    (swap! registrar/kind->id->body assoc-in
+    (swap! rf.story.registrar/kind->id->body assoc-in
            [:variant :story.t/another]
            {:script {:script [[:wait 0]]}})
     (is (= [:story.t/another :story.t/script]
-           (ci/variants-with-play-scripts)))))
+           (rf.story.play.ci-runner/variants-with-play-scripts)))))
 
 (deftest discovery-with-zero-variants
   (testing "discovery returns the empty vector when nothing is registered"
-    (is (= [] (ci/variants-with-play-scripts)))))
+    (is (= [] (rf.story.play.ci-runner/variants-with-play-scripts)))))
 
 ;; ---- ci-context ----------------------------------------------------------
 
 (deftest ci-context-shape
   (testing "ci-context bundles the variant list + per-play rows"
-    (swap! registrar/kind->id->body assoc-in
+    (swap! rf.story.registrar/kind->id->body assoc-in
            [:variant :story.c/a]
            {:script [[:dispatch [:a]]]})
-    (swap! registrar/kind->id->body assoc-in
+    (swap! rf.story.registrar/kind->id->body assoc-in
            [:variant :story.c/b]
            {:script {:script [[:wait 0]] :auto-run? false :name "b"}})
-    (let [ctx (ci/ci-context)]
+    (let [ctx (rf.story.play.ci-runner/ci-context)]
       (is (= [:story.c/a :story.c/b] (:variants ctx)))
       (is (not (contains? ctx :summaries))
           "the legacy per-variant :summaries projection is dropped (rf2-k9u0h)")
@@ -101,11 +101,11 @@
 ;; ---- terminal? -----------------------------------------------------------
 
 (deftest terminal?-recognises-pass-and-fail-only
-  (is (true?  (ci/terminal? {:status :pass})))
-  (is (true?  (ci/terminal? {:status :fail})))
-  (is (false? (ci/terminal? {:status :running})))
-  (is (false? (ci/terminal? {:status :idle})))
-  (is (false? (ci/terminal? nil))))
+  (is (true?  (rf.story.play.ci-runner/terminal? {:status :pass})))
+  (is (true?  (rf.story.play.ci-runner/terminal? {:status :fail})))
+  (is (false? (rf.story.play.ci-runner/terminal? {:status :running})))
+  (is (false? (rf.story.play.ci-runner/terminal? {:status :idle})))
+  (is (false? (rf.story.play.ci-runner/terminal? nil))))
 
 ;; ---- project-state -------------------------------------------------------
 
@@ -121,13 +121,13 @@
                  :finished-ms 200
                  :script      [[:assert-db [:k] 1]
                                [:assert-db [:k] 2]]
-                 :results     [(runner/step-pass 0 [:dispatch [:a]])
-                               (runner/step-fail 1 [:assert-db [:k] 2]
+                 :results     [(rf.story.play.runner/step-pass 0 [:dispatch [:a]])
+                               (rf.story.play.runner/step-fail 1 [:assert-db [:k] 2]
                                                  {:expected 2
                                                   :actual   1
                                                   :message  "msg"})
-                               (runner/step-exception 2 [:dispatch [:b]] "boom")]}
-          out   (ci/project-state state)]
+                               (rf.story.play.runner/step-exception 2 [:dispatch [:b]] "boom")]}
+          out   (rf.story.play.ci-runner/project-state state)]
       (is (= :fail (:status out)))
       (is (= 2     (:step-idx out)))
       (is (= 3     (:total out)))
@@ -144,19 +144,19 @@
         (is (= "msg" (:message r1)))))))
 
 (deftest project-state-nil-yields-nil
-  (is (nil? (ci/project-state nil))))
+  (is (nil? (rf.story.play.ci-runner/project-state nil))))
 
 ;; ---- multi-play (rf2-tl7zk) ----------------------------------------------
 
 (deftest has-plays?-recognises-non-empty-plays
-  (is (false? (ci/has-plays? {})))
-  (is (false? (ci/has-plays? {:plays []})))
-  (is (true?  (ci/has-plays? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
+  (is (false? (rf.story.play.ci-runner/has-plays? {})))
+  (is (false? (rf.story.play.ci-runner/has-plays? {:plays []})))
+  (is (true?  (rf.story.play.ci-runner/has-plays? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
 
 (deftest has-any-play?-or-of-both
-  (is (false? (ci/has-any-play? {})))
-  (is (true?  (ci/has-any-play? {:script [[:dispatch [:a]]]})))
-  (is (true?  (ci/has-any-play? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
+  (is (false? (rf.story.play.ci-runner/has-any-play? {})))
+  (is (true?  (rf.story.play.ci-runner/has-any-play? {:script [[:dispatch [:a]]]})))
+  (is (true?  (rf.story.play.ci-runner/has-any-play? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
 
 (deftest discovery-includes-plays-variants
   (testing "variants-with-play-scripts picks up :plays-carrying bodies"
@@ -165,7 +165,7 @@
                                           {:name "p2" :script [[:dispatch [:b2]]]}]}
                 :story.c/none    {:setup []}}]
       (is (= [:story.a/single :story.b/multi]
-             (ci/variants-with-play-scripts regs))))))
+             (rf.story.play.ci-runner/variants-with-play-scripts regs))))))
 
 (deftest ci-rows-enumerates-plays-per-variant
   (testing "ci-rows produces one row per play; single-script variants produce one row"
@@ -179,7 +179,7 @@
                           :auto-run? true}]}
 
                 :story.c/no-play {:setup []}}
-          rows (ci/ci-rows regs)]
+          rows (rf.story.play.ci-runner/ci-rows regs)]
       (is (= 3 (count rows))
           "single + multi(2) = 3 rows total")
       (is (= [[:story.a/single "single-named"]
@@ -195,7 +195,7 @@
 (deftest ci-rows-handles-bare-play-script
   (testing "a bare :script (no :name) yields a row with :play-key nil"
     (let [regs {:story.x/bare {:script [[:dispatch [:a]]]}}
-          rows (ci/ci-rows regs)]
+          rows (rf.story.play.ci-runner/ci-rows regs)]
       (is (= 1 (count rows)))
       (is (nil? (:play-key (first rows))))
       (is (= 1   (:script-len (first rows))))
@@ -204,14 +204,14 @@
 
 (deftest ci-context-includes-rows
   (testing "ci-context exposes the per-play rows alongside :variants"
-    (swap! registrar/kind->id->body assoc-in
+    (swap! rf.story.registrar/kind->id->body assoc-in
            [:variant :story.ctx/multi]
            {:plays [{:name "a" :script [[:dispatch [:foo]]]}
                     {:name "b" :script [[:dispatch [:bar]]]}]})
-    (swap! registrar/kind->id->body assoc-in
+    (swap! rf.story.registrar/kind->id->body assoc-in
            [:variant :story.ctx/single]
            {:script {:name "lone" :script [[:dispatch [:baz]]]}})
-    (let [ctx (ci/ci-context)]
+    (let [ctx (rf.story.play.ci-runner/ci-context)]
       (is (= [:story.ctx/multi :story.ctx/single] (:variants ctx)))
       ;; rows are per-PLAY — multi(2) + single(1) = 3 rows.
       (is (= 3 (count (:rows ctx))))

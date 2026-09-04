@@ -34,45 +34,45 @@
 
   Sub-millisecond per case; no DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.ui.sidebar :as sidebar]
-            [re-frame.story.ui.sidebar-search :as search]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
+            [re-frame.story.ui.sidebar-search :as rf.story.ui.sidebar-search]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; A canonical fixture: two stories, four variants. The names are
 ;; chosen so the AND-token discriminator has distinct hits for each
 ;; query the tests below issue.
 
 (defn- register-variants! []
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc "Counter parent story."})
-  (story/reg-variant :story.counter/empty
+  (rf.story/reg-variant :story.counter/empty
     {:doc "empty counter" :setup []})
-  (story/reg-variant :story.counter/at-five
+  (rf.story/reg-variant :story.counter/at-five
     {:doc "counter pre-seeded at five" :setup []})
-  (story/reg-story :story.login
+  (rf.story/reg-story :story.login
     {:doc "Login parent story."})
-  (story/reg-variant :story.login/blank
+  (rf.story/reg-variant :story.login/blank
     {:doc "blank login form" :setup []})
-  (story/reg-variant :story.login/loaded
+  (rf.story/reg-variant :story.login/loaded
     {:doc "login pre-populated" :setup []}))
 
 ;; ---- helpers: walk the sidebar's expanded hiccup to drive search --------
 
 (defn- render-sidebar
-  "`sidebar/sidebar` is a class-2 Reagent component — calling it
+  "`rf.story.ui.sidebar/sidebar` is a class-2 Reagent component — calling it
   returns the inner render fn. Invoking THAT returns the actual
   hiccup. Returns a tuple `[render-fn first-tree]` so the caller can
   re-render after mutating the closure-bound ratom (`on-change`'s
   side effect)."
   []
-  (let [render-fn (sidebar/sidebar)
+  (let [render-fn (rf.story.ui.sidebar/sidebar)
         first-tree (render-fn nil)]
     [render-fn first-tree]))
 
@@ -80,7 +80,7 @@
   "Locate the search `<input>` node by data-test attribute. Returns
   the hiccup vector."
   [tree]
-  (e2e/find-by-test-id tree "story-sidebar-search-input"))
+  (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-sidebar-search-input"))
 
 (defn- type-query!
   "Invoke the search input's `:on-change` with a synthetic event
@@ -89,13 +89,13 @@
   filtered tree."
   [tree q]
   (let [input   (search-input-node tree)
-        on-chg  (e2e/handler-for input :on-change)]
-    (when on-chg (on-chg (e2e/fake-event {:value q})))))
+        on-chg  (rf.story.test-helpers.e2e-multi-frame/handler-for input :on-change)]
+    (when on-chg (on-chg (rf.story.test-helpers.e2e-multi-frame/fake-event {:value q})))))
 
 (defn- variant-rows
   "Every `story-sidebar-variant-row` node in the expanded tree."
   [tree]
-  (e2e/find-all-by-test-id tree "story-sidebar-variant-row"))
+  (rf.story.test-helpers.e2e-multi-frame/find-all-by-test-id tree "story-sidebar-variant-row"))
 
 (defn- visible-variant-ids
   "Pull `:data-variant` strings off each variant row; this is what
@@ -110,7 +110,7 @@
 
 (deftest empty-query-renders-every-variant
   (testing "with no search query, the sidebar renders all 4 variants"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[_ tree] (render-sidebar)
@@ -127,7 +127,7 @@
 (deftest typed-query-narrows-to-counter-rows
   (testing "typing `counter` narrows the tree to the counter parent +
             its variants only (login variants drop out)"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[render tree-before] (render-sidebar)]
@@ -144,7 +144,7 @@
 (deftest typed-query-narrows-by-variant-name
   (testing "typing `five` narrows to the single variant whose id
             contains the substring"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[render tree-before] (render-sidebar)]
@@ -156,7 +156,7 @@
 
 (deftest typed-query-clears-back-to-full-tree
   (testing "Clearing the search (back to empty) restores every variant"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[render tree-before] (render-sidebar)]
@@ -178,15 +178,15 @@
             `filter-grouped-tree` returns when given the same registry
             + query. Pins the integration between the live sidebar and
             the pure helper so the two cannot drift."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         (let [[render tree-0] (render-sidebar)]
           (type-query! tree-0 "login")
-          (let [registry-snapshot (ui-state/registry-snapshot)
-                grouped-all       (ui-state/group-variants-by-story
+          (let [registry-snapshot (rf.story.ui.state/registry-snapshot)
+                grouped-all       (rf.story.ui.state/group-variants-by-story
                                     (:variants registry-snapshot))
-                pure-filtered     (search/filter-grouped-tree grouped-all "login")
+                pure-filtered     (rf.story.ui.sidebar-search/filter-grouped-tree grouped-all "login")
                 pure-variant-ids  (->> pure-filtered
                                        (mapcat :variants)
                                        (map (fn [[vid _]] (str vid)))

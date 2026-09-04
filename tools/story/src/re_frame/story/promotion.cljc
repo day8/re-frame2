@@ -66,10 +66,10 @@
   is the single impure entry; it gates on `re-frame.story.config/enabled?`
   so a production CLJS build short-circuits before touching the side-table
   (mirroring `save-variant`)."
-  (:require [re-frame.story.config     :as config]
-            [re-frame.story.plan       :as plan]
-            [re-frame.story.play.runner :as runner]
-            [re-frame.story.registrar  :as registrar]))
+  (:require [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.plan       :as rf.story.plan]
+            [re-frame.story.play.runner :as rf.story.play.runner]
+            [re-frame.story.registrar  :as rf.story.registrar]))
 
 ;; ===========================================================================
 ;; Runnable reproducibility slots (rf2-vf8es)
@@ -101,19 +101,19 @@
 ;; `:fx-decisions` ALSO carries the lowered redirect `{:rf.http/managed
 ;; :rf.http/managed-test-stub}` (the plan lowered `:network` to it at
 ;; capture time). The body's `:network` slot re-derives that SAME redirect
-;; via `plan/lower-network`, and the compiler's `check-network-fx-conflict!`
+;; via `rf.story.plan/lower-network`, and the compiler's `check-network-fx-conflict!`
 ;; HARD-FAILS when both `:network` and an explicit `:fx-overrides` target
 ;; `:rf.http/managed`. So when `:network` is present we DROP `:rf.http/managed`
 ;; from the lifted `:fx-overrides` — `:network` owns that key. Any OTHER
 ;; fx-decision (a non-HTTP override) still rides `:fx-overrides`.
 
 (def managed-fx-id
-  "Re-export of the managed-HTTP fx id (`plan/managed-fx-id`,
+  "Re-export of the managed-HTTP fx id (`rf.story.plan/managed-fx-id`,
   `:rf.http/managed`) the `:network` slot owns. A `:network`-stubbed
   artifact's `:fx-decisions` carries the lowered redirect for this id; we
   drop it from the lifted `:fx-overrides` so it does not conflict with the
   body's `:network` slot (rf2-vf8es)."
-  plan/managed-fx-id)
+  rf.story.plan/managed-fx-id)
 
 (defn lift-fx-overrides
   "Project an artifact's `:fx-decisions` onto a variant body's
@@ -121,7 +121,7 @@
 
   Drops the `:rf.http/managed` redirect when `network?` is true: the
   body's `:network` slot re-derives that redirect through
-  `plan/lower-network`, and carrying it on BOTH surfaces is a hard
+  `rf.story.plan/lower-network`, and carrying it on BOTH surfaces is a hard
   `:rf.error/story-network-fx-conflict`. Returns nil when nothing
   survives (so the caller omits the slot rather than emitting an empty
   map)."
@@ -194,14 +194,14 @@
     behaviour the artifact recorded, so absent a hint nothing is demoted
     to a silent precondition.
 
-  The returned programs are coerced through `runner/coerce-script`, so a
+  The returned programs are coerced through `rf.story.play.runner/coerce-script`, so a
   bare event list lifts to a legal `[:dispatch …]` program and an
   already-tagged program passes through."
   [artifact {:keys [setup script setup-count] :as _opts}]
   (cond
     (or (some? setup) (some? script))
-    {:setup  (runner/coerce-script (or setup []))
-     :script (runner/coerce-script (or script []))}
+    {:setup  (rf.story.play.runner/coerce-script (or setup []))
+     :script (rf.story.play.runner/coerce-script (or script []))}
 
     (some? setup-count)
     (let [program (vec (:event-program artifact))
@@ -324,7 +324,7 @@
                         (some? lookup)        (assoc :lookup lookup)
                         (some? view-lookup)   (assoc :view-lookup view-lookup)
                         (some? validator-fns) (assoc :validator-fns validator-fns))
-         plan         (plan/variant-plan target compile-opts)]
+         plan         (rf.story.plan/variant-plan target compile-opts)]
      ;; The compiler reads only known variant slots, so the source link
      ;; does not survive into the plan on its own — re-attach it so the
      ;; materialized plan ALWAYS carries its provenance (spec/017
@@ -359,7 +359,7 @@
   indistinguishable from a hand-authored one except for its
   `:run-artifact` provenance slot.
 
-  Production CLJS builds (`config/enabled?` false) short-circuit before
+  Production CLJS builds (`rf.story.config/enabled?` false) short-circuit before
   the write and return nil, mirroring `save-variant`.
 
   Returns the registered variant id on success (the value
@@ -376,6 +376,6 @@
                                          "artifact is never auto-registered (spec/017 "
                                          "§Promotion).")
                        :artifact    (provenance-link artifact)})))
-    (when config/enabled?
+    (when rf.story.config/enabled?
       (let [body (artifact->variant-body artifact opts)]
-        (registrar/reg-variant* variant-id body)))))
+        (rf.story.registrar/reg-variant* variant-id body)))))

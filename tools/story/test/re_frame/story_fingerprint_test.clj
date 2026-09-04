@@ -9,7 +9,7 @@
   - project away the volatile record fields
     `{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id
       :plan-hash :run-hash}` (reconciling the shipping `:variant-id`
-    spelling first; the authoritative `fp/volatile-fields` set also carries
+    spelling first; the authoritative `rf.story.fingerprint/volatile-fields` set also carries
     the per-run epoch / trace stamps `:epoch-id :trace-id :committed-at
     :schema-digest`);
   - impose a total per-slot ordering;
@@ -24,7 +24,7 @@
   CLJS companion (`re-frame.story-fingerprint-cljs-test`) pins
   host-portability of the hash."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.fingerprint :as fp]))
+            [re-frame.story.fingerprint :as rf.story.fingerprint]))
 
 ;; ===========================================================================
 ;; ADVERSARIAL CORPUS
@@ -112,17 +112,17 @@
 
 (deftest project-strips-story-accumulator-keys
   (testing ":rf.story/* accumulator keys are dropped at any depth"
-    (let [projected (fp/project {:keep 1
+    (let [projected (rf.story.fingerprint/project {:keep 1
                                  :rf.story/lifecycle :ready
                                  :nested {:rf.story/x 9 :real :v}})]
       (is (= {:keep 1 :nested {:real :v}} projected))))
   (testing "non-rf.story namespaced keys survive"
-    (is (= {:rf/db 1} (fp/project {:rf/db 1})))))
+    (is (= {:rf/db 1} (rf.story.fingerprint/project {:rf/db 1})))))
 
 (deftest project-strips-volatile-fields
   (testing "every volatile field is dropped recursively"
-    (let [projected (fp/project base-run)]
-      (doseq [k fp/volatile-fields]
+    (let [projected (rf.story.fingerprint/project base-run)]
+      (doseq [k rf.story.fingerprint/volatile-fields]
         (is (not (contains? projected k))
             (str k " must be stripped from the projection")))
       (is (not (contains? (get-in projected [:assertions 0]) :source)))
@@ -134,14 +134,14 @@
   (testing "legacy :variant-id is rewritten to :variant/id, then stripped"
     ;; :variant/id is in the volatile set, so after reconciliation it's
     ;; gone — the two spellings collapse to the same projection.
-    (is (= (fp/project {:variant-id :x :keep 1})
-           (fp/project {:variant/id :x :keep 1})
+    (is (= (rf.story.fingerprint/project {:variant-id :x :keep 1})
+           (rf.story.fingerprint/project {:variant/id :x :keep 1})
            {:keep 1})))
   (testing "an existing :variant/id wins over a legacy :variant-id"
     ;; Both present: the normalized spelling is source of truth; both
     ;; then strip away, so the projection is just the residue.
     (is (= {:keep 1}
-           (fp/project {:variant-id :legacy :variant/id :canonical :keep 1})))))
+           (rf.story.fingerprint/project {:variant-id :legacy :variant/id :canonical :keep 1})))))
 
 ;; ===========================================================================
 ;; CANONICALIZE — equivalence after volatile strip / semantic sensitivity
@@ -150,36 +150,36 @@
 (deftest equivalent-runs-canonicalize-equal
   (testing "two runs differing only in volatile + accumulator fields
             canonicalize = and hash equal (determinism floor)"
-    (is (= (fp/canonicalize base-run) (fp/canonicalize volatile-twin))
+    (is (= (rf.story.fingerprint/canonicalize base-run) (rf.story.fingerprint/canonicalize volatile-twin))
         "canonical projections are =")
-    (is (= (fp/canonical-hash base-run) (fp/canonical-hash volatile-twin))
+    (is (= (rf.story.fingerprint/canonical-hash base-run) (rf.story.fingerprint/canonical-hash volatile-twin))
         "canonical hashes are equal")
-    (is (= (fp/run-hash base-run) (fp/run-hash volatile-twin))
+    (is (= (rf.story.fingerprint/run-hash base-run) (rf.story.fingerprint/run-hash volatile-twin))
         "run-hashes are equal")))
 
 (deftest semantic-difference-changes-canonical-value
   (testing "each single-field semantic difference perturbs both the
             canonical value and the run-hash (semantic-diff is not blind)"
-    (let [base-canon (fp/canonicalize base-run)
-          base-hash  (fp/run-hash base-run)]
+    (let [base-canon (rf.story.fingerprint/canonicalize base-run)
+          base-hash  (rf.story.fingerprint/run-hash base-run)]
       (doseq [[label twin] semantic-twins]
-        (is (not= base-canon (fp/canonicalize twin))
+        (is (not= base-canon (rf.story.fingerprint/canonicalize twin))
             (str label " must perturb the canonical value"))
-        (is (not= base-hash (fp/run-hash twin))
+        (is (not= base-hash (rf.story.fingerprint/run-hash twin))
             (str label " must perturb the run-hash"))))))
 
 (deftest canonicalize-is-idempotent-and-order-insensitive
   (testing "map key order does not affect the canonical value or hash"
-    (is (= (fp/canonicalize {:a 1 :b 2}) (fp/canonicalize {:b 2 :a 1})))
-    (is (= (fp/content-hash {:a 1 :b 2}) (fp/content-hash {:b 2 :a 1}))))
+    (is (= (rf.story.fingerprint/canonicalize {:a 1 :b 2}) (rf.story.fingerprint/canonicalize {:b 2 :a 1})))
+    (is (= (rf.story.fingerprint/content-hash {:a 1 :b 2}) (rf.story.fingerprint/content-hash {:b 2 :a 1}))))
   (testing "set element order does not affect the hash"
-    (is (= (fp/content-hash #{:x :y :z}) (fp/content-hash #{:z :y :x}))))
+    (is (= (rf.story.fingerprint/content-hash #{:x :y :z}) (rf.story.fingerprint/content-hash #{:z :y :x}))))
   (testing "canonicalize of an already-canonicalized value is stable
             (re-running the projection does not change the hash)"
-    (let [once (fp/canonicalize base-run)]
+    (let [once (rf.story.fingerprint/canonicalize base-run)]
       ;; A second canonicalize over the projected value must not alter the
       ;; canonical-form hash (no volatile keys remain to strip).
-      (is (= (fp/content-hash once) (fp/content-hash once))))))
+      (is (= (rf.story.fingerprint/content-hash once) (rf.story.fingerprint/content-hash once))))))
 
 ;; ===========================================================================
 ;; RECORDABLE-COEFFECT :rf/time-ms STRUCTURAL STRIP (rf2-jt854w — EP-0010 /
@@ -214,24 +214,24 @@
             wall-clock :rf.cofx :rf/time-ms canonicalize = and hash equal"
     (let [a (dispatched-trace-event {:rf/time-ms 1000 :counter/delta 4 :rf.route/location "/a"})
           b (dispatched-trace-event {:rf/time-ms 9999 :counter/delta 4 :rf.route/location "/a"})]
-      (is (= (fp/canonicalize a) (fp/canonicalize b))
+      (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize b))
           "differing only in :rf/time-ms must canonicalize =")
-      (is (= (fp/canonical-hash a) (fp/canonical-hash b))
+      (is (= (rf.story.fingerprint/canonical-hash a) (rf.story.fingerprint/canonical-hash b))
           "differing only in :rf/time-ms must hash equal")))
   (testing "the semantic caller-supplied facts survive the strip — an
             owner-qualified leaf difference still perturbs the value + hash"
     (let [base    (dispatched-trace-event {:rf/time-ms 1000 :counter/delta 4 :rf.route/location "/a"})
           delta'  (dispatched-trace-event {:rf/time-ms 1000 :counter/delta 5 :rf.route/location "/a"})
           route'  (dispatched-trace-event {:rf/time-ms 1000 :counter/delta 4 :rf.route/location "/b"})]
-      (is (not= (fp/canonicalize base) (fp/canonicalize delta'))
+      (is (not= (rf.story.fingerprint/canonicalize base) (rf.story.fingerprint/canonicalize delta'))
           "a :counter/delta difference must perturb the canonical value")
-      (is (not= (fp/canonical-hash base) (fp/canonical-hash route'))
+      (is (not= (rf.story.fingerprint/canonical-hash base) (rf.story.fingerprint/canonical-hash route'))
           "a :rf.route/location difference must perturb the hash")))
   (testing "the strip only fires on the :rf.cofx carrier — a plain app-db
             map keying on :rf/time-ms is NOT stripped (structural, not recursive)"
     (let [a {:app-db {:rf/time-ms 1}}
           b {:app-db {:rf/time-ms 2}}]
-      (is (not= (fp/canonicalize a) (fp/canonicalize b))
+      (is (not= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize b))
           ":rf/time-ms outside a :rf.cofx trace tag is semantic app data"))))
 
 (defn- run-start-trace-event
@@ -249,17 +249,17 @@
             wall-clock :rf.event/cofx :rf/time-ms canonicalize = and hash equal"
     (let [a (run-start-trace-event {:rf/time-ms 1000 :counter/delta 4})
           b (run-start-trace-event {:rf/time-ms 9999 :counter/delta 4})]
-      (is (= (fp/canonicalize a) (fp/canonicalize b))
+      (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize b))
           "differing only in :rf/time-ms must canonicalize =")
-      (is (= (fp/canonical-hash a) (fp/canonical-hash b))
+      (is (= (rf.story.fingerprint/canonical-hash a) (rf.story.fingerprint/canonical-hash b))
           "differing only in :rf/time-ms must hash equal")))
   (testing "the semantic post-generation facts survive — an owner-qualified
             leaf difference still perturbs the value + hash"
     (let [base   (run-start-trace-event {:rf/time-ms 1000 :counter/delta 4})
           delta' (run-start-trace-event {:rf/time-ms 1000 :counter/delta 5})]
-      (is (not= (fp/canonicalize base) (fp/canonicalize delta'))
+      (is (not= (rf.story.fingerprint/canonicalize base) (rf.story.fingerprint/canonicalize delta'))
           "a :counter/delta difference in the replay token must perturb the value")
-      (is (not= (fp/canonical-hash base) (fp/canonical-hash delta'))
+      (is (not= (rf.story.fingerprint/canonical-hash base) (rf.story.fingerprint/canonical-hash delta'))
           "and the hash"))))
 
 ;; ===========================================================================
@@ -293,17 +293,17 @@
             top-level :rf.cofx :rf/time-ms canonicalize = and hash equal"
     (let [a (epoch-record-with-cofx {:rf/time-ms 1000 :counter/delta 4})
           b (epoch-record-with-cofx {:rf/time-ms 9999 :counter/delta 4})]
-      (is (= (fp/canonicalize a) (fp/canonicalize b))
+      (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize b))
           "differing only in :rf/time-ms must canonicalize =")
-      (is (= (fp/canonical-hash a) (fp/canonical-hash b))
+      (is (= (rf.story.fingerprint/canonical-hash a) (rf.story.fingerprint/canonical-hash b))
           "differing only in :rf/time-ms must hash equal")))
   (testing "the semantic caller-supplied replay facts survive — an
             owner-qualified leaf difference still perturbs the value + hash"
     (let [base   (epoch-record-with-cofx {:rf/time-ms 1000 :counter/delta 4})
           delta' (epoch-record-with-cofx {:rf/time-ms 1000 :counter/delta 5})]
-      (is (not= (fp/canonicalize base) (fp/canonicalize delta'))
+      (is (not= (rf.story.fingerprint/canonicalize base) (rf.story.fingerprint/canonicalize delta'))
           "a :counter/delta difference in the replay token must perturb the value")
-      (is (not= (fp/canonical-hash base) (fp/canonical-hash delta'))
+      (is (not= (rf.story.fingerprint/canonical-hash base) (rf.story.fingerprint/canonical-hash delta'))
           "and the hash"))))
 
 ;; ===========================================================================
@@ -318,41 +318,41 @@
 
 (deftest collection-types-do-not-collide
   (testing "empty collections of different kinds are canonically distinct"
-    (is (not= (fp/canonicalize {}) (fp/canonicalize [])))
-    (is (not= (fp/canonicalize #{}) (fp/canonicalize [])))
-    (is (not= (fp/canonicalize {}) (fp/canonicalize #{})))
-    (is (not= (fp/content-hash {}) (fp/content-hash []))
+    (is (not= (rf.story.fingerprint/canonicalize {}) (rf.story.fingerprint/canonicalize [])))
+    (is (not= (rf.story.fingerprint/canonicalize #{}) (rf.story.fingerprint/canonicalize [])))
+    (is (not= (rf.story.fingerprint/canonicalize {}) (rf.story.fingerprint/canonicalize #{})))
+    (is (not= (rf.story.fingerprint/content-hash {}) (rf.story.fingerprint/content-hash []))
         "{} and [] must hash differently")
-    (is (not= (fp/content-hash #{}) (fp/content-hash []))
+    (is (not= (rf.story.fingerprint/content-hash #{}) (rf.story.fingerprint/content-hash []))
         "#{} and [] must hash differently")
-    (is (not= (fp/content-hash {}) (fp/content-hash #{}))
+    (is (not= (rf.story.fingerprint/content-hash {}) (rf.story.fingerprint/content-hash #{}))
         "{} and #{} must hash differently"))
   (testing "a one-entry map and the flattened 2-element vector are distinct"
-    (is (not= (fp/canonicalize {:k 1}) (fp/canonicalize [:k 1])))
-    (is (not= (fp/content-hash {:k 1}) (fp/content-hash [:k 1]))
+    (is (not= (rf.story.fingerprint/canonicalize {:k 1}) (rf.story.fingerprint/canonicalize [:k 1])))
+    (is (not= (rf.story.fingerprint/content-hash {:k 1}) (rf.story.fingerprint/content-hash [:k 1]))
         "{:k 1} and [:k 1] must hash differently — the rf2-lvrqa proof"))
   (testing "a one-element set and the same-element vector are distinct"
-    (is (not= (fp/canonicalize #{:k}) (fp/canonicalize [:k])))
-    (is (not= (fp/content-hash #{:k}) (fp/content-hash [:k]))))
+    (is (not= (rf.story.fingerprint/canonicalize #{:k}) (rf.story.fingerprint/canonicalize [:k])))
+    (is (not= (rf.story.fingerprint/content-hash #{:k}) (rf.story.fingerprint/content-hash [:k]))))
   (testing "a list/seq is distinct from a vector at the canonical-form /
             content-hash layer (the seq-tag vs vec-tag). NOTE: the
             `canonicalize` path normalizes seqs to vectors UPSTREAM (its
             `project` / `strip-run-stamps` passes `mapv` every sequential),
             so seq-vs-vec is deliberately collapsed there; the distinction
             lives at the raw ordering layer the snapshot identity hashes."
-    (is (= [fp/seq-tag [:a :b]] (fp/canonical-form (list :a :b))))
-    (is (= [fp/vec-tag [:a :b]] (fp/canonical-form [:a :b])))
-    (is (not= (fp/content-hash (list :a :b)) (fp/content-hash [:a :b]))))
+    (is (= [rf.story.fingerprint/seq-tag [:a :b]] (rf.story.fingerprint/canonical-form (list :a :b))))
+    (is (= [rf.story.fingerprint/vec-tag [:a :b]] (rf.story.fingerprint/canonical-form [:a :b])))
+    (is (not= (rf.story.fingerprint/content-hash (list :a :b)) (rf.story.fingerprint/content-hash [:a :b]))))
   (testing "the collision is closed NESTED, not just at the root — a slot
             whose value flips between a map and a vector perturbs the hash"
-    (is (not= (fp/canonical-hash {:effects [{:k 1}]})
-              (fp/canonical-hash {:effects [[:k 1]]})))
-    (is (not= (fp/canonicalize {:k {}}) (fp/canonicalize {:k []})))
-    (is (not= (fp/canonicalize {:k {:a 1}}) (fp/canonicalize {:k [:a 1]}))))
+    (is (not= (rf.story.fingerprint/canonical-hash {:effects [{:k 1}]})
+              (rf.story.fingerprint/canonical-hash {:effects [[:k 1]]})))
+    (is (not= (rf.story.fingerprint/canonicalize {:k {}}) (rf.story.fingerprint/canonicalize {:k []})))
+    (is (not= (rf.story.fingerprint/canonicalize {:k {:a 1}}) (rf.story.fingerprint/canonicalize {:k [:a 1]}))))
   (testing "type-tagging does not break the volatile-strip equivalence —
             equivalent runs still canonicalize = and hash equal"
-    (is (= (fp/canonicalize base-run) (fp/canonicalize volatile-twin)))
-    (is (= (fp/run-hash base-run) (fp/run-hash volatile-twin)))))
+    (is (= (rf.story.fingerprint/canonicalize base-run) (rf.story.fingerprint/canonicalize volatile-twin)))
+    (is (= (rf.story.fingerprint/run-hash base-run) (rf.story.fingerprint/run-hash volatile-twin)))))
 
 ;; ===========================================================================
 ;; FN-SLOT DETERMINISM — a fn-valued hashed slot hashes STABLY (rf2-4gwja)
@@ -376,43 +376,43 @@
                         :world {:frame {:fx-overrides {:rf.http/managed (fn [_] :stub)}}}
                         :script [[:dispatch [:go]]]
                         :expect {:checks []}})
-          h1 (fp/plan-hash (build-plan))
-          h2 (fp/plan-hash (build-plan))]
+          h1 (rf.story.fingerprint/plan-hash (build-plan))
+          h2 (rf.story.fingerprint/plan-hash (build-plan))]
       (is (= h1 h2)
           "an inline-fn plan must hash identically across independent builds")))
   (testing "the same holds on the RUN-HASH path — a fn in :app-db or an
             effect :args hashes stably across distinct fn instances (rf2-ewrse)"
     (let [run-with (fn [f] {:status :pass :app-db {:cb f}
                             :effects [{:fx-id :x :args f :outcome :ok}]})]
-      (is (= (fp/run-hash (run-with (fn [] 1)))
-             (fp/run-hash (run-with (fn [] 1))))
+      (is (= (rf.story.fingerprint/run-hash (run-with (fn [] 1)))
+             (rf.story.fingerprint/run-hash (run-with (fn [] 1))))
           "two distinct closures in the run-slice must hash equal")
-      (is (= (fp/canonicalize (run-with (fn [] 1)))
-             (fp/canonicalize (run-with (fn [] 1))))
+      (is (= (rf.story.fingerprint/canonicalize (run-with (fn [] 1)))
+             (rf.story.fingerprint/canonicalize (run-with (fn [] 1))))
           "and canonicalize = (the determinism gate's authority)")))
   (testing "a fn canonicalizes to the stable opaque sentinel, never an
             object-identity pr-str"
-    (is (= fp/opaque-fn (fp/canonical-form (fn [] 1))))
-    (is (= (fp/canonical-form (fn [] 1)) (fp/canonical-form (fn [x] x))))
-    (is (not (re-find #"object\[" (pr-str (fp/canonical-form (fn [] 1))))))
+    (is (= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form (fn [] 1))))
+    (is (= (rf.story.fingerprint/canonical-form (fn [] 1)) (rf.story.fingerprint/canonical-form (fn [x] x))))
+    (is (not (re-find #"object\[" (pr-str (rf.story.fingerprint/canonical-form (fn [] 1))))))
     (testing "keywords / symbols / colls are IFn but NOT folded to the
               sentinel — only genuine fns are"
-      (is (= :kw  (fp/canonical-form :kw)))
-      (is (not= fp/opaque-fn (fp/canonical-form :kw)))
-      (is (not= fp/opaque-fn (fp/canonical-form #{:a})))))
+      (is (= :kw  (rf.story.fingerprint/canonical-form :kw)))
+      (is (not= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form :kw)))
+      (is (not= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form #{:a})))))
   (testing "DELIBERATE TRADE-OFF (rf2-4gwja): two plans differing ONLY in fn
             identity hash EQUAL — determinism is the contract, not fn
             discrimination. A non-fn semantic difference still perturbs."
     (let [base-fn-plan {:story/id :story.fn/v
                         :world {:frame {:fx-overrides {:rf.http/managed (fn [_] :a)}}}
                         :script [] :expect {}}]
-      (is (= (fp/plan-hash base-fn-plan)
-             (fp/plan-hash (assoc-in base-fn-plan
+      (is (= (rf.story.fingerprint/plan-hash base-fn-plan)
+             (rf.story.fingerprint/plan-hash (assoc-in base-fn-plan
                                      [:world :frame :fx-overrides :rf.http/managed]
                                      (fn [_] :b))))
           "two fn overrides hash equal — accepted trade-off")
-      (is (not= (fp/plan-hash base-fn-plan)
-                (fp/plan-hash (assoc-in base-fn-plan [:world :args :sku] "X")))
+      (is (not= (rf.story.fingerprint/plan-hash base-fn-plan)
+                (rf.story.fingerprint/plan-hash (assoc-in base-fn-plan [:world :args :sku] "X")))
           "a non-fn semantic difference still perturbs the plan-hash"))))
 
 ;; ===========================================================================
@@ -465,9 +465,9 @@
                   "[:rf/map [:app-db [:rf/map [:items [:rf/vec [[:rf/map [:sku \"A\"]]]] :n 1]] :status :pass]]"
                   "98b520a4"]]]
       (doseq [[v cf ch] cases]
-        (is (= cf (pr-str (fp/canonical-form v)))
+        (is (= cf (pr-str (rf.story.fingerprint/canonical-form v)))
             (str "canonical form of " (pr-str v) " drifted — golden rebase!"))
-        (is (= ch (fp/content-hash v))
+        (is (= ch (rf.story.fingerprint/content-hash v))
             (str "content-hash of " (pr-str v) " drifted — golden rebase!"))))))
 
 (deftest large-integers-canonicalize-host-portably
@@ -478,91 +478,91 @@
             verbatim (\"…N\") while CLJS routed it through `double->bits-hex` —
             divergent canonical form, divergent hash."
     (let [big (bigint 100000000000000000000)]
-      (is (= [fp/double-tag (#'fp/double->bits-hex (double big))]
-             (fp/canonical-form big))
+      (is (= [rf.story.fingerprint/double-tag (#'rf.story.fingerprint/double->bits-hex (double big))]
+             (rf.story.fingerprint/canonical-form big))
           "a large bigint folds to the lossy bit-double form, NOT \"…N\"")
       ;; the JVM Long path agrees with the bigint path for the same magnitude
-      (is (= (fp/canonical-form big)
-             (fp/canonical-form (.toBigInteger (bigdec big))))
+      (is (= (rf.story.fingerprint/canonical-form big)
+             (rf.story.fingerprint/canonical-form (.toBigInteger (bigdec big))))
           "BigInteger of the same magnitude shares the canonical form")
       ;; cross-host equivalence: the CLJS double `1e20` (what CLJS reads
       ;; `100000000000000000000` as) reaches the SAME bits — the CLJS companion
-      ;; pins `(fp/canonical-form 1e20)` to this exact form + hash.
-      (is (= (fp/canonical-form big) (fp/canonical-form 1e20))
+      ;; pins `(rf.story.fingerprint/canonical-form 1e20)` to this exact form + hash.
+      (is (= (rf.story.fingerprint/canonical-form big) (rf.story.fingerprint/canonical-form 1e20))
           "the large integer and its double approximation share the canonical
            form — the cross-host agreement point (CLJS has only the double)")))
   (testing "boundary: an integer AT ±max-safe-integer still passes through
             verbatim — only STRICTLY out-of-range integers change (rf2-7w1vp)"
-    (is (= fp/max-safe-integer (fp/canonical-form fp/max-safe-integer)))
-    (is (= (- fp/max-safe-integer) (fp/canonical-form (- fp/max-safe-integer))))
+    (is (= rf.story.fingerprint/max-safe-integer (rf.story.fingerprint/canonical-form rf.story.fingerprint/max-safe-integer)))
+    (is (= (- rf.story.fingerprint/max-safe-integer) (rf.story.fingerprint/canonical-form (- rf.story.fingerprint/max-safe-integer))))
     (is (= 9007199254740992N
            ;; one past max-safe-integer is out of range → bit-double path
-           (let [over (inc (bigint fp/max-safe-integer))]
-             (is (= [fp/double-tag (#'fp/double->bits-hex (double over))]
-                    (fp/canonical-form over)))
+           (let [over (inc (bigint rf.story.fingerprint/max-safe-integer))]
+             (is (= [rf.story.fingerprint/double-tag (#'rf.story.fingerprint/double->bits-hex (double over))]
+                    (rf.story.fingerprint/canonical-form over)))
              over))))
   (testing "ordinary small integers are untouched — no golden rebase"
-    (is (= 42 (fp/canonical-form 42)))
-    (is (= -7 (fp/canonical-form -7)))
-    (is (= 1000000 (fp/canonical-form 1000000)))))
+    (is (= 42 (rf.story.fingerprint/canonical-form 42)))
+    (is (= -7 (rf.story.fingerprint/canonical-form -7)))
+    (is (= 1000000 (rf.story.fingerprint/canonical-form 1000000)))))
 
 (deftest ratios-canonicalize-host-portably
   (testing "a JVM Ratio canonicalises to the SAME bit-stable double form its
             CLJS double counterpart reaches — `1/3` and `(/ 1.0 3.0)` (the
             double CLJS reads `1/3` as) share a canonical form + hash"
-    (is (= [fp/double-tag "3fd5555555555555"] (fp/canonical-form 1/3)))
-    (is (= (fp/canonical-form 1/3) (fp/canonical-form (/ 1.0 3.0))))
-    (is (= (fp/content-hash 1/3) (fp/content-hash (/ 1.0 3.0)))
+    (is (= [rf.story.fingerprint/double-tag "3fd5555555555555"] (rf.story.fingerprint/canonical-form 1/3)))
+    (is (= (rf.story.fingerprint/canonical-form 1/3) (rf.story.fingerprint/canonical-form (/ 1.0 3.0))))
+    (is (= (rf.story.fingerprint/content-hash 1/3) (rf.story.fingerprint/content-hash (/ 1.0 3.0)))
         "ratio and its double value hash equal — cross-host equivalence")
-    (is (= (fp/canonical-hash {:r 1/3}) (fp/canonical-hash {:r (/ 1.0 3.0)}))
+    (is (= (rf.story.fingerprint/canonical-hash {:r 1/3}) (rf.story.fingerprint/canonical-hash {:r (/ 1.0 3.0)}))
         "the same holds nested inside a hashed slice"))
   (testing "distinct ratios remain distinct (sensitivity not lost)"
-    (is (not= (fp/canonical-form 1/3) (fp/canonical-form 2/3)))))
+    (is (not= (rf.story.fingerprint/canonical-form 1/3) (rf.story.fingerprint/canonical-form 2/3)))))
 
 (deftest floats-canonicalize-host-portably
   (testing "an integer-valued double folds to its INTEGER form — host-mandated
             (CLJS `1.0` IS the integer `1`), so JVM `1.0` and `1` canonicalise
             EQUAL and the CLJS companion's `1.0` matches"
-    (is (= 1   (fp/canonical-form 1.0)))
-    (is (= 100 (fp/canonical-form 100.0)))
-    (is (= (fp/canonical-form 1.0) (fp/canonical-form 1))))
+    (is (= 1   (rf.story.fingerprint/canonical-form 1.0)))
+    (is (= 100 (rf.story.fingerprint/canonical-form 100.0)))
+    (is (= (rf.story.fingerprint/canonical-form 1.0) (rf.story.fingerprint/canonical-form 1))))
   (testing "a fractional double folds to the bit-stable `[:rf/double <hex>]`"
-    (is (= [fp/double-tag "3ff8000000000000"] (fp/canonical-form 1.5)))
-    (is (not= (fp/canonical-form 1.5) (fp/canonical-form 1))
+    (is (= [rf.story.fingerprint/double-tag "3ff8000000000000"] (rf.story.fingerprint/canonical-form 1.5)))
+    (is (not= (rf.story.fingerprint/canonical-form 1.5) (rf.story.fingerprint/canonical-form 1))
         "1.5 is NOT integer-valued — distinct from 1")
-    (is (not= (fp/canonical-form 1.5) (fp/canonical-form 2.5))
+    (is (not= (rf.story.fingerprint/canonical-form 1.5) (rf.story.fingerprint/canonical-form 2.5))
         "distinct fractional doubles stay distinct"))
   (testing "an integer-valued double too large for a 64-bit integer takes the
             bit path (no silent overflow to a wrong long)"
-    (is (= [fp/double-tag "444b1ae4d6e2ef50"] (fp/canonical-form 1e21)))))
+    (is (= [rf.story.fingerprint/double-tag "444b1ae4d6e2ef50"] (rf.story.fingerprint/canonical-form 1e21)))))
 
 (deftest nan-and-inf-canonicalize-host-portably
   (testing "every NaN folds to the single `:rf/nan` sentinel — a `##NaN` slot
             hashes deterministically and never perturbs a hash by bit-pattern"
-    (is (= fp/nan-tag (fp/canonical-form Double/NaN)))
-    (is (= (fp/content-hash Double/NaN) (fp/content-hash Double/NaN)))
-    (is (= (fp/canonical-hash {:x Double/NaN})
-           (fp/canonical-hash {:x Double/NaN}))
+    (is (= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form Double/NaN)))
+    (is (= (rf.story.fingerprint/content-hash Double/NaN) (rf.story.fingerprint/content-hash Double/NaN)))
+    (is (= (rf.story.fingerprint/canonical-hash {:x Double/NaN})
+           (rf.story.fingerprint/canonical-hash {:x Double/NaN}))
         "two NaN-bearing slices hash equal"))
   (testing "±Inf ride the bit-double path — host-stable bits, mutually distinct
             and distinct from every finite double"
-    (is (= [fp/double-tag "7ff0000000000000"] (fp/canonical-form Double/POSITIVE_INFINITY)))
-    (is (= [fp/double-tag "fff0000000000000"] (fp/canonical-form Double/NEGATIVE_INFINITY)))
-    (is (not= (fp/canonical-form Double/POSITIVE_INFINITY)
-              (fp/canonical-form Double/NEGATIVE_INFINITY)))
-    (is (not= (fp/canonical-form Double/POSITIVE_INFINITY) (fp/canonical-form 1.5)))
-    (is (not= fp/nan-tag (fp/canonical-form Double/POSITIVE_INFINITY)))))
+    (is (= [rf.story.fingerprint/double-tag "7ff0000000000000"] (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY)))
+    (is (= [rf.story.fingerprint/double-tag "fff0000000000000"] (rf.story.fingerprint/canonical-form Double/NEGATIVE_INFINITY)))
+    (is (not= (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY)
+              (rf.story.fingerprint/canonical-form Double/NEGATIVE_INFINITY)))
+    (is (not= (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY) (rf.story.fingerprint/canonical-form 1.5)))
+    (is (not= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY)))))
 
 (deftest nan-bearing-set-orders-deterministically
   (testing "a NaN in a set no longer destabilises ordering — every NaN folds to
             the `:rf/nan` sentinel BEFORE the set sort, so the set hashes
             stably across builds (the `(sort-by pr-str)` NaN hole, closed)"
-    (is (= (fp/content-hash #{1 Double/NaN :a})
-           (fp/content-hash #{1 Double/NaN :a})))
+    (is (= (rf.story.fingerprint/content-hash #{1 Double/NaN :a})
+           (rf.story.fingerprint/content-hash #{1 Double/NaN :a})))
     ;; a freshly-constructed NaN-bearing set hashes identically — the exact
     ;; cross-build / cross-host instability the bare comparator risked.
-    (is (= (fp/content-hash (set [Double/NaN :a 1]))
-           (fp/content-hash (set [1 :a Double/NaN]))))))
+    (is (= (rf.story.fingerprint/content-hash (set [Double/NaN :a 1]))
+           (rf.story.fingerprint/content-hash (set [1 :a Double/NaN]))))))
 
 (deftest canon-set-has-a-stable-equal-pr-str-tiebreak
   (testing "two DISTINCT fns in a set both fold to `:rf/opaque-fn` (equal
@@ -570,14 +570,14 @@
             deterministic order, so the set hashes stably across independent
             builds — the latent `(sort-by pr-str)` tie hole (rf2-vvqeo)"
     (let [build (fn [] #{(fn [] 1) (fn [] 2) :marker})]
-      (is (= (fp/content-hash (build)) (fp/content-hash (build)))
+      (is (= (rf.story.fingerprint/content-hash (build)) (rf.story.fingerprint/content-hash (build)))
           "an equal-pr-str-bearing set hashes identically across builds")))
   (testing "ordinary distinct-`pr-str` set order is the SAME as the historical
             `(sort-by pr-str)` order — no golden rebase for normal sets"
     ;; verified by the unchanged content-hash 405ea2f0 for #{:a :b :c} in
     ;; `ordinary-value-canonical-forms-are-unchanged`; this restates the
     ;; element-ordering directly.
-    (is (= [fp/set-tag [:a :b :c]] (fp/canonical-form #{:c :a :b})))))
+    (is (= [rf.story.fingerprint/set-tag [:a :b :c]] (rf.story.fingerprint/canonical-form #{:c :a :b})))))
 
 ;; ===========================================================================
 ;; MAP-KEY TIE ORDER — same-`pr-str` keys sort iteration-INDEPENDENTLY (rf2-8r5yzb)
@@ -604,15 +604,15 @@
           m-ab (array-map f1 :a f2 :b)
           m-ba (array-map f2 :b f1 :a)]
       (is (= m-ab m-ba) "precondition: the two maps are =-equal")
-      (is (= (fp/canonical-form m-ab) (fp/canonical-form m-ba))
+      (is (= (rf.story.fingerprint/canonical-form m-ab) (rf.story.fingerprint/canonical-form m-ba))
           "insertion/iteration order must not change the canonical form")
-      (is (= (fp/canonical-hash m-ab) (fp/canonical-hash m-ba))
+      (is (= (rf.story.fingerprint/canonical-hash m-ab) (rf.story.fingerprint/canonical-hash m-ba))
           "…so the canonical hashes are equal — the determinism floor")))
   (testing "a GENUINE value difference under a tied key still SEPARATES — the
             secondary key is a tiebreak, not a collapse"
     (let [f1 (fn [] 1) f2 (fn [] 2)]
-      (is (not= (fp/canonical-hash (array-map f1 :a f2 :b))
-                (fp/canonical-hash (array-map f1 :a f2 :c)))
+      (is (not= (rf.story.fingerprint/canonical-hash (array-map f1 :a f2 :b))
+                (rf.story.fingerprint/canonical-hash (array-map f1 :a f2 :c)))
           "{f1 :a f2 :b} and {f1 :a f2 :c} differ in a value → distinct hash")))
   (testing "the number-folding tie (`1` and `1.0` both canon to `1`) is
             likewise iteration-independent — the fix generalises past fn/NaN"
@@ -620,12 +620,12 @@
           m2 (array-map 1.0 :b 1 :a)]
       (is (and (= 2 (count m1)) (= 2 (count m2)))
           "precondition: 1 and 1.0 are DISTINCT keys (Clojure `=` is category-sensitive)")
-      (is (= (fp/canonical-hash m1) (fp/canonical-hash m2))
+      (is (= (rf.story.fingerprint/canonical-hash m1) (rf.story.fingerprint/canonical-hash m2))
           "same-canon-key entries order by value, so the hashes are equal")))
   (testing "ordinary distinct-`pr-str` map key order is UNCHANGED — the value
             tiebreak never fires, so no golden rebase"
-    (is (= [fp/map-tag [:a 1 :b 2 :c 3]]
-           (fp/canonical-form (array-map :c 3 :a 1 :b 2)))
+    (is (= [rf.story.fingerprint/map-tag [:a 1 :b 2 :c 3]]
+           (rf.story.fingerprint/canonical-form (array-map :c 3 :a 1 :b 2)))
         "distinct keys still sort by key alone — identical to the pre-fix bytes")))
 
 ;; ===========================================================================
@@ -635,7 +635,7 @@
 (deftest canonical-version-is-bumped-to-v2
   (testing "the canonical-version tag is :rf/snapshot-canonical-v2 — bumped
             for the type-tag + fn-sentinel soundness fix"
-    (is (= :rf/snapshot-canonical-v2 fp/canonical-version))))
+    (is (= :rf/snapshot-canonical-v2 rf.story.fingerprint/canonical-version))))
 
 ;; ===========================================================================
 ;; ORDERING — effects / epochs keep producer order; reordering is semantic
@@ -645,11 +645,11 @@
   (testing "effects keep emission order — swapping two effects is a
             different canonical value (order is part of the evidence)"
     (let [swapped (update base-run :effects (comp vec reverse))]
-      (is (not= (fp/canonicalize base-run) (fp/canonicalize swapped))
+      (is (not= (rf.story.fingerprint/canonicalize base-run) (rf.story.fingerprint/canonicalize swapped))
           "reordered effects perturb the canonical value")))
   (testing "epoch dispatch order is preserved + significant"
     (let [swapped (update base-run :epoch-tape (comp vec reverse))]
-      (is (not= (fp/canonicalize base-run) (fp/canonicalize swapped))))))
+      (is (not= (rf.story.fingerprint/canonicalize base-run) (rf.story.fingerprint/canonicalize swapped))))))
 
 ;; ===========================================================================
 ;; PLAN HASH — enumerated inputs, shared primitive
@@ -673,27 +673,27 @@
 (deftest plan-hash-over-enumerated-inputs-only
   (testing "non-input slots (:evidence, :explain, :source-chain, :plan/id,
             the rider :plan-hash, :variant/id) do not affect plan-hash"
-    (let [h (fp/plan-hash base-plan)]
-      (is (= h (fp/plan-hash (assoc base-plan :evidence {:source :other}))))
-      (is (= h (fp/plan-hash (assoc base-plan :explain {:debug :different}))))
-      (is (= h (fp/plan-hash (assoc base-plan :source-chain [:x]))))
-      (is (= h (fp/plan-hash (assoc base-plan :plan/id :other))))
-      (is (= h (fp/plan-hash (assoc base-plan :plan-hash "different"))))
-      (is (= h (fp/plan-hash (dissoc base-plan :variant/id)))
+    (let [h (rf.story.fingerprint/plan-hash base-plan)]
+      (is (= h (rf.story.fingerprint/plan-hash (assoc base-plan :evidence {:source :other}))))
+      (is (= h (rf.story.fingerprint/plan-hash (assoc base-plan :explain {:debug :different}))))
+      (is (= h (rf.story.fingerprint/plan-hash (assoc base-plan :source-chain [:x]))))
+      (is (= h (rf.story.fingerprint/plan-hash (assoc base-plan :plan/id :other))))
+      (is (= h (rf.story.fingerprint/plan-hash (assoc base-plan :plan-hash "different"))))
+      (is (= h (rf.story.fingerprint/plan-hash (dissoc base-plan :variant/id)))
           ":variant/id is volatile — dropping it does not change the plan-hash")))
   (testing "a testable/renderable difference changes plan-hash"
-    (is (not= (fp/plan-hash base-plan)
-              (fp/plan-hash (assoc-in base-plan [:world :args :sku] "B"))))
-    (is (not= (fp/plan-hash base-plan)
-              (fp/plan-hash (update base-plan :script conj [:dispatch [:extra]]))))
-    (is (not= (fp/plan-hash base-plan)
-              (fp/plan-hash (assoc base-plan :story/id :story.other))))))
+    (is (not= (rf.story.fingerprint/plan-hash base-plan)
+              (rf.story.fingerprint/plan-hash (assoc-in base-plan [:world :args :sku] "B"))))
+    (is (not= (rf.story.fingerprint/plan-hash base-plan)
+              (rf.story.fingerprint/plan-hash (update base-plan :script conj [:dispatch [:extra]]))))
+    (is (not= (rf.story.fingerprint/plan-hash base-plan)
+              (rf.story.fingerprint/plan-hash (assoc base-plan :story/id :story.other))))))
 
 (deftest plan-hash-accepts-legacy-variant-id-spelling
   (testing "the legacy :variant-id spelling is reconciled — a plan with
             either spelling produces the same plan-hash"
     (let [legacy (-> base-plan (dissoc :variant/id) (assoc :variant-id :story.checkout/submits))]
-      (is (= (fp/plan-hash base-plan) (fp/plan-hash legacy))))))
+      (is (= (rf.story.fingerprint/plan-hash base-plan) (rf.story.fingerprint/plan-hash legacy))))))
 
 ;; ===========================================================================
 ;; ONE PRIMITIVE — plan-hash + run-hash + identity share the same path
@@ -703,11 +703,11 @@
   (testing "plan-hash and run-hash are canonical-hash applied to a slice —
             no second hash implementation. We prove it by reconstructing
             each hash from the public primitive over the same slice."
-    (is (= (fp/plan-hash base-plan)
-           (fp/canonical-hash (select-keys base-plan fp/plan-hash-input-keys)))
+    (is (= (rf.story.fingerprint/plan-hash base-plan)
+           (rf.story.fingerprint/canonical-hash (select-keys base-plan rf.story.fingerprint/plan-hash-input-keys)))
         "plan-hash == canonical-hash over the enumerated plan slice")
-    (is (= (fp/run-hash base-run)
-           (fp/canonical-hash (select-keys base-run fp/run-hash-input-keys)))
+    (is (= (rf.story.fingerprint/run-hash base-run)
+           (rf.story.fingerprint/canonical-hash (select-keys base-run rf.story.fingerprint/run-hash-input-keys)))
         "run-hash == canonical-hash over the enumerated run slice")))
 
 (deftest snapshot-identity-uses-the-same-primitive
@@ -721,12 +721,12 @@
       ;; content-hash must NOT strip :variant-id (it is identity-bearing
       ;; for the snapshot); two tuples differing only by variant id hash
       ;; differently through content-hash...
-      (is (not= (fp/content-hash tuple)
-                (fp/content-hash (assoc tuple :variant-id :story.y/v)))
+      (is (not= (rf.story.fingerprint/content-hash tuple)
+                (rf.story.fingerprint/content-hash (assoc tuple :variant-id :story.y/v)))
           "snapshot content-hash keeps :variant-id sensitivity")
       ;; ...while canonical-hash (the run/diff path) DOES strip it.
-      (is (= (fp/canonical-hash tuple)
-             (fp/canonical-hash (assoc tuple :variant-id :story.y/v)))
+      (is (= (rf.story.fingerprint/canonical-hash tuple)
+             (rf.story.fingerprint/canonical-hash (assoc tuple :variant-id :story.y/v)))
           "canonical-hash strips :variant-id (run/diff equivalence)"))))
 
 ;; ===========================================================================
@@ -745,5 +745,5 @@
           inline     (-> base-plan
                          (dissoc :variant/id :plan/id)
                          (assoc :source-chain [] :explain {:from :inline}))]
-      (is (= (fp/plan-hash registered) (fp/plan-hash inline))
+      (is (= (rf.story.fingerprint/plan-hash registered) (rf.story.fingerprint/plan-hash inline))
           "same testable content → same plan-hash regardless of provenance"))))

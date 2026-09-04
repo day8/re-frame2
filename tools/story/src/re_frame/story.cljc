@@ -73,42 +73,42 @@
   ;; (`re-frame.story.frames/apply-variant-classification!`). Story requires
   ;; neither the classification ns nor `re-frame.core` directly (the docstring
   ;; above names `rf/dispatch-sync` etc. illustratively).
-  (:require [re-frame.story.config      :as config]
-            [re-frame.story.registrar   :as registrar]
+  (:require [re-frame.story.config      :as rf.story.config]
+            [re-frame.story.registrar   :as rf.story.registrar]
             ;; Cohesive internal namespaces own the implementation weight
             ;; for query, canonical boot, and lifecycle surfaces.
-            [re-frame.story.canonical   :as canonical]
+            [re-frame.story.canonical   :as rf.story.canonical]
             ;; The single canonical projection + fingerprint
             ;; primitive. Re-exported as `canonicalize` / `content-hash` /
             ;; `plan-hash` / `run-hash` below so every downstream call site
             ;; routes through one path (NOT `re-frame.story.canonical`,
             ;; which installs the canonical *vocabulary*).
-            [re-frame.story.fingerprint :as fingerprint]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
             ;; The run-evidence projection from the epoch tape.
             ;; Re-exported as `project-evidence` below so every downstream
             ;; run-result slot derives from ONE tape (NewTestStory §A0c).
-            [re-frame.story.play.evidence :as evidence]
+            [re-frame.story.play.evidence :as rf.story.play.evidence]
             ;; The `:rf.test/run-artifact` schema + replay.
             ;; Re-exported as `make-run-artifact` / `run-artifact?` /
             ;; `replay-run-artifact` below (spec/017 §Run artifact and replay).
-            [re-frame.story.artifact    :as artifact]
+            [re-frame.story.artifact    :as rf.story.artifact]
             ;; The determinism gate. Re-exported as
             ;; `assert-deterministic` below (spec/017 §Determinism gate).
-            [re-frame.story.determinism :as determinism]
+            [re-frame.story.determinism :as rf.story.determinism]
             ;; The semantic diff over canonical run artifacts.
             ;; Re-exported as `diff-run-artifacts` below (spec/017 §Semantic
             ;; diff). Builds read-only on `.7` replay + `.3`/`.8` canonicalize.
-            [re-frame.story.diff        :as diff]
+            [re-frame.story.diff        :as rf.story.diff]
             ;; Golden slices.
             ;; Re-exported as `capture-golden` / `golden-match?` /
             ;; `compare-golden` below (spec/017 §Golden slices). Builds
             ;; read-only on `.3`/`.8` canonicalize + `.7` replay + `.9` diff.
-            [re-frame.story.golden      :as golden]
+            [re-frame.story.golden      :as rf.story.golden]
             ;; The run-artifact → variant promotion bridge.
             ;; Re-exported as `materialize-variant-plan` (pure) +
             ;; `promote-run-artifact!` (the explicit-only registration path)
             ;; below (spec/017 §Promotion — Promotion bridge).
-            [re-frame.story.promotion   :as promotion]
+            [re-frame.story.promotion   :as rf.story.promotion]
             ;; Generated / property-style runs that emit
             ;; seed-bearing run artifacts (+ shrink) and a fault-lattice
             ;; sweep. Re-exported as `check-property!` / `sweep-faults!`
@@ -116,29 +116,29 @@
             ;; read-only on `.7` replay + the `:seed` / `:shrink-path`
             ;; artifact slots; a generated failure feeds the promotion
             ;; bridge unchanged (artifacts first, curated promotion only).
-            [re-frame.story.generate    :as generate]
+            [re-frame.story.generate    :as rf.story.generate]
             ;; The ONE unified run-result + the assertion /
             ;; check record shapes + the clojure.test report projection.
             ;; Re-exported as `run-result` / `result-status` /
             ;; `result-passed?` and backs the `story/is` bridge below
             ;; (spec/017 §Run result + §Unified run result).
-            [re-frame.story.result      :as result]
+            [re-frame.story.result      :as rf.story.result]
             ;; The ONE verdict-aggregation rule
             ;; (`:error` > `:fail` > `:cannot-run` > `:pass`). Re-exported
             ;; as `aggregate-verdict` below so tooling (story-mcp) reads the
             ;; runner's verdict rule rather than re-implementing it.
-            [re-frame.story.requirements :as requirements]
+            [re-frame.story.requirements :as rf.story.requirements]
             ;; `story/is` blocks on the JVM run promise +
             ;; chains the CLJS one (the headless-test bridge).
-            [re-frame.story.async       :as async]
-            [re-frame.story.lifecycle   :as lifecycle]
-            [re-frame.story.query       :as query]
+            [re-frame.story.async       :as rf.story.async]
+            [re-frame.story.lifecycle   :as rf.story.lifecycle]
+            [re-frame.story.query       :as rf.story.query]
             ;; The variant-plan compiler (re-exported as
             ;; `variant-plan` / `explain`) + the `render-variant` workshop
             ;; render verb that drives the SAME plan the runner consumes
             ;; (spec/017 §Args, controls, and `render-variant`).
-            [re-frame.story.plan        :as plan]
-            [re-frame.story.render      :as render]
+            [re-frame.story.plan        :as rf.story.plan]
+            [re-frame.story.render      :as rf.story.render]
             ;; `story/is` bridges per-assertion run-result
             ;; reports to clojure.test / cljs.test (spec/017 §Public
             ;; execution API — the three verbs). `do-report` is the one
@@ -146,39 +146,39 @@
             #?(:clj  [clojure.test :as test]
                :cljs [cljs.test    :as test])
             ;; Runtime modules — args resolution, decorators.
-            [re-frame.story.args        :as args]
+            [re-frame.story.args        :as rf.story.args]
             ;; The variant-id STRING-shape grammar. Re-exported
             ;; as `valid-variant-id?` below so the story-mcp write path
             ;; validates a caller id before interning via the facade.
-            [re-frame.story.schemas     :as schemas]
-            [re-frame.story.decorators  :as decorators]
+            [re-frame.story.schemas     :as rf.story.schemas]
+            [re-frame.story.decorators  :as rf.story.decorators]
             ;; Assertions + play + force-fx-stub.
-            [re-frame.story.assertions  :as assertions]
-            [re-frame.story.fx-stubs    :as fx-stubs]
-            [re-frame.story.play        :as play]
+            [re-frame.story.assertions  :as rf.story.assertions]
+            [re-frame.story.fx-stubs    :as rf.story.fx-stubs]
+            [re-frame.story.play        :as rf.story.play]
             ;; Test Codegen recorder (pure-data state + snippet generator).
-            [re-frame.story.recorder    :as recorder]
+            [re-frame.story.recorder    :as rf.story.recorder]
             ;; Recording → live `:script` body translator.
             ;; Re-exported as `recording->script-body`: the runtime counterpart
             ;; to `gen-play-snippet`'s text output, for the recorder panel and
             ;; any in-process caller wanting the canonical replayable slot.
-            [re-frame.story.recorder.play-export :as play-export]
+            [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]
             ;; SOTA features — layout-debug + share live in .cljc;
             ;; multi-substrate / a11y / panels are CLJS-only so the
             ;; JVM classpath stays Reagent-free.
-            [re-frame.story.layout-debug :as layout-debug]
-            [re-frame.story.share        :as share]
+            [re-frame.story.layout-debug :as rf.story.layout-debug]
+            [re-frame.story.share        :as rf.story.share]
             ;; UI shell — CLJS-only require so JVM consumers don't pull
             ;; Reagent / reagent.dom.client into their classpath.
-            #?(:cljs [re-frame.story.ui.shell :as ui-shell])
-            #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
+            #?(:cljs [re-frame.story.ui.shell :as rf.story.ui.shell])
+            #?(:cljs [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate])
             ;; Story → Xray project-root bridge. `configure!`
-            ;; calls `xray-preset/propagate-project-root!` so Xray-as-RHS
+            ;; calls `rf.story.xray-preset/propagate-project-root!` so Xray-as-RHS
             ;; source-coord chips resolve coords against the same on-disk
             ;; root Story uses. CLJS-only require because the propagator
             ;; is CLJS-only (it feature-detects Xray via `find-ns-obj`).
-            #?(:cljs [re-frame.story.xray-preset :as xray-preset])
-            #?(:clj [re-frame.story.macros :as macros]))
+            #?(:cljs [re-frame.story.xray-preset :as rf.story.xray-preset])
+            #?(:clj [re-frame.story.macros :as rf.story.macros]))
   ;; The nine reg-* macros are defined in the #?(:clj ...) blocks
   ;; below. Self-refer them via :require-macros so CLJS callers can
   ;; write `story/reg-story` after `(:require [re-frame.story :as story])`
@@ -229,7 +229,7 @@
      Expansion elides to `nil` under `:advanced` builds with
      `re-frame.story.config/enabled?` set to `false`."
      [id metadata]
-     (macros/expand-reg-story (meta &form) *file*
+     (rf.story.macros/expand-reg-story (meta &form) *file*
                               (symbol (str (ns-name *ns*)))
                               id metadata)))
 
@@ -273,7 +273,7 @@
      the plan compiler — the single merge authority — when the variant is
      compiled; see `re-frame.story.plan/compile-body`."
      [id metadata]
-     (macros/gen-reg-call (meta &form) *file*
+     (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-variant*
                           id metadata)))
@@ -310,7 +310,7 @@
      end-state and resolves the conflict by stating the wanted value (no
      `:resolve-conflicts` escape hatch in P1)."
      [id metadata]
-     (macros/gen-reg-call (meta &form) *file*
+     (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-fragment*
                           id metadata)))
@@ -333,7 +333,7 @@
      id) is preserved in the plan and in run results, so a failed check
      shows both the check id and the underlying assertion records."
      [id metadata]
-     (macros/gen-reg-call (meta &form) *file*
+     (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-check*
                           id metadata)))
@@ -368,7 +368,7 @@
      the v1 devcards-style multi-variant pane
      (`005-SOTA-Features.md` §`:variants-grid` workspace layout)."
      [id metadata]
-     (macros/gen-reg-call (meta &form) *file*
+     (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-workspace*
                           id metadata)))
@@ -392,7 +392,7 @@
      `(variant × mode)` cell has its own snapshot-identity for visual
      regression keying."
      [id metadata]
-     (macros/gen-reg-call (meta &form) *file*
+     (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-mode*
                           id metadata)))
@@ -416,7 +416,7 @@
      the re-frame-10x epoch panel ships as a registered
      story panel via this macro."
      [id metadata]
-     (macros/gen-reg-call (meta &form) *file*
+     (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-story-panel*
                           id metadata)))
@@ -437,7 +437,7 @@
      - `:frame-setup` — `{:kind :frame-setup, :init [...], :app-db-patch {...}}`
      - `:fx-override` — `{:kind :fx-override, :fx-id ..., :response ...}`"
      [id metadata]
-     (macros/gen-reg-call (meta &form) *file*
+     (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-decorator*
                           id metadata)))
@@ -477,7 +477,7 @@
      resolves at registration time against the inherited set — see
      `001-Authoring.md` §Tags."
      [id metadata]
-     (macros/gen-reg-call (meta &form) *file*
+     (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
                           `re-frame.story.registrar/reg-tag*
                           id metadata)))
@@ -497,32 +497,32 @@
   registrar — see `001-Authoring.md` §Registration macros for the
   design rationale."
   [kind]
-  (query/registrations kind))
+  (rf.story.query/registrations kind))
 
 (defn handler-meta
   "Return the body for `(kind, id)`, or nil."
   [kind id]
-  (query/handler-meta kind id))
+  (rf.story.query/handler-meta kind id))
 
 (defn ids
   "Return the id set for `kind`."
   [kind]
-  (query/ids kind))
+  (rf.story.query/ids kind))
 
 (defn registered?
   "True iff `(kind, id)` is registered."
   [kind id]
-  (query/registered? kind id))
+  (rf.story.query/registered? kind id))
 
 (defn all-kinds-with-counts
   "{kind → count} — dev tooling overlay."
   []
-  (query/all-kinds-with-counts))
+  (rf.story.query/all-kinds-with-counts))
 
 (defn variants-of
   "Return the set of variant ids whose parent is `story-id`."
   [story-id]
-  (query/variants-of story-id))
+  (rf.story.query/variants-of story-id))
 
 (defn variants-by-story
   "Return a `{story-id #{variant-id ...}}` index built in one pass over
@@ -533,7 +533,7 @@
   introspection tool); the single-pass index avoids the O(S × V)
   walk of calling `variants-of` per story."
   []
-  (query/variants-by-story))
+  (rf.story.query/variants-by-story))
 
 (defn variants-with-tags
   "Per `002-Runtime.md` §Programmatic API — return the set of variant ids
@@ -543,18 +543,18 @@
   and a removed one does not. The assertions/play surface leans on this;
   the render shell leans on this to compose the sidebar tree."
   [query-tags]
-  (query/variants-with-tags query-tags))
+  (rf.story.query/variants-with-tags query-tags))
 
 (defn list-tags
   "Per `002-Runtime.md` §Tag-vocabulary queries — return the set of registered tag ids. Tools
   enumerate this set before assigning tags to a variant."
   []
-  (query/list-tags))
+  (rf.story.query/list-tags))
 
 (defn list-modes
   "Per `002-Runtime.md` §Tag-vocabulary queries — return the set of registered mode ids."
   []
-  (query/list-modes))
+  (rf.story.query/list-modes))
 
 (defn tags-by-axis
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
@@ -563,14 +563,14 @@
   tags into collapsible facet rows (SB9 parity). Returns the
   empty set if no tag carries that axis."
   [axis-kw]
-  (query/tags-by-axis axis-kw))
+  (rf.story.query/tags-by-axis axis-kw))
 
 (defn tags-without-axis
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
   body carries no `:axis`. The sidebar renders these in a trailing
   un-grouped facet row."
   []
-  (query/tags-without-axis))
+  (rf.story.query/tags-without-axis))
 
 (defn tags-default-excluded
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
@@ -578,37 +578,37 @@
   pre-excludes variants carrying any of these at boot (e.g.
   `:internal` / `:experimental`)."
   []
-  (query/tags-default-excluded))
+  (rf.story.query/tags-default-excluded))
 
 (def canonical-tags
   "Re-export of the seven canonical tag ids from /spec/007-Stories.md
   §Inclusion tags. Stable across hosts."
-  query/canonical-tags)
+  rf.story.query/canonical-tags)
 
 (def canonical-axes
   "Re-export of the canonical facet axes documented in spec/001
   §reg-tag — `:status`, `:role`, `:team`, `:feature` (SB9 facet
   taxonomy) + `:state` (operator-facing magnitude).
   Stable across hosts."
-  query/canonical-axes)
+  rf.story.query/canonical-axes)
 
 (def canonical-status-values
   "Re-export of the recommended `:status` axis vocabulary."
-  query/canonical-status-values)
+  rf.story.query/canonical-status-values)
 
 (def canonical-role-values
   "Re-export of the recommended `:role` axis vocabulary."
-  query/canonical-role-values)
+  rf.story.query/canonical-role-values)
 
 (def canonical-state-values
   "Re-export of the canonical `:state` axis vocabulary —
   `#{:empty :small :medium :large :special}`."
-  query/canonical-state-values)
+  rf.story.query/canonical-state-values)
 
 (def canonical-state-tags
   "Re-export of the canonical `:state/*` faceted tags registered at
   Story load."
-  query/canonical-state-tags)
+  rf.story.query/canonical-state-tags)
 
 (defn tag->axis-index
   "Per spec/001 §reg-tag — return a `{tag-id → axis-kw}` map across
@@ -617,7 +617,7 @@
   filter row + the `:tag-filter` AND-across-axes predicate
   consume this."
   []
-  (query/tag->axis-index))
+  (rf.story.query/tag->axis-index))
 
 ;; ---- programmatic registration surface -----------------------------------
 ;;
@@ -627,18 +627,18 @@
 ;; Re-exported here so authors with a legit programmatic need can call
 ;; them without reaching into the internal ns.
 
-(def reg-story*       registrar/reg-story*)
-(def reg-variant*     registrar/reg-variant*)
+(def reg-story*       rf.story.registrar/reg-story*)
+(def reg-variant*     rf.story.registrar/reg-variant*)
 ;; Fragment + check runtime helpers, grouped with the other registrar
 ;; re-exports (strict composition: `:compose` pulls these into a variant
 ;; plan).
-(def reg-fragment*    registrar/reg-fragment*)
-(def reg-check*       registrar/reg-check*)
-(def reg-workspace*   registrar/reg-workspace*)
-(def reg-mode*        registrar/reg-mode*)
-(def reg-story-panel* registrar/reg-story-panel*)
-(def reg-decorator*   registrar/reg-decorator*)
-(def reg-tag*         registrar/reg-tag*)
+(def reg-fragment*    rf.story.registrar/reg-fragment*)
+(def reg-check*       rf.story.registrar/reg-check*)
+(def reg-workspace*   rf.story.registrar/reg-workspace*)
+(def reg-mode*        rf.story.registrar/reg-mode*)
+(def reg-story-panel* rf.story.registrar/reg-story-panel*)
+(def reg-decorator*   rf.story.registrar/reg-decorator*)
+(def reg-tag*         rf.story.registrar/reg-tag*)
 
 ;; ---- canonical vocabulary boot ------------------------------------------
 ;;
@@ -667,7 +667,7 @@
   an unregistered tag on a variant's `:tags` set raises
   `:rf.error/unknown-tag`."
   []
-  (canonical/install!))
+  (rf.story.canonical/install!))
 
 ;; ---- frame-owned classification — NO add-marks / set-marks re-export -----
 ;;
@@ -759,8 +759,8 @@
   ([id body]
    (reg-global-decorator id body []))
   ([id body ref-args]
-   (registrar/reg-decorator* id body)
-   (config/add-global-decorator! (into [id] ref-args))
+   (rf.story.registrar/reg-decorator* id body)
+   (rf.story.config/add-global-decorator! (into [id] ref-args))
    id))
 
 (defn unreg-global-decorator!
@@ -768,14 +768,14 @@
   registration body is NOT unregistered — call `unregister!` for that.
   Idempotent."
   [id]
-  (config/remove-global-decorator! id))
+  (rf.story.config/remove-global-decorator! id))
 
 (defn global-decorators
   "Return the current ordered vector of global-decorator references
   (`[[decorator-id & args] ...]`). Earliest-registered first; this is
   the prefix applied to every variant's resolved decorator stack."
   []
-  (config/get-global-decorators))
+  (rf.story.config/get-global-decorators))
 
 ;; ---- configure! ---------------------------------------------------------
 
@@ -884,24 +884,24 @@
                          :unknown     (vec unknown)
                          :known       known-keys})))))
   (when (some? global-args)
-    (config/set-global-args! global-args))
+    (rf.story.config/set-global-args! global-args))
   (when (contains? opts :rf.story/global-decorators)
-    (config/set-global-decorators! global-decorators))
+    (rf.story.config/set-global-decorators! global-decorators))
   (when (some? editor)
-    (config/set-editor! editor))
+    (rf.story.config/set-editor! editor))
   (when (contains? opts :rf.story/project-root)
-    (config/set-project-root! project-root)
+    (rf.story.config/set-project-root! project-root)
     ;; Bridge into Xray's `:rf.xray/project-root` slot so
     ;; Xray-as-RHS source-coord chips share the same on-disk root.
     ;; Feature-detect-safe (no-op when Xray is not on the classpath).
-    #?(:cljs (xray-preset/propagate-project-root!)))
+    #?(:cljs (rf.story.xray-preset/propagate-project-root!)))
   (when (contains? opts :rf.story/egress-profile)
     ;; EP-0015: the named-boundary enum is CLOSED. An unknown
     ;; non-nil profile fails loudly at boot — mirroring `project-egress`'s
     ;; own `:rf.error/unknown-egress-profile` — rather than silently
     ;; coercing to the default. `nil` resets to the redacting default.
     (when (and (some? egress-profile)
-               (not (config/known-egress-profile? egress-profile)))
+               (not (rf.story.config/known-egress-profile? egress-profile)))
       ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape:
       ;; a human sentence + the trailing `[:rf.error/<id>]` token as the
       ;; ex-message, with `:rf.error/id` the sole machine discriminator.
@@ -910,7 +910,7 @@
       ;; is hand-rolled inline (mirroring reagent-slim's same constraint).
       (let [msg (str "configure! got an unknown :rf.story/egress-profile: "
                      (pr-str egress-profile)
-                     " — known profiles are " (pr-str config/egress-profiles) ". "
+                     " — known profiles are " (pr-str rf.story.config/egress-profiles) ". "
                      "Use one of the known profiles, or `nil` to reset to the "
                      "redacting default. [:rf.error/unknown-egress-profile]")]
         (throw (ex-info msg
@@ -919,8 +919,8 @@
                          :recovery    :use-a-known-profile
                          :reason      msg
                          :profile     egress-profile
-                         :valid       config/egress-profiles}))))
-    (config/set-egress-profile! egress-profile))
+                         :valid       rf.story.config/egress-profiles}))))
+    (rf.story.config/set-egress-profile! egress-profile))
   nil)
 
 ;; ---- registry reset (test fixtures) -------------------------------------
@@ -944,15 +944,15 @@
     tags etc. need to be re-registered before any tagged variant can
     be added).
   - resets the two per-process play atoms (`pending-exceptions` +
-    `stepper-state`) via `play/clear-all-play-state!` — the
+    `stepper-state`) via `rf.story.play/clear-all-play-state!` — the
     remaining un-reset per-process state, so a stepper / pending-exception
     session in one test cannot leak into the next on a reset path that
     bypasses per-frame `frames/destroy!` teardown."
   []
-  (registrar/clear-all!)
-  (config/reset-all!)
-  (canonical/reset-installed-flag!)
-  (play/clear-all-play-state!))
+  (rf.story.registrar/clear-all!)
+  (rf.story.config/reset-all!)
+  (rf.story.canonical/reset-installed-flag!)
+  (rf.story.play/clear-all-play-state!))
 
 ;; ---- canonical test-fixture helper — DIRECT-REQUIRE, not on this facade -
 ;;
@@ -976,12 +976,12 @@
 (defn clear-kind!
   "Remove every id under `kind`. Used by test fixtures and hot-reload."
   [kind]
-  (registrar/clear-kind! kind))
+  (rf.story.registrar/clear-kind! kind))
 
 (defn unregister!
   "Remove a single id under `kind`."
   [kind id]
-  (registrar/unregister! kind id))
+  (rf.story.registrar/unregister! kind id))
 
 ;; ---- variant lifecycle surface ------------------------------------------
 ;;
@@ -998,12 +998,12 @@
 
   Returns nil when the variant is unregistered."
   [variant-id]
-  (lifecycle/variant->edn variant-id))
+  (rf.story.lifecycle/variant->edn variant-id))
 
 (defn workspace->edn
   "Per `002-Runtime.md` §Programmatic API — same for workspaces."
   [workspace-id]
-  (lifecycle/workspace->edn workspace-id))
+  (rf.story.lifecycle/workspace->edn workspace-id))
 
 (defn valid-variant-id?
   "Per /spec/007-Stories.md §Canonical id grammar — true iff the DECOMPOSED
@@ -1016,7 +1016,7 @@
   `fresh-keyword-checked` `shape-ok?` predicate), single-sourced with the
   registrar's keyword-level grammar."
   [decomposed-id]
-  (schemas/variant-id-shape? decomposed-id))
+  (rf.story.schemas/variant-id-shape? decomposed-id))
 
 (defn run-variant
   "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`.
@@ -1031,13 +1031,13 @@
   See `re-frame.story.result` and spec/017 §Unified run result for the
   result contract. Rendering is driven separately through `render-variant`
   or the UI shell."
-  ([variant-id]       (lifecycle/run-variant variant-id))
-  ([variant-id opts]  (lifecycle/run-variant variant-id opts)))
+  ([variant-id]       (rf.story.lifecycle/run-variant variant-id))
+  ([variant-id opts]  (rf.story.lifecycle/run-variant variant-id opts)))
 
 (defn reset-variant
   "Tear down + re-run `variant-id`. Per `002-Runtime.md` §Programmatic API."
-  ([variant-id]       (lifecycle/reset-variant variant-id))
-  ([variant-id opts]  (lifecycle/reset-variant variant-id opts)))
+  ([variant-id]       (rf.story.lifecycle/reset-variant variant-id))
+  ([variant-id opts]  (rf.story.lifecycle/reset-variant variant-id opts)))
 
 (defn watch-variant
   "Subscribe to lifecycle transitions for `variant-id`'s frame. Per
@@ -1045,7 +1045,7 @@
   `{:frame-id <id> :from <state> :to <state> :event <inner-event>}`
   on every transition. Returns a 0-arity unsubscribe fn."
   [variant-id callback]
-  (lifecycle/watch-variant variant-id callback))
+  (rf.story.lifecycle/watch-variant variant-id callback))
 
 (defn snapshot-identity
   "Per `002-Runtime.md` §Programmatic API + §Snapshot-identity computation.
@@ -1055,8 +1055,8 @@
 
   Returns `{:variant-id ... :active-modes [...] :substrate ...
   :content-hash \"<8-char hex>\"}`."
-  ([variant-id]       (lifecycle/snapshot-identity variant-id))
-  ([variant-id opts]  (lifecycle/snapshot-identity variant-id opts)))
+  ([variant-id]       (rf.story.lifecycle/snapshot-identity variant-id))
+  ([variant-id opts]  (rf.story.lifecycle/snapshot-identity variant-id opts)))
 
 ;; ---- canonicalization / fingerprinting ----------------------------------
 ;;
@@ -1074,31 +1074,31 @@
   Equivalent values canonicalize `=`; a semantic difference perturbs the
   result."
   [x]
-  (fingerprint/canonicalize x))
+  (rf.story.fingerprint/canonicalize x))
 
 (defn canonical-hash
   "8-char-hex hash of the `canonicalize`d projection of `x` — the
   determinism / semantic-diff / run-equivalence hash."
   [x]
-  (fingerprint/canonical-hash x))
+  (rf.story.fingerprint/canonical-hash x))
 
 (defn content-hash
   "8-char-hex content hash of the exact value `x` (ordered, no volatile
   strip) — the low primitive snapshot identity hashes."
   [x]
-  (fingerprint/content-hash x))
+  (rf.story.fingerprint/content-hash x))
 
 (defn plan-hash
   "`:plan-hash` over the enumerated normalized-plan input slice. Routes
   through the same primitive as `run-hash`."
   [plan]
-  (fingerprint/plan-hash plan))
+  (rf.story.fingerprint/plan-hash plan))
 
 (defn run-hash
   "`:run-hash` over the canonical epoch/run slice of a run-result. Routes
   through the same primitive as `plan-hash`."
   [result]
-  (fingerprint/run-hash result))
+  (rf.story.fingerprint/run-hash result))
 
 ;; ---- run-evidence projection --------------------------------------------
 ;;
@@ -1115,8 +1115,8 @@
   `re-frame.core/epoch-history`) into the run-result evidence slots. Pure
   data → data. `opts` may carry `:script` for the two-level `:narrative`.
   Every evidential slot agrees with the tape by construction."
-  ([epoch-tape]      (evidence/project-evidence epoch-tape))
-  ([epoch-tape opts] (evidence/project-evidence epoch-tape opts)))
+  ([epoch-tape]      (rf.story.play.evidence/project-evidence epoch-tape))
+  ([epoch-tape opts] (rf.story.play.evidence/project-evidence epoch-tape opts)))
 
 (defn tape-shows-failure?
   "Per spec/017 §Run-result evidence projection — true iff the retained
@@ -1124,8 +1124,8 @@
   epoch, or an error effect). The agreement floor: a run may not report
   `:pass` while this is true. Optional `consumed-selectors` (a set) excuses
   expected schema failures. Pure data → data."
-  ([epoch-tape]                     (evidence/tape-shows-failure? epoch-tape))
-  ([epoch-tape consumed-selectors]  (evidence/tape-shows-failure? epoch-tape consumed-selectors)))
+  ([epoch-tape]                     (rf.story.play.evidence/tape-shows-failure? epoch-tape))
+  ([epoch-tape consumed-selectors]  (rf.story.play.evidence/tape-shows-failure? epoch-tape consumed-selectors)))
 
 ;; ---- narrative navigation -----------------------------------------------
 ;;
@@ -1143,26 +1143,26 @@
   address), `:span-idx`, owning `:step`, and `:span-caption`. Pure data →
   data."
   [narrative]
-  (evidence/narrative-beats narrative))
+  (rf.story.play.evidence/narrative-beats narrative))
 
 (defn beat-count
   "Per spec/017 §Epoch tape and narrative — the number of scrubbable beats
   in a two-level `narrative` (the scrub slider's extent). Pure data → data."
   [narrative]
-  (evidence/beat-count narrative))
+  (rf.story.play.evidence/beat-count narrative))
 
 (defn beat-at
   "Per spec/017 §Epoch tape and narrative — the flattened beat at 0-based
   scrub position `idx`, or nil out of range. Pure data → data."
   [narrative idx]
-  (evidence/beat-at narrative idx))
+  (rf.story.play.evidence/beat-at narrative idx))
 
 (defn beat-epoch-ids
   "Per spec/017 §Epoch tape and narrative — the ordered `:epoch-id` vector
   for a two-level `narrative`; the Nth element is the `restore-epoch`
   target for scrub position N. Pure data → data."
   [narrative]
-  (evidence/beat-epoch-ids narrative))
+  (rf.story.play.evidence/beat-epoch-ids narrative))
 
 ;; ---- run artifact + replay ----------------------------------------------
 ;;
@@ -1178,21 +1178,21 @@
   `:setup` / `:script` sugar into it, stamps `:artifact/kind`, and defaults
   `:fx-decisions`. Pure data → data."
   [parts]
-  (artifact/make-run-artifact parts))
+  (rf.story.artifact/make-run-artifact parts))
 
 (defn run-artifact?
   "Per spec/017 §Run artifact and replay — true iff `x` is a
   `:rf.test/run-artifact` map (the kind tag plus a vector `:event-program`)."
   [x]
-  (artifact/run-artifact? x))
+  (rf.story.artifact/run-artifact? x))
 
 (defn replay-run-artifact
   "Per spec/017 §Run artifact and replay — replay a `:rf.test/run-artifact`
   into a FRESH frame, reapplying the fx decisions, capturing a NEW epoch
   tape, and returning the shared run-result shape (§Run result). `opts` MAY
   carry `:frame` / `:hooks` / `:frame-config`."
-  ([art]      (artifact/replay-run-artifact art))
-  ([art opts] (artifact/replay-run-artifact art opts)))
+  ([art]      (rf.story.artifact/replay-run-artifact art))
+  ([art opts] (rf.story.artifact/replay-run-artifact art opts)))
 
 ;; ---- determinism gate ---------------------------------------------------
 ;;
@@ -1211,8 +1211,8 @@
   `:cannot-run` when the program carries a bare `[:wait ms]` (the explicit
   determinism opt-out — refused rather than run flakily). `opts` MAY carry
   `:runs` / `:hooks` / `:frame-config`."
-  ([plan-or-artifact]      (determinism/assert-deterministic plan-or-artifact))
-  ([plan-or-artifact opts] (determinism/assert-deterministic plan-or-artifact opts)))
+  ([plan-or-artifact]      (rf.story.determinism/assert-deterministic plan-or-artifact))
+  ([plan-or-artifact opts] (rf.story.determinism/assert-deterministic plan-or-artifact opts)))
 
 ;; ---- run-artifact → variant promotion bridge ----------------------------
 ;;
@@ -1233,8 +1233,8 @@
   source link. `opts` MAY carry `:variant/id` / `:setup` / `:script` /
   `:setup-count` / `:doc` / `:extends` / `:tags` / `:args` / `:lookup` /
   `:view-lookup` / `:validator-fns`."
-  ([artifact]      (promotion/materialize-variant-plan artifact))
-  ([artifact opts] (promotion/materialize-variant-plan artifact opts)))
+  ([artifact]      (rf.story.promotion/materialize-variant-plan artifact))
+  ([artifact opts] (rf.story.promotion/materialize-variant-plan artifact opts)))
 
 (defn promote-run-artifact!
   "Per spec/017 §Promotion — promote a curated run artifact into a NAMED
@@ -1246,7 +1246,7 @@
   `reg-variant` write path. Production builds short-circuit. Returns the
   registered variant id."
   [artifact opts]
-  (promotion/promote-run-artifact! artifact opts))
+  (rf.story.promotion/promote-run-artifact! artifact opts))
 
 ;; ---- generated / property-style runs ------------------------------------
 ;;
@@ -1269,7 +1269,7 @@
   `{:status :fail :seed … :shrink-path … :artifact <run-artifact> …}`; the
   `:artifact` feeds `promote-run-artifact!` for a curated regression variant."
   [gen-fn opts]
-  (generate/check-property! gen-fn opts))
+  (rf.story.generate/check-property! gen-fn opts))
 
 (defn sweep-faults!
   "Per spec/017 §Fault lattice sweep — replay `base-program` across a
@@ -1280,7 +1280,7 @@
   MAY carry `:seed` / `:hooks` / `:frame-config`. Returns `{:cells [{:cell
   :status :artifact :result} …] :failing [cell-id …]}`."
   [base-program fault-lattice opts]
-  (generate/sweep-faults! base-program fault-lattice opts))
+  (rf.story.generate/sweep-faults! base-program fault-lattice opts))
 
 ;; ---- semantic diff over run artifacts -----------------------------------
 ;;
@@ -1303,8 +1303,8 @@
   behaviourally-identical runs, else `{:same? false :facets #{…} …}` carrying
   ONLY the facets that differ. `opts` MAY carry `:frame` / `:hooks` /
   `:frame-config` (threaded to the replay)."
-  ([baseline current]      (diff/diff-run-artifacts baseline current))
-  ([baseline current opts] (diff/diff-run-artifacts baseline current opts)))
+  ([baseline current]      (rf.story.diff/diff-run-artifacts baseline current))
+  ([baseline current opts] (rf.story.diff/diff-run-artifacts baseline current opts)))
 
 ;; ---- golden slices ------------------------------------------------------
 ;;
@@ -1325,8 +1325,8 @@
   (curation provenance), `:keep-run-result` (retain the source slice for a
   readable `compare-golden` mismatch diff), and `:frame` / `:hooks` /
   `:frame-config` (threaded to the replay)."
-  ([target]      (golden/capture-golden target))
-  ([target opts] (golden/capture-golden target opts)))
+  ([target]      (rf.story.golden/capture-golden target))
+  ([target opts] (rf.story.golden/capture-golden target opts)))
 
 (defn golden-match?
   "Per spec/017 §Golden slices — true iff `run` matches the `golden` slice:
@@ -1336,8 +1336,8 @@
   real semantic difference. `run` MAY be a run-result (pure) or a
   `:rf.test/run-artifact` (replayed first); `opts` MAY carry `:frame` /
   `:hooks` / `:frame-config`."
-  ([golden run]      (golden/golden-match? golden run))
-  ([golden run opts] (golden/golden-match? golden run opts)))
+  ([golden run]      (rf.story.golden/golden-match? golden run))
+  ([golden run opts] (rf.story.golden/golden-match? golden run opts)))
 
 (defn compare-golden
   "Per spec/017 §Golden slices — compare `run` against the `golden` slice
@@ -1349,32 +1349,32 @@
   with `:keep-run-result true` (or pass `:golden-run-result`); absent it the
   report still states the mismatch fact. `opts` MAY carry
   `:golden-run-result` + the replay opts."
-  ([golden run]      (golden/compare-golden golden run))
-  ([golden run opts] (golden/compare-golden golden run opts)))
+  ([golden run]      (rf.story.golden/compare-golden golden run))
+  ([golden run opts] (rf.story.golden/compare-golden golden run opts)))
 
 (defn destroy-variant!
   "Tear down a variant frame allocated via `run-variant`. Per
   `002-Runtime.md` §Per-variant frame allocation — the caller (UI shell / test fixture) owns teardown."
   [variant-id]
-  (lifecycle/destroy-variant! variant-id))
+  (rf.story.lifecycle/destroy-variant! variant-id))
 
 (defn variant-frames
   "Return every registered variant frame id. The UI shell uses this
   to lay out the active variant pane."
   []
-  (lifecycle/variant-frames))
+  (rf.story.lifecycle/variant-frames))
 
 (defn variant-frame?
   "True iff `frame-id` is a variant frame."
   [frame-id]
-  (lifecycle/variant-frame? frame-id))
+  (rf.story.lifecycle/variant-frame? frame-id))
 
 (defn lifecycle-state
   "Return the lifecycle's current discrete state for the variant's
   frame (`:pre-mount`, `:mounting`, `:loading`, `:ready`, `:error`).
   Returns `:pre-mount` if the variant hasn't been run yet."
   [variant-id]
-  (lifecycle/lifecycle-state variant-id))
+  (rf.story.lifecycle/lifecycle-state variant-id))
 
 ;; ---- public assertion + play helpers ------------------------------------
 
@@ -1398,7 +1398,7 @@
   vacuous-green fold: true iff every record has `:passed? true` (an empty
   vector passes). See `re-frame.story.assertions/passing?`."
   [assertions-or-result]
-  (assertions/passing? assertions-or-result))
+  (rf.story.assertions/passing? assertions-or-result))
 
 (defn read-assertions
   "Per `004-Assertions.md` §Record-don't-throw semantics — return the assertions vector accumulated against
@@ -1406,14 +1406,14 @@
   but doesn't re-run the variant. Useful for live introspection from the
   UI shell or REPL."
   [variant-id]
-  (assertions/read-assertions variant-id))
+  (rf.story.assertions/read-assertions variant-id))
 
 (defn canonical-assertion-ids
   "Per /spec/007-Stories.md §Inclusion tags + `004-Assertions.md`
   §Canonical assertion vocabulary — return the set of seven
   canonical `:rf.assert/*` event ids registered at boot."
   []
-  assertions/canonical-assertion-ids)
+  rf.story.assertions/canonical-assertion-ids)
 
 (defn known-assertion-ids
   "Per spec/017 §Assertions — return the FULL set of assertion ids the
@@ -1429,7 +1429,7 @@
   subset. Exposed for tooling (story-mcp `list-assertions`) that
   enumerates the recognised vocabulary."
   []
-  assertions/known-assertion-ids)
+  rf.story.assertions/known-assertion-ids)
 
 ;; ---- unified run-result + the three verbs -------------------------------
 ;;
@@ -1455,7 +1455,7 @@
   fails the run, and any unconsumed violation fails the run via the
   agreement floor — there is NO `:rf.assert/no-schema-errors` knob."
   [parts]
-  (result/run-result parts))
+  (rf.story.result/run-result parts))
 
 (defn match-schema-expectations
   "Per spec/017 §Schema rule — EXACT multiset match of declared
@@ -1466,7 +1466,7 @@
   Exposed for tooling / MCP that wants to inspect the consumption pairing
   directly."
   [schema-expectations epoch-tape]
-  (result/match-schema-expectations schema-expectations epoch-tape))
+  (rf.story.result/match-schema-expectations schema-expectations epoch-tape))
 
 (defn result-status
   "Per spec/017 §Run result — the unified verdict of a run-result:
@@ -1478,7 +1478,7 @@
   "Per spec/017 §Run result — true iff the run-result's `:status` is
   `:pass`. A `:cannot-run` is NOT a pass (the runner proved nothing)."
   [result]
-  (result/passed? result))
+  (rf.story.result/passed? result))
 
 (defn assertion-record
   "Per spec/017 §Run result — Assertion record — normalize ONE raw
@@ -1489,7 +1489,7 @@
   `preview-variant` / `read-failures`) that mints a synthetic record for a
   path the run never produced (e.g. a pre-settlement `:error`)."
   [raw]
-  (result/assertion-record raw))
+  (rf.story.result/assertion-record raw))
 
 (defn assertion-records
   "Per spec/017 §Run result — normalize a raw assertion accumulator vector
@@ -1499,7 +1499,7 @@
   stamps the unified `:status` onto records read from the
   `:rf.story/assertions` accumulator without re-running the variant."
   [raw-assertions]
-  (result/assertion-records raw-assertions))
+  (rf.story.result/assertion-records raw-assertions))
 
 (defn aggregate-verdict
   "Per spec/017 §`:cannot-run` — the variant-level verdict over a vector of
@@ -1511,7 +1511,7 @@
   than re-implementing the precedence. `unmet` may be `nil` when no
   capability refusals apply."
   [records unmet]
-  (requirements/aggregate-status records unmet))
+  (rf.story.requirements/aggregate-status records unmet))
 
 ;; ---- the frozen, schema-backed run-result contract ----------------------
 ;;
@@ -1528,20 +1528,20 @@
   unified run-result. The ONE schema-backed contract Story UI, CI,
   `clojure.test`, and story-mcp validate against (see
   `re-frame.story.result/RunResult`)."
-  result/RunResult)
+  rf.story.result/RunResult)
 
 (defn valid-run-result?
   "Per spec/017 §Run result — true iff `result` conforms to
   the frozen `run-result-schema`. Pure data → data."
   [result]
-  (result/valid-run-result? result))
+  (rf.story.result/valid-run-result? result))
 
 (defn explain-run-result
   "Per spec/017 §Run result — Malli explanation of why
   `result` does NOT conform to the frozen `run-result-schema`, or nil when
   it conforms. Pure data → data."
   [result]
-  (result/explain-run-result result))
+  (rf.story.result/explain-run-result result))
 
 (defn result->reports
   "Per spec/017 §Public execution API — project a unified `result` into the
@@ -1552,7 +1552,7 @@
   projection `story/is` emits, exposed for tooling that wants the reports
   without firing `do-report`."
   [result]
-  (result/result->reports result))
+  (rf.story.result/result->reports result))
 
 (defn run
   "Per spec/017 §Public execution API — the `run` verb. Run `target` and
@@ -1578,8 +1578,8 @@
   ([target]      (run target nil))
   ([target opts]
    (if (map? target)
-     (lifecycle/run-inline-plan target opts)
-     (lifecycle/run-variant target opts))))
+     (rf.story.lifecycle/run-inline-plan target opts)
+     (rf.story.lifecycle/run-variant target opts))))
 
 ;; ---- variant-plan / explain / render-variant ----------------------------
 ;;
@@ -1597,8 +1597,8 @@
   / `:sub-lookup` / `:fragment-lookup` / `:check-lookup`); production reads
   the registrars. Pure data → data — the same plan the runner and
   `render-variant` consume."
-  ([target]      (plan/variant-plan target))
-  ([target opts] (plan/variant-plan target opts)))
+  ([target]      (rf.story.plan/variant-plan target))
+  ([target opts] (rf.story.plan/variant-plan target opts)))
 
 (defn explain
   "Per spec/017 §Explain API — the `:explain` map for `target` (source +
@@ -1607,8 +1607,8 @@
   validation, final setup/script order, checks/assertions, runner
   requirements, platforms, tags). Convenience over
   `(:explain (variant-plan target opts))`."
-  ([target]      (plan/explain target))
-  ([target opts] (plan/explain target opts)))
+  ([target]      (rf.story.plan/explain target))
+  ([target opts] (rf.story.plan/explain target opts)))
 
 (defn render-variant
   "Per spec/017 §Args, controls, and `render-variant` — render `target`'s
@@ -1636,8 +1636,8 @@
   drives an invalid view input STOPS render before the view is called
   (`:invalid-args`); on the bare JVM (no host renderer) the verb returns
   `:cannot-run` rather than a silent empty render."
-  ([target]      (render/render-variant target))
-  ([target opts] (render/render-variant target opts)))
+  ([target]      (rf.story.render/render-variant target))
+  ([target opts] (rf.story.render/render-variant target opts)))
 
 (defn- emit-reports!
   "Fire `clojure.test` / `cljs.test` `do-report` for each report map in
@@ -1691,7 +1691,7 @@
    (cond
      ;; Already a unified result — report it synchronously.
      (and (map? target) (contains? target :status) (contains? target :assertions))
-     (do (emit-reports! (:variant/id target) (result/result->reports target))
+     (do (emit-reports! (:variant/id target) (rf.story.result/result->reports target))
          target)
 
      :else
@@ -1709,16 +1709,16 @@
        ;; for the same parameter, should a future change make the arg load-
        ;; bearing (e.g. stamping the variant id onto each report's message).
        #?(:clj
-          (let [result (async/deref-blocking p (get opts :timeout-ms 30000))]
-            (emit-reports! (:variant/id result) (result/result->reports result))
+          (let [result (rf.story.async/deref-blocking p (get opts :timeout-ms 30000))]
+            (emit-reports! (:variant/id result) (rf.story.result/result->reports result))
             result)
           :cljs
           ;; CLJS run is async; report when it resolves and hand the
           ;; promise back so a `(cljs.test/async done …)` test can await it.
           ;; `:timeout-ms` is inert here — the caller's own async deadline
           ;; governs (the JVM is the only path that blocks).
-          (async/then p (fn [result]
-                          (emit-reports! (:variant/id result) (result/result->reports result))
+          (rf.story.async/then p (fn [result]
+                          (emit-reports! (:variant/id result) (rf.story.result/result->reports result))
                           result)))))))
 
 (defn report-result!
@@ -1728,7 +1728,7 @@
   `(cljs.test/async done …)` test once the `story/run` promise resolves.
   Returns the result."
   [result]
-  (emit-reports! (:variant/id result) (result/result->reports result))
+  (emit-reports! (:variant/id result) (rf.story.result/result->reports result))
   result)
 
 (defn execute-play!
@@ -1742,11 +1742,11 @@
   Returns a `js/Promise` (CLJS) / `CompletableFuture` (JVM) of the
   assertions vector — the same shape `(:assertions result)` gives."
   ([variant-id]
-   (play/execute-play! variant-id))
+   (rf.story.play/execute-play! variant-id))
   ([variant-id play-events]
-   (play/execute-play! variant-id play-events))
+   (rf.story.play/execute-play! variant-id play-events))
   ([variant-id play-events opts]
-   (play/execute-play! variant-id play-events opts)))
+   (rf.story.play/execute-play! variant-id play-events opts)))
 
 (def force-fx-stub-id
   "Per /spec/007-Stories.md §Effect mocking + `004-Assertions.md`
@@ -1758,7 +1758,7 @@
         {:decorators [[story/force-fx-stub-id :http {:status :pending}]]
          :script     {:script [[:dispatch [:auth/login]]
                                [:dispatch [:rf.assert/effect-emitted :http]]]}})"
-  fx-stubs/force-fx-stub-id)
+  rf.story.fx-stubs/force-fx-stub-id)
 
 ;; ---- public SOTA-feature surface ----------------------------------------
 
@@ -1769,12 +1769,12 @@
 
       (story/reg-variant :story.button/pressed
         {:decorators [[story/layout-debug-measure-id]]})"
-  layout-debug/id-measure)
+  rf.story.layout-debug/id-measure)
 
 (def layout-debug-outline-id
   "Per `005-SOTA-Features.md` §Layout-debug overlay trio — Pesticide-style coloured outlines on every
   descendant element."
-  layout-debug/id-outline)
+  rf.story.layout-debug/id-outline)
 
 (def layout-debug-pseudo-id
   "Per `005-SOTA-Features.md` §Layout-debug overlay trio — pseudo-state forcing. Ref-args is a set
@@ -1782,7 +1782,7 @@
 
       (story/reg-variant :story.link/hovered
         {:decorators [[story/layout-debug-pseudo-id #{:hover}]]})"
-  layout-debug/id-pseudo)
+  rf.story.layout-debug/id-pseudo)
 
 (defn variant-share-url
   "Per `005-SOTA-Features.md` §Share URL — build a sharable URL for a variant against
@@ -1795,8 +1795,8 @@
     :active-modes    coll of registered mode ids
     :cell-overrides  {arg-key → value}
     :substrate       active substrate"
-  ([variant-id]                (share/variant-share-url variant-id))
-  ([variant-id base-url opts]  (share/variant-share-url variant-id base-url opts)))
+  ([variant-id]                (rf.story.share/variant-share-url variant-id))
+  ([variant-id base-url opts]  (rf.story.share/variant-share-url variant-id base-url opts)))
 
 #?(:cljs
    (defn register-substrate!
@@ -1811,7 +1811,7 @@
      `render-fn` takes `(variant-id view-id args)` and returns a hiccup
      vector (Reagent) or a React element (UIx)."
      [substrate-id render-fn]
-     (ui-multi-substrate/register-substrate! substrate-id render-fn)))
+     (rf.story.ui.multi-substrate/register-substrate! substrate-id render-fn)))
 
 #?(:cljs
    (defn registered-substrates
@@ -1819,7 +1819,7 @@
      Used by tooling that enumerates the available substrates for a
      variant's `:substrates` opt-in."
      []
-     (ui-multi-substrate/registered-substrates)))
+     (rf.story.ui.multi-substrate/registered-substrates)))
 
 ;; ---- public helpers (decorator / args resolution surfacing) -------------
 
@@ -1827,15 +1827,15 @@
   "Per `002-Runtime.md` §Args resolution precedence — materialise the effective args map for a
   variant render given the active modes + cell overrides. See
   `re-frame.story.args/resolve-args`."
-  ([variant-id]       (args/resolve-args variant-id))
-  ([variant-id opts]  (args/resolve-args variant-id opts)))
+  ([variant-id]       (rf.story.args/resolve-args variant-id))
+  ([variant-id opts]  (rf.story.args/resolve-args variant-id opts)))
 
 (defn resolve-decorators
   "Per `002-Runtime.md` §Decorator composition order — return the variant's resolved decorator stack
   classified by kind (`{:hiccup [...] :frame-setup [...] :fx-override [...]
   :errors [...]}`). See `re-frame.story.decorators/resolve-decorators`."
-  ([variant-id]       (decorators/resolve-decorators variant-id))
-  ([variant-id opts]  (decorators/resolve-decorators variant-id opts)))
+  ([variant-id]       (rf.story.decorators/resolve-decorators variant-id))
+  ([variant-id opts]  (rf.story.decorators/resolve-decorators variant-id opts)))
 
 ;; ---- static-mode? probe -------------------------------------------------
 
@@ -1851,7 +1851,7 @@
   a public probe for tooling / examples that want to render a
   'this is a published static site' badge or hide a dev-only link."
   []
-  config/static-mode?)
+  rf.story.config/static-mode?)
 
 ;; ---- UI shell mount / unmount surface -----------------------------------
 ;;
@@ -1882,21 +1882,21 @@
      short-circuit before any DOM call and return nil. See
      `001-Authoring.md` §Registration macros for the elision contract."
      [dom-node]
-     (ui-shell/mount-shell! dom-node)))
+     (rf.story.ui.shell/mount-shell! dom-node)))
 
 #?(:cljs
    (defn unmount-shell!
      "Tear down a mounted shell. Accepts the handle from `mount-shell!`
      or no arg (defaults to the active shell singleton)."
-     ([]       (ui-shell/unmount-shell!))
-     ([handle] (ui-shell/unmount-shell! handle))))
+     ([]       (rf.story.ui.shell/unmount-shell!))
+     ([handle] (rf.story.ui.shell/unmount-shell! handle))))
 
 #?(:cljs
    (defn active-shell
      "Return the currently-mounted shell handle, or nil. v1 singleton;
      v2 may return a collection when multi-shell mounts ship."
      []
-     (ui-shell/active-shell)))
+     (rf.story.ui.shell/active-shell)))
 
 ;; ---- Test Codegen recorder public surface -------------------------------
 ;;
@@ -1914,7 +1914,7 @@
   vector is `[:events ...]` on the returned state map; pass it to
   `gen-play-snippet` to render the `(reg-variant ...)` form."
   [variant-id]
-  (recorder/start-recording! variant-id))
+  (rf.story.recorder/start-recording! variant-id))
 
 (defn stop-recording!
   "Stop the in-flight recording. Returns the recorder state map with
@@ -1925,23 +1925,23 @@
   frame-scoped (`{:frame variant-id}`) and lands in the frame's own running
   environment by construction — the state carries no separate realm key."
   []
-  (recorder/stop-recording!))
+  (rf.story.recorder/stop-recording!))
 
 (defn recording?
   "Boolean predicate — is a recording in flight?"
   []
-  (recorder/recording?))
+  (rf.story.recorder/recording?))
 
 (defn recorder-state
   "Return the current recorder state map. Read-only view; transitions
   go through `start-recording!` / `stop-recording!` / `clear-recording!`."
   []
-  (recorder/current-state))
+  (rf.story.recorder/current-state))
 
 (defn clear-recording!
   "Drop any captured events + return the recorder to idle."
   []
-  (recorder/clear!))
+  (rf.story.recorder/clear!))
 
 (defn gen-play-snippet
   "Render an EDN snippet `(reg-variant <id> {... :script {...}})` for
@@ -1961,7 +1961,7 @@
   Empty `events` still produces a valid form (with an empty `:script []`)
   so the user sees the shape to fill in."
   [events opts]
-  (recorder/gen-play-snippet events opts))
+  (rf.story.recorder/gen-play-snippet events opts))
 
 (defn recording->script-body
   "Translate a recording into the live, replayable `:script` body map per
@@ -1982,5 +1982,5 @@
   recording->script-body` for the full contract.
 
   Returns `{:script [...steps] :auto-run? bool :name str?}`."
-  ([events]      (play-export/recording->script-body events))
-  ([events opts] (play-export/recording->script-body events opts)))
+  ([events]      (rf.story.recorder.play-export/recording->script-body events))
+  ([events opts] (rf.story.recorder.play-export/recording->script-body events opts)))

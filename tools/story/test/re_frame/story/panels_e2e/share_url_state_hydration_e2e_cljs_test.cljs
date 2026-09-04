@@ -5,9 +5,9 @@
   Shell mount runs TWO URL-hydration passes, in this order
   (`re-frame.story.ui.shell/hydrate-url-state!`):
 
-      1. url-state/hydrate-from-url!  ← authoritative + VALIDATING owner of
+      1. rf.story.ui.url-state/hydrate-from-url!  ← authoritative + VALIDATING owner of
                                          selection / substrate / chrome slots
-      2. share/hydrate-from-url!     ← owns ONLY the focused-variant
+      2. rf.story.ui.share/hydrate-from-url!     ← owns ONLY the focused-variant
                                          cell-overrides slice + drift hint
 
   The bug: pass 2 used to reparse the RAW `substrate=` without registry
@@ -29,19 +29,19 @@
     and still records the dropped-override drift hint;
   - a valid `substrate=` + valid `overrides=` still hydrate (no regression)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.ui.multi-substrate :as multi-substrate]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.ui.share :as share]
-            [re-frame.story.ui.url-state :as url-state]
-            [re-frame.story.share :as share-codec]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.share :as rf.story.ui.share]
+            [re-frame.story.ui.url-state :as rf.story.ui.url-state]
+            [re-frame.story.share :as rf.story.share]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- production validators (mirror shell's private `url-state-apply-fn`) --
 ;;
@@ -53,12 +53,12 @@
 (defn- production-apply-fn []
   (let [validators {:variant?   (fn [vid]
                                   (or (nil? vid)
-                                      (registrar/registered? :variant vid)))
+                                      (rf.story.registrar/registered? :variant vid)))
                     :substrate? (fn [s]
                                   (or (nil? s)
-                                      (contains? (multi-substrate/registered-substrates) s)))}]
+                                      (contains? (rf.story.ui.multi-substrate/registered-substrates) s)))}]
     (fn [state parsed]
-      (url-state/apply-parsed-to-state state parsed validators))))
+      (rf.story.ui.url-state/apply-parsed-to-state state parsed validators))))
 
 ;; ---- drive the real two-pass shell hydration sequence -------------------
 
@@ -71,28 +71,28 @@
   (let [usp (js/URLSearchParams.
               (clj->js (into {} (filter (comp some? val) getter))))]
     (with-redefs [;; pass 1 source: url-state parses window.location.search
-                  url-state/parse-current-url (constantly (share-codec/parse-params getter))
+                  rf.story.ui.url-state/parse-current-url (constantly (rf.story.share/parse-params getter))
                   ;; pass 2 source: share reads window.location.search
-                  share/current-url-params    (constantly usp)]
+                  rf.story.ui.share/current-url-params    (constantly usp)]
       ;; Pass 1 — the authoritative, validating owner.
-      (url-state/hydrate-from-url! ui-state/shell-state-atom (production-apply-fn))
+      (rf.story.ui.url-state/hydrate-from-url! rf.story.ui.state/shell-state-atom (production-apply-fn))
       ;; Pass 2 — the cell-overrides slice + drift hint owner.
-      (share/hydrate-from-url!))))
+      (rf.story.ui.share/hydrate-from-url!))))
 
 ;; A variant whose declared arg surface is exactly #{:label}. An
 ;; `overrides=` entry for any OTHER key is stale (the variant no longer
 ;; declares it) and must be dropped + reported by pass 2.
 (defn- register-variant! []
-  (story/reg-story :story.sample {:doc "Parent for the share-hydration e2e."})
-  (story/reg-variant :story.sample/card
+  (rf.story/reg-story :story.sample {:doc "Parent for the share-hydration e2e."})
+  (rf.story/reg-variant :story.sample/card
     {:doc      "A card variant declaring a single :label arg."
      :argtypes {:label {:type :string}}
      :args     {:label "Hello"}}))
 
 ;; Register a second substrate so a non-default valid `substrate=` round-trips.
 (defn- register-substrates! []
-  (multi-substrate/register-substrate! :reagent (fn [_ _ _] [:div]))
-  (multi-substrate/register-substrate! :uix     (fn [_ _ _] [:div])))
+  (rf.story.ui.multi-substrate/register-substrate! :reagent (fn [_ _ _] [:div]))
+  (rf.story.ui.multi-substrate/register-substrate! :uix     (fn [_ _ _] [:div])))
 
 ;; =========================================================================
 ;; (1) unregistered substrate= ends :reagent after the COMPLETE sequence
@@ -102,18 +102,18 @@
   (testing "rf2-ovb1en — `substrate=ghost-substrate` is normalised to
             :reagent by pass 1 and pass 2 (share) MUST NOT resurrect the
             raw stale value. The end state after BOTH passes is :reagent."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories (fn [] (register-variant!) (register-substrates!))}
       (fn []
         ;; Seed a stale in-memory substrate so a no-op would leave it dirty.
-        (swap! ui-state/shell-state-atom assoc :substrate :uix)
+        (swap! rf.story.ui.state/shell-state-atom assoc :substrate :uix)
         (hydrate-from-url-params!
           {"variant"   "story.sample/card"
            "substrate" "ghost-substrate"})
-        (is (= :reagent (:substrate (ui-state/get-state)))
+        (is (= :reagent (:substrate (rf.story.ui.state/get-state)))
             "unregistered substrate= degrades to :reagent — pass 2 cannot
              revive the stale value it once reparsed without validation")
-        (is (= :story.sample/card (:selected-variant (ui-state/get-state)))
+        (is (= :story.sample/card (:selected-variant (rf.story.ui.state/get-state)))
             "the registered variant is still focused")))))
 
 ;; =========================================================================
@@ -126,14 +126,14 @@
             the end state has NO [:cell-overrides variant-id] slice (pass 1's
             unfiltered install is cleared by pass 2) AND the share-import
             drift hint records the dropped overrides."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories (fn [] (register-variant!) (register-substrates!))}
       (fn []
         ;; `:gone` + `:also-gone` are NOT in the variant's declared #{:label}.
         (hydrate-from-url-params!
           {"variant"   "story.sample/card"
            "overrides" (pr-str {:gone 1 :also-gone 2})})
-        (let [s (ui-state/get-state)]
+        (let [s (rf.story.ui.state/get-state)]
           (is (= :story.sample/card (:selected-variant s)))
           (is (nil? (get-in s [:cell-overrides :story.sample/card]))
               "all-stale overrides leave NO live slice — pass 2 clears the
@@ -150,14 +150,14 @@
   (testing "rf2-ovb1en — a registered non-default substrate= and a declared
             overrides= entry still hydrate after the complete sequence; the
             fix narrows pass 2, it does not break the happy path."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories (fn [] (register-variant!) (register-substrates!))}
       (fn []
         (hydrate-from-url-params!
           {"variant"   "story.sample/card"
            "substrate" "uix"
            "overrides" (pr-str {:label "Shared"})})
-        (let [s (ui-state/get-state)]
+        (let [s (rf.story.ui.state/get-state)]
           (is (= :uix (:substrate s))
               "a registered non-default substrate is kept (pass 1 validates,
                pass 2 leaves it alone)")

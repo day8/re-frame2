@@ -26,7 +26,7 @@
    variant OR ordered after that variant's own setup.
 
    Scope note: the ids are enumerated explicitly rather than read from
-   `story/variants-of :story.login`, because the `login_form` TESTBED deck
+   `rf.story/variants-of :story.login`, because the `login_form` TESTBED deck
    (tools/story/testbeds/login_form) also registers variants under the same
    `:story.login` parent — this test guards only the login EXAMPLE's seven.
 
@@ -37,8 +37,8 @@
    build, whose classpath carries both `../tools/story/src` and
    `../examples/core`."
   (:require [cljs.test :refer-macros [deftest testing is use-fixtures]]
-            [re-frame.story :as story]
-            [re-frame.story.plan :as plan]
+            [re-frame.story :as rf.story]
+            [re-frame.story.plan :as rf.story.plan]
             ;; login.stories transitively requires login.core; require it
             ;; too so this ns is self-sufficient (mirrors the nine-states +
             ;; example-login-form-slice regression namespaces).
@@ -77,7 +77,7 @@
 (deftest fragment-is-registered-with-the-single-seed-event
   (testing ":fragment.login/form-base seeds the slice via the example's own
             initialise-form event (no duplicated defaults map in Story)"
-    (let [frag (story/handler-meta :fragment :fragment.login/form-base)]
+    (let [frag (rf.story/handler-meta :fragment :fragment.login/form-base)]
       (is (some? frag) ":fragment.login/form-base is registered")
       (is (= [raw-seed-step] (:setup frag))
           "the fragment's :setup is exactly the initialise-form event — the
@@ -88,9 +88,9 @@
             [:auth.login/initialise-form] (composed fragment first, variant
             setup after) — RED if a variant omits the seed or orders it late"
     (doseq [vid example-variant-ids]
-      (is (some? (story/handler-meta :variant vid))
+      (is (some? (rf.story/handler-meta :variant vid))
           (str vid " is registered"))
-      (let [setup (get-in (plan/variant-plan vid) [:world :setup])]
+      (let [setup (get-in (rf.story.plan/variant-plan vid) [:world :setup])]
         (is (= compiled-seed-step (first setup))
             (str vid " must seed the login-form slice FIRST; got: "
                  (pr-str (first setup))))))))
@@ -100,7 +100,7 @@
             variant's compiled setup runs the seed event exactly ONCE (the
             redundant inline / driver seeds were removed)"
     (doseq [vid example-variant-ids]
-      (let [setup (get-in (plan/variant-plan vid) [:world :setup])
+      (let [setup (get-in (rf.story.plan/variant-plan vid) [:world :setup])
             seeds (filter #(= compiled-seed-step %) setup)]
         (is (= 1 (count seeds))
             (str vid " seeds the slice exactly once (via the composed "

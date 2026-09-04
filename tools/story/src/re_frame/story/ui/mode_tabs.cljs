@@ -25,7 +25,7 @@
   variant's selection — and persists across reloads via localStorage
   under the key `re-frame.story/active-mode-tab/<variant-id>`.
 
-  The shell's `main-pane` consults `(state/active-mode-tab state vid)`
+  The shell's `main-pane` consults `(rf.story.ui.state/active-mode-tab state vid)`
   to decide which pane renders below the strip:
 
   - `:dev`  → the canvas / workspace path.
@@ -38,9 +38,9 @@
   active foreground, `#1e1e1e` active background. Reuses the shape of the
   tab-bar/tab/tab-active styles defined in `re-frame.story.ui.shell`."
   (:require [re-frame.story.local-storage :refer [safe-local-storage]]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- localStorage persistence -------------------------------------------
 ;;
@@ -64,21 +64,21 @@
 
 (defn load-mode-tab!
   "Read the persisted mode-tab for `variant-id` from localStorage.
-  Returns one of `state/mode-tabs` or nil if no record / unparseable."
+  Returns one of `rf.story.ui.state/mode-tabs` or nil if no record / unparseable."
   [variant-id]
   (when-let [ls (safe-local-storage)]
     (try
       (let [raw (.getItem ls (ls-key variant-id))]
         (when (string? raw)
           (let [tab (keyword raw)]
-            (when (state/valid-mode-tab? tab) tab))))
+            (when (rf.story.ui.state/valid-mode-tab? tab) tab))))
       (catch :default _ nil))))
 
 (defn save-mode-tab!
   "Persist `tab` for `variant-id` in localStorage. Silently no-ops if
   localStorage is unavailable or `tab` is not a valid mode-tab."
   [variant-id tab]
-  (when (and (state/valid-mode-tab? tab) variant-id)
+  (when (and (rf.story.ui.state/valid-mode-tab? tab) variant-id)
     (when-let [ls (safe-local-storage)]
       (try (.setItem ls (ls-key variant-id) (name tab))
            (catch :default _ nil)))))
@@ -90,10 +90,10 @@
   tab strip; only writes when the in-memory slot is empty."
   [variant-id]
   (when variant-id
-    (let [shell @state/shell-state-atom]
+    (let [shell @rf.story.ui.state/shell-state-atom]
       (when-not (contains? (:active-mode-tab shell) variant-id)
         (when-let [persisted (load-mode-tab! variant-id)]
-          (state/swap-state! state/set-active-mode-tab variant-id persisted))))))
+          (rf.story.ui.state/swap-state! rf.story.ui.state/set-active-mode-tab variant-id persisted))))))
 
 ;; ---- selection helper ----------------------------------------------------
 
@@ -102,8 +102,8 @@
   shell state and localStorage. Public so tests / programmatic callers
   can drive the switcher without going through the DOM."
   [variant-id tab]
-  (when (and variant-id (state/valid-mode-tab? tab))
-    (state/swap-state! state/set-active-mode-tab variant-id tab)
+  (when (and variant-id (rf.story.ui.state/valid-mode-tab? tab))
+    (rf.story.ui.state/swap-state! rf.story.ui.state/set-active-mode-tab variant-id tab)
     (save-mode-tab! variant-id tab)))
 
 ;; ---- styling -------------------------------------------------------------
@@ -113,10 +113,10 @@
 
 (def ^:private styles
   {:strip       {:display          "flex"
-                 :background       (:bg-2 colors/tokens)
+                 :background       (:bg-2 rf.story.theme.colors/tokens)
                  :border-bottom    "1px solid #444"
                  :font-family      mono-stack
-                 :font-size        (:caption typography/type-scale)
+                 :font-size        (:caption rf.story.theme.typography/type-scale)
                  :padding          "0"}
    ;; Longhand-only border sides on every chip. The `:tab-active`
    ;; overlay below adds a `:border-bottom`; mixing the shorthand
@@ -128,26 +128,26 @@
    ;; Same shape as the trace.cljs border styling.
    :tab         {:padding             "6px 14px"
                  :cursor              "pointer"
-                 :color               (:text-secondary colors/tokens)
-                 :background          (:bg-2 colors/tokens)
+                 :color               (:text-secondary rf.story.theme.colors/tokens)
+                 :background          (:bg-2 rf.story.theme.colors/tokens)
                  :border-top          "none"
                  :border-right        "1px solid #444"
                  :border-bottom       "none"
                  :border-left         "none"
                  :font-family         mono-stack
-                 :font-size           (:caption typography/type-scale)
+                 :font-size           (:caption rf.story.theme.typography/type-scale)
                  :letter-spacing      "0.3px"}
    :tab-active  {:color            "white"
-                 :background       (:bg-canvas colors/tokens)
+                 :background       (:bg-canvas rf.story.theme.colors/tokens)
                  :border-bottom    "1px solid #1e1e1e"
                  :margin-bottom    "-1px"
                  :font-weight      "bold"}
    :placeholder {:padding          "32px"
-                 :color            (:text-tertiary colors/tokens)
+                 :color            (:text-tertiary rf.story.theme.colors/tokens)
                  :font-style       "italic"
                  :font-family      sans-stack
                  :text-align       "center"
-                 :background       (:bg-canvas colors/tokens)
+                 :background       (:bg-canvas rf.story.theme.colors/tokens)
                  :flex             "1"}})
 
 ;; ---- chip strip ----------------------------------------------------------
@@ -168,13 +168,13 @@
     ;; Hydrate from localStorage on first render of this variant's
     ;; strip — idempotent on subsequent renders.
     (hydrate-from-storage! variant-id)
-    (let [shell  @state/shell-state-atom
-          active (state/active-mode-tab shell variant-id)]
+    (let [shell  @rf.story.ui.state/shell-state-atom
+          active (rf.story.ui.state/active-mode-tab shell variant-id)]
       [:div {:style       (:strip styles)
              :role        "tablist"
              :aria-label  "Story mode"
              :data-test   "story-mode-tabs"}
-       (for [tab state/mode-tabs]
+       (for [tab rf.story.ui.state/mode-tabs]
          ^{:key tab}
          [:button
           {:style          (merge (:tab styles)
@@ -184,7 +184,7 @@
            :aria-current   (when (= tab active) "page")
            :data-mode-tab  (name tab)
            :on-click       #(select-mode-tab! variant-id tab)}
-          (get state/mode-tab-labels tab (name tab))])])))
+          (get rf.story.ui.state/mode-tab-labels tab (name tab))])])))
 
 ;; ---- placeholder panes ---------------------------------------------------
 ;;

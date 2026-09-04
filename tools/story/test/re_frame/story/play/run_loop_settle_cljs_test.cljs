@@ -35,12 +35,12 @@
   (:require [cljs.test :refer [async deftest is testing use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.story :as story]
-            [re-frame.story.late-bind :as late-bind]
-            [re-frame.story.play.runner-events :as re]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.story :as rf.story]
+            [re-frame.story.late-bind :as rf.story.late-bind]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (def ^:private run-frame :story.run-loop-settle/frame)
 
@@ -59,15 +59,15 @@
        :querySelectorAll (fn [_] #js [])})
 
 (defn- setup! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (reset! re/run-state {})
-  (re/clear-all-runs!)
-  (reset! re/step-boundaries {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+  (reset! rf.story.play.runner-events/run-state {})
+  (rf.story.play.runner-events/clear-all-runs!)
+  (reset! rf.story.play.runner-events/step-boundaries {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (rf/make-frame {:id run-frame :doc "run-loop settle witness frame"})
   (rf/reg-event :run-loop-settle/inc
                 (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))})))
@@ -79,7 +79,7 @@
 
 (use-fixtures :each
   {:before (fn []
-             (reset! saved-hooks @late-bind/hooks)
+             (reset! saved-hooks @rf.story.late-bind/hooks)
              ;; The `document` goes in AFTER the Story runtime is seated.
              ;; Xray rides Story's package graph and probes for its inline
              ;; layout host as the runtime installs; finding a document
@@ -91,22 +91,22 @@
              (gobj/set js/globalThis "document" (missing-everything-document)))
    :after  (fn []
              (js-delete js/globalThis "document")
-             (reset! late-bind/hooks @saved-hooks)
-             (re/clear-all-runs!)
+             (reset! rf.story.late-bind/hooks @saved-hooks)
+             (rf.story.play.runner-events/clear-all-runs!)
              (try (rf/destroy-adapter!) (catch :default _ nil)))})
 
 (defn- install-hooks!
   "Seat `hooks` as the active flush-hooks for every frame — the producer
   seam a live adapter fills."
   [hooks]
-  (late-bind/set-fn! :settled-boundary-hooks (fn [_frame-id] hooks)))
+  (rf.story.late-bind/set-fn! :settled-boundary-hooks (fn [_frame-id] hooks)))
 
 (defn- run-script!
   "Drive `script` as a HAND-BUILT spec through the explicit-spec arity of
   `run!` — deliberately, since that is the entry path that does not fold,
   and the one the raw-`:assert-dom` defect lives behind."
   [script done-cb]
-  (re/run! run-frame "witness" {:name "witness" :script script} done-cb))
+  (rf.story.play.runner-events/run! run-frame "witness" {:name "witness" :script script} done-cb))
 
 (defn- message-of [result]
   (str (:message result)))

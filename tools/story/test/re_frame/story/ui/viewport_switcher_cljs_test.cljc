@@ -12,20 +12,20 @@
   - The chip emits `aria-haspopup` + `aria-expanded` (NOT
     `aria-pressed`) so the toolbar reset assertion is not tripped."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story :as story]
-            #?@(:cljs [[re-frame.story.ui.state :as state]
-                       [re-frame.story.ui.viewport-switcher :as vs]
-                       [re-frame.story.viewport :as viewport]])))
+            [re-frame.story :as rf.story]
+            #?@(:cljs [[re-frame.story.ui.state :as rf.story.ui.state]
+                       [re-frame.story.ui.viewport-switcher :as rf.story.ui.viewport-switcher]
+                       [re-frame.story.viewport :as rf.story.viewport]])))
 
 #?(:cljs
    (defn reset-all! []
-     (story/clear-all!)
-     (state/reset-shell-state!)
-     (vs/close!)
+     (rf.story/clear-all!)
+     (rf.story.ui.state/reset-shell-state!)
+     (rf.story.ui.viewport-switcher/close!)
      (when (and (exists? js/window) (.-localStorage js/window))
-       (try (.removeItem (.-localStorage js/window) viewport/ls-key)
+       (try (.removeItem (.-localStorage js/window) rf.story.viewport/ls-key)
             (catch :default _ nil)))
-     (story/install-canonical-vocabulary!)))
+     (rf.story/install-canonical-vocabulary!)))
 
 #?(:cljs
    (use-fixtures :each (fn [t] (reset-all!) (t))))
@@ -35,67 +35,67 @@
 #?(:cljs
    (deftest cljs-select-writes-shell-state
      (testing "select! lands the normalised choice on shell-state-atom"
-       (vs/select! :tablet)
-       (is (= :tablet (:viewport (state/get-state))))
-       (vs/select! :mobile-portrait)
-       (is (= :mobile-portrait (:viewport (state/get-state)))))))
+       (rf.story.ui.viewport-switcher/select! :tablet)
+       (is (= :tablet (:viewport (rf.story.ui.state/get-state))))
+       (rf.story.ui.viewport-switcher/select! :mobile-portrait)
+       (is (= :mobile-portrait (:viewport (rf.story.ui.state/get-state)))))))
 
 #?(:cljs
    (deftest cljs-select-custom-writes-map
      (testing "a custom map persists as a slim {:width :height}"
-       (vs/select! {:width 800 :height 600})
-       (is (= {:width 800 :height 600} (:viewport (state/get-state)))))))
+       (rf.story.ui.viewport-switcher/select! {:width 800 :height 600})
+       (is (= {:width 800 :height 600} (:viewport (rf.story.ui.state/get-state)))))))
 
 #?(:cljs
    (deftest cljs-select-drops-unknown
      (testing "an unknown preset coerces to nil — slot is cleared"
-       (vs/select! :tablet)
-       (is (= :tablet (:viewport (state/get-state))))
-       (vs/select! :phablet)
-       (is (nil? (:viewport (state/get-state)))))))
+       (rf.story.ui.viewport-switcher/select! :tablet)
+       (is (= :tablet (:viewport (rf.story.ui.state/get-state))))
+       (rf.story.ui.viewport-switcher/select! :phablet)
+       (is (nil? (:viewport (rf.story.ui.state/get-state)))))))
 
 ;; ---- per-story override resolution --------------------------------------
 
 #?(:cljs
    (deftest cljs-effective-viewport-respects-variant-override
      (testing "rf2-zll4h: per-variant :viewport body slot beats toolbar"
-       (story/reg-story* :story.vp-override
+       (rf.story/reg-story* :story.vp-override
          {:doc "viewport override fixture" :component :ignored
           :viewport :desktop})
-       (story/reg-variant* :story.vp-override/v
+       (rf.story/reg-variant* :story.vp-override/v
          {:doc "child" :viewport :mobile-portrait})
-       (state/swap-state! assoc :viewport :tablet)
-       (state/swap-state! assoc :selected-variant :story.vp-override/v)
-       (let [eff (vs/effective-viewport)]
+       (rf.story.ui.state/swap-state! assoc :viewport :tablet)
+       (rf.story.ui.state/swap-state! assoc :selected-variant :story.vp-override/v)
+       (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
          (is (= "Mobile portrait" (:label eff))
              "variant body's :viewport (:mobile-portrait) wins over toolbar (:tablet)"))
-       (is (= :mobile-portrait (vs/effective-id))))))
+       (is (= :mobile-portrait (rf.story.ui.viewport-switcher/effective-id))))))
 
 #?(:cljs
    (deftest cljs-effective-viewport-falls-through-to-story
      (testing "variant has no :viewport → parent story's :viewport applies"
-       (story/reg-story* :story.vp-story-only
+       (rf.story/reg-story* :story.vp-story-only
          {:doc "story-level override only" :component :ignored
           :viewport :desktop})
-       (story/reg-variant* :story.vp-story-only/v
+       (rf.story/reg-variant* :story.vp-story-only/v
          {:doc "child"})
-       (state/swap-state! assoc :viewport :tablet)
-       (state/swap-state! assoc :selected-variant :story.vp-story-only/v)
-       (let [eff (vs/effective-viewport)]
+       (rf.story.ui.state/swap-state! assoc :viewport :tablet)
+       (rf.story.ui.state/swap-state! assoc :selected-variant :story.vp-story-only/v)
+       (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
          (is (= "Desktop" (:label eff))))
-       (is (= :desktop (vs/effective-id))))))
+       (is (= :desktop (rf.story.ui.viewport-switcher/effective-id))))))
 
 #?(:cljs
    (deftest cljs-effective-viewport-falls-through-to-toolbar
      (testing "no override → toolbar selection takes effect"
-       (state/swap-state! assoc :viewport :tablet)
-       (let [eff (vs/effective-viewport)]
+       (rf.story.ui.state/swap-state! assoc :viewport :tablet)
+       (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
          (is (= "Tablet" (:label eff)))))))
 
 #?(:cljs
    (deftest cljs-effective-viewport-default-is-full
      (testing "no override + no selection → :full"
-       (let [eff (vs/effective-viewport)]
+       (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
          (is (= "Full" (:label eff)))
          (is (nil? (:width eff)))))))
 
@@ -104,7 +104,7 @@
 #?(:cljs
    (deftest cljs-chip-renders-without-throwing
      (testing "chip-when-enabled returns a hiccup tree (no exceptions)"
-       (let [hiccup (vs/chip-when-enabled)]
+       (let [hiccup (rf.story.ui.viewport-switcher/chip-when-enabled)]
          (is (some? hiccup))))))
 
 #?(:cljs
@@ -113,7 +113,7 @@
                by default. The toolbar reset assertion in
                story_feature_load counts [aria-pressed='true'] post-reset
                and demands count === 0."
-       (let [hiccup (vs/chip)]
+       (let [hiccup (rf.story.ui.viewport-switcher/chip)]
          ;; The chip render returns [:span ... [:button {...}]]; the
          ;; button's attribute map is the second element of the inner
          ;; button vector. Walk the hiccup defensively.
@@ -131,7 +131,7 @@
 #?(:cljs
    (deftest cljs-chip-data-attrs
      (testing "chip carries data-test + data-viewport for browser specs"
-       (let [hiccup (vs/chip)
+       (let [hiccup (rf.story.ui.viewport-switcher/chip)
              flat   (->> (tree-seq coll? seq hiccup)
                          (filter map?))
              attrs  (filter #(= "story-toolbar-viewport"
@@ -151,18 +151,18 @@
    (deftest cljs-hydrate-from-storage-seeds-empty-slot
      (testing "hydrate! seeds the shell slot from persisted localStorage"
        (when (browser?)
-         (viewport/save-to-storage! :tablet)
-         (state/reset-shell-state!)
-         (is (nil? (:viewport (state/get-state))))
-         (vs/hydrate!)
-         (is (= :tablet (:viewport (state/get-state))))))))
+         (rf.story.viewport/save-to-storage! :tablet)
+         (rf.story.ui.state/reset-shell-state!)
+         (is (nil? (:viewport (rf.story.ui.state/get-state))))
+         (rf.story.ui.viewport-switcher/hydrate!)
+         (is (= :tablet (:viewport (rf.story.ui.state/get-state))))))))
 
 #?(:cljs
    (deftest cljs-hydrate-skips-populated-slot
      (testing "hydrate is idempotent — leaves an already-populated slot alone"
        (when (browser?)
-         (viewport/save-to-storage! :tablet)
-         (state/swap-state! assoc :viewport :mobile-portrait)
-         (vs/hydrate!)
-         (is (= :mobile-portrait (:viewport (state/get-state)))
+         (rf.story.viewport/save-to-storage! :tablet)
+         (rf.story.ui.state/swap-state! assoc :viewport :mobile-portrait)
+         (rf.story.ui.viewport-switcher/hydrate!)
+         (is (= :mobile-portrait (:viewport (rf.story.ui.state/get-state)))
              "populated slot was preserved")))))

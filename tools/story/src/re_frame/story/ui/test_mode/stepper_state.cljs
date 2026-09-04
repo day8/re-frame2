@@ -20,7 +20,7 @@
                                       ;   :script step vector (every step
                                       ;   type; derived via
                                       ;   re-frame.story.play/variant-play-steps)
-       :statuses       <vector>       ; `stepper-pure/enrich-statuses` rows
+       :statuses       <vector>       ; `rf.story.ui.test-mode.stepper-pure/enrich-statuses` rows
        :breakpoints    #{<int>}       ; step indices that pause auto-play
        :epoch-stack    <vector>       ; per-step :epoch-id pre-images, for
                                       ;   step-back via rf/restore-epoch!
@@ -51,9 +51,9 @@
   Clears the interval and the per-frame play state."
   (:require [reagent.core                                 :as r]
             [re-frame.core                                :as rf]
-            [re-frame.story.play                          :as play]
-            [re-frame.story.runtime                       :as runtime]
-            [re-frame.story.ui.test-mode.stepper-pure     :as stepper-pure]))
+            [re-frame.story.play                          :as rf.story.play]
+            [re-frame.story.runtime                       :as rf.story.runtime]
+            [re-frame.story.ui.test-mode.stepper-pure     :as rf.story.ui.test-mode.stepper-pure]))
 
 ;; ---- ratom ---------------------------------------------------------------
 
@@ -76,16 +76,16 @@
 
   The rows cover the FULL coerced step vector (every step type), and
   each row's outcome comes from the per-step result the rich-DSL
-  executor recorded into `play/stepper-state` — not from the
+  executor recorded into `rf.story.play/stepper-state` — not from the
   dispatch-only `:rf.story/assertions` projection (which does not see
   rich-DSL `:assert-db` / `:assert-dom` / `:wait` / `:click` / `:type`
   steps)."
   [slot]
   (let [{:keys [play-steps cursor breakpoints variant-id]} slot
-        results (:results (get @play/stepper-state variant-id))]
+        results (:results (get @rf.story.play/stepper-state variant-id))]
     (assoc slot :statuses
-           (stepper-pure/enrich-statuses
-             (stepper-pure/step-statuses play-steps results)
+           (rf.story.ui.test-mode.stepper-pure/enrich-statuses
+             (rf.story.ui.test-mode.stepper-pure/step-statuses play-steps results)
              cursor
              breakpoints))))
 
@@ -104,7 +104,7 @@
 (defn begin!
   "Initialise a step-by-step run for `variant-id`. Tears down any prior
   stepper state, then re-allocates the variant frame (so the run starts
-  fresh) and primes the substrate via `play/begin-stepper!`.
+  fresh) and primes the substrate via `rf.story.play/begin-stepper!`.
 
   Asynchronous: the caller may await the returned promise to drive a
   follow-up auto-resume, but the UI does not need to — the slot's
@@ -113,19 +113,19 @@
   ;; If a prior stepper is active for this variant, tear it down first.
   (when (get @results-atom variant-id)
     (swap! results-atom update variant-id clear-interval!))
-  (play/end-stepper! variant-id)
+  (rf.story.play/end-stepper! variant-id)
   ;; Re-allocate the variant frame so the stepper starts from the
   ;; documented initial state.
-  (-> (runtime/reset-variant variant-id)
+  (-> (rf.story.runtime/reset-variant variant-id)
       (.then  (fn [_]
                 ;; The stepper walks the FULL coerced :script
                 ;; (every step type), not just the dispatch-bearing
-                ;; events. `play/variant-play-steps` returns the complete
-                ;; step vector and `play/begin-stepper!` seeds the
+                ;; events. `rf.story.play/variant-play-steps` returns the complete
+                ;; step vector and `rf.story.play/begin-stepper!` seeds the
                 ;; substrate from the same source.
-                (let [play-steps (play/variant-play-steps variant-id)
+                (let [play-steps (rf.story.play/variant-play-steps variant-id)
                       total      (count play-steps)]
-                  (play/begin-stepper! variant-id)
+                  (rf.story.play/begin-stepper! variant-id)
                   (swap! results-atom assoc variant-id
                          {:variant-id     variant-id
                           :active?        true
@@ -151,10 +151,10 @@
   is parked at the end or not active."
   [variant-id]
   (let [slot (get @results-atom variant-id)]
-    (when (stepper-pure/can-step? slot)
+    (when (rf.story.ui.test-mode.stepper-pure/can-step? slot)
       ;; Capture the pre-step epoch-id so step-back can restore it.
       (let [pre-id (current-epoch-id variant-id)]
-        (play/step-once! variant-id)
+        (rf.story.play/step-once! variant-id)
         (swap! results-atom update variant-id
                (fn [s]
                  (-> s
@@ -186,7 +186,7 @@
   would have built by forward-stepping alone."
   [variant-id]
   (let [slot (get @results-atom variant-id)]
-    (when (stepper-pure/can-step-back? slot)
+    (when (rf.story.ui.test-mode.stepper-pure/can-step-back? slot)
       (let [stack     (or (:epoch-stack slot) [])
             ;; Peek the CURRENT top — the pre-image of the step we're
             ;; undoing — before popping it off.
@@ -196,7 +196,7 @@
           (rf/restore-epoch! variant-id target-id))
         ;; Pop the substrate's last-run step + result so the row outcomes
         ;; track the cursor and a re-step re-runs the popped step cleanly.
-        (play/stepper-step-back! variant-id)
+        (rf.story.play/stepper-step-back! variant-id)
         (swap! results-atom update variant-id
                (fn [s]
                  (-> s
@@ -210,7 +210,7 @@
   when the stepper is at step 0 or not active."
   [variant-id]
   (let [slot (get @results-atom variant-id)]
-    (when (stepper-pure/can-rewind? slot)
+    (when (rf.story.ui.test-mode.stepper-pure/can-rewind? slot)
       (let [stack (or (:epoch-stack slot) [])
             ;; The pre-play epoch-id is the bottom of the stack (the
             ;; first pre-image we pushed on `begin!`).
@@ -223,7 +223,7 @@
         ;; reset.
         ;; Reset the substrate's run cursor (every step back to pending)
         ;; so the rewound stepper re-runs the whole script cleanly.
-        (play/stepper-rewind! variant-id)
+        (rf.story.play/stepper-rewind! variant-id)
         (swap! results-atom update variant-id
                (fn [s]
                  (-> s
@@ -243,7 +243,7 @@
   overridden by a future controls widget."
   [variant-id]
   (let [slot (get @results-atom variant-id)]
-    (when (stepper-pure/can-resume? slot)
+    (when (rf.story.ui.test-mode.stepper-pure/can-resume? slot)
       (let [tick (or (:tick-ms slot) default-tick-ms)
             hid  (set-interval! variant-id tick)]
         (swap! results-atom update variant-id
@@ -271,7 +271,7 @@
   the substrate's per-frame state, and removes the local slot."
   [variant-id]
   (swap! results-atom update variant-id (fn [s] (when s (clear-interval! s))))
-  (play/end-stepper! variant-id)
+  (rf.story.play/end-stepper! variant-id)
   (swap! results-atom dissoc variant-id))
 
 ;; ---- internal auto-play tick --------------------------------------------
@@ -285,10 +285,10 @@
       (not (:active? slot))
       (pause! variant-id)
 
-      (stepper-pure/at-end? (:cursor slot) (:total slot))
+      (rf.story.ui.test-mode.stepper-pure/at-end? (:cursor slot) (:total slot))
       (pause! variant-id)
 
-      (stepper-pure/breakpoint-hit? (:cursor slot)
+      (rf.story.ui.test-mode.stepper-pure/breakpoint-hit? (:cursor slot)
                                     (:breakpoints slot))
       (pause! variant-id)
 

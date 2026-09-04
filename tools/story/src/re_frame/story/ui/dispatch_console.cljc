@@ -88,12 +88,12 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             #?(:cljs [reagent.core            :as r])
-            #?(:cljs [re-frame.router         :as router])
-            #?(:cljs [re-frame.story.config   :as config])
+            #?(:cljs [re-frame.router         :as rf.router])
+            #?(:cljs [re-frame.story.config   :as rf.story.config])
             #?(:cljs [re-frame.story.local-storage :refer [safe-local-storage]])
-            #?(:cljs [re-frame.story.ui.dispatch-console-events :as events])
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            #?(:cljs [re-frame.story.ui.dispatch-console-events :as rf.story.ui.dispatch-console-events])
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- pure: payload parsing -----------------------------------------------
 
@@ -496,8 +496,8 @@
             opts     (build-dispatch-opts variant-id cofx strict?)]
         (try
           (case kind
-            :dispatch      (router/dispatch!      event-vec opts)
-            :dispatch-sync (router/dispatch-sync! event-vec opts))
+            :dispatch      (rf.router/dispatch!      event-vec opts)
+            :dispatch-sync (rf.router/dispatch-sync! event-vec opts))
           (append-history!
             variant-id
             (build-history-entry event-id payload kind (now-ms) cofx))
@@ -574,15 +574,15 @@
    (def ^:private styles
      {:panel          {:padding "8px"
                        :font-family mono-stack
-                       :font-size (:caption typography/type-scale)
+                       :font-size (:caption rf.story.theme.typography/type-scale)
                        :border-top "1px solid #444"
-                       :background (:bg-canvas colors/tokens)
-                       :color (:text-primary colors/tokens)
+                       :background (:bg-canvas rf.story.theme.colors/tokens)
+                       :color (:text-primary rf.story.theme.colors/tokens)
                        :overflow "auto"
                        :max-height "320px"}
       :title          {:font-weight "bold"
                        :margin-bottom "6px"
-                       :color (:info colors/tokens)
+                       :color (:info rf.story.theme.colors/tokens)
                        :display "flex"
                        :justify-content "space-between"
                        :align-items "center"
@@ -595,53 +595,53 @@
                        :gap "6px"
                        :margin-bottom "4px"
                        :align-items "center"}
-      :label          {:color (:text-tertiary colors/tokens)
+      :label          {:color (:text-tertiary rf.story.theme.colors/tokens)
                        :width "70px"
                        :flex "0 0 70px"
-                       :font-size (:micro typography/type-scale)
+                       :font-size (:micro rf.story.theme.typography/type-scale)
                        :text-transform "uppercase"
                        :letter-spacing "0.5px"}
       :input          {:flex "1 1 auto"
-                       :background (:bg-2 colors/tokens)
+                       :background (:bg-2 rf.story.theme.colors/tokens)
                        :color "#d0d0d0"
                        :border "1px solid #444"
                        :border-radius "3px"
                        :padding "3px 6px"
                        :font-family mono-stack
-                       :font-size (:caption typography/type-scale)
+                       :font-size (:caption rf.story.theme.typography/type-scale)
                        :outline "none"}
       :btn-row        {:display "flex"
                        :gap "6px"
                        :margin "6px 0"}
       :btn            {:padding "3px 8px"
-                       :background (:bg-2 colors/tokens)
+                       :background (:bg-2 rf.story.theme.colors/tokens)
                        :color "#d0d0d0"
                        :border "1px solid #444"
                        :border-radius "3px"
                        :font-family mono-stack
-                       :font-size (:micro typography/type-scale)
+                       :font-size (:micro rf.story.theme.typography/type-scale)
                        :cursor "pointer"}
-      :btn-primary    {:background (:accent-amber colors/tokens)
+      :btn-primary    {:background (:accent-amber rf.story.theme.colors/tokens)
                        :color "white"
-                       :border-color (:accent-amber colors/tokens)}
-      :btn-secondary  {:background (:tag-dev-bg colors/tokens)
+                       :border-color (:accent-amber rf.story.theme.colors/tokens)}
+      :btn-secondary  {:background (:tag-dev-bg rf.story.theme.colors/tokens)
                        :color "white"
-                       :border-color (:tag-dev-bg colors/tokens)}
-      :error          {:color (:danger colors/tokens)
-                       :background (:danger-bg colors/tokens)
+                       :border-color (:tag-dev-bg rf.story.theme.colors/tokens)}
+      :error          {:color (:danger rf.story.theme.colors/tokens)
+                       :background (:danger-bg rf.story.theme.colors/tokens)
                        :border "1px solid #be4040"
                        :padding "4px 6px"
                        :margin "4px 0"
                        :border-radius "3px"
-                       :font-size (:micro typography/type-scale)}
-      :cofx-requires  {:color (:text-tertiary colors/tokens)
-                       :background (:bg-2 colors/tokens)
+                       :font-size (:micro rf.story.theme.typography/type-scale)}
+      :cofx-requires  {:color (:text-tertiary rf.story.theme.colors/tokens)
+                       :background (:bg-2 rf.story.theme.colors/tokens)
                        :border "1px dotted #4a4a4a"
                        :padding "3px 6px"
                        :margin "4px 0"
                        :border-radius "3px"
-                       :font-size (:micro typography/type-scale)}
-      :cofx-requires-id {:color (:warning colors/tokens)
+                       :font-size (:micro rf.story.theme.typography/type-scale)}
+      :cofx-requires-id {:color (:warning rf.story.theme.colors/tokens)
                          :margin-right "6px"}
       :ac-host        {:position "relative"}
       :ac-list        {:position "absolute"
@@ -651,7 +651,7 @@
                        :margin "2px 0 0 0"
                        :padding "0"
                        :list-style "none"
-                       :background (:bg-2 colors/tokens)
+                       :background (:bg-2 rf.story.theme.colors/tokens)
                        :border "1px solid #444"
                        :border-radius "3px"
                        :max-height "200px"
@@ -659,16 +659,16 @@
                        :z-index 100}
       :ac-item        {:padding "3px 6px"
                        :cursor "pointer"
-                       :color (:warning colors/tokens)}
-      :ac-item-hover  {:background (:bg-3 colors/tokens)}
+                       :color (:warning rf.story.theme.colors/tokens)}
+      :ac-item-hover  {:background (:bg-3 rf.story.theme.colors/tokens)}
       :history-host   {:max-height "160px"
                        :overflow-y "auto"
                        :border-top "1px dotted #333"
                        :padding-top "4px"
                        :margin-top "6px"}
-      :history-title  {:color (:text-tertiary colors/tokens)
+      :history-title  {:color (:text-tertiary rf.story.theme.colors/tokens)
                        :font-style "italic"
-                       :font-size (:micro typography/type-scale)
+                       :font-size (:micro rf.story.theme.typography/type-scale)
                        :margin-bottom "4px"}
       :history-row    {:display "grid"
                        :grid-template-columns "60px 1fr"
@@ -676,15 +676,15 @@
                        :padding "2px 0"
                        :cursor "pointer"
                        :border-bottom "1px dotted #2a2a2a"}
-      :history-time   {:color (:text-tertiary colors/tokens)
-                       :font-size (:micro typography/type-scale)}
-      :history-text   {:color (:warning colors/tokens)
+      :history-time   {:color (:text-tertiary rf.story.theme.colors/tokens)
+                       :font-size (:micro rf.story.theme.typography/type-scale)}
+      :history-text   {:color (:warning rf.story.theme.colors/tokens)
                        :overflow "hidden"
                        :text-overflow "ellipsis"
                        :white-space "nowrap"}
-      :empty          {:color (:text-tertiary colors/tokens)
+      :empty          {:color (:text-tertiary rf.story.theme.colors/tokens)
                        :font-style "italic"
-                       :font-size (:micro typography/type-scale)}}))
+                       :font-size (:micro rf.story.theme.typography/type-scale)}}))
 
 ;; ---- view (CLJS-only) ----------------------------------------------------
 
@@ -712,7 +712,7 @@
      [variant-id]
      (let [open?  (boolean (get-in @input-state [variant-id :autocomplete-open?]))
            prefix (get-input variant-id :event-id-input)
-           ids    (events/registered-event-ids)
+           ids    (rf.story.ui.dispatch-console-events/registered-event-ids)
            hits   (autocomplete-event-ids ids prefix 8)]
        (when (and open? (seq hits) (seq (str/trim (or prefix ""))))
          [:div {:style (:ac-host styles)}
@@ -740,7 +740,7 @@
      [variant-id]
      (let [eid      (selected-event-id (get-input variant-id :event-id-input))
            requires (when eid
-                      (events/cofx-requires-for (events/registered-event-meta) eid))]
+                      (rf.story.ui.dispatch-console-events/cofx-requires-for (rf.story.ui.dispatch-console-events/registered-event-meta) eid))]
        (when (seq requires)
          [:div {:style     (:cofx-requires styles)
                 :data-test "story-dispatch-console-cofx-requires"}

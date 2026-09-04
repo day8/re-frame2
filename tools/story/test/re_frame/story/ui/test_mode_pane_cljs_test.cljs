@@ -27,39 +27,39 @@
   bulk of the pane's correctness without a DOM round-trip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.async      :as async-lib]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.ui.state   :as state]
-            [re-frame.story.ui.test-mode.pure  :as tm-pure]
-            [re-frame.story.ui.test-mode.state :as tm-state]
-            [re-frame.subs             :as subs]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.ui.state   :as rf.story.ui.state]
+            [re-frame.story.ui.test-mode.pure  :as rf.story.ui.test-mode.pure]
+            [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]
+            [re-frame.subs             :as rf.subs]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
   ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
   ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
   ;; `:rf/runtime` path — mirror `re-frame.machines`.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (reset! tm-state/results-atom {})
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (reset! rf.story.ui.test-mode.state/results-atom {})
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -81,7 +81,7 @@
                :expected  1
                :actual    1
                :source    {:file "story.cljs" :line 12}}
-          row (tm-pure/assertion-row rec)]
+          row (rf.story.ui.test-mode.pure/assertion-row rec)]
       (is (= :rf.assert/path-equals (:assertion row)))
       (is (= :pass                  (:status row)))
       (is (string?                  (:label row)))
@@ -103,7 +103,7 @@
                :actual    0
                :reason    "values differ"
                :source    {:file "story.cljs" :line 24}}
-          row (tm-pure/assertion-row rec)]
+          row (rf.story.ui.test-mode.pure/assertion-row rec)]
       (is (= :fail               (:status row)))
       (is (= 99                  (-> row :detail :expected)))
       (is (= 0                   (-> row :detail :actual)))
@@ -116,20 +116,20 @@
     (let [rec {:assertion :rf.assert/skipped
                :passed?   false
                :reason    "feature gated"}
-          row (tm-pure/assertion-row rec)]
+          row (rf.story.ui.test-mode.pure/assertion-row rec)]
       (is (= :rf.assert/skipped (:assertion row)))
       (is (= :skip              (:status row))
           ":skip overrides the :passed? false → :fail rule")
       (is (= "feature gated"    (-> row :detail :reason))))))
 
 (deftest aggregate-summary-mixed-rows
-  (testing "the pane's headline counts (state/aggregate-summary) fold a
+  (testing "the pane's headline counts (rf.story.ui.state/aggregate-summary) fold a
             mixed pass/fail/skip vector into the spec'd shape"
     (let [assertions [{:assertion :rf.assert/path-equals  :passed? true}
                       {:assertion :rf.assert/path-equals  :passed? false}
                       {:assertion :rf.assert/skipped      :passed? false}
                       {:assertion :rf.assert/sub-equals   :passed? true}]
-          summary    (state/aggregate-summary assertions)]
+          summary    (rf.story.ui.state/aggregate-summary assertions)]
       (is (= 4 (:total summary))
           ":total counts every row including skipped")
       (is (= 2 (:passed summary))
@@ -142,10 +142,10 @@
 
 (deftest aggregate-summary-all-pass-only
   (testing ":all-passed? is true iff total>0 AND failed=0 AND skipped=0"
-    (let [s1 (state/aggregate-summary
+    (let [s1 (rf.story.ui.state/aggregate-summary
                [{:assertion :rf.assert/path-equals :passed? true}])
-          s2 (state/aggregate-summary [])
-          s3 (state/aggregate-summary
+          s2 (rf.story.ui.state/aggregate-summary [])
+          s3 (rf.story.ui.state/aggregate-summary
                [{:assertion :rf.assert/skipped :passed? false}])]
       (is (true?  (:all-passed? s1)))
       (is (false? (:all-passed? s2)) "empty rows ⇒ not all-passed")
@@ -167,14 +167,14 @@
             variant slot with all the renderer-required fields"
     (rf/reg-event :test/set
       (fn [{:keys [db]} _] {:db (assoc db :counter 7)}))
-    (story/reg-variant :story.pane.mount/v
+    (rf.story/reg-variant :story.pane.mount/v
       {:setup [[:test/set]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:counter] 7]]]})
     (async done
-      (-> (tm-state/run-variant-pane! :story.pane.mount/v)
-          (async-lib/then
+      (-> (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.mount/v)
+          (rf.story.async/then
             (fn [_]
-              (let [slot (get @tm-state/results-atom :story.pane.mount/v)]
+              (let [slot (get @rf.story.ui.test-mode.state/results-atom :story.pane.mount/v)]
                 (is (map?     (:result slot))      ":result populated")
                 (is (number?  (:ran-at-ms slot))   ":ran-at-ms stamped")
                 (is (false?   (:running? slot))    ":running? cleared on resolve")
@@ -187,7 +187,7 @@
                 (is (nil?     (:selected-step slot))
                     ":selected-step starts nil (no scrub)")
                 (is (every? :passed? (-> slot :result :assertions))))
-              (story/destroy-variant! :story.pane.mount/v)
+              (rf.story/destroy-variant! :story.pane.mount/v)
               (done)))))))
 
 (deftest run-variant-pane-switching-variants-keeps-slots-distinct
@@ -200,19 +200,19 @@
       (fn [{:keys [db]} _] {:db (assoc db :v "a")}))
     (rf/reg-event :test/set-b
       (fn [{:keys [db]} _] {:db (assoc db :v "b")}))
-    (story/reg-variant :story.pane.switch/a
+    (rf.story/reg-variant :story.pane.switch/a
       {:setup [[:test/set-a]] :script [[:dispatch-sync [:rf.assert/path-equals [:v] "a"]]]})
-    (story/reg-variant :story.pane.switch/b
+    (rf.story/reg-variant :story.pane.switch/b
       {:setup [[:test/set-b]] :script [[:dispatch-sync [:rf.assert/path-equals [:v] "b"]]]})
     (async done
-      (-> (tm-state/run-variant-pane! :story.pane.switch/a)
-          (async-lib/then
+      (-> (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.switch/a)
+          (rf.story.async/then
             (fn [_]
-              (-> (tm-state/run-variant-pane! :story.pane.switch/b)
-                  (async-lib/then
+              (-> (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.switch/b)
+                  (rf.story.async/then
                     (fn [_]
-                      (let [slot-a (get @tm-state/results-atom :story.pane.switch/a)
-                            slot-b (get @tm-state/results-atom :story.pane.switch/b)]
+                      (let [slot-a (get @rf.story.ui.test-mode.state/results-atom :story.pane.switch/a)
+                            slot-b (get @rf.story.ui.test-mode.state/results-atom :story.pane.switch/b)]
                         (is (some? slot-a)
                             "variant A's slot survives the switch")
                         (is (some? slot-b)
@@ -221,8 +221,8 @@
                             "the two slots carry distinct results")
                         (is (= "a" (-> slot-a :result :app-db :v)))
                         (is (= "b" (-> slot-b :result :app-db :v))))
-                      (story/destroy-variant! :story.pane.switch/a)
-                      (story/destroy-variant! :story.pane.switch/b)
+                      (rf.story/destroy-variant! :story.pane.switch/a)
+                      (rf.story/destroy-variant! :story.pane.switch/b)
                       (done))))))))))
 
 ;; ===========================================================================
@@ -257,56 +257,56 @@
             widget reads against; this test pins the pane-local
             results-atom flag the pane's own Re-run button reads."
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (story/reg-variant :story.pane.debounce/v
+    (rf.story/reg-variant :story.pane.debounce/v
       {:setup [[:test/inc]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (async done
-      (let [p (tm-state/run-variant-pane! :story.pane.debounce/v)]
+      (let [p (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.debounce/v)]
         ;; The synchronous prelude of run-variant-pane! calls begin-run!
         ;; which stamps :running? true BEFORE the promise resolves.
         ;; This is the gate the Re-run button reads: while true, the
         ;; button renders disabled and a click is ignored at the view
         ;; layer. The pure test mirrors that view-layer contract.
-        (is (true? (get-in @tm-state/results-atom
+        (is (true? (get-in @rf.story.ui.test-mode.state/results-atom
                            [:story.pane.debounce/v :running?]))
             ":running? is true synchronously after begin-run! — the
              Re-run button's `disabled?` prop reads this flag")
         ;; After resolve, :running? clears and a second run is allowed.
         (-> p
-            (async-lib/then
+            (rf.story.async/then
               (fn [_]
-                (is (false? (get-in @tm-state/results-atom
+                (is (false? (get-in @rf.story.ui.test-mode.state/results-atom
                                     [:story.pane.debounce/v :running?]))
                     ":running? clears on store-result! — the button
                      re-enables and a fresh re-run can fire")
-                (let [slot (get @tm-state/results-atom :story.pane.debounce/v)]
+                (let [slot (get @rf.story.ui.test-mode.state/results-atom :story.pane.debounce/v)]
                   (is (number? (:ran-at-ms slot))
                       ":ran-at-ms stamped — the renderer shows the
                        'last run at HH:mm:ss' badge"))
-                (story/destroy-variant! :story.pane.debounce/v)
+                (rf.story/destroy-variant! :story.pane.debounce/v)
                 (done))))))))
 
 (deftest run-variant-pane-records-on-resolve
   (testing "after a run resolves, :running? clears AND a fresh re-run is
             allowed (the gate is :running?, not a permanent lock)"
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (story/reg-variant :story.pane.cycle/v
+    (rf.story/reg-variant :story.pane.cycle/v
       {:setup [[:test/inc]] :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (async done
-      (-> (tm-state/run-variant-pane! :story.pane.cycle/v)
-          (async-lib/then
+      (-> (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.cycle/v)
+          (rf.story.async/then
             (fn [_]
-              (is (false? (get-in @tm-state/results-atom
+              (is (false? (get-in @rf.story.ui.test-mode.state/results-atom
                                   [:story.pane.cycle/v :running?]))
                   ":running? cleared after first run resolves")
-              (-> (tm-state/run-variant-pane! :story.pane.cycle/v)
-                  (async-lib/then
+              (-> (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.cycle/v)
+                  (rf.story.async/then
                     (fn [_]
-                      (let [slot (get @tm-state/results-atom :story.pane.cycle/v)]
+                      (let [slot (get @rf.story.ui.test-mode.state/results-atom :story.pane.cycle/v)]
                         (is (false? (:running? slot))
                             "second run resolves cleanly; :running? clear again")
                         (is (every? :passed? (-> slot :result :assertions))
                             "second run's assertions still pass — fresh frame
                              counter starts at 0 and ticks to 1"))
-                      (story/destroy-variant! :story.pane.cycle/v)
+                      (rf.story/destroy-variant! :story.pane.cycle/v)
                       (done))))))))))

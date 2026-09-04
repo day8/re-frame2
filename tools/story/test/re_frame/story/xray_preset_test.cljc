@@ -10,22 +10,22 @@
   only a `-cljs-test` namespace is discovered by the `:node-test`
   build. See the note at the foot of this file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story :as story]
-            [re-frame.story.xray-preset :as xray-preset]
+            [re-frame.story :as rf.story]
+            [re-frame.story.xray-preset :as rf.story.xray-preset]
             #?@(:cljs [[re-frame.core :as rf]
-                       [re-frame.frame :as frame]
-                       [re-frame.registrar :as registrar]
-                       [re-frame.substrate.plain-atom :as plain-atom]])))
+                       [re-frame.frame :as rf.frame]
+                       [re-frame.registrar :as rf.registrar]
+                       [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]])))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  #?(:cljs (do (registrar/clear-all!)
-               (reset! frame/frames {})
-               (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-               (frame/ensure-default-frame!)))
-  (story/install-canonical-vocabulary!))
+  (rf.story/clear-all!)
+  #?(:cljs (do (rf.registrar/clear-all!)
+               (reset! rf.frame/frames {})
+               (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+               (rf.frame/ensure-default-frame!)))
+  (rf.story/install-canonical-vocabulary!))
 
 (use-fixtures :each (fn [t] (reset-all!) (t)))
 
@@ -33,64 +33,64 @@
 
 (deftest merge-preset-handles-nils
   (testing "two nils merge to {}"
-    (is (= {} (xray-preset/merge-preset nil nil)))))
+    (is (= {} (rf.story.xray-preset/merge-preset nil nil)))))
 
 (deftest merge-preset-variant-overrides-story
   (testing "variant slot wins over story slot at the top level"
     (let [story {:open? true :panel :epoch}
           vari  {:panel :trace}]
       (is (= {:open? true :panel :trace}
-             (xray-preset/merge-preset story vari))))))
+             (rf.story.xray-preset/merge-preset story vari))))))
 
 (deftest merge-preset-deep-merges-filters
   (testing ":filters merge respects :in / :out separately"
     (let [story {:filters {:in [:keep/me]}}
           vari  {:filters {:out [:drop/me]}}]
       (is (= {:filters {:in [:keep/me] :out [:drop/me]}}
-             (xray-preset/merge-preset story vari))))))
+             (rf.story.xray-preset/merge-preset story vari))))))
 
 (deftest merge-preset-variant-filters-override-story
   (testing "matching filter axes prefer variant value"
     (let [story {:filters {:in [:story/in] :out [:story/out]}}
           vari  {:filters {:in [:variant/in]}}]
       (is (= {:filters {:in [:variant/in] :out [:story/out]}}
-             (xray-preset/merge-preset story vari))))))
+             (rf.story.xray-preset/merge-preset story vari))))))
 
 ;; ---- pure: resolve-preset ------------------------------------------------
 
 (deftest resolve-preset-returns-nil-when-no-preset
   (testing "story + variant with no :xray slot resolves to nil"
-    (story/reg-story :story.no-preset
+    (rf.story/reg-story :story.no-preset
       {:doc "no preset" :component :Some.view})
-    (story/reg-variant :story.no-preset/v
+    (rf.story/reg-variant :story.no-preset/v
       {:doc "v"})
-    (is (nil? (xray-preset/resolve-preset :story.no-preset/v)))))
+    (is (nil? (rf.story.xray-preset/resolve-preset :story.no-preset/v)))))
 
 (deftest resolve-preset-reads-story-slot
   (testing "story :xray is returned when variant has none"
-    (story/reg-story :story.story-preset
+    (rf.story/reg-story :story.story-preset
       {:doc "preset on story"
        :component :Some.view
        :xray {:open? true :panel :trace}})
-    (story/reg-variant :story.story-preset/v
+    (rf.story/reg-variant :story.story-preset/v
       {:doc "v"})
-    (let [p (xray-preset/resolve-preset :story.story-preset/v)]
+    (let [p (rf.story.xray-preset/resolve-preset :story.story-preset/v)]
       (is (= true     (:open? p)))
       (is (= :trace   (:panel p))))))
 
 (deftest resolve-preset-merges-story-and-variant
   (testing "variant :xray overrides story slot, :filters deep-merge"
-    (story/reg-story :story.both
+    (rf.story/reg-story :story.both
       {:doc "preset on both"
        :component :Some.view
        :xray {:open? true
                :panel :epoch
                :filters {:in [:keep/x]}}})
-    (story/reg-variant :story.both/v
+    (rf.story/reg-variant :story.both/v
       {:doc "v"
        :xray {:panel :trace
                :filters {:out [:drop/y]}}})
-    (let [p (xray-preset/resolve-preset :story.both/v)]
+    (let [p (rf.story.xray-preset/resolve-preset :story.both/v)]
       (is (= true                                (:open? p)))
       (is (= :trace                              (:panel p)))
       (is (= {:in [:keep/x] :out [:drop/y]}      (:filters p))))))
@@ -106,34 +106,34 @@
 (deftest lower-filters-wraps-keywords-as-pattern-pills
   (testing "a bare event-id keyword becomes Xray's {:pattern <kw>} pill"
     (is (= {:in [] :out [{:pattern :app/noise}]}
-           (xray-preset/lower-filters {:out [:app/noise]})))))
+           (rf.story.xray-preset/lower-filters {:out [:app/noise]})))))
 
 (deftest lower-filters-normalises-both-axes
   (testing "a preset declaring only one axis still yields the full
             {:in [...] :out [...]} shape Xray's :active-filters slot
             expects — a missing axis must not land as nil in the slot"
     (is (= {:in [{:pattern :keep/x}] :out []}
-           (xray-preset/lower-filters {:in [:keep/x]})))
+           (rf.story.xray-preset/lower-filters {:in [:keep/x]})))
     (is (= {:in [] :out []}
-           (xray-preset/lower-filters {})))))
+           (rf.story.xray-preset/lower-filters {})))))
 
 (deftest lower-filters-lowers-every-entry
   (testing "multiple pills per axis all lower"
     (is (= {:in  [{:pattern :a/one} {:pattern :a/two}]
             :out [{:pattern :b/one}]}
-           (xray-preset/lower-filters {:in [:a/one :a/two] :out [:b/one]})))))
+           (rf.story.xray-preset/lower-filters {:in [:a/one :a/two] :out [:b/one]})))))
 
 (deftest lower-filters-passes-maps-through
   (testing "an already-canonical typed pill survives the boundary
             un-double-wrapped (no {:pattern {:kind …}} nesting)"
     (let [typed {:kind :machine :params {:machine-id :m/one}}]
       (is (= {:in [typed] :out [{:pattern :b/two}]}
-             (xray-preset/lower-filters {:in [typed] :out [:b/two]}))))))
+             (rf.story.xray-preset/lower-filters {:in [typed] :out [:b/two]}))))))
 
 (deftest lower-filters-nil-on-non-map
   (testing "a non-map :filters slot lowers to nil rather than throwing"
-    (is (nil? (xray-preset/lower-filters nil)))
-    (is (nil? (xray-preset/lower-filters [:app/noise])))))
+    (is (nil? (rf.story.xray-preset/lower-filters nil)))
+    (is (nil? (rf.story.xray-preset/lower-filters [:app/noise])))))
 
 ;; ---- Why there are no CLJS-only tests in this file -----------------------
 ;;

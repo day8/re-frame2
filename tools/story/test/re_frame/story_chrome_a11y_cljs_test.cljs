@@ -8,22 +8,22 @@
   contract without requiring a live browser."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.ui.a11y :as a11y]
-            [re-frame.story.ui.chrome-a11y :as chrome-a11y]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.a11y :as rf.story.ui.a11y]
+            [re-frame.story.ui.chrome-a11y :as rf.story.ui.chrome-a11y]))
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (a11y/reset-state!)
-  (chrome-a11y/reset-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+  (rf.story.ui.a11y/reset-state!)
+  (rf.story.ui.chrome-a11y/reset-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -31,24 +31,24 @@
 
 (deftest chrome-a11y-panel-registers
   (testing "the chrome-a11y panel registers as a story-panel"
-    (let [panels (story/registrations :story-panel)]
-      (is (contains? panels chrome-a11y/panel-id)))))
+    (let [panels (rf.story/registrations :story-panel)]
+      (is (contains? panels rf.story.ui.chrome-a11y/panel-id)))))
 
 (deftest chrome-a11y-panel-id-distinct-from-variant
   (testing "chrome-a11y panel-id is distinct from the variant a11y panel-id"
-    (is (not= chrome-a11y/panel-id a11y/panel-id))))
+    (is (not= rf.story.ui.chrome-a11y/panel-id rf.story.ui.a11y/panel-id))))
 
 (deftest chrome-a11y-panel-body
   (testing "the chrome-a11y panel body declares :placement :right + :render"
-    (let [body (story/handler-meta :story-panel chrome-a11y/panel-id)]
+    (let [body (rf.story/handler-meta :story-panel rf.story.ui.chrome-a11y/panel-id)]
       (is (= :right (:placement body)))
-      (is (= chrome-a11y/panel-render-id (:render body)))
+      (is (= rf.story.ui.chrome-a11y/panel-render-id (:render body)))
       (is (string? (:title body)))
       (is (re-find #"(?i)chrome" (or (:title body) ""))))))
 
 (deftest chrome-a11y-render-view-registered
   (testing "the chrome-a11y panel-render view is registered against re-frame"
-    (is (some? (rf/view chrome-a11y/panel-render-id)))))
+    (is (some? (rf/view rf.story.ui.chrome-a11y/panel-render-id)))))
 
 (deftest chrome-a11y-render-view-roots-in-dom-element
   (testing "the chrome-a11y panel-render view returns hiccup whose root
@@ -60,7 +60,7 @@
             `[panel variant-id]` root makes the panel invisible to Story
             Inspect Mode + Xray Inspect Mode (rf2-iwny7). The `[:div]`
             wrap is load-bearing."
-    (let [view-fn (rf/view chrome-a11y/panel-render-id)
+    (let [view-fn (rf/view rf.story.ui.chrome-a11y/panel-render-id)
           out     (view-fn :story.unknown/y)]
       (is (vector? out)
           "panel-render returns a hiccup vector")
@@ -73,35 +73,35 @@
 
 (deftest chrome-root-selector-targets-chrome-attribute
   (testing "chrome-root-selector targets [data-rf-story-root]"
-    (is (string? chrome-a11y/chrome-root-selector))
+    (is (string? rf.story.ui.chrome-a11y/chrome-root-selector))
     ;; The chrome root is stamped by shell.cljs as :data-rf-story-root.
-    (is (re-find #"data-rf-story-root" chrome-a11y/chrome-root-selector))
-    (is (.startsWith chrome-a11y/chrome-root-selector "["))
-    (is (.endsWith   chrome-a11y/chrome-root-selector "]"))))
+    (is (re-find #"data-rf-story-root" rf.story.ui.chrome-a11y/chrome-root-selector))
+    (is (.startsWith rf.story.ui.chrome-a11y/chrome-root-selector "["))
+    (is (.endsWith   rf.story.ui.chrome-a11y/chrome-root-selector "]"))))
 
 (deftest chrome-frame-id-is-namespaced
   (testing "chrome-frame-id is a story-namespaced keyword distinct from any variant id"
-    (is (keyword? chrome-a11y/chrome-frame-id))
-    (is (= "rf.story.chrome-a11y" (namespace chrome-a11y/chrome-frame-id)))))
+    (is (keyword? rf.story.ui.chrome-a11y/chrome-frame-id))
+    (is (= "rf.story.chrome-a11y" (namespace rf.story.ui.chrome-a11y/chrome-frame-id)))))
 
 ;; ---- state management ---------------------------------------------------
 
 (deftest violations-state-starts-empty
   (testing "violations starts as an empty vector"
-    (is (vector? @chrome-a11y/violations))
-    (is (empty? @chrome-a11y/violations))))
+    (is (vector? @rf.story.ui.chrome-a11y/violations))
+    (is (empty? @rf.story.ui.chrome-a11y/violations))))
 
 (deftest run-state-starts-idle
   (testing "run-state starts at :idle"
-    (is (= :idle (chrome-a11y/status)))))
+    (is (= :idle (rf.story.ui.chrome-a11y/status)))))
 
 (deftest reset-state-clears-everything
   (testing "reset-state! clears violations + resets run-state"
-    (reset! chrome-a11y/violations [{:dummy true}])
-    (reset! chrome-a11y/run-state {:status :done})
-    (chrome-a11y/reset-state!)
-    (is (empty? @chrome-a11y/violations))
-    (is (= :idle (chrome-a11y/status)))))
+    (reset! rf.story.ui.chrome-a11y/violations [{:dummy true}])
+    (reset! rf.story.ui.chrome-a11y/run-state {:status :done})
+    (rf.story.ui.chrome-a11y/reset-state!)
+    (is (empty? @rf.story.ui.chrome-a11y/violations))
+    (is (= :idle (rf.story.ui.chrome-a11y/status)))))
 
 ;; ---- find-chrome-root degraded-environment safety -----------------------
 
@@ -110,4 +110,4 @@
     ;; The Node-runtime test environment does not mount the Story shell,
     ;; so find-chrome-root must gracefully return nil (the panel surfaces
     ;; a :no-root state in that case).
-    (is (nil? (chrome-a11y/find-chrome-root)))))
+    (is (nil? (rf.story.ui.chrome-a11y/find-chrome-root)))))

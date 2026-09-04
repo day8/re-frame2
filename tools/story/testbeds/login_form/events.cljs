@@ -30,7 +30,7 @@
   (:require [re-frame.core :as rf]
             ;; Loads the machine substrate's late-bind hooks so
             ;; rf.machines/make-machine-handler resolves below.
-            [re-frame.machines :as machines]
+            [re-frame.machines :as rf.machines]
             ;; Loads :rf.http/managed; without it, dispatching
             ;; the login flow's request fx would throw
             ;; :rf.error/no-such-fx.
@@ -40,7 +40,7 @@
             ;; The canned-stub fx ids register from
             ;; re-frame.http.test-support, not re-frame.http.managed.
             [re-frame.http.test-support]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as rf.registrar]))
 
 ;; ============================================================================
 ;; MACHINE — :login/flow
@@ -54,7 +54,7 @@
 
 (rf/reg-event :login/flow
   {:doc "Login flow machine — five-state authentication FSM."}
-  (machines/make-machine-handler
+  (rf.machines/make-machine-handler
     {:initial :idle
      :data    {:email      ""
                :error      nil
@@ -182,8 +182,8 @@
   (fn fx-login-demo-http [frame-ctx args-map]
     (let [{:keys [body]} (:request args-map)
           good?          (= "correct-horse" (:password body))
-          ok-stub        (registrar/handler :fx :rf.http/managed-canned-success)
-          fail-stub      (registrar/handler :fx :rf.http/managed-canned-failure)]
+          ok-stub        (rf.registrar/handler :fx :rf.http/managed-canned-success)
+          fail-stub      (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
       (js/setTimeout
         (fn []
           (if good?

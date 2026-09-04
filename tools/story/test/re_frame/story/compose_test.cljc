@@ -8,8 +8,8 @@
   a host: fragment / check / variant bodies are supplied through explicit
   `:lookup` / `:fragment-lookup` / `:check-lookup` maps of RAW bodies."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.plan :as plan]
-            [re-frame.story.schemas :as schemas]))
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.schemas :as rf.story.schemas]))
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -19,7 +19,7 @@
   `:check-lookup checks`."
   [target {:keys [variants fragments checks]
            :or   {variants {} fragments {} checks {}}}]
-  (plan/variant-plan target {:lookup          variants
+  (rf.story.plan/variant-plan target {:lookup          variants
                              :fragment-lookup fragments
                              :check-lookup    checks}))
 
@@ -84,7 +84,7 @@
 ;; reported. The runtime drives `[:world :scripts]` (the named-play set),
 ;; NEVER the reported top-level `:script` slot — before the fix,
 ;; `compose-script` folded only into the latter, so a composed fragment's
-;; script never actually ran (plan/explain looked right; nothing happened).
+;; script never actually ran (rf.story.plan/explain looked right; nothing happened).
 ;; ===========================================================================
 
 (deftest fragment-script-composes-into-executed-scripts
@@ -170,7 +170,7 @@
     (let [fragments {:fragment/themed {:decorators [:decorator/fragment-theme]}}
           variants  {:story.x/v {:compose    [:fragment/themed]
                                  :decorators [:decorator/variant-theme]}}
-          p (plan/variant-plan :story.x/v
+          p (rf.story.plan/variant-plan :story.x/v
               {:lookup            variants
                :fragment-lookup   fragments
                :global-decorators [:decorator/global]})]
@@ -484,7 +484,7 @@
 
 (deftest resolve-conflicts-rejected-by-schema
   (testing ":resolve-conflicts is rejected by the P1 variant schema (no escape hatch)"
-    (let [explain (schemas/validate
+    (let [explain (rf.story.schemas/validate
                     :variant {:resolve-conflicts {[:fx-overrides :rf.http/fetch] :stub-a}})]
       (is (some? explain) ":resolve-conflicts must fail variant-body validation"))))
 
@@ -506,7 +506,7 @@
   (testing "an inline map plan MAY compose registered fragments + checks (§Inline plan)"
     (let [fragments {:fragment/seed {:setup [[:dispatch [:seed]]]}}
           checks    {:check/clean {:assertions [[:rf.assert/no-warnings]]}}
-          p (plan/variant-plan
+          p (rf.story.plan/variant-plan
               {:variant/id :inline/v
                :compose    [:fragment/seed :check/clean]
                :script     [[:dispatch [:go]]]}

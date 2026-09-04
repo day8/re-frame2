@@ -65,7 +65,7 @@
   sugar does not cover — `sub-equals`, `dispatched?`, `effect-emitted`
   — alongside one `force-fx-stub` decorator reference."
   (:require [re-frame.core  :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             ;; Source the event and view ids by requiring the namespaces
             ;; so they register themselves; the variant bodies reference
             ;; the ids as plain keywords (no fn-slots leak through).
@@ -126,7 +126,7 @@
   ;; registrar throws `:rf.error/unknown-tag`.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-tag :counter-with-stories/canonical
+  (rf.story/reg-tag :counter-with-stories/canonical
     {:doc "Tag applied to the variant that ships as the example's
           canonical screenshot — the one the README points at."})
 
@@ -136,12 +136,12 @@
   ;; preferred shape is the namespaced keyword (`:status/stable`,
   ;; `:role/dev`, `:team/checkout`, `:feature/counter`) — the
   ;; namespace mirrors the axis, the name is the value.
-  (story/reg-tag :status/alpha    {:axis :status :doc "Pre-release."})
-  (story/reg-tag :status/stable   {:axis :status :doc "Production-ready."})
-  (story/reg-tag :role/dev        {:axis :role   :doc "For devs."})
-  (story/reg-tag :role/design     {:axis :role   :doc "For designers."})
-  (story/reg-tag :team/counter    {:axis :team   :doc "Counter squad."})
-  (story/reg-tag :feature/counter {:axis :feature
+  (rf.story/reg-tag :status/alpha    {:axis :status :doc "Pre-release."})
+  (rf.story/reg-tag :status/stable   {:axis :status :doc "Production-ready."})
+  (rf.story/reg-tag :role/dev        {:axis :role   :doc "For devs."})
+  (rf.story/reg-tag :role/design     {:axis :role   :doc "For designers."})
+  (rf.story/reg-tag :team/counter    {:axis :team   :doc "Counter squad."})
+  (rf.story/reg-tag :feature/counter {:axis :feature
                                    :doc  "Counter feature surface."})
 
   ;; -------------------------------------------------------------------------
@@ -154,13 +154,13 @@
   ;; identity for visual regression keying.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-mode :Mode.app/dark
+  (rf.story/reg-mode :Mode.app/dark
     {:doc  "Dark theme — sets the background and label colours."
      :args {:theme       :dark
             :background  "#1e1e1e"
             :foreground  "#e0e0e0"}})
 
-  (story/reg-mode :Mode.app/light
+  (rf.story/reg-mode :Mode.app/light
     {:doc  "Light theme — the default."
      :args {:theme       :light
             :background  "#ffffff"
@@ -170,7 +170,7 @@
   ;; toolbar's single-select-within-axis semantics (spec/010
   ;; §Selection semantics — by axis). Toggling :Mode.app/sepia
   ;; deactivates any other `:axis :theme` mode that was active.
-  (story/reg-mode :Mode.app/sepia
+  (rf.story/reg-mode :Mode.app/sepia
     {:doc  "Sepia theme — exercises the toolbar's single-select-
            within-axis behaviour (`:axis :theme`)."
      :axis :theme
@@ -190,7 +190,7 @@
   ;; closure at render time.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-decorator :counter-with-stories/log-decorator
+  (rf.story/reg-decorator :counter-with-stories/log-decorator
     {:doc  "Wrap the variant in a labelled outline — a tiny custom
            decorator alongside Story's canonical `:rf.story/layout-
            debug.*` set. The first ref-arg becomes the label.
@@ -209,7 +209,7 @@
                  (str "decorator: " (or label "log"))]
                 body]))})
 
-  (story/reg-decorator :counter-with-stories/throwing-decorator
+  (rf.story/reg-decorator :counter-with-stories/throwing-decorator
     {:doc  "Deterministic decorator failure used only by the
            occasional Story feature-load coverage gate. The canvas must
            project the error and keep rendering the underlying variant."
@@ -228,7 +228,7 @@
   ;; stub); projects add their own via reg-story-panel.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-story-panel :Panel.counter-with-stories/notes
+  (rf.story/reg-story-panel :Panel.counter-with-stories/notes
     {:doc       "A small project-custom panel that renders prose
                 alongside the active variant. Reads no app-db; pure
                 static content."
@@ -252,7 +252,7 @@
   ;; render path is documented dev-time UX, not a defect.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-story-panel :Panel.counter-with-stories/broken-render
+  (rf.story/reg-story-panel :Panel.counter-with-stories/broken-render
     {:doc       "Testbed panel whose :render points at an
                 unregistered view so the panel-host renders its
                 'no registered :render view' fallback. Asserted by
@@ -269,7 +269,7 @@
   ;; The variant bodies below override / extend these.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc        "The counter — every variant of the canonical example."
      :component  :counter-with-stories.views/counter-card
      :decorators [[:counter-with-stories/log-decorator "story-level"]]
@@ -278,7 +278,7 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  (story/reg-story :story.counter-diagnostics
+  (rf.story/reg-story :story.counter-diagnostics
     {:doc        "Small deterministic failure surfaces for Story's
                  diagnostics and test-mode UI. Kept separate from
                  :story.counter so the canonical four counter variants
@@ -289,7 +289,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-story :story.counter-play-script
+  (rf.story/reg-story :story.counter-play-script
     {:doc        "Parent story for the rich-DSL :script CI-as-test
                  fixtures. Two variants exercise both the
                  pass and fail terminal paths of the play runner so the
@@ -300,7 +300,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-story :story.counter-matrix
+  (rf.story/reg-story :story.counter-matrix
     {:doc        "Deterministic browser-only affordances for the
                  Story feature coverage matrix. These variants keep
                  the canonical four counter variants stable while
@@ -326,7 +326,7 @@
   ;; one initialisation event in :setup, no decorators of its own
   ;; (inherits the story-level log-decorator). One :script checkpoint:
   ;; after init, the `:count` slot equals zero.
-  (story/reg-variant :story.counter/empty
+  (rf.story/reg-variant :story.counter/empty
     {:doc    "Fresh counter at zero. The simplest possible variant."
      :setup [[:counter/initialise 0]]
      :script [[:assert-db [:count] 0]]
@@ -337,7 +337,7 @@
   ;; the variant-level :args override the story-level :args (precedence:
   ;; global < story < mode < variant). The label is overridden to
   ;; "Total" for this variant only.
-  (story/reg-variant :story.counter/loaded
+  (rf.story/reg-variant :story.counter/loaded
     {:doc    "A counter seeded with a non-zero value."
      :args   {:label "Total"}
      :setup [[:counter/initialise 7]]
@@ -354,7 +354,7 @@
   ;; (not the :setup slot) so the `:rf.assert/dispatched?`
   ;; assertion's accumulator sees them — the trace listener is wired
   ;; for the phase-4 :script, not for the phase-2 :setup.
-  (story/reg-variant :story.counter/clicked-three-times
+  (rf.story/reg-variant :story.counter/clicked-three-times
     {:doc    "Counter after three increments from zero, driven from
              the :script so :rf.assert/dispatched? observes them."
      :setup [[:counter/initialise 0]]
@@ -389,7 +389,7 @@
   ;; the events-only classification and the fast-path it gates. (The
   ;; runtime classifier is named "events-only" after the lowered
   ;; `:setup` slot; the authoring surface is `:setup`.)
-  (story/reg-variant :story.counter/events-only-loaded
+  (rf.story/reg-variant :story.counter/events-only-loaded
     {:doc    "Canonical events-only loader-body shape. Counter seeded at
              5 via `:setup`; no
              `:loaders`, no `:loaders-complete-when`, no `:frame-setup`
@@ -406,12 +406,12 @@
   ;; event is dispatched FROM the :script (not :setup) so the
   ;; trace-bus accumulator (installed at phase-4 start) sees the fx
   ;; and `:rf.assert/effect-emitted` passes.
-  (story/reg-variant :story.counter/save-stubbed
+  (rf.story/reg-variant :story.counter/save-stubbed
     {:doc    "The save flow with the network fx stubbed. Demonstrates
              the MSW-shaped force-fx-stub decorator alongside the
              `:rf.assert/effect-emitted` assertion."
      :setup [[:counter/initialise 5]]
-     :decorators [[story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
+     :decorators [[rf.story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
      :script [[:dispatch-sync [:counter/save]]
               [:assert-db [:saving?] true]
               [:assert [:rf.assert/effect-emitted :counter/sync-to-server]]]
@@ -435,7 +435,7 @@
   ;; Test mode must show the failure as data, not as an uncaught browser
   ;; error. This gives the feature-load gate a stable red test-mode
   ;; surface that does not depend on timing or external services.
-  (story/reg-variant :story.counter-diagnostics/failing-play
+  (rf.story/reg-variant :story.counter-diagnostics/failing-play
     {:doc    "Deterministic failing :script assertion. The counter is
              initialised to 1 but the :script assertion expects 999."
      :setup [[:counter/initialise 1]]
@@ -446,7 +446,7 @@
   ;; Diagnostic variant 2 — phase-4 handler exception. The Story
   ;; play-runner projects handler exceptions into the assertion list so
   ;; the test pane can explain the failure without blanking the shell.
-  (story/reg-variant :story.counter-diagnostics/failing-event-throws
+  (rf.story/reg-variant :story.counter-diagnostics/failing-event-throws
     {:doc    "Deterministic event-handler exception during the :script."
      :setup [[:counter/initialise 0]]
      :script [[:dispatch-sync [:counter/throw-deterministic]]]
@@ -455,7 +455,7 @@
 
   ;; Diagnostic variant 3 — loader-phase exception. This exercises the
   ;; phase-1 error capture path separately from ordinary play failures.
-  (story/reg-variant :story.counter-diagnostics/loader-throws
+  (rf.story/reg-variant :story.counter-diagnostics/loader-throws
     {:doc     "Deterministic loader exception before :setup/render."
      :loaders [[:counter/throw-deterministic]]
      :setup  [[:counter/initialise 0]]
@@ -463,7 +463,7 @@
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-diagnostics/render-throws
+  (rf.story/reg-variant :story.counter-diagnostics/render-throws
     {:doc       "Deterministic render exception. The canvas error
                 boundary should project variant id, render phase, view
                 id, and stack detail while keeping the Story shell
@@ -474,7 +474,7 @@
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/no-play
+  (rf.story/reg-variant :story.counter-matrix/no-play
     {:doc    "Healthy variant with no :script. Test mode should
              render its explicit empty state instead of pretending the
              variant passed."
@@ -484,7 +484,7 @@
      :tags   #{:dev :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/loader-success
+  (rf.story/reg-variant :story.counter-matrix/loader-success
     {:doc     "Loader success path. The loader seeds :count before the
               normal event phase and the :script assertion observes the
               loaded value."
@@ -495,7 +495,7 @@
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/loader-never-completes
+  (rf.story/reg-variant :story.counter-matrix/loader-never-completes
     {:doc     "Loader completion failure path. The loader runs, but the
               predicate intentionally never reports ready, so Story
               records a deterministic loader-incomplete assertion
@@ -508,7 +508,7 @@
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/loader-rejects
+  (rf.story/reg-variant :story.counter-matrix/loader-rejects
     {:doc     "Loader rejection path. The loader throws a deterministic
               ExceptionInfo value whose data must be visible in test
               diagnostics."
@@ -520,7 +520,7 @@
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/schema-invalid
+  (rf.story/reg-variant :story.counter-matrix/schema-invalid
     {:doc    "Args that mismatch the component's expected prop shape
              (a numeric :label, an unused :settings map). The
              schema-validation panel surfaces a violation only when the
@@ -536,7 +536,7 @@
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/nested-controls
+  (rf.story/reg-variant :story.counter-matrix/nested-controls
     {:doc    "Nested args/schema fixture for the controls panel. The
              counter card ignores :settings; the right-pane controls
              still expose path-aware nested widgets."
@@ -547,7 +547,7 @@
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/decorator-throws
+  (rf.story/reg-variant :story.counter-matrix/decorator-throws
     {:doc        "Decorator failure projection fixture."
      :args       {:label "Decorator failure"
                   :settings {:title "Decorator" :enabled? true}}
@@ -557,7 +557,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/multi-substrate
+  (rf.story/reg-variant :story.counter-matrix/multi-substrate
     {:doc        "Side-by-side substrate fixture. Reagent should render;
                  the synthetic substrate should project an unsupported
                  state rather than leak frames or crash."
@@ -568,7 +568,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent :uix}})
 
-  (story/reg-variant :story.counter-matrix/isolation-a
+  (rf.story/reg-variant :story.counter-matrix/isolation-a
     {:doc    "Frame-isolation fixture A. Same handlers as fixture B,
              different seed."
      :args   {:label "Isolation A"
@@ -578,7 +578,7 @@
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/isolation-b
+  (rf.story/reg-variant :story.counter-matrix/isolation-b
     {:doc    "Frame-isolation fixture B. Same handlers as fixture A,
              different seed."
      :args   {:label "Isolation B"
@@ -588,7 +588,7 @@
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/recorder-redaction
+  (rf.story/reg-variant :story.counter-matrix/recorder-redaction
     {:doc       "Recorder browser fixture: the visible button dispatches
                 a :sensitive? event with a password payload. The Story
                 recorder must preserve the row position while emitting
@@ -601,7 +601,7 @@
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/a11y-known-good
+  (rf.story/reg-variant :story.counter-matrix/a11y-known-good
     {:doc       "Deterministic a11y known-good browser fixture. The
                 browser scenario injects a stable axe-compatible
                 scanner and asserts this fixture reports zero rows."
@@ -613,7 +613,7 @@
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-matrix/a11y-known-bad
+  (rf.story/reg-variant :story.counter-matrix/a11y-known-bad
     {:doc       "Deterministic a11y known-bad browser fixture. The
                 violation is tied to a fixture-owned image selector so
                 output stays stable and never depends on Story chrome."
@@ -637,7 +637,7 @@
   ;; directly without authoring a one-off probe. The variant is
   ;; intentionally :test-tagged so the chrome test-widget picks it up
   ;; and reports the failure.
-  (story/reg-variant :story.counter-matrix/failing-fx-stub-miss
+  (rf.story/reg-variant :story.counter-matrix/failing-fx-stub-miss
     {:doc       "Deterministic failing-fx-stub-miss failing assertion. The
                 :script asserts :rf.assert/effect-emitted :never-stubbed with
                 NO force-fx-stub decorator covering it — the assertion
@@ -677,7 +677,7 @@
   ;; `[:assert-db [:count] 3]`) drifts under double-fire — the CI
   ;; runner is gating the auto-run plumbing, not the under-test app's
   ;; idempotency, so we keep the scripts neutral on that axis.
-  (story/reg-variant :story.counter-play-script/passing
+  (rf.story/reg-variant :story.counter-play-script/passing
     {:doc        "CI fixture — initialise the counter to 3
                  and assert :count equals 3. Idempotent under any
                  number of auto-run repeats."
@@ -691,7 +691,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-play-script/failing
+  (rf.story/reg-variant :story.counter-play-script/failing
     {:doc        "CI fixture — initialise the counter to 1
                  then assert the WRONG final count (expect 9). The CI
                  runner observes the :fail terminal status and matches
@@ -713,7 +713,7 @@
   ;; directly instead of a symbol). The fixture pairs an in-line
   ;; anonymous predicate with a top-level clojure.core predicate so both
   ;; cases land in the browser-side play-script runner.
-  (story/reg-variant :story.counter-play-script/pred-fn-direct
+  (rf.story/reg-variant :story.counter-play-script/pred-fn-direct
     {:doc        "CI fixture for `:assert-db :pred` with fn
                  references handed in directly. Survives advanced CLJS
                  because no symbol resolution is performed at run time."
@@ -743,7 +743,7 @@
   ;; Runs under the reactive browser runner (the `:cljs-reactive` runner the
   ;; Story shell mounts); a non-reactive runner fails it closed to
   ;; `:cannot-run`, never a silent pass.
-  (story/reg-variant :story.counter-play-script/causal-honest-guard
+  (rf.story/reg-variant :story.counter-play-script/causal-honest-guard
     {:doc        "Causal-assertion CI fixture — :counter/inc CAUSED a
                  :count recompute, and :counter/save (observed) did NOT
                  cascade-rerender :count. Exercises the causal
@@ -776,7 +776,7 @@
   ;; The script: seed db → type "42" → click set → wait for re-render →
   ;; assert app-db AND the rendered text both reflect 42. End-to-end
   ;; coverage of every DOM-step type in one play.
-  (story/reg-variant :story.counter-play-script/dom
+  (rf.story/reg-variant :story.counter-play-script/dom
     {:doc        "DOM-step fixture — exercises every
                  rich-DSL DOM step (`:click` / `:type` / `:assert-dom`)
                  end-to-end against a real browser DOM. Pairs with the
@@ -808,7 +808,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.counter-play-script/dom-expected-fail
+  (rf.story/reg-variant :story.counter-play-script/dom-expected-fail
     {:doc        "Expected-fail twin — same DOM-step shape as
                  :story.counter-play-script/dom but the FINAL
                  `:assert-dom :text` expects '99' against an actual
@@ -836,7 +836,7 @@
   ;; default; the other two run on demand (manual trigger via the
   ;; toolbar dropdown OR the CI runner's `runPlay` hook). One play
   ;; deliberately fails to keep the failure path under CI coverage.
-  (story/reg-variant :story.counter-play-script/multi
+  (rf.story/reg-variant :story.counter-play-script/multi
     {:doc        "CI fixture — multi-play variant with three
                  named plays. The CI runner enumerates each play as its
                  own row (per-play pass/fail) and matches the per-play
@@ -863,7 +863,7 @@
   ;; `:variants-grid` — enumerates the parent story's variants automatically.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-workspace :Workspace.counter/all-states
+  (rf.story/reg-workspace :Workspace.counter/all-states
     {:doc       "Every named counter state, side-by-side."
      :layout    :grid
      :variants  [:story.counter/empty
@@ -873,7 +873,7 @@
      :columns   2
      :tags      #{:docs}})
 
-  (story/reg-workspace :Workspace.counter/auto-grid
+  (rf.story/reg-workspace :Workspace.counter/auto-grid
     {:doc      "Auto-enumerated grid — pulls every variant off
                :story.counter. New variants appear here without
                touching this workspace."
@@ -882,7 +882,7 @@
      :columns  2
      :tags     #{:docs}})
 
-  (story/reg-workspace :Workspace.counter/prose
+  (rf.story/reg-workspace :Workspace.counter/prose
     {:doc     "Prose layout fixture for docs/workspace coverage."
      :layout  :prose
      :content [{:type :prose
@@ -893,14 +893,14 @@
                 :body "Story matrix prose block after the example."}]
      :tags    #{:docs}})
 
-  (story/reg-workspace :Workspace.counter/tabs
+  (rf.story/reg-workspace :Workspace.counter/tabs
     {:doc      "Tabs layout fixture for workspace coverage."
      :layout   :tabs
      :variants [:story.counter/empty
                 :story.counter/loaded]
      :tags     #{:docs}})
 
-  (story/reg-workspace :Workspace.counter/custom
+  (rf.story/reg-workspace :Workspace.counter/custom
     {:doc    "Custom layout fixture for workspace coverage. The current
              renderer projects the configured view id as data."
      :layout :custom

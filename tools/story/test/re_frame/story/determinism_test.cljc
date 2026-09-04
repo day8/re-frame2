@@ -20,13 +20,13 @@
       • a bare wall-clock `[:wait ms]` returns `:cannot-run`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
-            [re-frame.epoch     :as epoch]
-            [re-frame.frame     :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story.artifact    :as artifact]
-            [re-frame.story.determinism :as det]
-            [re-frame.story.fingerprint :as fp]))
+            [re-frame.epoch     :as rf.epoch]
+            [re-frame.frame     :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story.artifact    :as rf.story.artifact]
+            [re-frame.story.determinism :as rf.story.determinism]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]))
 
 ;; ===========================================================================
 ;; PURE: the per-run stamp strip in canonicalize  (rf2-5x1wt.8)
@@ -57,28 +57,28 @@
   (testing "two epoch records that differ ONLY in per-run stamps canonicalize ="
     (let [a (epoch-rec 5  :rf.test.replay/frame-aaa {:db-after {:n 1}})
           b (epoch-rec 99 :rf.test.replay/frame-zzz {:db-after {:n 1}})]
-      (is (= (fp/canonicalize a) (fp/canonicalize b))
+      (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize b))
           ":epoch-id / :frame / :committed-at / :schema-digest are per-run stamps")
-      (is (= (fp/canonical-hash a) (fp/canonical-hash b)))))
+      (is (= (rf.story.fingerprint/canonical-hash a) (rf.story.fingerprint/canonical-hash b)))))
 
   (testing "a SEMANTIC difference (db-after) still perturbs the canonical form"
     (let [a (epoch-rec 5  :rf.test.replay/frame-aaa {:db-after {:n 1}})
           c (epoch-rec 5  :rf.test.replay/frame-aaa {:db-after {:n 2}})]
-      (is (not= (fp/canonicalize a) (fp/canonicalize c))
+      (is (not= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize c))
           "the strip must not hide a real app-db change")
-      (is (not= (fp/canonical-hash a) (fp/canonical-hash c))))))
+      (is (not= (rf.story.fingerprint/canonical-hash a) (rf.story.fingerprint/canonical-hash c))))))
 
 (deftest canonicalize-strips-trace-event-stamps
   (testing "trace events differing only in :id / :time canonicalize ="
     (let [a {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :foo}})]}
           b {:trace-events [(trace-ev 88 {:tags {:rf.trace/event-id :foo}})]}]
-      (is (= (fp/canonicalize a) (fp/canonicalize b))
+      (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize b))
           ":id (process-global counter) + :time (wall-clock) are per-run stamps")))
 
   (testing "a SEMANTIC trace difference (operation / tags) is NOT stripped"
     (let [a {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :foo}})]}
           c {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :bar}})]}]
-      (is (not= (fp/canonicalize a) (fp/canonicalize c))
+      (is (not= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize c))
           "the event-id tag is behavioural, not a stamp"))))
 
 (deftest structural-strip-spares-app-db-keys
@@ -89,11 +89,11 @@
     ;; :epoch-id+record-slot), so the structural strip leaves it intact.
     (let [db1 {:user {:id 1 :time 10 :frame :left}}
           db2 {:user {:id 2 :time 20 :frame :right}}]
-      (is (not= (fp/canonicalize db1) (fp/canonicalize db2))
+      (is (not= (rf.story.fingerprint/canonicalize db1) (rf.story.fingerprint/canonicalize db2))
           "semantic app-db data on common keys survives canonicalization")
       ;; And run-results that embed them in :app-db preserve the distinction.
-      (is (not= (fp/run-hash {:status :pass :app-db db1})
-                (fp/run-hash {:status :pass :app-db db2}))))))
+      (is (not= (rf.story.fingerprint/run-hash {:status :pass :app-db db1})
+                (rf.story.fingerprint/run-hash {:status :pass :app-db db2}))))))
 
 (deftest fresh-frame-tape-twins-hash-equal
   (testing "two run-results from fresh-frame replays — distinct epoch ids,
@@ -115,8 +115,8 @@
                                       {:tags {:rf.trace/event-id :rep/inc}})]})]})
           r1 (run 5  "d-5"  :rf.test.replay/frame-aaa 17)
           r2 (run 90 "d-90" :rf.test.replay/frame-zzz 200)]
-      (is (= (fp/canonicalize r1) (fp/canonicalize r2)))
-      (is (= (fp/run-hash r1) (fp/run-hash r2))
+      (is (= (rf.story.fingerprint/canonicalize r1) (rf.story.fingerprint/canonicalize r2)))
+      (is (= (rf.story.fingerprint/run-hash r1) (rf.story.fingerprint/run-hash r2))
           "semantically-equal fresh-frame runs share one run-hash"))))
 
 ;; ===========================================================================
@@ -125,22 +125,22 @@
 
 (deftest wait-step-detection
   (testing "wait-steps picks out bare [:wait ms]; [:wait-until] is not a wait"
-    (let [a (artifact/make-run-artifact
+    (let [a (rf.story.artifact/make-run-artifact
               {:event-program [[:dispatch [:a]]
                                [:wait 100]
                                [:dispatch [:b]]]})]
-      (is (= [[:wait 100]] (det/wait-steps a)))
-      (is (det/has-wall-clock-wait? a))))
+      (is (= [[:wait 100]] (rf.story.determinism/wait-steps a)))
+      (is (rf.story.determinism/has-wall-clock-wait? a))))
 
   (testing "a wall-clock-free program has no wait steps"
-    (let [a (artifact/make-run-artifact
+    (let [a (rf.story.artifact/make-run-artifact
               {:event-program [[:dispatch [:a]] [:dispatch-sync [:b]]]})]
-      (is (= [] (det/wait-steps a)))
-      (is (not (det/has-wall-clock-wait? a)))))
+      (is (= [] (rf.story.determinism/wait-steps a)))
+      (is (not (rf.story.determinism/has-wall-clock-wait? a)))))
 
   (testing "the refusal is the :cannot-run third status with the wait steps"
-    (let [a (artifact/make-run-artifact {:event-program [[:wait 5] [:dispatch [:x]]]})
-          r (det/cannot-run-wait-refusal a)]
+    (let [a (rf.story.artifact/make-run-artifact {:event-program [[:wait 5] [:dispatch [:x]]]})
+          r (rf.story.determinism/cannot-run-wait-refusal a)]
       (is (= :cannot-run (:status r)))
       (is (= :determinism-wall-clock-wait (:reason r)))
       (is (= [[:wait 5]] (:wait-steps r))))))
@@ -151,16 +151,16 @@
 
 (deftest ->artifact-coercion
   (testing "a run-artifact is used verbatim"
-    (let [a (artifact/make-run-artifact {:event-program [[:dispatch [:x]]]})]
-      (is (identical? a (det/->artifact a)))))
+    (let [a (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:x]]]})]
+      (is (identical? a (rf.story.determinism/->artifact a)))))
 
   (testing "a normalized plan folds [:world :setup] ⧺ :script and lifts fx-overrides"
     (let [plan {:variant/id :story/x
                 :world  {:setup [[:dispatch [:seed]]]
                          :frame {:fx-overrides {:http/get :http/stub}}}
                 :script [[:dispatch [:act]] [:wait 9]]}
-          a    (det/->artifact plan)]
-      (is (artifact/run-artifact? a))
+          a    (rf.story.determinism/->artifact plan)]
+      (is (rf.story.artifact/run-artifact? a))
       (is (= [[:dispatch [:seed]] [:dispatch [:act]] [:wait 9]]
              (:event-program a))
           "setup-first fold, then script")
@@ -174,17 +174,17 @@
 (deftest compare-runs-pure
   (testing "identical canonical runs are deterministic with one shared run-hash"
     (let [r {:status :pass :app-db {:n 1}}
-          c (det/compare-runs [r r r])]
+          c (rf.story.determinism/compare-runs [r r r])]
       (is (:deterministic? c))
       (is (= 3 (:run-count c)))
-      (is (= (fp/run-hash r) (:run-hash c)))
+      (is (= (rf.story.fingerprint/run-hash r) (:run-hash c)))
       (is (nil? (:divergence c)))))
 
   (testing "a divergent run is detected and named (first differing run vs run 0)"
     (let [r0 {:status :pass :app-db {:n 1}}
           r1 {:status :pass :app-db {:n 1}}
           r2 {:status :pass :app-db {:n 999}}
-          c  (det/compare-runs [r0 r1 r2])]
+          c  (rf.story.determinism/compare-runs [r0 r1 r2])]
       (is (not (:deterministic? c)))
       (is (nil? (:run-hash c)))
       (is (= 2 (get-in c [:divergence :run])) "run 2 is the first divergence")
@@ -192,23 +192,23 @@
                 (get-in c [:divergence :run-hash-n])))))
 
   ;; rf2-12wg5 — compare-runs canonicalizes each run-slice ONCE and derives
-  ;; the hash from the canon (via fp/hash-canonical) rather than
+  ;; the hash from the canon (via rf.story.fingerprint/hash-canonical) rather than
   ;; re-canonicalizing inside run-hash. The reported hashes MUST stay
   ;; byte-identical to run-hash, so a recorded :run-hash and a
   ;; determinism-gate hash never disagree. (rf2-lvrqa — the type-tagged
   ;; canonical-form is NOT idempotent, so the canon is hashed via
   ;; hash-canonical with no second canonicalization pass.)
-  (testing "the reported hashes are byte-identical to fp/run-hash (no double canon)"
+  (testing "the reported hashes are byte-identical to rf.story.fingerprint/run-hash (no double canon)"
     (let [r0 {:status :pass :app-db {:n 1 :nested {:b 2 :a 1}}
               :warnings #{:w2 :w1}}
           r1 {:status :pass :app-db {:n 1 :nested {:a 1 :b 2}}
               ;; volatile + per-run stamps differ but must be stripped equal
               :elapsed-ms 99 :warnings #{:w1 :w2}}
-          c  (det/compare-runs [r0 r1])]
+          c  (rf.story.determinism/compare-runs [r0 r1])]
       (is (:deterministic? c) "the two runs differ only in volatile fields")
-      (is (= [(fp/run-hash r0) (fp/run-hash r1)] (:hashes c))
+      (is (= [(rf.story.fingerprint/run-hash r0) (rf.story.fingerprint/run-hash r1)] (:hashes c))
           "content-hash of the canon equals run-hash for every run")
-      (is (= (fp/run-hash r0) (:run-hash c))
+      (is (= (rf.story.fingerprint/run-hash r0) (:run-hash c))
           "the shared run-hash is the canonical run-hash"))))
 
 ;; rf2-ewrse — the determinism gate inherited the rf2-4gwja fn-slot
@@ -224,14 +224,14 @@
     (let [run-with (fn [f] {:status :pass
                             :app-db  {:n 1 :cb f}
                             :effects [{:fx-id :x :args f :outcome :ok}]})
-          c        (det/compare-runs [(run-with (fn [] 1))
+          c        (rf.story.determinism/compare-runs [(run-with (fn [] 1))
                                       (run-with (fn [] 1))
                                       (run-with (fn [] 1))])]
       (is (:deterministic? c) "fn-identity-only difference is NOT non-determinism")
       (is (nil? (:divergence c)))
       (is (some? (:run-hash c)) "a stable run-hash is reported")))
   (testing "a fn in app-db does NOT mask a real semantic difference"
-    (let [c (det/compare-runs [{:status :pass :app-db {:n 1 :cb (fn [] 1)}}
+    (let [c (rf.story.determinism/compare-runs [{:status :pass :app-db {:n 1 :cb (fn [] 1)}}
                                {:status :pass :app-db {:n 2 :cb (fn [] 1)}}])]
       (is (not (:deterministic? c)) "the :n 1 vs :n 2 difference still diverges"))))
 
@@ -240,13 +240,13 @@
 ;; ===========================================================================
 
 (defn- reset-rf! [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (try (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.epoch/clear-history!)
+  (rf.epoch/clear-epoch-listeners!)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-rf!)
@@ -255,9 +255,9 @@
   (testing "the SAME event program replayed twice is equal after
             canonicalization — :deterministic with one shared run-hash"
     (rf/reg-event :det/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [a   (artifact/make-run-artifact
+    (let [a   (rf.story.artifact/make-run-artifact
                 {:event-program [[:dispatch [:det/inc]] [:dispatch [:det/inc]]]})
-          res (det/assert-deterministic a)]
+          res (rf.story.determinism/assert-deterministic a)]
       (is (= :deterministic (:status res)))
       (is (= 2 (:runs res)))
       (is (string? (:run-hash res)))
@@ -271,7 +271,7 @@
     (let [plan {:variant/id :story.det/plan
                 :world  {:setup [[:dispatch [:det/seed 10]]]}
                 :script [[:dispatch [:det/bump]]]}
-          res  (det/assert-deterministic plan {:runs 3})]
+          res  (rf.story.determinism/assert-deterministic plan {:runs 3})]
       (is (= :deterministic (:status res)))
       (is (= 3 (:runs res))))))
 
@@ -285,9 +285,9 @@
       ;; divergence the canonical strip must NOT mask.
       (rf/reg-event :det/nondet
                        (fn [{:keys [db]} _] {:db (assoc db :token (swap! counter inc))}))
-      (let [a   (artifact/make-run-artifact
+      (let [a   (rf.story.artifact/make-run-artifact
                   {:event-program [[:dispatch [:det/nondet]]]})
-            res (det/assert-deterministic a)]
+            res (rf.story.determinism/assert-deterministic a)]
         (is (= :non-deterministic (:status res)))
         (is (= 1 (get-in res [:divergence :run]))
             "run 1 diverged from run 0")
@@ -301,9 +301,9 @@
             replay stamps fresh epoch / dispatch / trace ids, a new frame id,
             and its own wall-clock — volatile fields cause NO false drift"
     (rf/reg-event :det/pure (fn [{:keys [db]} _] {:db (assoc db :answer 42)}))
-    (let [a   (artifact/make-run-artifact
+    (let [a   (rf.story.artifact/make-run-artifact
                 {:event-program [[:dispatch [:det/pure]] [:dispatch [:det/pure]]]})
-          res (det/assert-deterministic a {:runs 4})]
+          res (rf.story.determinism/assert-deterministic a {:runs 4})]
       (is (= :deterministic (:status res))
           "four fresh-frame replays with distinct stamps still agree")
       (is (= 4 (:runs res)))
@@ -313,11 +313,11 @@
   (testing "a plan containing a bare [:wait ms] returns :cannot-run for the
             determinism gate rather than a flaky verdict — and does NOT replay"
     (rf/reg-event :det/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [a   (artifact/make-run-artifact
+    (let [a   (rf.story.artifact/make-run-artifact
                 {:event-program [[:dispatch [:det/inc]]
                                  [:wait 50]
                                  [:dispatch [:det/inc]]]})
-          res (det/assert-deterministic a)]
+          res (rf.story.determinism/assert-deterministic a)]
       (is (= :cannot-run (:status res)))
       (is (= :determinism-wall-clock-wait (:reason res)))
       (is (= [[:wait 50]] (:wait-steps res)))
@@ -333,10 +333,10 @@
       (rf/reg-fx :det.fx/stub {:platforms #{:client :server}}
                  (fn [_ _] (swap! hits conj :stub)))
       (rf/reg-event :det/fire (fn [_ _] {:fx [[:det.fx/real {}]]}))
-      (let [a   (artifact/make-run-artifact
+      (let [a   (rf.story.artifact/make-run-artifact
                   {:event-program [[:dispatch [:det/fire]]]
                    :fx-decisions  {:det.fx/real :det.fx/stub}})
-            res (det/assert-deterministic a)]
+            res (rf.story.determinism/assert-deterministic a)]
         (is (= :deterministic (:status res)))
         (is (= [:stub :stub] @hits)
             "the stub fired on BOTH fresh-frame replays")))))

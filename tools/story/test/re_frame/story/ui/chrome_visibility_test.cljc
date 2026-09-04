@@ -13,7 +13,7 @@
 
   Pure data → data; no DOM / Reagent dependency."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.ui.state.transitions :as transitions]))
+            [re-frame.story.ui.state.transitions :as rf.story.ui.state.transitions]))
 
 ;; ---- defaults + read -----------------------------------------------------
 
@@ -24,80 +24,80 @@
             :rhs?         true
             :toolbar?     true
             :embed?       false}
-           transitions/chrome-visibility-defaults))))
+           rf.story.ui.state.transitions/chrome-visibility-defaults))))
 
 (deftest chrome-visibility-merge-read
   (testing "missing slot → fall back to defaults"
-    (is (= transitions/chrome-visibility-defaults
-           (transitions/chrome-visibility {}))))
+    (is (= rf.story.ui.state.transitions/chrome-visibility-defaults
+           (rf.story.ui.state.transitions/chrome-visibility {}))))
   (testing "partial map → merge over defaults"
-    (is (= (assoc transitions/chrome-visibility-defaults :full-screen? true)
-           (transitions/chrome-visibility
+    (is (= (assoc rf.story.ui.state.transitions/chrome-visibility-defaults :full-screen? true)
+           (rf.story.ui.state.transitions/chrome-visibility
              {:chrome-visibility {:full-screen? true}})))))
 
 ;; ---- toggle / set --------------------------------------------------------
 
 (deftest toggle-chrome-visibility-shape
   (testing "default false slot → flip to true"
-    (let [out (transitions/toggle-chrome-visibility {} :full-screen?)]
+    (let [out (rf.story.ui.state.transitions/toggle-chrome-visibility {} :full-screen?)]
       (is (= true (get-in out [:chrome-visibility :full-screen?])))))
   (testing "default true slot → flip to false"
-    (let [out (transitions/toggle-chrome-visibility {} :sidebar?)]
+    (let [out (rf.story.ui.state.transitions/toggle-chrome-visibility {} :sidebar?)]
       (is (= false (get-in out [:chrome-visibility :sidebar?])))))
   (testing "double toggle round-trips"
-    (let [a (transitions/toggle-chrome-visibility {} :rhs?)
-          b (transitions/toggle-chrome-visibility a :rhs?)]
+    (let [a (rf.story.ui.state.transitions/toggle-chrome-visibility {} :rhs?)
+          b (rf.story.ui.state.transitions/toggle-chrome-visibility a :rhs?)]
       (is (= true (get-in b [:chrome-visibility :rhs?]))))))
 
 (deftest set-chrome-visibility-shape
   (testing "set true / set false"
-    (let [a (transitions/set-chrome-visibility {} :sidebar? false)]
+    (let [a (rf.story.ui.state.transitions/set-chrome-visibility {} :sidebar? false)]
       (is (= false (get-in a [:chrome-visibility :sidebar?]))))
-    (let [b (transitions/set-chrome-visibility {} :full-screen? true)]
+    (let [b (rf.story.ui.state.transitions/set-chrome-visibility {} :full-screen? true)]
       (is (= true (get-in b [:chrome-visibility :full-screen?]))))))
 
 ;; ---- chrome-pane-visible? — precedence -----------------------------------
 
 (deftest chrome-pane-visible-defaults
   (testing "default state: every pane visible"
-    (is (true? (transitions/chrome-pane-visible? :sidebar {})))
-    (is (true? (transitions/chrome-pane-visible? :rhs     {})))
-    (is (true? (transitions/chrome-pane-visible? :toolbar {})))))
+    (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar {})))
+    (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     {})))
+    (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :toolbar {})))))
 
 (deftest chrome-pane-visible-embed-wins-absolute
   (testing "embed mode hides every chrome pane"
     (let [s {:chrome-visibility {:embed? true}}]
-      (is (false? (transitions/chrome-pane-visible? :sidebar s)))
-      (is (false? (transitions/chrome-pane-visible? :rhs     s)))
-      (is (false? (transitions/chrome-pane-visible? :toolbar s)))))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s)))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     s)))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :toolbar s)))))
 
   (testing "embed wins over a per-pane true"
     (let [s {:chrome-visibility {:embed? true :sidebar? true :rhs? true}}]
-      (is (false? (transitions/chrome-pane-visible? :sidebar s)))
-      (is (false? (transitions/chrome-pane-visible? :rhs     s))))))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s)))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     s))))))
 
 (deftest chrome-pane-visible-full-screen-hides
   (testing "full-screen hides every chrome pane"
     (let [s {:chrome-visibility {:full-screen? true}}]
-      (is (false? (transitions/chrome-pane-visible? :sidebar s)))
-      (is (false? (transitions/chrome-pane-visible? :rhs     s)))
-      (is (false? (transitions/chrome-pane-visible? :toolbar s))))))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s)))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     s)))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :toolbar s))))))
 
 (deftest chrome-pane-visible-per-pane-toggle
   (testing "per-pane false hides only that pane"
     (let [s {:chrome-visibility {:sidebar? false}}]
-      (is (false? (transitions/chrome-pane-visible? :sidebar s)))
-      (is (true?  (transitions/chrome-pane-visible? :rhs     s)))
-      (is (true?  (transitions/chrome-pane-visible? :toolbar s))))))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s)))
+      (is (true?  (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     s)))
+      (is (true?  (rf.story.ui.state.transitions/chrome-pane-visible? :toolbar s))))))
 
 (deftest chrome-pane-visible-precedence-embed-over-fullscreen
   (testing "embed and full-screen both true → still hidden (both project hidden)"
     (let [s {:chrome-visibility {:embed? true :full-screen? true}}]
-      (is (false? (transitions/chrome-pane-visible? :sidebar s))))))
+      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s))))))
 
 (deftest chrome-pane-visible-unknown-pane
   (testing "unknown pane kw → defaults visible (forward-compat)"
-    (is (true? (transitions/chrome-pane-visible? :unknown {})))))
+    (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :unknown {})))))
 
 ;; ---- Xray-embed collapse (rf2-ba86n.19) ---------------------------------
 ;;
@@ -108,26 +108,26 @@
 
 (deftest xray-embed-collapsed-default-expanded
   (testing "unset slot reads as expanded (false)"
-    (is (false? (transitions/xray-embed-collapsed? {})))
-    (is (false? (transitions/xray-embed-collapsed? {:xray-embed-collapsed? nil}))))
+    (is (false? (rf.story.ui.state.transitions/xray-embed-collapsed? {})))
+    (is (false? (rf.story.ui.state.transitions/xray-embed-collapsed? {:xray-embed-collapsed? nil}))))
   (testing "explicit slot is read through"
-    (is (true?  (transitions/xray-embed-collapsed? {:xray-embed-collapsed? true})))
-    (is (false? (transitions/xray-embed-collapsed? {:xray-embed-collapsed? false})))))
+    (is (true?  (rf.story.ui.state.transitions/xray-embed-collapsed? {:xray-embed-collapsed? true})))
+    (is (false? (rf.story.ui.state.transitions/xray-embed-collapsed? {:xray-embed-collapsed? false})))))
 
 (deftest toggle-xray-embed-collapsed-flip
   (testing "first toggle from default collapses (expanded → collapsed)"
-    (is (true? (transitions/xray-embed-collapsed?
-                 (transitions/toggle-xray-embed-collapsed {})))))
+    (is (true? (rf.story.ui.state.transitions/xray-embed-collapsed?
+                 (rf.story.ui.state.transitions/toggle-xray-embed-collapsed {})))))
   (testing "double toggle round-trips back to expanded"
-    (let [a (transitions/toggle-xray-embed-collapsed {})
-          b (transitions/toggle-xray-embed-collapsed a)]
-      (is (false? (transitions/xray-embed-collapsed? b))))))
+    (let [a (rf.story.ui.state.transitions/toggle-xray-embed-collapsed {})
+          b (rf.story.ui.state.transitions/toggle-xray-embed-collapsed a)]
+      (is (false? (rf.story.ui.state.transitions/xray-embed-collapsed? b))))))
 
 (deftest set-xray-embed-collapsed-coerces
   (testing "set true / set false / coerce truthy"
-    (is (true?  (transitions/xray-embed-collapsed?
-                  (transitions/set-xray-embed-collapsed {} true))))
-    (is (false? (transitions/xray-embed-collapsed?
-                  (transitions/set-xray-embed-collapsed {:xray-embed-collapsed? true} false))))
-    (is (true?  (transitions/xray-embed-collapsed?
-                  (transitions/set-xray-embed-collapsed {} "truthy"))))))
+    (is (true?  (rf.story.ui.state.transitions/xray-embed-collapsed?
+                  (rf.story.ui.state.transitions/set-xray-embed-collapsed {} true))))
+    (is (false? (rf.story.ui.state.transitions/xray-embed-collapsed?
+                  (rf.story.ui.state.transitions/set-xray-embed-collapsed {:xray-embed-collapsed? true} false))))
+    (is (true?  (rf.story.ui.state.transitions/xray-embed-collapsed?
+                  (rf.story.ui.state.transitions/set-xray-embed-collapsed {} "truthy"))))))

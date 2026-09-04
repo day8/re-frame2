@@ -10,17 +10,17 @@
   registrar's eager merge)."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            [re-frame.story.assertions :as assertions]
-            [re-frame.story.fingerprint :as fingerprint]
-            [re-frame.story.plan :as plan]
-            [re-frame.story.sub-overrides :as sub-overrides]))
+            [re-frame.story.assertions :as rf.story.assertions]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.sub-overrides :as rf.story.sub-overrides]))
 
 ;; ---- helpers ------------------------------------------------------------
 
 (defn- plan-of
   "Compile a keyword `target` against a raw-body lookup `m`."
   [target m]
-  (plan/variant-plan target {:lookup m}))
+  (rf.story.plan/variant-plan target {:lookup m}))
 
 ;; ---- simple variant compiles --------------------------------------------
 
@@ -55,7 +55,7 @@
 
 (deftest inline-map-target-compiles
   (testing "a map target compiles the same way as a registered keyword"
-    (let [p (plan/variant-plan {:variant/id :story.inline/v
+    (let [p (rf.story.plan/variant-plan {:variant/id :story.inline/v
                                 :setup  [[:dispatch [:a]]]
                                 :script [[:dispatch [:b]]]})]
       (is (= :story.inline/v (:variant/id p)))
@@ -67,7 +67,7 @@
             optional) and compiles to a plan whose :variant/id is nil
             (rf2-8e2nd — variant-plan reads (:variant/id target), nil when
             absent)"
-    (let [p (plan/variant-plan {:setup  [[:dispatch [:a]]]
+    (let [p (rf.story.plan/variant-plan {:setup  [[:dispatch [:a]]]
                                 :script [[:dispatch [:b]]]})]
       (is (nil? (:variant/id p))
           "the optional :variant/id resolves to nil")
@@ -95,7 +95,7 @@
           "the parent story id is derived from the variant id's namespace")))
   (testing "an inline map target with NO :variant/id stamps no :story/id
             (nothing to derive it from — render-transparent)"
-    (let [p (plan/variant-plan {:setup [[:dispatch [:a]]]})]
+    (let [p (rf.story.plan/variant-plan {:setup [[:dispatch [:a]]]})]
       (is (not (contains? p :story/id))))))
 
 (deftest identical-variant-bodies-under-different-stories-do-not-collide
@@ -120,7 +120,7 @@
       (is (= (:expect pa) (:expect pb)))
       (is (= (:required-runner pa) (:required-runner pb)))
       (is (= (:tags pa) (:tags pb)))
-      (is (not= (fingerprint/plan-hash pa) (fingerprint/plan-hash pb))
+      (is (not= (rf.story.fingerprint/plan-hash pa) (rf.story.fingerprint/plan-hash pb))
           "the cross-story collision guard is now LIVE — identical bodies
            under different stories hash DIFFERENTLY"))))
 
@@ -236,7 +236,7 @@
                     (:rf.error/id (ex-data e)))))))))
 
 (deftest extends-depth-cap-fails
-  (testing "an :extends chain longer than plan/*max-extends-depth* fails plan construction"
+  (testing "an :extends chain longer than rf.story.plan/*max-extends-depth* fails plan construction"
     ;; A chain of 50 ids each pointing at the next; n0 is the leaf, n49 the
     ;; deepest ancestor. Resolution from the leaf has to walk every parent, so
     ;; the cap fires before the chain runs out. No cycle here — the depth cap
@@ -253,7 +253,7 @@
                                            (keyword "story.chain" (str "n" (inc i))))]
                               [this (cond-> {:setup []}
                                       parent (assoc :extends parent))])))]
-      (binding [plan/*max-extends-depth* 32]
+      (binding [rf.story.plan/*max-extends-depth* 32]
         (is (= :rf.error/story-extends-chain-too-long
                (try (plan-of :story.chain/n0 m)
                     (catch #?(:clj Exception :cljs :default) e
@@ -404,7 +404,7 @@
                               :setup [[:dispatch [:seed [:arg :n]]]]}
              :story.e/child  {:extends :story.e/parent
                               :script  [[:dispatch [:go]]]}}
-          ex (plan/explain :story.e/child {:lookup m})]
+          ex (rf.story.plan/explain :story.e/child {:lookup m})]
       (is (= [:story.e/parent :story.e/child] (:source-chain ex)))
       (is (= [:story.e/parent] (:parent-chain ex)))
       (is (= {:n 1} (:args ex)))
@@ -448,7 +448,7 @@
           m {:story.widget/ok
              {:component :views/widget
               :args      {:label "Hi" :count 3}}}
-          p (plan/variant-plan :story.widget/ok
+          p (rf.story.plan/variant-plan :story.widget/ok
                                {:lookup      m
                                 :view-lookup {:views/widget {:rf/props view-schema}}})]
       (is (= view-schema (get-in p [:world :view-args-schema])))
@@ -460,7 +460,7 @@
     (let [m {:story.widget/valid
              {:component :views/widget
               :args      {:label "Hi" :count 3}}}
-          p (plan/variant-plan :story.widget/valid
+          p (rf.story.plan/variant-plan :story.widget/valid
                                {:lookup      m
                                 :view-lookup {:views/widget
                                               {:rf/props [:map [:label :string] [:count :int]]}}
@@ -478,8 +478,8 @@
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
             #"story-view-args-invalid"
-            (plan/variant-plan :story.widget/missing opts)))
-      (let [data (try (plan/variant-plan :story.widget/missing opts)
+            (rf.story.plan/variant-plan :story.widget/missing opts)))
+      (let [data (try (rf.story.plan/variant-plan :story.widget/missing opts)
                       (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
         (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
         (testing "the failure reports the missing key, schema path, and source variant"
@@ -491,7 +491,7 @@
     (let [m {:story.widget/opt
              {:component :views/widget
               :args      {:label "Hi"}}}
-          p (plan/variant-plan :story.widget/opt
+          p (rf.story.plan/variant-plan :story.widget/opt
                                {:lookup      m
                                 :view-lookup {:views/widget
                                               {:rf/props [:map
@@ -511,8 +511,8 @@
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
             #"story-view-args-invalid"
-            (plan/variant-plan :story.widget/bad opts)))
-      (let [data (try (plan/variant-plan :story.widget/bad opts)
+            (rf.story.plan/variant-plan :story.widget/bad opts)))
+      (let [data (try (rf.story.plan/variant-plan :story.widget/bad opts)
                       (catch #?(:clj Exception :cljs :default) e (ex-data e)))
             bad  (first (:malformed data))]
         (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
@@ -528,7 +528,7 @@
     (let [m {:story.widget/none
              {:component :views/widget
               :args      {:anything 1}}}
-          p (plan/variant-plan :story.widget/none
+          p (rf.story.plan/variant-plan :story.widget/none
                                {:lookup      m
                                 :view-lookup {:views/widget {}}})]  ; no schema slot
       (is (nil? (get-in p [:world :view-args-schema])))
@@ -539,7 +539,7 @@
 (deftest no-component-no-validation
   (testing "a variant with no :component is never view-validated"
     (let [m {:story.plain/v {:args {:x 1} :setup [[:dispatch [:a]]]}}
-          p (plan/variant-plan :story.plain/v {:lookup m})]
+          p (rf.story.plan/variant-plan :story.plain/v {:lookup m})]
       (is (nil? (get-in p [:world :view-args-schema])))
       (is (= {:x 1} (get-in p [:world :effective-args]))))))
 
@@ -549,36 +549,36 @@
           spec   [:map [:b :string]]
           schema [:map [:c :string]]]
       (testing ":rf/props chosen when present (canonical, wins over :schema)"
-        (is (= props (plan/view-args-schema {:rf/props props :schema schema}))))
+        (is (= props (rf.story.plan/view-args-schema {:rf/props props :schema schema}))))
       (testing ":schema chosen when no :rf/props (the post-M-54 location)"
-        (is (= schema (plan/view-args-schema {:schema schema}))))
+        (is (= schema (rf.story.plan/view-args-schema {:schema schema}))))
       (testing ":spec is NOT a resolution key — a view carrying ONLY :spec
                 resolves no schema (the framework reads :schema only post-M-54;
                 see migration §M-54). rf2-ayu6n: the stale :spec key is gone."
-        (is (nil? (plan/view-args-schema {:spec spec}))))
+        (is (nil? (rf.story.plan/view-args-schema {:spec spec}))))
       (testing ":rf/props still wins even when a dead :spec is also present"
-        (is (= props (plan/view-args-schema {:rf/props props :spec spec :schema schema}))))
+        (is (= props (rf.story.plan/view-args-schema {:rf/props props :spec spec :schema schema}))))
       (testing "nil when no schema slot present"
-        (is (nil? (plan/view-args-schema {:title "x"})))))))
+        (is (nil? (rf.story.plan/view-args-schema {:title "x"})))))))
 
 (deftest derived-effective-args-validation-unit
   (testing "validate-effective-args required-key floor needs no validator"
     (let [schema [:map [:label :string] [:count :int]]]
       (testing "all present → :ok"
-        (is (= :ok (:status (plan/validate-effective-args
+        (is (= :ok (:status (rf.story.plan/validate-effective-args
                               schema {:label "x" :count 1})))))
       (testing "missing required → :invalid with the missing entry"
-        (let [r (plan/validate-effective-args schema {:label "x"})]
+        (let [r (rf.story.plan/validate-effective-args schema {:label "x"})]
           (is (= :invalid (:status r)))
           (is (= [{:key :count :schema :int :path [:count]}] (:missing r)))
           (is (= [] (:malformed r)) "no malformed without a validator")))
       (testing "malformed value soft-passes without a validator (floor only)"
         ;; :count present but wrong type — with no validator the floor
         ;; can only check presence, so this is :ok at floor level.
-        (is (= :ok (:status (plan/validate-effective-args
+        (is (= :ok (:status (rf.story.plan/validate-effective-args
                               schema {:label "x" :count "nope"})))))
       (testing "malformed value is caught WITH a validator"
-        (let [r (plan/validate-effective-args
+        (let [r (rf.story.plan/validate-effective-args
                   schema {:label "x" :count "nope"} malli-validator)]
           (is (= :invalid (:status r)))
           (is (= :count (:key (first (:malformed r))))))))))
@@ -589,7 +589,7 @@
              {:component     :views/widget
               :args          {:label "Hi"}
               :sub-overrides {[:widget/state] :error}}}
-          p (plan/variant-plan :story.boundary/v
+          p (rf.story.plan/variant-plan :story.boundary/v
                                {:lookup      m
                                 :view-lookup {:views/widget {:rf/props [:map [:label :string]]}}})]
       (testing "the view-args schema covers explicit args only"
@@ -631,7 +631,7 @@
               :sub-overrides {[:login/state]    :error
                               [:login/error]    [:arg :message]
                               [:login/attempts] 1}}}
-          p (plan/variant-plan :story.login/error {:lookup m})]
+          p (rf.story.plan/variant-plan :story.login/error {:lookup m})]
       (testing "overrides lower to [:world :render :sub-overrides] with exact query vectors"
         (is (= {[:login/state]    :error
                 [:login/error]    "Invalid password"   ; [:arg :message] resolved
@@ -659,14 +659,14 @@
              :story.f/bare
              {:component :views/x}}]
       (testing "setup-only → #{:real-setup}, no :sub-overrides rung"
-        (is (= #{:real-setup} (get-in (plan/variant-plan :story.f/setup-only {:lookup m})
+        (is (= #{:real-setup} (get-in (rf.story.plan/variant-plan :story.f/setup-only {:lookup m})
                                       [:world :fidelity]))))
       (testing "setup + overrides → both rungs"
         (is (= #{:real-setup :sub-overrides}
-               (get-in (plan/variant-plan :story.f/hybrid {:lookup m})
+               (get-in (rf.story.plan/variant-plan :story.f/hybrid {:lookup m})
                        [:world :fidelity]))))
       (testing "a bare render-as-mounted variant carries no :fidelity slot"
-        (is (nil? (get-in (plan/variant-plan :story.f/bare {:lookup m})
+        (is (nil? (get-in (rf.story.plan/variant-plan :story.f/bare {:lookup m})
                           [:world :fidelity])))))))
 
 (deftest sub-override-missing-arg-fails-plan-construction
@@ -677,7 +677,7 @@
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
             #"story-missing-arg"
-            (plan/variant-plan :story.login/oops {:lookup m}))))))
+            (rf.story.plan/variant-plan :story.login/oops {:lookup m}))))))
 
 (deftest sub-override-output-schema-mismatch-fails-before-render
   (testing "an override value violating the sub's OUTPUT schema fails plan construction"
@@ -688,14 +688,14 @@
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
             #"story-sub-override-invalid"
-            (plan/variant-plan :story.login/bad
+            (rf.story.plan/variant-plan :story.login/bad
                                {:lookup        m
                                 :sub-lookup    sub-lookup
                                 :validator-fns malli-validator})))))
   (testing "a value that SATISFIES the output schema compiles cleanly"
     (let [m {:story.login/ok {:sub-overrides {[:login/attempts] 3}}}
           sub-lookup {:login/attempts {:schema [:int]}}
-          p (plan/variant-plan :story.login/ok
+          p (rf.story.plan/variant-plan :story.login/ok
                                {:lookup        m
                                 :sub-lookup    sub-lookup
                                 :validator-fns malli-validator})]
@@ -703,7 +703,7 @@
       (is (= 3 (get-in p [:world :render :sub-overrides [:login/attempts]])))))
   (testing "a sub with no output schema soft-passes (the host-free floor)"
     (let [m {:story.login/noschema {:sub-overrides {[:login/state] :whatever}}}
-          p (plan/variant-plan :story.login/noschema
+          p (rf.story.plan/variant-plan :story.login/noschema
                                {:lookup        m
                                 :sub-lookup    {} ; no metadata for any sub
                                 :validator-fns malli-validator})]
@@ -714,7 +714,7 @@
     ;; renderer — a malformed value is not caught at plan construction.
     (let [m {:story.login/nov {:sub-overrides {[:login/attempts] "nope"}}}
           sub-lookup {:login/attempts {:schema [:int]}}
-          p (plan/variant-plan :story.login/nov {:lookup m :sub-lookup sub-lookup})]
+          p (rf.story.plan/variant-plan :story.login/nov {:lookup m :sub-lookup sub-lookup})]
       (is (= "nope" (get-in p [:world :render :sub-overrides [:login/attempts]]))))))
 
 (deftest sub-overrides-compose-through-fragments
@@ -724,7 +724,7 @@
           m    {:story.login/composed
                 {:compose       [:fragment/error-state]
                  :sub-overrides {[:login/code] 503}}} ; variant overrides the key
-          p (plan/variant-plan :story.login/composed
+          p (rf.story.plan/variant-plan :story.login/composed
                                {:lookup          m
                                 :fragment-lookup frag})]
       (is (= {[:login/state] :error
@@ -746,7 +746,7 @@
     (let [m {:story.cart/seeded
              {:db-seed {:cart {:items [{:sku "A" :qty 2}]}
                         :user/id 42}}}
-          p (plan/variant-plan :story.cart/seeded {:lookup m})]
+          p (rf.story.plan/variant-plan :story.cart/seeded {:lookup m})]
       (testing "the seed lowers verbatim to the world slot"
         (is (= {:cart {:items [{:sku "A" :qty 2}]} :user/id 42}
                (get-in p [:world :db-seed]))))
@@ -764,7 +764,7 @@
     ;; slot is accepted AND survives into the plan (the pre-rf2-blw1q bug was
     ;; silent-accept-then-silent-ignore).
     (let [m {:story.x/seed {:db-seed {:k 1}}}
-          p (plan/variant-plan :story.x/seed {:lookup m})]
+          p (rf.story.plan/variant-plan :story.x/seed {:lookup m})]
       (is (= {:k 1} (get-in p [:world :db-seed])))
       (is (contains? (get-in p [:world :fidelity]) :db-seed)))))
 
@@ -773,7 +773,7 @@
     (let [m {:story.cart/argseed
              {:args    {:qty 7}
               :db-seed {:cart {:qty [:arg :qty]}}}}
-          p (plan/variant-plan :story.cart/argseed {:lookup m})]
+          p (rf.story.plan/variant-plan :story.cart/argseed {:lookup m})]
       (is (= {:cart {:qty 7}} (get-in p [:world :db-seed])))
       (is (some #(= {:key :qty :value 7} %) (get-in p [:explain :substitutions]))))))
 
@@ -782,7 +782,7 @@
     (let [m {:story.p/base  {:db-seed {:cart {:items []} :flags {:a true}}}
              :story.p/child {:extends :story.p/base
                              :db-seed {:cart {:items [1 2]}}}}
-          p (plan/variant-plan :story.p/child {:lookup m})]
+          p (rf.story.plan/variant-plan :story.p/child {:lookup m})]
       ;; deep-merge: child wins :cart, parent's :flags survives.
       (is (= {:cart {:items [1 2]} :flags {:a true}}
              (get-in p [:world :db-seed])))
@@ -794,7 +794,7 @@
           m    {:story.cart/composed
                 {:compose [:fragment/seed]
                  :db-seed {:session :member}}} ; variant overrides the key
-          p (plan/variant-plan :story.cart/composed
+          p (rf.story.plan/variant-plan :story.cart/composed
                                {:lookup m :fragment-lookup frag})]
       (is (= {:cart {:items []} :session :member}
              (get-in p [:world :db-seed])))
@@ -803,24 +803,24 @@
 (deftest db-seed-empty-is-no-rung
   (testing "an empty resolved :db-seed activates no rung + carries no world slot"
     (let [m {:story.cart/emptyseed {:db-seed {}}}
-          p (plan/variant-plan :story.cart/emptyseed {:lookup m})]
+          p (rf.story.plan/variant-plan :story.cart/emptyseed {:lookup m})]
       (is (nil? (get-in p [:world :db-seed])))
       (is (nil? (get-in p [:world :fidelity]))))))
 
 (deftest compute-fidelity-three-rungs
   (testing "compute-fidelity computes each of the three rungs independently"
-    (is (= #{} (plan/compute-fidelity {})))
+    (is (= #{} (rf.story.plan/compute-fidelity {})))
     (is (= #{:real-setup}
-           (plan/compute-fidelity {:setup [[:dispatch [:e]]]})))
+           (rf.story.plan/compute-fidelity {:setup [[:dispatch [:e]]]})))
     (is (= #{:db-seed}
-           (plan/compute-fidelity {:db-seed {:k 1}})))
+           (rf.story.plan/compute-fidelity {:db-seed {:k 1}})))
     (is (= #{:sub-overrides}
-           (plan/compute-fidelity {:sub-overrides {[:q] 1}})))
+           (rf.story.plan/compute-fidelity {:sub-overrides {[:q] 1}})))
     (testing "an empty seed / override map is treated as absent (no rung)"
-      (is (= #{} (plan/compute-fidelity {:db-seed {} :sub-overrides {}}))))
+      (is (= #{} (rf.story.plan/compute-fidelity {:db-seed {} :sub-overrides {}}))))
     (testing "all three rungs together"
       (is (= #{:real-setup :db-seed :sub-overrides}
-             (plan/compute-fidelity {:setup         [[:dispatch [:e]]]
+             (rf.story.plan/compute-fidelity {:setup         [[:dispatch [:e]]]
                                      :db-seed       {:k 1}
                                      :sub-overrides {[:q] 1}}))))))
 
@@ -829,24 +829,24 @@
 (deftest sub-overrides-render-path-resolver-is-exact
   (testing "resolve returns the override value on an exact query-vector match"
     (let [ovr {[:login/state] :error [:item 7] {:sku "X"}}]
-      (is (= :error      (sub-overrides/resolve ovr [:login/state])))
-      (is (= {:sku "X"}  (sub-overrides/resolve ovr [:item 7])))))
+      (is (= :error      (rf.story.sub-overrides/resolve ovr [:login/state])))
+      (is (= {:sku "X"}  (rf.story.sub-overrides/resolve ovr [:item 7])))))
   (testing "a non-exact query (different args / sub-id) MISSES — no fuzzing"
     (let [ovr {[:item 7] {:sku "X"}}]
-      (is (sub-overrides/miss? (sub-overrides/resolve ovr [:item 8])))
-      (is (sub-overrides/miss? (sub-overrides/resolve ovr [:item])))
-      (is (sub-overrides/miss? (sub-overrides/resolve ovr [:other 7])))))
+      (is (rf.story.sub-overrides/miss? (rf.story.sub-overrides/resolve ovr [:item 8])))
+      (is (rf.story.sub-overrides/miss? (rf.story.sub-overrides/resolve ovr [:item])))
+      (is (rf.story.sub-overrides/miss? (rf.story.sub-overrides/resolve ovr [:other 7])))))
   (testing "an override whose VALUE is nil is a genuine hit (sentinel is distinct)"
     (let [ovr {[:login/user] nil}]
-      (is (sub-overrides/overridden? ovr [:login/user]))
-      (is (nil? (sub-overrides/resolve ovr [:login/user])))))
+      (is (rf.story.sub-overrides/overridden? ovr [:login/user]))
+      (is (nil? (rf.story.sub-overrides/resolve ovr [:login/user])))))
   (testing "read surfaces the override and skips real-read; misses fall through"
     (let [ovr {[:login/state] :error}]
-      (is (= :error (sub-overrides/with-overrides* ovr
-                      #(sub-overrides/read [:login/state]
+      (is (= :error (rf.story.sub-overrides/with-overrides* ovr
+                      #(rf.story.sub-overrides/read [:login/state]
                                            (fn [] (throw (ex-info "should not run" {})))))))
-      (is (= :real  (sub-overrides/with-overrides* ovr
-                      #(sub-overrides/read [:login/other] (fn [] :real))))))))
+      (is (= :real  (rf.story.sub-overrides/with-overrides* ovr
+                      #(rf.story.sub-overrides/read [:login/other] (fn [] :real))))))))
 
 ;; ===========================================================================
 ;; Assertion-atom fold (rf2-5x1wt.18, spec/017 §Assertions — one atom,
@@ -1136,17 +1136,17 @@
 ;; ---- pure fold helpers (assertion-ns surface) ----------------------------
 
 (deftest fold-helpers-are-pure-and-position-agnostic
-  (testing "assertions/fold-assert-step folds the shipping sugar steps"
+  (testing "rf.story.assertions/fold-assert-step folds the shipping sugar steps"
     (is (= [:assert [:rf.assert/path-equals [:n] 5]]
-           (assertions/fold-assert-step [:assert-db [:n] 5])))
+           (rf.story.assertions/fold-assert-step [:assert-db [:n] 5])))
     (is (= [:assert [:rf.assert/dom-visible "#x"]]
-           (assertions/fold-assert-step [:assert-dom "#x" :visible]))))
+           (rf.story.assertions/fold-assert-step [:assert-dom "#x" :visible]))))
   (testing "fold-assert-step is identity for non-foldable steps"
-    (is (= [:dispatch [:e]] (assertions/fold-assert-step [:dispatch [:e]])))
+    (is (= [:dispatch [:e]] (rf.story.assertions/fold-assert-step [:dispatch [:e]])))
     (is (= [:assert [:rf.assert/no-warnings]]
-           (assertions/fold-assert-step [:assert [:rf.assert/no-warnings]])))
-    (is (= [:wait 10] (assertions/fold-assert-step [:wait 10]))))
+           (rf.story.assertions/fold-assert-step [:assert [:rf.assert/no-warnings]])))
+    (is (= [:wait 10] (rf.story.assertions/fold-assert-step [:wait 10]))))
   (testing "known-assertion-ids covers the seven shipping ids + the DOM family"
-    (is (every? assertions/assertion-id-known? assertions/canonical-assertion-ids))
-    (is (every? assertions/assertion-id-known? assertions/dom-assertion-ids))
-    (is (not (assertions/assertion-id-known? :rf.assert/totally-made-up)))))
+    (is (every? rf.story.assertions/assertion-id-known? rf.story.assertions/canonical-assertion-ids))
+    (is (every? rf.story.assertions/assertion-id-known? rf.story.assertions/dom-assertion-ids))
+    (is (not (rf.story.assertions/assertion-id-known? :rf.assert/totally-made-up)))))

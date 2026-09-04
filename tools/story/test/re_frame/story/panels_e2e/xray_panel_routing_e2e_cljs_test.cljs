@@ -22,16 +22,16 @@
   - **Unknown slot falls back to default** — a typo doesn't blank
     the RHS; resolution returns `default-panel`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.ui.xray-embed :as xray-embed]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
             [day8.re-frame2-xray.panels :as xray-panels]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- direct slot honoured ----------------------------------------------
 
@@ -40,20 +40,20 @@
             resolves through `resolve-panel` to the :app-db panel id;
             `effective-panel` reads the variant body and beats the
             embed's default."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story :story.counter {})
-         (story/reg-variant :story.counter/app-db
+         (rf.story/reg-story :story.counter {})
+         (rf.story/reg-variant :story.counter/app-db
            {:xray-panel :app-db
             :setup []}))}
       (fn []
-        (is (= :app-db (xray-embed/resolve-panel :story.counter/app-db))
+        (is (= :app-db (rf.story.ui.xray-embed/resolve-panel :story.counter/app-db))
             "resolve-panel returned :app-db for a variant with the slot")
-        (e2e/select-variant! :story.counter/app-db)
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.counter/app-db)
         (is (= :app-db
-               (xray-embed/effective-panel
-                 (ui-state/get-state) :story.counter/app-db))
+               (rf.story.ui.xray-embed/effective-panel
+                 (rf.story.ui.state/get-state) :story.counter/app-db))
             "effective-panel routes the slot through with no user override")))))
 
 (deftest mount-fn-for-app-db-maps-to-xray-mount-fn
@@ -61,7 +61,7 @@
             resolve to `xray-panels/mount-app-db-diff!`, not nil.
             A regression in the `case` dispatch would silently leave
             the panel-host empty (the original bug)."
-    (let [mfn (xray-embed/mount-fn-for :app-db)]
+    (let [mfn (rf.story.ui.xray-embed/mount-fn-for :app-db)]
       (is (some? mfn)
           ":app-db panel id resolves to a non-nil mount-fn")
       (is (= mfn xray-panels/mount-app-db-diff!)
@@ -75,21 +75,21 @@
             variant with no `:xray-panel` inherits from its story;
             a variant with `:xray-panel` declared beats the story's
             value."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story :story.routing
+         (rf.story/reg-story :story.routing
            {:xray-panel :routing
             :doc "Story-level slot says :routing."})
-         (story/reg-variant :story.routing/inherits
+         (rf.story/reg-variant :story.routing/inherits
            {:setup []})
-         (story/reg-variant :story.routing/override
+         (rf.story/reg-variant :story.routing/override
            {:xray-panel :machines
             :setup []}))}
       (fn []
-        (is (= :routing (xray-embed/resolve-panel :story.routing/inherits))
+        (is (= :routing (rf.story.ui.xray-embed/resolve-panel :story.routing/inherits))
             "variant with no slot inherits the story's :routing")
-        (is (= :machines (xray-embed/resolve-panel :story.routing/override))
+        (is (= :machines (rf.story.ui.xray-embed/resolve-panel :story.routing/override))
             "variant slot beats story slot")))))
 
 ;; ---- unknown slot falls back to default --------------------------------
@@ -98,16 +98,16 @@
   (testing "a typo / unknown panel-id in `:xray-panel` falls back to
             `default-panel` rather than blanking the RHS. Conservative
             failure mode."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story :story.typo {})
-         (story/reg-variant :story.typo/v
+         (rf.story/reg-story :story.typo {})
+         (rf.story/reg-variant :story.typo/v
            {:xray-panel :not-a-real-panel
             :setup []}))}
       (fn []
-        (is (= xray-embed/default-panel
-               (xray-embed/resolve-panel :story.typo/v))
+        (is (= rf.story.ui.xray-embed/default-panel
+               (rf.story.ui.xray-embed/resolve-panel :story.typo/v))
             "unknown slot value → fallback to default-panel
              (:epoch)")))))
 
@@ -118,30 +118,30 @@
             variant's `:xray-panel` slot. `effective-panel` honours
             the override; clearing it (e.g. via `:rf/auto`) returns
             to the slot's value."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story :story.user-pick {})
-         (story/reg-variant :story.user-pick/v
+         (rf.story/reg-story :story.user-pick {})
+         (rf.story/reg-variant :story.user-pick/v
            {:xray-panel :views
             :setup []}))}
       (fn []
-        (e2e/select-variant! :story.user-pick/v)
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.user-pick/v)
         ;; Pre-override: variant slot wins.
         (is (= :views
-               (xray-embed/effective-panel
-                 (ui-state/get-state) :story.user-pick/v)))
+               (rf.story.ui.xray-embed/effective-panel
+                 (rf.story.ui.state/get-state) :story.user-pick/v)))
         ;; User override: simulate the App-db chip click.
-        (ui-state/swap-state! assoc :xray-panel :app-db)
+        (rf.story.ui.state/swap-state! assoc :xray-panel :app-db)
         (is (= :app-db
-               (xray-embed/effective-panel
-                 (ui-state/get-state) :story.user-pick/v))
+               (rf.story.ui.xray-embed/effective-panel
+                 (rf.story.ui.state/get-state) :story.user-pick/v))
             "user's chip override beats the variant slot")
         ;; Clear override → back to the slot.
-        (ui-state/swap-state! dissoc :xray-panel)
+        (rf.story.ui.state/swap-state! dissoc :xray-panel)
         (is (= :views
-               (xray-embed/effective-panel
-                 (ui-state/get-state) :story.user-pick/v))
+               (rf.story.ui.xray-embed/effective-panel
+                 (rf.story.ui.state/get-state) :story.user-pick/v))
             "clearing the override restores the variant slot's value")))))
 
 ;; ---- rendered embed reflects the routing -------------------------------
@@ -150,17 +150,17 @@
   (testing "the embed wrapper's `data-active-panel` carries the resolved
             slot value when the variant carries a `:xray-panel`. This
             is the end-to-end shape the Playwright spec asserted."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (story/reg-story :story.routed {})
-         (story/reg-variant :story.routed/v
+         (rf.story/reg-story :story.routed {})
+         (rf.story/reg-variant :story.routed/v
            {:xray-panel :trace
             :setup []}))}
       (fn []
-        (e2e/select-variant! :story.routed/v)
-        (let [tree    (xray-embed/xray-embed-panel)
-              wrapper (e2e/find-by-test-id tree "story-xray-embed")]
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.routed/v)
+        (let [tree    (rf.story.ui.xray-embed/xray-embed-panel)
+              wrapper (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-xray-embed")]
           (is (some? wrapper) "embed wrapper renders")
           (is (= "trace" (get-in wrapper [1 :data-active-panel]))
               "data-active-panel reflects the variant's :xray-panel slot

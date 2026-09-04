@@ -11,7 +11,7 @@
 
   ## What this catches
 
-  - **Layout wires the TOC pane**: rendering `docs/docs-view` for a
+  - **Layout wires the TOC pane**: rendering `rf.story.ui.docs/docs-view` for a
     variant produces a layout whose final child is an (unexpanded)
     `[toc-pane variant-id]` invocation. A regression that drops the
     TOC entry from `docs-view`'s flex layout would leave a section
@@ -32,7 +32,7 @@
 
   - **Entry into docs mode is the mode-tab transition**: the docs
     pane mounts when `:active-mode-tab` for the focused variant is
-    set to `:docs` (via `transitions/set-active-mode-tab`). This is
+    set to `:docs` (via `rf.story.ui.state.transitions/set-active-mode-tab`). This is
     the canonical entry point exercised in the shell render path
     (`shell/main-pane`'s `case mode-tab`).
 
@@ -46,16 +46,16 @@
 
   Surface tested via hiccup walking; no DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.ui.docs :as docs]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.ui.state.transitions :as transitions]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.docs :as rf.story.ui.docs]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.state.transitions :as rf.story.ui.state.transitions]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- fixture -----------------------------------------------------------
 
@@ -70,21 +70,21 @@
    - `:story.docs-no-prose/v` has no prose workspace (the prose entry
      should be pruned)."
   []
-  (story/reg-story :story.docs-rich
+  (rf.story/reg-story :story.docs-rich
     {:doc       "Rich variant fixture for docs-pane TOC scenarios."
      :argtypes  {:label {:doc "user-visible label"}}
      :tags      #{:dev :docs}})
-  (story/reg-variant variant-id
+  (rf.story/reg-variant variant-id
     {:doc    "The happy-path docs variant — prose, args, tags."
      :args   {:label "Hello"}
      :tags   #{:dev :docs :test}
      :setup []})
-  (story/reg-workspace :Workspace.docs-rich/prose-ws
+  (rf.story/reg-workspace :Workspace.docs-rich/prose-ws
     {:layout  :prose
      :content [{:type :variant :id variant-id}
                {:type :prose   :body "Prose copy referencing the variant."}]})
-  (story/reg-story :story.docs-no-prose {:doc "Variant with no prose."})
-  (story/reg-variant no-prose-variant-id
+  (rf.story/reg-story :story.docs-no-prose {:doc "Variant with no prose."})
+  (rf.story/reg-variant no-prose-variant-id
     {:doc    "No-prose variant — prose TOC entry should be pruned."
      :setup []}))
 
@@ -94,14 +94,14 @@
   "Render the `:docs` mode pane for `vid`. Wrapper kept for clarity at
   call sites."
   [vid]
-  (docs/docs-view vid))
+  (rf.story.ui.docs/docs-view vid))
 
 (defn- section-ids
   "Walk the expanded hiccup tree and return every `:section` node's
   `:id` attribute. Used to verify every TOC anchor target has a real
   in-page element."
   [tree]
-  (->> (e2e/hiccup-seq tree)
+  (->> (rf.story.test-helpers.e2e-multi-frame/hiccup-seq tree)
        (keep (fn [node]
                (when (and (vector? node) (= :section (first node)))
                  (let [maybe-attrs (second node)]
@@ -126,7 +126,7 @@
                      (fn? (first node))
                      (= vid (second node)))
             node))
-        (e2e/hiccup-seq tree)))
+        (rf.story.test-helpers.e2e-multi-frame/hiccup-seq tree)))
 
 ;; ===========================================================================
 ;; rf2-y3w2q — TOC pane is wired into the docs-view layout
@@ -137,13 +137,13 @@
             layout whose final child is the (class-3) TOC pane vector.
             A regression that drops the TOC entry would leave the
             section list without in-page navigation."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (e2e/select-variant! variant-id)
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
         (let [tree    (render-docs-view variant-id)
-              layout  (e2e/find-by-test-id tree "story-docs-layout")
-              view    (e2e/find-by-test-id tree "story-docs-view")
+              layout  (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-docs-layout")
+              view    (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-docs-view")
               toc-vec (toc-pane-vector tree variant-id)]
           (is (some? layout)
               "story-docs-layout wrapper present — the flex container
@@ -170,12 +170,12 @@
             A regression that renamed a section without updating the
             TOC table (or vice versa) would point the jump buttons
             at non-existent ids."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (e2e/select-variant! variant-id)
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
         (let [tree           (render-docs-view variant-id)
-              visible        (docs/visible-toc-entries variant-id)
+              visible        (rf.story.ui.docs/visible-toc-entries variant-id)
               visible-ids    (set (map :id visible))
               rendered-ids   (set (section-ids tree))]
           (is (pos? (count visible))
@@ -204,17 +204,17 @@
             workspace produces a visible TOC list with the prose entry
             pruned. Pairs with the inverse: the rich variant DOES
             surface the prose row."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
         ;; Rich variant: prose workspace is registered → prose IS visible.
-        (let [rich (docs/visible-toc-entries variant-id)
+        (let [rich (rf.story.ui.docs/visible-toc-entries variant-id)
               ids  (set (map :id rich))]
           (is (contains? ids "docs-prose")
               "rich variant: prose TOC entry surfaces because the
                registered :prose workspace references it"))
         ;; No-prose variant: no workspace → prose TOC entry pruned.
-        (let [empty-prose (docs/visible-toc-entries no-prose-variant-id)
+        (let [empty-prose (rf.story.ui.docs/visible-toc-entries no-prose-variant-id)
               ids         (set (map :id empty-prose))]
           (is (not (contains? ids "docs-prose"))
               "no-prose variant: prose TOC entry pruned — the renderer
@@ -235,7 +235,7 @@
 
 (deftest set-active-mode-tab-docs-routes-to-docs-view-with-toc
   (testing "rf2-y3w2q — the canonical entry into docs mode is
-            `transitions/set-active-mode-tab variant-id :docs`. After
+            `rf.story.ui.state.transitions/set-active-mode-tab variant-id :docs`. After
             that transition `state/active-mode-tab` reports `:docs`,
             and rendering the docs-view for the focused variant yields
             a layout that includes the TOC pane invocation.
@@ -244,26 +244,26 @@
             slot to choose between `:dev` / `:docs` / `:test` — so
             pinning the transition + the resulting layout shape
             covers the shell's docs-pane mount path end-to-end."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []
-        (e2e/select-variant! variant-id)
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
         ;; Default mode-tab is :dev — verify by reading the slot pre-
         ;; transition.
-        (is (not= :docs (ui-state/active-mode-tab
-                          (ui-state/get-state) variant-id))
+        (is (not= :docs (rf.story.ui.state/active-mode-tab
+                          (rf.story.ui.state/get-state) variant-id))
             "default active-mode-tab is :dev (or otherwise non-:docs)")
         ;; Switch to docs mode.
-        (ui-state/swap-state! transitions/set-active-mode-tab
+        (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/set-active-mode-tab
                               variant-id :docs)
-        (is (= :docs (ui-state/active-mode-tab
-                       (ui-state/get-state) variant-id))
+        (is (= :docs (rf.story.ui.state/active-mode-tab
+                       (rf.story.ui.state/get-state) variant-id))
             ":active-mode-tab flipped to :docs — the shell mounts the
              docs-view for this variant")
         ;; Render the docs-view (what main-pane's `:docs` branch
         ;; mounts) and assert the TOC is part of the layout.
         (let [tree    (render-docs-view variant-id)
-              layout  (e2e/find-by-test-id tree "story-docs-layout")
+              layout  (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-docs-layout")
               toc-vec (toc-pane-vector tree variant-id)]
           (is (some? layout)
               "docs-view layout renders for the focused variant")

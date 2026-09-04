@@ -4,7 +4,7 @@
   (:require [reagent.core :as r]
             [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.ui.shell-styles :refer [styles]]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as rf.story.ui.state]))
 
 (def ^:private storage-key
   "re-frame.story/rail-widths")
@@ -47,7 +47,7 @@
 
 (defn current-widths []
   (normalise-widths
-    (merge default-widths (:rail-widths @state/shell-state-atom))))
+    (merge default-widths (:rail-widths @rf.story.ui.state/shell-state-atom))))
 
 (defn- read-widths []
   (try
@@ -71,13 +71,13 @@
 (defn hydrate! []
   (when-let [stored (read-widths)]
     (let [widths (normalise-widths (merge default-widths stored))]
-      (state/swap-state! assoc :rail-widths widths)))
+      (rf.story.ui.state/swap-state! assoc :rail-widths widths)))
   nil)
 
 (defn set-width! [side width]
   (let [widths (normalise-widths
                  (assoc (current-widths) side width))]
-    (state/swap-state! assoc :rail-widths widths)
+    (rf.story.ui.state/swap-state! assoc :rail-widths widths)
     (persist! widths)))
 
 (defn- adjust-width! [side delta]

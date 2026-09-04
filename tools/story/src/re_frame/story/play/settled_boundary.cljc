@@ -76,8 +76,8 @@
   flush fns are injected by adapter callers; this ns only *names* the
   ladder, *routes* a dispatch through the supplied hooks, and *refuses*
   when the supplied boundary is too weak."
-  (:require [re-frame.router :as router]
-            [re-frame.interop :as interop]))
+  (:require [re-frame.router :as rf.router]
+            [re-frame.interop :as rf.interop]))
 
 ;; ---- the boundary ladder -------------------------------------------------
 
@@ -200,7 +200,7 @@
   ([frame-id event-vector]
    (drain-sync! frame-id event-vector nil))
   ([frame-id event-vector opts]
-   (router/dispatch-sync! event-vector (merge {:frame frame-id} opts))
+   (rf.router/dispatch-sync! event-vector (merge {:frame frame-id} opts))
    nil))
 
 (def headless-flush-hooks
@@ -284,7 +284,7 @@
        (let [flushes    (:flush! hooks)
              timeout-ms (:timeout-ms hooks)
              deadline   (when (number? timeout-ms)
-                          (+ (interop/now-ms) timeout-ms))
+                          (+ (rf.interop/now-ms) timeout-ms))
              ;; Every registered level up to and including `required`, in
              ;; ladder order. The headless flush is folded into `:dispatch!`
              ;; (`drain-sync!`), so its hook is a no-op; the richer flushes
@@ -299,7 +299,7 @@
              ;; iteration — means an over-budget terminal flush refuses with
              ;; a fail-closed `:flush-timeout` instead of a settled pass it
              ;; did not earn.
-             (and deadline (> (interop/now-ms) deadline))
+             (and deadline (> (rf.interop/now-ms) deadline))
              (flush-timeout-result required provided step)
 
              (nil? level)

@@ -26,7 +26,7 @@
   `[]`, `{:k 1}` ≠ `[:k 1]`) and folds functions to a stable sentinel. The
   canonical-version tag `re-frame.story.fingerprint/canonical-version`
   (`:rf/snapshot-canonical-v2`) is the single source of truth for the
-  version: `fingerprint/hash-canonical` prepends it as the first hashed
+  version: `rf.story.fingerprint/hash-canonical` prepends it as the first hashed
   slot of EVERY hash (`content-hash`, `canonical-hash`, `plan-hash`,
   `run-hash`), so a canonical-form revision changes the snapshot
   content-hash VALUE. External visual-regression baselines re-capture on
@@ -34,7 +34,7 @@
   in-repo stored hash fixtures. The hashing CODE lives in the single
   fingerprint primitive; this ns hashes its snapshot tuple through it. The
   snapshot tuple also carries a `:rf/snapshot-canonical` data slot, which
-  reads its value straight from `fingerprint/canonical-version` (it is NOT
+  reads its value straight from `rf.story.fingerprint/canonical-version` (it is NOT
   a second, independently-versioned marker — it tracks the one tag).
 
   The volatile-field strip + `:variant-id` → `:variant/id` reconciliation
@@ -97,16 +97,16 @@
   cryptographic collision resistance still needs the specified sha-256
   path; this eight-character content hash is not a security primitive.
 
-  The canonical-form version tag `fingerprint/canonical-version`
+  The canonical-form version tag `rf.story.fingerprint/canonical-version`
   (`:rf/snapshot-canonical-v2`) is prepended by
-  `fingerprint/hash-canonical` as the first slot of the hashed structure, so
+  `rf.story.fingerprint/hash-canonical` as the first slot of the hashed structure, so
   a canonical-form revision bumps the version and old baselines are
   detectably stale rather than silently mis-compared."
-  (:require [re-frame.late-bind         :as late-bind]
-            [re-frame.story.args        :as args]
-            [re-frame.story.fingerprint :as fingerprint]
-            [re-frame.story.registrar   :as registrar]
-            [re-frame.story.tags        :as tags]))
+  (:require [re-frame.late-bind         :as rf.late-bind]
+            [re-frame.story.args        :as rf.story.args]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.registrar   :as rf.story.registrar]
+            [re-frame.story.tags        :as rf.story.tags]))
 
 ;; ---- snapshot tuple -------------------------------------------------------
 
@@ -175,7 +175,7 @@
   - `:doc` / `:source` — prose + coords; runtime-environmental.
   - `:extends` — resolved away into `:effective-args` before hashing."
   [variant-id]
-  (let [body (registrar/handler-meta :variant variant-id)]
+  (let [body (rf.story.registrar/handler-meta :variant variant-id)]
     (when body
       (select-keys body
                    [:setup :script :plays
@@ -212,8 +212,8 @@
   declares its own tags, so story tags are not inherited) would still
   perturb that variant's hash."
   [variant-id]
-  (let [story-id (args/parent-story-id variant-id)
-        body     (when story-id (registrar/handler-meta :story story-id))]
+  (let [story-id (rf.story.args/parent-story-id variant-id)
+        body     (when story-id (rf.story.registrar/handler-meta :story story-id))]
     (when body
       (select-keys body [:component :decorators]))))
 
@@ -248,7 +248,7 @@
   the variant frame holds none / is not yet allocated — the digest still
   participates in the hash and stays stable across runs)."
   [target-frame-id]
-  (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
+  (when-let [f (rf.late-bind/get-fn :schemas/app-schemas-digest)]
     (f target-frame-id)))
 
 (defn- effective-tags-slice
@@ -265,12 +265,12 @@
   - raw `:!x` authoring syntax never reaches the hash.
 
   Reads live side-tables via the registrar (`:variant` + `:story`
-  registrations). Returns a set; `fingerprint/content-hash` canonicalises
+  registrations). Returns a set; `rf.story.fingerprint/content-hash` canonicalises
   it with a stable order."
   [variant-id]
-  (tags/effective-tags variant-id
-                       {:variant (registrar/registrations :variant)
-                        :story   (registrar/registrations :story)}))
+  (rf.story.tags/effective-tags variant-id
+                       {:variant (rf.story.registrar/registrations :variant)
+                        :story   (rf.story.registrar/registrations :story)}))
 
 (defn snapshot-tuple
   "Build the canonical tuple that feeds `content-hash` for a variant.
@@ -293,14 +293,14 @@
   ([variant-id {:keys [active-modes cell-overrides substrate] :as _opts}]
    (let [variant      (variant-body-slice variant-id)
          story        (story-body-slice variant-id)
-         effective    (args/resolve-args variant-id
+         effective    (rf.story.args/resolve-args variant-id
                                          {:active-modes   active-modes
                                           :cell-overrides cell-overrides})
          ;; EP-0002 — the variant frame is the explicit
          ;; target for the frame-local app-db schema digest (no ambient
          ;; resolution / no `:rf/default` synthesis).
          schema-digest (view-schema-digest variant-id)]
-     {:rf/snapshot-canonical fingerprint/canonical-version
+     {:rf/snapshot-canonical rf.story.fingerprint/canonical-version
       :variant-id            variant-id
       :variant               variant
       :story                 story
@@ -344,7 +344,7 @@
   ([variant-id] (snapshot-identity variant-id nil))
   ([variant-id {:keys [active-modes substrate] :as opts}]
    (let [tuple (snapshot-tuple variant-id opts)
-         hex   (fingerprint/content-hash tuple)]
+         hex   (rf.story.fingerprint/content-hash tuple)]
      {:variant-id    variant-id
       :active-modes  (vec (or active-modes []))
       :substrate     substrate

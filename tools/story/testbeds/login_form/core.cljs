@@ -14,7 +14,7 @@
   bundle-isolation grep at `implementation/scripts/check-bundle-
   isolation.cjs` covers the Story-sentinel absence."
   (:require [re-frame.core      :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.config :as xray-config]
             [login-form.events]
             [login-form.subs]
@@ -22,7 +22,7 @@
             [login-form.stories]
             ;; Shared Story-host helper: owns the live-app↔Story-shell
             ;; hash router + React-root handle.
-            [re-frame.testbed.story-host :as story-host])
+            [re-frame.testbed.story-host :as rf.testbed.story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@
   ;; launch; app pages that want Xray inline still provide the normal
   ;; `[data-rf-xray-host]` contract.
   (xray-config/configure! {:rf.xray/auto-open? false})
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; No explicit `(story/install-canonical-vocabulary!)` — the first
   ;; `reg-*` in `login-form.stories` (loaded via the :require above)
   ;; auto-installs the canonical vocabulary.
@@ -108,4 +108,4 @@
   ;; `POST /__rf-open-in-editor` endpoint resolves this testbed's
   ;; classpath-relative source coordinates against the live JVM source paths
   ;; at request time.
-  (story-host/mount-with-hash-routing! live-app-root))
+  (rf.testbed.story-host/mount-with-hash-routing! live-app-root))

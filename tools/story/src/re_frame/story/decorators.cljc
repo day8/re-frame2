@@ -36,9 +36,9 @@
   Unknown decorator-ids surface as an entry in the returned `:errors`
   vector; the runtime then projects those into the variant's
   `:assertions` (per `002-Runtime.md` §Error projection)."
-  (:require [re-frame.story.args      :as args]
-            [re-frame.story.plan      :as plan]
-            [re-frame.story.registrar :as registrar]))
+  (:require [re-frame.story.args      :as rf.story.args]
+            [re-frame.story.plan      :as rf.story.plan]
+            [re-frame.story.registrar :as rf.story.registrar]))
 
 ;; ---- collection -----------------------------------------------------------
 
@@ -67,7 +67,7 @@
   source invariant pays for (no second merge engine to diverge).
 
   `run-args` carries the ambient + per-run arg layers
-  (`args/run-arg-layers`'s `{:pre … :post …}` shape) threaded into the
+  (`rf.story.args/run-arg-layers`'s `{:pre … :post …}` shape) threaded into the
   plan compile so a `[:arg key]` resolvable ONLY through a mode / cell /
   global / story layer (never the variant chain) substitutes cleanly
   rather than throwing `:rf.error/story-missing-arg`. The runtime's
@@ -78,7 +78,7 @@
   call) ⇒ the variant arg layer alone, exactly as before."
   ([variant-id] (collect-decorator-refs variant-id nil))
   ([variant-id run-args]
-   (or (get-in (plan/variant-plan variant-id
+   (or (get-in (rf.story.plan/variant-plan variant-id
                                   (when run-args {:run-args run-args}))
                [:world :decorators])
        [])))
@@ -127,7 +127,7 @@
   [ref]
   (let [id          (first ref)
         decor-args  (vec (rest ref))
-        body-raw    (when (keyword? id) (registrar/handler-meta :decorator id))
+        body-raw    (when (keyword? id) (rf.story.registrar/handler-meta :decorator id))
         body        (when body-raw (expand-ref-args-body body-raw decor-args))]
     (cond
       (not (keyword? id))
@@ -166,7 +166,7 @@
   Used by the UI shell to detect when a decorator changed and the
   cached resolution must be invalidated."
   [decorator-id]
-  (let [body (registrar/handler-meta :decorator decorator-id)
+  (let [body (rf.story.registrar/handler-meta :decorator decorator-id)
         body (dissoc body :source)]
     (hash body)))
 
@@ -185,7 +185,7 @@
   serves solely to let the ref collection's plan compile succeed."
   ([variant-id] (resolution-fingerprints variant-id nil))
   ([variant-id opts]
-   (let [run-args (when opts (args/run-arg-layers variant-id opts))
+   (let [run-args (when opts (rf.story.args/run-arg-layers variant-id opts))
          refs     (collect-decorator-refs variant-id run-args)]
      (into {}
            (keep (fn [ref]
@@ -236,7 +236,7 @@
   - `:fx-override` — declared order; last-wins on a key collision.
 
   `opts` accepts `:active-modes` + `:cell-overrides` — the SAME per-run
-  shape `args/resolve-args` takes. v1 modes carry no decorators (per
+  shape `rf.story.args/resolve-args` takes. v1 modes carry no decorators (per
   `001-Authoring.md` §Registration macros modes are `:args`-only, so the active modes never
   perturb the decorator REFS), but the run layers must still be threaded
   into the plan compile (rf2-eyrpr): a `[:arg key]` resolvable ONLY
@@ -247,7 +247,7 @@
   ([variant-id]
    (resolve-decorators variant-id nil))
   ([variant-id opts]
-   (let [run-args (when opts (args/run-arg-layers variant-id opts))]
+   (let [run-args (when opts (rf.story.args/run-arg-layers variant-id opts))]
      (resolve-decorator-refs (collect-decorator-refs variant-id run-args)))))
 
 (defn resolve-decorator-refs
@@ -309,7 +309,7 @@
   result, and so on. The final result is the outermost decorator's
   wrap of every inner wrap.
 
-  `effective-args` is the resolved args map (per `args/resolve-args`);
+  `effective-args` is the resolved args map (per `rf.story.args/resolve-args`);
   every `:wrap` fn receives `[body effective-args]`. Decorator-level
   ref-args (the `[& args]` tail of a `[:dec-id & args]` ref) are NOT
   passed in the variant-body model — per /spec/007-Stories.md §Three kinds of

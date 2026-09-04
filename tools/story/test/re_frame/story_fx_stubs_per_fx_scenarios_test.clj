@@ -28,34 +28,34 @@
   motivation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.async      :as async]
-            [re-frame.story.config     :as config]
-            [re-frame.story.frames     :as frames]
-            [re-frame.story.fx-stubs   :as fx-stubs]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.play       :as play]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.frames     :as rf.story.frames]
+            [re-frame.story.fx-stubs   :as rf.story.fx-stubs]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.play       :as rf.story.play]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-all [test-fn]
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (require 're-frame.machines :reload)
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (config/set-global-args! {})
-  (reset! play/stepper-state            {})
-  (reset! frames/stub-call-log          {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.config/set-global-args! {})
+  (reset! rf.story.play/stepper-state            {})
+  (reset! rf.story.frames/stub-call-log          {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-all)
@@ -86,14 +86,14 @@
   (let [overrides (:fx-overrides (rf/frame-meta variant-id))]
     (is (contains? overrides fx-id)
         (str fx-id " — frame :fx-overrides carries the redirect")))
-  (let [log (frames/stub-call-log-for variant-id)]
+  (let [log (rf.story.frames/stub-call-log-for variant-id)]
     (is (= 1 (count log))
         (str fx-id " — exactly one stub-call recorded"))
     (is (= fx-id (:fx-id (first log)))
         (str fx-id " — log entry carries the original fx-id"))
     (is (= expected-payload (:payload (first log)))
         (str fx-id " — log entry carries the original payload")))
-  (is (contains? (fx-stubs/observed-fx-ids variant-id) fx-id)
+  (is (contains? (rf.story.fx-stubs/observed-fx-ids variant-id) fx-id)
       (str fx-id " — observed-fx-ids surfaces the stubbed fx"))
   (let [last-a (last (:assertions result))]
     (is (true? (:passed? last-a))
@@ -103,57 +103,57 @@
   (testing ":http fx is intercepted by force-fx-stub end-to-end"
     (rf/reg-event :do/http-emit
       (fn [_ _] {:fx [[:http {:url "/api" :method :get}]]}))
-    (story/reg-variant :story.fxscen.http/v
+    (rf.story/reg-variant :story.fxscen.http/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {:n 1}}]]
        :setup     []
        :script [[:dispatch-sync [:do/http-emit]]
                     [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.fxscen.http/v) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxscen.http/v) 5000)]
       (assert-stub-intercepted! :story.fxscen.http/v :http
                                 {:url "/api" :method :get} r))
-    (story/destroy-variant! :story.fxscen.http/v)))
+    (rf.story/destroy-variant! :story.fxscen.http/v)))
 
 (deftest analytics-fx-stub-scenario
   (testing ":analytics fx is intercepted by force-fx-stub end-to-end"
     (rf/reg-event :do/analytics-emit
       (fn [_ _] {:fx [[:analytics {:event "page-view" :path "/home"}]]}))
-    (story/reg-variant :story.fxscen.analytics/v
+    (rf.story/reg-variant :story.fxscen.analytics/v
       {:decorators [[:rf.story/force-fx-stub :analytics {:ack? true}]]
        :setup     []
        :script [[:dispatch-sync [:do/analytics-emit]]
                     [:dispatch-sync [:rf.assert/effect-emitted :analytics]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.fxscen.analytics/v) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxscen.analytics/v) 5000)]
       (assert-stub-intercepted! :story.fxscen.analytics/v :analytics
                                 {:event "page-view" :path "/home"} r))
-    (story/destroy-variant! :story.fxscen.analytics/v)))
+    (rf.story/destroy-variant! :story.fxscen.analytics/v)))
 
 (deftest websocket-fx-stub-scenario
   (testing ":websocket fx is intercepted by force-fx-stub end-to-end"
     (rf/reg-event :do/websocket-emit
       (fn [_ _] {:fx [[:websocket {:topic "live" :payload {:tick 1}}]]}))
-    (story/reg-variant :story.fxscen.websocket/v
+    (rf.story/reg-variant :story.fxscen.websocket/v
       {:decorators [[:rf.story/force-fx-stub :websocket {:connected? true}]]
        :setup     []
        :script [[:dispatch-sync [:do/websocket-emit]]
                     [:dispatch-sync [:rf.assert/effect-emitted :websocket]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.fxscen.websocket/v) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxscen.websocket/v) 5000)]
       (assert-stub-intercepted! :story.fxscen.websocket/v :websocket
                                 {:topic "live" :payload {:tick 1}} r))
-    (story/destroy-variant! :story.fxscen.websocket/v)))
+    (rf.story/destroy-variant! :story.fxscen.websocket/v)))
 
 (deftest navigation-fx-stub-scenario
   (testing ":navigation fx is intercepted by force-fx-stub end-to-end"
     (rf/reg-event :do/navigation-emit
       (fn [_ _] {:fx [[:navigation {:to "/dashboard" :replace? false}]]}))
-    (story/reg-variant :story.fxscen.navigation/v
+    (rf.story/reg-variant :story.fxscen.navigation/v
       {:decorators [[:rf.story/force-fx-stub :navigation {:landed? true}]]
        :setup     []
        :script [[:dispatch-sync [:do/navigation-emit]]
                     [:dispatch-sync [:rf.assert/effect-emitted :navigation]]]})
-    (let [r (async/deref-blocking (story/run-variant :story.fxscen.navigation/v) 5000)]
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxscen.navigation/v) 5000)]
       (assert-stub-intercepted! :story.fxscen.navigation/v :navigation
                                 {:to "/dashboard" :replace? false} r))
-    (story/destroy-variant! :story.fxscen.navigation/v)))
+    (rf.story/destroy-variant! :story.fxscen.navigation/v)))
 
 ;; ===========================================================================
 ;; rf2-mwr16 — stub-overriding-real
@@ -188,12 +188,12 @@
       (rf/reg-event :do/http-call
         (fn [_ _]
           {:fx [[:http {:url "/should-not-hit-real" :method :get}]]}))
-      (story/reg-variant :story.fxoverride/real
+      (rf.story/reg-variant :story.fxoverride/real
         {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {}}]]
          :setup     []
          :script [[:dispatch-sync [:do/http-call]]
                       [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-      (let [r (async/deref-blocking (story/run-variant :story.fxoverride/real) 5000)]
+      (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxoverride/real) 5000)]
         (is (= :ready (:lifecycle r))
             "lifecycle reaches :ready — the stub absorbed the call, the real
              handler's throw never fired")
@@ -203,7 +203,7 @@
              reg-fx dispatch")
         (is (= [] @real-payloads)
             "real handler's side-channel records zero payloads")
-        (let [log (frames/stub-call-log-for :story.fxoverride/real)]
+        (let [log (rf.story.frames/stub-call-log-for :story.fxoverride/real)]
           (is (= 1 (count log)))
           (is (= :http (:fx-id (first log)))
               "the stub captured the redirected fx-id")
@@ -212,7 +212,7 @@
               "the stub captured the original payload"))
         (is (true? (:passed? (last (:assertions r))))
             ":rf.assert/effect-emitted passes against the stub"))
-      (story/destroy-variant! :story.fxoverride/real))))
+      (rf.story/destroy-variant! :story.fxoverride/real))))
 
 ;; ===========================================================================
 ;; rf2-mwr16 — stub-failure-mode
@@ -252,7 +252,7 @@
       ;; managed-fx response.
       (rf/reg-event :record/failure
         (fn [{:keys [db]} _] {:db (assoc db :http-result failure-payload)}))
-      (story/reg-variant :story.fxfail/v
+      (rf.story/reg-variant :story.fxfail/v
         {:decorators [[:rf.story/force-fx-stub :http failure-payload]]
          :setup     []
          :script [[:dispatch-sync [:do/http-emit-fail]]
@@ -262,7 +262,7 @@
                       [:dispatch-sync [:rf.assert/path-equals [:http-result :code]   500]]
                       [:dispatch-sync [:rf.assert/path-equals [:http-result :body]
                                              {:reason "server-down"}]]]})
-      (let [r       (async/deref-blocking (story/run-variant :story.fxfail/v) 5000)
+      (let [r       (rf.story.async/deref-blocking (rf.story/run-variant :story.fxfail/v) 5000)
             asserts (:assertions r)]
         (is (= :ready (:lifecycle r))
             "lifecycle reaches :ready — failure-shaped response does NOT
@@ -276,7 +276,7 @@
         ;; and confirm it matches what we declared in the decorator.
         ;; Proves the failure payload made the full round-trip through
         ;; the framework's :fx-overrides redirect.
-        (let [log (frames/stub-call-log-for :story.fxfail/v)]
+        (let [log (rf.story.frames/stub-call-log-for :story.fxfail/v)]
           (is (= 1 (count log)))
           (is (= :http (:fx-id (first log))))
           (is (= {:url "/api/may-fail"} (:payload (first log)))
@@ -284,4 +284,4 @@
                payload lives in the decorator's :response slot, not the log
                (the log records what the variant emitted, not the canned
                reply)")))
-      (story/destroy-variant! :story.fxfail/v))))
+      (rf.story/destroy-variant! :story.fxfail/v))))

@@ -13,7 +13,7 @@
 
   The per-frame listener is PURELY the egress seam: the load-bearing
   PRIVACY-suppression gate (Spec 009 §Privacy — default-dropping
-  `:sensitive?` events + the `config/note-suppressed!` redaction counter)
+  `:sensitive?` events + the `rf.story.config/note-suppressed!` redaction counter)
   and the synchronous handler-exception capture (`pending-exceptions`). It
   touches no assertions accumulator — warnings / fx / dispatched are all
   answerable from the epoch tape + stub-call log, the SSOT.
@@ -36,7 +36,7 @@
 
   - PRIVACY (Spec 009 §Privacy): default-drop `:sensitive? true` events
     BEFORE anything else and bump the UI redaction counter
-    (`config/note-suppressed!`);
+    (`rf.story.config/note-suppressed!`);
   - synchronous handler-exception capture into `pending-exceptions`
     (drained into the assertions list between dispatches).
 
@@ -64,17 +64,17 @@
             ;; The listener surface (`register-listener!` /
             ;; `unregister-listener!`) lives in `re-frame.trace.tooling`
             ;; (production-DCE split).
-            [re-frame.trace.tooling    :as trace-tooling]
+            [re-frame.trace.tooling    :as rf.trace.tooling]
             ;; The canonical RAW trace-event frame reader
             ;; (`re-frame.trace/frame-of`) reads the frame off a trace event.
-            [re-frame.trace            :as trace]
-            [re-frame.story.assertions :as assertions]
-            [re-frame.story.async      :as async]
-            [re-frame.story.config     :as config]
-            [re-frame.story.error      :as story-error]
-            [re-frame.story.late-bind  :as late-bind]
-            [re-frame.story.play.runner :as runner]
-            [re-frame.story.registrar  :as registrar]))
+            [re-frame.trace            :as rf.trace]
+            [re-frame.story.assertions :as rf.story.assertions]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.error      :as rf.story.error]
+            [re-frame.story.late-bind  :as rf.story.late-bind]
+            [re-frame.story.play.runner :as rf.story.play.runner]
+            [re-frame.story.registrar  :as rf.story.registrar]))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-frame trace listener — the Spec 009 §Privacy egress seam
@@ -123,7 +123,7 @@
   1. PRIVACY (Spec 009 §Privacy + EP-0015): events whose
      `:sensitive?` flag is true are DROPPED here when Story's local-render
      egress profile redacts (`:rf.egress/local-redacted` — the default).
-     The suppressed-events counter bumps (`config/note-suppressed!`) for the
+     The suppressed-events counter bumps (`rf.story.config/note-suppressed!`) for the
      targeted frame so the UI can surface a `[● REDACTED]` hint. This is
      the egress gate — it runs BEFORE the listener does anything else, so
      a sensitive event never reaches the exception capture below.
@@ -136,19 +136,19 @@
      dispatch-sync without re-entering the in-flight drain). The capture
      spans the WHOLE pipeline — a play-script event whose cofx injector or
      user interceptor throws surfaces just as a handler throw does. The
-     shared `story-error/pipeline-exception-event?` predicate is the single
+     shared `rf.story.error/pipeline-exception-event?` predicate is the single
      projection."
   [frame-id]
   (fn [ev]
-    (when (= frame-id (trace/frame-of ev))
+    (when (= frame-id (rf.trace/frame-of ev))
       (cond
         ;; Resolve the suppress decision against THIS frame's egress
         ;; profile (the listener is already frame-scoped). Revealing a
         ;; sibling frame never opens this frame's gate.
-        (config/suppress-sensitive? ev frame-id)
-        (config/note-suppressed! frame-id)
+        (rf.story.config/suppress-sensitive? ev frame-id)
+        (rf.story.config/note-suppressed! frame-id)
 
-        (story-error/pipeline-exception-event? frame-id ev)
+        (rf.story.error/pipeline-exception-event? frame-id ev)
         (record-pending-exception! frame-id ev)
 
         :else nil))))
@@ -184,9 +184,9 @@
           ;; Preserve the originating `:operation` / `:failing-id` so a
           ;; captured cofx / interceptor failure is distinguishable from a
           ;; handler throw on the record.
-          (assertions/record!
+          (rf.story.assertions/record!
             frame-id
-            (story-error/exception-record frame-id phase event-vec exc
+            (rf.story.error/exception-record frame-id phase event-vec exc
                                           {:message    msg
                                            :operation  (:operation ev)
                                            :failing-id (get-in ev [:tags :failing-id])}))))
@@ -197,16 +197,16 @@
   default-drops `:sensitive?` events + captures handler-exceptions).
   Idempotent — re-registering replaces. Returns the listener id."
   [frame-id]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (let [id (listener-id frame-id)]
-      (trace-tooling/register-listener! id (listener-for-frame frame-id))
+      (rf.trace.tooling/register-listener! id (listener-for-frame frame-id))
       id)))
 
 (defn remove-trace-listener!
   "Tear down the per-frame trace listener for `frame-id`. Idempotent."
   [frame-id]
-  (when config/enabled?
-    (trace-tooling/unregister-listener! (listener-id frame-id))
+  (when rf.story.config/enabled?
+    (rf.trace.tooling/unregister-listener! (listener-id frame-id))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -231,9 +231,9 @@
   (try
     (rf/dispatch-sync event {:frame frame-id})
     (catch #?(:clj Throwable :cljs :default) e
-      (assertions/record!
+      (rf.story.assertions/record!
         frame-id
-        (story-error/exception-record frame-id :phase-4-play event e))))
+        (rf.story.error/exception-record frame-id :phase-4-play event e))))
   ;; After the drain settles, walk any captured handler-exception
   ;; trace events into assertion records. Safe to dispatch-sync now —
   ;; the drain has ended.
@@ -242,7 +242,7 @@
 (defn- read-assertions-after
   "Return the per-frame assertions vector, post-play."
   [frame-id]
-  (assertions/read-assertions frame-id))
+  (rf.story.assertions/read-assertions frame-id))
 
 (defn variant-play-events
   "Resolve a flat event-vector list for `variant-id`'s phase-4 play.
@@ -257,8 +257,8 @@
   This shape stays around for the play-stepper UI which advances ONE
   event at a time."
   [variant-id]
-  (let [body   (registrar/handler-meta :variant variant-id)
-        spec   (runner/parse-spec (:script body))
+  (let [body   (rf.story.registrar/handler-meta :variant variant-id)
+        spec   (rf.story.play.runner/parse-spec (:script body))
         script (:script spec)]
     (->> (or script [])
          (keep (fn [step]
@@ -286,9 +286,9 @@
    (execute-play! variant-id play-events nil))
   ([variant-id play-events {:keys [install-listener?]
                             :or   {install-listener? true}}]
-   (if-not config/enabled?
-     (async/resolved [])
-     (async/promise
+   (if-not rf.story.config/enabled?
+     (rf.story.async/resolved [])
+     (rf.story.async/promise
        (fn [resolve]
          (try
            (swap! pending-exceptions assoc variant-id [])
@@ -312,9 +312,9 @@
              ;; projection so :stack / :data survive on the record; :event
              ;; is nil (the failure is in the play harness, not a
              ;; dispatched event).
-             (assertions/record!
+             (rf.story.assertions/record!
                variant-id
-               (story-error/exception-record variant-id :phase-4-setup nil e))
+               (rf.story.error/exception-record variant-id :phase-4-setup nil e))
              (resolve (read-assertions-after variant-id)))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -350,14 +350,14 @@
 
   Pure data → data; works on JVM + CLJS.
 
-  The script is FOLDED (`assertions/fold-script`) so the
+  The script is FOLDED (`rf.story.assertions/fold-script`) so the
   stepper walks the SAME canonical `[:assert …]` checkpoints the auto-run
   path drives: a shipping `:assert-db` / `:assert-dom` step is rewritten to
   the one assertion atom before the stepper executes it."
   [variant-id]
-  (let [body (registrar/handler-meta :variant variant-id)
-        spec (runner/parse-spec (:script body))]
-    (assertions/fold-script (vec (:script spec)))))
+  (let [body (rf.story.registrar/handler-meta :variant variant-id)
+        spec (rf.story.play.runner/parse-spec (:script body))]
+    (rf.story.assertions/fold-script (vec (:script spec)))))
 
 (defn play-stepper-active?
   [frame-id]
@@ -369,7 +369,7 @@
 
   Seeds the FULL coerced script (every step type)."
   [frame-id]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (swap! pending-exceptions assoc frame-id [])
     (install-trace-listener! frame-id)
     ;; Reset the per-dispatch-step settle boundaries at the START
@@ -377,7 +377,7 @@
     ;; so `step-once!`'s per-step appends window onto THIS session's epoch tape
     ;; rather than accumulating onto a previous run's boundaries. Fetched via
     ;; the late-bind seam because `play` cannot `:require` `runner-events`.
-    (when-let [clear! (late-bind/get-fn :clear-step-boundaries)]
+    (when-let [clear! (rf.story.late-bind/get-fn :clear-step-boundaries)]
       (clear! frame-id))
     (swap! stepper-state assoc frame-id
            {:remaining (variant-play-steps frame-id)
@@ -397,12 +397,12 @@
   falls back to `dispatch-one!` for dispatch steps and a no-op record for
   the rest, so the cursor stays honest."
   [frame-id]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (let [{:keys [remaining]} (get @stepper-state frame-id)
           step (first remaining)]
       (when step
         (let [idx     (count (:ran (get @stepper-state frame-id)))
-              run-fn  (late-bind/get-fn :run-play-step)
+              run-fn  (rf.story.late-bind/get-fn :run-play-step)
               ;; rf2-iz0t8 — a `[:flush-presence]` against a Promise-backed
               ;; host is the ONE step whose outcome is not known by the time
               ;; the executor returns. The executor calls this back with the
@@ -451,11 +451,11 @@
                         ;; Fallback: executor unavailable. Drive dispatch
                         ;; steps directly via `dispatch-one!`; record nothing
                         ;; for the other step types but still advance the cursor.
-                        (#{:dispatch :dispatch-sync} (runner/step-type step))
-                        (do (dispatch-one! frame-id (runner/step-event step))
-                            (runner/step-skip idx step))
+                        (#{:dispatch :dispatch-sync} (rf.story.play.runner/step-type step))
+                        (do (dispatch-one! frame-id (rf.story.play.runner/step-event step))
+                            (rf.story.play.runner/step-skip idx step))
 
-                        :else (runner/step-skip idx step))]
+                        :else (rf.story.play.runner/step-skip idx step))]
           ;; Publish the claim BEFORE the record is visible in `:results`, so
           ;; there is no window in which a settlement could see its own record
           ;; at `idx` without recognising it. Both are synchronous and
@@ -476,7 +476,7 @@
   substrate's remaining/ran/results cursor consistent with that restore.
   No-op when no step has run."
   [frame-id]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     ;; Guard against a missing entry: `update` on a missing key
     ;; would associate the fn's nil/`s` return (a `{frame-id nil}` entry),
     ;; which flips `play-stepper-active?` (a `contains?` check) to true for a
@@ -499,7 +499,7 @@
   `:remaining`, `:ran` + `:results` emptied. The UI's rewind also
   restores the pre-play epoch + clears the assertion accumulator."
   [frame-id]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     ;; Guard against a missing entry: an `update` whose fn returns nil for
     ;; a missing key would associate that nil (a `{frame-id nil}` entry),
     ;; making `play-stepper-active?` report true for a frame whose stepper
@@ -516,7 +516,7 @@
   "Tear down the play stepper for `frame-id`. The UI calls this when
   the stepper widget closes."
   [frame-id]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (remove-trace-listener! frame-id)
     (swap! stepper-state dissoc frame-id))
   nil)
@@ -548,7 +548,7 @@
   atoms), so a stale listener cannot capture into the just-cleared atom on
   the next dispatch. Idempotent."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (let [frame-ids (into (set (keys @pending-exceptions))
                           (keys @stepper-state))]
       (doseq [frame-id frame-ids]

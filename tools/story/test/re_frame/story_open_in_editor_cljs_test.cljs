@@ -4,7 +4,7 @@
   The pure URI logic lives in `re-frame.source-coords.editor-uri` and is
   matrix-tested on the JVM. This file covers the Story-specific glue:
 
-  - `config/set-editor!` round-trips on the CLJS side.
+  - `rf.story.config/set-editor!` round-trips on the CLJS side.
   - `open-chip` returns nil when the source-coord lacks `:file`.
   - `open-chip` renders an `<a>` hiccup tag with the current editor's
     URI when the coord carries `:file`.
@@ -21,13 +21,13 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.source-coords.open-endpoint :as open-endpoint]
-            [re-frame.source-store :as source-store]
-            [re-frame.story :as story]
-            [re-frame.story.config :as config]
-            [re-frame.story.ui.open-in-editor :as open-in-editor]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
+            [re-frame.source-coords.open-endpoint :as rf.source-coords.open-endpoint]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.story :as rf.story]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.ui.open-in-editor :as rf.story.ui.open-in-editor]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ---- Option B endpoint seam (rf2-wn3bh) ---------------------------------
@@ -48,12 +48,12 @@
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-editor! []
-  (config/set-editor! :vscode)
-  (config/set-project-root! nil)
+  (rf.story.config/set-editor! :vscode)
+  (rf.story.config/set-project-root! nil)
   ;; rf2-wn3bh — pin the endpoint launcher to the synchronous fallback stub
   ;; so the URI / navigator assertions below exercise the deterministic
   ;; fallback path.
-  (open-endpoint/set-launcher! always-fall-back!))
+  (rf.source-coords.open-endpoint/set-launcher! always-fall-back!))
 
 (use-fixtures :each {:before reset-editor!
                      :after  reset-editor!})
@@ -71,11 +71,11 @@
   "Swap the navigator seam for `stub-fn` for the duration of `body-fn`.
   Restores the original navigator afterward (even on throw)."
   [stub-fn body-fn]
-  (let [prev (open-in-editor/set-navigator! stub-fn)]
+  (let [prev (rf.story.ui.open-in-editor/set-navigator! stub-fn)]
     (try
       (body-fn)
       (finally
-        (open-in-editor/set-navigator! prev)))))
+        (rf.story.ui.open-in-editor/set-navigator! prev)))))
 
 (defn- capturing-navigator
   "Build a navigator fn that pushes its URI argument onto the shared
@@ -90,7 +90,7 @@
 (deftest open-chip-renders-anchor-with-href
   (testing "open-chip returns an <a> hiccup vector when source has :file"
     (let [coord  {:ns 'app.views :file "src/app/views.cljs" :line 42 :column 7}
-          hiccup (open-in-editor/open-chip coord)]
+          hiccup (rf.story.ui.open-in-editor/open-chip coord)]
       (is (vector? hiccup))
       (is (= :a (first hiccup)))
       (let [props (second hiccup)]
@@ -103,27 +103,27 @@
 (deftest open-chip-respects-editor-preference
   (testing "switching editor flips the URI scheme on subsequent renders"
     (let [coord {:file "src/x.cljs" :line 10 :column 1}]
-      (config/set-editor! :cursor)
+      (rf.story.config/set-editor! :cursor)
       (is (= "cursor://file/src/x.cljs:10:1"
-             (:href (second (open-in-editor/open-chip coord)))))
-      (config/set-editor! :idea)
+             (:href (second (rf.story.ui.open-in-editor/open-chip coord)))))
+      (rf.story.config/set-editor! :idea)
       (is (= "idea://open?file=src/x.cljs&line=10&column=1"
-             (:href (second (open-in-editor/open-chip coord))))))))
+             (:href (second (rf.story.ui.open-in-editor/open-chip coord))))))))
 
 (deftest open-chip-supports-custom-template
   (testing ":custom template is read live from config"
-    (config/set-editor! {:custom "zed://file/{path}:{line}"})
+    (rf.story.config/set-editor! {:custom "zed://file/{path}:{line}"})
     (let [coord {:file "src/x.cljs" :line 5 :column 2}]
       (is (= "zed://file/src/x.cljs:5"
-             (:href (second (open-in-editor/open-chip coord)))))
+             (:href (second (rf.story.ui.open-in-editor/open-chip coord)))))
       (is (= "custom"
-             (:data-editor (second (open-in-editor/open-chip coord))))))))
+             (:data-editor (second (rf.story.ui.open-in-editor/open-chip coord))))))))
 
 (deftest open-chip-nil-when-source-missing
   (testing "open-chip returns nil when source-coord lacks :file"
-    (is (nil? (open-in-editor/open-chip nil)))
-    (is (nil? (open-in-editor/open-chip {:line 10})))
-    (is (nil? (open-in-editor/open-chip {:file ""})))))
+    (is (nil? (rf.story.ui.open-in-editor/open-chip nil)))
+    (is (nil? (rf.story.ui.open-in-editor/open-chip {:line 10})))
+    (is (nil? (rf.story.ui.open-in-editor/open-chip {:file ""})))))
 
 (deftest open-chip-for-variant-reads-source-slot
   (testing "open-chip-for-variant pulls :source off the variant body"
@@ -132,13 +132,13 @@
                          :file "src/app/stories.cljs"
                          :line 17
                          :column 3}}
-          hiccup (open-in-editor/open-chip-for-variant body)]
+          hiccup (rf.story.ui.open-in-editor/open-chip-for-variant body)]
       (is (vector? hiccup))
       (is (= "vscode://file/src/app/stories.cljs:17:3"
              (:href (second hiccup))))))
   (testing "open-chip-for-variant nil when variant body has no :source"
-    (is (nil? (open-in-editor/open-chip-for-variant {:setup []})))
-    (is (nil? (open-in-editor/open-chip-for-variant nil)))))
+    (is (nil? (rf.story.ui.open-in-editor/open-chip-for-variant {:setup []})))
+    (is (nil? (rf.story.ui.open-in-editor/open-chip-for-variant nil)))))
 
 ;; ---- open-source-coord! (rf2-h0jc0) --------------------------------------
 ;;
@@ -151,45 +151,45 @@
             navigator seam — same path the chip uses"
     (let [calls (atom [])
           nav   (fn [uri] (swap! calls conj uri))
-          prev  (open-in-editor/set-navigator! nav)]
+          prev  (rf.story.ui.open-in-editor/set-navigator! nav)]
       (try
-        (open-in-editor/open-source-coord!
+        (rf.story.ui.open-in-editor/open-source-coord!
           {:file "src/app.cljs" :line 17 :column 3})
         (is (= ["vscode://file/src/app.cljs:17:3"] @calls)
             "navigator invoked once with the resolved vscode:// URI")
         (finally
-          (open-in-editor/set-navigator! prev))))))
+          (rf.story.ui.open-in-editor/set-navigator! prev))))))
 
 (deftest open-source-coord!-no-op-without-file
   (testing "open-source-coord! returns false + no-ops when source-coord
             lacks :file"
     (let [calls (atom [])
           nav   (fn [uri] (swap! calls conj uri))
-          prev  (open-in-editor/set-navigator! nav)]
+          prev  (rf.story.ui.open-in-editor/set-navigator! nav)]
       (try
-        (is (false? (open-in-editor/open-source-coord! nil)))
-        (is (false? (open-in-editor/open-source-coord! {:line 10})))
+        (is (false? (rf.story.ui.open-in-editor/open-source-coord! nil)))
+        (is (false? (rf.story.ui.open-in-editor/open-source-coord! {:line 10})))
         (is (= [] @calls)
             "no navigation attempted when :file is absent")
         (finally
-          (open-in-editor/set-navigator! prev))))))
+          (rf.story.ui.open-in-editor/set-navigator! prev))))))
 
 (deftest open-source-coord!-respects-editor-preference
   (testing "the URI shipped by open-source-coord! reflects the live
             editor + project-root config — same source of truth the
             chip's :href reads"
-    (config/set-editor! :cursor)
-    (config/set-project-root! "C:/Users/me/code/my-app")
+    (rf.story.config/set-editor! :cursor)
+    (rf.story.config/set-project-root! "C:/Users/me/code/my-app")
     (let [calls (atom [])
           nav   (fn [uri] (swap! calls conj uri))
-          prev  (open-in-editor/set-navigator! nav)]
+          prev  (rf.story.ui.open-in-editor/set-navigator! nav)]
       (try
-        (open-in-editor/open-source-coord!
+        (rf.story.ui.open-in-editor/open-source-coord!
           {:file "src/app.cljs" :line 17 :column 3})
         (is (= ["cursor://file/C:/Users/me/code/my-app/src/app.cljs:17:3"]
                @calls))
         (finally
-          (open-in-editor/set-navigator! prev))))))
+          (rf.story.ui.open-in-editor/set-navigator! prev))))))
 
 (deftest open!-denylist-gates-pre-resolved-uri
   (testing "rf2-ox357n — `open!` re-applies the scheme denylist at the
@@ -202,20 +202,20 @@
         (fn []
           ;; forbidden script schemes are refused at the click-time seam,
           ;; case-insensitively + leading-whitespace tolerant
-          (open-in-editor/open! "javascript:alert(1)")
-          (open-in-editor/open! "JavaScript:alert(1)")
-          (open-in-editor/open! " data:text/html,xxx")
-          (open-in-editor/open! "vbscript:msgbox(1)")
+          (rf.story.ui.open-in-editor/open! "javascript:alert(1)")
+          (rf.story.ui.open-in-editor/open! "JavaScript:alert(1)")
+          (rf.story.ui.open-in-editor/open! " data:text/html,xxx")
+          (rf.story.ui.open-in-editor/open! "vbscript:msgbox(1)")
           (is (= [] @calls)
               "no forbidden-scheme URI reaches the navigator")
           ;; an unknown, non-dangerous scheme passes through (no allowlist)
-          (open-in-editor/open! "lapce://open?file=src/x.cljs&line=1")
+          (rf.story.ui.open-in-editor/open! "lapce://open?file=src/x.cljs&line=1")
           (is (= ["lapce://open?file=src/x.cljs&line=1"] @calls)
               "an unknown custom non-dangerous scheme navigates"))))))
 
 (deftest open-chip-title-attribute-shape
   (testing "the chip's :title attr surfaces file:line for hover"
-    (let [hiccup (open-in-editor/open-chip
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "src/app.cljs" :line 99 :column 4})
           props  (second hiccup)]
       (is (= "Open in editor — src/app.cljs:99"
@@ -233,46 +233,46 @@
 
 (deftest open-chip-hides-when-custom-template-resolves-to-forbidden-scheme
   (testing "open-chip returns nil ONLY for the three forbidden script
-            schemes (rf2-vwcsq). editor-uri/editor-uri gates these at
+            schemes (rf2-vwcsq). rf.source-coords.editor-uri/editor-uri gates these at
             build time → the chip is nil."
-    (config/set-editor! {:custom "javascript:alert(1)"})
-    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
+    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
+    (is (nil? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))
 
-    (config/set-editor! {:custom "data:text/html,xxx"})
-    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
+    (rf.story.config/set-editor! {:custom "data:text/html,xxx"})
+    (is (nil? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))
 
-    (config/set-editor! {:custom "vbscript:msgbox(1)"})
-    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))))
+    (rf.story.config/set-editor! {:custom "vbscript:msgbox(1)"})
+    (is (nil? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))))
 
 (deftest open-chip-renders-for-non-forbidden-custom-scheme
   (testing "rf2-ox357n — open-chip renders for ANY non-forbidden scheme:
             catalogued long-tail, http:/https: (no longer gated), AND
             unknown custom schemes the old allowlist would have hidden"
-    (config/set-editor! {:custom "subl://open?path={path}&line={line}"})
-    (let [hiccup (open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
+    (rf.story.config/set-editor! {:custom "subl://open?path={path}&line={line}"})
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
       (is (vector? hiccup))
       (is (= "subl://open?path=src/x.cljs&line=5" (:href (second hiccup)))))
 
-    (config/set-editor! {:custom "emacsclient://{path}"})
-    (is (some? (open-in-editor/open-chip {:file "src/x.cljs"})))
+    (rf.story.config/set-editor! {:custom "emacsclient://{path}"})
+    (is (some? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))
 
     ;; http:/https: now PASS — rf2-ox357n removed the allowlist that
     ;; rejected them. The residual risk (an http template navigates the
     ;; tab on a trusted localhost dev surface) is the documented footgun
     ;; the spec accepts; script schemes stay blocked.
-    (config/set-editor! {:custom "http://localhost:3000/{path}"})
+    (rf.story.config/set-editor! {:custom "http://localhost:3000/{path}"})
     (is (= "http://localhost:3000/src/x.cljs"
-           (:href (second (open-in-editor/open-chip {:file "src/x.cljs"})))))
+           (:href (second (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))))
 
     ;; An unknown editor scheme renders — no silent dead button.
-    (config/set-editor! {:custom "lapce://open?file={path}&line={line}"})
+    (rf.story.config/set-editor! {:custom "lapce://open?file={path}&line={line}"})
     (is (= "lapce://open?file=src/x.cljs&line=8"
-           (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 8})))))))
+           (:href (second (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs" :line 8})))))))
 
 (deftest open-chip-for-variant-hides-on-forbidden-scheme
   (testing "open-chip-for-variant inherits the denylist gate"
-    (config/set-editor! {:custom "javascript:alert(1)"})
-    (is (nil? (open-in-editor/open-chip-for-variant
+    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
+    (is (nil? (rf.story.ui.open-in-editor/open-chip-for-variant
                 {:source {:file "src/x.cljs" :line 1}})))))
 
 ;; ---- project-root prefix (rf2-zfy1e) -------------------------------------
@@ -280,23 +280,23 @@
 ;; The bead: clicking the Open chip launched an OS-side editor with a
 ;; classpath-relative path ("\panel_gallery\event_detail_stories.cljs:115:3")
 ;; that the editor's filesystem resolver could not find. The Story config
-;; now exposes `:rf.story/project-root` — set once at boot via `story/configure!` —
+;; now exposes `:rf.story/project-root` — set once at boot via `rf.story/configure!` —
 ;; and the chip prepends it before the URI ships.
 
 (deftest open-chip-default-no-project-root
   (testing "with no project-root configured, the chip ships the file slot
             verbatim — preserves v1 behaviour for hosts that haven't
             plumbed the knob yet"
-    (is (nil? (config/get-project-root)))
-    (let [hiccup (open-in-editor/open-chip
+    (is (nil? (rf.story.config/get-project-root)))
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "src/app/views.cljs" :line 1 :column 1})]
       (is (= "vscode://file/src/app/views.cljs:1:1"
              (:href (second hiccup)))))))
 
 (deftest open-chip-prefixes-with-project-root
   (testing "set-project-root! plumbs the on-disk root through the chip"
-    (config/set-project-root! "C:/Users/me/code/my-app")
-    (let [hiccup (open-in-editor/open-chip
+    (rf.story.config/set-project-root! "C:/Users/me/code/my-app")
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "src/app/views.cljs" :line 42 :column 7})]
       (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
              (:href (second hiccup)))))))
@@ -305,9 +305,9 @@
   (testing "regression: the panel-gallery testbed's failure case now
             resolves to an absolute on-disk URI when the host has
             plumbed :rf.story/project-root through Story's configure!"
-    (config/set-project-root!
+    (rf.story.config/set-project-root!
       "C:/Users/me/code/my-app/tools/xray/testbeds")
-    (let [hiccup (open-in-editor/open-chip
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "panel_gallery/event_detail_stories.cljs"
                     :line 115
                     :column 3})]
@@ -322,7 +322,7 @@
             stayed nil, so the Story variant-toolbar 'Open' button
             shipped a relative `:file` slot (`panel_gallery/foo.cljs`)
             that the OS-side editor handler rejected. The fix wires
-            `story/configure!` alongside the existing xray-config
+            `rf.story/configure!` alongside the existing xray-config
             call in panel-gallery's `run` so Story's atom carries the
             same on-disk root Xray uses.
 
@@ -330,11 +330,11 @@
             the panel-gallery's source-coord shape end-to-end: with
             no project-root configured, the URI is relative (the
             pre-fix bug); with `:rf.story/project-root` plumbed in
-            via `story/configure!`, the URI is absolute."
+            via `rf.story/configure!`, the URI is absolute."
     ;; Pre-fix bug shape: no project-root → relative URI (which the OS
     ;; editor handler rejects).
-    (config/set-project-root! nil)
-    (let [hiccup-pre (open-in-editor/open-chip
+    (rf.story.config/set-project-root! nil)
+    (let [hiccup-pre (rf.story.ui.open-in-editor/open-chip
                        {:file "panel_gallery/gallery_app_db.cljs"
                         :line 42
                         :column 7})]
@@ -342,10 +342,10 @@
              (:href (second hiccup-pre)))
           "without :rf.story/project-root the URI is relative (pre-fix
            panel-gallery shape)"))
-    ;; Post-fix shape: `story/configure!` seeds the atom; URI is absolute.
-    (config/set-project-root!
+    ;; Post-fix shape: `rf.story/configure!` seeds the atom; URI is absolute.
+    (rf.story.config/set-project-root!
       "C:/Users/me/code/my-app/tools/xray/testbeds")
-    (let [hiccup-post (open-in-editor/open-chip
+    (let [hiccup-post (rf.story.ui.open-in-editor/open-chip
                         {:file "panel_gallery/gallery_app_db.cljs"
                          :line 42
                          :column 7})]
@@ -357,25 +357,25 @@
            OS-side editor handler can resolve it"))))
 
 (deftest open-chip-project-root-roundtrip
-  (testing "config/set-project-root! + get-project-root round-trip"
-    (config/set-project-root! "/abs/code")
-    (is (= "/abs/code" (config/get-project-root)))
-    (config/set-project-root! nil)
-    (is (nil? (config/get-project-root)))
+  (testing "rf.story.config/set-project-root! + get-project-root round-trip"
+    (rf.story.config/set-project-root! "/abs/code")
+    (is (= "/abs/code" (rf.story.config/get-project-root)))
+    (rf.story.config/set-project-root! nil)
+    (is (nil? (rf.story.config/get-project-root)))
     ;; blank strings normalise to nil so the chip behaves as if unset.
-    (config/set-project-root! "")
-    (is (nil? (config/get-project-root)))))
+    (rf.story.config/set-project-root! "")
+    (is (nil? (rf.story.config/get-project-root)))))
 
 (deftest open-chip-project-root-survives-editor-change
   (testing "switching editor keeps project-root applied to the new scheme"
-    (config/set-project-root! "/abs/code")
-    (config/set-editor! :cursor)
-    (let [hiccup (open-in-editor/open-chip
+    (rf.story.config/set-project-root! "/abs/code")
+    (rf.story.config/set-editor! :cursor)
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "src/x.cljs" :line 1 :column 1})]
       (is (= "cursor://file//abs/code/src/x.cljs:1:1"
              (:href (second hiccup)))))
-    (config/set-editor! :idea)
-    (let [hiccup (open-in-editor/open-chip
+    (rf.story.config/set-editor! :idea)
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "src/x.cljs" :line 1 :column 1})]
       (is (= "idea://open?file=/abs/code/src/x.cljs&line=1&column=1"
              (:href (second hiccup)))))))
@@ -407,7 +407,7 @@
 (deftest click-handler-calls-navigator-with-uri
   (testing "rf2-muvs8 — clicking the chip invokes the navigator seam
             with the same URI carried in the :href"
-    (let [hiccup       (open-in-editor/open-chip
+    (let [hiccup       (rf.story.ui.open-in-editor/open-chip
                          {:file "src/x.cljs" :line 42 :column 7})
           props        (second hiccup)
           href         (:href props)
@@ -426,7 +426,7 @@
   (testing "rf2-muvs8 — the click handler preventDefaults so the
             browser doesn't double-navigate (once via the <a href>
             native click, once via the JS Location.assign call)"
-    (let [hiccup       (open-in-editor/open-chip
+    (let [hiccup       (rf.story.ui.open-in-editor/open-chip
                          {:file "src/x.cljs" :line 1})
           on-click     (:on-click (second hiccup))
           prevented?   (atom false)
@@ -442,8 +442,8 @@
             the chip entirely for the forbidden script schemes, so the
             click never wires up at all. Pins that the user can never
             click a javascript:/data:/vbscript: URI to navigation."
-    (config/set-editor! {:custom "javascript:alert(1)"})
-    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"}))
+    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
+    (is (nil? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"}))
         "render-time gate hides chip for forbidden scheme")))
 
 ;; ---- Windows-path URI shape regression (rf2-muvs8) ----------------------
@@ -461,8 +461,8 @@
 (deftest windows-path-uri-shape
   (testing "rf2-muvs8 — Windows project-root + relative source-coord
             produces a URI VSCode's OS handler can resolve"
-    (config/set-project-root! "C:/Users/me/code/my-app")
-    (let [hiccup (open-in-editor/open-chip
+    (rf.story.config/set-project-root! "C:/Users/me/code/my-app")
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "tools/story/src/re_frame/story/ui/open_in_editor.cljs"
                     :line 92
                     :column 5})]
@@ -476,8 +476,8 @@
 (deftest posix-path-uri-shape
   (testing "rf2-muvs8 — POSIX project-root + relative source-coord
             produces a URI VSCode/Cursor's OS handler can resolve"
-    (config/set-project-root! "/home/me/code/myapp")
-    (let [hiccup (open-in-editor/open-chip
+    (rf.story.config/set-project-root! "/home/me/code/myapp")
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "src/app/views.cljs" :line 1 :column 1})]
       (is (= "vscode://file//home/me/code/myapp/src/app/views.cljs:1:1"
              (:href (second hiccup)))
@@ -487,8 +487,8 @@
 (deftest windows-backslash-path-uri-shape
   (testing "rf2-muvs8 — Windows project-root with trailing backslash
             still produces a valid URI (trailing separators stripped)"
-    (config/set-project-root! "C:\\Users\\me\\code\\myapp\\")
-    (let [hiccup (open-in-editor/open-chip
+    (rf.story.config/set-project-root! "C:\\Users\\me\\code\\myapp\\")
+    (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "src/app/views.cljs" :line 1 :column 1})]
       (is (= "vscode://file/C:\\Users\\me\\code\\myapp/src/app/views.cljs:1:1"
              (:href (second hiccup)))
@@ -507,44 +507,44 @@
 (deftest resolve-uri-returns-vscode-default
   (testing "resolve-uri builds a vscode://file URI by default"
     (is (= "vscode://file/src/app.cljs:42:7"
-           (open-in-editor/resolve-uri
+           (rf.story.ui.open-in-editor/resolve-uri
              {:file "src/app.cljs" :line 42 :column 7})))))
 
 (deftest resolve-uri-respects-editor-preference
   (testing "switching editor flips the URI scheme"
-    (config/set-editor! :cursor)
+    (rf.story.config/set-editor! :cursor)
     (is (= "cursor://file/src/x.cljs:1:1"
-           (open-in-editor/resolve-uri
+           (rf.story.ui.open-in-editor/resolve-uri
              {:file "src/x.cljs" :line 1 :column 1})))))
 
 (deftest resolve-uri-applies-project-root
   (testing "configured project-root prepends to the source-coord file"
-    (config/set-project-root! "C:/Users/me/code/my-app")
+    (rf.story.config/set-project-root! "C:/Users/me/code/my-app")
     (is (= "vscode://file/C:/Users/me/code/my-app/src/app.cljs:17:3"
-           (open-in-editor/resolve-uri
+           (rf.story.ui.open-in-editor/resolve-uri
              {:file "src/app.cljs" :line 17 :column 3})))))
 
 (deftest resolve-uri-nil-when-source-missing
   (testing "resolve-uri returns nil for coords without :file"
-    (is (nil? (open-in-editor/resolve-uri nil)))
-    (is (nil? (open-in-editor/resolve-uri {:line 1})))
-    (is (nil? (open-in-editor/resolve-uri {:file ""})))))
+    (is (nil? (rf.story.ui.open-in-editor/resolve-uri nil)))
+    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:line 1})))
+    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file ""})))))
 
 (deftest resolve-uri-nil-for-forbidden-custom-scheme
   (testing "resolve-uri returns nil ONLY when a {:custom ...} template
             resolves to a forbidden script scheme (rf2-vwcsq). Per
             rf2-ox357n http:/https:/unknown schemes now resolve through."
-    (config/set-editor! {:custom "javascript:alert(1)"})
-    (is (nil? (open-in-editor/resolve-uri {:file "src/x.cljs"})))
-    (config/set-editor! {:custom "data:text/html,xxx"})
-    (is (nil? (open-in-editor/resolve-uri {:file "src/x.cljs"})))
+    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
+    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
+    (rf.story.config/set-editor! {:custom "data:text/html,xxx"})
+    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
     ;; http: + unknown schemes now resolve (no positive allowlist).
-    (config/set-editor! {:custom "http://localhost:3000/{path}"})
+    (rf.story.config/set-editor! {:custom "http://localhost:3000/{path}"})
     (is (= "http://localhost:3000/src/x.cljs"
-           (open-in-editor/resolve-uri {:file "src/x.cljs"})))
-    (config/set-editor! {:custom "lapce://open?file={path}"})
+           (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
+    (rf.story.config/set-editor! {:custom "lapce://open?file={path}"})
     (is (= "lapce://open?file=src/x.cljs"
-           (open-in-editor/resolve-uri {:file "src/x.cljs"})))))
+           (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))))
 
 ;; ---- :rf.story/open-in-editor + :rf.story.fx/open-in-editor (rf2-r2un8) ------------
 ;;
@@ -598,7 +598,7 @@
   `rf/make-frame` needs a state-container factory, and the consolidated run
   may or may not have had `init!` called by an earlier namespace."
   []
-  (try (rf/init! plain-atom/adapter)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil)))
 
 (defn- assert-production-registration!
@@ -609,7 +609,7 @@
   provenance collision that used to break image assembly)."
   []
   (is (= #{production-fx-ns}
-         (set (keys (source-store/descriptors-for
+         (set (keys (rf.source-store/descriptors-for
                       :fx :rf.story.fx/open-in-editor))))
       "`:rf.story.fx/open-in-editor` is registered, and ONLY by
        re-frame.story.ui.open-in-editor — no test-namespace shadow"))
@@ -627,7 +627,7 @@
   []
   (reset! captured-editor-fx [])
   (ensure-adapter!)
-  (open-in-editor/install!)
+  (rf.story.ui.open-in-editor/install!)
   (assert-production-registration!)
   ;; EP-0002 (rf2-bd4div): `:rf.story/open-in-editor` dispatches under a
   ;; carried frame stamp, so the `with-frame`-scoped dispatches below need a
@@ -642,7 +642,7 @@
         (swap! captured-editor-fx conj
                (assoc args
                       :uri (when-let [coord (:source-coord args)]
-                             (open-in-editor/resolve-uri coord)))))}}))
+                             (rf.story.ui.open-in-editor/resolve-uri coord)))))}}))
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
   (testing "rf2-r2un8 — dispatching `:rf.story/open-in-editor` with a
@@ -691,10 +691,10 @@
            (:uri (first @captured-editor-fx))))))
 
 (deftest open-in-editor-event-honours-editor-preference
-  (testing "rf2-r2un8 — the fx's URI reflects `config/get-editor`
+  (testing "rf2-r2un8 — the fx's URI reflects `rf.story.config/get-editor`
             (the same source of truth the chip render uses)"
     (install-with-capture!)
-    (config/set-editor! :cursor)
+    (rf.story.config/set-editor! :cursor)
     (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:file "src/x.cljs" :line 10}]))
@@ -706,7 +706,7 @@
             forbidden script scheme produces a fx with nil :uri (which
             `open!` is a no-op for); the handler doesn't short-circuit"
     (install-with-capture!)
-    (config/set-editor! {:custom "javascript:alert(1)"})
+    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
     (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:file "src/x.cljs" :line 1}]))
@@ -739,9 +739,9 @@
             would still pass and only this one would red — which is the
             whole point of it being here."
     (ensure-adapter!)
-    (open-in-editor/install!)
+    (rf.story.ui.open-in-editor/install!)
     (assert-production-registration!)
-    (config/set-editor! :vscode)
+    (rf.story.config/set-editor! :vscode)
     (rf/make-frame {:id  :story.open-in-editor/production
                     :doc "no-override frame — drives the REAL effect"})
     (let [[nav calls] (capturing-navigator)]
@@ -766,40 +766,40 @@
 (deftest endpoint-url-carries-coord-and-editor-hint
   (testing "rf2-wn3bh — `build-url` projects (coord, editor) to the
             endpoint query"
-    (is (= (str open-endpoint/endpoint-path
+    (is (= (str rf.source-coords.open-endpoint/endpoint-path
                 "?file=panel_gallery%2Ffoo.cljs&line=42&column=7&editor=cursor")
-           (open-endpoint/build-url
+           (rf.source-coords.open-endpoint/build-url
              {:file "panel_gallery/foo.cljs" :line 42 :column 7}
              :cursor)))
-    (is (nil? (open-endpoint/build-url {:line 1} :vscode))
+    (is (nil? (rf.source-coords.open-endpoint/build-url {:line 1} :vscode))
         "no :file → no endpoint URL")))
 
 (deftest open-coord-prefers-endpoint-when-it-succeeds
   (testing "rf2-wn3bh — when the endpoint launcher reports success, the URI
             fallback does NOT fire"
     (let [[nav calls] (capturing-navigator)
-          prev        (open-endpoint/set-launcher! (fn [_url _fallback!] nil))]
+          prev        (rf.source-coords.open-endpoint/set-launcher! (fn [_url _fallback!] nil))]
       (try
         (with-stub-navigator nav
-          #(open-in-editor/open-coord! {:file "src/x.cljs" :line 1}))
+          #(rf.story.ui.open-in-editor/open-coord! {:file "src/x.cljs" :line 1}))
         (is (= [] @calls)
             "endpoint preferred → no editor:// URI navigation")
         (finally
-          (open-endpoint/set-launcher! prev))))))
+          (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
 (deftest open-coord-falls-back-to-uri-when-no-endpoint
   (testing "rf2-wn3bh — when the launcher invokes the fallback (no dev
             server), the `editor://` URI navigates via the navigator seam"
-    (config/set-editor! :vscode)
+    (rf.story.config/set-editor! :vscode)
     (let [[nav calls] (capturing-navigator)
-          prev        (open-endpoint/set-launcher! always-fall-back!)]
+          prev        (rf.source-coords.open-endpoint/set-launcher! always-fall-back!)]
       (try
         (with-stub-navigator nav
-          #(open-in-editor/open-coord! {:file "src/x.cljs" :line 9 :column 2}))
+          #(rf.story.ui.open-in-editor/open-coord! {:file "src/x.cljs" :line 9 :column 2}))
         (is (= ["vscode://file/src/x.cljs:9:2"] @calls)
             "no dev server → URI fallback navigates exactly as before")
         (finally
-          (open-endpoint/set-launcher! prev))))))
+          (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
 ;; ---- rf2-3xq1v — a real Story coordinate through a 422 decline -----------
 ;;
@@ -845,22 +845,22 @@
       (str/replace #":\d+:\d+$" "")))
 
 (deftest endpoint-422-falls-back-to-an-absolute-uri-for-a-real-story-coord
-  (testing "rf2-3xq1v — a real `story/reg-story` coordinate, stamped by this
+  (testing "rf2-3xq1v — a real `rf.story/reg-story` coordinate, stamped by this
             compile, reaches the editor through the 422 fallback as an
             ABSOLUTE path"
-    (story/reg-story :story.source-coords.cljs-pin
+    (rf.story/reg-story :story.source-coords.cljs-pin
       {:doc "rf2-3xq1v fixture — this form's own coordinate is the subject."})
-    (let [coord (:source (story/handler-meta :story :story.source-coords.cljs-pin))]
+    (let [coord (:source (rf.story/handler-meta :story :story.source-coords.cljs-pin))]
       (is (some? coord) "the registration carries a :source coord at all")
       (is (some? (:file coord)) "and that coord carries a :file")
-      (is (editor-uri/absolute-path? (:file coord))
+      (is (rf.source-coords.editor-uri/absolute-path? (:file coord))
           (str "the macro must bake an ABSOLUTE :file at expansion — got "
                (pr-str (:file coord))))
       (is (str/ends-with? (str/replace (:file coord) "\\" "/")
                           "re_frame/story_open_in_editor_cljs_test.cljs")
           "and it must still end in the classpath-relative tail it started as")
-      (config/set-editor! :windsurf)
-      (config/set-project-root! nil)
+      (rf.story.config/set-editor! :windsurf)
+      (rf.story.config/set-project-root! nil)
       (async done
         ;; The navigator stub is installed for the whole ASYNC duration, not
         ;; just the synchronous call: `fetch-launcher!` runs `fallback!` in a
@@ -871,22 +871,22 @@
         (let [[nav calls]  (capturing-navigator)
               pending      (atom nil)
               orig-fetch   (.-fetch js/globalThis)
-              prev-nav     (open-in-editor/set-navigator! nav)
-              prev-launch  (open-endpoint/set-launcher!
+              prev-nav     (rf.story.ui.open-in-editor/set-navigator! nav)
+              prev-launch  (rf.source-coords.open-endpoint/set-launcher!
                              (fn [url fallback!]
                                ;; The REAL launcher; the atom only lets the
                                ;; async test await the decision.
                                (reset! pending
-                                       (open-endpoint/fetch-launcher! url fallback!))))
+                                       (rf.source-coords.open-endpoint/fetch-launcher! url fallback!))))
               restore!     (fn []
                              (set! (.-fetch js/globalThis) orig-fetch)
-                             (open-endpoint/set-launcher! prev-launch)
-                             (open-in-editor/set-navigator! prev-nav)
-                             (config/set-editor! :vscode))]
+                             (rf.source-coords.open-endpoint/set-launcher! prev-launch)
+                             (rf.story.ui.open-in-editor/set-navigator! prev-nav)
+                             (rf.story.config/set-editor! :vscode))]
           (set! (.-fetch js/globalThis)
                 (fn [_url _opts]
                   (js/Promise.resolve #js {:ok false :status 422})))
-          (open-in-editor/open-coord! coord)
+          (rf.story.ui.open-in-editor/open-coord! coord)
           ;; Bind the launcher's promise to a LOCAL before threading. A
           ;; multi-step form in the `->` head (an `or`, say) is lowered by the
           ;; compiler to an awaited async IIFE — the rf2-i3dvj shape — and the
@@ -908,7 +908,7 @@
                                  path (strip-uri-position uri)]
                              (is (str/starts-with? uri "windsurf://file/")
                                  "the fallback is the historic editor:// URI path")
-                             (is (editor-uri/absolute-path? path)
+                             (is (rf.source-coords.editor-uri/absolute-path? path)
                                  (str "the URI the editor receives must name an "
                                       "ABSOLUTE path — got " (pr-str path)))
                              (is (not (str/starts-with? path "re_frame/"))
@@ -927,14 +927,14 @@
             external / static / non-shadow hosts, and stays inert over a
             coordinate the macro already absolutised: `compose-path` passes an
             absolute `:file` through rather than double-prefixing it"
-    (story/reg-story :story.source-coords.cljs-root-pin
+    (rf.story/reg-story :story.source-coords.cljs-root-pin
       {:doc "rf2-3xq1v fixture — same coordinate, two project-root settings."})
-    (let [coord (:source (story/handler-meta :story :story.source-coords.cljs-root-pin))]
-      (config/set-editor! :windsurf)
-      (config/set-project-root! nil)
-      (let [bare (open-in-editor/resolve-uri coord)]
-        (config/set-project-root! "/some/external/root")
-        (is (= bare (open-in-editor/resolve-uri coord))
+    (let [coord (:source (rf.story/handler-meta :story :story.source-coords.cljs-root-pin))]
+      (rf.story.config/set-editor! :windsurf)
+      (rf.story.config/set-project-root! nil)
+      (let [bare (rf.story.ui.open-in-editor/resolve-uri coord)]
+        (rf.story.config/set-project-root! "/some/external/root")
+        (is (= bare (rf.story.ui.open-in-editor/resolve-uri coord))
             "an absolute :file is not re-rooted by the knob")
-        (config/set-project-root! nil)
-        (config/set-editor! :vscode)))))
+        (rf.story.config/set-project-root! nil)
+        (rf.story.config/set-editor! :vscode)))))

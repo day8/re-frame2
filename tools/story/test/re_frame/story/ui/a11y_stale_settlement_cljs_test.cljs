@@ -37,12 +37,12 @@
   (:require [cljs.test :refer [async deftest is testing use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.ui.a11y :as a11y]
-            [re-frame.story.ui.chrome-a11y :as chrome-a11y]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.a11y :as rf.story.ui.a11y]
+            [re-frame.story.ui.chrome-a11y :as rf.story.ui.chrome-a11y]))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -70,24 +70,24 @@
 (defn- setup! []
   (reset! saved-window (gobj/get js/globalThis "window"))
   (gobj/set js/globalThis "window" #js {})
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
-  (a11y/reset-state!)
-  (chrome-a11y/reset-state!)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
+  (rf.story.ui.a11y/reset-state!)
+  (rf.story.ui.chrome-a11y/reset-state!)
   ;; `ensure-axe-loaded!` latches this once it has seen a global axe;
   ;; clear it so each test re-reads the fake installed for it.
-  (reset! a11y/axe-loaded? false)
-  (a11y/set-cdn-opt-in! true))
+  (reset! rf.story.ui.a11y/axe-loaded? false)
+  (rf.story.ui.a11y/set-cdn-opt-in! true))
 
 (defn- teardown! []
-  (a11y/set-cdn-opt-in! false)
-  (reset! a11y/axe-loaded? false)
-  (a11y/reset-state!)
-  (chrome-a11y/reset-state!)
+  (rf.story.ui.a11y/set-cdn-opt-in! false)
+  (reset! rf.story.ui.a11y/axe-loaded? false)
+  (rf.story.ui.a11y/reset-state!)
+  (rf.story.ui.chrome-a11y/reset-state!)
   (gobj/set js/globalThis "window" @saved-window))
 
 (use-fixtures :each {:before setup! :after teardown!})
@@ -127,10 +127,10 @@
 (defn- violation-ids
   "The violation ids the variant panel currently holds for `frame-id`."
   [frame-id]
-  (mapv #(gobj/get % "id") (get @a11y/violations-by-frame frame-id [])))
+  (mapv #(gobj/get % "id") (get @rf.story.ui.a11y/violations-by-frame frame-id [])))
 
 (defn- chrome-violation-ids []
-  (mapv #(gobj/get % "id") @chrome-a11y/violations))
+  (mapv #(gobj/get % "id") @rf.story.ui.chrome-a11y/violations))
 
 (def ^:private frame-id :story.a11y-fence/variant)
 
@@ -147,10 +147,10 @@
       (let [scans (atom 0)]
         (install-axe! (fn [_] (swap! scans inc)
                         (js/Promise.resolve (results "color-contrast"))))
-        (-> (a11y/run-axe! frame-id (ctx))
+        (-> (rf.story.ui.a11y/run-axe! frame-id (ctx))
             (.then (fn [_]
                      (is (= 1 @scans) "the scan really ran")
-                     (is (= :done (a11y/status-for frame-id))
+                     (is (= :done (rf.story.ui.a11y/status-for frame-id))
                          "the owning run reached its terminal status")
                      (is (= ["color-contrast"] (violation-ids frame-id))
                          "and its violations were recorded")
@@ -169,17 +169,17 @@
         (fn [_]
           ;; The takeover, placed exactly: the run has claimed the slot
           ;; and reached `:running`, and the scan is now in flight.
-          (a11y/drop-frame-state! frame-id)
+          (rf.story.ui.a11y/drop-frame-state! frame-id)
           (js/Promise.resolve (results "color-contrast"))))
-      (-> (a11y/run-axe! frame-id (ctx))
+      (-> (rf.story.ui.a11y/run-axe! frame-id (ctx))
           (.then (fn [_]
-                   (is (not (contains? @a11y/run-state frame-id))
+                   (is (not (contains? @rf.story.ui.a11y/run-state frame-id))
                        "no phantom run-state entry — the slot stayed torn down")
-                   (is (not (contains? @a11y/violations-by-frame frame-id))
+                   (is (not (contains? @rf.story.ui.a11y/violations-by-frame frame-id))
                        "and no phantom violations bag beside it: this is the
                         entry `browser/register-a11y-reader!` would have
                         served to :rf.assert/a11y as a verdict")
-                   (is (= :idle (a11y/status-for frame-id))
+                   (is (= :idle (rf.story.ui.a11y/status-for frame-id))
                        "a frame with no slot reads :idle, NOT :done")
                    nil))
           ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block` a
@@ -206,12 +206,12 @@
             ;; B claims the slot mid-A-scan and parks in its own scan, so
             ;; B demonstrably still holds the slot at assertion time.
             (install-axe! (fn [_] ((:fire! b-scanning)) (never-settles)))
-            (a11y/run-axe! frame-id (ctx))
+            (rf.story.ui.a11y/run-axe! frame-id (ctx))
             (js/Promise.resolve (results "from-run-a"))))
-        (-> (js/Promise.all #js [(a11y/run-axe! frame-id (ctx))
+        (-> (js/Promise.all #js [(rf.story.ui.a11y/run-axe! frame-id (ctx))
                                  (:promise b-scanning)])
             (.then (fn [_]
-                     (is (= :running (a11y/status-for frame-id))
+                     (is (= :running (rf.story.ui.a11y/status-for frame-id))
                          "B still owns the slot and is still scanning — A's
                           settlement did not write its terminal :done over it")
                      (is (= [] (violation-ids frame-id))
@@ -229,42 +229,42 @@
     (async done
       (letfn [(admit! [id k]
                 (install-axe! (fn [_] (js/Promise.resolve (results id))))
-                (.then (a11y/run-axe! frame-id (ctx)) k))
+                (.then (rf.story.ui.a11y/run-axe! frame-id (ctx)) k))
               (refuse! [id k]
                 (let [b (signal)]
                   (install-axe!
                     (fn [_]
                       (install-axe! (fn [_] ((:fire! b)) (never-settles)))
-                      (a11y/run-axe! frame-id (ctx))
+                      (rf.story.ui.a11y/run-axe! frame-id (ctx))
                       (js/Promise.resolve (results id))))
-                  (.then (js/Promise.all #js [(a11y/run-axe! frame-id (ctx))
+                  (.then (js/Promise.all #js [(rf.story.ui.a11y/run-axe! frame-id (ctx))
                                               (:promise b)])
                          k)))]
         (admit!
           "v1"
           (fn [_]
             (is (= ["v1"] (violation-ids frame-id)) "1/4 ADMITTED")
-            (is (= :done (a11y/status-for frame-id)))
+            (is (= :done (rf.story.ui.a11y/status-for frame-id)))
             (refuse!
               "v2"
               (fn [_]
                 (is (= ["v1"] (violation-ids frame-id))
                     "2/4 REFUSED — the superseded run left v1 standing")
-                (is (= :running (a11y/status-for frame-id)))
+                (is (= :running (rf.story.ui.a11y/status-for frame-id)))
                 (admit!
                   "v3"
                   (fn [_]
                     (is (= ["v3"] (violation-ids frame-id))
                         "3/4 ADMITTED AGAIN — the refusal did not latch the
                          fence shut")
-                    (is (= :done (a11y/status-for frame-id)))
+                    (is (= :done (rf.story.ui.a11y/status-for frame-id)))
                     (refuse!
                       "v4"
                       (fn [_]
                         (is (= ["v3"] (violation-ids frame-id))
                             "4/4 REFUSED AGAIN — the admission did not latch
                              the fence open")
-                        (is (= :running (a11y/status-for frame-id)))
+                        (is (= :running (rf.story.ui.a11y/status-for frame-id)))
                         (done)))))))))))))
 
 (deftest a-superseded-run-declines-to-scan
@@ -278,13 +278,13 @@
         (install-axe! (fn [_] (swap! scans inc) (js/Promise.resolve (results))))
         ;; Claim the slot and tear it down before the load settles — the
         ;; whole of `run-axe!`'s first `.then` is still ahead of us.
-        (let [p (a11y/run-axe! frame-id (ctx))]
-          (a11y/drop-frame-state! frame-id)
+        (let [p (rf.story.ui.a11y/run-axe! frame-id (ctx))]
+          (rf.story.ui.a11y/drop-frame-state! frame-id)
           (-> p
               (.then (fn [_]
                        (is (= 0 @scans)
                            "axe-core was never invoked for the abandoned run")
-                       (is (not (contains? @a11y/run-state frame-id))
+                       (is (not (contains? @rf.story.ui.a11y/run-state frame-id))
                            "and nothing was resurrected")
                        (done)))))))))
 
@@ -298,12 +298,12 @@
         (install-axe!
           (fn [_]
             (install-axe! (fn [_] ((:fire! b-scanning)) (never-settles)))
-            (a11y/run-axe! frame-id (ctx))
+            (rf.story.ui.a11y/run-axe! frame-id (ctx))
             (js/Promise.reject (js/Error. "axe blew up"))))
-        (-> (js/Promise.all #js [(a11y/run-axe! frame-id (ctx))
+        (-> (js/Promise.all #js [(rf.story.ui.a11y/run-axe! frame-id (ctx))
                                  (:promise b-scanning)])
             (.then (fn [_]
-                     (is (= :running (a11y/status-for frame-id))
+                     (is (= :running (rf.story.ui.a11y/status-for frame-id))
                          "B's in-flight scan was not overwritten with A's :error")
                      (done))))))))
 
@@ -314,11 +314,11 @@
     (async done
       (install-axe!
         (fn [_]
-          (a11y/drop-frame-state! frame-id)
+          (rf.story.ui.a11y/drop-frame-state! frame-id)
           (js/Promise.reject (js/Error. "axe blew up"))))
-      (-> (a11y/run-axe! frame-id (ctx))
+      (-> (rf.story.ui.a11y/run-axe! frame-id (ctx))
           (.then (fn [_]
-                   (is (not (contains? @a11y/run-state frame-id))
+                   (is (not (contains? @rf.story.ui.a11y/run-state frame-id))
                        "no phantom :error slot for a torn-down frame")
                    (done)))))))
 
@@ -335,9 +335,9 @@
   (testing "POSITIVE CONTROL for the chrome panel"
     (async done
       (install-axe! (fn [_] (js/Promise.resolve (results "region"))))
-      (-> (chrome-a11y/run-axe! (ctx))
+      (-> (rf.story.ui.chrome-a11y/run-axe! (ctx))
           (.then (fn [_]
-                   (is (= :done (chrome-a11y/status)))
+                   (is (= :done (rf.story.ui.chrome-a11y/status)))
                    (is (= ["region"] (chrome-violation-ids)))
                    (done)))))))
 
@@ -350,11 +350,11 @@
     (async done
       (install-axe!
         (fn [_]
-          (chrome-a11y/reset-state!)
+          (rf.story.ui.chrome-a11y/reset-state!)
           (js/Promise.resolve (results "region"))))
-      (-> (chrome-a11y/run-axe! (ctx))
+      (-> (rf.story.ui.chrome-a11y/run-axe! (ctx))
           (.then (fn [_]
-                   (is (= :idle (chrome-a11y/status))
+                   (is (= :idle (rf.story.ui.chrome-a11y/status))
                        "the reset stands — the stale settlement did not
                         restore :done over it")
                    (is (= [] (chrome-violation-ids))
@@ -369,12 +369,12 @@
         (install-axe!
           (fn [_]
             (install-axe! (fn [_] ((:fire! b-scanning)) (never-settles)))
-            (chrome-a11y/run-axe! (ctx))
+            (rf.story.ui.chrome-a11y/run-axe! (ctx))
             (js/Promise.resolve (results "from-run-a"))))
-        (-> (js/Promise.all #js [(chrome-a11y/run-axe! (ctx))
+        (-> (js/Promise.all #js [(rf.story.ui.chrome-a11y/run-axe! (ctx))
                                  (:promise b-scanning)])
             (.then (fn [_]
-                     (is (= :running (chrome-a11y/status))
+                     (is (= :running (rf.story.ui.chrome-a11y/status))
                          "B still owns the scan")
                      (is (= [] (chrome-violation-ids))
                          "and A's findings were not attributed to it")
@@ -387,15 +387,15 @@
     (async done
       (letfn [(admit! [id k]
                 (install-axe! (fn [_] (js/Promise.resolve (results id))))
-                (.then (chrome-a11y/run-axe! (ctx)) k))
+                (.then (rf.story.ui.chrome-a11y/run-axe! (ctx)) k))
               (refuse! [id k]
                 (let [b (signal)]
                   (install-axe!
                     (fn [_]
                       (install-axe! (fn [_] ((:fire! b)) (never-settles)))
-                      (chrome-a11y/run-axe! (ctx))
+                      (rf.story.ui.chrome-a11y/run-axe! (ctx))
                       (js/Promise.resolve (results id))))
-                  (.then (js/Promise.all #js [(chrome-a11y/run-axe! (ctx))
+                  (.then (js/Promise.all #js [(rf.story.ui.chrome-a11y/run-axe! (ctx))
                                               (:promise b)])
                          k)))]
         (admit!

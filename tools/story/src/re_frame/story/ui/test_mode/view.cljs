@@ -75,17 +75,17 @@
   `(when config/enabled? ...)`-gated mount call, so production builds
   never invoke it — closure DCEs the lot."
   (:require [reagent.core                              :as r]
-            [re-frame.story.predicates                 :as pred]
-            [re-frame.story.ui.open-in-editor          :as open-in-editor]
-            [re-frame.story.ui.promotion               :as promotion]
-            [re-frame.story.ui.state                   :as shell-state]
-            [re-frame.story.ui.test-mode.pure          :as pure]
-            [re-frame.story.ui.test-mode.state         :as state]
-            [re-frame.story.ui.test-mode.stepper-view  :as stepper-view]
-            [re-frame.story.ui.test-mode.visual-a11y-view :as visual-a11y-view]
+            [re-frame.story.predicates                 :as rf.story.predicates]
+            [re-frame.story.ui.open-in-editor          :as rf.story.ui.open-in-editor]
+            [re-frame.story.ui.promotion               :as rf.story.ui.promotion]
+            [re-frame.story.ui.state                   :as rf.story.ui.state]
+            [re-frame.story.ui.test-mode.pure          :as rf.story.ui.test-mode.pure]
+            [re-frame.story.ui.test-mode.state         :as rf.story.ui.test-mode.state]
+            [re-frame.story.ui.test-mode.stepper-view  :as rf.story.ui.test-mode.stepper-view]
+            [re-frame.story.ui.test-mode.visual-a11y-view :as rf.story.ui.test-mode.visual-a11y-view]
             [re-frame.story.ui.test-mode.view-styles   :refer [styles]]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; Styles live in `re-frame.story.ui.test-mode.view-styles` (pure-data
 ;; leaf, no Reagent dep). Required as `styles` above so the in-file
@@ -96,12 +96,12 @@
 (defn- header
   "Variant id + parent story id + Re-run button + last-run badge."
   [variant-id]
-  (let [slot       (get @state/results-atom variant-id)
+  (let [slot       (get @rf.story.ui.test-mode.state/results-atom variant-id)
         running?   (:running? slot)
         ran-at-ms  (:ran-at-ms slot)
         result     (:result slot)
         elapsed    (:elapsed-ms result)
-        story-id   (pred/parent-story-id variant-id)]
+        story-id   (rf.story.predicates/parent-story-id variant-id)]
     [:div
      [:h1 {:style (:h1 styles)} (str variant-id)]
      [:div {:style     (:sub styles)
@@ -116,17 +116,17 @@
         :data-test      "story-test-rerun"
         :disabled       running?
         :aria-label     "Re-run the variant's :script sequence"
-        :on-click       (fn [_] (when-not running? (state/run-variant-pane! variant-id)))}
+        :on-click       (fn [_] (when-not running? (rf.story.ui.test-mode.state/run-variant-pane! variant-id)))}
        (if running? "Running…" "Re-run")]
       [:div {:style (:last-run styles)}
        (when ran-at-ms
          [:span {:data-test "story-test-timestamp"}
-          (str "ran " (pure/format-timestamp-ms ran-at-ms))])
+          (str "ran " (rf.story.ui.test-mode.pure/format-timestamp-ms ran-at-ms))])
        (when (and ran-at-ms elapsed)
          [:span " · "])
        (when (number? elapsed)
          [:span {:data-test "story-test-elapsed"}
-          (pure/format-elapsed-ms elapsed)])]]
+          (rf.story.ui.test-mode.pure/format-elapsed-ms elapsed)])]]
      ;; runner selected vs required (spec/021 §1). The unified result
      ;; threads `:runner` / `:required-runner` verbatim; render an honest
      ;; "—" when the host did not stamp them.
@@ -151,17 +151,17 @@
   executed; the renderer composes its own placeholder in that interim
   state."
   [variant-id]
-  (let [slot   (get @state/results-atom variant-id)
+  (let [slot   (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result (:result slot)]
     (when result
-      (let [summary (shell-state/aggregate-summary (:assertions result))
+      (let [summary (rf.story.ui.state/aggregate-summary (:assertions result))
             {:keys [passed failed cannot-run total]} summary
             cannot-run (or cannot-run 0)
             ;; the unified run-level verdict (spec/021 §1), via the pure
             ;; projection. A tape-floor `:fail` / `:cannot-run`
             ;; refusal / `:error` surfaces even when assertion counts alone
             ;; would read green.
-            status     (pure/run-status result summary)
+            status     (rf.story.ui.test-mode.pure/run-status result summary)
             pill-style (case status
                          :pass       (:pill-pass styles)
                          :error      (:pill-error styles)
@@ -207,7 +207,7 @@
   `predicates/assertion-glyph` vocabulary), · for plain events / unknown.
   Pure-data; doesn't reach into ratoms."
   [status]
-  (get pred/assertion-glyph status "·"))
+  (get rf.story.predicates/assertion-glyph status "·"))
 
 (defn- scrubber-section
   "Step-through scrubber. One tick per play event with
@@ -220,28 +220,28 @@
   the ring buffer was disabled), the section short-circuits to a
   muted hint rather than a broken scrubber."
   [variant-id]
-  (let [slot          (get @state/results-atom variant-id)
+  (let [slot          (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result        (:result slot)
         play-events   (or (:play-events slot) [])
         epoch-ids     (or (:epoch-ids slot) [])
         selected-step (:selected-step slot)
         n             (count play-events)]
     (when (and result (pos? n))
-      (let [statuses (pure/play-step-statuses play-events (:assertions result))
+      (let [statuses (rf.story.ui.test-mode.pure/play-step-statuses play-events (:assertions result))
             has-epochs? (= n (count epoch-ids))]
         [:div {:style     (merge (:section styles) (:scrub-wrap styles))
                :data-test "story-test-scrubber-section"}
          [:div {:style (:scrub-h styles)}
           [:span "Step-through"]
-          [:span {:style {:color (:text-tertiary colors/tokens) :font-weight "normal"}}
+          [:span {:style {:color (:text-tertiary rf.story.theme.colors/tokens) :font-weight "normal"}}
            (cond
              (not has-epochs?)        (str n " steps · no epoch buffer")
              (some? selected-step)    (str "step " (inc selected-step) "/" n)
              :else                    (str n " steps"))]]
          (if-not has-epochs?
-           [:div {:style     {:color       (:text-tertiary colors/tokens)
+           [:div {:style     {:color       (:text-tertiary rf.story.theme.colors/tokens)
                               :font-style  "italic"
-                              :font-size   (:caption typography/type-scale)
+                              :font-size   (:caption rf.story.theme.typography/type-scale)
                               :font-family mono-stack}
                   :data-test "story-test-scrubber-no-epochs"}
             "epoch buffer empty — scrubber unavailable (run is non-elided?)"]
@@ -258,7 +258,7 @@
                        :data-index  (str index)
                        :data-status (name status)
                        :title       (str "step " (inc index) " · " label)
-                       :on-click    (fn [_] (state/select-step! variant-id index))}
+                       :on-click    (fn [_] (rf.story.ui.test-mode.state/select-step! variant-id index))}
                 (step-glyph status)])]
             [:input {:type        "range"
                      :min         0
@@ -270,7 +270,7 @@
                      :on-change   (fn [e]
                                     (let [idx (js/parseInt
                                                 (.. e -target -value))]
-                                      (state/select-step! variant-id idx)))}]
+                                      (rf.story.ui.test-mode.state/select-step! variant-id idx)))}]
             [:div {:style (:scrub-detail styles)}
              (when (some? selected-step)
                (let [step (nth statuses selected-step nil)]
@@ -279,7 +279,7 @@
              (when (some? selected-step)
                [:button {:style     (:scrub-release styles)
                          :data-test "story-test-scrubber-release"
-                         :on-click  (fn [_] (state/select-step! variant-id nil))}
+                         :on-click  (fn [_] (rf.story.ui.test-mode.state/select-step! variant-id nil))}
                 "release"])]])]))))
 
 (defn- row-detail
@@ -337,7 +337,7 @@
       ;; per-assertion 'Open in editor' chip — surfaces the
       ;; assertion's source-coord (the play-step site, captured by the
       ;; assertion's record builder per spec/004).
-      (open-in-editor/open-chip source :test-detail)])])
+      (rf.story.ui.open-in-editor/open-chip source :test-detail)])])
 
 (defn- status-glyph
   [status]
@@ -386,7 +386,7 @@
             [:div
              [:button
               {:style    (:details-tog styles)
-               :on-click (fn [_] (state/toggle-expanded! variant-id rk))
+               :on-click (fn [_] (rf.story.ui.test-mode.state/toggle-expanded! variant-id rk))
                :aria-expanded (if open? "true" "false")}
               (if open? "hide detail" "show detail")]
              (when open? (row-detail (:detail row)))]
@@ -409,7 +409,7 @@
                             (when failed-only? (:filter-on styles)))
      :data-test      "story-test-failed-only"
      :aria-pressed   (if failed-only? "true" "false")
-     :on-click       (fn [_] (state/set-failed-only! variant-id (not failed-only?)))}
+     :on-click       (fn [_] (rf.story.ui.test-mode.state/set-failed-only! variant-id (not failed-only?)))}
     (if failed-only? "✓ failed only" "failed only")]
    (when (and failed-only? (pos? hidden))
      [:span {:style     (:filter-hint styles)
@@ -423,14 +423,14 @@
   filter. Empty when no run has executed; renders nothing when the run
   recorded zero assertions (the summary pill already told the user)."
   [variant-id]
-  (let [slot         (get @state/results-atom variant-id)
+  (let [slot         (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result       (:result slot)
         expanded     (or (:expanded slot) #{})
         failed-only? (boolean (:failed-only? slot))]
     (when result
-      (let [all-rows (mapv pure/assertion-row (:assertions result))]
+      (let [all-rows (mapv rf.story.ui.test-mode.pure/assertion-row (:assertions result))]
         (when (seq all-rows)
-          (let [shown  (pure/filter-rows all-rows failed-only?)
+          (let [shown  (rf.story.ui.test-mode.pure/filter-rows all-rows failed-only?)
                 hidden (- (count all-rows) (count shown))]
             [:div {:style     (:section styles)
                    :data-test "story-test-rows-section"}
@@ -448,10 +448,10 @@
   Renders nothing when the plan declared no checks (the common case
   today — an honest empty state, never a fabricated check group)."
   [variant-id]
-  (let [slot     (get @state/results-atom variant-id)
+  (let [slot     (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result   (:result slot)
         expanded (or (:expanded slot) #{})
-        checks   (some-> result pure/check-rows)
+        checks   (some-> result rf.story.ui.test-mode.pure/check-rows)
         expanded-checks (or (:expanded-checks slot) #{})]
     (when (seq checks)
       [:div {:style     (:section styles)
@@ -464,7 +464,7 @@
                   :data-test "story-test-check"
                   :data-status (name status)}
             [:div {:style    (:check-head styles)
-                   :on-click (fn [_] (state/toggle-check! variant-id check))
+                   :on-click (fn [_] (rf.story.ui.test-mode.state/toggle-check! variant-id check))
                    :aria-expanded (if open? "true" "false")}
              (status-glyph status)
              [:span {:style (:check-id styles)} (str check)]
@@ -480,9 +480,9 @@
   unconsumed ones (spec/021 §1). Renders nothing when the tape carried no
   schema violations."
   [variant-id]
-  (let [slot   (get @state/results-atom variant-id)
+  (let [slot   (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result (:result slot)
-        rows   (some-> result pure/schema-rows)]
+        rows   (some-> result rf.story.ui.test-mode.pure/schema-rows)]
     (when (seq rows)
       [:div {:style     (:section styles)
              :data-test "story-test-schema-section"}
@@ -514,9 +514,9 @@
   what was AVAILABLE, so it reads as a refusal rather than a failure.
   Renders nothing when the chosen runner satisfied every requirement."
   [variant-id]
-  (let [slot   (get @state/results-atom variant-id)
+  (let [slot   (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result (:result slot)
-        rows   (some-> result pure/cannot-run-rows)]
+        rows   (some-> result rf.story.ui.test-mode.pure/cannot-run-rows)]
     (when (seq rows)
       [:div {:style     (:section styles)
              :data-test "story-test-cannot-run-section"}
@@ -547,10 +547,10 @@
   run retained an epoch tape the link target exists but the surface is
   pending; otherwise there is no evidence to link. No fabricated link."
   [variant-id]
-  (let [slot   (get @state/results-atom variant-id)
+  (let [slot   (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result (:result slot)]
     (when result
-      (let [evidence? (pure/evidence-available? result)]
+      (let [evidence? (rf.story.ui.test-mode.pure/evidence-available? result)]
         [:div {:style     (:evidence-row styles)
                :data-test "story-test-evidence-row"
                :data-evidence (str evidence?)}
@@ -575,33 +575,33 @@
   Renders nothing until a run has produced a capturable program — promotion
   needs a replayable artifact, so a bare pending slot offers no button."
   [variant-id]
-  (let [slot        (get @state/results-atom variant-id)
+  (let [slot        (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result      (:result slot)
         play-events (or (:play-events slot) [])]
     (when (and result
-               (some? (promotion/result->artifact result play-events)))
+               (some? (rf.story.ui.promotion/result->artifact result play-events)))
       [:div {:style     (:evidence-row styles)
              :data-test "story-test-promotion-row"}
        [:button
         {:style     {:padding       "4px 10px"
-                     :background    (:bg-3 colors/tokens)
-                     :color         (:text-secondary colors/tokens)
-                     :border        (str "1px solid " (:border-default colors/tokens))
+                     :background    (:bg-3 rf.story.theme.colors/tokens)
+                     :color         (:text-secondary rf.story.theme.colors/tokens)
+                     :border        (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                      :border-radius "6px"
                      :cursor        "pointer"
                      :font-family   mono-stack
-                     :font-size     (:caption typography/type-scale)}
+                     :font-size     (:caption rf.story.theme.typography/type-scale)}
          :data-test "story-test-promote-button"
          :title     "Capture this run as an artifact and promote it to a curated regression variant"
          :on-click  (fn [_]
-                      (when-let [id (promotion/capture-from-result!
+                      (when-let [id (rf.story.ui.promotion/capture-from-result!
                                       result play-events variant-id)]
-                        (promotion/open! id)))}
+                        (rf.story.ui.promotion/open! id)))}
         "promote run → regression variant…"]
        [:span {:style {:margin-left "8px"
-                       :color (:text-tertiary colors/tokens)
+                       :color (:text-tertiary rf.story.theme.colors/tokens)
                        :font-style "italic"
-                       :font-size (:micro typography/type-scale)}}
+                       :font-size (:micro rf.story.theme.typography/type-scale)}}
         "captures this run as evidence; distinct from save-current-state"]])))
 
 (defn- empty-state
@@ -610,7 +610,7 @@
   [:div {:style     (:empty styles)
          :data-test "story-test-empty"}
    [:div {:style {:font-weight "bold" :margin-bottom "8px"
-                  :color (:text-primary colors/tokens)}}
+                  :color (:text-primary rf.story.theme.colors/tokens)}}
     "No tests registered for this variant"]
    [:div
     "Add a "
@@ -666,11 +666,11 @@
         ;; a reconciled prop swap). If a slot already exists (returning
         ;; to the tab without a variant change) we don't re-fire — the
         ;; user clicks Re-run to refresh.
-        (when (and (pure/variant-has-tests? variant-id)
-                   (not (get @state/results-atom variant-id)))
-          (state/run-variant-pane! variant-id)))
+        (when (and (rf.story.ui.test-mode.pure/variant-has-tests? variant-id)
+                   (not (get @rf.story.ui.test-mode.state/results-atom variant-id)))
+          (rf.story.ui.test-mode.state/run-variant-pane! variant-id)))
       (cond
-        (not (pure/variant-has-tests? variant-id))
+        (not (rf.story.ui.test-mode.pure/variant-has-tests? variant-id))
         [:section {:style     (:wrap styles)
                    :data-test "story-test-view"
                    :aria-label "Variant tests"}
@@ -687,7 +687,7 @@
          ;; script-checkpoint, with the failed-only filter), schema
          ;; violations (consumed + unconsumed), and cannot-run refusals.
          [checks-section variant-id]
-         [stepper-view/stepper-section variant-id]
+         [rf.story.ui.test-mode.stepper-view/stepper-section variant-id]
          [scrubber-section variant-id]
          [rows-section variant-id]
          [schema-section variant-id]
@@ -699,7 +699,7 @@
          ;; finding+locus list; screenshot identity; honest cannot-run),
          ;; rather than as the raw `:actual` EDN blob the generic
          ;; assertions table would show.
-         [visual-a11y-view/visual-a11y-section variant-id]
+         [rf.story.ui.test-mode.visual-a11y-view/visual-a11y-section variant-id]
          ;; result → evidence-spine link (spec/021 §2),
          ;; a graceful "evidence pending" until the spine display lands.
          [evidence-section variant-id]

@@ -6,7 +6,7 @@
   the step types reach for:
 
   - `:dispatch` → dispatch + settle through `settled-boundary`
-    (`boundary/dispatch-and-settle!`) against the variant's
+    (`rf.story.play.settled-boundary/dispatch-and-settle!`) against the variant's
     frame; in headless this drains via `dispatch-sync!` to a fixed point
     (richer runners supply reactive / DOM flushes through flush-hooks).
     `:dispatch-sync` → the low-level `re-frame.router/dispatch-sync!` escape.
@@ -43,22 +43,22 @@
   cascade."
   (:refer-clojure :exclude [run!])
   (:require [re-frame.core              :as rf]
-            [re-frame.router            :as router]
-            [re-frame.frame             :as frame]
-            [re-frame.interop           :as interop]
+            [re-frame.router            :as rf.router]
+            [re-frame.frame             :as rf.frame]
+            [re-frame.interop           :as rf.interop]
             #?(:cljs [reagent.core      :as r])
-            [re-frame.story.assertions  :as assertions]
-            [re-frame.story.config      :as config]
-            [re-frame.story.late-bind   :as late-bind]
-            [re-frame.story.play        :as play]
-            [re-frame.story.play.browser :as browser]
-            [re-frame.story.play.dom    :as dom]
-            [re-frame.story.play.evidence :as evidence]
-            [re-frame.story.play.presence :as presence]
-            [re-frame.story.play.runner :as runner]
-            [re-frame.story.play.settled-boundary :as boundary]
-            [re-frame.story.predicates  :as pred]
-            [re-frame.story.registrar   :as registrar]))
+            [re-frame.story.assertions  :as rf.story.assertions]
+            [re-frame.story.config      :as rf.story.config]
+            [re-frame.story.late-bind   :as rf.story.late-bind]
+            [re-frame.story.play        :as rf.story.play]
+            [re-frame.story.play.browser :as rf.story.play.browser]
+            [re-frame.story.play.dom    :as rf.story.play.dom]
+            [re-frame.story.play.evidence :as rf.story.play.evidence]
+            [re-frame.story.play.presence :as rf.story.play.presence]
+            [re-frame.story.play.runner :as rf.story.play.runner]
+            [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]
+            [re-frame.story.predicates  :as rf.story.predicates]
+            [re-frame.story.registrar   :as rf.story.registrar]))
 
 ;; ---- per-variant run-state -----------------------------------------------
 
@@ -104,7 +104,7 @@
          dispatch-step execution order. The evidence projection
          (`runtime/record-result-map`) reads this through
          `settle-boundaries` and hands it to
-         `evidence/project-evidence` as `:attribution`, lighting up the
+         `rf.story.play.evidence/project-evidence` as `:attribution`, lighting up the
          EXACT narrative attribution (`spans-from-stamps`) instead of the
          EVEN heuristic.
 
@@ -214,7 +214,7 @@
   play-key accumulates into its OWN slot and can never collide with — or
   be wiped alongside — this one."
   [frame-id play-key step]
-  (when (evidence/dispatch-step? step)
+  (when (rf.story.play.evidence/dispatch-step? step)
     (swap! step-boundaries update [frame-id play-key] (fnil conj []) (last-epoch-id frame-id)))
   nil)
 
@@ -249,7 +249,7 @@
   `run!` (clears its OWN resolved play-key), the multi-play sequencers
   (`run-plays-sequentially!`, the orchestrator `runtime/run-phase-4!` —
   which also covers its no-auto-plays branch) clear each play-key they are
-  ABOUT to drive, and the stepper start `play/begin-stepper!` (via the
+  ABOUT to drive, and the stepper start `rf.story.play/begin-stepper!` (via the
   `:clear-step-boundaries` late-bind seam, always play-key nil — the
   stepper only ever walks the default play). So a non-orchestrator re-run /
   replay-in-place / stepping session never inherits stale accumulated
@@ -329,7 +329,7 @@
   "Look up the variant body via the framework registrar."
   [variant-id]
   (try
-    (registrar/handler-meta :variant variant-id)
+    (rf.story.registrar/handler-meta :variant variant-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 ;; ---- replay target (EP-0023) ---------------------------------------------
@@ -344,7 +344,7 @@
 ;; ---- folded-plan consumption --------------------------------------------
 ;;
 ;; The runtime CONSUMES the folded plan: every play's script is folded
-;; through `assertions/fold-script` at resolution time, so a shipping
+;; through `rf.story.assertions/fold-script` at resolution time, so a shipping
 ;; `:assert-db` / `:assert-dom` step is rewritten to the canonical
 ;; `[:assert assertion-atom]` checkpoint BEFORE the run loop drives it
 ;; (spec/017 §Assertions — one atom, two positions). After folding,
@@ -356,17 +356,17 @@
 ;; assertion-record vocabulary, not two.
 
 (defn- fold-spec
-  "Fold a parsed play spec's `:script` through `assertions/fold-script` so
+  "Fold a parsed play spec's `:script` through `rf.story.assertions/fold-script` so
   shipping `:assert-db` / `:assert-dom` steps become canonical
   `[:assert …]` checkpoints. Pure data → data; preserves
   `:auto-run?` / `:name`."
   [spec]
   (cond-> spec
-    (contains? spec :script) (update :script assertions/fold-script)))
+    (contains? spec :script) (update :script rf.story.assertions/fold-script)))
 
 (defn variant-play-script
   "Resolve the `:script` body on `variant-id`, parse it, and FOLD its
-  script. Returns the normalised spec map per `runner/parse-spec` with
+  script. Returns the normalised spec map per `rf.story.play.runner/parse-spec` with
   every shipping `:assert-db` / `:assert-dom` step rewritten to the
   canonical `[:assert …]` checkpoint. Variants without `:script`
   return `{:script [] :auto-run? true}`.
@@ -377,7 +377,7 @@
   `variant-plays` instead."
   [variant-id]
   (let [body  (handler-meta variant-id)
-        plays (runner/variant-body->plays body)]
+        plays (rf.story.play.runner/variant-body->plays body)]
     (fold-spec
       (cond
         ;; Multi-play (:plays slot) — default to the first play.
@@ -386,7 +386,7 @@
 
         ;; Single-script (:script slot).
         :else
-        (runner/parse-spec (when body (:script body)))))))
+        (rf.story.play.runner/parse-spec (when body (:script body)))))))
 
 ;; ---- multi-play warning (one-shot) ---------------------------------------
 
@@ -425,7 +425,7 @@
     ;; FOLD every resolved play's script so the runtime consumes the
     ;; folded plan: `:assert-db` / `:assert-dom` steps become canonical
     ;; `[:assert …]` checkpoints before the run loop.
-    (mapv fold-spec (runner/variant-body->plays body))))
+    (mapv fold-spec (rf.story.play.runner/variant-body->plays body))))
 
 (defn resolve-play
   "Resolve a `(variant-id, play-key)` pair to the parsed, FOLDED play spec,
@@ -436,7 +436,7 @@
   (let [plays (variant-plays variant-id)]
     (if (nil? play-key)
       (first plays)
-      (runner/find-play plays play-key))))
+      (rf.story.play.runner/find-play plays play-key))))
 
 ;; ---- trace emission ------------------------------------------------------
 
@@ -445,11 +445,11 @@
   `variant-id`. Goes through `re-frame.core/emit-trace-event!` (which
   delegates to `re-frame.trace/emit!`) so the bus + ring buffer +
   listener fan-out all observe it. Safe under production elision —
-  `re-frame.trace/emit!` short-circuits when `interop/debug-enabled?`
+  `re-frame.trace/emit!` short-circuits when `rf.interop/debug-enabled?`
   is false."
   [variant-id name idx step result]
   (try
-    (let [payload (runner/trace-record
+    (let [payload (rf.story.play.runner/trace-record
                     {:variant-id variant-id
                      :name       name
                      :idx        idx
@@ -461,7 +461,7 @@
       ;; per-frame.
       (rf/emit-trace-event!
         :rf.story.play/step
-        runner/trace-event-id
+        rf.story.play.runner/trace-event-id
         (merge {:frame variant-id} payload)))
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
@@ -477,15 +477,15 @@
 (defn current-flush-hooks
   "Resolve the active flush-hooks map. An adapter-aware caller (the
   Reagent/UIx shell, a future `:dom` browser runner) registers a
-  richer hooks map via `late-bind/set-fn! :settled-boundary-hooks <fn>`,
+  richer hooks map via `rf.story.late-bind/set-fn! :settled-boundary-hooks <fn>`,
   where the fn takes the frame-id and returns the hooks for that frame.
   When no adapter has registered, the headless hooks are used so a
   `[:dispatch …]` step settles to fixed point synchronously."
   [frame-id]
-  (if-let [f (late-bind/get-fn :settled-boundary-hooks)]
+  (if-let [f (rf.story.late-bind/get-fn :settled-boundary-hooks)]
     (or (try (f frame-id) (catch #?(:clj Throwable :cljs :default) _ nil))
-        boundary/headless-flush-hooks)
-    boundary/headless-flush-hooks))
+        rf.story.play.settled-boundary/headless-flush-hooks)
+    rf.story.play.settled-boundary/headless-flush-hooks))
 
 ;; ---- step executors ------------------------------------------------------
 
@@ -522,11 +522,11 @@
                     (str (:id rec) " " (pr-str (:payload rec))
                          " failed (expected " (pr-str (:expected rec))
                          ", actual " (pr-str (:actual rec)) ")"))]
-        (runner/step-fail idx step
+        (rf.story.play.runner/step-fail idx step
                           {:expected (:expected rec)
                            :actual   (:actual rec)
                            :message  msg}))
-      (runner/step-skip idx step))))
+      (rf.story.play.runner/step-skip idx step))))
 
 (defn- boundary-result->step
   "Project a `settled-boundary/dispatch-and-settle!` non-`:settled`
@@ -538,7 +538,7 @@
   [idx step settle]
   (case (:status settle)
     :cannot-run
-    (runner/step-fail idx step
+    (rf.story.play.runner/step-fail idx step
                       {:cannot-run? true
                        :required-boundary (:required-boundary settle)
                        :provided-boundary (:provided-boundary settle)
@@ -550,7 +550,7 @@
                                       (pr-str (:provided-boundary settle))
                                       " (" (name (or (:reason settle) :runner-below-required-boundary)) ")")})
     :error
-    (runner/step-exception idx step (:error settle))
+    (rf.story.play.runner/step-exception idx step (:error settle))
     ;; :settled → no step-level result from the boundary itself.
     nil))
 
@@ -580,47 +580,47 @@
   `:passed? false` becomes a runner-visible step-fail so the play's
   terminal status flips to `:fail`."
   [frame-id idx step]
-  (let [evec     (runner/step-event step)
+  (let [evec     (rf.story.play.runner/step-event step)
         ;; A replayed `[:dispatch evec {:rf.cofx …}]` step carries a
         ;; captured recordable-coeffect envelope. Pass it to the boundary
         ;; as dispatch-opts so the handler's declared coeffects replay from
         ;; the recorded value instead of being restamped.
-        cofx     (runner/step-cofx step)
+        cofx     (rf.story.play.runner/step-cofx step)
         dopts    (when (and (map? cofx) (seq cofx)) {:rf.cofx cofx})
         prev     (assertion-count frame-id)
-        required (boundary/step-required-boundary step)
+        required (rf.story.play.settled-boundary/step-required-boundary step)
         hooks    (current-flush-hooks frame-id)
         settle   (try
-                   (boundary/dispatch-and-settle! frame-id evec hooks required step dopts)
+                   (rf.story.play.settled-boundary/dispatch-and-settle! frame-id evec hooks required step dopts)
                    (catch #?(:clj Throwable :cljs :default) e
                      {:status :error
                       :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
                       :step   step}))]
-    (play/drain-pending-exceptions! frame-id :phase-4-play)
+    (rf.story.play/drain-pending-exceptions! frame-id :phase-4-play)
     (or (boundary-result->step idx step settle)
         (dispatch-step-result frame-id prev idx step))))
 
 (defn- exec-dispatch-sync!
   [frame-id idx step]
-  (let [evec   (runner/step-event step)
+  (let [evec   (rf.story.play.runner/step-event step)
         ;; When the step carries a captured `:rf.cofx` envelope, thread it
         ;; into the dispatch opts so the handler's declared recordable
         ;; coeffects (provided facts + the framework `:rf/time-ms`) replay
         ;; from the recorded value instead of being restamped / failing
         ;; `:rf.error/missing-required-cofx`. Absent cofx dispatches with
         ;; the bare frame opts.
-        cofx   (runner/step-cofx step)
+        cofx   (rf.story.play.runner/step-cofx step)
         opts   (cond-> {:frame frame-id}
                  (and (map? cofx) (seq cofx)) (assoc :rf.cofx cofx))
         prev   (assertion-count frame-id)
         result (try
-                 (router/dispatch-sync! evec opts)
+                 (rf.router/dispatch-sync! evec opts)
                  nil
                  (catch #?(:clj Throwable :cljs :default) e
-                   (runner/step-exception idx step
+                   (rf.story.play.runner/step-exception idx step
                                           #?(:clj  (.getMessage ^Throwable e)
                                              :cljs (str e)))))]
-    (play/drain-pending-exceptions! frame-id :phase-4-play)
+    (rf.story.play/drain-pending-exceptions! frame-id :phase-4-play)
     (or result (dispatch-step-result frame-id prev idx step))))
 
 (defn- read-frame-db
@@ -638,15 +638,15 @@
 ;; step. It has no reg-event handler (the DOM runner that PROVES it is the
 ;; `:dom` capability wired via `requirements`), so an
 ;; `[:assert [:rf.assert/dom-* …]]` checkpoint is EVALUATED directly through
-;; the DOM executor (`dom/assert-visible` / `dom/assert-text`) and records a
+;; the DOM executor (`rf.story.play.dom/assert-visible` / `rf.story.play.dom/assert-text`) and records a
 ;; CANONICAL `:rf.assert/dom-*` record on the frame's `:rf.story/assertions`
 ;; slot. There is no synthetic `:rf.assert/dom` id — the canonical folded id
 ;; is the one recorded.
 
 (def ^:private dom-atom->mode
-  "Map a DOM-family assertion id to the `dom/assert-visible` mode it
+  "Map a DOM-family assertion id to the `rf.story.play.dom/assert-visible` mode it
   evaluates. `:rf.assert/dom-text` is handled separately (it calls
-  `dom/assert-text`)."
+  `rf.story.play.dom/assert-text`)."
   {:rf.assert/dom-visible :visible
    :rf.assert/dom-hidden  :hidden})
 
@@ -663,60 +663,60 @@
   (let [aid      (first atom-v)
         selector (nth atom-v 1 nil)
         result   (if (= :rf.assert/dom-text aid)
-                   (dom/assert-text selector (nth atom-v 2 nil))
-                   (dom/assert-visible selector (get dom-atom->mode aid :visible)))]
+                   (rf.story.play.dom/assert-text selector (nth atom-v 2 nil))
+                   (rf.story.play.dom/assert-visible selector (get dom-atom->mode aid :visible)))]
     ;; Record the canonical DOM-family assertion record on the slot (unless
     ;; the step was a no-DOM skip — a skip proved nothing, so it must not
     ;; read as a vacuous pass).
     (when-not (:skipped? result)
-      (assertions/record!
+      (rf.story.assertions/record!
         frame-id
         (cond-> {:assertion    aid
                  :passed?      (boolean (:passed? result))
                  :payload      (vec (rest atom-v))
-                 :source-coord (:source (registrar/handler-meta :variant frame-id))}
+                 :source-coord (:source (rf.story.registrar/handler-meta :variant frame-id))}
           (contains? result :expected) (assoc :expected (:expected result))
           (contains? result :actual)   (assoc :actual   (:actual result))
           (:message result)            (assoc :reason   (:message result)))))
     (cond
-      (:skipped? result) (runner/step-fail idx step
+      (:skipped? result) (rf.story.play.runner/step-fail idx step
                                            {:skipped? true
                                             :message  (or (:message result)
                                                           (str "no DOM — cannot prove "
                                                                (pr-str atom-v)))})
-      (:passed? result)  (runner/step-pass idx step)
-      :else              (runner/step-fail idx step result))))
+      (:passed? result)  (rf.story.play.runner/step-pass idx step)
+      :else              (rf.story.play.runner/step-fail idx step result))))
 
 (defn- exec-click!
   [_frame-id idx step]
-  (let [selector (runner/step-selector step)]
+  (let [selector (rf.story.play.runner/step-selector step)]
     (cond
-      (not (dom/dom-available?))
-      (runner/step-fail idx step
+      (not (rf.story.play.dom/dom-available?))
+      (rf.story.play.runner/step-fail idx step
                         {:skipped? true
                          :message  (str "no DOM — cannot click " (pr-str selector))})
 
-      (dom/click! selector)
-      (runner/step-skip idx step)
+      (rf.story.play.dom/click! selector)
+      (rf.story.play.runner/step-skip idx step)
 
       :else
-      (runner/step-fail idx step
+      (rf.story.play.runner/step-fail idx step
                         {:message (str "click failed — no node matched " (pr-str selector))}))))
 
 (defn- exec-type!
   [_frame-id idx step]
-  (let [[selector text] (runner/step-type-text step)]
+  (let [[selector text] (rf.story.play.runner/step-type-text step)]
     (cond
-      (not (dom/dom-available?))
-      (runner/step-fail idx step
+      (not (rf.story.play.dom/dom-available?))
+      (rf.story.play.runner/step-fail idx step
                         {:skipped? true
                          :message  (str "no DOM — cannot type into " (pr-str selector))})
 
-      (dom/type! selector text)
-      (runner/step-skip idx step)
+      (rf.story.play.dom/type! selector text)
+      (rf.story.play.runner/step-skip idx step)
 
       :else
-      (runner/step-fail idx step
+      (rf.story.play.runner/step-fail idx step
                         {:message (str "type failed — no node matched " (pr-str selector))}))))
 
 (defn- exec-focus!
@@ -726,18 +726,18 @@
   step at preflight, so this is the belt-and-braces runtime guard); a
   DOM/browser runner fires the synthetic focus and records a step-skip."
   [_frame-id idx step]
-  (let [selector (runner/step-selector step)]
+  (let [selector (rf.story.play.runner/step-selector step)]
     (cond
-      (not (dom/dom-available?))
-      (runner/step-fail idx step
+      (not (rf.story.play.dom/dom-available?))
+      (rf.story.play.runner/step-fail idx step
                         {:skipped? true
                          :message  (str "no DOM — cannot focus " (pr-str selector))})
 
-      (dom/focus! selector)
-      (runner/step-skip idx step)
+      (rf.story.play.dom/focus! selector)
+      (rf.story.play.runner/step-skip idx step)
 
       :else
-      (runner/step-fail idx step
+      (rf.story.play.runner/step-fail idx step
                         {:message (str "focus failed — no node matched " (pr-str selector))}))))
 
 (declare exec-assert-dom-atom!)
@@ -775,12 +775,12 @@
   throwing host yields nil. This is the `:hiccup`-tier proof surface
   `:rf.assert/a11y-structural` walks."
   [frame-id]
-  (when-let [f (late-bind/get-fn :render-hiccup)]
+  (when-let [f (rf.story.late-bind/get-fn :render-hiccup)]
     (try (f frame-id)
          (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn- browser-assertion-ctx
-  "Build the per-run `ctx` `browser/eval-browser-assertion` consumes for
+  "Build the per-run `ctx` `rf.story.play.browser/eval-browser-assertion` consumes for
   `frame-id`. Carries `:frame-id` (so the a11y evaluator can read the live
   axe-violations atom) and the rendered `:hiccup` tree from the
   `:render-hiccup` seam (so the structural-a11y evaluator can walk it). The
@@ -798,7 +798,7 @@
   never a vacuous pass over a nil tree (the honesty floor — spec/017
   §`:cannot-run`)."
   [payload]
-  {:assertion   assertions/id-a11y-structural
+  {:assertion   rf.story.assertions/id-a11y-structural
    :payload     (vec payload)
    :passed?     false
    :cannot-run? true
@@ -810,7 +810,7 @@
 (defn- exec-assert-browser-atom!
   "Evaluate a browser-tier oracle assertion atom `[:rf.assert/visual-snapshot
   | :rf.assert/a11y | :rf.assert/a11y-structural & args]` at this checkpoint
-  (drives `browser/eval-browser-assertion` from the run path). Mirrors
+  (drives `rf.story.play.browser/eval-browser-assertion` from the run path). Mirrors
   `exec-assert-dom-atom!`: drives the pure
   executor, records the CANONICAL assertion record on the frame slot (so the
   unified result's `:assertions` carries the real browser-tier id), and
@@ -827,23 +827,23 @@
   `:cannot-run`, never a silent pass) and surfaced as a step-fail carrying the
   refusal."
   [frame-id idx step atom-v]
-  (let [aid    (assertions/assertion-atom-id atom-v)
+  (let [aid    (rf.story.assertions/assertion-atom-id atom-v)
         hiccup (render-hiccup-for frame-id)
-        result (if (and (= assertions/id-a11y-structural aid) (nil? hiccup))
+        result (if (and (= rf.story.assertions/id-a11y-structural aid) (nil? hiccup))
                  ;; Honesty floor: a11y-structural with no hiccup tree cannot
                  ;; be proven — refuse rather than pass over an empty tree.
                  (structural-a11y-cannot-run-finding (vec (rest atom-v)))
-                 (browser/eval-browser-assertion
+                 (rf.story.play.browser/eval-browser-assertion
                    atom-v (browser-assertion-ctx frame-id hiccup)))]
     ;; Record the canonical browser-tier assertion record on the slot so the
     ;; unified verdict folds it (a :cannot-run record aggregates to the THIRD
     ;; status; a :fail flips the run to :fail).
-    (assertions/record!
+    (rf.story.assertions/record!
       frame-id
       (cond-> {:assertion    aid
                :passed?      (boolean (:passed? result))
                :payload      (vec (rest atom-v))
-               :source-coord (:source (registrar/handler-meta :variant frame-id))}
+               :source-coord (:source (rf.story.registrar/handler-meta :variant frame-id))}
         (contains? result :status)   (assoc :status   (:status result))
         (:cannot-run? result)        (assoc :cannot-run? true)
         (contains? result :expected) (assoc :expected (:expected result))
@@ -851,13 +851,13 @@
         (:reason result)             (assoc :reason   (:reason result))))
     (cond
       (:cannot-run? result)
-      (runner/step-fail idx step
+      (rf.story.play.runner/step-fail idx step
                         {:cannot-run? true
                          :reason      (:reason result)
                          :message     (or (:reason result)
                                           (str "cannot run " (pr-str atom-v)))})
-      (:passed? result) (runner/step-pass idx step)
-      :else             (runner/step-fail idx step
+      (:passed? result) (rf.story.play.runner/step-pass idx step)
+      :else             (rf.story.play.runner/step-fail idx step
                                           {:expected (:expected result)
                                            :actual   (:actual result)
                                            :message  (:reason result)}))))
@@ -892,8 +892,8 @@
   the rendered hiccup tree and surfaces the honest `:cannot-run` for the
   browser-only pair), so it is NOT tape-evaluated."
   [atom-v]
-  (or (assertions/schema-error? atom-v)
-      (assertions/causal? atom-v)))
+  (or (rf.story.assertions/schema-error? atom-v)
+      (rf.story.assertions/causal? atom-v)))
 
 (defn- exec-assert!
   "Execute an `[:assert [:rf.assert/id & args]]` in-script checkpoint.
@@ -915,7 +915,7 @@
   - The browser-tier oracle family (`:rf.assert/visual-snapshot` /
     `:rf.assert/a11y` / `:rf.assert/a11y-structural`) is EVALUATED directly
     through `exec-assert-browser-atom!` (driving
-    `browser/eval-browser-assertion`). At the
+    `rf.story.play.browser/eval-browser-assertion`). At the
     `:hiccup` tier `:rf.assert/a11y-structural` walks the rendered hiccup
     tree and records a real `:pass` / `:fail`; with no tree (the headless
     floor) it records `:cannot-run`. The browser-only pair record
@@ -932,34 +932,34 @@
     we bridge that record back into the runner step stream so a failing
     checkpoint flips the play's terminal status to `:fail`."
   [frame-id idx step]
-  (let [atom-v (runner/step-assertion step)]
+  (let [atom-v (rf.story.play.runner/step-assertion step)]
     (cond
-      (contains? assertions/dom-assertion-ids (first atom-v))
+      (contains? rf.story.assertions/dom-assertion-ids (first atom-v))
       (exec-assert-dom-atom! frame-id idx step atom-v)
 
       ;; Browser-tier oracle family — route to the dedicated executor.
       ;; a11y-structural runs at :hiccup; visual / a11y fail closed to
       ;; :cannot-run headless. NEVER a no-op skip.
-      (contains? assertions/browser-assertion-ids (first atom-v))
+      (contains? rf.story.assertions/browser-assertion-ids (first atom-v))
       (exec-assert-browser-atom! frame-id idx step atom-v)
 
       ;; Tape-evaluated families carry no reg-event handler; the result
       ;; boundary owns their verdict. Record a no-op step-skip — never a
       ;; dispatch (which would hit :rf.error/no-such-handler).
       (tape-evaluated-assertion? atom-v)
-      (runner/step-skip idx step)
+      (rf.story.play.runner/step-skip idx step)
 
       :else
       (let [prev     (assertion-count frame-id)
-            required (boundary/step-required-boundary step)
+            required (rf.story.play.settled-boundary/step-required-boundary step)
             hooks    (current-flush-hooks frame-id)
             settle   (try
-                       (boundary/dispatch-and-settle! frame-id atom-v hooks required step)
+                       (rf.story.play.settled-boundary/dispatch-and-settle! frame-id atom-v hooks required step)
                        (catch #?(:clj Throwable :cljs :default) e
                          {:status :error
                           :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
                           :step   step}))]
-        (play/drain-pending-exceptions! frame-id :phase-4-play)
+        (rf.story.play/drain-pending-exceptions! frame-id :phase-4-play)
         (or (boundary-result->step idx step settle)
             ;; The wrapped :rf.assert/* handler recorded its outcome on the
             ;; frame's :rf.story/assertions slot. Read what landed since the
@@ -968,15 +968,15 @@
                   new   (subvec all (min prev (count all)))
                   rec   (last new)]
               (cond
-                (nil? rec)            (runner/step-skip idx step)
+                (nil? rec)            (rf.story.play.runner/step-skip idx step)
                 (false? (:passed? rec))
-                (runner/step-fail idx step
+                (rf.story.play.runner/step-fail idx step
                                   {:expected (:expected rec)
                                    :actual   (:actual rec)
                                    :message  (or (:reason rec)
                                                  (str (:assertion rec) " "
                                                       (pr-str (:payload rec)) " failed"))})
-                :else                 (runner/step-pass idx step))))))))
+                :else                 (rf.story.play.runner/step-pass idx step))))))))
 
 (defn- frame-router-state
   "Read the raw `{:queue :scheduled? ...}` router state for `frame-id`, or
@@ -989,7 +989,7 @@
   reads as nil."
   [frame-id]
   (try
-    (some-> (frame/frame frame-id) :router deref)
+    (some-> (rf.frame/frame frame-id) :router deref)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 (defn- queue-empty?
@@ -1004,9 +1004,9 @@
   following `[:wait-until [:queue-empty]]` runs. But this step can ALSO
   follow a `:click` / `:type` / `:focus` step — `exec-click!` / `exec-type!`
   / `exec-focus!` (above) fire a synthetic DOM event directly and never
-  call `boundary/dispatch-and-settle!`. A handler the synthetic event
+  call `rf.story.play.settled-boundary/dispatch-and-settle!`. A handler the synthetic event
   triggers may issue an ASYNC `[:dispatch …]` that has not yet drained —
-  the router schedules an async drain via `interop/next-tick`, genuinely
+  the router schedules an async drain via `rf.interop/next-tick`, genuinely
   deferred, never inline (`re-frame.router/ensure-drain-scheduled!`). A
   hard-coded `true` silently reported that pending dispatch as settled, so
   a following `:assert-*` step could read app-db BEFORE it landed — the
@@ -1033,7 +1033,7 @@
                        actual (get-in db path)]
                    (case mode
                      :equals (= expected actual)
-                     :pred   (let [f (if pred-fn? pred-ref (pred/resolve-sym-pred pred-ref))]
+                     :pred   (let [f (if pred-fn? pred-ref (rf.story.predicates/resolve-sym-pred pred-ref))]
                                (boolean (and f (try (f actual)
                                                     (catch #?(:clj Throwable :cljs :default) _ false)))))
                      false))
@@ -1051,10 +1051,10 @@
   poll is the adapter caller's concern — the headless contract is the
   one-shot deterministic check this fn implements.)"
   [frame-id idx step]
-  (let [pspec   (runner/step-wait-until step)]
+  (let [pspec   (rf.story.play.runner/step-wait-until step)]
     (if (wait-until-satisfied? frame-id pspec)
-      (runner/step-skip idx step)
-      (runner/step-fail idx step
+      (rf.story.play.runner/step-skip idx step)
+      (rf.story.play.runner/step-fail idx step
                         {:cannot-run? false
                          :expected (nth step 1)
                          :message  (str "wait-until " (pr-str (nth step 1))
@@ -1063,15 +1063,15 @@
                                         "after the preceding dispatch settled)")}))))
 
 (defn- presence-step-result
-  "Project a `presence/advance!` result into a step-result. Pure data → data,
+  "Project a `rf.story.play.presence/advance!` result into a step-result. Pure data → data,
   and the ONE place the projection lives — the executor projects the
   provisional result here, and `settle-step-result!` re-projects the settled
   one through the very same fn, so a Promise-backed host cannot acquire a
   different vocabulary just by being asynchronous."
   [idx step res]
   (case (:status res)
-    :error   (runner/step-exception idx step (:error res))
-    :no-host (runner/step-fail
+    :error   (rf.story.play.runner/step-exception idx step (:error res))
+    :no-host (rf.story.play.runner/step-fail
                idx step
                {:cannot-run? true
                 :reason      :no-presence-host
@@ -1084,7 +1084,7 @@
                                   "install-presence-flush! with its own "
                                   "clock advance — a 1-arg fn taking the ms "
                                   "to advance by, or nil for 'to quiescence'")})
-    (runner/step-skip idx step)))
+    (rf.story.play.runner/step-skip idx step)))
 
 (defn- exec-flush-presence!
   "Execute a `[:flush-presence]` / `[:flush-presence ms]` step — advance the
@@ -1114,8 +1114,8 @@
   `::pending-advance`; `settle-step-result!` replaces it with the real one
   before the run records anything."
   [_frame-id idx step]
-  (let [ms  (runner/step-presence-ms step)
-        res (presence/advance! ms)]
+  (let [ms  (rf.story.play.runner/step-presence-ms step)
+        res (rf.story.play.presence/advance! ms)]
     (cond-> (presence-step-result idx step res)
       (:pending res) (assoc ::pending-advance res))))
 
@@ -1132,7 +1132,7 @@
   must not disagree about whether a presence flush failed."
   [idx step result k]
   (if-let [res (::pending-advance result)]
-    (presence/settle! res #(k (presence-step-result idx step %)))
+    (rf.story.play.presence/settle! res #(k (presence-step-result idx step %)))
     (k result))
   nil)
 
@@ -1156,12 +1156,12 @@
   boundary rather than throwing on the way to the executor that will
   report it properly."
   [step]
-  (let [declared (boundary/step-required-boundary step)]
-    (if (and (= :assert (runner/step-type step))
-             (let [atom-v (runner/step-assertion step)]
+  (let [declared (rf.story.play.settled-boundary/step-required-boundary step)]
+    (if (and (= :assert (rf.story.play.runner/step-type step))
+             (let [atom-v (rf.story.play.runner/step-assertion step)]
                (and (vector? atom-v)
-                    (contains? assertions/dom-assertion-ids (first atom-v)))))
-      (boundary/max-boundary declared :dom)
+                    (contains? rf.story.assertions/dom-assertion-ids (first atom-v)))))
+      (rf.story.play.settled-boundary/max-boundary declared :dom)
       declared)))
 
 (defn- settle-substrate-for-step!
@@ -1188,14 +1188,14 @@
   which is every headless host. So the JVM path is unchanged."
   [frame-id idx step]
   (let [required (step-settle-boundary step)]
-    (when (boundary/boundary>= required :cljs-reactive)
+    (when (rf.story.play.settled-boundary/boundary>= required :cljs-reactive)
       (boundary-result->step
         idx step
-        (boundary/settle-to! frame-id (current-flush-hooks frame-id) required step)))))
+        (rf.story.play.settled-boundary/settle-to! frame-id (current-flush-hooks frame-id) required step)))))
 
 (defn exec-step!
   "Execute ONE step against `frame-id`. Returns a step-result record
-  (per `runner/step-pass` / `step-fail` / `step-skip` / `step-exception`).
+  (per `rf.story.play.runner/step-pass` / `step-fail` / `step-skip` / `step-exception`).
   Pure-shape return — the run-state mutation is the caller's job.
 
   `:wait` is special-cased OUT of this fn — it requires an async
@@ -1203,7 +1203,7 @@
 
   The runtime consumes the folded plan: every script is folded at
   resolution time (`runner-events/variant-plays` /
-  `play/variant-play-steps`), so a shipping `:assert-db` / `:assert-dom`
+  `rf.story.play/variant-play-steps`), so a shipping `:assert-db` / `:assert-dom`
   step has already become the canonical `[:assert assertion-atom]`
   checkpoint by the time it reaches here. A raw `:assert-db` / `:assert-dom`
   (a hand-built step that bypassed resolution) is folded inline as a
@@ -1217,7 +1217,7 @@
   [frame-id idx step]
   (or
     (settle-substrate-for-step! frame-id idx step)
-    (let [stype (runner/step-type step)]
+    (let [stype (rf.story.play.runner/step-type step)]
       (case stype
         :dispatch       (exec-dispatch!      frame-id idx step)
         :dispatch-sync  (exec-dispatch-sync! frame-id idx step)
@@ -1225,14 +1225,14 @@
         ;; A raw shipping assertion step that escaped folding — fold it inline
         ;; to the canonical checkpoint and run the ONE assert executor.
         (:assert-db
-         :assert-dom)   (exec-assert! frame-id idx (assertions/fold-assert-step step))
+         :assert-dom)   (exec-assert! frame-id idx (rf.story.assertions/fold-assert-step step))
         :wait-until     (exec-wait-until!    frame-id idx step)
         :flush-presence (exec-flush-presence! frame-id idx step)
         :click          (exec-click!         frame-id idx step)
         :type           (exec-type!          frame-id idx step)
         :focus          (exec-focus!         frame-id idx step)
-        :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
-        (runner/unknown-step idx step)))))
+        :wait           (rf.story.play.runner/step-skip idx step)   ; driver handles the actual sleep
+        (rf.story.play.runner/unknown-step idx step)))))
 
 ;; ---- terminal assertions ------------------------------------------------
 ;;
@@ -1293,7 +1293,7 @@
   identifies by `(contains? dom-assertion-ids (first atom-v))`."
   [atom-v settle-result]
   (let [cannot-run? (boolean (:cannot-run? settle-result))]
-    (cond-> {:assertion (assertions/assertion-atom-id atom-v)
+    (cond-> {:assertion (rf.story.assertions/assertion-atom-id atom-v)
              :payload   (vec (rest atom-v))
              :passed?   false
              :status    (if cannot-run? :cannot-run :error)
@@ -1329,7 +1329,7 @@
   Idempotent w.r.t. an empty / nil `atoms` (no-op). Production callers
   (Story disabled) no-op."
   [frame-id atoms]
-  (when (and config/enabled? (seq atoms))
+  (when (and rf.story.config/enabled? (seq atoms))
     (doseq [[idx atom-v] (map-indexed vector atoms)]
       (let [step [:assert atom-v]]
         ;; Terminal assertions are the OTHER place a DOM atom is evaluated,
@@ -1357,10 +1357,10 @@
         ;; so every headless run (JVM included) takes the `exec-assert!`
         ;; arm unchanged.
         (if-let [refused (settle-substrate-for-step! frame-id idx step)]
-          (assertions/record!
+          (rf.story.assertions/record!
             frame-id
             (assoc (terminal-settle-refusal-record atom-v refused)
-                   :source-coord (:source (registrar/handler-meta :variant frame-id))))
+                   :source-coord (:source (rf.story.registrar/handler-meta :variant frame-id))))
           (exec-assert! frame-id idx step)))))
   nil)
 
@@ -1381,13 +1381,13 @@
   a step-skip rather than blocking — the interactive stepper does not
   sleep).
 
-  Public so the step-debugger substrate (`play/step-once!`) can drive a
+  Public so the step-debugger substrate (`rf.story.play/step-once!`) can drive a
   full rich-DSL step without re-implementing the executor. Reached from
   `play.cljc` via the `:run-play-step` late-bind hook to avoid the
   play ↔ runner-events require cycle.
 
   Always records its settle boundary under play-key nil — the stepper
-  (`play/variant-play-steps`) only ever walks the DEFAULT play, never a
+  (`rf.story.play/variant-play-steps`) only ever walks the DEFAULT play, never a
   named `:plays` entry.
 
   `settled-cb` (optional) receives the FINAL step-result. It is invoked
@@ -1405,7 +1405,7 @@
    (let [result (try
                   (exec-step! frame-id idx step)
                   (catch #?(:clj Throwable :cljs :default) e
-                    (runner/step-exception idx step
+                    (rf.story.play.runner/step-exception idx step
                                            #?(:clj  (.getMessage ^Throwable e)
                                               :cljs (str e)))))]
      ;; `exec-step!` (via `exec-assert!`) already wrote the canonical
@@ -1459,7 +1459,7 @@
   inside `exec-assert!` (the canonical folded-atom record), so this does
   not mirror a synthetic record on top."
   [frame-id play-key name idx step result]
-  (update-state! frame-id play-key runner/record-step-result result)
+  (update-state! frame-id play-key rf.story.play.runner/record-step-result result)
   (emit-trace! frame-id name idx step result)
   nil)
 
@@ -1467,7 +1467,7 @@
   "Transition the run-state to `:pass` / `:fail` and resolve `done-cb`
   with the final state."
   [frame-id play-key done-cb]
-  (update-state! frame-id play-key runner/finish (now-ms))
+  (update-state! frame-id play-key rf.story.play.runner/finish (now-ms))
   (when done-cb
     (try (done-cb (current-state-for-play frame-id play-key))
          (catch #?(:clj Throwable :cljs :default) _ nil))))
@@ -1482,7 +1482,7 @@
   reset / concurrent `run!` / teardown a window to mutate the shared
   run-state between steps.
 
-  Unlike `finish!`, this does NOT call `update-state!` / `runner/finish` — an
+  Unlike `finish!`, this does NOT call `update-state!` / `rf.story.play.runner/finish` — an
   aborted loop must NOT clobber the shared run-state slot, which by this point
   may belong to the NEWER run that took over (token mismatch) or be gone (frame
   torn down). It resolves the awaiting `done-cb` with the last-known state
@@ -1538,7 +1538,7 @@
 ;;   1. THE ASYNC DISPATCH. `exec-click!` / `exec-type!` / `exec-focus!` fire
 ;;      a synthetic DOM event; React runs the handler; the handler
 ;;      dispatches; the router schedules its drain through
-;;      `interop/next-tick` — `goog.async.nextTick`, a genuine macrotask,
+;;      `rf.interop/next-tick` — `goog.async.nextTick`, a genuine macrotask,
 ;;      never inline. The next step then read app-db before the handler's
 ;;      event had run: `expected 42 at [:count] but got 0`. Note that this
 ;;      is NOT "nothing drains the queue" — `dispatch-sync!` pushes its seed
@@ -1594,8 +1594,8 @@
   assertion can be evaluated. `:rf.assert/dom-hidden` is deliberately
   absent — an absent node is its PASS condition, so waiting for one to
   appear would invert the assertion and burn the whole budget doing it."
-  #{assertions/id-dom-text
-    assertions/id-dom-visible})
+  #{rf.story.assertions/id-dom-text
+    rf.story.assertions/id-dom-visible})
 
 (defn- atom-required-selector
   "The DOM selector an assertion ATOM must be able to resolve before it can
@@ -1635,12 +1635,12 @@
   node required' so the step reaches the executor that reports it
   properly, instead of timing out on a precondition first."
   [step]
-  (case (runner/step-type step)
-    (:click :type :focus) (runner/step-selector step)
-    :assert               (atom-required-selector (runner/step-assertion step))
+  (case (rf.story.play.runner/step-type step)
+    (:click :type :focus) (rf.story.play.runner/step-selector step)
+    :assert               (atom-required-selector (rf.story.play.runner/step-assertion step))
     :assert-dom           (atom-required-selector
-                            (try (runner/step-assertion
-                                   (assertions/fold-assert-step step))
+                            (try (rf.story.play.runner/step-assertion
+                                   (rf.story.assertions/fold-assert-step step))
                                  (catch #?(:clj Throwable :cljs :default) _ nil)))
     nil))
 
@@ -1669,8 +1669,8 @@
       "the frame's event queue has not drained"
 
       (and selector
-           (dom/dom-available?)
-           (nil? (dom/query selector)))
+           (rf.story.play.dom/dom-available?)
+           (nil? (rf.story.play.dom/query selector)))
       (str "no node matches " (pr-str selector))
 
       :else nil)))
@@ -1694,7 +1694,7 @@
   `:type`, `:wait`) yield one tick so the queued effects drain before
   the next step runs. A blanket setTimeout-0 between every step would
   reintroduce the re-mount race the async-class split avoids — see
-  `runner/async-yield?`.
+  `rf.story.play.runner/async-yield?`.
 
   On CLJS a step does not run until its PRECONDITIONS hold
   (`step-precondition-unmet` — the queue drained, and the node present
@@ -1722,12 +1722,12 @@
       (stale-run? token state)
       (settle-abort! frame-id play-key done-cb)
 
-      (runner/done? state)
+      (rf.story.play.runner/done? state)
       (finish! frame-id play-key done-cb)
 
       :else
       (let [idx  (:step-idx state)
-            step (runner/current-step state)
+            step (rf.story.play.runner/current-step state)
             nm   (:name state)
             ;; Read once per pass. CLJS-only: the JVM runner has no event
             ;; loop to yield to and no DOM, so it never polls and never
@@ -1735,9 +1735,9 @@
             unmet #?(:cljs (step-precondition-unmet frame-id step)
                      :clj  nil)]
         (cond
-          (= :wait (runner/step-type step))
-          (let [ms (or (runner/step-wait-ms step) 0)]
-            (record-result! frame-id play-key nm idx step (runner/step-skip idx step))
+          (= :wait (rf.story.play.runner/step-type step))
+          (let [ms (or (rf.story.play.runner/step-wait-ms step) 0)]
+            (record-result! frame-id play-key nm idx step (rf.story.play.runner/step-skip idx step))
             ;; JVM: fold the wait INTO the loop so it stays in TAIL position.
             ;; `schedule!` on the JVM used to nest `(Thread/sleep ms)(f)` — a
             ;; fresh `run-loop!` frame per wait — so a script of many
@@ -1759,9 +1759,9 @@
           #?@(:cljs
               [(and (some? unmet)
                     (or (nil? settle-deadline)
-                        (< (interop/now-ms) settle-deadline)))
+                        (< (rf.interop/now-ms) settle-deadline)))
                (let [deadline (or settle-deadline
-                                  (+ (interop/now-ms) settle-poll-timeout-ms))
+                                  (+ (rf.interop/now-ms) settle-poll-timeout-ms))
                      ;; Commit anything the substrate has already scheduled.
                      ;; This is rf2-ek9qb's own rung, reused: on a
                      ;; rAF-scheduled substrate in a throttled tab the
@@ -1803,7 +1803,7 @@
                (do
                  (record-result!
                    frame-id play-key nm idx step
-                   (runner/step-fail
+                   (rf.story.play.runner/step-fail
                      idx step
                      {:message (str "step preconditions never settled within "
                                     settle-poll-timeout-ms "ms — " unmet)}))
@@ -1815,10 +1815,10 @@
                 result (try
                          (exec-step! frame-id idx step)
                          (catch #?(:clj Throwable :cljs :default) e
-                           (runner/step-exception idx step
+                           (rf.story.play.runner/step-exception idx step
                                                   #?(:clj  (.getMessage ^Throwable e)
                                                      :cljs (str e)))))
-                yield? (runner/async-yield? step)]
+                yield? (rf.story.play.runner/async-yield? step)]
             (if (::pending-advance result)
               ;; A Promise-backed presence host has NOT settled (rf2-iz0t8).
               ;; AWAIT it before recording anything: a rejection is the step's
@@ -1938,14 +1938,14 @@
                    ;; play of a `:script` variant Just Works.
                    (variant-play-script variant-id))
          pk    (or play-key (:name spec))
-         init  (runner/initial-state spec)
+         init  (rf.story.play.runner/initial-state spec)
          ;; Stamp a fresh token on every run. The loop reads it back from
          ;; the state map; if a concurrent run! replaces the state mid-loop,
          ;; the stale loop sees a mismatched token and aborts before
          ;; re-dispatching.
          token   #?(:clj (java.util.UUID/randomUUID)
                     :cljs (.toString (js/Math.random)))
-         started (-> (runner/start init (now-ms))
+         started (-> (rf.story.play.runner/start init (now-ms))
                      (assoc :run-token token))]
      ;; Reset the per-dispatch-step settle boundaries here, in the SAME
      ;; public entry that resets run-state and then writes boundaries via
@@ -2025,9 +2025,9 @@
   ([variant-id]
    (auto-run! variant-id nil))
   ([variant-id done-cb]
-   (when config/enabled?
+   (when rf.story.config/enabled?
      (let [plays      (variant-plays variant-id)
-           auto-plays (runner/auto-runnable-plays plays)]
+           auto-plays (rf.story.play.runner/auto-runnable-plays plays)]
        (cond
          (empty? auto-plays)
          nil
@@ -2101,11 +2101,11 @@
 ;; the `:run-play-step` late-bind hook. Registered at ns load so it is
 ;; available as soon as the play module drives a stepped run.
 
-(late-bind/set-fn! :run-play-step run-step!)
+(rf.story.late-bind/set-fn! :run-play-step run-step!)
 
 ;; The stepper appends a settle boundary per `run-step!`, so a fresh
-;; stepping session (`play/begin-stepper!`) must reset the frame's
+;; stepping session (`rf.story.play/begin-stepper!`) must reset the frame's
 ;; boundaries first — the stepper analogue of `run!`'s reset. Exposed via the
 ;; same late-bind seam since `play.cljc` cannot `:require` this ns.
 
-(late-bind/set-fn! :clear-step-boundaries clear-step-boundaries!)
+(rf.story.late-bind/set-fn! :clear-step-boundaries clear-step-boundaries!)

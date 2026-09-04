@@ -52,12 +52,12 @@
   CLJS-only for the same reason."
   (:require [clojure.string :as str]
             [reagent.core :as r]
-            [re-frame.story.assertions :as assertions]
-            [re-frame.story.author-expectations :as author]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.ui.test-mode.pure :as tm-pure]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.assertions :as rf.story.assertions]
+            [re-frame.story.author-expectations :as rf.story.author-expectations]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -187,8 +187,8 @@
                  :flex-direction "column"
                  :gap           "2px"}
    :group-head  {:font-family   mono-stack
-                 :font-size     (:micro typography/type-scale)
-                 :color         (:text-tertiary colors/tokens)
+                 :font-size     (:micro rf.story.theme.typography/type-scale)
+                 :color         (:text-tertiary rf.story.theme.colors/tokens)
                  :text-transform "uppercase"
                  :letter-spacing "0.04em"
                  :padding       "2px 4px"
@@ -198,61 +198,61 @@
                  :gap           "8px"
                  :padding       "4px 8px"
                  :border-left   "3px solid transparent"
-                 :background    (:bg-2 colors/tokens)
+                 :background    (:bg-2 rf.story.theme.colors/tokens)
                  :border-radius "0 3px 3px 0"
                  :font-family   mono-stack
-                 :font-size     (:caption typography/type-scale)
+                 :font-size     (:caption rf.story.theme.typography/type-scale)
                  :cursor        "pointer"
                  :user-select   "none"}
-   :row-pass    {:border-left-color (:success colors/tokens)}
-   :row-fail    {:border-left-color (:danger colors/tokens)
-                 :background        (:danger-bg colors/tokens)}
-   :row-skip    {:border-left-color (:text-tertiary colors/tokens)}
+   :row-pass    {:border-left-color (:success rf.story.theme.colors/tokens)}
+   :row-fail    {:border-left-color (:danger rf.story.theme.colors/tokens)
+                 :background        (:danger-bg rf.story.theme.colors/tokens)}
+   :row-skip    {:border-left-color (:text-tertiary rf.story.theme.colors/tokens)}
    :glyph       {:flex          "0 0 auto"
                  :width         "1em"
                  :text-align    "center"
                  :font-weight   "bold"}
-   :glyph-pass  {:color         (:success colors/tokens)}
-   :glyph-fail  {:color         (:danger colors/tokens)}
-   :glyph-skip  {:color         (:text-tertiary colors/tokens)}
+   :glyph-pass  {:color         (:success rf.story.theme.colors/tokens)}
+   :glyph-fail  {:color         (:danger rf.story.theme.colors/tokens)}
+   :glyph-skip  {:color         (:text-tertiary rf.story.theme.colors/tokens)}
    :label       {:flex          "0 0 auto"
-                 :color         (:text-primary colors/tokens)
+                 :color         (:text-primary rf.story.theme.colors/tokens)
                  :white-space   "nowrap"
                  :overflow      "hidden"
                  :text-overflow "ellipsis"
                  :max-width     "50%"}
    :summary     {:flex          "1 1 auto"
-                 :color         (:text-secondary colors/tokens)
+                 :color         (:text-secondary rf.story.theme.colors/tokens)
                  :white-space   "nowrap"
                  :overflow      "hidden"
                  :text-overflow "ellipsis"
                  :min-width     "0"}
-   :summary-fail {:color        (:danger colors/tokens)}
+   :summary-fail {:color        (:danger rf.story.theme.colors/tokens)}
    :tog         {:flex          "0 0 auto"
-                 :color         (:text-tertiary colors/tokens)
-                 :font-size     (:micro typography/type-scale)
+                 :color         (:text-tertiary rf.story.theme.colors/tokens)
+                 :font-size     (:micro rf.story.theme.typography/type-scale)
                  :background    "transparent"
                  :border        "none"
                  :padding       "0"
                  :cursor        "pointer"}
-   :detail      {:background    (:bg-2 colors/tokens)
-                 :border-left   (str "3px solid " (:danger colors/tokens))
+   :detail      {:background    (:bg-2 rf.story.theme.colors/tokens)
+                 :border-left   (str "3px solid " (:danger rf.story.theme.colors/tokens))
                  :padding       "6px 12px"
                  :margin        "0 0 0 0"
                  :font-family   mono-stack
-                 :font-size     (:caption typography/type-scale)
-                 :color         (:text-primary colors/tokens)
+                 :font-size     (:caption rf.story.theme.typography/type-scale)
+                 :color         (:text-primary rf.story.theme.colors/tokens)
                  :white-space   "pre-wrap"
                  :border-radius "0 3px 3px 0"}
-   :detail-key  {:color         (:info colors/tokens)
+   :detail-key  {:color         (:info rf.story.theme.colors/tokens)
                  :margin-right  "4px"}
    :detail-line {:margin        "2px 0"}
    ;; click-to-reveal chord on a long :expected / :actual value inside
    ;; the expanded panel. The clamped value renders inline; the chord
    ;; swaps in the full pr-str — no modal, same row.
-   :value-reveal {:color        (:info colors/tokens)
+   :value-reveal {:color        (:info rf.story.theme.colors/tokens)
                   :margin-left  "6px"
-                  :font-size    (:micro typography/type-scale)
+                  :font-size    (:micro rf.story.theme.typography/type-scale)
                   :background   "transparent"
                   :border       "none"
                   :padding      "0"
@@ -272,7 +272,7 @@
 (def status-glyph
   "Status-glyph map — the shared assertion-outcome vocabulary
   (`predicates/assertion-glyph`). Public so tests can pin the shape."
-  pred/assertion-glyph)
+  rf.story.predicates/assertion-glyph)
 
 ;; ---- rendering ------------------------------------------------------------
 
@@ -421,7 +421,7 @@
   `assertions` is the variant frame's accumulated `:rf.story/assertions`
   vector (the runtime's record shape — `{:assertion :passed?
   :payload :expected :actual :reason :event :phase :source ...}`).
-  Each record is projected through `tm-pure/assertion-row` to derive
+  Each record is projected through `rf.story.ui.test-mode.pure/assertion-row` to derive
   status / label / row-key / detail.
 
   Renders nothing when `assertions` is empty. Otherwise renders one
@@ -436,7 +436,7 @@
   (let [expanded (r/atom nil)]            ;; nil until first render seeds
     (fn [assertions]
       (when (seq assertions)
-        (let [rows    (mapv tm-pure/assertion-row assertions)
+        (let [rows    (mapv rf.story.ui.test-mode.pure/assertion-row assertions)
               ;; Seed the expanded set on first render: every failed
               ;; row's :row-key lands open so the user doesn't have to
               ;; click to disclose. After first render the atom is the
@@ -453,7 +453,7 @@
               ;; twice while keeping group-by data-shape pure.
               groups  (group-by-event assertions)
               row-for (fn [rec]
-                        (tm-pure/assertion-row rec))
+                        (rf.story.ui.test-mode.pure/assertion-row rec))
               toggle  (fn [row-key]
                         (swap! expanded
                                (fn [s]
@@ -503,7 +503,7 @@
 ;; variant DATA the authoring flow emits). It is the read-only display of a
 ;; variant's declared expectations: the atom + its runner cost / `:cannot-run`
 ;; honesty flag (read from the EXISTING requirement registry via
-;; `author/expectation-cost`), so a reader sees what a story expects AND what
+;; `rf.story.author-expectations/expectation-cost`), so a reader sees what a story expects AND what
 ;; runner each expectation needs, without having to run it. Distinct from the
 ;; run-result strip — no verdict glyph, a runner-cost stripe instead.
 
@@ -517,34 +517,34 @@
             :gap "8px"
             :padding "4px 8px"
             :border-left "3px solid transparent"
-            :background (:bg-2 colors/tokens)
+            :background (:bg-2 rf.story.theme.colors/tokens)
             :border-radius "0 3px 3px 0"
             :font-family mono-stack
-            :font-size (:caption typography/type-scale)}
-   :row-ok     {:border-left-color (:info colors/tokens)}
-   :row-cannot {:border-left-color (:warning colors/tokens)}
+            :font-size (:caption rf.story.theme.typography/type-scale)}
+   :row-ok     {:border-left-color (:info rf.story.theme.colors/tokens)}
+   :row-cannot {:border-left-color (:warning rf.story.theme.colors/tokens)}
    :id     {:flex "0 0 auto"
-            :color (:text-primary colors/tokens)
+            :color (:text-primary rf.story.theme.colors/tokens)
             :font-weight "bold"}
    :args   {:flex "1 1 auto"
-            :color (:text-secondary colors/tokens)
+            :color (:text-secondary rf.story.theme.colors/tokens)
             :white-space "nowrap" :overflow "hidden" :text-overflow "ellipsis"
             :min-width "0"}
    :cost   {:flex "0 0 auto"
-            :font-size (:micro typography/type-scale)
-            :color (:text-tertiary colors/tokens)}
-   :cost-cannot {:color (:warning colors/tokens)}})
+            :font-size (:micro rf.story.theme.typography/type-scale)
+            :color (:text-tertiary rf.story.theme.colors/tokens)}
+   :cost-cannot {:color (:warning rf.story.theme.colors/tokens)}})
 
 (defn authored-row
   "Render one AUTHORED expectation atom (un-run) with its runner cost. Pure
   shape: takes the canonical `[:rf.assert/* …]` atom, returns hiccup. The
-  cost (`author/expectation-cost`) reads the EXISTING requirement registry —
+  cost (`rf.story.author-expectations/expectation-cost`) reads the EXISTING requirement registry —
   the cheapest runner that proves it + whether it `:cannot-run` headless —
   so the declared expectation reads with its honesty floor attached."
   [atom]
-  (let [id    (assertions/assertion-atom-id atom)
+  (let [id    (rf.story.assertions/assertion-atom-id atom)
         args  (vec (rest atom))
-        {:keys [cheapest-runner cannot-run?]} (author/expectation-cost atom)]
+        {:keys [cheapest-runner cannot-run?]} (rf.story.author-expectations/expectation-cost atom)]
     [:div {:data-test "story-authored-expectation-row"
            :data-id   (str id)
            :data-cannot-run (str (boolean cannot-run?))

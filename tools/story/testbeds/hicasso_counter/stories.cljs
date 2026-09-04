@@ -43,7 +43,7 @@
   substrate paints a red cell naming the missing `register-substrate!`
   call, which is what makes removing that registration a legible RED
   rather than a silent fall-back to Reagent."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             ;; Sourcing these fires the registrations the variants name.
             [hicasso-counter.events]
             [hicasso-counter.subs]
@@ -54,7 +54,7 @@
   namespace load. The canonical vocabulary auto-installs on the first
   `reg-*` below, so there is no boot step to remember."
   []
-  (story/reg-story :story.hicasso-counter
+  (rf.story/reg-story :story.hicasso-counter
     {:doc        "A tally authored in Hicasso — `h/defview`, `h/sub` and
                  intent vectors, with no adapter call anywhere in the
                  view source."
@@ -77,7 +77,7 @@
   ;; same terminal state.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.hicasso-counter/tally
+  (rf.story/reg-variant :story.hicasso-counter/tally
     {:doc    "The interaction. Seeds the tally, reads it off the DOM the
              boundary painted, clicks the boundary's own button, and
              asserts that the click reached the frame (app-db) AND came
@@ -101,7 +101,7 @@
      :tags   #{:dev :docs :test}
      :substrates #{:hicasso}})
 
-  (story/reg-variant :story.hicasso-counter/readout
+  (rf.story/reg-variant :story.hicasso-counter/readout
     {:doc        "A second Hicasso boundary under the same substrate, so
                  a green row names WHICH view painted. Read-only: it
                  carries no script, and exists to keep the deck honest

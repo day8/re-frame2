@@ -7,20 +7,20 @@
   CLJS bundle without requiring a live browser."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.ui.a11y :as a11y]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.a11y :as rf.story.ui.a11y]))
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (a11y/reset-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+  (rf.story.ui.a11y/reset-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -28,19 +28,19 @@
 
 (deftest a11y-panel-registers
   (testing "the a11y panel registers as a story-panel"
-    (let [panels (story/registrations :story-panel)]
-      (is (contains? panels a11y/panel-id)))))
+    (let [panels (rf.story/registrations :story-panel)]
+      (is (contains? panels rf.story.ui.a11y/panel-id)))))
 
 (deftest a11y-panel-body
   (testing "the a11y panel body declares :placement :right + :render"
-    (let [body (story/handler-meta :story-panel a11y/panel-id)]
+    (let [body (rf.story/handler-meta :story-panel rf.story.ui.a11y/panel-id)]
       (is (= :right (:placement body)))
-      (is (= a11y/panel-render-id (:render body)))
+      (is (= rf.story.ui.a11y/panel-render-id (:render body)))
       (is (string? (:title body))))))
 
 (deftest a11y-render-view-registered
   (testing "the a11y panel-render view is registered against re-frame"
-    (is (some? (rf/view a11y/panel-render-id)))))
+    (is (some? (rf/view rf.story.ui.a11y/panel-render-id)))))
 
 (deftest a11y-render-view-roots-in-dom-element
   (testing "the a11y panel-render view returns hiccup whose root is a DOM
@@ -51,7 +51,7 @@
             `[panel variant-id]` root makes the panel invisible to Story
             Inspect Mode + Xray Inspect Mode (rf2-iwny7). The `[:div]`
             wrap is load-bearing."
-    (let [view-fn (rf/view a11y/panel-render-id)
+    (let [view-fn (rf/view rf.story.ui.a11y/panel-render-id)
           out     (view-fn :story.unknown/y)]
       (is (vector? out)
           "panel-render returns a hiccup vector")
@@ -64,26 +64,26 @@
 
 (deftest violations-state-empty
   (testing "violations-by-frame starts empty"
-    (is (= {} @a11y/violations-by-frame))))
+    (is (= {} @rf.story.ui.a11y/violations-by-frame))))
 
 (deftest drop-frame-state-clears
   (testing "drop-frame-state! removes per-frame state"
-    (swap! a11y/violations-by-frame assoc :story.x/y [{:dummy true}])
-    (swap! a11y/run-state           assoc :story.x/y {:status :done})
-    (a11y/drop-frame-state! :story.x/y)
-    (is (not (contains? @a11y/violations-by-frame :story.x/y)))
-    (is (not (contains? @a11y/run-state           :story.x/y)))))
+    (swap! rf.story.ui.a11y/violations-by-frame assoc :story.x/y [{:dummy true}])
+    (swap! rf.story.ui.a11y/run-state           assoc :story.x/y {:status :done})
+    (rf.story.ui.a11y/drop-frame-state! :story.x/y)
+    (is (not (contains? @rf.story.ui.a11y/violations-by-frame :story.x/y)))
+    (is (not (contains? @rf.story.ui.a11y/run-state           :story.x/y)))))
 
 (deftest violations-stylesheet-non-empty
   (testing "the violations stylesheet is a non-empty CSS string"
-    (is (string? a11y/violations-stylesheet))
-    (is (pos? (count a11y/violations-stylesheet)))))
+    (is (string? rf.story.ui.a11y/violations-stylesheet))
+    (is (pos? (count rf.story.ui.a11y/violations-stylesheet)))))
 
 ;; ---- rf2-qgms1: variant-root scoping ------------------------------------
 
 (deftest variant-root-selector-targets-data-attribute
   (testing "variant-root-selector returns a CSS attribute selector keyed on the variant id"
-    (let [sel (a11y/variant-root-selector :story.counter/loaded)]
+    (let [sel (rf.story.ui.a11y/variant-root-selector :story.counter/loaded)]
       (is (string? sel))
       ;; Must use the data attribute the canvas / workspace stamp.
       (is (re-find #"data-rf-story-variant-root=" sel))
@@ -95,8 +95,8 @@
 
 (deftest variant-root-selector-distinct-per-variant
   (testing "different variant-ids yield distinct selectors"
-    (is (not= (a11y/variant-root-selector :story.counter/loaded)
-              (a11y/variant-root-selector :story.counter/clicked-three-times)))))
+    (is (not= (rf.story.ui.a11y/variant-root-selector :story.counter/loaded)
+              (rf.story.ui.a11y/variant-root-selector :story.counter/clicked-three-times)))))
 
 (deftest run-axe-handles-no-variant-root
   (testing "run-axe! sets :no-root state when no variant root resolves
@@ -109,13 +109,13 @@
           orig-warn js/console.warn]
       (set! js/console.warn (fn [& _] nil))
       (try
-        (let [p (a11y/run-axe! frame-id)]
+        (let [p (rf.story.ui.a11y/run-axe! frame-id)]
           (is (some? p) "run-axe! returns a Promise even on the no-root path")
-          (is (= :no-root (a11y/status-for frame-id))
+          (is (= :no-root (rf.story.ui.a11y/status-for frame-id))
               "run-state for an unmounted variant must be :no-root, NOT :running or :done — surfacing that the scan was not run against the wrong tree"))
         (finally
           (set! js/console.warn orig-warn)
-          (a11y/drop-frame-state! frame-id))))))
+          (rf.story.ui.a11y/drop-frame-state! frame-id))))))
 
 ;; ---- rf2-20w5i: axe-core CDN load is opt-in only ------------------------
 ;;
@@ -131,18 +131,18 @@
   (testing "set-cdn-opt-in! false clears the persisted approval —
             the fresh-browser shape. A subsequent cdn-opt-in? must
             read false so the consent prompt re-renders."
-    (a11y/set-cdn-opt-in! false)
-    (is (false? (boolean (a11y/cdn-opt-in?)))
+    (rf.story.ui.a11y/set-cdn-opt-in! false)
+    (is (false? (boolean (rf.story.ui.a11y/cdn-opt-in?)))
         "after revocation the opt-in predicate must read false")))
 
 (deftest cdn-opt-in-roundtrips
   (testing "set-cdn-opt-in! true persists the approval; set-cdn-opt-in!
             false revokes it. The persistence is `localStorage`-backed
             so a single click per browser-session is enough."
-    (a11y/set-cdn-opt-in! true)
-    (is (true? (boolean (a11y/cdn-opt-in?))))
-    (a11y/set-cdn-opt-in! false)
-    (is (false? (boolean (a11y/cdn-opt-in?))))))
+    (rf.story.ui.a11y/set-cdn-opt-in! true)
+    (is (true? (boolean (rf.story.ui.a11y/cdn-opt-in?))))
+    (rf.story.ui.a11y/set-cdn-opt-in! false)
+    (is (false? (boolean (rf.story.ui.a11y/cdn-opt-in?))))))
 
 (deftest run-axe-surfaces-no-consent-without-opt-in
   (testing "run-axe! short-circuits to `:no-consent` when the dev
@@ -150,17 +150,17 @@
             to render the consent prompt instead of triggering the
             load — defence against the pre-fix shape where a single
             panel-open inadvertently fetched remote JS."
-    (a11y/set-cdn-opt-in! false)
+    (rf.story.ui.a11y/set-cdn-opt-in! false)
     (let [frame-id :story.never-consented/x
           ;; Pass a fake context so the call doesn't short-circuit on
           ;; the prior `:no-root` branch.
           fake-ctx #js {:nodeType 1}]
       (try
-        (let [p (a11y/run-axe! frame-id fake-ctx)]
+        (let [p (rf.story.ui.a11y/run-axe! frame-id fake-ctx)]
           (is (some? p) "run-axe! returns a Promise even on :no-consent")
-          (is (= :no-consent (a11y/status-for frame-id))
+          (is (= :no-consent (rf.story.ui.a11y/status-for frame-id))
               "without consent the panel must surface :no-consent —
                NOT :running or :loading — so the consent prompt has
                time to render"))
         (finally
-          (a11y/drop-frame-state! frame-id))))))
+          (rf.story.ui.a11y/drop-frame-state! frame-id))))))

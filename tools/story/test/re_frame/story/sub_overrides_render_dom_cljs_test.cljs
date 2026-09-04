@@ -24,19 +24,19 @@
             ["react-dom/client" :as react-dom-client]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.subs :as subs]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.story.sub-overrides :as sub-overrides]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.subs :as rf.subs]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story.sub-overrides :as rf.story.sub-overrides]))
 
 ;; `make-reset-runtime-fixture` performs the snapshot/restore + frames-reset +
 ;; adapter dispose/install this suite hand-rolled. `:ambient-frame nil` preserves
 ;; the suite's no-ambient-scope behaviour — each render-based test binds its own
 ;; `*current-frame* :rf/default` around the mount.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :ambient-frame nil}))
 
 ;; ---- browser + act gate (mirrors react-shared-suite) ----------------------
 
@@ -97,12 +97,12 @@
            ;; the view's subscribe resolves a frame (the fixture already ensured
            ;; the `:rf/default` frame exists) instead of raising
            ;; :rf.error/no-frame-context.
-           (binding [frame/*current-frame* :rf/default]
+           (binding [rf.frame/*current-frame* :rf/default]
              (act-fn
                (fn []
                  (.render root
                    (r/as-element
-                     (sub-overrides/override-provider overrides [login-panel]))))))
+                     (rf.story.sub-overrides/override-provider overrides [login-panel]))))))
            (let [text (.-textContent mount-node)]
              (is (re-find #"error" text)
                  "the pinned :error state surfaces in the rendered DOM")
@@ -127,12 +127,12 @@
            ;; (rf2-9o48ih): bind the ambient `:rf/default` frame around the
            ;; render so the plain-fn view's subscribe resolves a frame via the
            ;; dynamic-var tier (the override-provider carries no frame scope).
-           (binding [frame/*current-frame* :rf/default]
+           (binding [rf.frame/*current-frame* :rf/default]
              (act-fn
                (fn []
                  (.render root
                    (r/as-element
-                     (sub-overrides/override-provider nil [login-panel]))))))
+                     (rf.story.sub-overrides/override-provider nil [login-panel]))))))
            (let [text (.-textContent mount-node)]
              (is (re-find #"idle" text)
                  "no override → the real idle state renders")
@@ -155,7 +155,7 @@
        ;; both need a carried frame. Bind the ambient `:rf/default` scope
        ;; (the fixture ensured the frame exists) around the seed dispatch and
        ;; the synchronous `act` render so neither raises no-frame-context.
-       (binding [frame/*current-frame* :rf/default]
+       (binding [rf.frame/*current-frame* :rf/default]
        (rf/dispatch-sync [::seed])
        (let [overrides  {[:login/state] :error}
              mount-node (make-mount-node!)
@@ -165,12 +165,12 @@
              (fn []
                (.render root
                  (r/as-element
-                   (sub-overrides/override-provider overrides [login-panel])))))
+                   (rf.story.sub-overrides/override-provider overrides [login-panel])))))
            (testing "the screen shows the OVERRIDE (:error)"
              (is (re-find #"error" (.-textContent mount-node))))
            (testing "but compute-sub — the :rf.assert/sub-equals seam — still reads :ok"
-             (is (= :ok (subs/compute-sub [:login/state] {:login {:state :ok}})))
-             (is (not= :error (subs/compute-sub [:login/state] {:login {:state :ok}}))
+             (is (= :ok (rf.subs/compute-sub [:login/state] {:login {:state :ok}})))
+             (is (not= :error (rf.subs/compute-sub [:login/state] {:login {:state :ok}}))
                  "the override can never satisfy a sub-equals assertion"))
            (finally
              (try (.unmount root) (catch :default _ nil))))))))))

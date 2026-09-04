@@ -52,7 +52,7 @@
     resolved args WITHOUT the controls panel's `:cell-overrides`. An arg
     whose effective value drifts from its saved value shows a 'changed'
     dot and a per-arg reset that reverts just that one arg
-    (`state/clear-cell-override`); the panel-level 'reset overrides'
+    (`rf.story.ui.state/clear-cell-override`); the panel-level 'reset overrides'
     clears them all.
 
   - **Summarise before expanding** — nested (`:group` / `:repeater` /
@@ -65,18 +65,18 @@
     (§6 acceptance criterion)."
   (:require [clojure.string                    :as str]
             [reagent.core                      :as r]
-            [re-frame.story.budgets            :as budgets]
-            [re-frame.story.registrar          :as registrar]
-            [re-frame.story.args               :as args]
-            [re-frame.story.decorators         :as decorators]
-            [re-frame.story.malli-schema       :as msu]
-            [re-frame.story.view-args          :as view-args]
-            [re-frame.story.ui.author-expectations :as author-expectations]
+            [re-frame.story.budgets            :as rf.story.budgets]
+            [re-frame.story.registrar          :as rf.story.registrar]
+            [re-frame.story.args               :as rf.story.args]
+            [re-frame.story.decorators         :as rf.story.decorators]
+            [re-frame.story.malli-schema       :as rf.story.malli-schema]
+            [re-frame.story.view-args          :as rf.story.view-args]
+            [re-frame.story.ui.author-expectations :as rf.story.ui.author-expectations]
             [re-frame.story.ui.controls-styles :refer [styles]]
-            [re-frame.story.ui.save-variant    :as save-variant-ui]
-            [re-frame.story.ui.schema-validation :as schema-validation]
-            [re-frame.story.ui.state           :as state]
-            [re-frame.story.ui.view-state      :as view-state]))
+            [re-frame.story.ui.save-variant    :as rf.story.ui.save-variant]
+            [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
+            [re-frame.story.ui.state           :as rf.story.ui.state]
+            [re-frame.story.ui.view-state      :as rf.story.ui.view-state]))
 
 ;; Styles live in `re-frame.story.ui.controls-styles` (pure-data leaf,
 ;; no Reagent dep). Required as `styles` above so the in-file call
@@ -88,12 +88,12 @@
 ;; leaf ns shared with `schema-validation`). Aliased privately here so
 ;; in-file call sites stay textually identical.
 
-(def ^:private properties?      msu/properties?)
-(def ^:private schema-op        msu/schema-op)
-(def ^:private schema-properties msu/schema-properties)
-(def ^:private schema-children  msu/schema-children)
-(def ^:private map-entry-key    msu/map-entry-key)
-(def ^:private map-entry-schema msu/map-entry-schema)
+(def ^:private properties?      rf.story.malli-schema/properties?)
+(def ^:private schema-op        rf.story.malli-schema/schema-op)
+(def ^:private schema-properties rf.story.malli-schema/schema-properties)
+(def ^:private schema-children  rf.story.malli-schema/schema-children)
+(def ^:private map-entry-key    rf.story.malli-schema/map-entry-key)
+(def ^:private map-entry-schema rf.story.malli-schema/map-entry-schema)
 
 ;; ---- pure: argtype inference --------------------------------------------
 
@@ -258,24 +258,24 @@
   HOT PATH: `args-editor` is keystroke-sensitive — every
   controls-panel edit re-renders, which re-runs this fn. The optional
   `eff-args` arg threads the caller's already-resolved args through so
-  we don't re-run `args/resolve-args` (which itself deep-merges five
+  we don't re-run `rf.story.args/resolve-args` (which itself deep-merges five
   precedence layers and re-reads the registrar). The single-arity
   overload preserves the canonical surface for tests + non-render
   callers; the render path threads its own resolution.
 
   SCHEMA SOURCE: the auto-derivation schema is
   the COMPILED variant-plan's `[:world :view-args-schema]`, read through
-  the ONE shared resolver `view-args/compiled-view-args-schema` (memoized
+  the ONE shared resolver `rf.story.view-args/compiled-view-args-schema` (memoized
   per variant + registrar tick). This is the SAME slot the schema-
   validation panel validates against, so a `:rf/props`-declared view
   gets BOTH derived controls AND validation from one source — including
   any `:extends`-inherited / `:compose`-d `:component`."
   ([variant-id]
-   (resolve-argtypes variant-id (args/resolve-args variant-id)))
+   (resolve-argtypes variant-id (rf.story.args/resolve-args variant-id)))
   ([variant-id eff-args]
-   (let [vb      (registrar/handler-meta :variant variant-id)
-         story   (args/parent-story-id variant-id)
-         sb      (when story (registrar/handler-meta :story story))
+   (let [vb      (rf.story.registrar/handler-meta :variant variant-id)
+         story   (rf.story.args/parent-story-id variant-id)
+         sb      (when story (rf.story.registrar/handler-meta :story story))
          types   (merge (normalize-argtypes (:argtypes sb))
                         (normalize-argtypes (:argtypes vb)))
          ;; The view-args (props) schema off the COMPILED plan — the
@@ -283,7 +283,7 @@
          ;; first-match `[:rf/props :schema]` through the shared resolver.
          ;; Per spec/001 §Schema-derivation pipeline + the
          ;; compiled-plan invariant.
-         derive-schema (view-args/compiled-view-args-schema variant-id)
+         derive-schema (rf.story.view-args/compiled-view-args-schema variant-id)
          schema-entries (when (and (vector? derive-schema)
                                    (= :map (schema-op derive-schema)))
                           (into {}
@@ -304,9 +304,9 @@
 ;; ---- pure: validation + diff-from-saved + summaries ---------------------
 
 (defn violations-by-key
-  "Index a `schema-validation/args-violations` vector into a
+  "Index a `rf.story.ui.schema-validation/args-violations` vector into a
   `{arg-key → violation}` map so the args-editor can look up a row's
-  violation in O(1). The whole-args `::schema-validation/root` violation
+  violation in O(1). The whole-args `::rf.story.ui.schema-validation/root` violation
   (a non-`:map` top-level schema) keys under `:rf.story.controls/root`
   so a top-level non-map schema failure still surfaces as a panel banner
   without colliding with any real arg-key.
@@ -375,10 +375,10 @@
   the single choke point every widget's on-change already funnels
   through."
   [variant-id path value]
-  (let [shell (state/get-state)
-        base  (get (args/resolve-args variant-id {:active-modes (:active-modes shell)})
+  (let [shell (rf.story.ui.state/get-state)
+        base  (get (rf.story.args/resolve-args variant-id {:active-modes (:active-modes shell)})
                    (first path))]
-    (state/swap-state! state/set-cell-override variant-id (vec path) value base)))
+    (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override variant-id (vec path) value base)))
 
 (declare arg-widget*)
 
@@ -519,7 +519,7 @@
 ;; ---- flat-panel row cap --------------------------------------------------
 ;;
 ;; A controls panel whose top-level arg count exceeds
-;; `budgets/controls-flat-row-cap` (60) renders the first `cap` rows and a
+;; `rf.story.budgets/controls-flat-row-cap` (60) renders the first `cap` rows and a
 ;; `+N more` expander rather than flooding the panel (spec/018 §10). The
 ;; reveal flag rides the SAME component-local `:expanded` ratom that drives
 ;; the nested summarise-before-expand state, under a reserved sentinel so it
@@ -535,12 +535,12 @@
 
 (defn bound-arg-rows
   "Pure data → data: bound the sorted top-level arg entries `entries` (a seq
-  of `[k v]` pairs) to at most `budgets/controls-flat-row-cap` rows unless
+  of `[k v]` pairs) to at most `rf.story.budgets/controls-flat-row-cap` rows unless
   `expanded?`. Returns `{:shown [...] :hidden <n>}` via the shared
-  `budgets/bound-cells` so the controls panel uses the SAME cap-and-page
+  `rf.story.budgets/bound-cells` so the controls panel uses the SAME cap-and-page
   idiom (F1) as the sidebar and the variants-grid. JVM-testable."
   [entries expanded?]
-  (budgets/bound-cells entries budgets/controls-flat-row-cap (boolean expanded?)))
+  (rf.story.budgets/bound-cells entries rf.story.budgets/controls-flat-row-cap (boolean expanded?)))
 
 ;; ---- summarise-before-expand --------------------------------------------
 ;;
@@ -661,13 +661,13 @@
   rf2-z4fza / rf2-c56hr."
   [variant-id path n]
   (let [path-v (vec path)
-        ids    (state/repeater-row-ids (state/get-state) variant-id path-v)]
+        ids    (rf.story.ui.state/repeater-row-ids (rf.story.ui.state/get-state) variant-id path-v)]
     (if (= n (count ids))
       (mapv (fn [id] (str "r:" id)) ids)
       (do
-        (state/swap-state! state/ensure-repeater-row-ids variant-id path-v n)
+        (rf.story.ui.state/swap-state! rf.story.ui.state/ensure-repeater-row-ids variant-id path-v n)
         (mapv (fn [id] (str "r:" id))
-              (state/repeater-row-ids (state/get-state) variant-id path-v))))))
+              (rf.story.ui.state/repeater-row-ids (rf.story.ui.state/get-state) variant-id path-v))))))
 
 (defn- repeater-widget
   "Render a `:vector` (or `:set`) repeater. Each entry gets a nested row
@@ -685,8 +685,8 @@
         path-v   (vec path)
         row-keys (row-keys-for-entries variant-id path-v (count entries))
         on-add   (fn []
-                   (state/swap-state!
-                     state/append-repeater-row-id variant-id path-v)
+                   (rf.story.ui.state/swap-state!
+                     rf.story.ui.state/append-repeater-row-id variant-id path-v)
                    (on-change-at-path
                      variant-id path
                      (let [next-v (conj entries (default-element-value element))]
@@ -694,8 +694,8 @@
                          :set (set next-v)
                          next-v))))
         on-del   (fn [i]
-                   (state/swap-state!
-                     state/remove-repeater-row-id variant-id path-v i)
+                   (rf.story.ui.state/swap-state!
+                     rf.story.ui.state/remove-repeater-row-id variant-id path-v i)
                    (on-change-at-path
                      variant-id path
                      (let [v (vec (concat (subvec entries 0 i)
@@ -839,22 +839,22 @@
                  :data-controls-action "reset-arg"
                  :aria-label (str "reset " k " to saved")
                  :on-click (fn [_]
-                             (state/swap-state!
-                               state/clear-cell-override variant-id k))}
+                             (rf.story.ui.state/swap-state!
+                               rf.story.ui.state/clear-cell-override variant-id k))}
         "reset"]])]
    [:div
     (arg-widget* variant-id [k] value widget-spec opts)
     (when violation
       [:div {:style (:error styles)
              :data-controls-error (str k)}
-       (str "schema: " (let [expl (schema-validation/format-explain (:explain violation))]
+       (str "schema: " (let [expl (rf.story.ui.schema-validation/format-explain (:explain violation))]
                          (if (seq expl)
                            expl
                            (str "does not match " (pr-str (:schema violation))))))])]])
 
 (defn args-editor
   "Render the args editor for `variant-id`. Reads the resolved args via
-  `args/resolve-args` and walks every key, rendering a widget per the
+  `rf.story.args/resolve-args` and walks every key, rendering a widget per the
   inferred argtype. Top-level keys render as flat rows; collection
   argtypes (`:map` / `:vector` / `:set` / `:tuple`) recurse into nested
   rows (rf2-agshe).
@@ -867,14 +867,14 @@
 
   - resolves the EFFECTIVE args (with `:cell-overrides`) and the SAVED
     baseline (without) so it can flag per-arg diff-from-saved;
-  - runs the SAME `schema-validation/args-violations` walk the schema-
+  - runs the SAME `rf.story.ui.schema-validation/args-violations` walk the schema-
     validation panel uses, indexes it by key, and surfaces an inline
     error per violating row + a panel banner;
   - keeps args a control surface, not a fidelity rung — every value
     here is an explicit view input.
 
   FLAT-PANEL CAP (rf2-ba86n.18 / C2): a panel whose top-level arg count
-  exceeds `budgets/controls-flat-row-cap` (60) renders the first `cap` rows
+  exceeds `rf.story.budgets/controls-flat-row-cap` (60) renders the first `cap` rows
   and a `+N more` expander rather than flooding the panel (spec/018 §10 —
   cap or page; fail by summarizing, not flooding). The reveal flag is the
   SAME component-local ephemeral `expanded` ratom that drives the nested
@@ -903,19 +903,19 @@
   ;; user's disclosure choice across sibling variants is the kinder UX.
   (let [expanded (r/atom #{})]
     (fn [variant-id]
-      (let [shell        @state/shell-state-atom
+      (let [shell        @rf.story.ui.state/shell-state-atom
             overrides    (get-in shell [:cell-overrides variant-id])
-            eff-args     (args/resolve-args
+            eff-args     (rf.story.args/resolve-args
                            variant-id
                            {:active-modes   (:active-modes shell)
                             :cell-overrides overrides})
-            saved-args   (args/resolve-args
+            saved-args   (rf.story.args/resolve-args
                            variant-id
                            {:active-modes (:active-modes shell)})
             argtypes     (resolve-argtypes variant-id eff-args)
-            schema       (schema-validation/resolve-component-schema variant-id)
-            vfns         (schema-validation/validator-fns)
-            viols        (schema-validation/args-violations eff-args schema vfns)
+            schema       (rf.story.ui.schema-validation/resolve-component-schema variant-id)
+            vfns         (rf.story.ui.schema-validation/validator-fns)
+            viols        (rf.story.ui.schema-validation/args-violations eff-args schema vfns)
             viols-by-key (violations-by-key viols)
             opts         {:expanded expanded}]
         [:div {:style (:section styles)}
@@ -968,8 +968,8 @@
            [:button {:style    (:button styles)
                      :data-controls-action "reset-all"
                      :on-click (fn [_]
-                                 (state/swap-state!
-                                   state/clear-cell-overrides variant-id))}
+                                 (rf.story.ui.state/swap-state!
+                                   rf.story.ui.state/clear-cell-overrides variant-id))}
             "reset overrides"])]))))
 
 ;; rf2-xi9zk: the controls-panel `mode-picker` is **superseded** by the
@@ -989,11 +989,11 @@
   unique `key`s in a sibling list, so the row key is the `[index id]`
   tuple rather than the bare id."
   [variant-id]
-  (let [shell (deref state/shell-state-atom)
+  (let [shell (deref rf.story.ui.state/shell-state-atom)
         ;; rf2-eyrpr — thread the per-run opts into `resolve-decorators` so
         ;; the plan recompile substitutes `[:arg]` keys resolvable only
         ;; through a mode / cell layer (mirrors the args panel's resolve).
-        pack  (decorators/resolve-decorators
+        pack  (rf.story.decorators/resolve-decorators
                 variant-id
                 {:active-modes   (:active-modes shell)
                  :cell-overrides (get-in shell [:cell-overrides variant-id])})
@@ -1026,7 +1026,7 @@
   DISTINCT from save-current-state (state authoring) and failure promotion
   (a captured artifact) — spec/021 §S5.
 
-  rf2-ba86n.7: the View-State section (`view-state/view-state-section`)
+  rf2-ba86n.7: the View-State section (`rf.story.ui.view-state/view-state-section`)
   sits BELOW the args editor — the orthogonal fidelity-ladder channel
   (the three labelled rungs + source/provenance + the honesty guardrail
   + the upgrade path). Args are an explicit CONTROL channel (above), NOT
@@ -1038,8 +1038,8 @@
    (when variant-id
      [args-editor variant-id])
    (when variant-id
-     [view-state/view-state-section variant-id])
+     [rf.story.ui.view-state/view-state-section variant-id])
    (when variant-id
      [decorator-list variant-id])
-   [save-variant-ui/save-variant-button variant-id]
-   [author-expectations/author-expectations-button variant-id]])
+   [rf.story.ui.save-variant/save-variant-button variant-id]
+   [rf.story.ui.author-expectations/author-expectations-button variant-id]])

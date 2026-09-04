@@ -8,8 +8,8 @@
 
   The bug is a React RECONCILIATION-identity defect: `shell.cljs`'s
   `framed-canvas` used to pick between TWO DIFFERENT hiccup shapes —
-  `[:div {...} [canvas/canvas]]` when a sized viewport was active, or
-  bare `[canvas/canvas]` otherwise — at the SAME tree position. Toggling
+  `[:div {...} [rf.story.ui.canvas/canvas]]` when a sized viewport was active, or
+  bare `[rf.story.ui.canvas/canvas]` otherwise — at the SAME tree position. Toggling
   `sized?` therefore changed the React element TYPE at that slot, which
   forces React to unmount the old subtree and mount a fresh one — no
   amount of pure hiccup-tree inspection proves whether that actually
@@ -20,15 +20,15 @@
 
   ## Pipeline under test
 
-      mount [shell/framed-canvas] (viewport :full)
+      mount [rf.story.ui.shell/framed-canvas] (viewport :full)
             |
-      canvas/canvas's component-did-mount -> run-if-needed! -> run-variant
+      rf.story.ui.canvas/canvas's component-did-mount -> run-if-needed! -> run-variant
             |  (variant's :setup seed app-db)
             v
       simulate user interaction: dispatch a NON-setup event into the
       variant's frame directly (mirrors 'user increments a counter')
             |
-      vs/select! :tablet  (crosses the :full -> sized boundary)
+      rf.story.ui.viewport-switcher/select! :tablet  (crosses the :full -> sized boundary)
             |
       flushSync a second commit
             v
@@ -44,42 +44,42 @@
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.story :as story]
-            [re-frame.story.loaders :as loaders]
-            [re-frame.story.ui.canvas :as canvas]
-            [re-frame.story.ui.shell :as shell]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.viewport-switcher :as vs]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.story :as rf.story]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.ui.canvas :as rf.story.ui.canvas]
+            [re-frame.story.ui.shell :as rf.story.ui.shell]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.viewport-switcher :as rf.story.ui.viewport-switcher]
+            [re-frame.subs :as rf.subs]))
 
 ;; `framed-canvas` is `defn-` in shell.cljs; the established Story-test
 ;; seam for reaching a private fn is the var-quote (e.g.
 ;; `re-frame.story.ui.shell-cljs-test`'s `mount-time-autorun-vid`).
-(def ^:private framed-canvas @#'shell/framed-canvas)
+(def ^:private framed-canvas @#'rf.story.ui.shell/framed-canvas)
 
 ;; ---- fixture --------------------------------------------------------------
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! reagent-adapter/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.adapter.reagent/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar
   ;; clear (mirrors render-shell-cljs-test's reset-all!).
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
-  (canvas/reset-first-rendered!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
+  (rf.story.ui.canvas/reset-first-rendered!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -120,10 +120,10 @@
         ;; this test's concern; omitting `:component` keeps `canvas-inner`
         ;; on its `nil? view-id` branch (a harmless placeholder message)
         ;; so only the mechanism under test — `framed-canvas` /
-        ;; `canvas/canvas`'s mount lifecycle — is exercised.
-        (story/reg-variant variant-id
+        ;; `rf.story.ui.canvas/canvas`'s mount lifecycle — is exercised.
+        (rf.story/reg-variant variant-id
           {:setup [[:vp-toggle/set 1]]})
-        (state/swap-state! state/select-variant variant-id)
+        (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant variant-id)
         (let [mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)]
           (try
@@ -155,7 +155,7 @@
             ;; wiping the :n 2 interactive state asserted above.
             (react-dom/flushSync
               (fn []
-                (vs/select! :tablet)
+                (rf.story.ui.viewport-switcher/select! :tablet)
                 (r/flush)))
 
             (is (some? (.querySelector mount-node "[data-test=\"story-canvas-frame-sized\"]"))
@@ -180,11 +180,11 @@
         (rf/reg-event :vp-toggle-rev/inc
           (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         ;; No `:component` — see the sibling test above for why.
-        (story/reg-variant variant-id
+        (rf.story/reg-variant variant-id
           {:setup [[:vp-toggle-rev/set 1]]})
         ;; Start already on a sized preset.
-        (vs/select! :tablet)
-        (state/swap-state! state/select-variant variant-id)
+        (rf.story.ui.viewport-switcher/select! :tablet)
+        (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant variant-id)
         (let [mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)]
           (try
@@ -199,7 +199,7 @@
 
             (react-dom/flushSync
               (fn []
-                (vs/select! :full)
+                (rf.story.ui.viewport-switcher/select! :full)
                 (r/flush)))
 
             (is (nil? (.querySelector mount-node "[data-test=\"story-canvas-frame-sized\"]"))

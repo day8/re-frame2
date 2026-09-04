@@ -37,11 +37,11 @@
   — production builds with the flag false see an empty state map and
   the shell entry point short-circuits before any subscription / mount
   call. Per `005-SOTA-Features.md` §Production elision under `:advanced`."
-  (:require [re-frame.story.config                :as config]
-            [re-frame.story.ui.state.filters      :as state.filters]
-            [re-frame.story.ui.state.snapshot     :as state.snapshot]
-            [re-frame.story.ui.state.tests        :as state.tests]
-            [re-frame.story.ui.state.transitions  :as state.transitions]
+  (:require [re-frame.story.config                :as rf.story.config]
+            [re-frame.story.ui.state.filters      :as rf.story.ui.state.filters]
+            [re-frame.story.ui.state.snapshot     :as rf.story.ui.state.snapshot]
+            [re-frame.story.ui.state.tests        :as rf.story.ui.state.tests]
+            [re-frame.story.ui.state.transitions  :as rf.story.ui.state.transitions]
             #?(:cljs [reagent.core :as r])))
 
 ;; ---- pure data: the default shape ----------------------------------------
@@ -167,59 +167,59 @@
 
 ;; ---- pure transitions (extracted to state.transitions) ------------------
 
-(def select-variant            state.transitions/select-variant)
-(def select-workspace          state.transitions/select-workspace)
-(def select-story              state.transitions/select-story)
-(def toggle-tag-filter         state.transitions/toggle-tag-filter)
-(def set-active-modes          state.transitions/set-active-modes)
-(def toggle-mode               state.transitions/toggle-mode)
-(def clear-active-modes        state.transitions/clear-active-modes)
-(def group-modes-by-axis       state.transitions/group-modes-by-axis)
-(def set-cell-override         state.transitions/set-cell-override)
-(def set-cell-override-scalar  state.transitions/set-cell-override-scalar)
-(def clear-cell-overrides      state.transitions/clear-cell-overrides)
-(def clear-cell-override       state.transitions/clear-cell-override)
-(def ensure-repeater-row-ids   state.transitions/ensure-repeater-row-ids)
-(def repeater-row-ids          state.transitions/repeater-row-ids)
-(def append-repeater-row-id    state.transitions/append-repeater-row-id)
-(def remove-repeater-row-id    state.transitions/remove-repeater-row-id)
-(def bump-hot-reload-tick      state.transitions/bump-hot-reload-tick)
-(def record-fingerprints       state.transitions/record-fingerprints)
-(def pin-snapshot              state.transitions/pin-snapshot)
-(def toggle-panel              state.transitions/toggle-panel)
+(def select-variant            rf.story.ui.state.transitions/select-variant)
+(def select-workspace          rf.story.ui.state.transitions/select-workspace)
+(def select-story              rf.story.ui.state.transitions/select-story)
+(def toggle-tag-filter         rf.story.ui.state.transitions/toggle-tag-filter)
+(def set-active-modes          rf.story.ui.state.transitions/set-active-modes)
+(def toggle-mode               rf.story.ui.state.transitions/toggle-mode)
+(def clear-active-modes        rf.story.ui.state.transitions/clear-active-modes)
+(def group-modes-by-axis       rf.story.ui.state.transitions/group-modes-by-axis)
+(def set-cell-override         rf.story.ui.state.transitions/set-cell-override)
+(def set-cell-override-scalar  rf.story.ui.state.transitions/set-cell-override-scalar)
+(def clear-cell-overrides      rf.story.ui.state.transitions/clear-cell-overrides)
+(def clear-cell-override       rf.story.ui.state.transitions/clear-cell-override)
+(def ensure-repeater-row-ids   rf.story.ui.state.transitions/ensure-repeater-row-ids)
+(def repeater-row-ids          rf.story.ui.state.transitions/repeater-row-ids)
+(def append-repeater-row-id    rf.story.ui.state.transitions/append-repeater-row-id)
+(def remove-repeater-row-id    rf.story.ui.state.transitions/remove-repeater-row-id)
+(def bump-hot-reload-tick      rf.story.ui.state.transitions/bump-hot-reload-tick)
+(def record-fingerprints       rf.story.ui.state.transitions/record-fingerprints)
+(def pin-snapshot              rf.story.ui.state.transitions/pin-snapshot)
+(def toggle-panel              rf.story.ui.state.transitions/toggle-panel)
 
 ;; ---- Xray-embed collapse re-exports -------------------------------------
 
-(def xray-embed-collapsed?       state.transitions/xray-embed-collapsed?)
-(def toggle-xray-embed-collapsed state.transitions/toggle-xray-embed-collapsed)
-(def set-xray-embed-collapsed    state.transitions/set-xray-embed-collapsed)
+(def xray-embed-collapsed?       rf.story.ui.state.transitions/xray-embed-collapsed?)
+(def toggle-xray-embed-collapsed rf.story.ui.state.transitions/toggle-xray-embed-collapsed)
+(def set-xray-embed-collapsed    rf.story.ui.state.transitions/set-xray-embed-collapsed)
 
 ;; ---- chrome visibility re-exports ---------------------------------------
 
-(def chrome-visibility-defaults state.transitions/chrome-visibility-defaults)
-(def chrome-visibility         state.transitions/chrome-visibility)
-(def toggle-chrome-visibility  state.transitions/toggle-chrome-visibility)
-(def set-chrome-visibility     state.transitions/set-chrome-visibility)
-(def chrome-pane-visible?      state.transitions/chrome-pane-visible?)
+(def chrome-visibility-defaults rf.story.ui.state.transitions/chrome-visibility-defaults)
+(def chrome-visibility         rf.story.ui.state.transitions/chrome-visibility)
+(def toggle-chrome-visibility  rf.story.ui.state.transitions/toggle-chrome-visibility)
+(def set-chrome-visibility     rf.story.ui.state.transitions/set-chrome-visibility)
+(def chrome-pane-visible?      rf.story.ui.state.transitions/chrome-pane-visible?)
 
 ;; ---- mode-tab re-exports -------------------------------------------------
 
-(def mode-tabs                 state.transitions/mode-tabs)
-(def mode-tab-labels           state.transitions/mode-tab-labels)
-(def default-mode-tab          state.transitions/default-mode-tab)
-(def valid-mode-tab?           state.transitions/valid-mode-tab?)
-(def active-mode-tab           state.transitions/active-mode-tab)
-(def set-active-mode-tab       state.transitions/set-active-mode-tab)
+(def mode-tabs                 rf.story.ui.state.transitions/mode-tabs)
+(def mode-tab-labels           rf.story.ui.state.transitions/mode-tab-labels)
+(def default-mode-tab          rf.story.ui.state.transitions/default-mode-tab)
+(def valid-mode-tab?           rf.story.ui.state.transitions/valid-mode-tab?)
+(def active-mode-tab           rf.story.ui.state.transitions/active-mode-tab)
+(def set-active-mode-tab       rf.story.ui.state.transitions/set-active-mode-tab)
 
 ;; ---- pure derivations (extracted to state.filters) ----------------------
 
-(def group-tags-by-axis           state.filters/group-tags-by-axis)
-(def axis-display-order           state.filters/axis-display-order)
-(def ordered-axes                 state.filters/ordered-axes)
-(def partition-tag-filter-by-axis state.filters/partition-tag-filter-by-axis)
-(def variant-tag-match?           state.filters/variant-tag-match?)
-(def filter-variants              state.filters/filter-variants)
-(def group-variants-by-story      state.filters/group-variants-by-story)
+(def group-tags-by-axis           rf.story.ui.state.filters/group-tags-by-axis)
+(def axis-display-order           rf.story.ui.state.filters/axis-display-order)
+(def ordered-axes                 rf.story.ui.state.filters/ordered-axes)
+(def partition-tag-filter-by-axis rf.story.ui.state.filters/partition-tag-filter-by-axis)
+(def variant-tag-match?           rf.story.ui.state.filters/variant-tag-match?)
+(def filter-variants              rf.story.ui.state.filters/filter-variants)
+(def group-variants-by-story      rf.story.ui.state.filters/group-variants-by-story)
 
 ;; The canonical `parent-story-id` helper lives in
 ;; `re-frame.story.predicates`; sidebar / filters call
@@ -229,7 +229,7 @@
 
 (def registry-snapshot
   "Re-export of `re-frame.story.ui.state.snapshot/registry-snapshot`."
-  state.snapshot/registry-snapshot)
+  rf.story.ui.state.snapshot/registry-snapshot)
 
 ;; ---- the reactive bag (CLJS-only) ----------------------------------------
 
@@ -263,7 +263,7 @@
   "Apply `f` (plus optional args) to the shell state. The pure fns above
   are the recommended `f` values."
   [f & args]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (apply swap! shell-state-atom f args)))
 
 ;; ---- test-runs + watch-mode (extracted to state.tests) ------------------
@@ -273,15 +273,15 @@
 ;; leaf-size ceiling. Re-exported here so consumer requires of
 ;; `re-frame.story.ui.state` keep working unchanged.
 
-(def test-run-statuses           state.tests/test-run-statuses)
-(def mark-test-running           state.tests/mark-test-running)
-(def aggregate-summary           state.tests/aggregate-summary)
-(def record-test-run             state.tests/record-test-run)
-(def clear-test-run              state.tests/clear-test-run)
-(def variant-test-status         state.tests/variant-test-status)
-(def test-summary                state.tests/test-summary)
-(def testable-variant-ids        state.tests/testable-variant-ids)
-(def set-test-watch-mode         state.tests/set-test-watch-mode)
-(def test-watch-mode?            state.tests/test-watch-mode?)
-(def record-test-content-hashes  state.tests/record-test-content-hashes)
-(def watch-mode-drift            state.tests/watch-mode-drift)
+(def test-run-statuses           rf.story.ui.state.tests/test-run-statuses)
+(def mark-test-running           rf.story.ui.state.tests/mark-test-running)
+(def aggregate-summary           rf.story.ui.state.tests/aggregate-summary)
+(def record-test-run             rf.story.ui.state.tests/record-test-run)
+(def clear-test-run              rf.story.ui.state.tests/clear-test-run)
+(def variant-test-status         rf.story.ui.state.tests/variant-test-status)
+(def test-summary                rf.story.ui.state.tests/test-summary)
+(def testable-variant-ids        rf.story.ui.state.tests/testable-variant-ids)
+(def set-test-watch-mode         rf.story.ui.state.tests/set-test-watch-mode)
+(def test-watch-mode?            rf.story.ui.state.tests/test-watch-mode?)
+(def record-test-content-hashes  rf.story.ui.state.tests/record-test-content-hashes)
+(def watch-mode-drift            rf.story.ui.state.tests/watch-mode-drift)

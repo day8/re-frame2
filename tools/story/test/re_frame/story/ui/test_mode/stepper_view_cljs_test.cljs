@@ -7,12 +7,12 @@
   the correct controls for each state, and the disabled-button rules.
   No reagent mounting — we deref the component fn directly."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story.ui.test-mode.stepper-state :as st]
-            [re-frame.story.ui.test-mode.stepper-view  :as sv]))
+            [re-frame.story.ui.test-mode.stepper-state :as rf.story.ui.test-mode.stepper-state]
+            [re-frame.story.ui.test-mode.stepper-view  :as rf.story.ui.test-mode.stepper-view]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
-(defn reset-results! [] (reset! st/results-atom {}))
+(defn reset-results! [] (reset! rf.story.ui.test-mode.stepper-state/results-atom {}))
 
 (use-fixtures :each {:before reset-results! :after reset-results!})
 
@@ -47,7 +47,7 @@
   → hiccup). Bypasses Reagent's class lifecycle so the hiccup is
   directly inspectable."
   [variant-id]
-  (sv/render-section variant-id (get @st/results-atom variant-id)))
+  (rf.story.ui.test-mode.stepper-view/render-section variant-id (get @rf.story.ui.test-mode.stepper-state/results-atom variant-id)))
 
 ;; ---- inactive state ------------------------------------------------------
 
@@ -73,7 +73,7 @@
 
 (defn- seed-slot!
   [variant-id slot]
-  (swap! st/results-atom assoc variant-id slot))
+  (swap! rf.story.ui.test-mode.stepper-state/results-atom assoc variant-id slot))
 
 (deftest active-shows-all-controls
   (testing "active state renders step / step-back / rewind / play /

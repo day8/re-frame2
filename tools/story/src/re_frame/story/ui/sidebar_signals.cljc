@@ -16,7 +16,7 @@
   | Axis                | Members (spec/018 §7.1 / §12.6)                       | Source |
   |---------------------|-------------------------------------------------------|--------|
   | `:status`           | pass / fail / cannot-run / error / pending / running / blocked / dirty / redacted | the run record |
-  | `:fidelity`         | real-setup / db-seed / sub-overrides                  | `plan/compute-fidelity` over world inputs |
+  | `:fidelity`         | real-setup / db-seed / sub-overrides                  | `rf.story.plan/compute-fidelity` over world inputs |
   | `:world-inputs`     | args / route / network / fx-overrides                 | presence of the body's world slots |
   | `:runner-requirement` | headless / hiccup / cljs-reactive / dom / browser   | `requirements` capability tokens → cheapest runner |
   | `:frame-binding`    | fresh / attached / mcp-bound                          | the body's `:frame-binding` (+ MCP affordance) |
@@ -40,9 +40,9 @@
 
   No signal is fabricated: a chip appears only when the variant body (or
   the run record) carries the data behind it."
-  (:require [re-frame.story.plan         :as plan]
-            [re-frame.story.requirements :as requirements]
-            [re-frame.story.theme.status :as status]))
+  (:require [re-frame.story.plan         :as rf.story.plan]
+            [re-frame.story.requirements :as rf.story.requirements]
+            [re-frame.story.theme.status :as rf.story.theme.status]))
 
 ;; ===========================================================================
 ;; AXIS 1 — STATUS
@@ -66,7 +66,7 @@
   expectation (`:fail`); `:blocked` / `:dirty` / `:redacted` are the
   additional signal states the spec names. Derived (not re-encoded) so the
   sidebar can never drift from the tool-wide order (rf2-8fr3yd)."
-  status/order)
+  rf.story.theme.status/order)
 
 (def status-labels
   "Pure data → data: the compact chip label per status keyword. Derived
@@ -75,7 +75,7 @@
   cannot-run / blocked / dirty / redacted MUST be distinguishable in text,
   not only colour). Single-sourced (not re-encoded) so the sidebar chip
   label can never drift from the canonical status label (rf2-8fr3yd)."
-  (into {} (map (fn [[k d]] [k (:label d)])) status/descriptors))
+  (into {} (map (fn [[k d]] [k (:label d)])) rf.story.theme.status/descriptors))
 
 (defn status-signal
   "Pure data → data: the single status chip for a variant given its run
@@ -95,7 +95,7 @@
 ;; ===========================================================================
 ;;
 ;; The evidence rung(s) a variant's render rests on, computed from its world
-;; inputs (NOT typed by the author). Reuses `plan/compute-fidelity` — the
+;; inputs (NOT typed by the author). Reuses `rf.story.plan/compute-fidelity` — the
 ;; SAME projection the plan compiler stamps `[:world :fidelity]` with — so
 ;; the sidebar chip and the plan can never disagree about what a variant
 ;; leans on. `:real-setup` > `:db-seed` > `:sub-overrides` (spec/017
@@ -118,12 +118,12 @@
   "Pure data → data: the fidelity chips for a variant `body`. Derives the
   world inputs the fidelity ladder reads — setup/script (real-setup),
   `:db-seed`, `:sub-overrides` — and runs them through the canonical
-  `plan/compute-fidelity` so the sidebar and the plan agree. Returns a
+  `rf.story.plan/compute-fidelity` so the sidebar and the plan agree. Returns a
   vector of `{:axis :fidelity :value <kw> :label <string>}` in
   `fidelity-order`; empty for a bare render-as-mounted variant (no setup,
   seed, or overrides) — which is legitimate, not a defect."
   [body]
-  (let [fidelity (plan/compute-fidelity
+  (let [fidelity (rf.story.plan/compute-fidelity
                    {:setup         (:setup body)
                     :script        (or (:script body) (:plays body))
                     :db-seed       (:db-seed body)
@@ -196,7 +196,7 @@
 
 (def runner-requirement-order
   "Pure data → data: cost-ordered render order for the runner-requirement
-  chip (cheapest first), mirroring `requirements/concrete-runners`."
+  chip (cheapest first), mirroring `rf.story.requirements/concrete-runners`."
   [:headless :hiccup :cljs-reactive :dom :browser])
 
 (def runner-requirement-labels
@@ -213,7 +213,7 @@
   "Pure data → data: the variant body's declared script steps, flattened
   across the `:script` (bare vector or `{:script …}` map) / `:plays`
   slots. Each step is a tagged vector (or a bare event vector);
-  `requirements/step-tokens` reads the head tag, so no coercion is needed
+  `rf.story.requirements/step-tokens` reads the head tag, so no coercion is needed
   for the requirement signal — a bare event vector has no recognised step
   tag and contributes the headless-floor empty token set, which is
   correct."
@@ -236,16 +236,16 @@
   "Pure data → data: the cheapest concrete runner kind that can prove the
   variant `body`'s declared script steps + setup + terminal assertions, via
   the canonical `requirements` registry. Unions the per-step / per-assertion
-  capability tokens (`requirements/required-tokens`) and picks the
-  `requirements/cheapest-runner`. Returns a runner-kind keyword (one of
+  capability tokens (`rf.story.requirements/required-tokens`) and picks the
+  `rf.story.requirements/cheapest-runner`. Returns a runner-kind keyword (one of
   `runner-requirement-order`), defaulting to `:headless` when no concrete
   runner qualifies (the headless floor — a navigation signal never refuses)."
   [body]
   (let [setup      (or (:setup body) [])
         script     (body-script-steps body)
         assertions (or (:assertions body) [])
-        tokens     (requirements/required-tokens setup script assertions)]
-    (or (requirements/cheapest-runner tokens) :headless)))
+        tokens     (rf.story.requirements/required-tokens setup script assertions)]
+    (or (rf.story.requirements/cheapest-runner tokens) :headless)))
 
 (defn runner-requirement-signal
   "Pure data → data: the single runner-requirement chip for a variant
@@ -286,17 +286,17 @@
 (defn frame-binding-signal
   "Pure data → data: the frame-binding chip for a variant `body`. Reads the
   body's `:frame-binding` (validated against
-  `requirements/frame-bindings` — `#{:fresh :attached}`), defaulting to
-  `requirements/default-frame-binding` (`:fresh`). When the body flags
+  `rf.story.requirements/frame-bindings` — `#{:fresh :attached}`), defaulting to
+  `rf.story.requirements/default-frame-binding` (`:fresh`). When the body flags
   `:mcp-bound` truthy, the chip surfaces the MCP-bound affordance (still an
   ATTACHED binding underneath — MCP is a binding, not a tier). Returns
   `{:axis :frame-binding :value <kw> :label <string>}`. Always present —
   every variant has a frame binding."
   [body]
   (let [raw   (:frame-binding body)
-        bound (if (contains? requirements/frame-bindings raw)
+        bound (if (contains? rf.story.requirements/frame-bindings raw)
                 raw
-                requirements/default-frame-binding)
+                rf.story.requirements/default-frame-binding)
         value (if (:mcp-bound body) :mcp-bound bound)]
     {:axis  :frame-binding
      :value value

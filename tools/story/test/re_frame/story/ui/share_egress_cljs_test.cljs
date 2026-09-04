@@ -10,34 +10,34 @@
   (:require [clojure.string :as str]
             [cljs.test :refer [deftest is testing use-fixtures async]]
             [goog.object :as gobj]
-            [re-frame.story :as story]
-            [re-frame.story.share :as share]
-            [re-frame.story.ui.share :as ui-share]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story :as rf.story]
+            [re-frame.story.share :as rf.story.share]
+            [re-frame.story.ui.share :as rf.story.ui.share]
+            [re-frame.story.ui.state :as rf.story.ui.state]))
 
 (use-fixtures :each
   ;; Map form (`:before` / `:after`) — async tests in this ns (the rf2-ehc5bq
   ;; screenshot suite) require the map fixture shape; cljs.test aborts an
   ;; async test under a bare-fn fixture.
   {:before (fn []
-             (story/clear-all!)
-             (state/reset-shell-state!)
-             (story/install-canonical-vocabulary!)
-             (ui-share/close-share-export-dialog!))
+             (rf.story/clear-all!)
+             (rf.story.ui.state/reset-shell-state!)
+             (rf.story/install-canonical-vocabulary!)
+             (rf.story.ui.share/close-share-export-dialog!))
    :after  (fn []
-             (story/clear-all!)
-             (state/reset-shell-state!)
-             (ui-share/close-share-export-dialog!))})
+             (rf.story/clear-all!)
+             (rf.story.ui.state/reset-shell-state!)
+             (rf.story.ui.share/close-share-export-dialog!))})
 
 ;; ---- reproducibility-badge -----------------------------------------------
 
 (deftest badge-nil-report-renders-nothing
   (testing "no report (no variant focused) → no badge"
-    (is (nil? (ui-share/reproducibility-badge nil)))))
+    (is (nil? (rf.story.ui.share/reproducibility-badge nil)))))
 
 (deftest badge-full-shows-label-no-reasons
   (testing "a fully-reproducible report renders the label and no reason list"
-    (let [hiccup (ui-share/reproducibility-badge
+    (let [hiccup (rf.story.ui.share/reproducibility-badge
                    {:status :full :label "fully reproducible" :reasons []})
           flat   (str hiccup)]
       (is (str/includes? flat "story-egress-badge"))
@@ -47,7 +47,7 @@
 
 (deftest badge-partial-lists-reasons-with-codes
   (testing "a downgraded report renders each reason + its machine code"
-    (let [hiccup (ui-share/reproducibility-badge
+    (let [hiccup (rf.story.ui.share/reproducibility-badge
                    {:status  :partial
                     :label   "partially reproducible"
                     :reasons [{:status :partial :code :dropped-overrides
@@ -63,30 +63,35 @@
 (deftest report-nil-when-no-variant
   (testing "with no variant focused the classifier still reports full (no
             per-variant data to omit on the chrome/workspace URL)"
-    (let [report (ui-share/current-share-report (state/get-state))]
+    (let [report (rf.story.ui.share/current-share-report (rf.story.ui.state/get-state))]
       (is (= :full (:status report))))))
 
 (deftest report-flags-fn-override-as-view-only
   (testing "a fn-valued cell-override on the focused variant → view-only"
-    (story/reg-variant :story.egress/btn {:tags #{:dev} :setup []})
-    (state/swap-state!
+    (rf.story/reg-variant :story.egress/btn {:tags #{:dev} :setup []})
+    (rf.story.ui.state/swap-state!
       (fn [s] (-> s
                   (assoc :selected-variant :story.egress/btn)
                   (assoc-in [:cell-overrides :story.egress/btn]
                             {:on-click (fn [_] nil) :label "ok"}))))
-    (let [report (ui-share/current-share-report (state/get-state))]
+    (let [report (rf.story.ui.share/current-share-report (rf.story.ui.state/get-state))]
       (is (= :view-only (:status report)))
       (is (some #(= :override-fn (:code %)) (:reasons report))))))
 
 (deftest edn-snippet-emits-reg-variant-form
   (testing "the copy-EDN snippet is a (reg-variant …) form pinning :extends
             + the effective args of the focused cell"
-    (story/reg-variant :story.egress/counter {:tags #{:dev} :setup [] :args {:n 1}})
-    (state/swap-state!
+    (rf.story/reg-variant :story.egress/counter {:tags #{:dev} :setup [] :args {:n 1}})
+    (rf.story.ui.state/swap-state!
       (fn [s] (-> s
                   (assoc :selected-variant :story.egress/counter)
                   (assoc-in [:cell-overrides :story.egress/counter] {:n 7}))))
-    (let [snip (ui-share/egress-edn-snippet (state/get-state))]
+    (let [snip (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state))]
+      ;; NOT `rf.story/` — this string pins EMITTED OUTPUT, not this file's
+      ;; alias. The snippet is built by `rf.story.predicates/reg-variant-form`,
+      ;; whose alias prefix is a plain `"story"` argument (share.cljs), so the
+      ;; copyable form a user pastes still reads `(story/reg-variant …)`.
+      ;; Renaming the require alias above does not move it.
       (is (str/starts-with? snip "(story/reg-variant "))
       (is (str/includes? snip ":story.egress/counter"))
       (is (str/includes? snip ":extends"))
@@ -95,27 +100,27 @@
 
 (deftest edn-snippet-nil-without-variant
   (testing "no variant focused → no EDN snippet"
-    (is (nil? (ui-share/egress-edn-snippet (state/get-state))))))
+    (is (nil? (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state))))))
 
 ;; ---- dialog open / close / render ----------------------------------------
 
 (deftest dialog-closed-renders-nil
   (testing "the dialog renders nil while closed"
-    (ui-share/close-share-export-dialog!)
-    (is (nil? (ui-share/share-export-dialog)))))
+    (rf.story.ui.share/close-share-export-dialog!)
+    (is (nil? (rf.story.ui.share/share-export-dialog)))))
 
 (deftest dialog-open-renders-every-egress-command
   (testing "the open dialog renders all four human-egress commands, each
             shipping (NOT disabled-pending-a-seam) + carrying a
             reproducibility label"
-    (story/reg-variant :story.egress/d {:tags #{:dev} :setup [] :args {:n 1}})
-    (state/swap-state! #(assoc % :selected-variant :story.egress/d))
-    (ui-share/open-share-export-dialog!)
+    (rf.story/reg-variant :story.egress/d {:tags #{:dev} :setup [] :args {:n 1}})
+    (rf.story.ui.state/swap-state! #(assoc % :selected-variant :story.egress/d))
+    (rf.story.ui.share/open-share-export-dialog!)
     ;; `command-block` is a child Reagent component — `str` over the dialog
     ;; hiccup shows each command's invocation PROPS (`:test "share-url"` …),
     ;; not the child's expanded `data-test`. Assert on the props (the
     ;; idiomatic shallow-hiccup check for child components).
-    (let [flat (str (ui-share/share-export-dialog))]
+    (let [flat (str (rf.story.ui.share/share-export-dialog))]
       (is (str/includes? flat "story-share-export-dialog"))
       ;; all four commands present and enabled (no disabled-pending-a-seam)
       (is (str/includes? flat ":test \"share-url\""))
@@ -133,15 +138,15 @@
 
 (deftest dialog-share-chip-opens-dialog
   (testing "the toolbar SHARE chip's on-click opens the dialog"
-    (ui-share/close-share-export-dialog!)
-    (is (nil? (ui-share/share-export-dialog)) "closed before the click")
-    (let [chip     (ui-share/share-chip)
+    (rf.story.ui.share/close-share-export-dialog!)
+    (is (nil? (rf.story.ui.share/share-export-dialog)) "closed before the click")
+    (let [chip     (rf.story.ui.share/share-chip)
           attrs    (second chip)
           on-click (:on-click attrs)]
       (is (= "story-toolbar-share" (:data-test attrs)))
       (is (fn? on-click))
       (on-click nil)
-      (is (some? (ui-share/share-export-dialog))
+      (is (some? (rf.story.ui.share/share-export-dialog))
           "clicking the chip opens the dialog (it now renders a tree)"))))
 
 ;; ---- rf2-76l69l: declared-arg-keys is the stale-override contract --------
@@ -149,12 +154,12 @@
 (deftest declared-arg-keys-unions-args-and-argtypes
   (testing "rf2-76l69l — declared-arg-keys is the variant's editable arg
             surface: resolved-args keys ∪ :argtypes keys"
-    (story/reg-variant :story.dak/v
+    (rf.story/reg-variant :story.dak/v
       {:tags     #{:dev}
        :setup   []
        :args     {:label "Hi" :count 1}
        :argtypes {:flavour {:control :select}}})
-    (let [ks (ui-share/declared-arg-keys :story.dak/v)]
+    (let [ks (rf.story.ui.share/declared-arg-keys :story.dak/v)]
       (is (contains? ks :label) "an :args key is declared")
       (is (contains? ks :count) "an :args key is declared")
       (is (contains? ks :flavour) "an :argtypes-only key is declared")
@@ -163,19 +168,19 @@
 (deftest declared-arg-keys-nil-for-unregistered
   (testing "rf2-76l69l — an unregistered variant has no known contract → nil
             (so drop-stale-overrides degrades to keep-all, not drop-all)"
-    (is (nil? (ui-share/declared-arg-keys :story.dak/never-registered)))))
+    (is (nil? (rf.story.ui.share/declared-arg-keys :story.dak/never-registered)))))
 
 (deftest drop-stale-overrides-against-live-contract
   (testing "rf2-76l69l — a stale override (an arg the variant removed) is
             dropped + reported against the live declared-key set, while a
             still-declared override survives — the end-to-end finding-2 fix"
-    (story/reg-variant :story.dak/contract
+    (rf.story/reg-variant :story.dak/contract
       {:tags   #{:dev}
        :setup []
        :args   {:label "Hi"}})
     (let [parsed {:overrides {:label "Renamed" :gone 9} :dropped []}
-          out    (share/drop-stale-overrides
-                   parsed (ui-share/declared-arg-keys :story.dak/contract))]
+          out    (rf.story.share/drop-stale-overrides
+                   parsed (rf.story.ui.share/declared-arg-keys :story.dak/contract))]
       (is (= {:label "Renamed"} (:overrides out))
           "the still-declared :label override survives")
       (is (= 1 (count (:dropped out))) "the removed :gone override is dropped")
@@ -263,11 +268,11 @@
                     "ClipboardItem" (fn [parts] (this-as this
                                                    (set! (.-_parts this) parts)
                                                    this))})]
-        (-> (ui-share/copy-screenshot!)
+        (-> (rf.story.ui.share/copy-screenshot!)
             (.then
               (fn [ok?]
                 (is (true? ok?) "the write resolved → success")
-                (let [snap (ui-share/dialog-state-snapshot)]
+                (let [snap (rf.story.ui.share/dialog-state-snapshot)]
                   (is (= :screenshot (:copied snap))
                       "copied flashes only on a real, resolved clipboard write")
                   (is (nil? (:error snap)) "no error on the success path"))
@@ -287,11 +292,11 @@
                     "window"        #js {}
                     "navigator"     (fake-navigator-with-write (atom nil))
                     "ClipboardItem" (fn [parts] (this-as this this))})]
-        (-> (ui-share/copy-screenshot!)
+        (-> (rf.story.ui.share/copy-screenshot!)
             (.then
               (fn [ok?]
                 (is (false? ok?) "no seam → failure outcome")
-                (let [snap (ui-share/dialog-state-snapshot)]
+                (let [snap (rf.story.ui.share/dialog-state-snapshot)]
                   (is (not= :screenshot (:copied snap))
                       "MUST NOT report success on a no-op (the false-success bug)")
                   (is (= :screenshot (:cmd (:error snap)))
@@ -313,11 +318,11 @@
                     ;; navigator without a clipboard → image write unsupported
                     "navigator"     #js {}
                     "ClipboardItem" js/undefined})]
-        (-> (ui-share/copy-screenshot!)
+        (-> (rf.story.ui.share/copy-screenshot!)
             (.then
               (fn [ok?]
                 (is (false? ok?) "no clipboard image write → failure outcome")
-                (let [snap (ui-share/dialog-state-snapshot)]
+                (let [snap (rf.story.ui.share/dialog-state-snapshot)]
                   (is (not= :screenshot (:copied snap))
                       "MUST NOT report success when clipboard image write is absent")
                   (is (= :screenshot (:cmd (:error snap)))
@@ -337,11 +342,11 @@
                     "window"        (fake-window-with-capture)
                     "navigator"     (fake-navigator-with-write (atom nil))
                     "ClipboardItem" (fn [parts] (this-as this this))})]
-        (-> (ui-share/copy-screenshot!)
+        (-> (rf.story.ui.share/copy-screenshot!)
             (.then
               (fn [ok?]
                 (is (false? ok?))
-                (let [snap (ui-share/dialog-state-snapshot)]
+                (let [snap (rf.story.ui.share/dialog-state-snapshot)]
                   (is (not= :screenshot (:copied snap)))
                   (is (= :screenshot (:cmd (:error snap)))))))
             (.finally
@@ -355,18 +360,18 @@
             PROPS — the idiomatic shallow-hiccup check used by the sibling
             render test."
     (async done
-      (story/reg-variant :story.egress/shot {:tags #{:dev} :setup []})
-      (state/swap-state! #(assoc % :selected-variant :story.egress/shot))
-      (ui-share/open-share-export-dialog!)
+      (rf.story/reg-variant :story.egress/shot {:tags #{:dev} :setup []})
+      (rf.story.ui.state/swap-state! #(assoc % :selected-variant :story.egress/shot))
+      (rf.story.ui.share/open-share-export-dialog!)
       (let [prev (install-globals!
                    {"document"      (fake-document #js {:tag "canvas"})
                     "window"        #js {}                ; no capture seam
                     "navigator"     (fake-navigator-with-write (atom nil))
                     "ClipboardItem" (fn [parts] (this-as this this))})]
-        (-> (ui-share/copy-screenshot!)
+        (-> (rf.story.ui.share/copy-screenshot!)
             (.then
               (fn [_]
-                (let [flat (str (ui-share/share-export-dialog))
+                (let [flat (str (rf.story.ui.share/share-export-dialog))
                       ;; the screenshot command-block invocation props slice
                       shot (second (str/split flat #":test \"screenshot\""))]
                   (is (some? shot) "the screenshot row is present")

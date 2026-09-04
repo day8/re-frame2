@@ -14,10 +14,10 @@
   Everything in this namespace is `.cljc` so it runs unchanged on both
   the JVM (for the test corpus) and CLJS (consumed by `view.cljs`)."
   (:require [clojure.string            :as str]
-            [re-frame.story.assertions :as assertions]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.registrar  :as registrar]
-            [re-frame.story.verdict    :as verdict]))
+            [re-frame.story.assertions :as rf.story.assertions]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.registrar  :as rf.story.registrar]
+            [re-frame.story.verdict    :as rf.story.verdict]))
 
 ;; ---- aliases on the leaf predicates ns ----------------------------------
 ;;
@@ -25,14 +25,14 @@
 ;; (a pure leaf ns the rest of Story consumes without cycle risk).
 ;; Aliased here so internal call sites stay textually identical.
 ;; `parent-story-id` is not re-exported here — its sole caller
-;; (`test-mode.view`) calls `pred/parent-story-id` directly.
+;; (`test-mode.view`) calls `rf.story.predicates/parent-story-id` directly.
 
-(def ^:private assertion-event? pred/assertion-event?)
+(def ^:private assertion-event? rf.story.predicates/assertion-event?)
 
 ;; ---- the unified run-result verdicts (spec/017 §Run result) -------------
 ;;
 ;; The four verdicts every assertion record / check / run carries are owned
-;; by the pure `re-frame.story.verdict` leaf (`verdict/statuses`) — consumed
+;; by the pure `re-frame.story.verdict` leaf (`rf.story.verdict/statuses`) — consumed
 ;; directly here (no require into `re-frame.story.result`, which loops
 ;; through the runtime; no local mirror to drift).
 
@@ -69,7 +69,7 @@
 
   Pure data → data; JVM-testable."
   [variant-id]
-  (let [vb (registrar/handler-meta :variant variant-id)]
+  (let [vb (rf.story.registrar/handler-meta :variant variant-id)]
     (or (has-play-script? vb)
         (has-plays? vb))))
 
@@ -134,7 +134,7 @@
                    (= :rf.assert/skipped aid)          :skip
                    ;; The unified `:status` wins; the :passed?-only
                    ;; derivation is the fallback.
-                   (contains? verdict/statuses st)     st
+                   (contains? rf.story.verdict/statuses st)     st
                    (:cannot-run? rec)                  :cannot-run
                    (or (:error rec) (:exception rec))  :error
                    passed?                             :pass
@@ -395,7 +395,7 @@
   (let [st (:status result)]
     (cond
       (nil? result)                   :pending
-      (contains? verdict/statuses st) st
+      (contains? rf.story.verdict/statuses st) st
       :else
       (let [{:keys [total failed cannot-run all-passed?]} (or summary {})]
         (cond
@@ -687,18 +687,18 @@
   browser-tier checks (the common headless case — an honest empty state,
   never a fabricated row). Pure data → data; JVM-testable."
   [result]
-  (let [browser? (fn [rec] (contains? assertions/browser-assertion-ids
+  (let [browser? (fn [rec] (contains? rf.story.assertions/browser-assertion-ids
                                       (:assertion rec)))
         kind-of  (fn [aid]
                    (condp = aid
-                     assertions/id-visual-snapshot :visual
-                     assertions/id-a11y            :a11y
-                     assertions/id-a11y-structural :a11y-structural
+                     rf.story.assertions/id-visual-snapshot :visual
+                     rf.story.assertions/id-a11y            :a11y
+                     rf.story.assertions/id-a11y-structural :a11y-structural
                      :browser))
         status-of (fn [rec]
                     (let [st (:status rec)]
                       (cond
-                        (contains? verdict/statuses st)    st
+                        (contains? rf.story.verdict/statuses st)    st
                         (:cannot-run? rec)                 :cannot-run
                         (or (:error rec) (:exception rec)) :error
                         (:passed? rec)                     :pass

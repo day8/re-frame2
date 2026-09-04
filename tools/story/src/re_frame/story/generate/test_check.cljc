@@ -48,7 +48,7 @@
   runs on the JVM, so this adapter targets the JVM half of `clojure -M:test`.
   On CLJS the adapter throws a clear message — the dependency-free `gen-fn`
   path is the cross-host default and needs no library."
-  (:require [re-frame.error :as error]))
+  (:require [re-frame.error :as rf.error]))
 
 (def ^:private absent-msg
   (str "re-frame.story.generate.test-check requires org.clojure/test.check on "
@@ -66,7 +66,7 @@
      (or (try (requiring-resolve sym)
               (catch java.io.FileNotFoundException _ nil)
               (catch Throwable _ nil))
-         (error/throw-error!
+         (rf.error/throw-error!
            :rf.error/story-test-check-absent
            'rf.story.generate/gen->gen-fn
            absent-msg
@@ -109,7 +109,7 @@
         (fn [seed]
           (vec (generate g size seed))))
       :cljs
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/story-test-check-unsupported-host
         'rf.story.generate/gen->gen-fn
         (str "re-frame.story.generate.test-check is JVM-only — CLJS cannot "

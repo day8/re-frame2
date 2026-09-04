@@ -27,14 +27,14 @@
 
   ## Elision
 
-  Every public fn opens with `(when config/enabled? ...)` so
+  Every public fn opens with `(when rf.story.config/enabled? ...)` so
   production CLJS builds short-circuit cleanly. The translator stays
   reachable (it's pure data → data) but the side-effecty seams
   collapse."
   (:require [re-frame.core                        :as rf]
-            [re-frame.story.config                :as config]
-            [re-frame.story.play.runner-events    :as runner-events]
-            [re-frame.story.recorder.play-export  :as export]))
+            [re-frame.story.config                :as rf.story.config]
+            [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
+            [re-frame.story.recorder.play-export  :as rf.story.recorder.play-export]))
 
 ;; ---------------------------------------------------------------------------
 ;; Impure: app-db-value snapshot
@@ -61,7 +61,7 @@
 
 (defn replay-script!
   "Drive `spec` (a `:script` map per `runner/parse-spec`) against
-  `frame-id` via `runner-events/run!`. Returns the initial run-state
+  `frame-id` via `rf.story.play.runner-events/run!`. Returns the initial run-state
   (status `:running`, step-idx 0). `done-cb` fires with the terminal
   run-state.
 
@@ -74,10 +74,10 @@
   ([frame-id spec]
    (replay-script! frame-id spec nil))
   ([frame-id spec done-cb]
-   (when (and config/enabled? frame-id spec)
+   (when (and rf.story.config/enabled? frame-id spec)
      ;; The 4-arity multi-play form: the play-key is the hand-built
      ;; spec's :name (nil for an unnamed script).
-     (runner-events/run! frame-id (:name spec) spec done-cb))))
+     (rf.story.play.runner-events/run! frame-id (:name spec) spec done-cb))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: export from a recorder snapshot
@@ -104,7 +104,7 @@
   [events {:keys [variant-id extends alias name auto-run?
                   auto-assert? final-db seed-db max-auto-assertions]
            :as   opts}]
-  (let [spec     (export/recording->script-body
+  (let [spec     (rf.story.recorder.play-export/recording->script-body
                    events
                    (cond-> {}
                      (some? name)                (assoc :name name)
@@ -114,7 +114,7 @@
                      (some? seed-db)             (assoc :seed-db seed-db)
                      (some? max-auto-assertions) (assoc :max-auto-assertions
                                                         max-auto-assertions)))
-        rendered (export/render-variant-form
+        rendered (rf.story.recorder.play-export/render-variant-form
                    spec
                    (cond-> {}
                      variant-id (assoc :variant-id variant-id)

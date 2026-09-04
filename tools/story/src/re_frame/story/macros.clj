@@ -37,7 +37,7 @@
   of the parent `reg-story*` call. Per `001-Authoring.md` §Registration macros this preserves
   hot-reload-by-variant: each variant is a separate top-level form so
   save-and-reload only invalidates the changed slot."
-  (:require [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.source-coords :as rf.source-coords]))
 
 ;; ---- source-coord helper -------------------------------------------------
 
@@ -104,7 +104,7 @@
   `:advanced` — so there is no production coord-form counterpart to pick
   between here the way core's `reg-*` macros must."
   [form-meta file ns-sym]
-  (source-coords/coords-form form-meta file ns-sym))
+  (rf.source-coords/coords-form form-meta file ns-sym))
 
 (defn variant-id-for
   "Build the variant id from a story id and a variant-name key.

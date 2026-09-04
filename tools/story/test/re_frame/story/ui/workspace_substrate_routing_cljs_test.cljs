@@ -43,40 +43,40 @@
 
   ## Registry hygiene
 
-  `substrate->render-fn` is a `defonce` atom `story/clear-all!` does not
+  `substrate->render-fn` is a `defonce` atom `rf.story/clear-all!` does not
   touch, so a leaked `:uix` entry would break
   `render_shell_cljs_test`'s `unregistered-substrate-renders-inline-error-cell`,
   whose precondition is that `:uix` is ABSENT. The `:after` fixture dissocs it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.loaders :as loaders]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
-            [re-frame.story.ui.multi-substrate :as multi-substrate]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.workspace :as workspace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
+            [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.workspace :as rf.story.ui.workspace]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (declare register-probe-views!)
 
 (defn- reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (loaders/clear-watchers!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
-  (multi-substrate/unregister-substrate! :uix)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
+  (rf.story.ui.multi-substrate/unregister-substrate! :uix)
   (register-probe-views!))
 
 (defn- restore-registry! []
-  (multi-substrate/unregister-substrate! :uix))
+  (rf.story.ui.multi-substrate/unregister-substrate! :uix))
 
 (use-fixtures :each {:before reset-all! :after restore-registry!})
 
@@ -94,22 +94,22 @@
 
 (defn- register-probe-views! []
   (rf/reg-view* :views/probe reagent-probe-view)
-  (story/reg-story* :story.workspace-routing {:doc "rf2-r4coe witness story"})
-  (story/reg-variant* :story.workspace-routing/uix-only
+  (rf.story/reg-story* :story.workspace-routing {:doc "rf2-r4coe witness story"})
+  (rf.story/reg-variant* :story.workspace-routing/uix-only
     {:doc        "Declares ONE substrate, and it is not Reagent."
      :component  :views/probe
      :substrates #{:uix}})
-  (story/reg-variant* :story.workspace-routing/reagent-only
+  (rf.story/reg-variant* :story.workspace-routing/reagent-only
     {:doc        "Declares ONE substrate, Reagent — the unchanged baseline."
      :component  :views/probe
      :substrates #{:reagent}})
-  (story/reg-variant* :story.workspace-routing/undeclared
+  (rf.story/reg-variant* :story.workspace-routing/undeclared
     {:doc        "Declares NO substrates — the shell's host substrate decides."
      :component  :views/probe}))
 
 ;; ---- helpers -------------------------------------------------------------
 
-(def ^:private variant-cell-inner @#'workspace/variant-cell-inner)
+(def ^:private variant-cell-inner @#'rf.story.ui.workspace/variant-cell-inner)
 
 (defn- cell-tree
   "Render the workspace cell's inner tree for `variant-id` and expand it to
@@ -117,13 +117,13 @@
   drive — it renders its variant body directly."
   [variant-id]
   (rf/make-frame {:id variant-id})
-  (e2e/expand-tree (variant-cell-inner variant-id)))
+  (rf.story.test-helpers.e2e-multi-frame/expand-tree (variant-cell-inner variant-id)))
 
 (defn- rendered-under-uix? [tree]
-  (some? (e2e/find-by-test-id tree "uix-stub-render")))
+  (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "uix-stub-render")))
 
 (defn- rendered-under-reagent? [tree]
-  (some? (e2e/find-by-test-id tree "reagent-view-render")))
+  (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "reagent-view-render")))
 
 ;; ===========================================================================
 ;; THE WITNESS
@@ -136,7 +136,7 @@
             itself, so the tree carried `reagent-view-render` and no uix
             marker at all — the identical bypass rf2-3afns removed from the
             canvas"
-    (story/register-substrate! :uix uix-stub-render)
+    (rf.story/register-substrate! :uix uix-stub-render)
     (let [tree (cell-tree :story.workspace-routing/uix-only)]
       (is (rendered-under-uix? tree)
           "the cell reached the :uix render fn — the registry is ON the
@@ -148,7 +148,7 @@
 (deftest reagent-variants-are-behaviour-unchanged
   (testing "the overwhelmingly common case — a variant declaring
             `:substrates #{:reagent}` — paints exactly as it always did"
-    (story/register-substrate! :uix uix-stub-render)
+    (rf.story/register-substrate! :uix uix-stub-render)
     (let [tree (cell-tree :story.workspace-routing/reagent-only)]
       (is (rendered-under-reagent? tree))
       (is (not (rendered-under-uix? tree))))))
@@ -158,12 +158,12 @@
             behaviour — which is the bead's option (b), already present as
             the FALLBACK inside `canvas/variant-substrate-set`'s resolution
             order rather than as a rival to option (a)"
-    (story/register-substrate! :uix uix-stub-render)
+    (rf.story/register-substrate! :uix uix-stub-render)
     (let [tree (cell-tree :story.workspace-routing/undeclared)]
       (is (rendered-under-reagent? tree))
       (is (not (rendered-under-uix? tree))))))
 
-;; Read diagnostics with `e2e/text-nodes`, never `pr-str` on the tree. The
+;; Read diagnostics with `rf.story.test-helpers.e2e-multi-frame/text-nodes`, never `pr-str` on the tree. The
 ;; cell's expanded tree carries nodes whose printed form recurses without
 ;; bound (`pr-str` on it raises `RangeError: Maximum call stack size
 ;; exceeded`), while the structural walk `text-nodes` and `find-by-test-id`
@@ -175,7 +175,7 @@
             the fix, and the same degradation the canvas gives"
     ;; :uix deliberately NOT registered here.
     (let [tree (cell-tree :story.workspace-routing/uix-only)
-          txt  (e2e/text-nodes tree)]
+          txt  (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)]
       (is (not (rendered-under-reagent? tree))
           "silence was the defect's real cost — Reagent must NOT be painted")
       (is (re-find #"substrate :uix is not registered" txt)))))
@@ -184,8 +184,8 @@
   (testing "routing through the registry must not lose the cell's
             missing-view message — `render-view` owns it now, via
             `reagent-render`, and it reads the same"
-    (story/reg-variant* :story.workspace-routing/no-such-view
+    (rf.story/reg-variant* :story.workspace-routing/no-such-view
       {:doc       "Names a :component nobody registered."
        :component :views/does-not-exist})
-    (let [txt (e2e/text-nodes (cell-tree :story.workspace-routing/no-such-view))]
+    (let [txt (rf.story.test-helpers.e2e-multi-frame/text-nodes (cell-tree :story.workspace-routing/no-such-view))]
       (is (re-find #"is not registered as a view" txt)))))

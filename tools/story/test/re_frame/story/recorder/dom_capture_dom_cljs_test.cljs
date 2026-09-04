@@ -30,11 +30,11 @@
   too (bodies stay green-by-short-circuit on node), and
   `:browser-test` now picks it up and runs the real assertions."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story.config :as config]
-            [re-frame.story.recorder :as recorder]
-            [re-frame.story.recorder.dom-capture :as dom]
-            [re-frame.story.recorder.play-export :as export]
-            [re-frame.story.recorder.selector :as sel]))
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.recorder :as rf.story.recorder]
+            [re-frame.story.recorder.dom-capture :as rf.story.recorder.dom-capture]
+            [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]
+            [re-frame.story.recorder.selector :as rf.story.recorder.selector]))
 
 ;; ---- runtime gate --------------------------------------------------------
 
@@ -65,22 +65,22 @@
     ;; deftest bodies short-circuit on `dom-available?` too.
     (f)
     (do
-      (recorder/clear!)
-      (dom/set-enabled! true)
-      (dom/set-debounce-ms! 0)
-      (config/set-egress-profile! config/default-egress-profile)
-      (config/reset-suppressed-count!)
+      (rf.story.recorder/clear!)
+      (rf.story.recorder.dom-capture/set-enabled! true)
+      (rf.story.recorder.dom-capture/set-debounce-ms! 0)
+      (rf.story.config/set-egress-profile! rf.story.config/default-egress-profile)
+      (rf.story.config/reset-suppressed-count!)
       (let [_ (mount-root!)]
-        (dom/install! @test-root)
+        (rf.story.recorder.dom-capture/install! @test-root)
         (try
           (f)
           (finally
-            (dom/remove!)
+            (rf.story.recorder.dom-capture/remove!)
             (unmount-root!)
-            (recorder/clear!)
-            (config/set-egress-profile! config/default-egress-profile)
-            (config/reset-suppressed-count!)
-            (dom/set-debounce-ms! 250)))))))
+            (rf.story.recorder/clear!)
+            (rf.story.config/set-egress-profile! rf.story.config/default-egress-profile)
+            (rf.story.config/reset-suppressed-count!)
+            (rf.story.recorder.dom-capture/set-debounce-ms! 250)))))))
 
 (use-fixtures :each reset-all!)
 
@@ -93,7 +93,7 @@
         (.setAttribute btn "data-test" "go")
         (.setAttribute btn "id" "btn-1")
         (is (= "[data-test=\"go\"]"
-               (sel/pick-for-element btn)))))))
+               (rf.story.recorder.selector/pick-for-element btn)))))))
 
 (deftest pick-for-element-falls-back-to-nth
   (when (dom-available?)
@@ -106,15 +106,15 @@
         (.appendChild parent b)
         (.appendChild parent c)
         (is (= "button:nth-of-type(2)"
-               (sel/pick-for-element b)))))))
+               (rf.story.recorder.selector/pick-for-element b)))))))
 
 ;; ---- impure recorder seams ----------------------------------------------
 
 (deftest record-dom-click-appends-entry
   (when (dom-available?)
-    (recorder/start-recording! :story.x/y)
-    (dom/record-dom-click! "[data-test=\"go\"]")
-    (let [entries (recorder/recorded-entries)]
+    (rf.story.recorder/start-recording! :story.x/y)
+    (rf.story.recorder.dom-capture/record-dom-click! "[data-test=\"go\"]")
+    (let [entries (rf.story.recorder/recorded-entries)]
       (is (= 1 (count entries)))
       (let [{:keys [kind selector t]} (first entries)]
         (is (= :dom/click kind))
@@ -123,50 +123,50 @@
 
 (deftest record-dom-type-appends-entry
   (when (dom-available?)
-    (recorder/start-recording! :story.x/y)
-    (dom/record-dom-type! "[id=\"name\"]" "alice")
-    (let [{:keys [kind selector text]} (first (recorder/recorded-entries))]
+    (rf.story.recorder/start-recording! :story.x/y)
+    (rf.story.recorder.dom-capture/record-dom-type! "[id=\"name\"]" "alice")
+    (let [{:keys [kind selector text]} (first (rf.story.recorder/recorded-entries))]
       (is (= :dom/type kind))
       (is (= "[id=\"name\"]" selector))
       (is (= "alice" text)))))
 
 (deftest record-dom-submit-appends-entry
   (when (dom-available?)
-    (recorder/start-recording! :story.x/y)
-    (dom/record-dom-submit! "[id=\"login\"]")
-    (is (= :dom/submit (:kind (first (recorder/recorded-entries)))))))
+    (rf.story.recorder/start-recording! :story.x/y)
+    (rf.story.recorder.dom-capture/record-dom-submit! "[id=\"login\"]")
+    (is (= :dom/submit (:kind (first (rf.story.recorder/recorded-entries)))))))
 
 (deftest noops-when-not-recording
   (when (dom-available?)
     (testing "DOM-event records drop when no recording is in flight"
-      (is (not (recorder/recording?)))
-      (dom/record-dom-click! "anywhere")
-      (dom/record-dom-type! "anywhere" "x")
-      (dom/record-dom-submit! "anywhere")
-      (is (= [] (recorder/recorded-entries))))))
+      (is (not (rf.story.recorder/recording?)))
+      (rf.story.recorder.dom-capture/record-dom-click! "anywhere")
+      (rf.story.recorder.dom-capture/record-dom-type! "anywhere" "x")
+      (rf.story.recorder.dom-capture/record-dom-submit! "anywhere")
+      (is (= [] (rf.story.recorder/recorded-entries))))))
 
 (deftest noops-when-dom-capture-disabled
   (when (dom-available?)
     (testing "DOM-event records drop when the toggle is off — even mid-recording"
-      (dom/set-enabled! false)
-      (recorder/start-recording! :story.x/y)
+      (rf.story.recorder.dom-capture/set-enabled! false)
+      (rf.story.recorder/start-recording! :story.x/y)
       (let [btn (.createElement js/document "button")]
         (.setAttribute btn "data-test" "go")
         (.appendChild @test-root btn)
         (.dispatchEvent btn (js/MouseEvent. "click" #js {:bubbles true}))
-        (is (= [] (recorder/recorded-entries))
+        (is (= [] (rf.story.recorder/recorded-entries))
             "no DOM entries captured while the toggle is off")))))
 
 ;; ---- click handler via synthetic DOM events ------------------------------
 
 (deftest click-listener-captures-with-selector
   (when (dom-available?)
-    (recorder/start-recording! :story.x/y)
+    (rf.story.recorder/start-recording! :story.x/y)
     (let [btn (.createElement js/document "button")]
       (.setAttribute btn "data-test" "submit")
       (.appendChild @test-root btn)
       (.dispatchEvent btn (js/MouseEvent. "click" #js {:bubbles true}))
-      (let [entries (recorder/recorded-entries)]
+      (let [entries (rf.story.recorder/recorded-entries)]
         (is (= 1 (count entries)))
         (is (= :dom/click (:kind (first entries))))
         (is (= "[data-test=\"submit\"]" (:selector (first entries))))))))
@@ -176,14 +176,14 @@
 (deftest rapid-typing-folds-to-single-entry
   (when (dom-available?)
     (testing "many input events on the same input → ONE :dom/type entry with the final value"
-      (recorder/start-recording! :story.x/y)
+      (rf.story.recorder/start-recording! :story.x/y)
       ;; Bump the debounce window high so the buffer holds the
       ;; intermediate input values until we trigger a flush
       ;; manually. The fixture's default debounce-ms (0) would
       ;; cause each input event to flush synchronously — that's
       ;; the path the click-as-flush-point test covers; this one
       ;; verifies the debounce semantics itself.
-      (dom/set-debounce-ms! 5000)
+      (rf.story.recorder.dom-capture/set-debounce-ms! 5000)
       (let [input (.createElement js/document "input")]
         (.setAttribute input "id" "name")
         (.appendChild @test-root input)
@@ -192,9 +192,9 @@
           (.dispatchEvent input (js/Event. "input" #js {:bubbles true})))
         ;; Flush manually; under real use this happens on debounce
         ;; expiry / click / stop-recording.
-        (dom/flush-type-buffer!)
+        (rf.story.recorder.dom-capture/flush-type-buffer!)
         (let [type-entries (filterv #(= :dom/type (:kind %))
-                                    (recorder/recorded-entries))]
+                                    (rf.story.recorder/recorded-entries))]
           (is (= 1 (count type-entries))
               "five input events fold to a single :dom/type entry")
           (is (= "alice" (:text (first type-entries)))
@@ -209,45 +209,45 @@
 (deftest change-event-flushes-immediately
   (when (dom-available?)
     (testing "a `change` event drains the per-selector type buffer"
-      (recorder/start-recording! :story.x/y)
+      (rf.story.recorder/start-recording! :story.x/y)
       (let [input (.createElement js/document "input")]
         (.setAttribute input "id" "name")
         (.appendChild @test-root input)
         (set! (.-value input) "alice")
         (.dispatchEvent input (js/Event. "change" #js {:bubbles true}))
         (let [type-entries (filterv #(= :dom/type (:kind %))
-                                    (recorder/recorded-entries))]
+                                    (rf.story.recorder/recorded-entries))]
           (is (= 1 (count type-entries)))
           (is (= "alice" (:text (first type-entries)))))))))
 
 (deftest submit-listener-captures-form-selector
   (when (dom-available?)
-    (recorder/start-recording! :story.x/y)
+    (rf.story.recorder/start-recording! :story.x/y)
     (let [form (.createElement js/document "form")]
       (.setAttribute form "id" "login")
       (.appendChild @test-root form)
       (let [ev (js/Event. "submit" #js {:bubbles true :cancelable true})]
         (.dispatchEvent form ev))
       (let [submit-entries (filterv #(= :dom/submit (:kind %))
-                                    (recorder/recorded-entries))]
+                                    (rf.story.recorder/recorded-entries))]
         (is (= 1 (count submit-entries)))
         (is (= "[id=\"login\"]" (:selector (first submit-entries))))))))
 
 (deftest click-flushes-pending-type
   (when (dom-available?)
     (testing "a click after typing flushes the type buffer first, preserving order"
-      (recorder/start-recording! :story.x/y)
+      (rf.story.recorder/start-recording! :story.x/y)
       (let [input (.createElement js/document "input")
             btn   (.createElement js/document "button")]
         (.setAttribute input "id" "name")
         (.setAttribute btn "data-test" "save")
         (.appendChild @test-root input)
         (.appendChild @test-root btn)
-        (dom/set-debounce-ms! 5000)
+        (rf.story.recorder.dom-capture/set-debounce-ms! 5000)
         (set! (.-value input) "alice")
         (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
         (.dispatchEvent btn (js/MouseEvent. "click" #js {:bubbles true}))
-        (let [entries (recorder/recorded-entries)
+        (let [entries (rf.story.recorder/recorded-entries)
               kinds   (mapv :kind entries)]
           (is (= [:dom/type :dom/click] kinds)
               "type lands before click")
@@ -257,19 +257,19 @@
 
 (deftest set-enabled-roundtrips
   (when (dom-available?)
-    (dom/set-enabled! false)
-    (is (not (dom/enabled?)))
-    (dom/set-enabled! true)
-    (is (dom/enabled?))))
+    (rf.story.recorder.dom-capture/set-enabled! false)
+    (is (not (rf.story.recorder.dom-capture/enabled?)))
+    (rf.story.recorder.dom-capture/set-enabled! true)
+    (is (rf.story.recorder.dom-capture/enabled?))))
 
 ;; ---- timestamps ride through to entries ---------------------------------
 
 (deftest dom-entries-carry-relative-timestamps
   (when (dom-available?)
     (testing "the recorded :t is relative to the recording's :started-ms"
-      (recorder/start-recording! :story.x/y)
-      (dom/record-dom-click! "[data-test=\"a\"]")
-      (let [{:keys [t]} (first (recorder/recorded-entries))]
+      (rf.story.recorder/start-recording! :story.x/y)
+      (rf.story.recorder.dom-capture/record-dom-click! "[data-test=\"a\"]")
+      (let [{:keys [t]} (first (rf.story.recorder/recorded-entries))]
         (is (number? t))
         (is (>= t 0)
             ":t is non-negative ms since :started-ms")
@@ -279,7 +279,7 @@
 ;; ---- sensitive-input redaction (rf2-0qoi0) -------------------------------
 ;;
 ;; The DOM-capture rail is the SECOND credential/PII egress (the dispatch
-;; rail being the first, redacted by `recorder/trace-listener`). Post
+;; rail being the first, redacted by `rf.story.recorder/trace-listener`). Post
 ;; rf2-nkjkj `:entries` is the PRIMARY codegen source, so a typed password
 ;; would otherwise ride verbatim into the generated `:script` step.
 ;; These tests pin the record-but-redact policy on the DOM rail: a
@@ -300,23 +300,23 @@
     (testing "RED→GREEN (rf2-0qoi0): a typed <input type=password> value is
               SCRUBBED — neither the recorded :dom/type entry nor the
               generated play-script :type step carries the plaintext"
-      (recorder/start-recording! :story.login/flow)
+      (rf.story.recorder/start-recording! :story.login/flow)
       (let [pw (mk-input! {:type "password" :id "pw"})]
         (set! (.-value pw) "hunter2-secret")
         (.dispatchEvent pw (js/Event. "change" #js {:bubbles true}))
         (let [{:keys [text] :as entry}
-              (first (filterv #(= :dom/type (:kind %)) (recorder/recorded-entries)))]
+              (first (filterv #(= :dom/type (:kind %)) (rf.story.recorder/recorded-entries)))]
           ;; The recorded entry carries the placeholder, not the password.
-          (is (= dom/redacted-type-text text)
+          (is (= rf.story.recorder.dom-capture/redacted-type-text text)
               "the recorded :dom/type text is the redacted placeholder")
           (is (not= "hunter2-secret" text)
               "the plaintext password never reaches the recorder atom")
           ;; The generated play-script step carries the placeholder too.
-          (let [spec (export/recording->script-body (recorder/recorded-entries))
+          (let [spec (rf.story.recorder.play-export/recording->script-body (rf.story.recorder/recorded-entries))
                 type-steps (filterv #(= :type (first %)) (:script spec))]
-            (is (= [[:type (:selector entry) dom/redacted-type-text]] type-steps)
+            (is (= [[:type (:selector entry) rf.story.recorder.dom-capture/redacted-type-text]] type-steps)
                 "the generated :type step is scrubbed")
-            (is (not (re-find #"hunter2-secret" (export/render-script-body spec)))
+            (is (not (re-find #"hunter2-secret" (rf.story.recorder.play-export/render-script-body spec)))
                 "the rendered snippet text leaks no plaintext")))))))
 
 (deftest email-and-tel-and-autocomplete-fields-are-redacted
@@ -326,49 +326,49 @@
                      {:type "tel" :id "t"}
                      {:type "text" :autocomplete "current-password" :id "c"}
                      {:type "text" :autocomplete "cc-number" :id "n"}]]
-        (recorder/clear!)
-        (recorder/start-recording! :story.login/flow)
+        (rf.story.recorder/clear!)
+        (rf.story.recorder/start-recording! :story.login/flow)
         (let [el (mk-input! attrs)]
           (set! (.-value el) "secret-value")
           (.dispatchEvent el (js/Event. "change" #js {:bubbles true}))
           (let [text (:text (first (filterv #(= :dom/type (:kind %))
-                                            (recorder/recorded-entries))))]
-            (is (= dom/redacted-type-text text)
+                                            (rf.story.recorder/recorded-entries))))]
+            (is (= rf.story.recorder.dom-capture/redacted-type-text text)
                 (str "scrubbed for attrs " (pr-str attrs)))))))))
 
 (deftest ordinary-text-field-is-not-redacted
   (when (dom-available?)
     (testing "a plain <input type=text> + a <select> choice flow through verbatim
               — only sensitive typed inputs are scrubbed (no over-redaction)"
-      (recorder/start-recording! :story.x/y)
+      (rf.story.recorder/start-recording! :story.x/y)
       (let [name-input (mk-input! {:type "text" :id "name"})]
         (set! (.-value name-input) "alice")
         (.dispatchEvent name-input (js/Event. "change" #js {:bubbles true}))
         (is (= "alice"
                (:text (first (filterv #(= :dom/type (:kind %))
-                                      (recorder/recorded-entries))))))))))
+                                      (rf.story.recorder/recorded-entries))))))))))
 
 (deftest local-raw-profile-opts-into-verbatim-capture
   (when (dom-available?)
     (testing ":rf.egress/local-raw → the DOM rail captures the verbatim
               password (host opt-in, mirrors the dispatch rail; EP-0015 rf2-3t26eh)"
-      (config/set-egress-profile! :rf.egress/local-raw)
-      (recorder/start-recording! :story.login/flow)
+      (rf.story.config/set-egress-profile! :rf.egress/local-raw)
+      (rf.story.recorder/start-recording! :story.login/flow)
       (let [pw (mk-input! {:type "password" :id "pw"})]
         (set! (.-value pw) "hunter2-secret")
         (.dispatchEvent pw (js/Event. "change" #js {:bubbles true}))
         (is (= "hunter2-secret"
                (:text (first (filterv #(= :dom/type (:kind %))
-                                      (recorder/recorded-entries))))))))))
+                                      (rf.story.recorder/recorded-entries))))))))))
 
 (deftest redacting-a-password-bumps-the-suppressed-counter
   (when (dom-available?)
     (testing "the suppressed-events counter for the recording variant is bumped
               on redaction so the UI's REDACTED hint stays accurate"
-      (config/reset-suppressed-count!)
-      (recorder/start-recording! :story.login/flow)
+      (rf.story.config/reset-suppressed-count!)
+      (rf.story.recorder/start-recording! :story.login/flow)
       (let [pw (mk-input! {:type "password" :id "pw"})]
         (set! (.-value pw) "hunter2-secret")
         (.dispatchEvent pw (js/Event. "change" #js {:bubbles true}))
-        (is (pos? (config/suppressed-count :story.login/flow))
+        (is (pos? (rf.story.config/suppressed-count :story.login/flow))
             "redaction bumped the per-variant suppressed counter")))))

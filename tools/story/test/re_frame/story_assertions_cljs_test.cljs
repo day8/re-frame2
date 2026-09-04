@@ -10,21 +10,21 @@
   from CLJS callers."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.assertions :as assertions]
-            [re-frame.story.async      :as async-lib]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.subs             :as subs]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.assertions :as rf.story.assertions]
+            [re-frame.story.async      :as rf.story.async]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.subs             :as rf.subs]))
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the machines artefact's framework-shipped `:rf/machine`
   ;; sub after the registrar clear. EP-0001 (rf2-vzld77 / rf2-ixb0bq):
@@ -32,14 +32,14 @@
   ;; [:rf.runtime/machines :snapshots <id>], so the framework sub is a
   ;; runtime-db sub (the db-position arg is the runtime-db value) — mirror
   ;; `re-frame.machines` exactly. CLJS has no `require :reload` to re-fire
-  ;; the ns-load registration dropped by `registrar/clear-all!`.
-  (subs/reg-runtime-sub :rf/machine
+  ;; the ns-load registration dropped by `rf.registrar/clear-all!`.
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -47,7 +47,7 @@
 
 (deftest cljs-canonical-seven-registered
   (testing "all seven :rf.assert/* event handlers register on CLJS"
-    (let [events (registrar/registrations :event)]
+    (let [events (rf.registrar/registrations :event)]
       (is (contains? events :rf.assert/path-equals))
       (is (contains? events :rf.assert/path-matches))
       (is (contains? events :rf.assert/sub-equals))
@@ -62,16 +62,16 @@
   (testing ":rf.assert/path-equals against an event-mutated app-db"
     (rf/reg-event :test/set
       (fn [{:keys [db]} _] {:db (assoc-in db [:user :name] "alice")}))
-    (story/reg-variant :story.cljs.assert/pe
+    (rf.story/reg-variant :story.cljs.assert/pe
       {:setup [[:test/set]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:user :name] "alice"]]]})
     (async done
-      (-> (story/run-variant :story.cljs.assert/pe)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.cljs.assert/pe)
+          (rf.story.async/then
             (fn [r]
               (is (= 1 (count (:assertions r))))
               (is (true? (-> r :assertions first :passed?)))
-              (story/destroy-variant! :story.cljs.assert/pe)
+              (rf.story/destroy-variant! :story.cljs.assert/pe)
               (done)))))))
 
 ;; ---- assertions-passing? predicate --------------------------------------
@@ -79,52 +79,52 @@
 (deftest cljs-assertions-passing?-roundtrip
   (testing "assertions-passing? returns true on all-pass, false on any-fail"
     (rf/reg-event :test/n2 (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
-    (story/reg-variant :story.cljs.passing/ok
+    (rf.story/reg-variant :story.cljs.passing/ok
       {:setup [[:test/n2]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
-    (story/reg-variant :story.cljs.passing/bad
+    (rf.story/reg-variant :story.cljs.passing/bad
       {:setup [[:test/n2]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:n] 999]]]})
     (async done
-      (-> (story/run-variant :story.cljs.passing/ok)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.cljs.passing/ok)
+          (rf.story.async/then
             (fn [ok-r]
-              (is (true? (story/assertions-passing? ok-r)))
-              (-> (story/run-variant :story.cljs.passing/bad)
-                  (async-lib/then
+              (is (true? (rf.story/assertions-passing? ok-r)))
+              (-> (rf.story/run-variant :story.cljs.passing/bad)
+                  (rf.story.async/then
                     (fn [bad-r]
-                      (is (false? (story/assertions-passing? bad-r)))
-                      (story/destroy-variant! :story.cljs.passing/ok)
-                      (story/destroy-variant! :story.cljs.passing/bad)
+                      (is (false? (rf.story/assertions-passing? bad-r)))
+                      (rf.story/destroy-variant! :story.cljs.passing/ok)
+                      (rf.story/destroy-variant! :story.cljs.passing/bad)
                       (done))))))))))
 
 ;; ---- record-don't-throw contract on CLJS --------------------------------
 
 (deftest cljs-record-not-throw
   (testing "failing assertions never throw on CLJS; sequence runs to completion"
-    (story/reg-variant :story.cljs.contract/v
+    (rf.story/reg-variant :story.cljs.contract/v
       {:setup []
        :script [[:dispatch-sync [:rf.assert/path-equals [:nope] :unexpected]]
                 [:dispatch-sync [:rf.assert/path-equals [:also-nope] :other]]]})
     (async done
-      (-> (story/run-variant :story.cljs.contract/v)
-          (async-lib/then
+      (-> (rf.story/run-variant :story.cljs.contract/v)
+          (rf.story.async/then
             (fn [r]
               (is (= 2 (count (:assertions r))))
               (is (every? #(false? (:passed? %)) (:assertions r)))
-              (is (false? (story/assertions-passing? r)))
-              (story/destroy-variant! :story.cljs.contract/v)
+              (is (false? (rf.story/assertions-passing? r)))
+              (rf.story/destroy-variant! :story.cljs.contract/v)
               (done)))))))
 
 ;; ---- public API additions surface check ---------------------------------
 
 (deftest cljs-public-api-surface
   (testing "Stage 5 public fns are present on the CLJS story ns"
-    (is (fn? story/assertions-passing?))
-    (is (fn? story/read-assertions))
-    (is (fn? story/canonical-assertion-ids))
-    (is (fn? story/execute-play!))
-    (is (= :rf.story/force-fx-stub story/force-fx-stub-id))))
+    (is (fn? rf.story/assertions-passing?))
+    (is (fn? rf.story/read-assertions))
+    (is (fn? rf.story/canonical-assertion-ids))
+    (is (fn? rf.story/execute-play!))
+    (is (= :rf.story/force-fx-stub rf.story/force-fx-stub-id))))
 
 ;; ===========================================================================
 ;; Internal assertion-helper branches (rf2-uhq5j)
@@ -140,7 +140,7 @@
 ;; predicate-needle (`fn?`) and bare-keyword (`keyword?`) branches of
 ;; `:rf.assert/dispatched?` (/spec/007-Stories.md's `[event-or-pred]`) had no test.
 
-(def ^:private event-matches? @#'assertions/event-matches?)
+(def ^:private event-matches? @#'rf.story.assertions/event-matches?)
 
 (deftest cljs-event-matches?-fn-predicate-branch
   (testing "a fn needle is applied to the observed event vector"
@@ -171,7 +171,7 @@
 ;; ---- evaluate-sub-equals — the sub-throws (::compute-error) arm ----------
 ;;
 ;; Only the clean pass/fail of a well-behaved sub was tested. The
-;; evaluator wraps `subs/compute-sub` in its OWN try/catch and, when
+;; evaluator wraps `rf.subs/compute-sub` in its OWN try/catch and, when
 ;; that throws, records :passed? false with :actual :rf.assert/sub-threw
 ;; rather than propagating. Note `compute-sub` normally swallows a
 ;; throwing sub-body internally (it recovers to nil), so the evaluator's
@@ -180,12 +180,12 @@
 ;; directly (the realistic case being a failure inside compute-sub's
 ;; input-resolution / registrar-lookup before its own try).
 
-(def ^:private evaluate-sub-equals @#'assertions/evaluate-sub-equals)
+(def ^:private evaluate-sub-equals @#'rf.story.assertions/evaluate-sub-equals)
 
 (deftest cljs-evaluate-sub-equals-sub-throws
   (testing "when compute-sub throws, the evaluator records a fail with
             :actual :rf.assert/sub-threw — never propagates"
-    (with-redefs [subs/compute-sub (fn [_query-v _db]
+    (with-redefs [rf.subs/compute-sub (fn [_query-v _db]
                                       (throw (ex-info "kaboom" {})))]
       (let [out (evaluate-sub-equals :rf/default {} [[:boom] :anything])]
         (is (false? (:passed? out)))
@@ -208,7 +208,7 @@
 (deftest cljs-evaluate-sub-equals-runtime-db-projection
   (testing "evaluate-sub-equals resolves a runtime-db-projection sub against
             the frame-state value, not nil"
-    (subs/reg-runtime-sub :pecaxy/light
+    (rf.subs/reg-runtime-sub :pecaxy/light
       (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :traffic-light :state])))
     (let [runtime    {:rf.runtime/machines {:snapshots {:traffic-light {:state :red}}}}
           frame-state {:rf.db/app {} :rf.db/runtime runtime}
@@ -232,10 +232,10 @@
 ;; as a rejection, never propagated).
 ;;
 ;; rf2-q651r — the evaluator is now a pure fn: its first arg is the
-;; tape-projected emitted-fx SET (`assertions/emitted-fx`), not a frame-id.
+;; tape-projected emitted-fx SET (`rf.story.assertions/emitted-fx`), not a frame-id.
 ;; We pass the set directly (the realistic shape: the fx WAS emitted).
 
-(def ^:private evaluate-effect-emitted @#'assertions/evaluate-effect-emitted)
+(def ^:private evaluate-effect-emitted @#'rf.story.assertions/evaluate-effect-emitted)
 
 (deftest cljs-evaluate-effect-emitted-pred-rejects-present-fx
   (testing "fx present but optional predicate returns false → fail with

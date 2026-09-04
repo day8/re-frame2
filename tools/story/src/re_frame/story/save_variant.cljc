@@ -33,24 +33,24 @@
 
   ## Elision
 
-  Every public fn opens with `(when config/enabled? ...)` or is pure data
+  Every public fn opens with `(when rf.story.config/enabled? ...)` or is pure data
   → data so production CLJS builds short-circuit before any side effect.
   The dialog ratom + button component live in
   `re-frame.story.ui.save-variant` (CLJS-only)."
   (:require [clojure.string :as str]
             [re-frame.core                       :as rf]
-            [re-frame.story.args                 :as args]
-            [re-frame.story.config               :as config]
-            [re-frame.story.predicates           :as pred]
-            [re-frame.story.registrar            :as registrar]
-            [re-frame.story.review-dialog        :as review-dialog]
-            [re-frame.story.ui.schema-validation :as schema-validation]
-            [re-frame.story.ui.state             :as state]))
+            [re-frame.story.args                 :as rf.story.args]
+            [re-frame.story.config               :as rf.story.config]
+            [re-frame.story.predicates           :as rf.story.predicates]
+            [re-frame.story.registrar            :as rf.story.registrar]
+            [re-frame.story.review-dialog        :as rf.story.review-dialog]
+            [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
+            [re-frame.story.ui.state             :as rf.story.ui.state]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: args-snapshot helper
 ;;
-;; The snapshot IS `(args/resolve-args variant-id opts)` — the effective
+;; The snapshot IS `(rf.story.args/resolve-args variant-id opts)` — the effective
 ;; args after the five-layer precedence chain (global < story < modes <
 ;; variant < cell-overrides) collapses. This wrapper exists so callers
 ;; have a single entry point + so the JVM test corpus can pin the
@@ -74,13 +74,13 @@
   ([variant-id]
    (snapshot-args variant-id nil))
   ([variant-id {:keys [active-modes cell-overrides] :as _opts}]
-   (args/resolve-args variant-id
+   (rf.story.args/resolve-args variant-id
                       {:active-modes   (or active-modes [])
                        :cell-overrides (or cell-overrides {})})))
 
 (defn snapshot-violations
   "Project `args-snapshot` against `schema` using the validator-fn pair.
-  Thin pass-through to `schema-validation/args-violations` exposed here
+  Thin pass-through to `rf.story.ui.schema-validation/args-violations` exposed here
   for the save-as-variant flow — the save dialog reads the
   result to render a non-blocking 'Args do not match the variant's
   Spec 010 schema' hint above the snippet, so the user catches a
@@ -90,7 +90,7 @@
   validator / no schema / no violations (per Spec 010 §Recommended
   soft-pass)."
   [args-snapshot schema validator-fns]
-  (schema-validation/args-violations args-snapshot schema validator-fns))
+  (rf.story.ui.schema-validation/args-violations args-snapshot schema validator-fns))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: the eight-slice capture model
@@ -122,7 +122,7 @@
 ;;
 ;;   slice              live source                       substrate
 ;;   -----              -----------                       ---------
-;;   args               :cell-overrides + :active-modes   args/resolve-args → :args
+;;   args               :cell-overrides + :active-modes   rf.story.args/resolve-args → :args
 ;;   transient-controls in-flight :cell-overrides          folds into :args (no 2nd slot)
 ;;   sub-overrides      — (View State group is TARGET)     reg-variant :sub-overrides
 ;;   db-seed            — (fidelity rung not wired, blw1q) reg-variant :setup/:db
@@ -161,7 +161,7 @@
 
 (defn- declared-slot
   "Read a declared slot from the resolved SOURCE variant body, or nil.
-  `variant-body` is `(registrar/handler-meta :variant id)` (may be nil
+  `variant-body` is `(rf.story.registrar/handler-meta :variant id)` (may be nil
   for an unregistered source — then every declared slot is nil)."
   [variant-body k]
   (when (map? variant-body) (get variant-body k)))
@@ -284,7 +284,7 @@
     (str "{"
          (->> (sort-by (fn [[k _]] (str k)) m)
               (map (fn [[k v]] (str (pr-str k) " " (pr-str v))))
-              (str/join (pred/indent-after "   :args {")))
+              (str/join (rf.story.predicates/indent-after "   :args {")))
          "}")))
 
 (defn gen-variant-snippet
@@ -318,7 +318,7 @@
                     doc     (conj [:doc (pr-str doc)])
                     extends (conj [:extends (pr-str extends)])
                     true    (conj [:args (pr-args-map (or args {}))]))]
-    (pred/reg-variant-form alias (or variant-id :story.saved/example) body-keys)))
+    (rf.story.predicates/reg-variant-form alias (or variant-id :story.saved/example) body-keys)))
 
 ;; ---------------------------------------------------------------------------
 ;; Default-id derivation + dialog state shape
@@ -338,17 +338,17 @@
 (defn default-variant-id
   "Derive the save-variant default new-variant id from a source variant
   id + a wall-clock millis stamp. Pure data → keyword | nil. Delegates
-  to `review-dialog/default-variant-id-with-prefix`; nil for non-
+  to `rf.story.review-dialog/default-variant-id-with-prefix`; nil for non-
   qualified-keyword sources."
   [source-variant-id now-ms]
-  (review-dialog/default-variant-id-with-prefix
+  (rf.story.review-dialog/default-variant-id-with-prefix
     source-variant-id now-ms default-id-prefix))
 
 (def initial-dialog-state
-  "Alias for `review-dialog/initial-state` — kept for call-site
+  "Alias for `rf.story.review-dialog/initial-state` — kept for call-site
   ergonomics so the dialog ratom seeding form reads as
   `save-variant/initial-dialog-state`."
-  review-dialog/initial-state)
+  rf.story.review-dialog/initial-state)
 
 (defn open
   "Open the save-variant dialog against `source-variant-id` with the
@@ -368,7 +368,7 @@
   ([state source-variant-id args-snapshot now-ms violations]
    (open state source-variant-id args-snapshot now-ms violations nil))
   ([_state source-variant-id args-snapshot now-ms violations slices]
-   (let [base (review-dialog/open review-dialog/initial-state
+   (let [base (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                                   source-variant-id
                                   {:args       args-snapshot
                                    :violations (vec violations)
@@ -383,13 +383,13 @@
 (defn close
   "Close the dialog — returns the idle state."
   [_state]
-  review-dialog/initial-state)
+  rf.story.review-dialog/initial-state)
 
 (defn set-draft-id
   "Replace the draft id in the dialog state. `id` may be a keyword or a
   raw string the user is typing."
   [state id]
-  (review-dialog/set-draft-id state id))
+  (rf.story.review-dialog/set-draft-id state id))
 
 ;; ---------------------------------------------------------------------------
 ;; Impure: capture + open
@@ -417,7 +417,7 @@
   "Register the UI-layer dialog-open callback. The callback is invoked
   as `(callback source-variant-id args-snapshot now-ms violations slices)`
   where `violations` is the vector returned by
-  `schema-validation/args-violations` against the live component schema
+  `rf.story.ui.schema-validation/args-violations` against the live component schema
   (may be empty/nil) and `slices` is the eight-slice capture report
   from `capture-slices` (carries the per-slice
   honesty-floor warnings the dialog renders). Idempotent — calling again
@@ -453,8 +453,8 @@
   call without a focused variant."
   ([] (save-current-as-variant! nil))
   ([{:keys [variant-id now-ms]}]
-   (when config/enabled?
-     (let [shell      (state/get-state)
+   (when rf.story.config/enabled?
+     (let [shell      (rf.story.ui.state/get-state)
            target     (or variant-id (focused-variant-id shell))
            now-ms     (or now-ms #?(:clj  (System/currentTimeMillis)
                                     :cljs (.now js/Date)))]
@@ -471,8 +471,8 @@
                ;; (per Spec 010 §Recommended soft-pass).
                violations #?(:cljs (snapshot-violations
                                      snapshot
-                                     (schema-validation/resolve-component-schema target)
-                                     (schema-validation/validator-fns))
+                                     (rf.story.ui.schema-validation/resolve-component-schema target)
+                                     (rf.story.ui.schema-validation/validator-fns))
                              :clj  [])
                ;; The eight-slice capture report. The honesty
                ;; floor: every slice without a live projection is captured-
@@ -482,7 +482,7 @@
                ;; :setup / :viewport slots surface as captured-as-declared.
                slices     (capture-slices
                             snapshot
-                            (registrar/handler-meta :variant target)
+                            (rf.story.registrar/handler-meta :variant target)
                             shell)
                record     {:source-id  target
                            :args       snapshot
@@ -525,10 +525,10 @@
 
 (defn install-canonical-event-handlers!
   "Register the canonical `:rf.story/save-current-as-variant` event
-  handler. Idempotent. Production builds (with `config/enabled?` false)
+  handler. Idempotent. Production builds (with `rf.story.config/enabled?` false)
   skip the registration."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (rf/reg-event
       id-save-current-as-variant
       (fn [_cofx [_ opts]]

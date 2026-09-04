@@ -31,7 +31,7 @@
   map), so this ns stays a require-leaf — it never `:require`s the registrar,
   and any Story ns can consume it without a cycle. Live callers pass the
   registrar side-table; pure tests pass an explicit map."
-  (:require [re-frame.story.predicates :as pred]))
+  (:require [re-frame.story.predicates :as rf.story.predicates]))
 
 ;; ---- `:!x` removal markers -----------------------------------------------
 
@@ -112,7 +112,7 @@
   (let [chain (extends-chain-tags variant-id variant)]
     (if (seq chain)
       chain
-      (set (:tags ((as-fn story) (pred/parent-story-id variant-id)))))))
+      (set (:tags ((as-fn story) (rf.story.predicates/parent-story-id variant-id)))))))
 
 (defn effective-tags
   "The EFFECTIVE tag set for `variant-id` — inheritance (extends union /

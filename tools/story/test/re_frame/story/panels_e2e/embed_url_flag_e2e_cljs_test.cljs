@@ -14,10 +14,10 @@
       ?embed=1 in URL
             │
             ▼
-      url-state/embed-flag-from-current-url   ← URL parser
+      rf.story.ui.url-state/embed-flag-from-current-url   ← URL parser
             │
             ▼
-      url-state/hydrate-embed-flag!           ← seeds shell-state
+      rf.story.ui.url-state/hydrate-embed-flag!           ← seeds shell-state
             │
             ▼
       [:chrome-visibility :embed?] = true
@@ -29,7 +29,7 @@
       shell/:reagent-render guards `(when show-sb? [sidebar ...])` etc
             │
             ▼
-      No [sidebar/sidebar] / [toolbar/toolbar-strip] / [right-panel]
+      No [rf.story.ui.sidebar/sidebar] / [rf.story.ui.toolbar/toolbar-strip] / [right-panel]
       vectors in the rendered hiccup tree; the variant canvas slot
       still renders.
 
@@ -51,7 +51,7 @@
   2. The state→render seam: invoking shell's `:reagent-render` with
      `:embed?` true produces a hiccup tree where the three chrome
      guards (`(when show-tb?)`, `(when show-sb?)`, `(when show-rhs?)`)
-     all elide — no `[sidebar/sidebar]` / `[toolbar/toolbar-strip]` /
+     all elide — no `[rf.story.ui.sidebar/sidebar]` / `[rf.story.ui.toolbar/toolbar-strip]` /
      `[right-panel]` vector survives in the tree, while the
      `[main-pane]` slot still renders (the variant viewport).
 
@@ -62,21 +62,21 @@
   No DOM, no React mount, no Playwright. Sub-millisecond per case."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.ui.shell :as shell]
-            [re-frame.story.ui.sidebar :as sidebar]
-            [re-frame.story.ui.toolbar :as toolbar]
-            [re-frame.story.ui.url-state :as url-state]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.shell :as rf.story.ui.shell]
+            [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
+            [re-frame.story.ui.toolbar :as rf.story.ui.toolbar]
+            [re-frame.story.ui.url-state :as rf.story.ui.url-state]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers: extract shell's `:reagent-render` -------------------------
 ;;
-;; `shell/shell` is a class-3 Reagent component (`r/create-class` is
+;; `rf.story.ui.shell/shell` is a class-3 Reagent component (`r/create-class` is
 ;; called inline; the spec map isn't exposed). To exercise the
 ;; render path under the node runner we capture the spec by stubbing
 ;; `r/create-class` with `identity` for the duration of the call —
@@ -99,7 +99,7 @@
   test invocation so any state-atom mutation between calls is
   reflected on the next render."
   []
-  (let [spec (with-redefs [r/create-class capture-spec] (shell/shell))]
+  (let [spec (with-redefs [r/create-class capture-spec] (rf.story.ui.shell/shell))]
     (:reagent-render spec)))
 
 (defn- render-shell-tree
@@ -109,7 +109,7 @@
   contract)."
   []
   (let [render-fn (shell-render-fn)]
-    (e2e/expand-tree (render-fn))))
+    (rf.story.test-helpers.e2e-multi-frame/expand-tree (render-fn))))
 
 (defn- fn-headed-nodes
   "Every node whose `(first node)` is a function value. Used to
@@ -123,7 +123,7 @@
                   (pos? (count node))
                   (fn? (first node))
                   (pred (first node))))
-           (e2e/hiccup-seq tree)))
+           (rf.story.test-helpers.e2e-multi-frame/hiccup-seq tree)))
 
 ;; ---- Pipeline (1): URL → shell-state hydrate ----------------------------
 
@@ -132,14 +132,14 @@
             the shell-state-atom when the URL parser reports the flag.
             The parser itself is covered by url-state-cljs-test; this
             seam test pins the parser→state hand-off."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        (with-redefs [url-state/embed-flag-from-current-url (constantly true)]
-          (let [returned (url-state/hydrate-embed-flag! ui-state/shell-state-atom)]
+        (with-redefs [rf.story.ui.url-state/embed-flag-from-current-url (constantly true)]
+          (let [returned (rf.story.ui.url-state/hydrate-embed-flag! rf.story.ui.state/shell-state-atom)]
             (is (true? returned)
                 "hydrate returns the parsed value")
-            (is (true? (get-in (ui-state/get-state)
+            (is (true? (get-in (rf.story.ui.state/get-state)
                                [:chrome-visibility :embed?]))
                 "shell-state-atom carries :embed? true after hydrate")))))))
 
@@ -147,14 +147,14 @@
   (testing "rf2-pucku — `hydrate-embed-flag!` writes :embed? false
             (the default-chrome shape) when no `?embed=1` is in the
             URL. Pins the 'absent param → chrome on' contract."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        (with-redefs [url-state/embed-flag-from-current-url (constantly false)]
-          (let [returned (url-state/hydrate-embed-flag! ui-state/shell-state-atom)]
+        (with-redefs [rf.story.ui.url-state/embed-flag-from-current-url (constantly false)]
+          (let [returned (rf.story.ui.url-state/hydrate-embed-flag! rf.story.ui.state/shell-state-atom)]
             (is (false? returned)
                 "hydrate returns false when no flag")
-            (is (false? (get-in (ui-state/get-state)
+            (is (false? (get-in (rf.story.ui.state/get-state)
                                 [:chrome-visibility :embed?]))
                 "shell-state-atom carries :embed? false (the default)")))))))
 
@@ -166,7 +166,7 @@
             sidebar / toolbar / right-panel guards all elide. The
             `[main-pane]` vector (which contains the variant canvas)
             still renders so the viewport remains visible."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
         ;; Seed embed-mode directly — same effective state
@@ -174,7 +174,7 @@
         ;; true (covered above). This separates the URL-seam test
         ;; from the render-seam test so a failure points at the
         ;; right layer.
-        (swap! ui-state/shell-state-atom
+        (swap! rf.story.ui.state/shell-state-atom
                assoc-in [:chrome-visibility :embed?] true)
         (let [tree (render-shell-tree)
               ;; Top-level wrapper's `data-rf-chrome-embed` reflects
@@ -182,27 +182,27 @@
               ;; embed-mode state.
               root-attrs (when (and (vector? tree) (map? (second tree)))
                            (second tree))
-              ;; Locate any [sidebar/sidebar ...] vector in the tree —
-              ;; the shell's `(when show-sb? [sidebar/sidebar ...])`
+              ;; Locate any [rf.story.ui.sidebar/sidebar ...] vector in the tree —
+              ;; the shell's `(when show-sb? [rf.story.ui.sidebar/sidebar ...])`
               ;; guard would elide this when :embed? is true.
-              sidebar-nodes (fn-headed-nodes tree #(= sidebar/sidebar %))
+              sidebar-nodes (fn-headed-nodes tree #(= rf.story.ui.sidebar/sidebar %))
               ;; Same for the toolbar — `toolbar-strip` is class-1
               ;; (expands to a `<header data-test="story-toolbar">`)
               ;; so we can also assert its data-test marker is gone.
-              toolbar-nodes (fn-headed-nodes tree #(= toolbar/toolbar-strip %))
-              toolbar-by-attr (e2e/find-by-test-id tree "story-toolbar")
+              toolbar-nodes (fn-headed-nodes tree #(= rf.story.ui.toolbar/toolbar-strip %))
+              toolbar-by-attr (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-toolbar")
               ;; right-panel is class-1 (returns hiccup with
               ;; data-test="story-inspectors"). Assert its
               ;; data-test marker is absent.
-              inspectors-node (e2e/find-by-test-id tree "story-inspectors")]
+              inspectors-node (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-inspectors")]
           (is (= "true" (:data-rf-chrome-embed root-attrs))
               "shell wrapper carries data-rf-chrome-embed=true — the
                render saw the embed-mode state")
           (is (empty? sidebar-nodes)
-              "no [sidebar/sidebar ...] vector in the tree — the
+              "no [rf.story.ui.sidebar/sidebar ...] vector in the tree — the
                sidebar guard elided per rf2-pucku")
           (is (empty? toolbar-nodes)
-              "no [toolbar/toolbar-strip] vector in the tree")
+              "no [rf.story.ui.toolbar/toolbar-strip] vector in the tree")
           (is (nil? toolbar-by-attr)
               "no data-test=\"story-toolbar\" element — the
                toolbar's <header> never rendered")
@@ -215,7 +215,7 @@
           ;; vector would still pass the negation checks above.
           ;; `main-pane` (defn- in shell.cljs) is class-1 and
           ;; expands to `[:main {:aria-label "Story canvas" ...}]`.
-          (let [main-node (e2e/find-by-data-attr tree
+          (let [main-node (rf.story.test-helpers.e2e-multi-frame/find-by-data-attr tree
                                                  :aria-label "Story canvas")]
             (is (some? main-node)
                 "<main aria-label=\"Story canvas\"> is still in the
@@ -229,7 +229,7 @@
             three chrome guards all admit their components. Pins the
             inverse so the assertions above can't trivially pass on
             a render that drops every vector."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
         ;; No mutation — `with-story-and-xray-frames`'s setup
@@ -238,13 +238,13 @@
         (let [tree (render-shell-tree)
               root-attrs (when (and (vector? tree) (map? (second tree)))
                            (second tree))
-              sidebar-nodes (fn-headed-nodes tree #(= sidebar/sidebar %))
-              toolbar-by-attr (e2e/find-by-test-id tree "story-toolbar")
-              inspectors-node (e2e/find-by-test-id tree "story-inspectors")]
+              sidebar-nodes (fn-headed-nodes tree #(= rf.story.ui.sidebar/sidebar %))
+              toolbar-by-attr (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-toolbar")
+              inspectors-node (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-inspectors")]
           (is (= "false" (:data-rf-chrome-embed root-attrs))
               "shell wrapper carries data-rf-chrome-embed=false at default")
           (is (seq sidebar-nodes)
-              "[sidebar/sidebar ...] vector present in the tree — the
+              "[rf.story.ui.sidebar/sidebar ...] vector present in the tree — the
                sidebar guard admits the component at default")
           (is (some? toolbar-by-attr)
               "data-test=\"story-toolbar\" element present at default")

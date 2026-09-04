@@ -20,7 +20,7 @@
   - `install-ci-hooks!` (CLJS) — install `window.__rf2_story_ci`
     helpers so a Playwright runner can: (a) enumerate variants with
     `:script`, and (b) read each variant's terminal run-state
-    (`runner-events/current-state`) once the auto-run completes.
+    (`rf.story.play.runner-events/current-state`) once the auto-run completes.
     No-op on JVM. The hook is INERT until called explicitly from a
     testbed init path — production / non-CI bundles never hit it.
 
@@ -41,9 +41,9 @@
   This ns is `.cljc`. The pure seams (`variants-with-play-scripts`,
   `ci-rows`, `ci-context`) are JVM-runnable; the CLJS-only
   `install-ci-hooks!` is gated by reader conditionals."
-  (:require [re-frame.story.play.runner :as runner]
-            [re-frame.story.registrar   :as registrar]
-            #?(:cljs [re-frame.story.play.runner-events :as runner-events])))
+  (:require [re-frame.story.play.runner :as rf.story.play.runner]
+            [re-frame.story.registrar   :as rf.story.registrar]
+            #?(:cljs [re-frame.story.play.runner-events :as rf.story.play.runner-events])))
 
 ;; ---- pure discovery ------------------------------------------------------
 
@@ -90,7 +90,7 @@
   `:script` and `:plays`-carrying variants. The CI runner uses
   `ci-rows` to enumerate per-PLAY rows."
   ([]
-   (variants-with-play-scripts (registrar/registrations :variant)))
+   (variants-with-play-scripts (rf.story.registrar/registrations :variant)))
   ([variant-registrations]
    (->> variant-registrations
         (filter (fn [[_ body]] (has-any-play? body)))
@@ -116,14 +116,14 @@
   Stable order: variants sorted alphabetically, plays in declaration
   order within each variant."
   ([]
-   (ci-rows (registrar/registrations :variant)))
+   (ci-rows (rf.story.registrar/registrations :variant)))
   ([variant-registrations]
    (let [vids (variants-with-play-scripts variant-registrations)]
      (vec
        (mapcat
          (fn [vid]
            (let [body  (get variant-registrations vid)
-                 plays (runner/variant-body->plays body)]
+                 plays (rf.story.play.runner/variant-body->plays body)]
              (map (fn [spec]
                     {:variant-id vid
                      :play-key   (:name spec)
@@ -240,7 +240,7 @@
      outcome should use `readPlayRunState`."
      [variant-id-str]
      (let [vid   (->variant-id variant-id-str)
-           state (runner-events/current-state vid)]
+           state (rf.story.play.runner-events/current-state vid)]
        (->js (project-state state)))))
 
 #?(:cljs
@@ -254,7 +254,7 @@
            pk  (when (and play-key-str
                           (not= "" play-key-str))
                  (str play-key-str))
-           state (runner-events/current-state-for-play vid pk)]
+           state (rf.story.play.runner-events/current-state-for-play vid pk)]
        (->js (project-state state)))))
 
 #?(:cljs
@@ -268,7 +268,7 @@
            pk  (when (and play-key-str
                           (not= "" play-key-str))
                  (str play-key-str))]
-       (runner-events/run-play! vid pk)
+       (rf.story.play.runner-events/run-play! vid pk)
        nil)))
 
 #?(:cljs

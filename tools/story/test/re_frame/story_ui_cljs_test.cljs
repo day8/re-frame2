@@ -17,35 +17,35 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story :as story]
-            [re-frame.story.config :as story-config]
-            [re-frame.story.registrar :as story-registrar]
-            [re-frame.story.ui.canvas :as canvas]
-            [re-frame.story.ui.command-palette :as command-palette]
-            [re-frame.story.ui.command-palette.view :as command-palette-view]
-            [re-frame.story.ui.docs :as docs]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.controls :as controls]
-            [re-frame.story.ui.sidebar :as sidebar]
-            [re-frame.story.ui.test-mode.pure :as test-mode-pure]
-            [re-frame.story.ui.test-mode.view :as test-mode-view]
-            [re-frame.story.ui.trace-buffer :as trace-buffer]
-            [re-frame.story.ui.workspace :as workspace]
-            [re-frame.trace.projection :as projection]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story :as rf.story]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.canvas :as rf.story.ui.canvas]
+            [re-frame.story.ui.command-palette :as rf.story.ui.command-palette]
+            [re-frame.story.ui.command-palette.view :as rf.story.ui.command-palette.view]
+            [re-frame.story.ui.docs :as rf.story.ui.docs]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.controls :as rf.story.ui.controls]
+            [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
+            [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]
+            [re-frame.story.ui.test-mode.view :as rf.story.ui.test-mode.view]
+            [re-frame.story.ui.trace-buffer :as rf.story.ui.trace-buffer]
+            [re-frame.story.ui.workspace :as rf.story.ui.workspace]
+            [re-frame.trace.projection :as rf.trace.projection]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -53,20 +53,20 @@
 
 (deftest mount-shell-fn-present
   (testing "mount-shell! / unmount-shell! / active-shell are public CLJS fns"
-    (is (fn? story/mount-shell!))
-    (is (fn? story/unmount-shell!))
-    (is (fn? story/active-shell))))
+    (is (fn? rf.story/mount-shell!))
+    (is (fn? rf.story/unmount-shell!))
+    (is (fn? rf.story/active-shell))))
 
 (deftest active-shell-starts-nil
   (testing "active-shell returns nil before any mount"
-    (is (nil? (story/active-shell)))))
+    (is (nil? (rf.story/active-shell)))))
 
 ;; ---- shell state transitions --------------------------------------------
 
 (deftest select-variant-roundtrip
   (testing "select-variant + swap-state! round-trips through the atom"
-    (state/swap-state! state/select-variant :story.foo/bar)
-    (is (= :story.foo/bar (:selected-variant (state/get-state))))))
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.foo/bar)
+    (is (= :story.foo/bar (:selected-variant (rf.story.ui.state/get-state))))))
 
 ;; rf2-hscut — variant-row click clears the workspace slot so workspace
 ;; mode is no longer a one-way door. `main-pane` in `shell.cljs` short-
@@ -80,76 +80,76 @@
 ;; fix codifies.
 (deftest variant-click-clears-workspace-rf2-hscut
   (testing "selecting a variant from the sidebar clears any selected workspace"
-    (state/swap-state! state/select-workspace :Workspace.nav/all)
-    (is (= :Workspace.nav/all (:selected-workspace (state/get-state))))
-    (state/swap-state!
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-workspace :Workspace.nav/all)
+    (is (= :Workspace.nav/all (:selected-workspace (rf.story.ui.state/get-state))))
+    (rf.story.ui.state/swap-state!
       (fn [s] (-> s
-                  (state/select-variant :story.nav/v1)
-                  (state/select-workspace nil))))
-    (is (= :story.nav/v1 (:selected-variant (state/get-state))))
-    (is (nil? (:selected-workspace (state/get-state)))))
+                  (rf.story.ui.state/select-variant :story.nav/v1)
+                  (rf.story.ui.state/select-workspace nil))))
+    (is (= :story.nav/v1 (:selected-variant (rf.story.ui.state/get-state))))
+    (is (nil? (:selected-workspace (rf.story.ui.state/get-state)))))
   (testing "mirror of workspace-row click — both row handlers are symmetric"
-    (state/swap-state! state/select-variant :story.nav/v1)
-    (state/swap-state!
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.nav/v1)
+    (rf.story.ui.state/swap-state!
       (fn [s] (-> s
-                  (state/select-workspace :Workspace.nav/all)
-                  (state/select-variant nil))))
-    (is (= :Workspace.nav/all (:selected-workspace (state/get-state))))
-    (is (nil? (:selected-variant (state/get-state))))))
+                  (rf.story.ui.state/select-workspace :Workspace.nav/all)
+                  (rf.story.ui.state/select-variant nil))))
+    (is (= :Workspace.nav/all (:selected-workspace (rf.story.ui.state/get-state))))
+    (is (nil? (:selected-variant (rf.story.ui.state/get-state))))))
 
 (deftest toggle-tag-filter-flips
   (testing "toggle-tag-filter adds + removes a tag"
-    (state/swap-state! state/toggle-tag-filter :dev)
-    (is (contains? (:tag-filter (state/get-state)) :dev))
-    (state/swap-state! state/toggle-tag-filter :dev)
-    (is (not (contains? (:tag-filter (state/get-state)) :dev)))))
+    (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-tag-filter :dev)
+    (is (contains? (:tag-filter (rf.story.ui.state/get-state)) :dev))
+    (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-tag-filter :dev)
+    (is (not (contains? (:tag-filter (rf.story.ui.state/get-state)) :dev)))))
 
 (deftest cell-overrides-roundtrip
   (testing "cell overrides write + clear cleanly"
-    (state/swap-state! state/set-cell-override-scalar :story.x/y :label "hi")
-    (is (= "hi" (get-in (state/get-state)
+    (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override-scalar :story.x/y :label "hi")
+    (is (= "hi" (get-in (rf.story.ui.state/get-state)
                         [:cell-overrides :story.x/y :label])))
-    (state/swap-state! state/clear-cell-overrides :story.x/y)
-    (is (nil? (get-in (state/get-state)
+    (rf.story.ui.state/swap-state! rf.story.ui.state/clear-cell-overrides :story.x/y)
+    (is (nil? (get-in (rf.story.ui.state/get-state)
                       [:cell-overrides :story.x/y])))))
 
 ;; ---- command palette -----------------------------------------------------
 
 (deftest command-palette-shortcut-detection
   (testing "Cmd-K and Ctrl-K open the global palette"
-    (is (command-palette-view/shortcut-event?
+    (is (rf.story.ui.command-palette.view/shortcut-event?
           #js {:type "keydown" :key "k" :metaKey true}))
-    (is (command-palette-view/shortcut-event?
+    (is (rf.story.ui.command-palette.view/shortcut-event?
           #js {:type "keydown" :key "K" :ctrlKey true})))
   (testing "modified or unrelated keydowns do not open it"
-    (is (not (command-palette-view/shortcut-event?
+    (is (not (rf.story.ui.command-palette.view/shortcut-event?
                #js {:type "keydown" :key "k" :ctrlKey true :shiftKey true})))
-    (is (not (command-palette-view/shortcut-event?
+    (is (not (rf.story.ui.command-palette.view/shortcut-event?
                #js {:type "keyup" :key "k" :ctrlKey true})))))
 
 (deftest command-palette-selection-side-effects
   (testing "variant selection focuses a variant and clears workspace"
-    (state/swap-state! state/select-workspace :Workspace.cp/all)
-    (command-palette-view/select-entry! {:kind :variant :id :story.cp/empty})
-    (is (= :story.cp/empty (:selected-variant (state/get-state))))
-    (is (nil? (:selected-workspace (state/get-state)))))
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-workspace :Workspace.cp/all)
+    (rf.story.ui.command-palette.view/select-entry! {:kind :variant :id :story.cp/empty})
+    (is (= :story.cp/empty (:selected-variant (rf.story.ui.state/get-state))))
+    (is (nil? (:selected-workspace (rf.story.ui.state/get-state)))))
   (testing "workspace selection focuses a workspace and clears variant"
-    (state/swap-state! state/select-variant :story.cp/empty)
-    (command-palette-view/select-entry! {:kind :workspace :id :Workspace.cp/all})
-    (is (= :Workspace.cp/all (:selected-workspace (state/get-state))))
-    (is (nil? (:selected-variant (state/get-state)))))
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.cp/empty)
+    (rf.story.ui.command-palette.view/select-entry! {:kind :workspace :id :Workspace.cp/all})
+    (is (= :Workspace.cp/all (:selected-workspace (rf.story.ui.state/get-state))))
+    (is (nil? (:selected-variant (rf.story.ui.state/get-state)))))
   (testing "story selection jumps to the first registered child variant"
-    (command-palette-view/select-entry!
+    (rf.story.ui.command-palette.view/select-entry!
       {:kind :story :id :story.cp :variant-ids [:story.cp/a :story.cp/b]})
-    (is (= :story.cp/a (:selected-variant (state/get-state)))))
+    (is (= :story.cp/a (:selected-variant (rf.story.ui.state/get-state)))))
   (testing "mode selection toggles the active mode"
-    (command-palette-view/select-entry! {:kind :mode :id :Mode.cp/dark})
-    (is (= [:Mode.cp/dark] (:active-modes (state/get-state))))))
+    (rf.story.ui.command-palette.view/select-entry! {:kind :mode :id :Mode.cp/dark})
+    (is (= [:Mode.cp/dark] (:active-modes (rf.story.ui.state/get-state))))))
 
 (deftest command-palette-search-roundtrip
   (testing "CLJS search path mirrors the JVM helper"
-    (let [results (command-palette/search
-                    (command-palette/entries
+    (let [results (rf.story.ui.command-palette/search
+                    (rf.story.ui.command-palette/entries
                       {:stories    {:story.cljs.cp {:doc "Shell docs"}}
                        :variants   {:story.cljs.cp/happy {:doc "Happy path"}}
                        :workspaces {}
@@ -162,74 +162,74 @@
 
 (deftest filter-variants-by-tag
   (testing "filter-variants returns matching subset"
-    (story/reg-variant :story.t/a {:tags #{:dev} :setup []})
-    (story/reg-variant :story.t/b {:tags #{:test} :setup []})
-    (let [vs   (story-registrar/registrations :variant)
-          devs (state/filter-variants vs #{:dev})]
+    (rf.story/reg-variant :story.t/a {:tags #{:dev} :setup []})
+    (rf.story/reg-variant :story.t/b {:tags #{:test} :setup []})
+    (let [vs   (rf.story.registrar/registrations :variant)
+          devs (rf.story.ui.state/filter-variants vs #{:dev})]
       (is (contains? devs :story.t/a))
       (is (not (contains? devs :story.t/b))))))
 
 (deftest group-variants-by-story
   (testing "group-variants-by-story builds the sidebar tree"
-    (story/reg-variant :story.a/x {:setup []})
-    (story/reg-variant :story.a/y {:setup []})
-    (story/reg-variant :story.b/z {:setup []})
-    (let [vs       (story-registrar/registrations :variant)
-          grouped  (state/group-variants-by-story vs)
+    (rf.story/reg-variant :story.a/x {:setup []})
+    (rf.story/reg-variant :story.a/y {:setup []})
+    (rf.story/reg-variant :story.b/z {:setup []})
+    (let [vs       (rf.story.registrar/registrations :variant)
+          grouped  (rf.story.ui.state/group-variants-by-story vs)
           by-story (into {} (map (juxt :story-id :variants) grouped))]
       (is (= 2 (count (get by-story :story.a))))
       (is (= 1 (count (get by-story :story.b)))))))
 
 (deftest sidebar-tag-collection
-  (testing "sidebar/collect-tags enumerates registered tags"
-    (story/reg-variant :story.tg/a {:tags #{:dev :test} :setup []})
-    (story/reg-variant :story.tg/b {:tags #{:dev :docs} :setup []})
-    (let [vs (story-registrar/registrations :variant)]
+  (testing "rf.story.ui.sidebar/collect-tags enumerates registered tags"
+    (rf.story/reg-variant :story.tg/a {:tags #{:dev :test} :setup []})
+    (rf.story/reg-variant :story.tg/b {:tags #{:dev :docs} :setup []})
+    (let [vs (rf.story.registrar/registrations :variant)]
       (is (= [:dev :docs :test]
-             (sidebar/collect-tags vs))))))
+             (rf.story.ui.sidebar/collect-tags vs))))))
 
 ;; ---- argtype inference ---------------------------------------------------
 
 (deftest argtype-inference
-  (testing "controls/infer-widget classifies primitive shapes"
-    (is (= :text    (:widget (controls/infer-widget :string))))
-    (is (= :number  (:widget (controls/infer-widget :int))))
-    (is (= :boolean (:widget (controls/infer-widget :boolean))))
-    (let [enum (controls/infer-widget [:enum :a :b :c])]
+  (testing "rf.story.ui.controls/infer-widget classifies primitive shapes"
+    (is (= :text    (:widget (rf.story.ui.controls/infer-widget :string))))
+    (is (= :number  (:widget (rf.story.ui.controls/infer-widget :int))))
+    (is (= :boolean (:widget (rf.story.ui.controls/infer-widget :boolean))))
+    (let [enum (rf.story.ui.controls/infer-widget [:enum :a :b :c])]
       (is (= :select (:widget enum)))
       (is (= [:a :b :c] (:options enum))))))
 
 (deftest argtype-resolution-from-variant
-  (testing "controls/resolve-argtypes inherits from args' value shapes"
-    (story/reg-variant :story.at/v
+  (testing "rf.story.ui.controls/resolve-argtypes inherits from args' value shapes"
+    (rf.story/reg-variant :story.at/v
       {:args   {:label "x" :n 1 :flag true}
        :setup []})
-    (let [t (controls/resolve-argtypes :story.at/v)]
+    (let [t (rf.story.ui.controls/resolve-argtypes :story.at/v)]
       (is (= :text    (:widget (get t :label))))
       (is (= :number  (:widget (get t :n))))
       (is (= :boolean (:widget (get t :flag)))))))
 
 (deftest argtype-control-to-widget-translation
-  (testing "controls/normalize-argtype-spec translates :control → :widget"
-    (is (= {:widget :text}     (controls/normalize-argtype-spec {:control :text})))
-    (is (= {:widget :textarea} (controls/normalize-argtype-spec {:control :textarea})))
+  (testing "rf.story.ui.controls/normalize-argtype-spec translates :control → :widget"
+    (is (= {:widget :text}     (rf.story.ui.controls/normalize-argtype-spec {:control :text})))
+    (is (= {:widget :textarea} (rf.story.ui.controls/normalize-argtype-spec {:control :textarea})))
     (is (= {:widget :select :options [:a :b]}
-           (controls/normalize-argtype-spec {:control :select :options [:a :b]}))))
+           (rf.story.ui.controls/normalize-argtype-spec {:control :select :options [:a :b]}))))
   (testing "normalize-argtype-spec is idempotent on :widget-keyed specs"
-    (is (= {:widget :date} (controls/normalize-argtype-spec {:widget :date}))))
+    (is (= {:widget :date} (rf.story.ui.controls/normalize-argtype-spec {:widget :date}))))
   (testing "non-map specs round-trip"
-    (is (= "doc" (controls/normalize-argtype-spec "doc")))
-    (is (nil?    (controls/normalize-argtype-spec nil))))
+    (is (= "doc" (rf.story.ui.controls/normalize-argtype-spec "doc")))
+    (is (nil?    (rf.story.ui.controls/normalize-argtype-spec nil))))
   (testing "resolve-argtypes honours the spec-canonical :control key"
     ;; Per /spec/007-Stories.md §argtypes — author writes :control;
     ;; renderer dispatches on :widget. Without the translation this
     ;; would fall through to the 'unsupported widget' span.
-    (story/reg-variant :story.argtypes/ctrl
+    (rf.story/reg-variant :story.argtypes/ctrl
       {:args     {:placeholder "ok" :flavor :primary}
        :argtypes {:placeholder {:control :textarea}
                   :flavor      {:control :select :options [:primary :secondary]}}
        :setup   []})
-    (let [t (controls/resolve-argtypes :story.argtypes/ctrl)]
+    (let [t (rf.story.ui.controls/resolve-argtypes :story.argtypes/ctrl)]
       (is (= :textarea (:widget (get t :placeholder))))
       (is (= :select   (:widget (get t :flavor))))
       (is (= [:primary :secondary] (:options (get t :flavor))))
@@ -240,7 +240,7 @@
 
 (deftest grid-layout-resolves
   (testing ":grid layout maps :variants to variant cells"
-    (let [cells (workspace/resolve-layout
+    (let [cells (rf.story.ui.workspace/resolve-layout
                   :Workspace.demo/x
                   {:layout :grid :variants [:story.a/x :story.b/y]})]
       (is (= 2 (count cells)))
@@ -249,9 +249,9 @@
 
 (deftest variants-grid-layout-enumerates-from-registry
   (testing ":variants-grid auto-enumerates the anchor story's variants"
-    (story/reg-variant :story.demo/a {:setup []})
-    (story/reg-variant :story.demo/b {:setup []})
-    (let [cells (workspace/resolve-layout
+    (rf.story/reg-variant :story.demo/a {:setup []})
+    (rf.story/reg-variant :story.demo/b {:setup []})
+    (let [cells (rf.story.ui.workspace/resolve-layout
                   :Workspace.demo/all-variants
                   {:layout :variants-grid})]
       (is (= 2 (count cells)))
@@ -259,7 +259,7 @@
 
 (deftest prose-layout-resolves
   (testing ":prose layout preserves content order, interleaving prose + variant"
-    (let [cells (workspace/resolve-layout
+    (let [cells (rf.story.ui.workspace/resolve-layout
                   :Workspace.guide/intro
                   {:layout :prose
                    :content [{:type :prose   :body "intro markdown"}
@@ -296,19 +296,19 @@
       {}
       (fn [_args]
         [:section {:data-test "rf2-zme7-view"} "rendered"]))
-    (story/reg-story :story.rf2-zme7
+    (rf.story/reg-story :story.rf2-zme7
       {:component :rf2-zme7/view
        :substrates #{:reagent}})
-    (story/reg-variant :story.rf2-zme7/v
+    (rf.story/reg-variant :story.rf2-zme7/v
       {:setup [[:rf2-zme7/init]]
        :substrates #{:reagent}})
-    (story/reg-workspace :Workspace.rf2-zme7/g
+    (rf.story/reg-workspace :Workspace.rf2-zme7/g
       {:layout   :grid
        :variants [:story.rf2-zme7/v]})
     ;; Render the workspace; walk the tree to confirm:
     ;;  (a) the variant id appears (cell title)
     ;;  (b) a `frame-provider` element wraps the view
-    (let [tree (workspace/workspace-view :Workspace.rf2-zme7/g)
+    (let [tree (rf.story.ui.workspace/workspace-view :Workspace.rf2-zme7/g)
           flat (tree-seq coll? seq tree)]
       (is (some #(= :story.rf2-zme7/v %) flat)
           "the variant id appears somewhere in the rendered tree")
@@ -324,7 +324,7 @@
 (deftest workspace-view-empty-for-missing-workspace
   (testing "workspace-view renders an empty / not-registered notice for
             an unregistered workspace id rather than throwing"
-    (let [tree (workspace/workspace-view :Workspace.does-not/exist)]
+    (let [tree (rf.story.ui.workspace/workspace-view :Workspace.does-not/exist)]
       (is (vector? tree))
       (is (boolean (some #(and (string? %)
                                (re-find #"not registered" %))
@@ -379,14 +379,14 @@
   (testing ":grid layout cells use variant-id-derived React keys so
             React mounts fresh cells when a workspace swap changes the
             variant set (per rf2-kgn0c)"
-    (story/reg-variant :story.rf2-kgn0c.a/x {:setup []})
-    (story/reg-variant :story.rf2-kgn0c.a/y {:setup []})
-    (story/reg-variant :story.rf2-kgn0c.b/p {:setup []})
-    (story/reg-variant :story.rf2-kgn0c.b/q {:setup []})
-    (story/reg-workspace :Workspace.rf2-kgn0c.a/grid
+    (rf.story/reg-variant :story.rf2-kgn0c.a/x {:setup []})
+    (rf.story/reg-variant :story.rf2-kgn0c.a/y {:setup []})
+    (rf.story/reg-variant :story.rf2-kgn0c.b/p {:setup []})
+    (rf.story/reg-variant :story.rf2-kgn0c.b/q {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-kgn0c.a/grid
       {:layout   :grid
        :variants [:story.rf2-kgn0c.a/x :story.rf2-kgn0c.a/y]})
-    (story/reg-workspace :Workspace.rf2-kgn0c.b/grid
+    (rf.story/reg-workspace :Workspace.rf2-kgn0c.b/grid
       {:layout   :grid
        :variants [:story.rf2-kgn0c.b/p :story.rf2-kgn0c.b/q]})
     ;; rf2-ba86n.18 — the `:grid` branch now mounts the capped-grid
@@ -395,7 +395,7 @@
     ;; cell tree, then walk for variant-id keys.
     (let [render  (fn [ws-id]
                     (let [{renderer :fn cells :cells args :args}
-                          (find-tabs-renderer-call (workspace/workspace-view ws-id))]
+                          (find-tabs-renderer-call (rf.story.ui.workspace/workspace-view ws-id))]
                       (apply renderer cells args)))
           keys-a  (collect-cell-keys (render :Workspace.rf2-kgn0c.a/grid))
           keys-b  (collect-cell-keys (render :Workspace.rf2-kgn0c.b/grid))]
@@ -414,18 +414,18 @@
 (deftest workspace-variants-grid-cells-key-on-variant-id-rf2-kgn0c
   (testing ":variants-grid layout cells use variant-id-derived React
             keys (the layout the Phase 1b smoke triggered the bug on)"
-    (story/reg-variant :story.rf2-kgn0c-vg.a/x {:setup []})
-    (story/reg-variant :story.rf2-kgn0c-vg.a/y {:setup []})
-    (story/reg-variant :story.rf2-kgn0c-vg.b/p {:setup []})
-    (story/reg-workspace :Workspace.rf2-kgn0c-vg.a/all
+    (rf.story/reg-variant :story.rf2-kgn0c-vg.a/x {:setup []})
+    (rf.story/reg-variant :story.rf2-kgn0c-vg.a/y {:setup []})
+    (rf.story/reg-variant :story.rf2-kgn0c-vg.b/p {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-kgn0c-vg.a/all
       {:layout :variants-grid})
-    (story/reg-workspace :Workspace.rf2-kgn0c-vg.b/all
+    (rf.story/reg-workspace :Workspace.rf2-kgn0c-vg.b/all
       {:layout :variants-grid})
     ;; rf2-ba86n.18 — isolated `:variants-grid` also mounts the capped-grid
     ;; renderer; extract + invoke its inner fn to reach the cell tree.
     (let [render  (fn [ws-id]
                     (let [{renderer :fn cells :cells args :args}
-                          (find-tabs-renderer-call (workspace/workspace-view ws-id))]
+                          (find-tabs-renderer-call (rf.story.ui.workspace/workspace-view ws-id))]
                       (apply renderer cells args)))
           keys-a  (collect-cell-keys (render :Workspace.rf2-kgn0c-vg.a/all))
           keys-b  (collect-cell-keys (render :Workspace.rf2-kgn0c-vg.b/all))]
@@ -440,11 +440,11 @@
   (testing "the workspace's root <section> carries a workspace-id-derived
             React key so any swap unmounts the whole subtree as a
             belt-and-braces guard alongside per-cell keys"
-    (story/reg-variant :story.rf2-kgn0c-root/v {:setup []})
-    (story/reg-workspace :Workspace.rf2-kgn0c-root/g
+    (rf.story/reg-variant :story.rf2-kgn0c-root/v {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-kgn0c-root/g
       {:layout   :grid
        :variants [:story.rf2-kgn0c-root/v]})
-    (let [tree (workspace/workspace-view :Workspace.rf2-kgn0c-root/g)
+    (let [tree (rf.story.ui.workspace/workspace-view :Workspace.rf2-kgn0c-root/g)
           k    (:key (meta tree))]
       (is (string? k))
       (is (re-find #"rf2-kgn0c-root" k)
@@ -527,15 +527,15 @@
             falling through to the grid pipeline (per rf2-ktnl8 — pre-
             fix `:tabs` collapsed to grid and rendered every cell
             simultaneously)"
-    (story/reg-variant :story.rf2-ktnl8/a {:setup []})
-    (story/reg-variant :story.rf2-ktnl8/b {:setup []})
-    (story/reg-variant :story.rf2-ktnl8/c {:setup []})
-    (story/reg-workspace :Workspace.rf2-ktnl8/t
+    (rf.story/reg-variant :story.rf2-ktnl8/a {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8/b {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8/c {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-ktnl8/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8/a
                   :story.rf2-ktnl8/b
                   :story.rf2-ktnl8/c]})
-    (let [tree (workspace/workspace-view :Workspace.rf2-ktnl8/t)]
+    (let [tree (rf.story.ui.workspace/workspace-view :Workspace.rf2-ktnl8/t)]
       (is (boolean (some #(and (string? %)
                                (re-find #"\(tabs\)" %))
                          (tree-seq coll? seq tree)))
@@ -548,16 +548,16 @@
   (testing "tabs-renderer mounts ONLY the active tab's variant-cell —
             simultaneous-render bleed (rf2-ktnl8) cannot occur because
             non-active cells are not present in the rendered tree"
-    (story/reg-variant :story.rf2-ktnl8.only/a {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.only/b {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.only/c {:setup []})
-    (story/reg-workspace :Workspace.rf2-ktnl8.only/t
+    (rf.story/reg-variant :story.rf2-ktnl8.only/a {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.only/b {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.only/c {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-ktnl8.only/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.only/a
                   :story.rf2-ktnl8.only/b
                   :story.rf2-ktnl8.only/c]})
     (let [{:keys [fn cells]} (find-tabs-renderer-call
-                               (workspace/workspace-view
+                               (rf.story.ui.workspace/workspace-view
                                  :Workspace.rf2-ktnl8.only/t))
           rendered            (fn cells)
           n                   (count-variant-cells-in rendered)]
@@ -570,16 +570,16 @@
 (deftest tabs-renderer-emits-button-per-variant-rf2-ktnl8
   (testing "tabs-renderer renders a tab strip with one tab button per
             variant — the UI affordance for switching tabs"
-    (story/reg-variant :story.rf2-ktnl8.btn/a {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.btn/b {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.btn/c {:setup []})
-    (story/reg-workspace :Workspace.rf2-ktnl8.btn/t
+    (rf.story/reg-variant :story.rf2-ktnl8.btn/a {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.btn/b {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.btn/c {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-ktnl8.btn/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.btn/a
                   :story.rf2-ktnl8.btn/b
                   :story.rf2-ktnl8.btn/c]})
     (let [{:keys [fn cells]} (find-tabs-renderer-call
-                               (workspace/workspace-view
+                               (rf.story.ui.workspace/workspace-view
                                  :Workspace.rf2-ktnl8.btn/t))
           rendered (fn cells)
           buttons  (tab-buttons-in rendered)
@@ -602,14 +602,14 @@
             gallery_chrome.cljs happens because simultaneous cells
             mount the SAME view in the SAME render tree; if only ONE
             cell mounts at a time, the bleed cannot occur.)"
-    (story/reg-variant :story.rf2-ktnl8.iso/a {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.iso/b {:setup []})
-    (story/reg-workspace :Workspace.rf2-ktnl8.iso/t
+    (rf.story/reg-variant :story.rf2-ktnl8.iso/a {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.iso/b {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-ktnl8.iso/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.iso/a
                   :story.rf2-ktnl8.iso/b]})
     (let [{:keys [fn cells]} (find-tabs-renderer-call
-                               (workspace/workspace-view
+                               (rf.story.ui.workspace/workspace-view
                                  :Workspace.rf2-ktnl8.iso/t))
           rendered  (fn cells)
           ;; Use a hash-set of namespaced keywords found anywhere in
@@ -630,16 +630,16 @@
 (deftest tabs-renderer-buttons-carry-onclick-and-aria-rf2-ktnl8
   (testing "each tab button carries an on-click (the switch affordance)
             and aria-selected reflecting the active tab"
-    (story/reg-variant :story.rf2-ktnl8.aria/a {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.aria/b {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.aria/c {:setup []})
-    (story/reg-workspace :Workspace.rf2-ktnl8.aria/t
+    (rf.story/reg-variant :story.rf2-ktnl8.aria/a {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.aria/b {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.aria/c {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-ktnl8.aria/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.aria/a
                   :story.rf2-ktnl8.aria/b
                   :story.rf2-ktnl8.aria/c]})
     (let [{:keys [fn cells]} (find-tabs-renderer-call
-                               (workspace/workspace-view
+                               (rf.story.ui.workspace/workspace-view
                                  :Workspace.rf2-ktnl8.aria/t))
           rendered (fn cells)
           buttons  (tab-buttons-in rendered)
@@ -660,14 +660,14 @@
             `r/with-let` re-allocates bindings on each non-React call),
             so this test pins the handler's structural invariant: it
             is callable, takes no args, and does not throw."
-    (story/reg-variant :story.rf2-ktnl8.click/a {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.click/b {:setup []})
-    (story/reg-workspace :Workspace.rf2-ktnl8.click/t
+    (rf.story/reg-variant :story.rf2-ktnl8.click/a {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.click/b {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-ktnl8.click/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.click/a
                   :story.rf2-ktnl8.click/b]})
     (let [{:keys [fn cells]} (find-tabs-renderer-call
-                               (workspace/workspace-view
+                               (rf.story.ui.workspace/workspace-view
                                  :Workspace.rf2-ktnl8.click/t))
           tree    (fn cells)
           buttons (tab-buttons-in tree)
@@ -684,15 +684,15 @@
             that the two layouts mount different numbers of cells.
             Without this guard a future refactor could silently re-
             collapse `:tabs` to `:grid` (the rf2-ktnl8 starting state)."
-    (story/reg-variant :story.rf2-ktnl8.gt/a {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.gt/b {:setup []})
-    (story/reg-variant :story.rf2-ktnl8.gt/c {:setup []})
-    (story/reg-workspace :Workspace.rf2-ktnl8.gt/grid
+    (rf.story/reg-variant :story.rf2-ktnl8.gt/a {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.gt/b {:setup []})
+    (rf.story/reg-variant :story.rf2-ktnl8.gt/c {:setup []})
+    (rf.story/reg-workspace :Workspace.rf2-ktnl8.gt/grid
       {:layout :grid
        :variants [:story.rf2-ktnl8.gt/a
                   :story.rf2-ktnl8.gt/b
                   :story.rf2-ktnl8.gt/c]})
-    (story/reg-workspace :Workspace.rf2-ktnl8.gt/tabs
+    (rf.story/reg-workspace :Workspace.rf2-ktnl8.gt/tabs
       {:layout :tabs
        :variants [:story.rf2-ktnl8.gt/a
                   :story.rf2-ktnl8.gt/b
@@ -702,12 +702,12 @@
     ;; cap, so all three render and the layout-difference contract holds).
     (let [{grid-fn :fn grid-cells :cells grid-args :args}
                      (find-tabs-renderer-call
-                       (workspace/workspace-view :Workspace.rf2-ktnl8.gt/grid))
+                       (rf.story.ui.workspace/workspace-view :Workspace.rf2-ktnl8.gt/grid))
           grid-tree  (apply grid-fn grid-cells grid-args)
           grid-n     (count-variant-cells-in grid-tree)
           {tabs-fn :fn tabs-cells :cells}
                      (find-tabs-renderer-call
-                       (workspace/workspace-view :Workspace.rf2-ktnl8.gt/tabs))
+                       (rf.story.ui.workspace/workspace-view :Workspace.rf2-ktnl8.gt/tabs))
           tabs-tree  (tabs-fn tabs-cells)
           tabs-n     (count-variant-cells-in tabs-tree)]
       (is (= 3 grid-n)
@@ -747,16 +747,16 @@
   and invoke it to get the rendered hiccup tree."
   [ws-id]
   (let [{renderer :fn cells :cells args :args}
-        (find-tabs-renderer-call (workspace/workspace-view ws-id))]
+        (find-tabs-renderer-call (rf.story.ui.workspace/workspace-view ws-id))]
     (apply renderer cells args)))
 
 (deftest workspace-grid-columns-pins-fixed-template-rf2-ugmrg
   (testing ":grid with :columns N emits a fixed repeat(N, …) template —
             pre-fix this slot was silently ignored (rf2-ugmrg)"
-    (story/reg-variant :story.ugmrg-cols/a {:setup []})
-    (story/reg-variant :story.ugmrg-cols/b {:setup []})
-    (story/reg-variant :story.ugmrg-cols/c {:setup []})
-    (story/reg-workspace :Workspace.ugmrg-cols/grid
+    (rf.story/reg-variant :story.ugmrg-cols/a {:setup []})
+    (rf.story/reg-variant :story.ugmrg-cols/b {:setup []})
+    (rf.story/reg-variant :story.ugmrg-cols/c {:setup []})
+    (rf.story/reg-workspace :Workspace.ugmrg-cols/grid
       {:layout   :grid
        :columns  3
        :variants [:story.ugmrg-cols/a
@@ -773,9 +773,9 @@
   (testing ":grid without :columns keeps the responsive auto-fit default
             (rf2-ugmrg — :columns is opt-in; absent it must not change
             existing behaviour)"
-    (story/reg-variant :story.ugmrg-auto/a {:setup []})
-    (story/reg-variant :story.ugmrg-auto/b {:setup []})
-    (story/reg-workspace :Workspace.ugmrg-auto/grid
+    (rf.story/reg-variant :story.ugmrg-auto/a {:setup []})
+    (rf.story/reg-variant :story.ugmrg-auto/b {:setup []})
+    (rf.story/reg-workspace :Workspace.ugmrg-auto/grid
       {:layout   :grid
        :variants [:story.ugmrg-auto/a
                   :story.ugmrg-auto/b]})
@@ -789,9 +789,9 @@
 (deftest workspace-variants-grid-columns-pins-fixed-template-rf2-ugmrg
   (testing "isolated :variants-grid honours :columns too (same capped-grid
             renderer; rf2-ugmrg)"
-    (story/reg-variant :story.ugmrg-vg/a {:setup []})
-    (story/reg-variant :story.ugmrg-vg/b {:setup []})
-    (story/reg-workspace :Workspace.ugmrg-vg/all
+    (rf.story/reg-variant :story.ugmrg-vg/a {:setup []})
+    (rf.story/reg-variant :story.ugmrg-vg/b {:setup []})
+    (rf.story/reg-workspace :Workspace.ugmrg-vg/all
       {:layout  :variants-grid
        :for     :story.ugmrg-vg
        :columns 2})
@@ -826,7 +826,7 @@
 ;; interactions are not clobbered.
 
 (deftest run-key-detects-cell-overrides-change-rf2-c56hr
-  (testing "canvas/run-key flips when the shell's :cell-overrides for
+  (testing "rf.story.ui.canvas/run-key flips when the shell's :cell-overrides for
             the variant changes — the workspace cell's trigger MUST see
             this transition (per rf2-c56hr; the prior :hot-reload-tick-
             only key missed it)"
@@ -836,37 +836,37 @@
                    :cell-overrides  {}
                    :substrate       :reagent}
           shell-1 (assoc-in shell-0 [:cell-overrides vid :label] "edited")
-          k0      (canvas/run-key shell-0 vid)
-          k1      (canvas/run-key shell-1 vid)]
+          k0      (rf.story.ui.canvas/run-key shell-0 vid)
+          k1      (rf.story.ui.canvas/run-key shell-1 vid)]
       (is (not= k0 k1)
           "writing a per-variant override MUST yield a distinct run-key")
       (is (= "edited" (get-in k1 [:cell-overrides :label]))
           "the override value is carried through the run-key slice"))))
 
 (deftest run-key-detects-active-modes-change-rf2-c56hr
-  (testing "canvas/run-key flips when chrome-level :active-modes change
+  (testing "rf.story.ui.canvas/run-key flips when chrome-level :active-modes change
             — the workspace cell MUST re-seed on mode toggle"
     (let [vid     :story.rf2-c56hr.am/v
           shell-0 {:hot-reload-tick 0 :active-modes []
                    :cell-overrides {} :substrate :reagent}
           shell-1 (assoc shell-0 :active-modes [:Mode.x/dark])
-          k0      (canvas/run-key shell-0 vid)
-          k1      (canvas/run-key shell-1 vid)]
+          k0      (rf.story.ui.canvas/run-key shell-0 vid)
+          k1      (rf.story.ui.canvas/run-key shell-1 vid)]
       (is (not= k0 k1)))))
 
 (deftest run-key-detects-substrate-change-rf2-c56hr
-  (testing "canvas/run-key flips when the host substrate changes — the
+  (testing "rf.story.ui.canvas/run-key flips when the host substrate changes — the
             workspace cell MUST re-seed on substrate flip"
     (let [vid     :story.rf2-c56hr.sb/v
           shell-0 {:hot-reload-tick 0 :active-modes []
                    :cell-overrides {} :substrate :reagent}
           shell-1 (assoc shell-0 :substrate :uix)
-          k0      (canvas/run-key shell-0 vid)
-          k1      (canvas/run-key shell-1 vid)]
+          k0      (rf.story.ui.canvas/run-key shell-0 vid)
+          k1      (rf.story.ui.canvas/run-key shell-1 vid)]
       (is (not= k0 k1)))))
 
 (deftest run-key-stable-across-ordinary-app-db-renders-rf2-c56hr
-  (testing "canvas/run-key stays equal when nothing in the watched slice
+  (testing "rf.story.ui.canvas/run-key stays equal when nothing in the watched slice
             changes — guarantees an inc-click re-render does NOT clobber
             the variant's :events-seeded state. Pins the rf2-c56hr fix
             against an over-eager future change that would re-seed on
@@ -876,15 +876,15 @@
                    :cell-overrides {} :substrate :reagent
                    :other-unrelated-slot "anything"}
           shell-1 (assoc shell-0 :other-unrelated-slot "changed")
-          k0      (canvas/run-key shell-0 vid)
-          k1      (canvas/run-key shell-1 vid)]
+          k0      (rf.story.ui.canvas/run-key shell-0 vid)
+          k1      (rf.story.ui.canvas/run-key shell-1 vid)]
       (is (= k0 k1)
           (str "run-key MUST be stable when only non-watched shell "
                "slots change; got k0=" (pr-str k0)
                " k1=" (pr-str k1))))))
 
 (deftest run-key-detects-hot-reload-tick-change-rf2-c56hr
-  (testing "canvas/run-key still flips on :hot-reload-tick — the new
+  (testing "rf.story.ui.canvas/run-key still flips on :hot-reload-tick — the new
             workspace cell trigger MUST preserve the legacy tick-driven
             re-run path on top of the three previously-missed
             transitions"
@@ -892,12 +892,12 @@
           shell-0 {:hot-reload-tick 0 :active-modes []
                    :cell-overrides {} :substrate :reagent}
           shell-1 (assoc shell-0 :hot-reload-tick 1)
-          k0      (canvas/run-key shell-0 vid)
-          k1      (canvas/run-key shell-1 vid)]
+          k0      (rf.story.ui.canvas/run-key shell-0 vid)
+          k1      (rf.story.ui.canvas/run-key shell-1 vid)]
       (is (not= k0 k1)))))
 ;; ---- controls repeater stable React keys (rf2-c8kfy) --------------------
 ;;
-;; Pre-fix, `controls/repeater-widget` keyed each row positionally
+;; Pre-fix, `rf.story.ui.controls/repeater-widget` keyed each row positionally
 ;; (`^{:key i}`). Deleting a middle entry shifted every surviving row's
 ;; key up by one — React reused the original DOM node at each position
 ;; with the next entry's value, so an input that had focus / cursor at
@@ -963,9 +963,9 @@
             (`r:<id>`) — NOT on its positional index. The keys MUST be
             namespaced with the `r:` prefix to consistently shape with
             rf2-kgn0c / rf2-z4fza / rf2-c56hr."
-    (state/swap-state! state/set-cell-override
+    (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                        :story.c8kfy/v [:items] ["a" "b" "c"])
-    (let [tree (controls/arg-widget
+    (let [tree (rf.story.ui.controls/arg-widget
                  :story.c8kfy/v [:items]
                  ["a" "b" "c"]
                  {:widget :repeater :kind :vector
@@ -987,9 +987,9 @@
             preserved (rather than leaking from row [i+1] onto row [i]
             with the old DOM node)."
     ;; Initial render against a 4-entry repeater.
-    (state/swap-state! state/set-cell-override
+    (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                        :story.c8kfy/v [:items] ["a" "b" "c" "d"])
-    (let [tree-before (controls/arg-widget
+    (let [tree-before (rf.story.ui.controls/arg-widget
                         :story.c8kfy/v [:items]
                         ["a" "b" "c" "d"]
                         {:widget :repeater :kind :vector
@@ -999,11 +999,11 @@
       ;; Simulate the user clicking [-] on row index 1 (the second
       ;; entry). The widget calls `remove-repeater-row-id` then
       ;; updates the entries vector via `on-change-at-path`.
-      (state/swap-state! state/remove-repeater-row-id
+      (rf.story.ui.state/swap-state! rf.story.ui.state/remove-repeater-row-id
                          :story.c8kfy/v [:items] 1)
-      (state/swap-state! state/set-cell-override
+      (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                          :story.c8kfy/v [:items] ["a" "c" "d"])
-      (let [tree-after (controls/arg-widget
+      (let [tree-after (rf.story.ui.controls/arg-widget
                         :story.c8kfy/v [:items]
                         ["a" "c" "d"]
                         {:widget :repeater :kind :vector
@@ -1024,9 +1024,9 @@
   (testing "after appending an entry the new row carries a FRESH id
             not seen on any pre-existing row — React mounts a fresh
             DOM node rather than reusing a stale one"
-    (state/swap-state! state/set-cell-override
+    (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                        :story.c8kfy.add/v [:items] ["a" "b"])
-    (let [tree-before (controls/arg-widget
+    (let [tree-before (rf.story.ui.controls/arg-widget
                         :story.c8kfy.add/v [:items]
                         ["a" "b"]
                         {:widget :repeater :kind :vector
@@ -1034,11 +1034,11 @@
           keys-before (collect-repeater-row-keys tree-before)]
       (is (= 2 (count keys-before)))
       ;; Simulate [+]: append id + extend entries vector.
-      (state/swap-state! state/append-repeater-row-id
+      (rf.story.ui.state/swap-state! rf.story.ui.state/append-repeater-row-id
                          :story.c8kfy.add/v [:items])
-      (state/swap-state! state/set-cell-override
+      (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                          :story.c8kfy.add/v [:items] ["a" "b" ""])
-      (let [tree-after (controls/arg-widget
+      (let [tree-after (rf.story.ui.controls/arg-widget
                         :story.c8kfy.add/v [:items]
                         ["a" "b" ""]
                         {:widget :repeater :kind :vector
@@ -1059,7 +1059,7 @@
             order — so the keys are stable across edits regardless of
             re-sort."
     ;; First render syncs 3 ids for a 3-element set.
-    (let [tree-1 (controls/arg-widget
+    (let [tree-1 (rf.story.ui.controls/arg-widget
                    :story.c8kfy.set/v [:tags]
                    #{"alpha" "beta" "gamma"}
                    {:widget :repeater :kind :set
@@ -1067,7 +1067,7 @@
           keys-1 (collect-repeater-row-keys tree-1)
           ;; Second render against the same set — keys MUST match
           ;; exactly (same count, same ids).
-          tree-2 (controls/arg-widget
+          tree-2 (rf.story.ui.controls/arg-widget
                    :story.c8kfy.set/v [:tags]
                    #{"alpha" "beta" "gamma"}
                    {:widget :repeater :kind :set
@@ -1084,7 +1084,7 @@
             (Tuple positions don't reshuffle — the focus-leak class
             doesn't fire — but uniform key shape across the file pins
             the convention.)"
-    (let [tree (controls/arg-widget
+    (let [tree (rf.story.ui.controls/arg-widget
                  :story.c8kfy.tup/v [:pair]
                  ["x" 42]
                  {:widget :tuple :kind :tuple
@@ -1100,9 +1100,9 @@
             int in React's reconciler; the rf2-c8kfy fix requires the
             `r:` / `t:` namespacing prefix so distinct UI surfaces
             with the same int positions never collide."
-    (state/swap-state! state/set-cell-override
+    (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                        :story.c8kfy.guard/v [:items] ["a" "b" "c"])
-    (let [tree (controls/arg-widget
+    (let [tree (rf.story.ui.controls/arg-widget
                  :story.c8kfy.guard/v [:items]
                  ["a" "b" "c"]
                  {:widget :repeater :kind :vector
@@ -1138,7 +1138,7 @@
                       :id 5 :tags {:rf.trace/dispatch-id 100 :rf.sub/id :sub/foo}}
                      {:op-type :rf.view :operation :rf.view/render
                       :id 6 :tags {:rf.trace/dispatch-id 100 :rf.view/render-key [:app/root nil]}}]
-          cascades  (projection/group-by-event evs)]
+          cascades  (rf.trace.projection/group-by-event evs)]
       (is (= 1 (count cascades)))
       (let [c (first cascades)]
         (is (= [:foo] (:event c)))
@@ -1164,8 +1164,8 @@
   (testing "reveal → redact narrowing clears every per-variant Story trace buffer"
     (let [v-a       :story.priv-scrub/a
           v-b       :story.priv-scrub/b
-          buf-a     (trace-buffer/ensure-buffer! v-a)
-          buf-b     (trace-buffer/ensure-buffer! v-b)
+          buf-a     (rf.story.ui.trace-buffer/ensure-buffer! v-a)
+          buf-b     (rf.story.ui.trace-buffer/ensure-buffer! v-b)
           mk-ev     (fn [vid sensitive?]
                       (cond-> {:op-type   :rf.event
                                :operation :rf.event/dispatched
@@ -1178,59 +1178,59 @@
                         sensitive? (assoc :sensitive? true)))]
       (try
         ;; Engineer opts into the trusted-local raw boundary to investigate.
-        (story-config/set-egress-profile! :rf.egress/local-raw)
+        (rf.story.config/set-egress-profile! :rf.egress/local-raw)
         ;; Simulate the per-variant listener body: under the raw profile the
         ;; listener appends every event (no suppression).
         (reset! buf-a [(mk-ev v-a true) (mk-ev v-a false)])
         (reset! buf-b [(mk-ev v-b true)])
-        (story-config/note-suppressed! v-a) ; previously bumped before opt-in
+        (rf.story.config/note-suppressed! v-a) ; previously bumped before opt-in
         (is (= 2 (count @buf-a)))
         (is (= 1 (count @buf-b)))
-        (is (pos? (story-config/suppressed-count v-a)))
+        (is (pos? (rf.story.config/suppressed-count v-a)))
 
         ;; Engineer narrows the profile back expecting privacy restored.
-        (story-config/set-egress-profile! :rf.egress/local-redacted)
+        (rf.story.config/set-egress-profile! :rf.egress/local-redacted)
 
         (is (= 0 (count @buf-a))
             "variant A's buffer must be empty — sensitive payloads cannot survive the narrowing")
         (is (= 0 (count @buf-b))
             "variant B's buffer must be empty too — the clear is global")
-        (is (zero? (story-config/suppressed-count v-a))
+        (is (zero? (rf.story.config/suppressed-count v-a))
             "per-variant suppressed counter drops in lockstep with the buffer")
         (finally
-          (trace-buffer/drop-buffer! v-a)
-          (trace-buffer/drop-buffer! v-b)
-          (story-config/set-egress-profile! :rf.egress/local-redacted)
-          (story-config/reset-suppressed-count!))))))
+          (rf.story.ui.trace-buffer/drop-buffer! v-a)
+          (rf.story.ui.trace-buffer/drop-buffer! v-b)
+          (rf.story.config/set-egress-profile! :rf.egress/local-redacted)
+          (rf.story.config/reset-suppressed-count!))))))
 
 (deftest narrowing-profile-no-clear-when-already-redacting-rf2-lqmje
   (testing "redact → redact narrowing leaves the buffers alone"
     (let [vid :story.priv-scrub/idempotent
-          buf (trace-buffer/ensure-buffer! vid)]
+          buf (rf.story.ui.trace-buffer/ensure-buffer! vid)]
       (try
         ;; The profile started redacting, so no sensitive events ever landed.
         ;; A redundant set-egress-profile! local-redacted call must NOT throw
         ;; away the buffered non-sensitive history.
         (reset! buf [{:op-type :rf.event :tags {:frame vid}}])
-        (story-config/set-egress-profile! :rf.egress/local-redacted) ; redundant; default
+        (rf.story.config/set-egress-profile! :rf.egress/local-redacted) ; redundant; default
         (is (= 1 (count @buf))
             "redundant redact → redact must not clear the buffer")
         (finally
-          (trace-buffer/drop-buffer! vid)
-          (story-config/set-egress-profile! :rf.egress/local-redacted))))))
+          (rf.story.ui.trace-buffer/drop-buffer! vid)
+          (rf.story.config/set-egress-profile! :rf.egress/local-redacted))))))
 
 (deftest widening-profile-does-not-clear-rf2-lqmje
   (testing "redact → reveal widening leaves the buffers alone (no buffered sensitive risk)"
     (let [vid :story.priv-scrub/opt-in
-          buf (trace-buffer/ensure-buffer! vid)]
+          buf (rf.story.ui.trace-buffer/ensure-buffer! vid)]
       (try
         (reset! buf [{:op-type :rf.event :tags {:frame vid}}])
-        (story-config/set-egress-profile! :rf.egress/local-raw)
+        (rf.story.config/set-egress-profile! :rf.egress/local-raw)
         (is (= 1 (count @buf))
             "opting into raw must not clear pre-existing non-sensitive history")
         (finally
-          (trace-buffer/drop-buffer! vid)
-          (story-config/set-egress-profile! :rf.egress/local-redacted))))))
+          (rf.story.ui.trace-buffer/drop-buffer! vid)
+          (rf.story.config/set-egress-profile! :rf.egress/local-redacted))))))
 
 ;; ---- shell render smoke -------------------------------------------------
 ;;
@@ -1241,27 +1241,27 @@
   (testing "sidebar / controls expose top-level component fns (per
             rf2-sgdd3 the scrubber / trace / actions panels were
             retired; Xray is the RHS primary inspector now)"
-    (is (fn? sidebar/sidebar))
-    ;; The controls/panel takes a variant-id arg.
-    (is (fn? controls/panel))
+    (is (fn? rf.story.ui.sidebar/sidebar))
+    ;; The rf.story.ui.controls/panel takes a variant-id arg.
+    (is (fn? rf.story.ui.controls/panel))
     ;; rf2-rodx — the :docs mode pane.
-    (is (fn? docs/docs-view))))
+    (is (fn? rf.story.ui.docs/docs-view))))
 
 (deftest docs-view-returns-hiccup-for-registered-variant
   (testing "docs-view returns a hiccup vector for a registered variant — the
             shell can mount it without a thrown ns-resolution error.
             The CLJS smoke proves the cljs-only `:require` (args /
             decorators / state) and the section renderers compose."
-    (story/reg-story :story.dv
+    (rf.story/reg-story :story.dv
       {:doc       "parent for the docs-view smoke."
        :tags      #{:dev :docs}})
-    (story/reg-variant :story.dv/x
+    (rf.story/reg-variant :story.dv/x
       {:doc       "a tiny variant."
        :args      {:label "L"}
        :argtypes  {:label {:doc "label slot"}}
        :tags      #{:dev :docs}
        :setup    []})
-    (let [result (docs/docs-view :story.dv/x)]
+    (let [result (rf.story.ui.docs/docs-view :story.dv/x)]
       (is (vector? result))
       ;; Per rf2-8c7tk the docs-view wraps the body section + TOC in a
       ;; flex `<div>` so the sticky TOC anchors to the right edge. The
@@ -1277,58 +1277,58 @@
         (is (= "story-docs-view" (:data-test (second section))))))
     ;; The fn returns nil when given no variant id (the shell already
     ;; gates this, but the helper guards itself too).
-    (is (nil? (docs/docs-view nil)))))
+    (is (nil? (rf.story.ui.docs/docs-view nil)))))
 
 (deftest docs-view-section-pure-helpers
   (testing "the pure section helpers run end-to-end in CLJS too"
-    (story/reg-story :story.dvh
+    (rf.story/reg-story :story.dvh
       {:tags #{:dev :docs}})
-    (story/reg-variant :story.dvh/x
+    (rf.story/reg-variant :story.dvh/x
       {:args      {:greeting "hi"}
        :argtypes  {:greeting {:doc "the greeting"}}
        :tags      #{:dev :docs}
        :setup    []})
-    (let [rows (docs/args-rows :story.dvh/x {:greeting "hi"})]
+    (let [rows (rf.story.ui.docs/args-rows :story.dvh/x {:greeting "hi"})]
       (is (= [{:key :greeting :value "hi" :doc "the greeting"}]
              rows)))
-    (is (= [:dev :docs] (docs/variant-tags :story.dvh/x)))))
+    (is (= [:dev :docs] (rf.story.ui.docs/variant-tags :story.dvh/x)))))
 
 ;; ---- :test mode (rf2-qmjo) ----------------------------------------------
 
 (deftest test-view-is-a-fn
   (testing "test-view is callable from the shell"
-    (is (fn? test-mode-view/test-view))))
+    (is (fn? rf.story.ui.test-mode.view/test-view))))
 
 (deftest test-view-empty-state-without-play
   (testing "test-view renders the empty-state placeholder when the
             variant body has no :script slot — the variant is registered
             but declares zero assertions, so no run is fired."
-    (story/reg-variant :story.tv/no-play {:setup []})
-    (let [result (test-mode-view/test-view :story.tv/no-play)]
+    (rf.story/reg-variant :story.tv/no-play {:setup []})
+    (let [result (rf.story.ui.test-mode.view/test-view :story.tv/no-play)]
       ;; r/create-class returns a fn — Reagent will invoke it during
       ;; render. We at least confirm the helper returns a non-nil
       ;; component descriptor.
       (is (some? result)))
-    (is (nil? (test-mode-view/test-view nil))
+    (is (nil? (rf.story.ui.test-mode.view/test-view nil))
         "no variant-id = no pane")))
 
 (deftest test-view-pure-helpers
   (testing "the pure section helpers run end-to-end in CLJS too"
-    (let [summary (state/aggregate-summary
+    (let [summary (rf.story.ui.state/aggregate-summary
                     [{:assertion :rf.assert/path-equals :passed? true}
                      {:assertion :rf.assert/sub-equals  :passed? false}])]
       (is (= 2 (:total summary)))
       (is (= 1 (:passed summary)))
       (is (= 1 (:failed summary)))
       (is (false? (:all-passed? summary))))
-    (let [row (test-mode-pure/assertion-row
+    (let [row (rf.story.ui.test-mode.pure/assertion-row
                 {:assertion :rf.assert/path-equals
                  :payload   [[:k] 1] :passed? true})]
       (is (= :pass (:status row))))
-    (is (= "12 ms" (test-mode-pure/format-elapsed-ms 12)))
-    (is (= "1.2 s" (test-mode-pure/format-elapsed-ms 1234)))
+    (is (= "12 ms" (rf.story.ui.test-mode.pure/format-elapsed-ms 12)))
+    (is (= "1.2 s" (rf.story.ui.test-mode.pure/format-elapsed-ms 1234)))
     (is (re-matches #"\d{2}:\d{2}:\d{2}"
-                    (test-mode-pure/format-timestamp-ms (.getTime (js/Date.)))))))
+                    (rf.story.ui.test-mode.pure/format-timestamp-ms (.getTime (js/Date.)))))))
 
 ;; ---- canvas: decorator-wrap exception swallow ---------------------------
 ;;
@@ -1336,7 +1336,7 @@
 ;; render machinery and React unmounted the whole Story shell, blanking
 ;; the page. Repro: register a hiccup decorator whose `:wrap` fn throws
 ;; on call; click into a variant that references it; the shell goes
-;; blank. The fix is `canvas/safe-decorated-view`: catch the exception,
+;; blank. The fix is `rf.story.ui.canvas/safe-decorated-view`: catch the exception,
 ;; project an error block, and re-render the uncoated variant body so
 ;; the user still sees content.
 
@@ -1347,7 +1347,7 @@
                   :body {:kind :hiccup
                          :wrap (fn [body _args]
                                  [:section {:data-test "wrapped"} body])}}]
-          result (canvas/safe-decorated-view
+          result (rf.story.ui.canvas/safe-decorated-view
                    [:span "body"]
                    stack
                    {})]
@@ -1367,7 +1367,7 @@
                                  ;; destructure that throws inside :wrap.
                                  (let [[_ _label] {:not :sequential}]
                                    (throw (ex-info "boom" {}))))}}]
-          result (canvas/safe-decorated-view
+          result (rf.story.ui.canvas/safe-decorated-view
                    [:span "body"]
                    stack
                    {})]
@@ -1381,8 +1381,8 @@
 
 (deftest registry-snapshot-shape
   (testing "registry-snapshot returns every Story kind"
-    (story/reg-variant :story.r/v {:setup []})
-    (let [snap (state/registry-snapshot)]
+    (rf.story/reg-variant :story.r/v {:setup []})
+    (let [snap (rf.story.ui.state/registry-snapshot)]
       (is (contains? snap :stories))
       (is (contains? snap :variants))
       (is (contains? snap :workspaces))

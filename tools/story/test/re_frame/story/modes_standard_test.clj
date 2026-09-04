@@ -5,15 +5,15 @@
   Pure-data registry — JVM-only is sufficient; the registrar runs on
   both runtimes and there is no view layer to exercise."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story :as story]
-            [re-frame.story.modes.standard :as standard]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.schemas :as schemas]
+            [re-frame.story :as rf.story]
+            [re-frame.story.modes.standard :as rf.story.modes.standard]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.schemas :as rf.story.schemas]
             [malli.core :as m]))
 
 (defn reset-all! [test-fn]
-  (story/clear-all!)
-  (story/install-canonical-vocabulary!)
+  (rf.story/clear-all!)
+  (rf.story/install-canonical-vocabulary!)
   (test-fn))
 
 (use-fixtures :each reset-all!)
@@ -26,13 +26,13 @@
              :Mode.viewport/tablet
              :Mode.viewport/desktop
              :Mode.viewport/ultra-wide}
-           (set (keys standard/viewports)))))
+           (set (keys rf.story.modes.standard/viewports)))))
   (testing "every viewport body sits on `:axis :viewport`"
-    (doseq [[id body] standard/viewports]
+    (doseq [[id body] rf.story.modes.standard/viewports]
       (is (= :viewport (:axis body))
           (str id " missing :axis :viewport"))))
   (testing "every viewport body contributes a `:viewport` arg"
-    (doseq [[_ body] standard/viewports]
+    (doseq [[_ body] rf.story.modes.standard/viewports]
       (is (keyword? (:viewport (:args body)))))))
 
 (deftest backgrounds-canonical-set
@@ -40,66 +40,66 @@
     (is (= #{:Mode.background/light
              :Mode.background/dark
              :Mode.background/transparent}
-           (set (keys standard/backgrounds)))))
+           (set (keys rf.story.modes.standard/backgrounds)))))
   (testing "every background body sits on `:axis :background`"
-    (doseq [[id body] standard/backgrounds]
+    (doseq [[id body] rf.story.modes.standard/backgrounds]
       (is (= :background (:axis body))
           (str id " missing :axis :background"))))
   (testing "every background body contributes a string `:background` arg"
-    (doseq [[_ body] standard/backgrounds]
+    (doseq [[_ body] rf.story.modes.standard/backgrounds]
       (is (string? (:background (:args body)))))))
 
 ;; ---- schema conformance --------------------------------------------------
 
 (deftest every-canonical-body-validates-against-mode-schema
   (testing "viewport bodies pass `:rf/mode` schema"
-    (doseq [[id body] standard/viewports]
-      (is (m/validate schemas/Mode body)
+    (doseq [[id body] rf.story.modes.standard/viewports]
+      (is (m/validate rf.story.schemas/Mode body)
           (str id " failed Mode schema"))))
   (testing "background bodies pass `:rf/mode` schema"
-    (doseq [[id body] standard/backgrounds]
-      (is (m/validate schemas/Mode body)
+    (doseq [[id body] rf.story.modes.standard/backgrounds]
+      (is (m/validate rf.story.schemas/Mode body)
           (str id " failed Mode schema")))))
 
 ;; ---- installer side-effects ---------------------------------------------
 
 (deftest register-viewports-installs-all
   (testing "register-viewports! adds every canonical viewport to the registry"
-    (let [ids (standard/register-viewports!)]
-      (is (= (set (keys standard/viewports)) ids))
-      (doseq [id (keys standard/viewports)]
-        (is (registrar/registered? :mode id))))))
+    (let [ids (rf.story.modes.standard/register-viewports!)]
+      (is (= (set (keys rf.story.modes.standard/viewports)) ids))
+      (doseq [id (keys rf.story.modes.standard/viewports)]
+        (is (rf.story.registrar/registered? :mode id))))))
 
 (deftest register-backgrounds-installs-all
   (testing "register-backgrounds! adds every canonical background to the registry"
-    (let [ids (standard/register-backgrounds!)]
-      (is (= (set (keys standard/backgrounds)) ids))
-      (doseq [id (keys standard/backgrounds)]
-        (is (registrar/registered? :mode id))))))
+    (let [ids (rf.story.modes.standard/register-backgrounds!)]
+      (is (= (set (keys rf.story.modes.standard/backgrounds)) ids))
+      (doseq [id (keys rf.story.modes.standard/backgrounds)]
+        (is (rf.story.registrar/registered? :mode id))))))
 
 (deftest register-all-installs-both-axes
   (testing "register-all! installs every viewport + background"
-    (let [ids (standard/register-all!)]
-      (is (= (into (set (keys standard/viewports))
-                   (set (keys standard/backgrounds)))
+    (let [ids (rf.story.modes.standard/register-all!)]
+      (is (= (into (set (keys rf.story.modes.standard/viewports))
+                   (set (keys rf.story.modes.standard/backgrounds)))
              ids))
       (doseq [id ids]
-        (is (registrar/registered? :mode id))))))
+        (is (rf.story.registrar/registered? :mode id))))))
 
 (deftest installers-are-idempotent
   (testing "calling register-all! twice does not throw and leaves registry consistent"
-    (standard/register-all!)
-    (standard/register-all!)
-    (let [registered (set (keys (registrar/registrations :mode)))]
-      (is (every? registered (keys standard/viewports)))
-      (is (every? registered (keys standard/backgrounds))))))
+    (rf.story.modes.standard/register-all!)
+    (rf.story.modes.standard/register-all!)
+    (let [registered (set (keys (rf.story.registrar/registrations :mode)))]
+      (is (every? registered (keys rf.story.modes.standard/viewports)))
+      (is (every? registered (keys rf.story.modes.standard/backgrounds))))))
 
 ;; ---- toolbar interaction smoke ------------------------------------------
 
 (deftest registered-modes-appear-on-mode-registry
   (testing "after register-all! the live registry exposes the canonical ids"
-    (standard/register-all!)
-    (let [snapshot (registrar/registrations :mode)]
+    (rf.story.modes.standard/register-all!)
+    (let [snapshot (rf.story.registrar/registrations :mode)]
       (is (= (:axis (get snapshot :Mode.viewport/mobile)) :viewport))
       (is (= (:axis (get snapshot :Mode.background/dark)) :background))
       (is (= (:viewport (:args (get snapshot :Mode.viewport/tablet))) :tablet))

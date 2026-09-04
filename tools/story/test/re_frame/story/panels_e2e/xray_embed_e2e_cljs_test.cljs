@@ -56,12 +56,12 @@
 
   Sub-second per surface; no DOM / no React mount / no Playwright."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.ui.xray-embed :as xray-embed]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as xray-e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.counter :as counter]))
 
@@ -76,7 +76,7 @@
 ;; stub. The stub fixture is no longer needed.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; A minimal variant registration the embed-surface tests depend on —
 ;; the embed reads `:selected-variant` off the shell ratom; resolving
@@ -87,9 +87,9 @@
 (def ^:private variant-id :story.counter/loaded)
 
 (defn- register-variant! []
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc "Counter parent story for the e2e embed tests."})
-  (story/reg-variant variant-id
+  (rf.story/reg-variant variant-id
     {:doc    "Counter seeded at 5 — exercises the default embed path."
      :setup [[:counter/initialise]]}))
 
@@ -103,12 +103,12 @@
     ;; regression where one is dropped (the chip-row would silently lose
     ;; an affordance) or a new panel sneaks into the catalog without a
     ;; deliberate design decision.
-    (is (= 6 (count xray-embed/panel-catalog))
+    (is (= 6 (count rf.story.ui.xray-embed/panel-catalog))
         "6 panels in the chip-row catalog (rf2-v1ach; rf2-gbz39 dropped :issues)")
     (is (= #{:epoch :app-db :views :trace :machines :routing}
-           xray-embed/panel-ids)
+           rf.story.ui.xray-embed/panel-ids)
         "panel-ids set matches the catalog")
-    (is (= :epoch xray-embed/default-panel)
+    (is (= :epoch rf.story.ui.xray-embed/default-panel)
         "default-panel is :epoch (catalog's first entry, the
          most-common diagnostic lens)")))
 
@@ -116,29 +116,29 @@
   (testing "rf2-senbl — every catalogued panel-id resolves to a callable
             mount-fn via `mount-fn-for` (compile-time symbol resolution,
             not a runtime `find-ns-obj` walk)"
-    (doseq [pid xray-embed/panel-ids]
-      (is (fn? (xray-embed/mount-fn-for pid))
+    (doseq [pid rf.story.ui.xray-embed/panel-ids]
+      (is (fn? (rf.story.ui.xray-embed/mount-fn-for pid))
           (str "mount-fn-for " pid " returned a callable — rf2-senbl
                 regression class")))
     (testing "unknown panel-id → nil (graceful, not throw)"
-      (is (nil? (xray-embed/mount-fn-for :no-such-panel))))))
+      (is (nil? (rf.story.ui.xray-embed/mount-fn-for :no-such-panel))))))
 
 ;; ---- embed surface paint ------------------------------------------------
 
 (deftest xray-embed-paints-with-default-panel
   (testing "after selecting a variant the embed renders with
             data-active-panel = event-detail + a chip per panel"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
-        (e2e/select-variant! variant-id)
-        (let [tree    (xray-embed/xray-embed-panel)
-              wrapper (e2e/find-by-test-id tree "story-xray-embed")
-              chips   (e2e/find-all-by-test-id tree "story-xray-panel-chip")
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
+        (let [tree    (rf.story.ui.xray-embed/xray-embed-panel)
+              wrapper (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-xray-embed")
+              chips   (rf.story.test-helpers.e2e-multi-frame/find-all-by-test-id tree "story-xray-panel-chip")
               panel-host-slot (some (fn [child]
                                       (when (and (vector? child)
                                                  (= 2 (count child))
-                                                 (contains? xray-embed/panel-ids
+                                                 (contains? rf.story.ui.xray-embed/panel-ids
                                                             (second child)))
                                         child))
                                     wrapper)]
@@ -161,12 +161,12 @@
 
 (deftest xray-embed-empty-state-without-variant
   (testing "no :selected-variant → embed renders the empty-state hiccup"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
         ;; Do NOT set :selected-variant — the shell-state defaults to nil.
-        (let [tree  (xray-embed/xray-embed-panel)
-              empty (e2e/find-by-test-id tree "story-xray-embed-empty")]
+        (let [tree  (rf.story.ui.xray-embed/xray-embed-panel)
+              empty (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-xray-embed-empty")]
           (is (some? empty)
               "empty-state element present when no variant selected"))))))
 
@@ -176,29 +176,29 @@
   (testing "rf2-senbl + rf2-v1ach — clicking the App-db chip swaps the
             resolved panel-id; embed wrapper re-renders with the new
             data-active-panel"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
-        (e2e/select-variant! variant-id)
-        (let [tree-before (xray-embed/xray-embed-panel)
-              app-db-chip (e2e/find-by-data-attr tree-before
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
+        (let [tree-before (rf.story.ui.xray-embed/xray-embed-panel)
+              app-db-chip (rf.story.test-helpers.e2e-multi-frame/find-by-data-attr tree-before
                                                   :data-xray-panel "app-db")]
           (is (some? app-db-chip)
               "App-db chip present in the picker")
           ;; Invoke the on-click handler — same write the user does in
           ;; the browser. This dispatches a swap-state! on the shell
           ;; ratom's :xray-panel slot.
-          (let [handler (e2e/handler-for app-db-chip :on-click)]
+          (let [handler (rf.story.test-helpers.e2e-multi-frame/handler-for app-db-chip :on-click)]
             (is (fn? handler) ":on-click wired on App-db chip")
-            (handler (e2e/fake-event {})))
+            (handler (rf.story.test-helpers.e2e-multi-frame/fake-event {})))
           ;; Re-render the embed with the new state.
-          (let [tree-after (xray-embed/xray-embed-panel)
-                wrapper    (e2e/find-by-test-id tree-after "story-xray-embed")]
+          (let [tree-after (rf.story.ui.xray-embed/xray-embed-panel)
+                wrapper    (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree-after "story-xray-embed")]
             (is (= "app-db" (get-in wrapper [1 :data-active-panel]))
                 "data-active-panel flipped to app-db after the chip click —
                  effective-panel honours the user override (rf2-v1ach)")
-            (is (= :app-db (xray-embed/effective-panel
-                             (ui-state/get-state) variant-id))
+            (is (= :app-db (rf.story.ui.xray-embed/effective-panel
+                             (rf.story.ui.state/get-state) variant-id))
                 "effective-panel resolves the override directly")))))))
 
 ;; ---- lazy Xray-diff mounting: no compute on a collapsed embed -----------
@@ -223,31 +223,31 @@
   (some (fn [child]
           (when (and (vector? child)
                      (= 2 (count child))
-                     (contains? xray-embed/panel-ids (second child)))
+                     (contains? rf.story.ui.xray-embed/panel-ids (second child)))
             child))
-        (e2e/find-by-test-id tree "story-xray-embed")))
+        (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-xray-embed")))
 
 (deftest collapsed-embed-does-not-mount-panel-host
   (testing "rf2-ba86n.19 — a COLLAPSED embed renders no panel-host slot, so
             no mount-<panel>! fires and the panel's expensive diff is never
             computed; expanding restores the panel-host"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
-        (e2e/select-variant! variant-id)
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
         ;; Expanded (default) → the panel-host slot IS present (the mount
         ;; target the diff-compute path hangs off).
-        (let [expanded-tree (xray-embed/xray-embed-panel)]
+        (let [expanded-tree (rf.story.ui.xray-embed/xray-embed-panel)]
           (is (some? (panel-host-slot expanded-tree))
               "default (expanded) embed mounts the panel-host → diff compute path live")
-          (is (= "false" (get-in (e2e/find-by-test-id expanded-tree "story-xray-embed")
+          (is (= "false" (get-in (rf.story.test-helpers.e2e-multi-frame/find-by-test-id expanded-tree "story-xray-embed")
                                  [1 :data-xray-embed-collapsed]))
               "data-xray-embed-collapsed reflects the expanded state"))
         ;; Collapse the embed (the same write the disclosure toggle does).
-        (ui-state/swap-state! ui-state/set-xray-embed-collapsed true)
-        (let [collapsed-tree (xray-embed/xray-embed-panel)
-              wrapper        (e2e/find-by-test-id collapsed-tree "story-xray-embed")
-              placeholder    (e2e/find-by-test-id collapsed-tree "story-xray-embed-collapsed")]
+        (rf.story.ui.state/swap-state! rf.story.ui.state/set-xray-embed-collapsed true)
+        (let [collapsed-tree (rf.story.ui.xray-embed/xray-embed-panel)
+              wrapper        (rf.story.test-helpers.e2e-multi-frame/find-by-test-id collapsed-tree "story-xray-embed")
+              placeholder    (rf.story.test-helpers.e2e-multi-frame/find-by-test-id collapsed-tree "story-xray-embed-collapsed")]
           (is (nil? (panel-host-slot collapsed-tree))
               "COLLAPSED embed renders NO panel-host slot → mount-<panel>! is
                never invoked → the panel's expensive diff is not computed
@@ -258,42 +258,42 @@
               "data-xray-embed-collapsed reflects the collapsed state")
           ;; The chip-row picker still paints while collapsed (cheap; no Xray
           ;; symbol) so the author's lens choice survives a collapse.
-          (is (= 6 (count (e2e/find-all-by-test-id collapsed-tree "story-xray-panel-chip")))
+          (is (= 6 (count (rf.story.test-helpers.e2e-multi-frame/find-all-by-test-id collapsed-tree "story-xray-panel-chip")))
               "chip-row picker survives a collapse (no compute, just data; rf2-gbz39 dropped :issues)"))
         ;; Expand again → panel-host slot returns (mount resumes on next commit).
-        (ui-state/swap-state! ui-state/set-xray-embed-collapsed false)
-        (let [reexpanded-tree (xray-embed/xray-embed-panel)]
+        (rf.story.ui.state/swap-state! rf.story.ui.state/set-xray-embed-collapsed false)
+        (let [reexpanded-tree (rf.story.ui.xray-embed/xray-embed-panel)]
           (is (some? (panel-host-slot reexpanded-tree))
               "expanding restores the panel-host slot → mount + diff compute resume"))))))
 
 (deftest disclosure-toggle-flips-collapsed-state
   (testing "rf2-ba86n.19 — the disclosure toggle's on-click flips the
             embed-collapsed shell slot (expanded → collapsed → expanded)"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
-        (e2e/select-variant! variant-id)
-        (let [tree    (xray-embed/xray-embed-panel)
-              toggle  (e2e/find-by-test-id tree "story-xray-disclosure")
-              handler (e2e/handler-for toggle :on-click)]
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
+        (let [tree    (rf.story.ui.xray-embed/xray-embed-panel)
+              toggle  (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-xray-disclosure")
+              handler (rf.story.test-helpers.e2e-multi-frame/handler-for toggle :on-click)]
           (is (some? toggle) "disclosure toggle present in the chip-row")
           (is (= "true" (get-in toggle [1 :aria-expanded]))
               "toggle starts aria-expanded=true (embed expanded by default)")
           (is (fn? handler) ":on-click wired on the disclosure toggle")
           ;; Default expanded → first click collapses.
-          (is (false? (ui-state/xray-embed-collapsed? (ui-state/get-state)))
+          (is (false? (rf.story.ui.state/xray-embed-collapsed? (rf.story.ui.state/get-state)))
               "starts expanded")
-          (handler (e2e/fake-event {}))
-          (is (true? (ui-state/xray-embed-collapsed? (ui-state/get-state)))
+          (handler (rf.story.test-helpers.e2e-multi-frame/fake-event {}))
+          (is (true? (rf.story.ui.state/xray-embed-collapsed? (rf.story.ui.state/get-state)))
               "first click collapses the embed")
           ;; Re-derive the toggle from the new tree + click again → expands.
-          (let [tree2    (xray-embed/xray-embed-panel)
-                toggle2  (e2e/find-by-test-id tree2 "story-xray-disclosure")
-                handler2 (e2e/handler-for toggle2 :on-click)]
+          (let [tree2    (rf.story.ui.xray-embed/xray-embed-panel)
+                toggle2  (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree2 "story-xray-disclosure")
+                handler2 (rf.story.test-helpers.e2e-multi-frame/handler-for toggle2 :on-click)]
             (is (= "false" (get-in toggle2 [1 :aria-expanded]))
                 "aria-expanded reflects the collapsed state")
-            (handler2 (e2e/fake-event {}))
-            (is (false? (ui-state/xray-embed-collapsed? (ui-state/get-state)))
+            (handler2 (rf.story.test-helpers.e2e-multi-frame/fake-event {}))
+            (is (false? (rf.story.ui.state/xray-embed-collapsed? (rf.story.ui.state/get-state)))
                 "second click re-expands the embed")))))))
 
 ;; ---- React lifecycle invariant ------------------------------------------
@@ -312,11 +312,11 @@
   (testing "rf2-4l7t2 — panel-host-component returns a Reagent class
             wired to the four lifecycle hooks (mount / update / unmount
             / render)"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
         ;; The fn is a private impl detail; access via `var`.
-        (let [class-ctor #'xray-embed/panel-host-component]
+        (let [class-ctor #'rf.story.ui.xray-embed/panel-host-component]
           (is (some? class-ctor)
               "panel-host-component is exported (testable seam)"))))))
 

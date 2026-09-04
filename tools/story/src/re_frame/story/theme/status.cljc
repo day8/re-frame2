@@ -84,7 +84,7 @@
   Pure data → data; JVM-portable so the test corpus can assert the
   vocabulary without a render pass."
   {:no-doc true}
-  (:require [re-frame.story.theme.colors :as colors]))
+  (:require [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 (def order
   "Canonical priority order, most-attention-demanding first. Regions
@@ -109,45 +109,45 @@
                  reads as a hollow double-ring, never a solid edge).
   - `:half`    — 3px SOLID left-accent bar (running — a one-sided
                  in-flight mark, visibly a partial treatment)."
-  {:pending    {:fg (:text-tertiary colors/tokens)
+  {:pending    {:fg (:text-tertiary rf.story.theme.colors/tokens)
                 :bg "transparent"
-                :border (:border-default colors/tokens)
+                :border (:border-default rf.story.theme.colors/tokens)
                 :glyph "◌" :shape :ring :label "Pending" :emphasis :low}
-   :running    {:fg (:warning colors/tokens)
-                :bg (:warning-bg colors/tokens)
-                :border (:warning colors/tokens)
+   :running    {:fg (:warning rf.story.theme.colors/tokens)
+                :bg (:warning-bg rf.story.theme.colors/tokens)
+                :border (:warning rf.story.theme.colors/tokens)
                 :glyph "◐" :shape :half :label "Running" :emphasis :normal}
-   :pass       {:fg (:success colors/tokens)
-                :bg (:success-bg colors/tokens)
-                :border (:success colors/tokens)
+   :pass       {:fg (:success rf.story.theme.colors/tokens)
+                :bg (:success-bg rf.story.theme.colors/tokens)
+                :border (:success rf.story.theme.colors/tokens)
                 :glyph "✓" :shape :solid :label "Pass" :emphasis :low}
-   :fail       {:fg (:danger colors/tokens)
-                :bg (:danger-bg colors/tokens)
-                :border (:danger colors/tokens)
+   :fail       {:fg (:danger rf.story.theme.colors/tokens)
+                :bg (:danger-bg rf.story.theme.colors/tokens)
+                :border (:danger rf.story.theme.colors/tokens)
                 :glyph "✗" :shape :solid :label "Fail" :emphasis :high}
    ;; error is DISTINCT from fail — same danger hue but an OUTLINE so it
    ;; never reads as a plain failed expectation (spec/018 §12.6).
-   :error      {:fg (:danger colors/tokens)
-                :bg (:danger-bg colors/tokens)
-                :border (:danger colors/tokens)
+   :error      {:fg (:danger rf.story.theme.colors/tokens)
+                :bg (:danger-bg rf.story.theme.colors/tokens)
+                :border (:danger rf.story.theme.colors/tokens)
                 :glyph "!" :shape :outline :label "Error" :emphasis :high}
    ;; cannot-run is a NEUTRAL warning, not a failure — warning hue on a
    ;; neutral ground + outline so it reads 'could not observe', not 'bad'.
-   :cannot-run {:fg (:warning colors/tokens)
-                :bg (:bg-3 colors/tokens)
-                :border (:warning colors/tokens)
+   :cannot-run {:fg (:warning rf.story.theme.colors/tokens)
+                :bg (:bg-3 rf.story.theme.colors/tokens)
+                :border (:warning rf.story.theme.colors/tokens)
                 :glyph "⊘" :shape :outline :label "Can't run" :emphasis :normal}
-   :blocked    {:fg (:mono-1 colors/tokens)
-                :bg (:mono-3 colors/tokens)
-                :border (:mono-2 colors/tokens)
+   :blocked    {:fg (:mono-1 rf.story.theme.colors/tokens)
+                :bg (:mono-3 rf.story.theme.colors/tokens)
+                :border (:mono-2 rf.story.theme.colors/tokens)
                 :glyph "▣" :shape :solid :label "Blocked" :emphasis :normal}
-   :dirty      {:fg (:accent-amber colors/tokens)
-                :bg (:accent-amber-soft colors/tokens)
-                :border (:accent-amber-deep colors/tokens)
+   :dirty      {:fg (:accent-amber rf.story.theme.colors/tokens)
+                :bg (:accent-amber-soft rf.story.theme.colors/tokens)
+                :border (:accent-amber-deep rf.story.theme.colors/tokens)
                 :glyph "●" :shape :solid :label "Dirty" :emphasis :normal}
-   :redacted   {:fg (:text-tertiary colors/tokens)
-                :bg (:bg-3 colors/tokens)
-                :border (:border-strong colors/tokens)
+   :redacted   {:fg (:text-tertiary rf.story.theme.colors/tokens)
+                :bg (:bg-3 rf.story.theme.colors/tokens)
+                :border (:border-strong rf.story.theme.colors/tokens)
                 :glyph "▢" :shape :dashed :label "Redacted" :emphasis :low}})
 
 (def ^:private fallback

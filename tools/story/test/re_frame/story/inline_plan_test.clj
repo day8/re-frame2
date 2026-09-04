@@ -3,7 +3,7 @@
   `tools/story/spec/017-Testing-Story.md` §Inline plan + §three verbs).
 
   An inline plan is an executable plan MAP that is NOT registered as a
-  Story variant. `story/run` / `story/is` / `story/explain` accept a map
+  Story variant. `rf.story/run` / `rf.story/is` / `rf.story/explain` accept a map
   target (a keyword target is a registered variant; a map is an inline
   plan). The §B6 acceptance bullets, verified here:
 
@@ -12,36 +12,36 @@
   - an inline plan is ABSENT from Story navigation (nothing is registered);
   - an inline plan can use a REGISTERED check;
   - an inline plan CANNOT reference a missing fragment (it fails cleanly);
-  - `story/is` reports through the test framework for a map target;
+  - `rf.story/is` reports through the test framework for a map target;
   - an inline plan and a registered variant describing the SAME behaviour
     produce equivalent final app-db + assertion records AFTER
     `canonicalize` (the metamorphic relation, §three verbs / §20).
 
-  JVM-only (`.clj`): on the JVM `story/run` returns a `CompletableFuture`
-  that resolves synchronously to the unified result, and `story/is` BLOCKS
+  JVM-only (`.clj`): on the JVM `rf.story/run` returns a `CompletableFuture`
+  that resolves synchronously to the unified result, and `rf.story/is` BLOCKS
   on it + fires one `clojure.test` report per assertion. The CLJS run is
   async; its plan compilation + report projection are covered host-free by
   the plan / result suites."
   (:require [clojure.test :refer [deftest is testing use-fixtures] :as t]
             [malli.core         :as m]
             [re-frame.core      :as rf]
-            [re-frame.frame     :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story     :as story]
-            [re-frame.story.frames :as frames]
-            [re-frame.story.play.runner-events :as re]))
+            [re-frame.frame     :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story     :as rf.story]
+            [re-frame.story.frames :as rf.story.frames]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]))
 
 (defn- reset-rf! [test-fn]
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
-  (reset! re/run-state {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (reset! rf.story.play.runner-events/run-state {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   ;; A tiny event the inline plans drive — the app under test.
   (rf/reg-event :inline/set-status (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
   (rf/reg-event :inline/inc        (fn [{:keys [db]} _]     {:db (update db :n (fnil inc 0))}))
@@ -50,11 +50,11 @@
 (use-fixtures :each reset-rf!)
 
 (defn- run-target [target]
-  (.get ^java.util.concurrent.CompletableFuture (story/run target)))
+  (.get ^java.util.concurrent.CompletableFuture (rf.story/run target)))
 
 (defn- capture-reports
   "Run `thunk` with `clojure.test/report` rebound to collect every
-  `:pass`/`:fail`/`:error` report map `story/is` fires. Returns
+  `:pass`/`:fail`/`:error` report map `rf.story/is` fires. Returns
   `[thunk-return reports-vector]`."
   [thunk]
   (let [collected (atom [])]
@@ -133,14 +133,14 @@
 (deftest inline-plan-absent-from-navigation
   (testing "running an inline plan registers NOTHING in the Story side-table
             and leaves no variant frame behind (§B6 — absent from navigation)"
-    (is (empty? (story/ids :variant)) "precondition: no variants registered")
+    (is (empty? (rf.story/ids :variant)) "precondition: no variants registered")
     (run-target {:script [[:dispatch [:inline/set-status :ok]]
                           [:assert [:rf.assert/path-equals [:status] :ok]]]})
-    (is (empty? (story/ids :variant))
+    (is (empty? (rf.story/ids :variant))
         "no variant id was registered by the inline run")
-    (is (empty? (story/variants-by-story))
+    (is (empty? (rf.story/variants-by-story))
         "the inline plan appears under no story")
-    (is (empty? (story/variant-frames))
+    (is (empty? (rf.story/variant-frames))
         "the anonymous inline frame was torn down — no lingering nav frame")))
 
 (deftest inline-plan-absent-from-navigation-while-in-flight
@@ -160,7 +160,7 @@
       ;; Allocate an inline frame directly (the registry-free twin of
       ;; `allocate!`): empty decorator stack + no fx-overrides, events-only
       ;; fast-path. This mirrors what `run-inline-plan` does mid-run.
-      (frames/allocate-inline! inline-id {} {} true)
+      (rf.story.frames/allocate-inline! inline-id {} {} true)
       (try
         ;; The frame IS live — it exists in the runtime's frame registry.
         (is (contains? (set (rf/frame-ids)) inline-id)
@@ -171,15 +171,15 @@
           (is (true? (:rf/inline? m)) "inline frame carries the :rf/inline? stamp"))
         ;; …yet `variant-frame?` excludes it (reads :rf/inline?) and so it
         ;; is absent from the navigable enumeration the UI shell walks.
-        (is (false? (frames/variant-frame? inline-id))
+        (is (false? (rf.story.frames/variant-frame? inline-id))
             "an allocated inline frame is NOT a navigable variant frame")
-        (is (not (contains? (frames/variant-frames) inline-id))
+        (is (not (contains? (rf.story.frames/variant-frames) inline-id))
             "an in-flight inline frame is absent from variant-frames")
-        (is (not (contains? (story/variant-frames) inline-id))
-            "…through the public story/variant-frames surface too")
+        (is (not (contains? (rf.story/variant-frames) inline-id))
+            "…through the public rf.story/variant-frames surface too")
         (finally
-          (frames/destroy-inline! inline-id {} nil)))
-      (is (empty? (frames/variant-frames))
+          (rf.story.frames/destroy-inline! inline-id {} nil)))
+      (is (empty? (rf.story.frames/variant-frames))
           "post-teardown: no lingering nav frame (the pre-existing guard)"))))
 
 ;; ===========================================================================
@@ -192,10 +192,10 @@
             way a registered variant does (§B6 — registered check). The check's
             atom is ALSO an in-script checkpoint so it actually records, proving
             the registered check resolved and ran."
-    (story/reg-check :check.inline/status-loaded
+    (rf.story/reg-check :check.inline/status-loaded
       {:assertions [[:rf.assert/path-equals [:status] :loaded]]})
     ;; The compiled plan carries the composed check id under [:expect :checks].
-    (let [plan (story/variant-plan {:compose [:check.inline/status-loaded]
+    (let [plan (rf.story/variant-plan {:compose [:check.inline/status-loaded]
                                     :script  [[:dispatch [:inline/set-status :loaded]]]})]
       (is (= [:check.inline/status-loaded] (get-in plan [:expect :checks]))
           "the registered check id resolves into the inline plan's :expect"))
@@ -213,7 +213,7 @@
 (deftest inline-plan-composes-registered-fragment
   (testing "an inline plan composing a registered fragment appends the
             fragment's setup + script (§B6 — composed fragments/checks)"
-    (story/reg-fragment :fragment.inline/seed
+    (rf.story/reg-fragment :fragment.inline/seed
       {:setup [[:dispatch [:inline/set-status :seeded]]]})
     (let [result (run-target {:compose [:fragment.inline/seed]
                               :script  [[:assert [:rf.assert/path-equals [:status] :seeded]]]})]
@@ -234,9 +234,9 @@
       (is (= :rf.error/story-compose-unknown
              (:assertion (first (:assertions result))))
           "the structured :compose-unknown error rides the assertion record")
-      (is (empty? (story/ids :variant))
+      (is (empty? (rf.story/ids :variant))
           "nothing was registered by the failed inline run")
-      (is (empty? (story/variant-frames))
+      (is (empty? (rf.story/variant-frames))
           "no frame lingers from the failed inline run"))))
 
 (deftest inline-plan-missing-arg-fails-cleanly
@@ -249,16 +249,16 @@
              (:assertion (first (:assertions result))))))))
 
 ;; ===========================================================================
-;; story/is reports through the test framework for a map target
+;; rf.story/is reports through the test framework for a map target
 ;; ===========================================================================
 
 (deftest story-is-reports-per-assertion-for-map-target
-  (testing "story/is fires one report per assertion for an inline plan
-            (§B6 — story/is reports through the test framework for a map
+  (testing "rf.story/is fires one report per assertion for an inline plan
+            (§B6 — rf.story/is reports through the test framework for a map
             target)"
     (let [[result reports]
           (capture-reports
-            #(story/is {:script [[:dispatch [:inline/set-status :loaded]]
+            #(rf.story/is {:script [[:dispatch [:inline/set-status :loaded]]
                                  [:assert [:rf.assert/path-equals [:status] :loaded]]
                                  [:assert [:rf.assert/path-equals [:status] :loaded]]]}))]
       (is (= :pass (:status result)) "the unified verdict is :pass")
@@ -266,10 +266,10 @@
       (is (every? #(= :pass (:type %)) reports)))))
 
 (deftest story-is-reports-fail-for-map-target
-  (testing "story/is fires a :fail report for a failing inline-plan assertion"
+  (testing "rf.story/is fires a :fail report for a failing inline-plan assertion"
     (let [[result reports]
           (capture-reports
-            #(story/is {:script [[:dispatch [:inline/set-status :idle]]
+            #(rf.story/is {:script [[:dispatch [:inline/set-status :idle]]
                                  [:assert [:rf.assert/path-equals [:status] :loaded]]]}))]
       (is (= :fail (:status result)))
       (is (= 1 (count reports)))
@@ -289,7 +289,7 @@
                                   [:assert [:rf.assert/path-equals [:n] 2]]]
                      :assertions [[:rf.assert/path-equals [:n] 2]]
                      :tags       #{:test}}]
-      (story/reg-variant :story.inline/equivalent behaviour)
+      (rf.story/reg-variant :story.inline/equivalent behaviour)
       (let [registered (run-target :story.inline/equivalent)
             inline     (run-target behaviour)]
         (testing "both reach the same verdict + app-db before canonicalize"
@@ -298,28 +298,28 @@
           (is (= 2 (:n (:app-db registered))))
           (is (= 2 (:n (:app-db inline)))))
         (testing "canonicalized final app-db is equal (frame ids stripped)"
-          (is (= (story/canonicalize (:app-db registered))
-                 (story/canonicalize (:app-db inline)))))
+          (is (= (rf.story/canonicalize (:app-db registered))
+                 (rf.story/canonicalize (:app-db inline)))))
         (testing "canonicalized assertion records are equal (variant/frame
                   ids reconciled + stripped)"
-          (is (= (story/canonicalize (:assertions registered))
-                 (story/canonicalize (:assertions inline)))))
+          (is (= (rf.story/canonicalize (:assertions registered))
+                 (rf.story/canonicalize (:assertions inline)))))
         (testing "the two runs share a canonical run-hash"
-          (is (= (story/run-hash registered)
-                 (story/run-hash inline))))))))
+          (is (= (rf.story/run-hash registered)
+                 (rf.story/run-hash inline))))))))
 
 ;; ===========================================================================
 ;; explain accepts a map target (rf2-5x1wt.24 base; confirmed for the verb)
 ;; ===========================================================================
 
 (deftest explain-accepts-inline-plan-map
-  (testing "story/explain compiles a map target directly (no registration)"
-    (let [ex (story/explain {:variant/id :inline/explained
+  (testing "rf.story/explain compiles a map target directly (no registration)"
+    (let [ex (rf.story/explain {:variant/id :inline/explained
                              :setup      [[:dispatch [:inline/inc]]]
                              :script     [[:dispatch [:inline/inc]]]})]
       (is (= [:inline/explained] (:source-chain ex)))
       (is (= [[:dispatch [:inline/inc]]] (:setup-order ex)))
-      (is (empty? (story/ids :variant)) "explain registered nothing"))))
+      (is (empty? (rf.story/ids :variant)) "explain registered nothing"))))
 
 ;; ===========================================================================
 ;; FAILURE-PATH TEARDOWN — an inline plan that fails mid-run still runs the
@@ -348,15 +348,15 @@
   the only frame on the classpath under test). Malli backs the validator —
   no hard dep on the schemas artefact."
   [schema-for-any-frame]
-  (late-bind/set-fn! :schemas/frame-schema-entries
+  (rf.late-bind/set-fn! :schemas/frame-schema-entries
                      (fn [_frame-id] schema-for-any-frame))
-  (late-bind/set-fn! :schemas/validate-with-registered-fn
+  (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
                      (fn [schema value] (m/validate schema value)))
-  (late-bind/set-fn! :schemas/explain-with-registered-fn
+  (rf.late-bind/set-fn! :schemas/explain-with-registered-fn
                      (fn [schema value] (m/explain schema value))))
 
 (defn- uninstall-schema-seam! []
-  (swap! late-bind/hooks dissoc
+  (swap! rf.late-bind/hooks dissoc
          :schemas/frame-schema-entries
          :schemas/validate-with-registered-fn
          :schemas/explain-with-registered-fn))
@@ -384,7 +384,7 @@
           (fn [{:keys [db]} _] (swap! decorator-teardown inc) {:db db}))
         (rf/reg-event :inline/loader-teardown
           (fn [{:keys [db]} _] (swap! loader-teardown inc) {:db db}))
-        (story/reg-decorator :inline/live-resource
+        (rf.story/reg-decorator :inline/live-resource
           {:kind     :frame-setup
            :init     [[:inline/dec-init]]
            :teardown [[:inline/dec-teardown]]})
@@ -409,7 +409,7 @@
             (is (= 1 @loader-teardown)
                 "the plan's :loaders-teardown fired on the failure path"))
           (testing "the inline frame did not leak"
-            (is (empty? (story/variant-frames))
+            (is (empty? (rf.story/variant-frames))
                 "no lingering nav frame after the failed inline run")
             (is (not-any? #(and (keyword? %)
                                 (= "rf.story.inline" (namespace %)))
@@ -428,7 +428,7 @@
         (fn [{:keys [db]} _] (swap! decorator-teardown inc) {:db db}))
       (rf/reg-event :inline/loader-teardown
         (fn [{:keys [db]} _] (swap! loader-teardown inc) {:db db}))
-      (story/reg-decorator :inline/live-resource
+      (rf.story/reg-decorator :inline/live-resource
         {:kind     :frame-setup
          :init     [[:inline/dec-init]]
          :teardown [[:inline/dec-teardown]]})
@@ -440,4 +440,4 @@
         (is (= :pass (:status result)) "the control run passes")
         (is (= 1 @decorator-teardown) "decorator :teardown fired on success")
         (is (= 1 @loader-teardown) "loaders-teardown fired on success")
-        (is (empty? (story/variant-frames)) "no lingering frame")))))
+        (is (empty? (rf.story/variant-frames)) "no lingering frame")))))

@@ -34,7 +34,7 @@
   CompletableFuture (JVM) directly — the two surfaces the host runtime
   already exposes. No additional dependency."
   (:refer-clojure :exclude [promise])
-  (:require [re-frame.error :as error]))
+  (:require [re-frame.error :as rf.error]))
 
 ;; ---- construction ---------------------------------------------------------
 
@@ -74,7 +74,7 @@
                reject-fn  (fn [e] (.completeExceptionally cf
                                                           (if (instance? Throwable e)
                                                             e
-                                                            (error/thrown-ex-info
+                                                            (rf.error/thrown-ex-info
                                                               :rf.error/story-async-rejection
                                                               'rf.story.async/promise
                                                               (str "a Story async operation rejected with a "
@@ -101,7 +101,7 @@
      :clj  (let [cf (java.util.concurrent.CompletableFuture.)]
              (.completeExceptionally cf (if (instance? Throwable e)
                                           e
-                                          (error/thrown-ex-info
+                                          (rf.error/thrown-ex-info
                                             :rf.error/story-async-rejection
                                             'rf.story.async/rejected
                                             (str "a Story async operation rejected with a "

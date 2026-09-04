@@ -34,12 +34,12 @@
   Production builds with `re-frame.story.config/enabled?` false never
   reach this ns; Closure DCE drops the lot."
   (:require [reagent.core :as r]
-            [re-frame.story.config :as config]
+            [re-frame.story.config :as rf.story.config]
             [re-frame.story.local-storage :refer [safe-local-storage]]
-            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-            [re-frame.story.theme.colors :as colors]
-            [re-frame.story.theme.depth :as depth]
-            [re-frame.story.theme.motion :as motion]))
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]
+            [re-frame.story.theme.depth :as rf.story.theme.depth]
+            [re-frame.story.theme.motion :as rf.story.theme.motion]))
 
 ;; ---- localStorage flag --------------------------------------------------
 
@@ -88,19 +88,19 @@
                  :align-items "center"
                  :justify-content "center"
                  :animation   (str "rf-story-overlay-in "
-                                   (:overlay-fade motion/timing) " "
-                                   (:enter motion/easing) " both")}
-   :panel       {:background    (:overlay-glass depth/backdrops)
-                 :color         (:text-primary colors/tokens)
-                 :border        (str "1px solid " (:border-strong colors/tokens))
+                                   (:overlay-fade rf.story.theme.motion/timing) " "
+                                   (:enter rf.story.theme.motion/easing) " both")}
+   :panel       {:background    (:overlay-glass rf.story.theme.depth/backdrops)
+                 :color         (:text-primary rf.story.theme.colors/tokens)
+                 :border        (str "1px solid " (:border-strong rf.story.theme.colors/tokens))
                  :border-radius "8px"
-                 :box-shadow    (:elev-overlay depth/shadows)
+                 :box-shadow    (:elev-overlay rf.story.theme.depth/shadows)
                  :width         "560px"
                  :max-width     "92vw"
                  :max-height    "86vh"
                  :overflow      "auto"
                  :font-family   sans-stack
-                 :font-size     (:body typography/type-scale)
+                 :font-size     (:body rf.story.theme.typography/type-scale)
                  :line-height   "1.5"
                  :backdrop-filter "blur(8px)"
                  :-webkit-backdrop-filter "blur(8px)"}
@@ -108,23 +108,23 @@
                  :justify-content "space-between"
                  :align-items     "center"
                  :padding         "12px 16px"
-                 :background      (:bg-2 colors/tokens)
+                 :background      (:bg-2 rf.story.theme.colors/tokens)
                  :border-bottom   "1px solid #444"}
-   :title       {:color       (:info colors/tokens)
+   :title       {:color       (:info rf.story.theme.colors/tokens)
                  :font-weight "bold"
-                 :font-size   (:body typography/type-scale)
+                 :font-size   (:body rf.story.theme.typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"}
    :close       {:background  "transparent"
                  :border      "none"
-                 :color       (:text-secondary colors/tokens)
-                 :font-size   (:display typography/type-scale)
+                 :color       (:text-secondary rf.story.theme.colors/tokens)
+                 :font-size   (:display rf.story.theme.typography/type-scale)
                  :cursor      "pointer"
                  :padding     "0 4px"
                  :line-height "1"}
    :body        {:padding "16px 20px"}
-   :section-h   {:color          (:text-secondary colors/tokens)
-                 :font-size      (:micro typography/type-scale)
+   :section-h   {:color          (:text-secondary rf.story.theme.colors/tokens)
+                 :font-size      (:micro rf.story.theme.typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"
                  :margin         "12px 0 6px 0"
@@ -133,30 +133,30 @@
    :list        {:margin     "0 0 0 18px"
                  :padding    "0"}
    :list-item   {:margin-bottom "4px"}
-   :kw          {:color       (:warning colors/tokens)
+   :kw          {:color       (:warning rf.story.theme.colors/tokens)
                  :font-family mono-stack}
-   :muted       {:color (:text-secondary colors/tokens)}
+   :muted       {:color (:text-secondary rf.story.theme.colors/tokens)}
    :footer      {:display         "flex"
                  :justify-content "flex-end"
                  :padding         "12px 16px"
                  :border-top      "1px solid #444"
-                 :background      (:bg-2 colors/tokens)}
+                 :background      (:bg-2 rf.story.theme.colors/tokens)}
    :got-it      {:padding       "6px 16px"
-                 :background    (:accent-amber colors/tokens)
+                 :background    (:accent-amber rf.story.theme.colors/tokens)
                  :color         "white"
                  :border        "none"
                  :border-radius "3px"
                  :cursor        "pointer"
-                 :font-size     (:body-tight typography/type-scale)
+                 :font-size     (:body-tight rf.story.theme.typography/type-scale)
                  :font-family   sans-stack}
    :help-btn    {:padding       "2px 9px"
-                 :background    (:bg-3 colors/tokens)
-                 :color         (:info colors/tokens)
+                 :background    (:bg-3 rf.story.theme.colors/tokens)
+                 :color         (:info rf.story.theme.colors/tokens)
                  :border        "1px solid #555"
                  :border-radius "12px"
                  :cursor        "pointer"
                  :font-family   mono-stack
-                 :font-size     (:caption typography/type-scale)
+                 :font-size     (:caption rf.story.theme.typography/type-scale)
                  :line-height   "1.2"}})
 
 ;; ---- the panel ----------------------------------------------------------
@@ -330,7 +330,7 @@
        ;; with intent; the dev-time onboarding overlay just gets in their
        ;; way. The manual ? chip is still rendered so on-demand help
        ;; remains reachable.
-       (when (and (not config/static-mode?)
+       (when (and (not rf.story.config/static-mode?)
                   (not (seen?)))
          (reset! open? true)))
      :reagent-render

@@ -16,34 +16,34 @@
   - The dispatch→assertion outcome-matching bridge (`failed-since` +
     `dispatch-step-result`, exercised directly below — rf2-uhq5j)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story.play.runner :as runner]
+            [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.core              :as rf]
-            [re-frame.cofx :as cofx]
-            [re-frame.frame             :as frame]
-            [re-frame.story             :as story]
-            [re-frame.story.loaders     :as loaders]
-            [re-frame.story.play        :as legacy-play]
-            [re-frame.story.play.runner-events :as re]
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.frame             :as rf.frame]
+            [re-frame.story             :as rf.story]
+            [re-frame.story.loaders     :as rf.story.loaders]
+            [re-frame.story.play        :as rf.story.play]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             ;; rf2-rkd14 — the EXACT narrative attribution tests read a live
             ;; epoch tape via `rf/epoch-history`; requiring the epoch artefact
             ;; installs its late-bind capture hooks so the tape is real (it
             ;; degrades to `[]` without the dep, mirroring artifact-test). The
-            ;; fixture's `epoch/clear-history!` runs on both runtimes, so this
+            ;; fixture's `rf.epoch/clear-history!` runs on both runtimes, so this
             ;; require is unconditional.
-            [re-frame.epoch             :as epoch]
-            [re-frame.machines          :as machines]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.epoch             :as rf.epoch]
+            [re-frame.machines          :as rf.machines]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.registrar         :as registrar]
             ;; `re-frame.story.async/deref-blocking` is JVM-only (it
-            ;; blocks a thread) and `config/set-global-args!` is only
+            ;; blocks a thread) and `rf.story.config/set-global-args!` is only
             ;; needed by the JVM `reset-all` lineage — the integration
             ;; tests below that use them are themselves JVM-gated. The
             ;; rf2-rkd14 EXACT-attribution tests are likewise `:clj`-gated, so
             ;; their `evidence` / `fingerprint` deps ride this block too.
-            #?@(:clj [[re-frame.story.async  :as async]
-                      [re-frame.story.config :as config]
-                      [re-frame.story.play.evidence :as evidence]
-                      [re-frame.story.fingerprint :as fingerprint]])))
+            #?@(:clj [[re-frame.story.async  :as rf.story.async]
+                      [re-frame.story.config :as rf.story.config]
+                      [re-frame.story.play.evidence :as rf.story.play.evidence]
+                      [re-frame.story.fingerprint :as rf.story.fingerprint]])))
 
 ;; ---- CLJS+JVM: the dispatch→assertion outcome-matching bridge -----------
 ;;
@@ -57,8 +57,8 @@
 ;; projection. Both fns are private — reached via var-quote (the
 ;; established Story-test seam pattern, e.g. play/listener-for-frame).
 
-(def ^:private failed-since        @#'re/failed-since)
-(def ^:private dispatch-step-result @#'re/dispatch-step-result)
+(def ^:private failed-since        @#'rf.story.play.runner-events/failed-since)
+(def ^:private dispatch-step-result @#'rf.story.play.runner-events/dispatch-step-result)
 
 (def ^:private bridge-frame :story.bridge/frame)
 
@@ -76,28 +76,28 @@
   `reset-all`). Resets every Story side-table + the re-frame frame
   registry, reinstalls the canonical vocabulary, and registers the
   bridge test frame + its `::seed` event. Runs on both runtimes; the
-  JVM-only `:reload` of machines + `config/set-global-args!` are gated."
+  JVM-only `:reload` of machines + `rf.story.config/set-global-args!` are gated."
   [test-fn]
-  (story/clear-all!)
+  (rf.story/clear-all!)
   (registrar/clear-all!)
-  (reset! frame/frames {})
+  (reset! rf.frame/frames {})
   ;; rf2-rkd14 — clear the epoch ring + listeners so each EXACT-attribution
   ;; test reads only its own freshly-captured tape.
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (try (rf/init! plain-atom/adapter)
+  (rf.epoch/clear-history!)
+  (rf.epoch/clear-epoch-listeners!)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
   #?(:clj (require 're-frame.machines :reload))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  #?(:clj (config/set-global-args! {}))
-  (reset! legacy-play/stepper-state {})
-  (reset! re/run-state {})
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  #?(:clj (rf.story.config/set-global-args! {}))
+  (reset! rf.story.play/stepper-state {})
+  (reset! rf.story.play.runner-events/run-state {})
   ;; rf2-vkdam — reset the per-dispatch-step settle boundaries so a test
   ;; observes only its own run's boundaries, not a prior test's accumulation.
-  (reset! re/step-boundaries {})
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!)
+  (reset! rf.story.play.runner-events/step-boundaries {})
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
   (rf/make-frame {:id bridge-frame :doc "outcome-matching bridge test frame"})
   (rf/reg-event ::seed
     (fn [{:keys [db]} [_ rec]]
@@ -201,7 +201,7 @@
             record on :rf.story/assertions — no parallel evaluator"
     (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
     (seed-db! {:status :loaded})
-    (re/run-terminal-assertions!
+    (rf.story.play.runner-events/run-terminal-assertions!
       bridge-frame
       [[:rf.assert/path-equals [:status] :loaded]    ; passes
        [:rf.assert/path-equals [:status] :idle]])    ; fails
@@ -219,7 +219,7 @@
             (rf2-nyjoa critical guard against double-processing)"
     (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
     (seed-db! {:status :loaded})
-    (re/run-terminal-assertions!
+    (rf.story.play.runner-events/run-terminal-assertions!
       bridge-frame
       [[:rf.assert/path-equals [:status] :loaded]
        [:rf.assert/schema-error {:where :event :event :some/evt}]])
@@ -234,8 +234,8 @@
   (testing "run-terminal-assertions! with no atoms records nothing"
     (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
     (seed-db! {:status :loaded})
-    (re/run-terminal-assertions! bridge-frame [])
-    (re/run-terminal-assertions! bridge-frame nil)
+    (rf.story.play.runner-events/run-terminal-assertions! bridge-frame [])
+    (rf.story.play.runner-events/run-terminal-assertions! bridge-frame nil)
     (is (empty? (:rf.story/assertions (rf/app-db-value bridge-frame)))
         "an empty / nil terminal-assertions vector is a clean no-op")))
 
@@ -273,9 +273,9 @@
 ;; violates. Runs under `npm run test:cljs` — the CLJS runtime where the hang
 ;; was reachable.
 
-(def ^:private run-loop!    @#'re/run-loop!)
-(def ^:private set-state!   @#'re/set-state!)
-(def ^:private settle-abort! @#'re/settle-abort!)
+(def ^:private run-loop!    @#'rf.story.play.runner-events/run-loop!)
+(def ^:private set-state!   @#'rf.story.play.runner-events/set-state!)
+(def ^:private settle-abort! @#'rf.story.play.runner-events/settle-abort!)
 
 (deftest run-loop-aborts-on-missing-state-still-settles-done-cb
   (testing "rf2-9x5fm — the `(nil? state)` abort branch (frame torn down
@@ -286,7 +286,7 @@
       ;; No run-state entry exists for this [frame-id nil] slot — the frame
       ;; was torn down (clear-state! wiped it). The loop's first cond clause
       ;; `(nil? state)` fires.
-      (is (nil? (re/current-state-for-play frame-id nil))
+      (is (nil? (rf.story.play.runner-events/current-state-for-play frame-id nil))
           "precondition: no run-state for the torn-down frame")
       (run-loop! frame-id nil "tok-A" (fn [final] (reset! settled final)))
       (is (not= :unset @settled)
@@ -305,8 +305,8 @@
     (let [frame-id :story.abort/token-swap
           settled  (atom :unset)
           ;; Seed the slot with a NEWER token than the stale loop carries.
-          newer    (runner/start
-                     (runner/initial-state {:script [[:dispatch [:noop]]] :name nil})
+          newer    (rf.story.play.runner/start
+                     (rf.story.play.runner/initial-state {:script [[:dispatch [:noop]]] :name nil})
                      1)]
       (set-state! frame-id nil (assoc newer :run-token "tok-NEWER"))
       ;; The stale loop carries "tok-STALE" — it mismatches the slot's
@@ -317,7 +317,7 @@
            is released, never stranded")
       ;; The newer run still OWNS the slot — the stale abort must not have
       ;; transitioned it via finish!/update-state!.
-      (let [slot (re/current-state-for-play frame-id nil)]
+      (let [slot (rf.story.play.runner-events/current-state-for-play frame-id nil)]
         (is (= "tok-NEWER" (:run-token slot))
             "the slot still carries the NEWER run's token — the stale abort
              did not clobber it")
@@ -352,7 +352,7 @@
        (let [frame-id :story.wait/deep
              n        10000
              spec     {:name nil :script (vec (repeat n [:wait 0]))}
-             started  (-> (runner/start (runner/initial-state spec) 0)
+             started  (-> (rf.story.play.runner/start (rf.story.play.runner/initial-state spec) 0)
                           (assoc :run-token "tok-WAIT"))
              settled  (atom :unset)]
          (set-state! frame-id nil started)
@@ -376,7 +376,7 @@
      ([variant-id] (run-blocking variant-id 5000))
      ([variant-id timeout-ms]
       (let [done (atom nil)]
-        (re/run! variant-id (fn [state] (reset! done state)))
+        (rf.story.play.runner-events/run! variant-id (fn [state] (reset! done state)))
         (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
           (loop []
             (cond
@@ -384,7 +384,7 @@
               (> (System/currentTimeMillis) deadline)
               (throw (ex-info "run-blocking timeout"
                               {:variant-id variant-id
-                               :state      @re/run-state}))
+                               :state      @rf.story.play.runner-events/run-state}))
               :else (do (Thread/sleep 5) (recur)))))))))
 
 ;; ---- dispatch + dispatch-sync round-trip --------------------------------
@@ -396,12 +396,12 @@
          (rf/reg-event :rt/inc
            (fn [{:keys [db]} _] (swap! seen conj :hit)
              {:db (update db :n (fnil inc 0))}))
-         (story/reg-variant :story.runner/sync
+         (rf.story/reg-variant :story.runner/sync
            {:setup []
             :script {:auto-run? false
                           :script    [[:dispatch-sync [:rt/inc]]
                                       [:dispatch-sync [:rt/inc]]]}})
-         (async/deref-blocking (story/run-variant :story.runner/sync) 5000)
+         (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/sync) 5000)
          (let [final (run-blocking :story.runner/sync)]
            (is (= :pass (:status final)))
            (is (= [:hit :hit] @seen))
@@ -427,7 +427,7 @@
        ;; auto-carry it under the story test harness). Idempotent — matches the
        ;; framework default (cofx.cljc §:rf/time-ms — recordable, provided).
        (when-not (registrar/lookup :cofx :rf/time-ms)
-         (cofx/reg-cofx :rf/time-ms {:recordable? true :provided? true}))
+         (rf.cofx/reg-cofx :rf/time-ms {:recordable? true :provided? true}))
        ;; A PROVIDED recordable fact has no generator — absent on the token it
        ;; is :rf.error/missing-required-cofx in every mode, so re-presenting the
        ;; recorded value is the only way replay succeeds.
@@ -443,7 +443,7 @@
              {:db (-> db (update :n (fnil + 0) delta) (assoc :last-t t))}))
          ;; The recorded envelope: a provided fact + a recorded (NOT current)
          ;; :rf/time-ms. Replay must re-present BOTH verbatim.
-         (story/reg-variant :story.runner/cofx-replay
+         (rf.story/reg-variant :story.runner/cofx-replay
            {:setup []
             :script {:auto-run? false
                           :script [[:dispatch      [:rf2-l2cn5d/inc-by]
@@ -452,7 +452,7 @@
                                    [:dispatch-sync [:rf2-l2cn5d/inc-by]
                                     {:rf.cofx {:rf/time-ms 1781078400999
                                                :rf2-l2cn5d.delta/v 10}}]]}})
-         (async/deref-blocking (story/run-variant :story.runner/cofx-replay) 5000)
+         (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/cofx-replay) 5000)
          (let [final (run-blocking :story.runner/cofx-replay)]
            (is (= :pass (:status final))
                "both steps replay cleanly — the provided fact was re-presented")
@@ -481,11 +481,11 @@
            {:db (assoc db :tok tok)}))
        ;; The bare 2-element step (no envelope) — the pre-fix recorder
        ;; behaviour. The provided fact is absent → the step must fail.
-       (story/reg-variant :story.runner/cofx-missing
+       (rf.story/reg-variant :story.runner/cofx-missing
          {:setup []
           :script {:auto-run? false
                         :script [[:dispatch-sync [:rf2-l2cn5d/needs-token]]]}})
-       (async/deref-blocking (story/run-variant :story.runner/cofx-missing) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/cofx-missing) 5000)
        (let [final (run-blocking :story.runner/cofx-missing)]
          (is (not= :pass (:status final))
              "the missing provided fact surfaces as a non-pass step outcome")))))
@@ -499,13 +499,13 @@
               recorded step type is :assert."
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
-       (story/reg-variant :story.runner/assert-db
+       (rf.story/reg-variant :story.runner/assert-db
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-status :loaded]]
                                     [:assert-db [:status] :loaded]
                                     [:assert-db [:status] :wrong]]}})
-       (async/deref-blocking (story/run-variant :story.runner/assert-db) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/assert-db) 5000)
        (let [final (run-blocking :story.runner/assert-db)]
          (is (= :fail (:status final)))
          (is (= 1 (:failures final)))
@@ -515,7 +515,7 @@
            (is (true?  (:passed? (nth assert-results 0))))
            (is (false? (:passed? (nth assert-results 1)))))
          ;; The canonical :rf.assert/path-equals records carry the diagnostics.
-         (let [slot (story/read-assertions :story.runner/assert-db)
+         (let [slot (rf.story/read-assertions :story.runner/assert-db)
                pe   (filterv #(= :rf.assert/path-equals (:assertion %)) slot)]
            (is (= 2 (count pe)))
            (is (true?  (:passed? (nth pe 0))))
@@ -544,14 +544,14 @@
               slot consumers + assertions-passing? observe the failure"
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
-       (story/reg-variant :story.bridge/db-fail
+       (rf.story/reg-variant :story.bridge/db-fail
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-status :idle]]
                                     [:assert-db [:status] :loaded]]}})
-       (async/deref-blocking (story/run-variant :story.bridge/db-fail) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.bridge/db-fail) 5000)
        (run-blocking :story.bridge/db-fail)
-       (let [slot (story/read-assertions :story.bridge/db-fail)
+       (let [slot (rf.story/read-assertions :story.bridge/db-fail)
              pe-recs (filterv #(= :rf.assert/path-equals (:assertion %)) slot)]
          (is (= 1 (count pe-recs))
              "the failing folded :assert-db landed exactly one canonical record")
@@ -559,7 +559,7 @@
              "the slot record carries :passed? false")
          (is (= :loaded (:expected (first pe-recs))))
          (is (= :idle   (:actual   (first pe-recs))))
-         (is (false? (story/assertions-passing? slot))
+         (is (false? (rf.story/assertions-passing? slot))
              "assertions-passing? sees the folded failure")))))
 
 #?(:clj
@@ -568,18 +568,18 @@
               :rf.assert/path-equals entry so the slot is non-empty + passes"
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
-       (story/reg-variant :story.bridge/db-pass
+       (rf.story/reg-variant :story.bridge/db-pass
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-status :loaded]]
                                     [:assert-db [:status] :loaded]]}})
-       (async/deref-blocking (story/run-variant :story.bridge/db-pass) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.bridge/db-pass) 5000)
        (run-blocking :story.bridge/db-pass)
-       (let [slot    (story/read-assertions :story.bridge/db-pass)
+       (let [slot    (rf.story/read-assertions :story.bridge/db-pass)
              pe-recs (filterv #(= :rf.assert/path-equals (:assertion %)) slot)]
          (is (= 1 (count pe-recs)))
          (is (true? (:passed? (first pe-recs))))
-         (is (true? (story/assertions-passing? slot)))))))
+         (is (true? (rf.story/assertions-passing? slot)))))))
 
 #?(:clj
    (deftest run-variant-result-reflects-rich-dsl-assert-failure
@@ -589,19 +589,19 @@
               is no longer false-green; and the unified :status is :fail"
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
-       (story/reg-variant :story.bridge/result
+       (rf.story/reg-variant :story.bridge/result
          {:setup      []
           :script {:script [[:dispatch-sync [:rt/set-status :idle]]
                                  [:assert-db [:status] :loaded]]}})
-       (let [result (async/deref-blocking
-                      (story/run-variant :story.bridge/result) 5000)]
+       (let [result (rf.story.async/deref-blocking
+                      (rf.story/run-variant :story.bridge/result) 5000)]
          (is (= :fail (:status result))
              "the unified run-result :status is :fail (rf2-5x1wt.19)")
          (is (some (fn [r] (and (= :rf.assert/path-equals (:assertion r))
                                 (false? (:passed? r))))
                    (:assertions result))
              "the result map's :assertions slot includes the failed assertion")
-         (is (false? (story/assertions-passing? result))
+         (is (false? (rf.story/assertions-passing? result))
              "assertions-passing? on the result map flips to false")))))
 
 ;; ---- rf2-rkd14: EXACT narrative attribution on the LIVE run path ---------
@@ -624,16 +624,16 @@
        ;; :rkd/c re-dispatches :rkd/d, so step 1 settles to 2 epochs.
        (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
        (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
-       (story/reg-variant :story.rkd/redispatch
+       (rf.story/reg-variant :story.rkd/redispatch
          {:setup      []
           :script {:script [[:dispatch-sync [:rkd/a]]
                                   [:dispatch-sync [:rkd/c]]]}})
-       (let [result (async/deref-blocking
-                      (story/run-variant :story.rkd/redispatch) 5000)
+       (let [result (rf.story.async/deref-blocking
+                      (rf.story/run-variant :story.rkd/redispatch) 5000)
              ;; Group the flattened beats by their owning :step. The leading
              ;; (nil-step) span collects the lifecycle setup-phase epochs the
              ;; runtime commits before the script runs.
-             by     (->> (evidence/narrative-beats (:narrative result))
+             by     (->> (rf.story.play.evidence/narrative-beats (:narrative result))
                          (reduce (fn [m {:keys [step trigger-event]}]
                                    (update m step (fnil conj []) trigger-event))
                                  {}))]
@@ -670,17 +670,17 @@
        (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
        (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
        (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
-       (story/reg-variant :story.rkd/hash
+       (rf.story/reg-variant :story.rkd/hash
          {:setup      []
           :script {:script [[:dispatch-sync [:rkd/a]]
                                   [:dispatch-sync [:rkd/c]]]}})
-       (let [result    (async/deref-blocking
-                         (story/run-variant :story.rkd/hash) 5000)
+       (let [result    (rf.story.async/deref-blocking
+                         (rf.story/run-variant :story.rkd/hash) 5000)
              tape-keys (into #{} (mapcat keys) (:epoch-tape result))]
          (is (not (contains? tape-keys :rf.story/script-idx))
              "the retained :epoch-tape slot is the RAW tape (no stamp leak)")
-         (is (= (fingerprint/run-hash result)
-                (fingerprint/run-hash (dissoc result :narrative)))
+         (is (= (rf.story.fingerprint/run-hash result)
+                (rf.story.fingerprint/run-hash (dissoc result :narrative)))
              "dropping the stamped :narrative does not change the run-hash")))))
 
 ;; ---- rf2-76l69l: multi-play auto-run attribution spans EVERY play --------
@@ -707,16 +707,16 @@
        ;; to two epochs — the discriminating re-dispatch the bead calls for.
        (rf/reg-event :ml/c (fn [_ _] {:fx [[:dispatch [:ml/d]]]}))
        (rf/reg-event :ml/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
-       (story/reg-variant :story.ml/two-plays
+       (rf.story/reg-variant :story.ml/two-plays
          {:setup []
           :plays  [{:name "alpha" :auto-run? true
                     :script [[:dispatch-sync [:ml/a]]
                              [:dispatch-sync [:ml/b]]]}
                    {:name "beta" :auto-run? true
                     :script [[:dispatch-sync [:ml/c]]]}]})
-       (let [result (async/deref-blocking
-                      (story/run-variant :story.ml/two-plays) 5000)
-             by     (->> (evidence/narrative-beats (:narrative result))
+       (let [result (rf.story.async/deref-blocking
+                      (rf.story/run-variant :story.ml/two-plays) 5000)
+             by     (->> (rf.story.play.evidence/narrative-beats (:narrative result))
                          (reduce (fn [m {:keys [step trigger-event]}]
                                    (update m step (fnil conj []) trigger-event))
                                  {}))]
@@ -744,13 +744,13 @@
               folds to :rf.assert/dom-visible, is evaluated by the DOM
               executor (no DOM → skipped), and the run is :cannot-run, not a
               false-green pass (rf2-5x1wt.19, spec/017 §`:cannot-run`)"
-       (story/reg-variant :story.bridge/dom-skip
+       (rf.story/reg-variant :story.bridge/dom-skip
          {:setup      []
           :script {:auto-run? false
                         :script    [[:assert-dom "div.foo" :visible]]}})
-       (async/deref-blocking (story/run-variant :story.bridge/dom-skip) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.bridge/dom-skip) 5000)
        (let [final (run-blocking :story.bridge/dom-skip)
-             slot  (story/read-assertions :story.bridge/dom-skip)]
+             slot  (rf.story/read-assertions :story.bridge/dom-skip)]
          (is (= :cannot-run (:status final))
              "a DOM-skip-only run is :cannot-run, not :pass or :fail")
          (is (empty? (filterv #(true? (:passed? %)) slot))
@@ -758,7 +758,7 @@
 
 #?(:clj
    (deftest assert-dom-skipped-unified-result-is-cannot-run
-     (testing "the UNIFIED run-result (story/run-variant's resolved value),
+     (testing "the UNIFIED run-result (rf.story/run-variant's resolved value),
               not just run-state, reads :cannot-run for a DOM-skip-only
               variant on the headless JVM (rf2-q5jw4, spec/017 §Unified run
               result). Before the fix record-result-map dropped the
@@ -770,17 +770,17 @@
               exercises the unified-result PATH (the existing
               assert-dom-skipped-on-jvm-is-cannot-run test discards the
               result and checks only run-blocking's run-state)."
-       (story/reg-variant :story.bridge/dom-skip-unified
+       (rf.story/reg-variant :story.bridge/dom-skip-unified
          {:setup      []
           :script {:script [[:assert-dom "div.foo" :visible]]}})
-       (let [result (async/deref-blocking
-                      (story/run-variant :story.bridge/dom-skip-unified) 5000)]
+       (let [result (rf.story.async/deref-blocking
+                      (rf.story/run-variant :story.bridge/dom-skip-unified) 5000)]
          (is (= :cannot-run (:status result))
              "the unified result :status is :cannot-run, NOT a vacuous :pass")
          (is (seq (:cannot-run result))
              "the unified result surfaces the run-state's :cannot-run refusals")
-         (is (false? (story/result-passed? result))
-             "story/result-passed? on the unified result is false — a
+         (is (false? (rf.story/result-passed? result))
+             "rf.story/result-passed? on the unified result is false — a
               :cannot-run run proved nothing, so it is never a silent pass")
          (is (empty? (filterv #(true? (:passed? %)) (:assertions result)))
              "no assertion record reads :passed? true — the skip is not
@@ -792,18 +792,18 @@
               the symbol resolves at validation time (rf2-5x1wt.19)"
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-       (story/reg-variant :story.runner/pred
+       (rf.story/reg-variant :story.runner/pred
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-n 7]]
                                     [:assert-db [:n] :pred 'clojure.core/pos?]
                                     [:assert-db [:n] :pred 'clojure.core/neg?]]}})
-       (async/deref-blocking (story/run-variant :story.runner/pred) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/pred) 5000)
        (let [final  (run-blocking :story.runner/pred)
              ;; folded :assert-db :pred → [:assert [:rf.assert/path-matches …]]
              results (filterv #(= :assert (:type %)) (:results final))
              pm      (filterv #(= :rf.assert/path-matches (:assertion %))
-                              (story/read-assertions :story.runner/pred))]
+                              (rf.story/read-assertions :story.runner/pred))]
          (is (= :fail (:status final)))
          (is (= 2 (count results)))
          (is (true?  (:passed? (nth pm 0))) "pos? against 7 passes")
@@ -816,17 +816,17 @@
               [:fn fn] which Malli validates by calling the fn (rf2-5x1wt.19)"
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-       (story/reg-variant :story.runner/pred-fn
+       (rf.story/reg-variant :story.runner/pred-fn
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-n 7]]
                                     [:assert-db [:n] :pred pos?]
                                     [:assert-db [:n] :pred neg?]
                                     [:assert-db [:n] :pred (fn [x] (= x 7))]]}})
-       (async/deref-blocking (story/run-variant :story.runner/pred-fn) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/pred-fn) 5000)
        (let [final   (run-blocking :story.runner/pred-fn)
              pm      (filterv #(= :rf.assert/path-matches (:assertion %))
-                              (story/read-assertions :story.runner/pred-fn))]
+                              (rf.story/read-assertions :story.runner/pred-fn))]
          (is (= :fail (:status final))
              "neg? against 7 fails — overall status is :fail")
          (is (= 3 (count pm)))
@@ -842,15 +842,15 @@
               rather than an opaque sci error (rf2-5x1wt.19)"
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-       (story/reg-variant :story.runner/pred-bogus
+       (rf.story/reg-variant :story.runner/pred-bogus
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-n 7]]
                                     [:assert-db [:n] :pred 'no.such.ns/missing-pred]]}})
-       (async/deref-blocking (story/run-variant :story.runner/pred-bogus) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/pred-bogus) 5000)
        (let [final (run-blocking :story.runner/pred-bogus)
              pm    (filterv #(= :rf.assert/path-matches (:assertion %))
-                            (story/read-assertions :story.runner/pred-bogus))]
+                            (rf.story/read-assertions :story.runner/pred-bogus))]
          (is (= :fail (:status final)))
          (is (= 1 (count pm)))
          (is (false? (:passed? (first pm))))))))
@@ -860,7 +860,7 @@
      (testing "results vector reflects step order"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
-       (story/reg-variant :story.runner/order
+       (rf.story/reg-variant :story.runner/order
          {:setup []
           :script
           {:auto-run? false
@@ -868,7 +868,7 @@
                     [:dispatch-sync [:rt/touch]]
                     [:dispatch-sync [:rt/touch]]
                     [:assert-db [:touches] 3]]}})
-       (async/deref-blocking (story/run-variant :story.runner/order) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/order) 5000)
        (let [final (run-blocking :story.runner/order)]
          (is (= :pass (:status final)))
          (is (= 4 (count (:results final))))
@@ -894,28 +894,28 @@
               owns the reset, so the count does not accumulate (rf2-vkdam)"
        (rf/reg-event :vk/touch
          (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
-       (story/reg-variant :story.vkdam/rerun
+       (rf.story/reg-variant :story.vkdam/rerun
          {:setup []
           :script {:auto-run? false
                         :script [[:dispatch-sync [:vk/touch]]
                                  [:dispatch-sync [:vk/touch]]
                                  [:dispatch-sync [:vk/touch]]]}})
        ;; Allocate the frame so `run!` has a live frame to dispatch into.
-       (async/deref-blocking (story/run-variant :story.vkdam/rerun) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.vkdam/rerun) 5000)
        ;; First public run via `run!` (NOT the orchestrator).
        (run-blocking :story.vkdam/rerun)
        ;; `run-blocking` drives `run!`'s 2-arity form, which resolves to
        ;; play-key nil (the `:script` variant's single default play) —
        ;; `settle-boundaries` is keyed by `[frame-id play-key]` (rf2-m0cge5
        ;; finding 2), so reads pass that same nil.
-       (let [after-first (count (re/settle-boundaries :story.vkdam/rerun nil))]
+       (let [after-first (count (rf.story.play.runner-events/settle-boundaries :story.vkdam/rerun nil))]
          (is (= 3 after-first)
              "three dispatch steps record three boundaries")
          ;; Second public run — an interactive Re-run. WITHOUT the reset this
          ;; would accumulate to six; WITH it, `run!` clears at start so the
          ;; frame again holds exactly THIS run's three boundaries.
          (run-blocking :story.vkdam/rerun)
-         (is (= 3 (count (re/settle-boundaries :story.vkdam/rerun nil)))
+         (is (= 3 (count (rf.story.play.runner-events/settle-boundaries :story.vkdam/rerun nil)))
              "the public driver reset its boundaries — no stale accumulation")))))
 
 ;; ---- rf2-m0cge5 finding 2: step-boundaries keyed by [frame-id play-key] --
@@ -938,11 +938,11 @@
               (rf2-m0cge5 finding 2)"
        (rf/reg-event :m0cge5/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.m0cge5/two-key
+       (rf.story/reg-variant :story.m0cge5/two-key
          {:setup []
           :script {:auto-run? false :script []}})
        ;; Allocate the frame so `run!` has a live frame to dispatch into.
-       (async/deref-blocking (story/run-variant :story.m0cge5/two-key) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.m0cge5/two-key) 5000)
        (let [spec-a {:name "A" :auto-run? false
                      :script [[:dispatch-sync [:m0cge5/touch]]]}
              spec-b {:name "B" :auto-run? false
@@ -951,30 +951,30 @@
              done-b (promise)]
          ;; Simulate the sequencer driving play "A" WITHOUT clearing (as
          ;; `run-plays-sequentially!` drives every play it owns).
-         (re/run! :story.m0cge5/two-key "A" spec-a (fn [_] (deliver done-a :ok))
+         (rf.story.play.runner-events/run! :story.m0cge5/two-key "A" spec-a (fn [_] (deliver done-a :ok))
                   {:clear-boundaries? false})
          (deref done-a 5000 :timeout)
-         (is (= 1 (count (re/settle-boundaries :story.m0cge5/two-key "A")))
+         (is (= 1 (count (rf.story.play.runner-events/settle-boundaries :story.m0cge5/two-key "A")))
              "play A recorded its own boundary")
          ;; A concurrent ad-hoc run for a DIFFERENT play-key "B" — e.g. an
          ;; interactive Re-run of a different play via the toolbar dropdown —
          ;; using the DEFAULT :clear-boundaries? true.
-         (re/run! :story.m0cge5/two-key "B" spec-b (fn [_] (deliver done-b :ok)))
+         (rf.story.play.runner-events/run! :story.m0cge5/two-key "B" spec-b (fn [_] (deliver done-b :ok)))
          (deref done-b 5000 :timeout)
-         (is (= 1 (count (re/settle-boundaries :story.m0cge5/two-key "A")))
+         (is (= 1 (count (rf.story.play.runner-events/settle-boundaries :story.m0cge5/two-key "A")))
              "play A's boundaries are UNTOUCHED by the concurrent play B run
               — before the fix both shared the frame-id-only key, so B's
               default clear wiped A's entry mid-sequence")
-         (is (= 1 (count (re/settle-boundaries :story.m0cge5/two-key "B")))
+         (is (= 1 (count (rf.story.play.runner-events/settle-boundaries :story.m0cge5/two-key "B")))
              "play B recorded its own boundary under its own key")))))
 
 ;; ---- rf2-96qsjr: narrative attribution survives epoch-ring eviction ------
 ;;
 ;; End-to-end sibling of the pure `evidence-test` stamp-tape gates: a REAL
-;; run, through the orchestrator (`story/run-variant`), whose dispatch-step
+;; run, through the orchestrator (`rf.story/run-variant`), whose dispatch-step
 ;; count exceeds a small configured epoch-history ring depth. Proves the
 ;; producer (`runner-events/last-epoch-id`) and the consumer
-;; (`runtime/record-result-map` + `evidence/stamp-tape`) agree end-to-end —
+;; (`runtime/record-result-map` + `rf.story.play.evidence/stamp-tape`) agree end-to-end —
 ;; not just that the pure fns compose correctly in isolation.
 
 #?(:clj
@@ -986,17 +986,17 @@
               plateaus), so ring eviction can only ever drop beats, never
               misattribute a surviving one"
        (try
-         (epoch/configure! {:depth 3})
+         (rf.epoch/configure! {:depth 3})
          (rf/reg-event :re-eviction/set
            (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-         (story/reg-variant :story.runner/eviction
+         (rf.story/reg-variant :story.runner/eviction
            {:setup []
             :script {:script [[:dispatch-sync [:re-eviction/set 1]]
                                    [:dispatch-sync [:re-eviction/set 2]]
                                    [:dispatch-sync [:re-eviction/set 3]]
                                    [:dispatch-sync [:re-eviction/set 4]]
                                    [:dispatch-sync [:re-eviction/set 5]]]}})
-         (let [result    (async/deref-blocking (story/run-variant :story.runner/eviction) 5000)
+         (let [result    (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/eviction) 5000)
                narrative (:narrative result)
                span-for  (fn [want]
                            (some #(when (= [:dispatch-sync [:re-eviction/set want]] (:step %)) %)
@@ -1023,16 +1023,16 @@
          (finally
            ;; `:depth` is a process-global epoch-history knob — restore
            ;; the framework default so it doesn't leak into sibling tests.
-           (epoch/configure! {:depth 50}))))))
+           (rf.epoch/configure! {:depth 50}))))))
 
 #?(:clj
    (deftest bare-vector-with-unknown-event-still-dispatches
      (testing "a bare event vector with no registered handler still dispatches; the play status does not fail because dispatch is a no-assertion step"
-       (story/reg-variant :story.runner/bare-unknown
+       (rf.story/reg-variant :story.runner/bare-unknown
          {:setup []
           :script {:auto-run? false
                         :script    [[:does-not-exist :nope]]}})
-       (async/deref-blocking (story/run-variant :story.runner/bare-unknown) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/bare-unknown) 5000)
        (let [final (run-blocking :story.runner/bare-unknown)]
          (is (some? final))
          (is (= 1 (count (:results final))))))))
@@ -1042,12 +1042,12 @@
 #?(:clj
    (deftest variant-play-script-from-body
      (testing "variant-play-script resolves the :script slot on a variant"
-       (story/reg-variant :story.runner/resolved
+       (rf.story/reg-variant :story.runner/resolved
          {:setup []
           :script {:script [[:dispatch [:foo]]]
                         :auto-run? false
                         :name "named"}})
-       (let [spec (re/variant-play-script :story.runner/resolved)]
+       (let [spec (rf.story.play.runner-events/variant-play-script :story.runner/resolved)]
          (is (= [[:dispatch [:foo]]] (:script spec)))
          (is (false? (:auto-run? spec)))
          (is (= "named" (:name spec)))))))
@@ -1055,8 +1055,8 @@
 #?(:clj
    (deftest variant-play-script-missing
      (testing "variants without :script resolve to an empty spec"
-       (story/reg-variant :story.runner/no-script {:setup []})
-       (let [spec (re/variant-play-script :story.runner/no-script)]
+       (rf.story/reg-variant :story.runner/no-script {:setup []})
+       (let [spec (rf.story.play.runner-events/variant-play-script :story.runner/no-script)]
          (is (= [] (:script spec)))
          (is (true? (:auto-run? spec)))))))
 
@@ -1068,12 +1068,12 @@
        (let [seen (atom 0)]
          (rf/reg-event :rt/touch
            (fn [{:keys [db]} _] (swap! seen inc) {:db db}))
-         (story/reg-variant :story.runner/no-auto
+         (rf.story/reg-variant :story.runner/no-auto
            {:setup []
             :script {:auto-run? false
                           :script    [[:dispatch-sync [:rt/touch]]]}})
-         (async/deref-blocking (story/run-variant :story.runner/no-auto) 5000)
-         (re/auto-run! :story.runner/no-auto)
+         (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/no-auto) 5000)
+         (rf.story.play.runner-events/auto-run! :story.runner/no-auto)
          (is (zero? @seen))))))
 
 ;; ---- run-state lifecycle ----------------------------------------------
@@ -1083,17 +1083,17 @@
      (testing "successive runs reset :results and re-walk every step"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
-       (story/reg-variant :story.runner/reset
+       (rf.story/reg-variant :story.runner/reset
          {:setup []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]
                                     [:assert-db [:touches] 1]]}})
-       (async/deref-blocking (story/run-variant :story.runner/reset) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/reset) 5000)
        (run-blocking :story.runner/reset)
-       (let [first-state (re/current-state :story.runner/reset)]
+       (let [first-state (rf.story.play.runner-events/current-state :story.runner/reset)]
          (is (= :pass (:status first-state))))
        (run-blocking :story.runner/reset)
-       (let [second-state (re/current-state :story.runner/reset)]
+       (let [second-state (rf.story.play.runner-events/current-state :story.runner/reset)]
          (is (= :fail (:status second-state)))
          (is (= 1 (:failures second-state)))
          (is (= 2 (count (:results second-state))))))))
@@ -1108,19 +1108,19 @@
          (rf/reg-event :rt/touch
            (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
          (try
-           (require '[re-frame.trace.tooling :as trace-tooling])
+           (require '[re-frame.trace.tooling :as rf.trace.tooling])
            (let [reg!  (resolve 're-frame.trace.tooling/register-listener!)
                  unreg (resolve 're-frame.trace.tooling/unregister-listener!)]
              (reg! listener-id
                (fn [ev]
                  (when (= :rf.story.play/step (:operation ev))
                    (swap! trace-events conj ev))))
-             (story/reg-variant :story.runner/trace
+             (rf.story/reg-variant :story.runner/trace
                {:setup []
                 :script {:auto-run? false
                               :script    [[:dispatch-sync [:rt/touch]]
                                           [:assert-db [:touches] 1]]}})
-             (async/deref-blocking (story/run-variant :story.runner/trace) 5000)
+             (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/trace) 5000)
              (run-blocking :story.runner/trace)
              (is (>= (count @trace-events) 2)
                  "at least one trace per step landed on the bus")
@@ -1142,12 +1142,12 @@
               whose only unmet steps are no-DOM skips is :cannot-run — the
               distinct THIRD status, not a fail or a silent pass
               (rf2-5x1wt.19, spec/017 §`:cannot-run`)"
-       (story/reg-variant :story.runner/dom
+       (rf.story/reg-variant :story.runner/dom
          {:setup []
           :script {:auto-run? false
                         :script    [[:click "button.foo"]
                                     [:assert-dom "div" :visible]]}})
-       (async/deref-blocking (story/run-variant :story.runner/dom) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/dom) 5000)
        (let [final   (run-blocking :story.runner/dom)
              results (:results final)]
          (is (= :cannot-run (:status final))
@@ -1162,7 +1162,7 @@
      ([variant-id play-key] (run-play-blocking variant-id play-key 5000))
      ([variant-id play-key timeout-ms]
       (let [done (atom nil)]
-        (re/run-play! variant-id play-key (fn [s] (reset! done s)))
+        (rf.story.play.runner-events/run-play! variant-id play-key (fn [s] (reset! done s)))
         (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
           (loop []
             (cond
@@ -1178,7 +1178,7 @@
      (testing "variant-plays returns a vector of parsed plays"
        (rf/reg-event :rt/inc
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.multi/two
+       (rf.story/reg-variant :story.multi/two
          {:setup []
           :plays  [{:name "happy"
                     :auto-run? false
@@ -1188,7 +1188,7 @@
                     :auto-run? false
                     :script    [[:dispatch-sync [:rt/inc]]
                                 [:assert-db [:n] 99]]}]})
-       (let [plays (re/variant-plays :story.multi/two)]
+       (let [plays (rf.story.play.runner-events/variant-plays :story.multi/two)]
          (is (= 2 (count plays)))
          (is (= ["happy" "error"] (mapv :name plays)))
          ;; First play's auto-run? was explicitly false here, so no
@@ -1198,10 +1198,10 @@
 #?(:clj
    (deftest variant-plays-wraps-legacy-play-script
      (testing "variant-plays wraps a legacy :script body in a one-entry vector"
-       (story/reg-variant :story.multi/legacy
+       (rf.story/reg-variant :story.multi/legacy
          {:setup []
           :script {:name "lone" :script [[:dispatch [:a]]]}})
-       (let [plays (re/variant-plays :story.multi/legacy)]
+       (let [plays (rf.story.play.runner-events/variant-plays :story.multi/legacy)]
          (is (= 1 (count plays)))
          (is (= "lone" (:name (first plays))))))))
 
@@ -1210,7 +1210,7 @@
      (testing "running each play stores state under [variant-id play-key]"
        (rf/reg-event :rt/inc
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.multi/keyed
+       (rf.story/reg-variant :story.multi/keyed
          {:setup []
           :plays  [{:name "first"  :auto-run? false
                     :script [[:dispatch-sync [:rt/inc]]
@@ -1218,16 +1218,16 @@
                    {:name "second" :auto-run? false
                     :script [[:dispatch-sync [:rt/inc]]
                              [:assert-db [:n] 2]]}]})
-       (async/deref-blocking (story/run-variant :story.multi/keyed) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/keyed) 5000)
        (let [first-state  (run-play-blocking :story.multi/keyed "first")
              second-state (run-play-blocking :story.multi/keyed "second")]
          (is (= :pass (:status first-state)))
          (is (= :pass (:status second-state)))
          ;; Per-play state preserved.
-         (is (= :pass (:status (re/current-state-for-play :story.multi/keyed "first"))))
-         (is (= :pass (:status (re/current-state-for-play :story.multi/keyed "second"))))
+         (is (= :pass (:status (rf.story.play.runner-events/current-state-for-play :story.multi/keyed "first"))))
+         (is (= :pass (:status (rf.story.play.runner-events/current-state-for-play :story.multi/keyed "second"))))
          ;; The latest run-state slot tracks the most recent run.
-         (let [latest (re/current-state :story.multi/keyed)]
+         (let [latest (rf.story.play.runner-events/current-state :story.multi/keyed)]
            (is (= :pass (:status latest)))
            (is (= "second" (:play-key latest))))))))
 
@@ -1236,39 +1236,39 @@
      (testing "run-play! also sets the active-play key the toolbar reads"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.multi/active
+       (rf.story/reg-variant :story.multi/active
          {:setup []
           :plays  [{:name "alpha" :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]]}
                    {:name "beta"  :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]]}]})
-       (async/deref-blocking (story/run-variant :story.multi/active) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/active) 5000)
        (run-play-blocking :story.multi/active "beta")
-       (is (= "beta" (re/active-play-key :story.multi/active))))))
+       (is (= "beta" (rf.story.play.runner-events/active-play-key :story.multi/active))))))
 
 #?(:clj
    (deftest select-play-without-running
      (testing "select-play! changes the active key but does not run"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.multi/select
+       (rf.story/reg-variant :story.multi/select
          {:setup []
           :plays  [{:name "one" :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]]}
                    {:name "two" :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]]}]})
-       (async/deref-blocking (story/run-variant :story.multi/select) 5000)
-       (re/select-play! :story.multi/select "two")
-       (is (= "two" (re/active-play-key :story.multi/select)))
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/select) 5000)
+       (rf.story.play.runner-events/select-play! :story.multi/select "two")
+       (is (= "two" (rf.story.play.runner-events/active-play-key :story.multi/select)))
        ;; No run-state slot was populated by select-play! alone.
-       (is (nil? (re/current-state-for-play :story.multi/select "two"))))))
+       (is (nil? (rf.story.play.runner-events/current-state-for-play :story.multi/select "two"))))))
 
 #?(:clj
    (deftest run-all-plays-sequences-runs
      (testing "run-all-plays! drives every play and resolves with per-play results"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.multi/all
+       (rf.story/reg-variant :story.multi/all
          {:setup []
           :plays  [{:name "a" :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]
@@ -1279,9 +1279,9 @@
                    {:name "c" :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]
                              [:assert-db [:n] 3]]}]})
-       (async/deref-blocking (story/run-variant :story.multi/all) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/all) 5000)
        (let [done    (atom nil)
-             _       (re/run-all-plays! :story.multi/all
+             _       (rf.story.play.runner-events/run-all-plays! :story.multi/all
                                         (fn [final] (reset! done final)))
              deadline (+ (System/currentTimeMillis) 5000)]
          (loop []
@@ -1300,7 +1300,7 @@
      (testing "auto-run! runs only plays whose :auto-run? is true (per-position defaults)"
        (rf/reg-event :rt/inc
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.multi/auto
+       (rf.story/reg-variant :story.multi/auto
          {:setup []
           :plays  [{:name "first-default-true"
                     ;; :auto-run? omitted → first defaults to true
@@ -1312,11 +1312,11 @@
                    {:name "third-opted-in"
                     :auto-run? true
                     :script [[:dispatch-sync [:rt/inc]]]}]})
-       (async/deref-blocking (story/run-variant :story.multi/auto) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/auto) 5000)
        (let [done (atom nil)]
          ;; Multi-play auto-run sequences the opted-in plays + resolves
          ;; the done-cb ONCE with the per-play terminal-state vector.
-         (re/auto-run! :story.multi/auto (fn [final] (reset! done final)))
+         (rf.story.play.runner-events/auto-run! :story.multi/auto (fn [final] (reset! done final)))
          (let [deadline (+ (System/currentTimeMillis) 5000)]
            (loop []
              (cond
@@ -1330,7 +1330,7 @@
            (is (= ["first-default-true" "third-opted-in"]
                   (mapv :play-key results))))
          ;; second play was NOT auto-run — its state slot stays empty.
-         (is (nil? (re/current-state-for-play :story.multi/auto
+         (is (nil? (rf.story.play.runner-events/current-state-for-play :story.multi/auto
                                               "second-default-false")))))))
 
 #?(:clj
@@ -1346,10 +1346,10 @@
          ;; First read warns; the call returns the :plays-derived plays vector.
          (let [out1 (with-out-str
                       (binding [*err* *out*]
-                        (re/variant-plays :story.multi/both)))
+                        (rf.story.play.runner-events/variant-plays :story.multi/both)))
                out2 (with-out-str
                       (binding [*err* *out*]
-                        (re/variant-plays :story.multi/both)))]
+                        (rf.story.play.runner-events/variant-plays :story.multi/both)))]
            (is (re-find #":script.*:plays" out1)
                "first read prints the both-slots warning")
            (is (empty? out2)
@@ -1372,16 +1372,16 @@
                  :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
          (let [warn1 (with-out-str
                        (binding [*err* *out*]
-                         (re/variant-plays :story.multi/both-rearm)))
+                         (rf.story.play.runner-events/variant-plays :story.multi/both-rearm)))
                ;; one-shot in effect: a second read before the clear is silent
                silent (with-out-str
                         (binding [*err* *out*]
-                          (re/variant-plays :story.multi/both-rearm)))
-               _      (re/clear-all-runs!)
+                          (rf.story.play.runner-events/variant-plays :story.multi/both-rearm)))
+               _      (rf.story.play.runner-events/clear-all-runs!)
                ;; after the reset the suppression set is empty → warns again
                warn2  (with-out-str
                         (binding [*err* *out*]
-                          (re/variant-plays :story.multi/both-rearm)))]
+                          (rf.story.play.runner-events/variant-plays :story.multi/both-rearm)))]
            (is (re-find #":script.*:plays" warn1)
                "first read warns")
            (is (empty? silent)
@@ -1406,11 +1406,11 @@
      (testing "run! writes a :run-token onto the started state map so
               concurrent-run detection can compare loops"
        (rf/reg-event :rt/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.runner/token
+       (rf.story/reg-variant :story.runner/token
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]]}})
-       (async/deref-blocking (story/run-variant :story.runner/token) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/token) 5000)
        (let [final (run-blocking :story.runner/token)]
          (is (some? (:run-token final))
              "every run! call stamps a non-nil token onto the started state")))))
@@ -1421,14 +1421,14 @@
               token wins and the stale loop (had it still been queued)
               would bail on mismatch"
        (rf/reg-event :rt/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.runner/token-rotate
+       (rf.story/reg-variant :story.runner/token-rotate
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]]}})
-       (async/deref-blocking (story/run-variant :story.runner/token-rotate) 5000)
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/token-rotate) 5000)
        (let [first-final  (run-blocking :story.runner/token-rotate)
              _            (run-blocking :story.runner/token-rotate)
-             second-state (re/current-state :story.runner/token-rotate)]
+             second-state (rf.story.play.runner-events/current-state :story.runner/token-rotate)]
          (is (some? (:run-token first-final)))
          (is (some? (:run-token second-state)))
          (is (not= (:run-token first-final) (:run-token second-state))
@@ -1443,14 +1443,14 @@
               semantics the migration accidentally lost."
        (let [n (atom 0)]
          (rf/reg-event :rt/inc (fn [{:keys [db]} _] (swap! n inc) {:db (update db :n (fnil inc 0))}))
-         (story/reg-variant :story.runner/sync-tight
+         (rf.story/reg-variant :story.runner/sync-tight
            {:setup      [[:rt/inc] [:rt/inc] [:rt/inc]] ; seed: n=3
             :script {:auto-run? false
                           :script    [[:dispatch-sync [:rt/inc]]
                                       [:dispatch-sync [:rt/inc]]
                                       [:dispatch-sync [:rt/inc]]
                                       [:assert-db [:n] 6]]}})
-         (async/deref-blocking (story/run-variant :story.runner/sync-tight) 5000)
+         (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/sync-tight) 5000)
          (let [final (run-blocking :story.runner/sync-tight)]
            (is (= :pass (:status final))
                "the three increments + assertion run atomically — final count is exactly 6")
@@ -1469,7 +1469,7 @@
 ;; `boundary/dispatch-and-settle!` — i.e. it was DISPATCHED into the frame.
 ;; With no handler that hit `re-frame.router.diagnostics/handle-no-handler!`
 ;; → a spurious `:rf.error/no-such-handler` error trace on the tape (which
-;; can trip `evidence/tape-shows-failure?` into a false `:fail`), AND the
+;; can trip `rf.story.play.evidence/tape-shows-failure?` into a false `:fail`), AND the
 ;; real tape evaluation was skipped. The fix routes these to a no-op
 ;; step-skip — the result boundary still owns the verdict.
 ;;
@@ -1483,7 +1483,7 @@
      `:rf.error/no-such-handler` events targeting the variant's frame.
      Returns `[final-state no-handler-events]`."
      [variant-id]
-     (require '[re-frame.trace.tooling :as trace-tooling])
+     (require '[re-frame.trace.tooling :as rf.trace.tooling])
      (let [reg!      (resolve 're-frame.trace.tooling/register-listener!)
            unreg     (resolve 're-frame.trace.tooling/unregister-listener!)
            collected (atom [])
@@ -1494,7 +1494,7 @@
                           (= variant-id (get-in ev [:tags :frame])))
                  (swap! collected conj ev))))
        (try
-         (async/deref-blocking (story/run-variant variant-id) 5000)
+         (rf.story.async/deref-blocking (rf.story/run-variant variant-id) 5000)
          [(run-blocking variant-id) @collected]
          (finally (when unreg (unreg lid)))))))
 
@@ -1505,7 +1505,7 @@
               frame — so no :rf.error/no-such-handler trace lands (rf2-8y47c)"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.tape/schema-error
+       (rf.story/reg-variant :story.tape/schema-error
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]
@@ -1524,7 +1524,7 @@
              "the tape-evaluated checkpoint is a no-op step-skip — the result
               boundary owns its verdict, so it neither passes nor fails here")
          (is (empty? (filterv #(= :rf.assert/schema-error (:assertion %))
-                              (story/read-assertions :story.tape/schema-error)))
+                              (rf.story/read-assertions :story.tape/schema-error)))
              "no :rf.assert/schema-error slot record was minted by a dispatch")))))
 
 #?(:clj
@@ -1535,7 +1535,7 @@
               (rf2-fh7g4)"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.tape/no-cascade
+       (rf.story/reg-variant :story.tape/no-cascade
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]
@@ -1553,7 +1553,7 @@
          (is (nil? (:passed? checkpoint))
              "the tape-evaluated causal checkpoint is a no-op step-skip")
          (is (empty? (filterv #(= :rf.assert/no-cascade-rerender (:assertion %))
-                              (story/read-assertions :story.tape/no-cascade)))
+                              (rf.story/read-assertions :story.tape/no-cascade)))
              "no causal slot record was minted by a dispatch")))))
 
 #?(:clj
@@ -1563,7 +1563,7 @@
               :rf.error/no-such-handler trace lands (rf2-fh7g4)"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (story/reg-variant :story.tape/caused
+       (rf.story/reg-variant :story.tape/caused
          {:setup      []
           :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]
@@ -1585,7 +1585,7 @@
 ;; tape-evaluated family is never dispatched. Runs on BOTH runtimes (pure
 ;; data → boolean), reached via var-quote (the established Story-test seam).
 
-(def ^:private tape-evaluated-assertion? @#'re/tape-evaluated-assertion?)
+(def ^:private tape-evaluated-assertion? @#'rf.story.play.runner-events/tape-evaluated-assertion?)
 
 (deftest tape-evaluated-assertion?-classifies-every-non-dispatched-family
   (testing "schema-error and the causal family are tape-evaluated (no

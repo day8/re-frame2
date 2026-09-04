@@ -46,13 +46,13 @@
   (:require [clojure.string :as string]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.trace :as trace]
-            [re-frame.story.config :as config]
-            [re-frame.story.play.browser :as browser]
-            [re-frame.story.registrar :as story-registrar]
-            [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.trace :as rf.trace]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.play.browser :as rf.story.play.browser]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; ---- state ---------------------------------------------------------------
 
@@ -123,7 +123,7 @@
 ;; The panel stores the raw axe-core JS violation objects (it reads them via
 ;; `^js` interop in `violation-row`); the `.cljc` executor consumes CLJS data
 ;; (`select-keys` / `:nodes` / `:target` keyword access — see
-;; `browser/axe-finding`). So the reader NORMALISES each violation to CLJS
+;; `rf.story.play.browser/axe-finding`). So the reader NORMALISES each violation to CLJS
 ;; data at this boundary via `js->clj :keywordize-keys`, recovering the
 ;; `:nodes` → `:target` selector(s) the source-link projection needs.
 (defn- ->clj-violations
@@ -135,7 +135,7 @@
     (js->clj vs :keywordize-keys true)))
 
 (defonce ^:private _a11y-reader-registered
-  (do (browser/register-a11y-reader!
+  (do (rf.story.play.browser/register-a11y-reader!
         (fn [frame-id] (->clj-violations (get @violations-by-frame frame-id))))
       true))
 
@@ -163,7 +163,7 @@
 ;; over a map the frame was dissoc'd from RESURRECTS the entry — a
 ;; phantom slot reading `:done`, alongside a resurrected
 ;; `violations-by-frame` entry that the below-the-UI executor seam
-;; (`browser/register-a11y-reader!`) then serves to `:rf.assert/a11y`.
+;; (`rf.story.play.browser/register-a11y-reader!`) then serves to `:rf.assert/a11y`.
 ;; A scan of a frame that is gone reporting a clean verdict; a fabricated
 ;; green, not a hang.
 ;;
@@ -374,7 +374,7 @@
   The trace event piggybacks on the existing warning op-type per
   spec/009 §Trace bus."
   [frame-id ^js violation]
-  (trace/emit!
+  (rf.trace/emit!
     :warning
     :rf.story.a11y/violation
     {:frame  frame-id
@@ -540,37 +540,37 @@
 
 (def styles
   {:wrap        {:padding "8px"
-                 :background (:bg-2 colors/tokens)
+                 :background (:bg-2 rf.story.theme.colors/tokens)
                  :border-top "1px solid #444"
-                 :color (:text-primary colors/tokens)
+                 :color (:text-primary rf.story.theme.colors/tokens)
                  :font-family mono-stack
-                 :font-size (:caption typography/type-scale)}
+                 :font-size (:caption rf.story.theme.typography/type-scale)}
    :header      {:display "flex"
                  :justify-content "space-between"
                  :align-items "center"
                  :margin-bottom "8px"}
    :section-h   {:font-weight "bold"
-                 :color (:text-secondary colors/tokens)
+                 :color (:text-secondary rf.story.theme.colors/tokens)
                  :text-transform "uppercase"
-                 :font-size (:micro typography/type-scale)
+                 :font-size (:micro rf.story.theme.typography/type-scale)
                  :letter-spacing "0.5px"}
    :run-button  {:padding "4px 10px"
-                 :background (:accent-amber colors/tokens)
+                 :background (:accent-amber rf.story.theme.colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-size (:micro typography/type-scale)}
+                 :font-size (:micro rf.story.theme.typography/type-scale)}
    :run-busy    {:background "#666"
                  :cursor "wait"}
-   :status      {:color (:text-secondary colors/tokens) :font-size (:micro typography/type-scale) :margin-top "4px"}
-   :empty       {:color (:text-tertiary colors/tokens) :font-style "italic" :padding "4px 0"}
+   :status      {:color (:text-secondary rf.story.theme.colors/tokens) :font-size (:micro rf.story.theme.typography/type-scale) :margin-top "4px"}
+   :empty       {:color (:text-tertiary rf.story.theme.colors/tokens) :font-style "italic" :padding "4px 0"}
    :violation   {:padding "6px 8px"
                  :margin "4px 0"
                  :border-left "3px solid"
-                 :background (:danger-bg colors/tokens)}
+                 :background (:danger-bg rf.story.theme.colors/tokens)}
    :impact-critical {:border-left-color "#ff4040"
-                     :color (:danger colors/tokens)}
+                     :color (:danger rf.story.theme.colors/tokens)}
    :impact-serious  {:border-left-color "#ff8000"
                      :color "#fed"}
    :impact-moderate {:border-left-color "#f1c40f"
@@ -578,8 +578,8 @@
    :impact-minor    {:border-left-color "#888"
                      :color "#ccc"}
    :v-help      {:font-weight "bold" :margin-bottom "2px"}
-   :v-desc      {:color "#aaa" :font-size (:micro typography/type-scale)}
-   :v-target    {:color (:info colors/tokens) :font-size (:micro typography/type-scale)
+   :v-desc      {:color "#aaa" :font-size (:micro rf.story.theme.typography/type-scale)}
+   :v-target    {:color (:info rf.story.theme.colors/tokens) :font-size (:micro rf.story.theme.typography/type-scale)
                  :font-family mono-stack
                  :margin-top "2px"}
    :overlay-css {:position "absolute"
@@ -604,7 +604,7 @@
 
 (defn ensure-stylesheet!
   []
-  (when (and config/enabled?
+  (when (and rf.story.config/enabled?
              (not @stylesheet-injected?)
              (some? js/document))
     (let [style (.createElement js/document "style")]
@@ -643,7 +643,7 @@
      [:div {:style (:v-desc styles)} (.-description v)]
      (when first-target
        [:div {:style (:v-target styles)} (str "→ " first-target)])
-     [:div {:style {:color (:text-tertiary colors/tokens) :font-size (:micro typography/type-scale)}}
+     [:div {:style {:color (:text-tertiary rf.story.theme.colors/tokens) :font-size (:micro rf.story.theme.typography/type-scale)}}
       (str ":" (.-id v) " · " (or impact "moderate"))]]))
 
 (defn- consent-prompt
@@ -656,27 +656,27 @@
   [:div {:style {:padding "8px 0"
                  :border-top "1px dashed #555"
                  :margin-top "4px"
-                 :color (:text-primary colors/tokens)}}
+                 :color (:text-primary rf.story.theme.colors/tokens)}}
    [:div {:style {:font-weight "bold"
-                  :color (:danger colors/tokens)
+                  :color (:danger rf.story.theme.colors/tokens)
                   :margin-bottom "6px"}}
     "axe-core not loaded"]
-   [:div {:style {:font-size (:micro typography/type-scale)
+   [:div {:style {:font-size (:micro rf.story.theme.typography/type-scale)
                   :line-height "1.4"
-                  :color (:text-secondary colors/tokens)
+                  :color (:text-secondary rf.story.theme.colors/tokens)
                   :margin-bottom "6px"}}
     "Running an a11y scan loads "
-    [:code {:style {:color (:info colors/tokens)}} "axe-core@4.10.0"]
+    [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "axe-core@4.10.0"]
     " from a public CDN ("
-    [:code {:style {:color (:info colors/tokens)}} "cdn.jsdelivr.net"]
+    [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "cdn.jsdelivr.net"]
     "). The remote JS gets full DOM access to this Story page; the SRI "
     "hash pinned in the loader detects tampering, but the dependency "
     "itself is a trust call. No variant state leaves the browser."]
-   [:div {:style {:font-size (:micro typography/type-scale)
-                  :color (:text-secondary colors/tokens)
+   [:div {:style {:font-size (:micro rf.story.theme.typography/type-scale)
+                  :color (:text-secondary rf.story.theme.colors/tokens)
                   :margin-bottom "8px"}}
     "Approve once per browser; the opt-in is remembered in "
-    [:code {:style {:color (:info colors/tokens)}} "localStorage"] "."]
+    [:code {:style {:color (:info rf.story.theme.colors/tokens)}} "localStorage"] "."]
    [:button {:style    (:run-button styles)
              :on-click (fn [_]
                          (set-cdn-opt-in! true)
@@ -752,7 +752,7 @@
   `:panel-visibility` map. By default the a11y slot is off (don't
   bloat the right pane until the user explicitly opens it)."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     ;; Register the panel-view as a re-frame view so the panel system
     ;; can resolve it via the standard late-bind path.
     ;;
@@ -769,7 +769,7 @@
     ;; changed to permit bare-component roots.
     (rf/reg-view* panel-render-id (fn [variant-id] [:div [panel variant-id]]))
     ;; Register the story-panel itself.
-    (story-registrar/reg-story-panel*
+    (rf.story.registrar/reg-story-panel*
       panel-id
       {:doc       "axe-core accessibility scanner — inline panel."
        :title     "a11y"

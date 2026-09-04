@@ -56,18 +56,18 @@
   (:require [reagent.core :as r]
             [day8.re-frame2-xray.mount :as xray-mount]
             [day8.re-frame2-xray.panels :as xray-panels]
-            [re-frame.story.config :as config]
-            [re-frame.story.predicates :as pred]
-            [re-frame.story.registrar :as registrar]
-            [re-frame.story.theme.colors :as colors]
-            [re-frame.story.theme.glyphs :as glyphs]
-            [re-frame.story.theme.motion :as motion]
-            [re-frame.story.theme.typography :as typography :refer [sans-stack]]
-            [re-frame.story.ui.state :as state]
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.theme.colors :as rf.story.theme.colors]
+            [re-frame.story.theme.glyphs :as rf.story.theme.glyphs]
+            [re-frame.story.theme.motion :as rf.story.theme.motion]
+            [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack]]
+            [re-frame.story.ui.state :as rf.story.ui.state]
             ;; rf2-q5pd6 — the panel-host flushes a parked `:filters`
             ;; preset right after Xray's mount registers the `:rf/xray`
             ;; frame. One-way: `xray-preset` never requires this ns.
-            [re-frame.story.xray-preset :as xray-preset]))
+            [re-frame.story.xray-preset :as rf.story.xray-preset]))
 
 ;; ---- embed descriptor: the single mount-routing source (rf2-jf87oq) -------
 ;;
@@ -153,10 +153,10 @@
   unknown keyword in the slot falls back to `default-panel` so a
   typo doesn't blank the RHS."
   [variant-id]
-  (let [variant-body (registrar/handler-meta :variant variant-id)
-        story-id     (pred/parent-story-id variant-id)
+  (let [variant-body (rf.story.registrar/handler-meta :variant variant-id)
+        story-id     (rf.story.predicates/parent-story-id variant-id)
         story-body   (when story-id
-                       (registrar/handler-meta :story story-id))
+                       (rf.story.registrar/handler-meta :story story-id))
         ;; rf2-v1ach: the `:xray-panel` slot lives directly on the
         ;; body for ergonomics (parallel to `:tags`, `:viewport`,
         ;; `:background`). Variant slot wins, then story slot, then
@@ -218,9 +218,9 @@
 
   `day8/re-frame2-xray` is a declared Story dependency, so the
   popout symbol is always on the compile classpath; the only gate is
-  Story's own `config/enabled?` elision posture."
+  Story's own `rf.story.config/enabled?` elision posture."
   []
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (xray-mount/popout!)))
 
 ;; ---- styling -------------------------------------------------------------
@@ -245,23 +245,23 @@
                    :gap "4px"
                    :flex-wrap "wrap"
                    :padding-bottom "6px"
-                   :border-bottom (str "1px solid " (:seam-xray-soft colors/tokens))
+                   :border-bottom (str "1px solid " (:seam-xray-soft rf.story.theme.colors/tokens))
                    :font-family sans-stack}
    :chip          {:padding "3px 10px"
-                   :background (:bg-3 colors/tokens)
-                   :color (:text-secondary colors/tokens)
-                   :border (str "1px solid " (:border-subtle colors/tokens))
+                   :background (:bg-3 rf.story.theme.colors/tokens)
+                   :color (:text-secondary rf.story.theme.colors/tokens)
+                   :border (str "1px solid " (:border-subtle rf.story.theme.colors/tokens))
                    :border-radius "10px"
                    :cursor "pointer"
                    :font-family sans-stack
-                   :font-size (:caption typography/type-scale)
+                   :font-size (:caption rf.story.theme.typography/type-scale)
                    :letter-spacing "0.01em"
                    :user-select "none"
-                   :transition (:chip motion/transitions)}
-   :chip-active   {:background (:accent-amber colors/tokens)
-                   :color (:text-on-accent colors/tokens)
-                   :border (str "1px solid " (:accent-amber-deep colors/tokens))
-                   :font-weight (str (:semibold typography/weights))}
+                   :transition (:chip rf.story.theme.motion/transitions)}
+   :chip-active   {:background (:accent-amber rf.story.theme.colors/tokens)
+                   :color (:text-on-accent rf.story.theme.colors/tokens)
+                   :border (str "1px solid " (:accent-amber-deep rf.story.theme.colors/tokens))
+                   :font-weight (str (:semibold rf.story.theme.typography/weights))}
    :spacer        {:flex "1"}
    ;; rf2-v1ach — "pop out full Xray" escape hatch. Sits at the
    ;; right edge of the chip-row so the user reads it as 'leave the
@@ -269,17 +269,17 @@
    ;; external-link glyph so its action is iconographically obvious.
    :popout-chip   {:padding "3px 10px"
                    :background "transparent"
-                   :color (:info colors/tokens)
-                   :border (str "1px solid " (:border-default colors/tokens))
+                   :color (:info rf.story.theme.colors/tokens)
+                   :border (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                    :border-radius "10px"
                    :cursor "pointer"
                    :font-family sans-stack
-                   :font-size (:caption typography/type-scale)
+                   :font-size (:caption rf.story.theme.typography/type-scale)
                    :letter-spacing "0.01em"
                    :display "inline-flex"
                    :align-items "center"
                    :gap "4px"
-                   :transition (:chip motion/transitions)}
+                   :transition (:chip rf.story.theme.motion/transitions)}
    ;; rf2-v1ach — the mounted-panel slot. Xray's panel mounts into
    ;; this DOM element (a `<div>` with `data-rf-xray-panel-host`).
    ;; `position: relative` + `flex: 1 1 auto` so the panel
@@ -291,7 +291,7 @@
                    :min-height "240px"
                    :overflow "hidden"
                    :border-radius "4px"
-                   :background (:bg-canvas colors/tokens)}
+                   :background (:bg-canvas rf.story.theme.colors/tokens)}
    ;; rf2-9k43e — the compact in-place EVENT SPINE band. Sits BETWEEN
    ;; the chip-row and the chip-selected panel-host so the user reads:
    ;; pick a lens (chip-row) → scan the variant's recent events (spine)
@@ -310,20 +310,20 @@
                    :max-height "140px"
                    :overflow "hidden"
                    :border-radius "4px"
-                   :background (:bg-canvas colors/tokens)}
+                   :background (:bg-canvas rf.story.theme.colors/tokens)}
    ;; rf2-9k43e — caption above the spine band so the affordance reads
    ;; as 'this is the variant's recent-events timeline; click to focus'.
    :spine-caption {:padding "0 2px 2px"
-                   :color (:text-tertiary colors/tokens)
+                   :color (:text-tertiary rf.story.theme.colors/tokens)
                    :font-family sans-stack
-                   :font-size (:caption typography/type-scale)
+                   :font-size (:caption rf.story.theme.typography/type-scale)
                    :letter-spacing "0.02em"
                    :text-transform "uppercase"
                    :user-select "none"}
    :empty         {:padding "16px 8px"
-                   :color (:text-tertiary colors/tokens)
+                   :color (:text-tertiary rf.story.theme.colors/tokens)
                    :font-family sans-stack
-                   :font-size (:caption typography/type-scale)
+                   :font-size (:caption rf.story.theme.typography/type-scale)
                    :font-style "italic"}
    ;; rf2-ba86n.19 — lazy Xray-diff mounting. The disclosure toggle that
    ;; collapses / expands the embed. Sits at the LEFT edge of the chip-row
@@ -334,13 +334,13 @@
                    :justify-content "center"
                    :padding "2px"
                    :background "transparent"
-                   :color (:text-secondary colors/tokens)
+                   :color (:text-secondary rf.story.theme.colors/tokens)
                    :border "none"
                    :cursor "pointer"
                    :line-height "0"
-                   :transition (:chip motion/transitions)}
+                   :transition (:chip rf.story.theme.motion/transitions)}
    :disclosure-glyph {:display "inline-flex"
-                      :transition (:chip motion/transitions)
+                      :transition (:chip rf.story.theme.motion/transitions)
                       :transform "rotate(90deg)"}
    :disclosure-glyph-collapsed {:transform "rotate(0deg)"}
    ;; rf2-ba86n.19 — the collapsed placeholder. Replaces the panel-host
@@ -352,16 +352,16 @@
                     :min-height "0"
                     :padding "10px 8px"
                     :cursor "pointer"
-                    :color (:text-tertiary colors/tokens)
+                    :color (:text-tertiary rf.story.theme.colors/tokens)
                     :font-family sans-stack
-                    :font-size (:caption typography/type-scale)
+                    :font-size (:caption rf.story.theme.typography/type-scale)
                     :font-style "italic"}})
 
 ;; ---- chip rendering ------------------------------------------------------
 
 (defn chip
   "Render a single chip for `panel-id`. Click handler dispatches the
-  panel selection via `state/swap-state!` so the RHS slot re-renders.
+  panel selection via `rf.story.ui.state/swap-state!` so the RHS slot re-renders.
   Public so tests can introspect the chip-level hiccup without
   driving the full host."
   [panel-id label title active?]
@@ -374,7 +374,7 @@
     :data-test "story-xray-panel-chip"
     :data-xray-panel (name panel-id)
     :on-click (fn [_]
-                (state/swap-state!
+                (rf.story.ui.state/swap-state!
                   (fn [s] (assoc s :xray-panel panel-id))))}
    label])
 
@@ -551,7 +551,7 @@
                                 ;; it can land. No-op (and cheap) when nothing
                                 ;; is pending, which is every mount after the
                                 ;; first.
-                                (xray-preset/flush-pending-filters!))
+                                (rf.story.xray-preset/flush-pending-filters!))
                               (catch :default e
                                 (when (and (exists? js/console)
                                            (.-warn js/console))
@@ -606,10 +606,10 @@
              "Expand the Xray panel (resume diff compute)"
              "Collapse the Xray panel (defer diff compute)")
     :on-click (fn [_]
-                (state/swap-state! state/toggle-xray-embed-collapsed))}
+                (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-xray-embed-collapsed))}
    [:span {:style (merge (:disclosure-glyph styles)
                          (when collapsed? (:disclosure-glyph-collapsed styles)))}
-    [glyphs/chevron-right 11]]])
+    [rf.story.theme.glyphs/chevron-right 11]]])
 
 ;; ---- event-spine band -----------------------------------------------------
 
@@ -655,7 +655,7 @@
   Returns nil when no variant is focused — the panels are
   cascade-scoped; without a variant there's nothing to inspect."
   []
-  (let [shell      @state/shell-state-atom
+  (let [shell      @rf.story.ui.state/shell-state-atom
         variant-id (:selected-variant shell)]
     (cond
       (not variant-id)
@@ -672,7 +672,7 @@
             ;; user expands. The chip-row picker still paints (cheap — it's
             ;; pure data + click handlers, no Xray symbol), so the author's
             ;; lens choice survives a collapse round-trip.
-            collapsed?   (state/xray-embed-collapsed? shell)]
+            collapsed?   (rf.story.ui.state/xray-embed-collapsed? shell)]
         [:div {:style (:wrap styles)
                :data-test "story-xray-embed"
                :data-active-panel (name active-panel)
@@ -692,7 +692,7 @@
             :title "Open the full Xray 4-layer shell in a new window"
             :on-click (fn [_] (popout-full-shell!))}
            [:span "Pop out"]
-           [glyphs/external-link 11]]]
+           [rf.story.theme.glyphs/external-link 11]]]
          ;; rf2-ba86n.19 — lazy Xray-diff mounting (spec/018 §10). When
          ;; collapsed a quiet placeholder stands in for the panel-host;
          ;; crucially it does NOT render `panel-host-component`, so the
@@ -726,7 +726,7 @@
            [:div {:style (:collapsed-rest styles)
                   :data-test "story-xray-embed-collapsed"
                   :on-click (fn [_]
-                              (state/swap-state! state/set-xray-embed-collapsed false))}
+                              (rf.story.ui.state/swap-state! rf.story.ui.state/set-xray-embed-collapsed false))}
             (str (or (some #(when (= active-panel (:panel %)) (:label %))
                            panel-catalog)
                      "Xray")

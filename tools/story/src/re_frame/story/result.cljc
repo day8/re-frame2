@@ -44,7 +44,7 @@
   `aggregate-status` (in `re-frame.story.requirements`, reused here) is the
   ONE rule: `:error` > `:fail` > `:cannot-run` > `:pass`, AND a run whose
   tape shows unconsumed failure evidence cannot read `:pass` (the agreement
-  floor, `evidence/tape-shows-failure?`). A run with zero assertions whose
+  floor, `rf.story.play.evidence/tape-shows-failure?`). A run with zero assertions whose
   tape is clean is `:pass` (the /spec/007-Stories.md §Story-as-test duality — a variant
   with no assertions is vacuously green).
 
@@ -56,10 +56,10 @@
   `clojure -M:test`. The runner reads the tape + the accumulator and hands
   the vectors here; the assembly never touches the runtime."
   (:require [malli.core                   :as m]
-            [re-frame.story.assertions    :as assertions]
-            [re-frame.story.play.evidence :as evidence]
-            [re-frame.story.requirements  :as requirements]
-            [re-frame.story.verdict       :as verdict]))
+            [re-frame.story.assertions    :as rf.story.assertions]
+            [re-frame.story.play.evidence :as rf.story.play.evidence]
+            [re-frame.story.requirements  :as rf.story.requirements]
+            [re-frame.story.verdict       :as rf.story.verdict]))
 
 ;; ===========================================================================
 ;; STATUS — the four verdicts (spec/017 §Run result)
@@ -72,7 +72,7 @@
 (def statuses
   "The four run / assertion / check verdicts (spec/017 §Run result) —
   re-exported from the `re-frame.story.verdict` leaf, the single owner."
-  verdict/statuses)
+  rf.story.verdict/statuses)
 
 ;; ===========================================================================
 ;; THE SCHEMA-BACKED CONTRACT  (API governance freeze)
@@ -204,7 +204,7 @@
   "Derive the `:status` for ONE assertion record from its outcome fields
   (spec/017 §Run result) — re-exported from the `re-frame.story.verdict`
   leaf, the single owner. Pure data → data."
-  verdict/record-status)
+  rf.story.verdict/record-status)
 
 ;; ===========================================================================
 ;; ASSERTION RECORD — the `.18` atom shape + a unified `:status`
@@ -268,13 +268,13 @@
 (def ^:private redaction-prone-assertion-ids
   "Assertion ids whose evaluator may rebuild the run RECORD's `:payload`
   from a REDACTED expected value for a sensitive path/sub
-  (`assertions/evaluate-path-equals` / `evaluate-sub-equals` rebuild
+  (`rf.story.assertions/evaluate-path-equals` / `evaluate-sub-equals` rebuild
   `:payload` as `[path-or-sub-vec exp-redacted]`). The compiled check
   plan's atom, by contrast, always carries the RAW author-declared
   expected value — plan atoms are never redacted (redaction only happens
   at run time, against a live frame). An exact-payload match between the
   two therefore cannot identify a sensitive assertion."
-  #{assertions/id-path-equals assertions/id-sub-equals})
+  #{rf.story.assertions/id-path-equals rf.story.assertions/id-sub-equals})
 
 (defn- record-matches-atom?
   "True iff assertion `record` was produced by assertion `atom-v` — same
@@ -311,7 +311,7 @@
 
   The group is every evaluated record matching one of the check's atoms
   (by id + payload); the check `:status` aggregates the group via the ONE
-  aggregation rule (`requirements/aggregate-status`). An atom with no
+  aggregation rule (`rf.story.requirements/aggregate-status`). An atom with no
   matching record (the assertion never ran) contributes nothing to the
   group — the run-level aggregation still sees the ungrouped records, so a
   check that did not run does not mask the run verdict.
@@ -323,7 +323,7 @@
                               (some #(record-matches-atom? r %) assertion-atoms)))
                     records)]
     {:check      check-id
-     :status     (requirements/aggregate-status group nil)
+     :status     (rf.story.requirements/aggregate-status group nil)
      :assertions group}))
 
 (defn check-records
@@ -347,11 +347,11 @@
 ;; consumed by an expected `:rf.assert/schema-error`, even if recovery /
 ;; rollback leaves the final app-db acceptable. There is NO
 ;; `:rf.assert/no-schema-errors` knob — a schema-clean run is the FLOOR
-;; (`evidence/tape-shows-failure?`), and these expectations REFINE it.
+;; (`rf.story.play.evidence/tape-shows-failure?`), and these expectations REFINE it.
 ;;
 ;; Matching is an EXACT MULTISET pairing (spec/017 §Schema rule steps 1-4):
 ;;
-;;   1. The projected violations (`evidence/schema-violations`, the SINGLE
+;;   1. The projected violations (`rf.story.play.evidence/schema-violations`, the SINGLE
 ;;      source — no second accumulator) are keyed by their `:selector`.
 ;;   2. Each declared `[:rf.assert/schema-error spec]` consumes EXACTLY ONE
 ;;      matching violation; N declared of a selector consume N. A bare
@@ -369,8 +369,8 @@
 
 (defn- pair-expectations
   "Pair `expectations` (the projected `:rf.assert/schema-error`
-  expectation records, `assertions/schema-error-expectation`) against
-  `violations` (the projected `evidence/schema-violations`) by exact
+  expectation records, `rf.story.assertions/schema-error-expectation`) against
+  `violations` (the projected `rf.story.play.evidence/schema-violations`) by exact
   multiset selector match. Pure data → data.
 
   Returns `{:matched [{:expectation … :violation …} …]
@@ -422,7 +422,7 @@
   `:actual` so a failing expectation reads diagnostically."
   [{:keys [atom spec selector] :as _expectation} matched-violation]
   (let [passed? (some? matched-violation)]
-    {:assertion assertions/id-schema-error
+    {:assertion rf.story.assertions/id-schema-error
      :payload   (vec (rest atom))
      :passed?   passed?
      :status    (if passed? :pass :fail)
@@ -444,7 +444,7 @@
   `schema-expectations` is the vector of declared `:rf.assert/schema-error`
   ATOMS (`[:rf.assert/schema-error spec]`); `epoch-tape` is the retained
   `:rf/epoch-record` vector (the SINGLE violation source — projected via
-  `evidence/schema-violations`, never a second accumulator). Returns:
+  `rf.story.play.evidence/schema-violations`, never a second accumulator). Returns:
 
       {:records             [assertion-record …]  ; one per declared expectation
        :consumed-selectors  #{selector …}         ; selectors EXACTLY consumed
@@ -452,7 +452,7 @@
        :unconsumed          [violation …]}         ; emitted, not expected
 
   `:consumed-selectors` is the set the agreement floor
-  (`evidence/tape-shows-failure?`) subtracts so an EXACTLY-consumed
+  (`rf.story.play.evidence/tape-shows-failure?`) subtracts so an EXACTLY-consumed
   violation does not trip the floor. A violation left unconsumed keeps its
   selector OUT of the set, so the floor still fails the run on it (§Schema
   rule step 4). A `:fail` record for each unmatched expectation fails the
@@ -460,15 +460,15 @@
 
   The 2-arity projects the violations from the raw `epoch-tape`; the
   `[schema-expectations violations :as :projected]` 3-arity takes the
-  ALREADY-PROJECTED `evidence/schema-violations` vector (the `run-result`
+  ALREADY-PROJECTED `rf.story.play.evidence/schema-violations` vector (the `run-result`
   assembly's `evidence-slots`) so the assembly does not walk the tape for
   the same violations a second time — one tape, one projection."
   ([schema-expectations epoch-tape]
    (match-schema-expectations schema-expectations
-                              (evidence/schema-violations epoch-tape)
+                              (rf.story.play.evidence/schema-violations epoch-tape)
                               :projected))
   ([schema-expectations violations _projected]
-   (let [exps        (mapv assertions/schema-error-expectation
+   (let [exps        (mapv rf.story.assertions/schema-error-expectation
                            (or schema-expectations []))
          {:keys [matched unmatched unconsumed]} (pair-expectations exps violations)
          records     (into (mapv (fn [{:keys [expectation violation]}]
@@ -490,7 +490,7 @@
 ;; cause→effect relationship from the SAME reactive evidence the tape already
 ;; carries — the `:rf.sub/run` / `:rf.view/rendered` rows stamped with the
 ;; dispatching cascade's `:cause-event-id` (Spec 009), surfaced in the
-;; `evidence/reactive-counts` `:by-cause` projection. They are
+;; `rf.story.play.evidence/reactive-counts` `:by-cause` projection. They are
 ;; tape-evaluated like `:rf.assert/schema-error`: NOT dispatched into the
 ;; frame, NOT a parallel accumulator — the tape is the source of truth
 ;; (spec/017 §Risks — "evidence projections drift").
@@ -505,12 +505,12 @@
 ;; A `[:sub …]` / `[:view …]` surface needs per-(cause × surface) counts that
 ;; `:by-cause` (cause-keyed totals) does not carry, so the matcher re-projects
 ;; them from the already-projected `:sub-runs` / `:renders` rows
-;; (`evidence/sub-runs` / `renders`) — the SAME rows `:by-cause` counts,
+;; (`rf.story.play.evidence/sub-runs` / `renders`) — the SAME rows `:by-cause` counts,
 ;; filtered to the named cause AND surface. No new evidence stream.
 
 (defn- causal-count
   "The measured effect COUNT for a causal `expectation` against the run's
-  projected `evidence` (the `evidence/project-evidence` output). Pure data →
+  projected `evidence` (the `rf.story.play.evidence/project-evidence` output). Pure data →
   data. Reads ONLY the already-projected reactive rows — `:reactive-counts`
   for the `[:any]` cause total, the `:sub-runs` / `:renders` rows for a named
   `:sub` / `:view` surface. Returns 0 when the cause produced no matching
@@ -580,7 +580,7 @@
   cause (`observed-cause-count`); `reactive?` is whether the run carried
   ANY reactive evidence (a `:reactive-counts` slot); `truncated?` is whether
   the bounded `epoch-history` ring evicted the run's EARLIEST epochs
-  (`evidence/run-tape-truncated?`, rf2-4u5zl4). The verdict, in precedence:
+  (`rf.story.play.evidence/run-tape-truncated?`, rf2-4u5zl4). The verdict, in precedence:
 
   - a degenerate atom that names no `:event` → `:fail` (it asserts nothing
     measurable);
@@ -632,10 +632,10 @@
         ;; an unobserved cause), and the plan compiler rejects the key on
         ;; `:caused`, so `require-cause?` only ever carries a value for
         ;; no-cascade.
-        cause-gate?    (and (= id assertions/id-no-cascade-rerender)
+        cause-gate?    (and (= id rf.story.assertions/id-no-cascade-rerender)
                             (not (false? require-cause?)))
         unobserved?    (and cause-gate? (zero? c))
-        vacuity-opt?   (and (= id assertions/id-no-cascade-rerender)
+        vacuity-opt?   (and (= id rf.story.assertions/id-no-cascade-rerender)
                             (false? require-cause?)
                             (zero? c))
         in-bounds?     (causal-in-bounds? expectation n)
@@ -707,19 +707,19 @@
 
   `causal-atoms` is the vector of declared `[:rf.assert/caused …]` /
   `[:rf.assert/no-cascade-rerender …]` atoms; `evidence` is the
-  `evidence/project-evidence` output (the SINGLE reactive source — the
+  `rf.story.play.evidence/project-evidence` output (the SINGLE reactive source — the
   `:reactive-counts` / `:sub-runs` / `:renders` projections, never a second
   accumulator). Returns `{:records [assertion-record …]}`, one per declared
   expectation.
 
   Note these are PURE expectations, NOT agreement-floor signals: an
   over-render is a `:fail` of a `:rf.assert/no-cascade-rerender` declaration,
-  not a tape-floor failure on its own (`evidence/tape-shows-failure?` does not
+  not a tape-floor failure on its own (`rf.story.play.evidence/tape-shows-failure?` does not
   read reactive counts). A run with NO reactive rows (no `:reactive-counts`
   slot) resolves each causal expectation to `:cannot-run` — fail closed, never
   a silent pass against an empty projection (this is the matcher's own
   fail-closed guard; it mirrors the post-run `:reactive-counts` evidence-slot
-  check (`requirements/validate-evidence`) so the verdict is correct even
+  check (`rf.story.requirements/validate-evidence`) so the verdict is correct even
   where that check is not separately invoked).
 
   Each record also carries `:observed-cause-count` (rf2-x76af2.17) — the
@@ -731,7 +731,7 @@
   `{:require-cause? false}`).
 
   `truncated?` (rf2-4u5zl4) is the per-run epoch-tape truncation signal
-  (`evidence/run-tape-truncated?`): true when the bounded `epoch-history`
+  (`rf.story.play.evidence/run-tape-truncated?`): true when the bounded `epoch-history`
   ring evicted the run's earliest epochs. When true, an otherwise in-bounds
   causal `:pass` against a finite upper bound resolves `:cannot-run` — the
   dropped effect evidence could carry effects exceeding the bound, so the
@@ -744,7 +744,7 @@
    (let [reactive? (contains? evidence :reactive-counts)
          tape      (:epoch-tape evidence)]
      {:records (mapv (fn [a]
-                       (let [exp (assertions/causal-expectation a)]
+                       (let [exp (rf.story.assertions/causal-expectation a)]
                          (causal-record exp
                                         (causal-count exp evidence)
                                         (observed-cause-count (:event exp) tape)
@@ -803,7 +803,7 @@
                           upstream by the `:reactive-counts` fail-closed
                           evidence-slot check (`:cannot-run`).
   - `:epoch-truncated?` — the per-run epoch-tape truncation signal
-                          (`evidence/run-tape-truncated?`, rf2-4u5zl4): true
+                          (`rf.story.play.evidence/run-tape-truncated?`, rf2-4u5zl4): true
                           when the bounded `epoch-history` ring evicted the
                           run's earliest epochs. When true, an otherwise
                           in-bounds causal `:pass` against a finite upper
@@ -824,7 +824,7 @@
                           Test mode reads it rather than re-deriving the set.
   - `:unmet`            — the per-requirement `:cannot-run` refusals for
                           expectations the runner could not attempt
-                          (`requirements/unmet-assertions` /
+                          (`rf.story.requirements/unmet-assertions` /
                           `unmet-steps`). Folded into the status + surfaced
                           on `:cannot-run`.
   - `:app-db`           — the final (post-run) app-db, redacted upstream.
@@ -832,9 +832,9 @@
     `:required-runner` / `:fidelity` / `:elapsed-ms` — passed through
     verbatim when present (the API-stable identity / timing slots).
 
-  The verdict: `requirements/aggregate-status` over the assertion records +
+  The verdict: `rf.story.requirements/aggregate-status` over the assertion records +
   the `:unmet` refusals gives the assertion-side status; the agreement
-  floor (`evidence/tape-shows-failure?`) escalates a `:pass` to `:fail`
+  floor (`rf.story.play.evidence/tape-shows-failure?`) escalates a `:pass` to `:fail`
   when the tape carries unconsumed failure evidence — so a run NEVER reads
   green while the tape is red, and the verdict is computed from the
   PROJECTED evidence, not a sibling accumulator."
@@ -849,7 +849,7 @@
         ;; only the narrative projection; the `:epoch-tape` slot stays raw
         ;; and the stamp is a `:rf.story/*` key the determinism projection
         ;; strips, so the run-hash is unaffected.
-        evidence-slots (evidence/project-evidence
+        evidence-slots (rf.story.play.evidence/project-evidence
                          tape {:script script :attribution attribution})
         ;; The tape is projected ONCE (`project-evidence` above); the
         ;; schema-violation + effect vectors it already produced are threaded
@@ -888,7 +888,7 @@
         consumed       (into (or consumed-selectors #{})
                              (:consumed-selectors schema-match))
         unmet          (vec (or unmet []))
-        base-status    (requirements/aggregate-status records unmet)
+        base-status    (rf.story.requirements/aggregate-status records unmet)
         ;; Agreement floor over the SAME projected evidence — the violations
         ;; + effects `project-evidence` already derived, not a re-walk of the
         ;; raw tape (the tape is still needed for the per-epoch `:outcome`
@@ -913,7 +913,7 @@
         unconsumed     (cond->> (:unconsumed schema-match)
                          (seq consumed-selectors)
                          (remove #(contains? consumed-selectors (:selector %))))
-        tape-red?      (evidence/evidence-shows-failure?
+        tape-red?      (rf.story.play.evidence/evidence-shows-failure?
                          tape unconsumed (:effects evidence-slots) nil :unconsumed)
         ;; The agreement floor escalates a would-be `:pass` OR a
         ;; `:cannot-run` to `:fail` — a real `:error` already outranks it
@@ -1015,7 +1015,7 @@
   reports exactly once (no run-level double)."
   [{:keys [status assertions schema-violations cannot-run] :as _result}]
   (let [per-assertion (mapv assertion->report assertions)
-        worst         (requirements/aggregate-status assertions cannot-run)
+        worst         (rf.story.requirements/aggregate-status assertions cannot-run)
         ;; The run verdict exceeds the assertion-level verdict (the tape
         ;; floor escalated it, or a run-level cannot-run/error) → emit a
         ;; run-level report so the floor failure is not silently dropped.

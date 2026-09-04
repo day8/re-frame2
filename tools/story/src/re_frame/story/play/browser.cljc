@@ -73,7 +73,7 @@
   `live-a11y-violations` (a late-bound atom read), both isolated so the
   evaluators stay testable on the JVM with no host."
   (:require [clojure.string            :as str]
-            [re-frame.story.assertions :as assertions]))
+            [re-frame.story.assertions :as rf.story.assertions]))
 
 ;; ===========================================================================
 ;; ENVIRONMENT PROBE  (the fail-closed guard at the executor)
@@ -183,14 +183,14 @@
   is the regression key and `:baseline` mismatch is the failure."
   [payload {:keys [snapshot-identity baseline] :as _ctx}]
   (if-not (browser-available?)
-    (cannot-run-finding assertions/id-visual-snapshot payload
+    (cannot-run-finding rf.story.assertions/id-visual-snapshot payload
                         (str "visual snapshot requires a real browser "
                              "(:pixels); the headless runner cannot capture "
                              "or diff a screenshot"))
     (let [hash      (:content-hash snapshot-identity)
           base-hash (:content-hash baseline)
           passed?   (or (nil? baseline) (= hash base-hash))]
-      {:assertion assertions/id-visual-snapshot
+      {:assertion rf.story.assertions/id-visual-snapshot
        :payload   (vec payload)
        :passed?   passed?
        :status    (if passed? :pass :fail)
@@ -269,7 +269,7 @@
   with app-db / args / trace / epoch evidence)."
   [payload {:keys [violations frame-id] :as _ctx}]
   (if-not (browser-available?)
-    (cannot-run-finding assertions/id-a11y payload
+    (cannot-run-finding rf.story.assertions/id-a11y payload
                         (str "axe-style a11y requires a real browser "
                              "(:a11y-engine); the headless runner cannot run "
                              "axe-core"))
@@ -283,7 +283,7 @@
                                   (>= (get impact-rank (:impact v) 1) floor))
                                 vs)
           passed?     (empty? counted)]
-      {:assertion assertions/id-a11y
+      {:assertion rf.story.assertions/id-a11y
        :payload   (vec payload)
        :passed?   passed?
        :status    (if passed? :pass :fail)
@@ -465,7 +465,7 @@
   [payload {:keys [hiccup] :as _ctx}]
   (let [issues  (structural-issues hiccup)
         passed? (empty? issues)]
-    {:assertion assertions/id-a11y-structural
+    {:assertion rf.story.assertions/id-a11y-structural
      :payload   (vec payload)
      :passed?   passed?
      :status    (if passed? :pass :fail)
@@ -488,8 +488,8 @@
   Pure data → data — the runner uses this to route an atom here rather than
   to the dispatched `:rf.assert/*` handler path."
   [assertion-atom]
-  (contains? assertions/browser-assertion-ids
-             (assertions/assertion-atom-id assertion-atom)))
+  (contains? rf.story.assertions/browser-assertion-ids
+             (rf.story.assertions/assertion-atom-id assertion-atom)))
 
 (defn eval-browser-assertion
   "Evaluate ONE browser-tier oracle assertion atom against `ctx`, returning
@@ -505,10 +505,10 @@
   `:violations` / `:frame-id` / `:hiccup`), supplied by the caller. A
   non-browser-tier atom returns nil (the caller routes it elsewhere)."
   [assertion-atom ctx]
-  (let [id      (assertions/assertion-atom-id assertion-atom)
+  (let [id      (rf.story.assertions/assertion-atom-id assertion-atom)
         payload (vec (rest assertion-atom))]
     (condp = id
-      assertions/id-visual-snapshot (eval-visual-snapshot payload ctx)
-      assertions/id-a11y            (eval-a11y payload ctx)
-      assertions/id-a11y-structural (eval-structural-a11y payload ctx)
+      rf.story.assertions/id-visual-snapshot (eval-visual-snapshot payload ctx)
+      rf.story.assertions/id-a11y            (eval-a11y payload ctx)
+      rf.story.assertions/id-a11y-structural (eval-structural-a11y payload ctx)
       nil)))

@@ -53,15 +53,15 @@
   Sub-second; node CLJS."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.ui.shell :as shell]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.shell :as rf.story.ui.shell]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as xray-e2e]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- app image (EP-0026 §Default Image) ----------------------------------
 ;;
@@ -89,11 +89,11 @@
   variant's `:setup`) and the `:rf.xray/set-target-frame` dispatch
   both fire from here."
   []
-  ((deref #'shell/selection-watcher)))
+  ((deref #'rf.story.ui.shell/selection-watcher)))
 
 (defn- remove-selection-watcher!
   []
-  ((deref #'shell/remove-selection-watcher!)))
+  ((deref #'rf.story.ui.shell/remove-selection-watcher!)))
 
 (defn- register-counter-host!
   "Register the counter event the variant's `:setup` slot dispatches.
@@ -111,10 +111,10 @@
 
 (defn- register-counter-story! []
   (register-counter-host!)
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc    "Counter parent story for the Story-Xray wiring contract test."
      :images [app-image]})
-  (story/reg-variant variant-id
+  (rf.story/reg-variant variant-id
     {:doc    "Counter seeded at 5 — its :setup cascade must land in
               Xray's trace-buffer on selection."
      :setup [[:counter/initialise]]}))
@@ -136,7 +136,7 @@
             the buffer was empty AND the target-frame was stale at the
             same time. This pins the conjunction the two #1822 unit
             tests cover only separately."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-counter-story!}
       (fn []
         (install-selection-watcher!)
@@ -145,7 +145,7 @@
           ;; Fires `ensure-variant-frame!` → `run-variant` dispatches
           ;; `[:counter/initialise]` into the variant frame (traced into
           ;; the bus) AND `:rf.xray/set-target-frame <variant-id>`.
-          (e2e/select-variant! variant-id)
+          (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
           ;; Mirror the bus into Xray's `:trace-buffer` slot — production
           ;; coalesces this on next-tick; drive it inline so the slot is
           ;; observable on this tick (matches the harness convention).
@@ -187,29 +187,29 @@
             trace-buffer view (cascades now include the second variant's
             event) AND the target-frame — the empty-RHS bug would
             reappear on every switch if either half failed to re-fire."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
          (rf/reg-event :counter/initialise
            (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
          (rf/reg-event :counter/seed-ten
            (fn [{:keys [db]} _event] {:db {:counter/value 10}}))
-         (story/reg-story :story.counter {:images [app-image]})
-         (story/reg-variant :story.counter/loaded
+         (rf.story/reg-story :story.counter {:images [app-image]})
+         (rf.story/reg-variant :story.counter/loaded
            {:setup [[:counter/initialise]]})
-         (story/reg-variant :story.counter/ten
+         (rf.story/reg-variant :story.counter/ten
            {:setup [[:counter/seed-ten]]}))}
       (fn []
         (install-selection-watcher!)
         (try
-          (e2e/select-variant! :story.counter/loaded)
+          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.counter/loaded)
           (xray-e2e/sync-xray-trace-mirror!)
           (rf/with-frame :rf/xray
             (is (= :story.counter/loaded
                    @(rf/subscribe [:rf.xray/target-frame]))
                 "first selection orients Xray on :story.counter/loaded"))
 
-          (e2e/select-variant! :story.counter/ten)
+          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.counter/ten)
           (xray-e2e/sync-xray-trace-mirror!)
           (rf/with-frame :rf/xray
             (is (= :story.counter/ten

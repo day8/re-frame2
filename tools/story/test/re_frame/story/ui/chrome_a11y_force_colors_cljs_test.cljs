@@ -15,8 +15,8 @@
   - `bootstrap-force-colors!` re-applies the persisted state to
     `<html>` so the toggle survives reload."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story.theme.motion :as motion]
-            [re-frame.story.ui.chrome-a11y :as chrome-a11y]))
+            [re-frame.story.theme.motion :as rf.story.theme.motion]
+            [re-frame.story.ui.chrome-a11y :as rf.story.ui.chrome-a11y]))
 
 ;; ---- fixture: clear storage + reset bootstrap sentinel + clear attr ----
 
@@ -24,21 +24,21 @@
   (when (and (exists? js/globalThis) (.-localStorage js/globalThis))
     (try
       (.removeItem (.-localStorage js/globalThis)
-                   chrome-a11y/force-colors-opt-in-key)
+                   rf.story.ui.chrome-a11y/force-colors-opt-in-key)
       (catch :default _ nil))))
 
 (defn- reset-attribute! []
   ;; Clear any attribute left behind by a prior test so each test
-  ;; observes a clean baseline. `chrome-a11y/apply-force-colors-
+  ;; observes a clean baseline. `rf.story.ui.chrome-a11y/apply-force-colors-
   ;; attribute!` with `false` removes the attribute; safe when
   ;; absent.
-  (chrome-a11y/apply-force-colors-attribute! false))
+  (rf.story.ui.chrome-a11y/apply-force-colors-attribute! false))
 
 (defn- reset-in-memory-state! []
   ;; The bootstrap sentinel + ratom live in `defonce` so they survive
   ;; across tests. Force a clean state by writing false, which also
   ;; sets the bootstrap flag so subsequent reads don't re-read storage.
-  (chrome-a11y/set-force-colors-opt-in! false))
+  (rf.story.ui.chrome-a11y/set-force-colors-opt-in! false))
 
 (use-fixtures :each
   {:before (fn []
@@ -62,7 +62,7 @@
   (testing "rf2-846h2 — opt-in defaults to false when localStorage is
             empty (or unavailable). The system-token chrome only
             activates under explicit operator opt-in or OS HCM."
-    (is (false? (chrome-a11y/force-colors-opt-in?)))))
+    (is (false? (rf.story.ui.chrome-a11y/force-colors-opt-in?)))))
 
 ;; ---- set / clear --------------------------------------------------------
 
@@ -71,23 +71,23 @@
             the in-memory ratom AND stamps the attribute on `<html>`
             so the sibling selectors in `theme/motion.cljc` fire on
             the next paint."
-    (chrome-a11y/set-force-colors-opt-in! true)
-    (is (true? (chrome-a11y/force-colors-opt-in?))
+    (rf.story.ui.chrome-a11y/set-force-colors-opt-in! true)
+    (is (true? (rf.story.ui.chrome-a11y/force-colors-opt-in?))
         "ratom reflects the new value")
     (when-let [html (html-root)]
       (is (= "active"
-             (.getAttribute html chrome-a11y/force-colors-attribute))
+             (.getAttribute html rf.story.ui.chrome-a11y/force-colors-attribute))
           "<html> carries the active attribute"))))
 
 (deftest set-false-clears-attribute-on-html-root
   (testing "rf2-846h2 — flipping the toggle off clears the attribute
             so the chrome reverts to author-encoded colours."
-    (chrome-a11y/set-force-colors-opt-in! true)
-    (chrome-a11y/set-force-colors-opt-in! false)
-    (is (false? (chrome-a11y/force-colors-opt-in?))
+    (rf.story.ui.chrome-a11y/set-force-colors-opt-in! true)
+    (rf.story.ui.chrome-a11y/set-force-colors-opt-in! false)
+    (is (false? (rf.story.ui.chrome-a11y/force-colors-opt-in?))
         "ratom reflects the flipped value")
     (when-let [html (html-root)]
-      (is (nil? (.getAttribute html chrome-a11y/force-colors-attribute))
+      (is (nil? (.getAttribute html rf.story.ui.chrome-a11y/force-colors-attribute))
           "<html> attribute cleared"))))
 
 ;; ---- bootstrap restores persisted state --------------------------------
@@ -101,13 +101,13 @@
     ;; the in-memory atom path so bootstrap re-reads storage.
     (when (and (exists? js/globalThis) (.-localStorage js/globalThis))
       (.setItem (.-localStorage js/globalThis)
-                chrome-a11y/force-colors-opt-in-key
+                rf.story.ui.chrome-a11y/force-colors-opt-in-key
                 "true"))
     ;; Reset bootstrap sentinel + ratom so the next force-colors-opt-in?
     ;; re-reads storage. We can't reach into defonce directly without an
     ;; explicit reset helper; the apply path is idempotent so we drive it
     ;; via the public set fn after seeding storage.
-    (chrome-a11y/bootstrap-force-colors!)
+    (rf.story.ui.chrome-a11y/bootstrap-force-colors!)
     (when-let [html (html-root)]
       ;; The in-memory state may still be false from the fixture reset
       ;; (defonce sentinel held); bootstrap reads via `force-colors-opt-
@@ -115,10 +115,10 @@
       ;; round-trip works via the persisted side: when storage holds
       ;; "true", a fresh apply via `set-force-colors-opt-in! true`
       ;; followed by `bootstrap-force-colors!` keeps the attribute on.
-      (chrome-a11y/set-force-colors-opt-in! true)
-      (chrome-a11y/bootstrap-force-colors!)
+      (rf.story.ui.chrome-a11y/set-force-colors-opt-in! true)
+      (rf.story.ui.chrome-a11y/bootstrap-force-colors!)
       (is (= "active"
-             (.getAttribute html chrome-a11y/force-colors-attribute))
+             (.getAttribute html rf.story.ui.chrome-a11y/force-colors-attribute))
           "<html> carries the active attribute after bootstrap"))))
 
 ;; ---- apply is no-op-safe ------------------------------------------------
@@ -129,8 +129,8 @@
             root or without an `<html>` document (defensive: the
             helper is called from the bootstrap path that may run
             before the React tree commits)."
-    (is (nil? (chrome-a11y/apply-force-colors-attribute! true)))
-    (is (nil? (chrome-a11y/apply-force-colors-attribute! false)))))
+    (is (nil? (rf.story.ui.chrome-a11y/apply-force-colors-attribute! true)))
+    (is (nil? (rf.story.ui.chrome-a11y/apply-force-colors-attribute! false)))))
 
 ;; ---- motion-css carries the attribute-selector arm ---------------------
 
@@ -139,7 +139,7 @@
             sibling block keyed on `[data-rf-force-colors=\"active\"]`
             so the operator opt-in activates the same system-token
             chrome the OS HCM media query paints."
-    (let [css motion/motion-css]
+    (let [css rf.story.theme.motion/motion-css]
       (is (string? css))
       (is (re-find #"\[data-rf-force-colors=\"active\"\]" css)
           "attribute selector is present in motion-css"))))

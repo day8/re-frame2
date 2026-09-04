@@ -10,7 +10,7 @@
   the PRODUCTION path — a REGISTERED variant compiled via the DEFAULT
   side-table lookup (NO `:lookup` arg). The pre-ruling tests fed RAW bodies
   through explicit `:lookup` maps, which masked the divergence: the canvas
-  `resolve-sub-overrides` read `(:sub-overrides (registrar/handler-meta
+  `resolve-sub-overrides` read `(:sub-overrides (rf.story.registrar/handler-meta
   :variant id))` straight off the side-table, seeing ONLY the variant's OWN
   slot — dropping overrides contributed by a `:compose`d fragment or an
   `:extends` parent (which the plan compiler COMPOSES into
@@ -22,8 +22,8 @@
   prove:
 
     1. composed-fragment + `:extends`-chain `:sub-overrides` resolve through
-       the canvas's resolver (the SAME `render/resolve-render-sub-overrides`
-       over `plan/variant-plan` render-variant uses) — rf2-45zvx / rf2-bhaqt;
+       the canvas's resolver (the SAME `rf.story.render/resolve-render-sub-overrides`
+       over `rf.story.plan/variant-plan` render-variant uses) — rf2-45zvx / rf2-bhaqt;
     2. the canvas decorator resolution and render-variant's render-inputs
        resolve the SAME `[:world :decorators]` (composed + inherited) —
        rf2-hzhmv (resolution agreement) / rf2-ba86n.8;
@@ -34,13 +34,13 @@
   registrar are all JVM-runnable, so the DEFAULT lookup works under both
   `clojure -M:test` and `npm run test:cljs`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story.config     :as config]
-            [re-frame.story.decorators :as decorators]
-            [re-frame.story.late-bind  :as late-bind]
-            [re-frame.story.plan       :as plan]
-            [re-frame.story.registrar  :as registrar]
-            [re-frame.story.render     :as render]
-            [re-frame.registrar        :as framework-registrar]))
+            [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.decorators :as rf.story.decorators]
+            [re-frame.story.late-bind  :as rf.story.late-bind]
+            [re-frame.story.plan       :as rf.story.plan]
+            [re-frame.story.registrar  :as rf.story.registrar]
+            [re-frame.story.render     :as rf.story.render]
+            [re-frame.registrar        :as rf.registrar]))
 
 ;; ---- fixtures ------------------------------------------------------------
 ;;
@@ -52,26 +52,26 @@
 ;; canonical auto-install (fired by every `reg-*`) wires it, so the no-host
 ;; `:cannot-run` assertion must DROP `:render-host` AFTER its registrations
 ;; (see `render-variant-cannot-run-with-no-host`). We MUST NOT
-;; `late-bind/clear!` (that wipes the canonical shims every sibling test ns
+;; `rf.story.late-bind/clear!` (that wipes the canonical shims every sibling test ns
 ;; relies on). The fixture snapshots + restores the whole hooks map so any
 ;; per-test dissoc is surgical and reverts cleanly (mirrors `render-test`).
 
 (defn reset-fixture [test-fn]
-  (registrar/clear-all!)
-  (framework-registrar/clear-kind! :sub)
+  (rf.story.registrar/clear-all!)
+  (rf.registrar/clear-kind! :sub)
   ;; The global-decorators vector is a process-global config atom (NOT part
   ;; of the side-table `clear-all!` wipes), so a test that sets globals
   ;; would leak into siblings. Clear it before each test and restore the
   ;; pre-test value after (rf2-5fibj).
-  (config/set-global-decorators! [])
+  (rf.story.config/set-global-decorators! [])
   ;; `:sub-overrides` validation soft-passes when a sub carries no output
   ;; schema (the host-free floor), so an unregistered :sub is fine here.
-  (let [snapshot       @late-bind/hooks
-        globals-before (config/get-global-decorators)]
+  (let [snapshot       @rf.story.late-bind/hooks
+        globals-before (rf.story.config/get-global-decorators)]
     (try (test-fn)
          (finally
-           (reset! late-bind/hooks snapshot)
-           (config/set-global-decorators! globals-before)))))
+           (reset! rf.story.late-bind/hooks snapshot)
+           (rf.story.config/set-global-decorators! globals-before)))))
 
 (use-fixtures :each reset-fixture)
 
@@ -82,7 +82,7 @@
 ;; here at the CLJC seam both paths share).
 (defn- canvas-sub-overrides
   [variant-id eff-args]
-  (render/resolve-render-sub-overrides (plan/variant-plan variant-id) eff-args))
+  (rf.story.render/resolve-render-sub-overrides (rf.story.plan/variant-plan variant-id) eff-args))
 
 ;; ===========================================================================
 ;; rf2-45zvx / rf2-bhaqt — composed-fragment + :extends-chain :sub-overrides
@@ -93,9 +93,9 @@
             :compose'd fragment resolves the fragment's overrides through the
             canvas resolver — the bare-body read dropped them (rf2-45zvx /
             rf2-bhaqt)"
-    (registrar/reg-fragment* :fragment.login/errored
+    (rf.story.registrar/reg-fragment* :fragment.login/errored
                              {:sub-overrides {[:login/state] :error}})
-    (registrar/reg-variant* :story.login/from-fragment
+    (rf.story.registrar/reg-variant* :story.login/from-fragment
                             {:compose       [:fragment.login/errored]
                              :sub-overrides {[:login/attempts] 3}
                              :setup        []})
@@ -106,7 +106,7 @@
                 read (`(:sub-overrides body)`) would have dropped it"
         (is (= :error (get resolved [:login/state]))))
       (testing "the canvas resolver agrees with the plan's composed slot"
-        (is (= (get-in (plan/variant-plan :story.login/from-fragment)
+        (is (= (get-in (rf.story.plan/variant-plan :story.login/from-fragment)
                        [:world :render :sub-overrides])
                resolved))))))
 
@@ -114,10 +114,10 @@
   (testing "a child variant that :extends a parent with :sub-overrides and
             declares its OWN inherits the merged map through the canvas
             resolver (rf2-45zvx — the :extends chain)"
-    (registrar/reg-variant* :story.ext.subovr/parent
+    (rf.story.registrar/reg-variant* :story.ext.subovr/parent
                             {:sub-overrides {[:login/state] :error}
                              :setup        []})
-    (registrar/reg-variant* :story.ext.subovr/child
+    (rf.story.registrar/reg-variant* :story.ext.subovr/child
                             {:extends       :story.ext.subovr/parent
                              :sub-overrides {[:login/attempts] 5}
                              :setup        []})
@@ -134,11 +134,11 @@
             re-substitution render-variant does. The canvas passes the
             variant's resolved effective args (incl. defaults), so the
             placeholder always has a value to substitute."
-    (registrar/reg-variant* :story.login/argdriven
+    (rf.story.registrar/reg-variant* :story.login/argdriven
                             {:args          {:message "default"}
                              :sub-overrides {[:login/error] [:arg :message]}
                              :setup        []})
-    (let [plan-eff (get-in (plan/variant-plan :story.login/argdriven)
+    (let [plan-eff (get-in (rf.story.plan/variant-plan :story.login/argdriven)
                            [:world :effective-args])]
       (testing "the plan-time arg resolves against the variant's effective args"
         (is (= "default"
@@ -153,7 +153,7 @@
 (deftest variant-with-no-sub-overrides-resolves-nil
   (testing "a registered variant authoring NO :sub-overrides resolves nil
             (render-transparent — no wrapper)"
-    (registrar/reg-variant* :story.plain/v {:setup []})
+    (rf.story.registrar/reg-variant* :story.plain/v {:setup []})
     (is (nil? (canvas-sub-overrides :story.plain/v {})))))
 
 ;; ===========================================================================
@@ -166,25 +166,25 @@
             render-inputs resolve the SAME composed + inherited
             [:world :decorators] — single source of truth (rf2-hzhmv /
             rf2-ba86n.8)"
-    (registrar/reg-decorator* :deco/theme-dark
+    (rf.story.registrar/reg-decorator* :deco/theme-dark
                               {:kind :hiccup :wrap (fn [body _] [:div.dark body])})
-    (registrar/reg-decorator* :deco/centered
+    (rf.story.registrar/reg-decorator* :deco/centered
                               {:kind :hiccup :wrap (fn [body _] [:div.centered body])})
     ;; Parent declares a decorator; child inherits via :extends and ADDS none
     ;; of its own — so the child's decorator stack comes ENTIRELY from the
     ;; parent chain (the case a bare-body read would resolve EMPTY).
-    (registrar/reg-variant* :story.deco/parent
+    (rf.story.registrar/reg-variant* :story.deco/parent
                             {:component  :views/widget
                              :decorators [[:deco/theme-dark]]
                              :setup     []})
-    (registrar/reg-variant* :story.deco/child
+    (rf.story.registrar/reg-variant* :story.deco/child
                             {:extends :story.deco/parent
                              :setup  []})
     (let [;; render-variant's render-inputs carry the RAW refs off the plan.
-          prepared       (render/prepare-render :story.deco/child)
+          prepared       (rf.story.render/prepare-render :story.deco/child)
           rv-refs        (get-in prepared [:render-inputs :decorators])
           ;; the canvas resolves the same refs into its :hiccup pack.
-          canvas-pack    (decorators/resolve-decorators :story.deco/child)
+          canvas-pack    (rf.story.decorators/resolve-decorators :story.deco/child)
           canvas-ids     (mapv :id (:hiccup canvas-pack))]
       (testing "render-variant's render-inputs carry the inherited decorator
                 refs off the compiled plan"
@@ -195,7 +195,7 @@
       (testing "both paths agree: render-variant's refs resolve to the canvas
                 pack's :hiccup ids"
         (is (= canvas-ids
-               (mapv :id (:hiccup (decorators/resolve-decorator-refs rv-refs)))))))))
+               (mapv :id (:hiccup (rf.story.decorators/resolve-decorator-refs rv-refs)))))))))
 
 (deftest canvas-and-render-variant-agree-on-full-decorator-stack
   (testing "the canvas + render-variant resolve the SAME FULL decorator
@@ -206,29 +206,29 @@
             globals + story slipped CI green (the din8u CI-blind-spot, one
             layer up): the plan folded only the variant chain, the canvas
             re-assembled globals+story+variant, so they DIVERGED."
-    (registrar/reg-decorator* :deco/global-theme
+    (rf.story.registrar/reg-decorator* :deco/global-theme
                               {:kind :hiccup :wrap (fn [body _] [:div.global body])})
-    (registrar/reg-decorator* :deco/story-frame
+    (rf.story.registrar/reg-decorator* :deco/story-frame
                               {:kind :hiccup :wrap (fn [body _] [:div.story body])})
-    (registrar/reg-decorator* :deco/variant-pad
+    (rf.story.registrar/reg-decorator* :deco/variant-pad
                               {:kind :hiccup :wrap (fn [body _] [:div.variant body])})
     ;; GLOBAL decorator (the layer the host path dropped) — Storybook
     ;; preview.ts parity, rf2-835ey.
-    (config/set-global-decorators! [[:deco/global-theme]])
+    (rf.story.config/set-global-decorators! [[:deco/global-theme]])
     ;; parent-STORY decorator (the OTHER layer the host path dropped) — the
     ;; variant id's namespace resolves to this story.
-    (registrar/reg-story* :story.fullstack
+    (rf.story.registrar/reg-story* :story.fullstack
                           {:decorators [[:deco/story-frame]]})
     ;; the variant adds its own decorator on top.
-    (registrar/reg-variant* :story.fullstack/v
+    (rf.story.registrar/reg-variant* :story.fullstack/v
                             {:component  :views/widget
                              :decorators [[:deco/variant-pad]]
                              :setup     []})
     (let [;; render-variant's render-inputs carry the FULL stack off the plan.
-          prepared    (render/prepare-render :story.fullstack/v)
+          prepared    (rf.story.render/prepare-render :story.fullstack/v)
           rv-refs     (get-in prepared [:render-inputs :decorators])
           ;; the canvas resolves the same plan-sourced refs into its pack.
-          canvas-pack (decorators/resolve-decorators :story.fullstack/v)
+          canvas-pack (rf.story.decorators/resolve-decorators :story.fullstack/v)
           canvas-ids  (mapv :id (:hiccup canvas-pack))]
       (testing "the compiled plan carries the FULL stack in order: global
                 outermost, then story, then variant (NOT just the variant
@@ -241,30 +241,30 @@
       (testing "both paths agree: render-variant's refs resolve to the canvas
                 pack's :hiccup ids — IDENTICAL decorated tree"
         (is (= canvas-ids
-               (mapv :id (:hiccup (decorators/resolve-decorator-refs rv-refs))))))
+               (mapv :id (:hiccup (rf.story.decorators/resolve-decorator-refs rv-refs))))))
       (testing "and applying the stack wraps the leaf globals-outermost,
                 variant-innermost (the rendered tree both paths paint)"
         (is (= [:div.global [:div.story [:div.variant [:span "leaf"]]]]
-               (decorators/apply-hiccup-decorators
+               (rf.story.decorators/apply-hiccup-decorators
                  (:hiccup canvas-pack) [:span "leaf"] {})))))))
 
 (deftest render-variant-applies-decorators-through-shared-seam
   (testing "render-variant's host renders the SAME decorator refs the canvas
             applies — proven by resolving the render-inputs' refs and applying
             them the way the shared seam does (rf2-hzhmv)"
-    (registrar/reg-decorator* :deco/wrap-a
+    (rf.story.registrar/reg-decorator* :deco/wrap-a
                               {:kind :hiccup :wrap (fn [body _] [:div.a body])})
-    (registrar/reg-variant* :story.deco/applied
+    (rf.story.registrar/reg-variant* :story.deco/applied
                             {:component  :views/widget
                              :decorators [[:deco/wrap-a]]
                              :setup     []})
-    (let [prepared (render/prepare-render :story.deco/applied)
+    (let [prepared (rf.story.render/prepare-render :story.deco/applied)
           refs     (get-in prepared [:render-inputs :decorators])
-          hiccup-d (:hiccup (decorators/resolve-decorator-refs refs))
+          hiccup-d (:hiccup (rf.story.decorators/resolve-decorator-refs refs))
           ;; The shared `safe-decorated-view` seam applies the :hiccup
           ;; decorators outermost-first; render-variant's host calls exactly
           ;; this (via multi-substrate/render-decorated-view).
-          wrapped  (decorators/apply-hiccup-decorators hiccup-d [:span "leaf"] {})]
+          wrapped  (rf.story.decorators/apply-hiccup-decorators hiccup-d [:span "leaf"] {})]
       (testing "the decorator wraps the rendered tree (NOT bare — the
                 pre-fix host dropped :decorators entirely)"
         (is (= [:div.a [:span "leaf"]] wrapped))))))
@@ -277,12 +277,12 @@
   (testing "with no render host installed, render-variant returns :cannot-run
             for a registered variant — never a silent empty render
             (the single render path's honest cannot-render state)"
-    (registrar/reg-variant* :story.norender/v
+    (rf.story.registrar/reg-variant* :story.norender/v
                             {:component :views/widget :setup []})
     ;; Drop the render host AFTER registration — on CLJS the `reg-variant*`
     ;; auto-install wires it; the fixture restores it after this test.
-    (swap! late-bind/hooks dissoc :render-host)
-    (let [r (render/render-variant :story.norender/v)]
+    (swap! rf.story.late-bind/hooks dissoc :render-host)
+    (let [r (rf.story.render/render-variant :story.norender/v)]
       (is (= :cannot-run (:status r)))
       (is (= :no-render-host (:reason r)))
       (is (= :story.norender/v (:frame r))))))
@@ -293,7 +293,7 @@
 ;;
 ;; rf2-2cpoo (#3248) threaded run opts into the RUNTIME plan compile
 ;; (`prepare-context`), but the CANVAS decorator path
-;; (`decorators/resolve-decorators`, the front door the live canvas /
+;; (`rf.story.decorators/resolve-decorators`, the front door the live canvas /
 ;; controls / docs panes call) still recompiled the plan WITHOUT them. That
 ;; recompile substitutes EVERY `[:arg key]` in the variant body (db-seed /
 ;; sub-overrides / setup / script) against the arg-map — so a key resolvable
@@ -305,7 +305,7 @@
 ;; `collect-decorator-refs` → `variant-plan {:run-args …}`.
 ;;
 ;; These tests register on the DEFAULT side-table and call
-;; `decorators/resolve-decorators` (the production front door) — proving the
+;; `rf.story.decorators/resolve-decorators` (the production front door) — proving the
 ;; new capability resolves AND, critically, that the no-opts path STILL
 ;; throws (so the test would catch a regression / proves the gap was real).
 ;; ===========================================================================
@@ -323,13 +323,13 @@
             resolves its decorator stack through the canvas front door when the
             active mode is threaded — the recompile no longer throws
             `:rf.error/story-missing-arg` (rf2-eyrpr)"
-    (registrar/reg-decorator* :deco/mode-wrap
+    (rf.story.registrar/reg-decorator* :deco/mode-wrap
                               {:kind :hiccup :wrap (fn [body _] [:div.mode body])})
     ;; the mode supplies :only-in-mode; the variant declares NO :args, so the
     ;; key is reachable ONLY through the mode layer (the rf2-2cpoo new
     ;; capability — `mode < variant`, mode fills the arg the variant omits).
-    (registrar/reg-mode* :Mode.canvas/big {:args {:only-in-mode "from-mode"}})
-    (registrar/reg-variant* :story.canvas.modearg/v
+    (rf.story.registrar/reg-mode* :Mode.canvas/big {:args {:only-in-mode "from-mode"}})
+    (rf.story.registrar/reg-variant* :story.canvas.modearg/v
                             {:component  :views/widget
                              :decorators [[:deco/mode-wrap]]
                              ;; `[:arg :only-in-mode]` substitutes at PLAN
@@ -340,10 +340,10 @@
     (testing "the OLD no-opts front door throws — the gap rf2-2cpoo left
               (proves the test exercises the actual failing path)"
       (is (missing-arg-throw?
-            #(decorators/resolve-decorators :story.canvas.modearg/v))
+            #(rf.story.decorators/resolve-decorators :story.canvas.modearg/v))
           "without :run-args the recompile cannot substitute the mode-only arg"))
     (testing "threading the active mode resolves the decorator stack cleanly"
-      (let [pack (decorators/resolve-decorators
+      (let [pack (rf.story.decorators/resolve-decorators
                    :story.canvas.modearg/v
                    {:active-modes [:Mode.canvas/big]})]
         (is (= [:deco/mode-wrap] (mapv :id (:hiccup pack)))
@@ -356,18 +356,18 @@
             the variant body; the canvas front door resolves the decorator
             stack when the override is threaded (rf2-eyrpr — the highest run
             layer, same as a mode at `cell-override > variant`)"
-    (registrar/reg-decorator* :deco/cell-wrap
+    (rf.story.registrar/reg-decorator* :deco/cell-wrap
                               {:kind :hiccup :wrap (fn [body _] [:div.cell body])})
-    (registrar/reg-variant* :story.canvas.cellarg/v
+    (rf.story.registrar/reg-variant* :story.canvas.cellarg/v
                             {:component  :views/widget
                              :decorators [[:deco/cell-wrap]]
                              :db-seed    {:seeded [:arg :only-in-cell]}
                              :setup     []})
     (testing "the no-opts front door throws (the cell key is variant-absent)"
       (is (missing-arg-throw?
-            #(decorators/resolve-decorators :story.canvas.cellarg/v))))
+            #(rf.story.decorators/resolve-decorators :story.canvas.cellarg/v))))
     (testing "threading the cell-override resolves the stack cleanly"
-      (let [pack (decorators/resolve-decorators
+      (let [pack (rf.story.decorators/resolve-decorators
                    :story.canvas.cellarg/v
                    {:cell-overrides {:only-in-cell "from-cell"}})]
         (is (= [:deco/cell-wrap] (mapv :id (:hiccup pack))))
@@ -377,9 +377,9 @@
   (testing "the COMMON case is unchanged: when every `[:arg key]` is declared
             on the variant itself, the no-opts front door resolves fine — the
             run-args threading is purely ADDITIVE (rf2-eyrpr regression guard)"
-    (registrar/reg-decorator* :deco/plain-wrap
+    (rf.story.registrar/reg-decorator* :deco/plain-wrap
                               {:kind :hiccup :wrap (fn [body _] [:div.plain body])})
-    (registrar/reg-variant* :story.canvas.ownarg/v
+    (rf.story.registrar/reg-variant* :story.canvas.ownarg/v
                             {:component  :views/widget
                              :decorators [[:deco/plain-wrap]]
                              :args       {:in-variant "static"}
@@ -387,12 +387,12 @@
                              :setup     []})
     (testing "no-opts resolves (the variant declares the key)"
       (is (= [:deco/plain-wrap]
-             (mapv :id (:hiccup (decorators/resolve-decorators
+             (mapv :id (:hiccup (rf.story.decorators/resolve-decorators
                                   :story.canvas.ownarg/v))))))
     (testing "and threading run opts resolves the IDENTICAL stack"
-      (is (= (mapv :id (:hiccup (decorators/resolve-decorators
+      (is (= (mapv :id (:hiccup (rf.story.decorators/resolve-decorators
                                   :story.canvas.ownarg/v)))
-             (mapv :id (:hiccup (decorators/resolve-decorators
+             (mapv :id (:hiccup (rf.story.decorators/resolve-decorators
                                   :story.canvas.ownarg/v
                                   {:active-modes [] :cell-overrides {}}))))))))
 
@@ -402,19 +402,19 @@
             throw on the 500ms poll — fingerprints are body-derived + run-layer
             invariant, the opts only let the ref-collection compile succeed
             (rf2-eyrpr)"
-    (registrar/reg-decorator* :deco/fp-wrap
+    (rf.story.registrar/reg-decorator* :deco/fp-wrap
                               {:kind :hiccup :wrap (fn [body _] [:div.fp body])})
-    (registrar/reg-mode* :Mode.fp/on {:args {:only-in-mode "x"}})
-    (registrar/reg-variant* :story.canvas.fp/v
+    (rf.story.registrar/reg-mode* :Mode.fp/on {:args {:only-in-mode "x"}})
+    (rf.story.registrar/reg-variant* :story.canvas.fp/v
                             {:component  :views/widget
                              :decorators [[:deco/fp-wrap]]
                              :db-seed    {:seeded [:arg :only-in-mode]}
                              :setup     []})
     (testing "the no-opts poll throws (the gap)"
       (is (missing-arg-throw?
-            #(decorators/resolution-fingerprints :story.canvas.fp/v))))
+            #(rf.story.decorators/resolution-fingerprints :story.canvas.fp/v))))
     (testing "threading the active mode lets the poll capture the fingerprint"
-      (let [fps (decorators/resolution-fingerprints
+      (let [fps (rf.story.decorators/resolution-fingerprints
                   :story.canvas.fp/v
                   {:active-modes [:Mode.fp/on]})]
         (is (contains? fps :deco/fp-wrap)

@@ -31,46 +31,46 @@
 
   - **Slow-loading variant render: substrate-portability fallback** —
     when a substrate is unregistered (the slow-loader path the user
-    sees when a custom substrate doesn't ship), `multi-substrate/
+    sees when a custom substrate doesn't ship), `rf.story.ui.multi-substrate/
     safe-render-cell` projects the `unregistered-substrate` error
     cell. Pin the shape so the user sees a loading-affordance-style
     inline message rather than a blank cell."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.machines         :as machines]
-            [re-frame.registrar        :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.story            :as story]
-            [re-frame.story.loaders    :as loaders]
-            [re-frame.story.plan       :as plan]
-            [re-frame.story.render     :as render]
-            [re-frame.story.runtime    :as runtime]
-            [re-frame.story.ui.canvas  :as canvas]
-            [re-frame.story.ui.multi-substrate :as multi-substrate]
-            [re-frame.story.ui.state   :as state]
-            [re-frame.subs             :as subs]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.machines         :as rf.machines]
+            [re-frame.registrar        :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.story            :as rf.story]
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.plan       :as rf.story.plan]
+            [re-frame.story.render     :as rf.story.render]
+            [re-frame.story.runtime    :as rf.story.runtime]
+            [re-frame.story.ui.canvas  :as rf.story.ui.canvas]
+            [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate]
+            [re-frame.story.ui.state   :as rf.story.ui.state]
+            [re-frame.subs             :as rf.subs]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-all! []
-  (story/clear-all!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (try (rf/init! plain-atom/adapter)
+  (rf.story/clear-all!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
   ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
   ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
   ;; `:rf/runtime` path — mirror `re-frame.machines`.
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
-  (machines/reset-timers!)
-  (loaders/clear-watchers!)
-  (state/reset-shell-state!)
-  (story/install-canonical-vocabulary!)
-  (frame/ensure-default-frame!))
+  (rf.machines/reset-timers!)
+  (rf.story.loaders/clear-watchers!)
+  (rf.story.ui.state/reset-shell-state!)
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
 
@@ -105,7 +105,7 @@
                                      (throw (ex-info "wrap exploded"
                                                      {:where :under-test})))}}
           view       [:div.user "user view"]
-          result     (canvas/safe-decorated-view view [boom-dec] {})
+          result     (rf.story.ui.canvas/safe-decorated-view view [boom-dec] {})
           text-bits  (hiccup-text-flatten result)]
       ;; The result is a hiccup vector, not the thrown exception —
       ;; the shell continues to render this tree.
@@ -137,7 +137,7 @@
           good-2     {:id   :inner-wrap
                       :body {:wrap (fn [body _] [:div.inner body])}}
           view       [:div.user "view"]
-          result     (canvas/safe-decorated-view view [good-1 boom good-2] {})
+          result     (rf.story.ui.canvas/safe-decorated-view view [good-1 boom good-2] {})
           text-bits  (hiccup-text-flatten result)]
       ;; All three decorator ids appear in the error projection.
       (doseq [id [:outer-wrap :middle-wrap :inner-wrap]]
@@ -151,7 +151,7 @@
             wrapper doesn't accidentally project an error block when
             no decorators throw"
     (let [view   [:div.user "user view"]
-          result (canvas/safe-decorated-view view [] {})]
+          result (rf.story.ui.canvas/safe-decorated-view view [] {})]
       (is (= view result)
           "no decorators → view passes through verbatim"))))
 
@@ -162,7 +162,7 @@
                   :body {:wrap (fn [body _]
                                  [:div.wrapper body])}}
           view   [:div.user "view"]
-          result (canvas/safe-decorated-view view [dec] {})]
+          result (rf.story.ui.canvas/safe-decorated-view view [dec] {})]
       ;; The wrapper is present.
       (is (= :div.wrapper (first result))
           "happy-path decorator's wrap is engaged")
@@ -184,13 +184,13 @@
 ;; ===========================================================================
 
 (deftest loader-incomplete-record-shape-pinned
-  (testing "runtime/loader-incomplete-record produces a record whose
+  (testing "rf.story.runtime/loader-incomplete-record produces a record whose
             slot shape the canvas's renderer reads. Pin the shape so
             a future refactor to the record doesn't silently break
             the canvas's loading-affordance render"
     (let [variant-id   :story.slow.loader/probe
           variant-body {:loaders-complete-when :probe/never}
-          record       (#'runtime/loader-incomplete-record
+          record       (#'rf.story.runtime/loader-incomplete-record
                          variant-id variant-body)]
       (is (= :rf.error/loader-incomplete (:assertion record))
           ":assertion is the canonical error id the canvas matches on")
@@ -215,7 +215,7 @@
             renders a generic 'loaders did not complete' message"
     (let [variant-id   :story.slow.loader.no-pred/probe
           variant-body {:loaders [[:probe/start]]}  ; no :loaders-complete-when
-          record       (#'runtime/loader-incomplete-record
+          record       (#'rf.story.runtime/loader-incomplete-record
                          variant-id variant-body)]
       (is (= :rf.error/loader-incomplete (:assertion record)))
       (is (nil? (:predicate record))
@@ -249,20 +249,20 @@
             error cell"
     ;; First, REMOVE any existing :uix registration so we test the
     ;; not-registered path deterministically.
-    (swap! multi-substrate/substrate->render-fn dissoc :uix)
-    (is (not (contains? @multi-substrate/substrate->render-fn :uix))
+    (swap! rf.story.ui.multi-substrate/substrate->render-fn dissoc :uix)
+    (is (not (contains? @rf.story.ui.multi-substrate/substrate->render-fn :uix))
         "precondition: :uix not in the substrate registry")
     (let [variant-id :story.substrate.missing/probe]
       ;; Use :uix from the canonical enum — it parses, but the runtime
       ;; map doesn't carry a render-fn for it.
-      (story/reg-variant variant-id
+      (rf.story/reg-variant variant-id
         {:substrates #{:uix}
          :setup     []})
       ;; Drive the renderer: multi-substrate-grid is the outer fn the
       ;; canvas dispatches to; the inner safe-render-cell is what
       ;; surfaces the error cell. We render the grid then walk for the
       ;; expected text.
-      (let [hiccup    (multi-substrate/multi-substrate-grid variant-id)
+      (let [hiccup    (rf.story.ui.multi-substrate/multi-substrate-grid variant-id)
             text-bits (hiccup-text-flatten hiccup)]
         (is (some #(re-find #"uix" %) text-bits)
             "the missing substrate id is named in the error cell")
@@ -279,15 +279,15 @@
             slot); the variant uses :uix and the cell renders via the
             stub. The :reagent slot is untouched (the canvas's
             default-substrate baseline)"
-    (multi-substrate/register-substrate!
+    (rf.story.ui.multi-substrate/register-substrate!
       :uix
       (fn [_vid _view-id _args]
         [:div.stub-cell "rendered via stub"]))
     (let [variant-id :story.substrate.ok/probe]
-      (story/reg-variant variant-id
+      (rf.story/reg-variant variant-id
         {:substrates #{:uix}
          :setup     []})
-      (let [hiccup    (multi-substrate/multi-substrate-grid variant-id)
+      (let [hiccup    (rf.story.ui.multi-substrate/multi-substrate-grid variant-id)
             text-bits (hiccup-text-flatten hiccup)]
         ;; On the happy-path branch, safe-render-cell wraps the cell
         ;; body in a Reagent class component (r/create-class) so the
@@ -311,7 +311,7 @@
 ;; variant's :decorators — so a render-variant render of a decorated variant
 ;; diverged from the live canvas (which wraps via safe-decorated-view). The
 ;; consolidation routes BOTH through the shared
-;; `multi-substrate/render-decorated-view` seam, so they paint the same tree.
+;; `rf.story.ui.multi-substrate/render-decorated-view` seam, so they paint the same tree.
 ;; These CLJS tests prove the HOST actually applies the decorators — the
 ;; existing render_test §decorators-are-view-wrapping only pinned that
 ;; :decorators RIDE render-inputs, never that the host APPLIES them. Uses a
@@ -323,17 +323,17 @@
   (testing "the shared render-decorated-view seam (the host hook + the canvas
             both call it) wraps the rendered view in the variant's :hiccup
             decorators resolved from the compiled plan's [:world :decorators]"
-    (story/reg-decorator :deco/themed
+    (rf.story/reg-decorator :deco/themed
       {:kind :hiccup :wrap (fn [body _] [:div.themed body])})
     (rf/reg-sub :probe/label (fn [db _] (:label db)))
     (rf/reg-view* :views/probe (fn [_] [:span.leaf "leaf"]))
-    (story/reg-variant :story.hostdeco/v
+    (rf.story/reg-variant :story.hostdeco/v
       {:component  :views/probe
        :decorators [[:deco/themed]]
        :setup     []})
-    (let [plan        (plan/variant-plan :story.hostdeco/v)
+    (let [plan        (rf.story.plan/variant-plan :story.hostdeco/v)
           deco-refs   (get-in plan [:world :decorators])
-          rendered    (multi-substrate/render-decorated-view
+          rendered    (rf.story.ui.multi-substrate/render-decorated-view
                         :reagent :story.hostdeco/v :views/probe {} deco-refs)
           ;; the OUTERMOST node must be the decorator wrap, not the bare view.
           outer       (first rendered)]
@@ -347,11 +347,11 @@
   (testing "a variant with NO :decorators renders bare through the shared
             seam — render-transparent (no spurious wrapper)"
     (rf/reg-view* :views/plain (fn [_] [:span.leaf "leaf"]))
-    (story/reg-variant :story.hostnodeco/v
+    (rf.story/reg-variant :story.hostnodeco/v
       {:component :views/plain :setup []})
-    (let [plan      (plan/variant-plan :story.hostnodeco/v)
+    (let [plan      (rf.story.plan/variant-plan :story.hostnodeco/v)
           deco-refs (get-in plan [:world :decorators])
-          rendered  (multi-substrate/render-decorated-view
+          rendered  (rf.story.ui.multi-substrate/render-decorated-view
                       :reagent :story.hostnodeco/v :views/plain {} deco-refs)]
       (is (nil? deco-refs) "no decorators on the plan")
       ;; render-view returns the bare [view eff-args] vector for :reagent.
@@ -363,19 +363,19 @@
             resolve the SAME :extends-inherited decorator off the compiled
             plan — the registered (DEFAULT-lookup) production path
             (rf2-hzhmv / rf2-ba86n.8 / rf2-g74i9)"
-    (story/reg-decorator :deco/parent-themed
+    (rf.story/reg-decorator :deco/parent-themed
       {:kind :hiccup :wrap (fn [body _] [:div.parent-themed body])})
-    (story/reg-variant :story.inhdeco/parent
+    (rf.story/reg-variant :story.inhdeco/parent
       {:component  :views/probe
        :decorators [[:deco/parent-themed]]
        :setup     []})
     ;; child inherits the parent's decorator via :extends, declares none.
-    (story/reg-variant :story.inhdeco/child
+    (rf.story/reg-variant :story.inhdeco/child
       {:extends :story.inhdeco/parent
        :setup  []})
-    (let [prepared    (render/prepare-render :story.inhdeco/child)
+    (let [prepared    (rf.story.render/prepare-render :story.inhdeco/child)
           rv-refs     (get-in prepared [:render-inputs :decorators])
-          canvas-ids  (mapv :id (:hiccup (story/resolve-decorators :story.inhdeco/child)))]
+          canvas-ids  (mapv :id (:hiccup (rf.story/resolve-decorators :story.inhdeco/child)))]
       (is (= [[:deco/parent-themed]] rv-refs)
           "render-variant carries the INHERITED decorator refs (NOT empty —
            the bare-body read would have dropped the :extends-inherited stack)")
@@ -387,14 +387,14 @@
   (testing "render-variant returns :rendered for a registered decorated
             variant (the host is installed by the canonical vocabulary), so
             the single render path paints — not :cannot-run"
-    (story/reg-decorator :deco/e2e
+    (rf.story/reg-decorator :deco/e2e
       {:kind :hiccup :wrap (fn [body _] [:div.e2e body])})
     (rf/reg-view* :views/e2e (fn [_] [:span "v"]))
-    (story/reg-variant :story.e2edeco/v
+    (rf.story/reg-variant :story.e2edeco/v
       {:component  :views/e2e
        :decorators [[:deco/e2e]]
        :setup     []})
-    (let [r (render/render-variant :story.e2edeco/v)]
+    (let [r (rf.story.render/render-variant :story.e2edeco/v)]
       (is (= :rendered (:status r))
           "the host is installed (CLJS canonical vocabulary) → :rendered")
       (is (some? (:rendered r))

@@ -34,22 +34,22 @@
 
   Surface tested via hiccup walking; no DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.story :as story]
-            [re-frame.story.ui.state :as ui-state]
-            [re-frame.story.ui.toolbar :as toolbar]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.story :as rf.story]
+            [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.toolbar :as rf.story.ui.toolbar]
+            [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- register-modes! []
-  (story/reg-mode :Mode.theme/dark
+  (rf.story/reg-mode :Mode.theme/dark
     {:axis :theme :args {:theme :dark}  :doc "Dark theme"})
-  (story/reg-mode :Mode.theme/light
+  (rf.story/reg-mode :Mode.theme/light
     {:axis :theme :args {:theme :light} :doc "Light theme"})
-  (story/reg-mode :Mode.app/compact
+  (rf.story/reg-mode :Mode.app/compact
     {:args {:compact? true} :doc "Compact layout"}))
 
 (defn- register-with-variant! []
@@ -57,19 +57,19 @@
   ;; A variant must exist for the DATA cluster to render — the cluster
   ;; gates on `:selected-variant`. Without it the rendered strip skips
   ;; the data divider.
-  (story/reg-story :story.counter {:doc "Counter story for toolbar e2e."})
-  (story/reg-variant :story.counter/v {:setup []})
-  (e2e/select-variant! :story.counter/v))
+  (rf.story/reg-story :story.counter {:doc "Counter story for toolbar e2e."})
+  (rf.story/reg-variant :story.counter/v {:setup []})
+  (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.counter/v))
 
 (defn- render-toolbar []
-  (toolbar/toolbar-strip))
+  (rf.story.ui.toolbar/toolbar-strip))
 
 (defn- chip-for
   "Locate the chip hiccup node for `mode-id` by walking the expanded
   toolbar tree. Returns nil if the chip isn't rendered (e.g. mode
   not registered, or the chip was dropped from the catalog)."
   [tree mode-id]
-  (e2e/find-by-data-attr tree :data-toolbar-mode (pr-str mode-id)))
+  (rf.story.test-helpers.e2e-multi-frame/find-by-data-attr tree :data-toolbar-mode (pr-str mode-id)))
 
 (defn- chip-active?
   "Read `:aria-pressed` off the chip — the toolbar emits `\"true\"` or
@@ -100,11 +100,11 @@
             MODES / DATA / VIEW / DEBUG / REC. Each carries the
             canonical `:data-cluster` label so visual + test corpora
             can locate them."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-with-variant!}
       (fn []
         (let [tree     (render-toolbar)
-              clusters (e2e/find-all-by-test-id tree "story-toolbar-cluster")
+              clusters (rf.story.test-helpers.e2e-multi-frame/find-all-by-test-id tree "story-toolbar-cluster")
               labels   (set (map (fn [n] (get-in n [1 :data-cluster]))
                                  clusters))]
           (is (>= (count clusters) 5)
@@ -121,7 +121,7 @@
   (testing "rf2-v58dm — clicking a chip toggles `:active-modes` AND
             the chip's aria-pressed flips AND the chip's style merges
             the `:chip-active` overlay"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-modes!}
       (fn []
         (let [tree-0 (render-toolbar)
@@ -130,10 +130,10 @@
           (is (false? (chip-active? chip-0))
               "dark chip starts inactive (default :active-modes empty)")
           ;; Click the dark chip.
-          (let [on-click (e2e/handler-for chip-0 :on-click)]
+          (let [on-click (rf.story.test-helpers.e2e-multi-frame/handler-for chip-0 :on-click)]
             (is (fn? on-click) ":on-click wired on the chip")
-            (on-click (e2e/fake-event {})))
-          (is (= [:Mode.theme/dark] (:active-modes (ui-state/get-state)))
+            (on-click (rf.story.test-helpers.e2e-multi-frame/fake-event {})))
+          (is (= [:Mode.theme/dark] (:active-modes (rf.story.ui.state/get-state)))
               "the shell ratom's :active-modes vector flipped")
           ;; Re-render — chip-active? + the style merge should reflect
           ;; the new state.
@@ -148,18 +148,18 @@
   (testing "rf2-v58dm + spec/010 §Selection semantics — clicking a
             theme chip when another theme chip is active evicts the
             sibling. The rendered hiccup mirrors the eviction."
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-modes!}
       (fn []
         ;; Pre-state: dark active.
-        (toolbar/toggle-mode! :Mode.theme/dark)
-        (is (= [:Mode.theme/dark] (:active-modes (ui-state/get-state))))
+        (rf.story.ui.toolbar/toggle-mode! :Mode.theme/dark)
+        (is (= [:Mode.theme/dark] (:active-modes (rf.story.ui.state/get-state))))
         ;; Click light chip.
         (let [tree     (render-toolbar)
               light    (chip-for tree :Mode.theme/light)
-              on-click (e2e/handler-for light :on-click)]
-          (on-click (e2e/fake-event {})))
-        (is (= [:Mode.theme/light] (:active-modes (ui-state/get-state)))
+              on-click (rf.story.test-helpers.e2e-multi-frame/handler-for light :on-click)]
+          (on-click (rf.story.test-helpers.e2e-multi-frame/fake-event {})))
+        (is (= [:Mode.theme/light] (:active-modes (rf.story.ui.state/get-state)))
             "dark evicted, light alone in :active-modes (axis = :theme)")
         ;; Re-render — dark chip is now inactive, light chip is active.
         (let [tree    (render-toolbar)
@@ -173,11 +173,11 @@
 (deftest unaxed-modes-coexist
   (testing "an un-axis-tagged mode coexists with axis-tagged modes —
             clicking compact when dark is active leaves both on"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-modes!}
       (fn []
-        (toolbar/toggle-mode! :Mode.theme/dark)
-        (toolbar/toggle-mode! :Mode.app/compact)
+        (rf.story.ui.toolbar/toggle-mode! :Mode.theme/dark)
+        (rf.story.ui.toolbar/toggle-mode! :Mode.app/compact)
         (let [tree    (render-toolbar)
               dark    (chip-for tree :Mode.theme/dark)
               compact (chip-for tree :Mode.app/compact)]
@@ -190,10 +190,10 @@
 (deftest empty-state-renders-placeholder
   (testing "no modes registered → MODES cluster renders the
             empty-state placeholder rather than chips"
-    (e2e/with-story-and-xray-frames
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}  ;; no register-stories — registry is empty.
       (fn []
         (let [tree (render-toolbar)]
           ;; the placeholder is text content; assert it shows up.
-          (is (re-find #"no modes registered" (e2e/text-nodes tree))
+          (is (re-find #"no modes registered" (rf.story.test-helpers.e2e-multi-frame/text-nodes tree))
               "empty-state text rendered when registrar has no :mode entries"))))))

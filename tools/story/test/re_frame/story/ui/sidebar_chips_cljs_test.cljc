@@ -17,7 +17,7 @@
     five axes in DISTINCT `data-axis` groups, and never collapses world
     inputs / runner / frame-binding into fidelity."
   (:require [clojure.test :refer [deftest is testing]]
-            #?@(:cljs [[re-frame.story.ui.sidebar :as sidebar]])))
+            #?@(:cljs [[re-frame.story.ui.sidebar :as rf.story.ui.sidebar]])))
 
 ;; ---- pure: large-list bounding ------------------------------------------
 
@@ -25,15 +25,15 @@
    (deftest bound-variants-caps-and-expands
      (testing "a list at or below the cap is never bounded"
        (let [vs (mapv (fn [i] [(keyword (str "story.x/v" i)) {}]) (range 5))]
-         (is (= {:shown vs :hidden 0} (sidebar/bound-variants vs 10 false)))))
+         (is (= {:shown vs :hidden 0} (rf.story.ui.sidebar/bound-variants vs 10 false)))))
      (testing "a list over the cap is bounded with the elided count"
        (let [vs (mapv (fn [i] [(keyword (str "story.x/v" i)) {}]) (range 50))
-             {:keys [shown hidden]} (sidebar/bound-variants vs 40 false)]
+             {:keys [shown hidden]} (rf.story.ui.sidebar/bound-variants vs 40 false)]
          (is (= 40 (count shown)))
          (is (= 10 hidden))))
      (testing "expanded? reveals the full list (nothing hidden)"
        (let [vs (mapv (fn [i] [(keyword (str "story.x/v" i)) {}]) (range 50))
-             {:keys [shown hidden]} (sidebar/bound-variants vs 40 true)]
+             {:keys [shown hidden]} (rf.story.ui.sidebar/bound-variants vs 40 true)]
          (is (= 50 (count shown)))
          (is (= 0 hidden))))))
 
@@ -53,16 +53,16 @@
    (deftest workspace-grid-grouping-projection
      (testing "a :variants-grid workspace reports its layout + cell count"
        (is (= {:layout :variants-grid :count 3}
-              (sidebar/workspace-grid-grouping
+              (rf.story.ui.sidebar/workspace-grid-grouping
                 {:layout :variants-grid :variants [:a :b :c]}))))
      (testing ":grid and :tabs are also grid groups"
        (is (= {:layout :grid :count 2}
-              (sidebar/workspace-grid-grouping {:layout :grid :variants [:a :b]})))
+              (rf.story.ui.sidebar/workspace-grid-grouping {:layout :grid :variants [:a :b]})))
        (is (= {:layout :tabs :count 1}
-              (sidebar/workspace-grid-grouping {:layout :tabs :variants [:a]}))))
+              (rf.story.ui.sidebar/workspace-grid-grouping {:layout :tabs :variants [:a]}))))
      (testing "a non-grid layout (prose / custom) is NOT a grid group"
-       (is (nil? (sidebar/workspace-grid-grouping {:layout :prose})))
-       (is (nil? (sidebar/workspace-grid-grouping {:layout :custom}))))))
+       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping {:layout :prose})))
+       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping {:layout :custom}))))))
 
 ;; ---- CLJS-only: rendered signal-chip hiccup -----------------------------
 
@@ -106,7 +106,7 @@
    (deftest signal-chips-always-present-axes
      (testing "a calm default variant still renders status + runner +
                frame-binding chips (one each), and no fidelity / world chips"
-       (let [tree   (sidebar/signal-chips {} :pending)
+       (let [tree   (rf.story.ui.sidebar/signal-chips {} :pending)
              by-axis (chips-by-axis tree)]
          (is (= ["pending"]  (get by-axis "status")))
          (is (= ["headless"] (get by-axis "runner-requirement")))
@@ -119,7 +119,7 @@
      (testing "a rich variant renders all five axes in SEPARATE data-axis
                groups — world inputs / runner / frame-binding are NEVER
                folded into fidelity (spec/018 §7.1)"
-       (let [tree   (sidebar/signal-chips
+       (let [tree   (rf.story.ui.sidebar/signal-chips
                       {:setup        [[:dispatch [:seed]]]
                        :sub-overrides {[:q] 1}
                        :args          {:label "x"}
@@ -142,21 +142,21 @@
    (deftest signal-status-style-key-projection
      (testing "each status value maps to its own tint style key — distinct
                colour/shape (spec/018 §12.6)"
-       (is (= :signal-status-pass       (sidebar/status-signal->style-key :pass)))
-       (is (= :signal-status-fail       (sidebar/status-signal->style-key :fail)))
-       (is (= :signal-status-cannot-run (sidebar/status-signal->style-key :cannot-run)))
-       (is (= :signal-status-error      (sidebar/status-signal->style-key :error)))
-       (is (= :signal-status-pending    (sidebar/status-signal->style-key :pending))))))
+       (is (= :signal-status-pass       (rf.story.ui.sidebar/status-signal->style-key :pass)))
+       (is (= :signal-status-fail       (rf.story.ui.sidebar/status-signal->style-key :fail)))
+       (is (= :signal-status-cannot-run (rf.story.ui.sidebar/status-signal->style-key :cannot-run)))
+       (is (= :signal-status-error      (rf.story.ui.sidebar/status-signal->style-key :error)))
+       (is (= :signal-status-pending    (rf.story.ui.sidebar/status-signal->style-key :pending))))))
 
 #?(:cljs
    (deftest axis-group-style-key-projection
      (testing "each non-status axis has its OWN tint family so the axes
                read as distinct groups"
-       (is (= :signal-fidelity (sidebar/axis->group-style-key :fidelity)))
-       (is (= :signal-world    (sidebar/axis->group-style-key :world-inputs)))
-       (is (= :signal-runner   (sidebar/axis->group-style-key :runner-requirement)))
-       (is (= :signal-frame    (sidebar/axis->group-style-key :frame-binding)))
+       (is (= :signal-fidelity (rf.story.ui.sidebar/axis->group-style-key :fidelity)))
+       (is (= :signal-world    (rf.story.ui.sidebar/axis->group-style-key :world-inputs)))
+       (is (= :signal-runner   (rf.story.ui.sidebar/axis->group-style-key :runner-requirement)))
+       (is (= :signal-frame    (rf.story.ui.sidebar/axis->group-style-key :frame-binding)))
        ;; the four tints are all different — no axis shares fidelity's tint.
-       (is (= 4 (count (set (map sidebar/axis->group-style-key
+       (is (= 4 (count (set (map rf.story.ui.sidebar/axis->group-style-key
                                  [:fidelity :world-inputs :runner-requirement
                                   :frame-binding]))))))))

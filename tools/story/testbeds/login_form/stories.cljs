@@ -37,7 +37,7 @@
   resolves the request with the canned-success / canned-failure shape
   per Spec 014 §Testing."
   (:require [re-frame.core  :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             ;; Sourcing these via :require fires the registrations.
             [login-form.events]
             [login-form.subs]
@@ -71,7 +71,7 @@
   ;; Project tag — the screenshot pinned to the tutorial.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-tag :login-form/tutorial
+  (rf.story/reg-tag :login-form/tutorial
     {:doc "Variants the Story tutorial points at by name. The
           authenticated variant is the canonical screenshot — the
           welcome banner that lands on `docs/story/01-first-story.md`."})
@@ -83,12 +83,12 @@
   ;; semantics on a real shape.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-mode :Mode.login-form/light
+  (rf.story/reg-mode :Mode.login-form/light
     {:doc  "Light theme — the default. Matches the live page."
      :axis :theme
      :args {:theme :light}})
 
-  (story/reg-mode :Mode.login-form/dark
+  (rf.story/reg-mode :Mode.login-form/dark
     {:doc  "Dark theme — for the design-review workspace."
      :axis :theme
      :args {:theme :dark}})
@@ -98,7 +98,7 @@
   ;; decorators, args, and tags.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-story :story.login-form
+  (rf.story/reg-story :story.login-form
     {:doc        "The login form — every state from the tutorial's
                  five-state scenario, as runnable variants."
      :component  :login-form.views/login-card
@@ -117,7 +117,7 @@
   ;; the state is what the variant's name says it is.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login-form/idle
+  (rf.story/reg-variant :story.login-form/idle
     {:doc    "Fresh form, no inputs typed, no submit clicked. The
              entry state the user lands on when they navigate to
              `#/login` for the first time.
@@ -153,14 +153,14 @@
   ;; which is exactly what the tutorial's second state describes.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login-form/submitting
+  (rf.story/reg-variant :story.login-form/submitting
     {:doc    "First submit; HTTP request in flight; inputs disabled,
              button reads 'Signing in…'. The fx-stub records the
              request and resolves nothing so the canvas locks in
              :submitting."
      :setup [[:login/flow [:login/submit {:email    "ada@example.com"
                                             :password "correct-horse"}]]]
-     :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
+     :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
      :script [[:assert [:rf.assert/state-is      :login/flow :submitting]]
               [:assert [:rf.assert/effect-emitted :rf.http/managed]]]
      :tags   #{:dev :docs :test}
@@ -176,7 +176,7 @@
   ;; error message surfaced.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login-form/error
+  (rf.story/reg-variant :story.login-form/error
     {:doc    "Server rejected credentials. Form re-enabled; the error
              message is surfaced under the submit button; the
              'Cancel' button lets the user back out without retrying."
@@ -190,7 +190,7 @@
               [:login/flow [:login/failure
                             {:failure {:status  401
                                        :message "Invalid credentials."}}]]]
-     :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
+     :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
      ;; EP-0001: the machine snapshot lives in the frame's runtime-db
      ;; partition, so the state checkpoint reads it via
      ;; `:rf.assert/state-is` (which evaluates against runtime-db).
@@ -211,7 +211,7 @@
   ;; surfaces under the error.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login-form/submitting-retry
+  (rf.story/reg-variant :story.login-form/submitting-retry
     {:doc    "The user corrected the typo and re-submitted. Distinct
              from :submitting because attempts > 0; the variant body
              sequences the failure then the retry, leaving the
@@ -222,7 +222,7 @@
                             {:failure {:status 401 :message "Invalid credentials."}}]]
               [:login/flow [:login/retry
                             {:email "ada@example.com" :password "correct-horse"}]]]
-     :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
+     :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
      ;; EP-0001: the attempt counter lives in the runtime-db snapshot's
      ;; `:data`; the state checkpoint reads the
      ;; snapshot via `:rf.assert/state-is`. The attempt-count value is
@@ -243,7 +243,7 @@
   ;; the EDN-first contract is built for.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login-form/authenticated
+  (rf.story/reg-variant :story.login-form/authenticated
     {:doc    "Server accepted credentials. The form is replaced by
              a welcome banner addressing the user by email; the
              :sign-out button routes back to :idle. This is the
@@ -253,7 +253,7 @@
               [:login/flow [:login/success
                             {:value {:user  {:email "ada@example.com"}
                                      :token "story-token"}}]]]
-     :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
+     :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
      ;; EP-0001: the welcome-banner email lives in the runtime-db
      ;; snapshot's `:data`; the state checkpoint reads
      ;; the snapshot via `:rf.assert/state-is`. The email value is verified
@@ -268,7 +268,7 @@
   ;; Workspaces — the "five side-by-side" workspace from the tutorial.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-workspace :Workspace.login-form/all-states
+  (rf.story/reg-workspace :Workspace.login-form/all-states
     {:doc      "The five states side-by-side. This is the design-
                 review surface from the tutorial's scenario step 3
                 — 'open a workspace that mounts all five side-by-side'."
@@ -281,7 +281,7 @@
      :columns  3
      :tags     #{:docs}})
 
-  (story/reg-workspace :Workspace.login-form/auto-grid
+  (rf.story/reg-workspace :Workspace.login-form/auto-grid
     {:doc     "Auto-enumerated grid — pulls every variant off
               :story.login-form. New variants land here without touching
               this workspace."

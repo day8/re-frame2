@@ -31,12 +31,12 @@
   (:require [reagent.core :as r]
             ;; rf2-qwm0a — listener API lives in
             ;; `re-frame.trace.tooling` (production-DCE split).
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; rf2-7737vq — the canonical RAW trace-event frame reader
             ;; (`re-frame.trace/trace-event-frame`), replacing Story's
             ;; hand-rolled `[:tags :frame]` read.
-            [re-frame.trace :as trace]
-            [re-frame.story.config :as config]))
+            [re-frame.trace :as rf.trace]
+            [re-frame.story.config :as rf.story.config]))
 
 ;; ---- the per-variant trace buffer ----------------------------------------
 
@@ -68,12 +68,12 @@
   resets."
   ([]
    (doseq [a (vals @buffers)] (reset! a []))
-   (config/reset-suppressed-count!)
+   (rf.story.config/reset-suppressed-count!)
    nil)
   ([variant-id]
    (when-let [a (get @buffers variant-id)]
      (reset! a []))
-   (config/reset-suppressed-count! variant-id)
+   (rf.story.config/reset-suppressed-count! variant-id)
    nil))
 
 ;; ---- retroactive scrub on egress-profile narrowing (rf2-lqmje / rf2-6z4znr)
@@ -83,7 +83,7 @@
 ;; (`:rf.egress/local-raw`) back to the redacting default clears THAT frame's
 ;; trace buffer; narrowing the session-pin clears every (non-overridden)
 ;; buffer. Each Story trace listener only gates at ingest via
-;; `config/suppress-sensitive?`, so without this hook a sensitive cascade
+;; `rf.story.config/suppress-sensitive?`, so without this hook a sensitive cascade
 ;; buffered while the raw profile was active would remain visible in that
 ;; frame's downstream surface after the operator expected privacy restored.
 ;;
@@ -92,10 +92,10 @@
 ;; buffer; a `nil` frame-id (the session-pin narrow signal) clears EVERY
 ;; buffer. The clear cascades through `clear-buffer!`:
 ;;   - resets the targeted (or every) per-variant ratom to `[]`,
-;;   - calls `config/reset-suppressed-count!` so the `[● REDACTED]` hint
+;;   - calls `rf.story.config/reset-suppressed-count!` so the `[● REDACTED]` hint
 ;;     drops in lockstep with the buffer.
 ;;
-;; The hook registers at load time, gated on `config/enabled?` —
+;; The hook registers at load time, gated on `rf.story.config/enabled?` —
 ;; production builds (`enabled?` false via `:closure-defines`) elide
 ;; Story entirely, including the registration form.
 
@@ -108,8 +108,8 @@
     (clear-buffer! frame-id)
     (clear-buffer!)))
 
-(when config/enabled?
-  (config/register-toggle-off-callback! ::clear-on-toggle-off scrub-on-toggle-off!))
+(when rf.story.config/enabled?
+  (rf.story.config/register-toggle-off-callback! ::clear-on-toggle-off scrub-on-toggle-off!))
 
 (defn drop-buffer!
   "Remove the buffer entry entirely. Called from shell unmount.
@@ -117,7 +117,7 @@
   counter so it doesn't leak across variant teardowns."
   [variant-id]
   (swap! buffers dissoc variant-id)
-  (config/reset-suppressed-count! variant-id)
+  (rf.story.config/reset-suppressed-count! variant-id)
   nil)
 
 (defn- append!
@@ -145,7 +145,7 @@
   (registry / global) match nothing. Per Spec 009 §Frame identity on the
   raw event (rf2-7737vq) — `:frame` rides under `:tags` on the raw layer."
   [variant-id ev]
-  (= variant-id (trace/trace-event-frame ev)))
+  (= variant-id (rf.trace/trace-event-frame ev)))
 
 (defn register-listener!
   "Install a trace listener that appends every `variant-id`-scoped event
@@ -159,22 +159,22 @@
   consumers can advertise that the buffer is shorter than the
   runtime's actual emit count."
   [variant-id]
-  (when config/enabled?
+  (when rf.story.config/enabled?
     (let [id (listener-id variant-id)]
-      (trace-tooling/register-listener! id
+      (rf.trace.tooling/register-listener! id
         (fn [ev]
           (when (variant-event? variant-id ev)
             ;; rf2-6z4znr — the listener is per-variant; resolve the suppress
             ;; decision against THIS variant's frame so revealing a sibling
             ;; variant never opens this buffer's gate.
-            (if (config/suppress-sensitive? ev variant-id)
-              (config/note-suppressed! variant-id)
+            (if (rf.story.config/suppress-sensitive? ev variant-id)
+              (rf.story.config/note-suppressed! variant-id)
               (append! variant-id ev)))))
       id)))
 
 (defn remove-listener!
   "Tear down the trace listener for `variant-id`. Idempotent."
   [variant-id]
-  (when config/enabled?
-    (trace-tooling/unregister-listener! (listener-id variant-id))
+  (when rf.story.config/enabled?
+    (rf.trace.tooling/unregister-listener! (listener-id variant-id))
     nil))

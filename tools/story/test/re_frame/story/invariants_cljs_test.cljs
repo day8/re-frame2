@@ -12,22 +12,22 @@
   the epoch artefact is on the CLJS test classpath via shadow-cljs.edn)."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.epoch :as epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.machines]
-            [re-frame.story.invariants :as inv])
+            [re-frame.story.invariants :as rf.story.invariants])
   (:require-macros [re-frame.story.invariants :refer [with-invariants]]))
 
 (use-fixtures :each
   (fn [test-fn]
-    (registrar/clear-all!)
-    (reset! frame/frames {})
-    (rf/init! plain-atom/adapter)
-    (epoch/clear-epoch-listeners!)
-    (epoch/clear-history!)
-    (frame/ensure-default-frame!)
+    (rf.registrar/clear-all!)
+    (reset! rf.frame/frames {})
+    (rf/init! rf.substrate.plain-atom/adapter)
+    (rf.epoch/clear-epoch-listeners!)
+    (rf.epoch/clear-history!)
+    (rf.frame/ensure-default-frame!)
     (test-fn)))
 
 (defn- epoch-rec
@@ -42,14 +42,14 @@
   (testing "first-bad-epoch returns the first failing epoch on CLJS"
     (let [tape [(epoch-rec 1 {:db-after {:n 1}})
                 (epoch-rec 2 {:db-after {:n -1}})]
-          bad  (inv/first-bad-epoch tape (fn [e] (pos? (:n (:db-after e)))))]
+          bad  (rf.story.invariants/first-bad-epoch tape (fn [e] (pos? (:n (:db-after e)))))]
       (is (= 2 (:epoch-id bad))))
-    (is (nil? (inv/first-bad-epoch [] (fn [_] false))))))
+    (is (nil? (rf.story.invariants/first-bad-epoch [] (fn [_] false))))))
 
 (deftest check-epoch-isolates-throw-cljs
   (testing "a throwing predicate is caught on CLJS"
-    (let [c (inv/coerce-invariant 0 (fn [_] (throw (ex-info "boom" {}))))
-          v (inv/check-epoch c (epoch-rec 1 {}))]
+    (let [c (rf.story.invariants/coerce-invariant 0 (fn [_] (throw (ex-info "boom" {}))))
+          v (rf.story.invariants/check-epoch c (epoch-rec 1 {}))]
       (is (some? v))
       (is (string? (:error v))))))
 
@@ -64,12 +64,12 @@
 
 (deftest on-epoch-reports-once-cljs
   (testing "a violation reports once per (invariant, epoch) on CLJS"
-    (let [coerced (inv/coerce-invariants [(fn [e] (pos? (:n (:db-after e))))])
+    (let [coerced (rf.story.invariants/coerce-invariants [(fn [e] (pos? (:n (:db-after e))))])
           state   (atom {:seen #{} :violations []})
           ep      (epoch-rec 5 {:db-after {:n -3}})
           reports (with-captured-reports
-                    (fn [] (inv/on-epoch! state coerced ep)
-                           (inv/on-epoch! state coerced ep)))]
+                    (fn [] (rf.story.invariants/on-epoch! state coerced ep)
+                           (rf.story.invariants/on-epoch! state coerced ep)))]
       (is (= 1 (count (filter #(= :fail (:type %)) reports)))))))
 
 ;; ---- live with-invariants over a real CLJS frame -------------------------

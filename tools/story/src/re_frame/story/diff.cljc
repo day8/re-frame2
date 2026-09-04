@@ -43,7 +43,7 @@
   - `:fidelity`          — the `#{fidelity-token …}` set delta.
 
   The facet set is EXACTLY the canonical run-slice
-  (`fingerprint/run-hash-input-keys`) the `:same?` judgement compares —
+  (`rf.story.fingerprint/run-hash-input-keys`) the `:same?` judgement compares —
   nothing outside it. `:sub-runs` is deliberately NOT in that slice
   (over-recomputed evidence, not a determinism input), so it carries NO
   `diff-runs` facet; `diff-sub-runs` survives only as a standalone diagnostic
@@ -98,9 +98,9 @@
   slice). `diff-run-artifacts` is the thin replay-then-`diff-runs` wrapper for
   the artifact inputs."
   (:require [clojure.set                  :as set]
-            [re-frame.story.artifact      :as artifact]
-            [re-frame.story.fingerprint   :as fingerprint]
-            [re-frame.story.play.evidence :as evidence]))
+            [re-frame.story.artifact      :as rf.story.artifact]
+            [re-frame.story.fingerprint   :as rf.story.fingerprint]
+            [re-frame.story.play.evidence :as rf.story.play.evidence]))
 
 ;; ===========================================================================
 ;; KEYED DELTA  (the shared added / removed / changed shape)
@@ -265,7 +265,7 @@
 
   NOT part of the `:same?` judgement and NOT registered in `facet-fns`
   (rf2-e6uod / rf2-5l0a5). `:sub-runs` is deliberately excluded from
-  `fingerprint/run-hash-input-keys` — sub-runs are over-recomputed evidence,
+  `rf.story.fingerprint/run-hash-input-keys` — sub-runs are over-recomputed evidence,
   not a determinism input — so a `:sub-runs`-only delta does NOT make
   `diff-runs` report `:same? false`, exactly as the determinism gate and the
   golden verdict treat it. This fn exists for callers that want to inspect the
@@ -288,9 +288,9 @@
   "The surface selectors of a run-result's projected `:schema-violations`,
   in tape order. Reuses an existing `:selector` when the evidence boundary
   already attached it (it does — `schema-violation-record`), else recomputes
-  it via `evidence/violation-selector`. Pure data → data."
+  it via `rf.story.play.evidence/violation-selector`. Pure data → data."
   [run]
-  (mapv (fn [v] (or (:selector v) (evidence/violation-selector v)))
+  (mapv (fn [v] (or (:selector v) (rf.story.play.evidence/violation-selector v)))
         (:schema-violations run)))
 
 (defn diff-schema-violations
@@ -509,10 +509,10 @@
   works. The facet fns read those slots, so they need the shape; this strip
   is why they see no per-run noise."
   [run]
-  (fingerprint/project (fingerprint/strip-run-stamps run)))
+  (rf.story.fingerprint/project (rf.story.fingerprint/strip-run-stamps run)))
 
 (defn- diverging-slice-keys
-  "The `fingerprint/run-hash-input-keys` slots whose CANONICAL projection
+  "The `rf.story.fingerprint/run-hash-input-keys` slots whose CANONICAL projection
   differs between two run-results. Pure data → data. Each slot is
   canonicalized in isolation (the same projection `:same?` uses over the
   whole slice), so this names exactly which run-hash slot perturbed the
@@ -522,10 +522,10 @@
   [baseline current]
   (into []
         (comp (filter (fn [k]
-                        (not= (fingerprint/canonicalize (get baseline k))
-                              (fingerprint/canonicalize (get current k)))))
+                        (not= (rf.story.fingerprint/canonicalize (get baseline k))
+                              (rf.story.fingerprint/canonicalize (get current k)))))
               (map (fn [k] {:slice-key k})))
-        fingerprint/run-hash-input-keys))
+        rf.story.fingerprint/run-hash-input-keys))
 
 (def facet-fns
   "The ordered facet name → diff-fn map (spec §Semantic diff). Ordered so
@@ -597,15 +597,15 @@
   :facets #{}}`, which would be an undiagnosable diff.
 
   The `:same?` judgement is canonical equality of the run-SLICE
-  (`fingerprint/run-hash-input-keys` — the behavioural surface, NOT the whole
+  (`rf.story.fingerprint/run-hash-input-keys` — the behavioural surface, NOT the whole
   result), the EXACT slice + judgement `re-frame.story.determinism/compare-runs`
   uses. A run-result also carries pure provenance (`:frame` replay id,
   `:run-artifact` back-link, per-step `:replay-steps`) that legitimately
   differs per replay and is excluded from the slice for exactly this reason —
   so a diff agrees with the determinism gate on what counts as the same run."
   [baseline current]
-  (if (= (fingerprint/canonicalize (select-keys baseline fingerprint/run-hash-input-keys))
-         (fingerprint/canonicalize (select-keys current  fingerprint/run-hash-input-keys)))
+  (if (= (rf.story.fingerprint/canonicalize (select-keys baseline rf.story.fingerprint/run-hash-input-keys))
+         (rf.story.fingerprint/canonicalize (select-keys current  rf.story.fingerprint/run-hash-input-keys)))
     {:same? true}
     ;; The canonical forms differ. Feed each facet fn the NOISE-STRIPPED but
     ;; SHAPE-PRESERVED run-results (`strip-noise` — the same volatile / stamp
@@ -649,7 +649,7 @@
   result-vs-result diffs agree."
   [side opts]
   (cond
-    (artifact/run-artifact? side) (artifact/replay-run-artifact side opts)
+    (rf.story.artifact/run-artifact? side) (rf.story.artifact/replay-run-artifact side opts)
     :else                         side))
 
 (defn diff-run-artifacts
