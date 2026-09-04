@@ -31,11 +31,12 @@
   drift from it silently — a view artefact's route-link would lack a trigger
   `rf/route-link` installs, with nothing failing to say so.
 
-  Routing's own `prefetch-intent-attrs` maps over it; a view artefact's
-  route-link reaches it as the `:routing/prefetch-intent-keys`
-  late-bound seam, the same way it already reaches `prefetch-payload` — so no
-  view substrate states the class for itself, and a position added here reaches
-  every link surface at once.
+  Routing's own `prefetch-intent-attrs` maps over it rather than writing the
+  positions out again, so a position added here reaches every anchor
+  `rf/route-link` renders without a second edit. There is deliberately no
+  late-bind seam publishing the class: `:routing/prefetch-intent-keys` was
+  retired for want of a reader (rf2-6r9j.15), and a view artefact that needs
+  the positions lands a real reader first.
 
   Order carries no meaning — the positions are independent, and each warms the
   same destination — but it is stable, so the attrs a render emits are too."
@@ -148,9 +149,9 @@
 (defn prefetch-payload
   "The `[:rf.route/prefetch {address}]` dispatch vector for a link whose props
   request `:prefetch :intent`, or nil when the link does not opt in. PURE, both
-  hosts — the routing calculation a view artefact's route-link
-  consumes through the `:routing/prefetch-payload` seam so it
-  reimplements none of the prefetch law. The address is selected through the ONE
+  hosts — the ONE prefetch calculation, called directly by `rf/route-link`
+  (through `prefetch-intent-attrs`), so no link surface reimplements the
+  prefetch law. The address is selected through the ONE
   shared extractor (`rf.routing.address/extract-address`), so it is byte-identical to the
   link's own destination (path `:params` + `:query`); `:fragment` is omitted — a
   prefetch is resource-only and a `#fragment` is never a resource input.
@@ -209,10 +210,10 @@
      handler targets its frame. Per Spec 012 §Route-plan prefetch."
      [props render-frame]
      (when-let [payload (prefetch-payload props)]
-       ;; Map over the published class rather than writing the positions out a
-       ;; second time (rf2-7g4qn): `prefetch-intent-keys` is the ONE enumeration
-       ;; this anchor and the `:routing/prefetch-intent-keys` seam both read, so
-       ;; a position added there reaches both of them together.
+       ;; Map over the class rather than writing the positions out a second
+       ;; time (rf2-7g4qn): `prefetch-intent-keys` is the ONE enumeration of the
+       ;; credible-intent positions, so a position added there reaches this
+       ;; anchor with no second edit here.
        (into {}
              (map (fn [k]
                     [k (compose-intent-handler (get props k) render-frame payload)]))
@@ -516,17 +517,24 @@
 
 #?(:cljs
    (defn prefetch-on-intent!
-     "The `:routing/prefetch-on-intent!` seam (CLJS only). Dispatch a prefetch
-     `payload` (the `[:rf.route/prefetch {address}]` vector from `prefetch-
-     payload`, or nil) on credible user intent — a view artefact's route-link
-     binds it to `:on-mouse-enter` / `:on-focus` /
-     `:on-touch-start`, so the anchor warms the destination the same way
-     `rf/route-link` does. Runs the caller-supplied intent handler FIRST
-     (compose, not replace), then dispatches to the render-time-captured
-     `render-frame` with `:source :router` (routing-substrate attribution,
-     retarget-safe by explicit `:frame`). A nil `payload` (the link did not opt
-     into `:prefetch :intent`) still runs the caller handler and dispatches
-     nothing — passive by construction. Mirrors `activate-link!` for the click."
+     "Dispatch a prefetch `payload` (the `[:rf.route/prefetch {address}]` vector
+     from `prefetch-payload`, or nil) at one credible-intent position — the
+     intent-position counterpart of `activate-link!` for the click. Runs the
+     caller-supplied intent handler FIRST (compose, not replace), then
+     dispatches to the render-time-captured `render-frame` with `:source
+     :router` (routing-substrate attribution, retarget-safe by explicit
+     `:frame`). A nil `payload` (the link did not opt into `:prefetch :intent`)
+     still runs the caller handler and dispatches nothing — passive by
+     construction.
+
+     NO in-repo caller at present. This was published as the
+     `:routing/prefetch-on-intent!` late-bind seam for a view artefact's own
+     route-link, and that publication was retired for want of a reader
+     (rf2-6r9j.15). `rf/route-link` does NOT route through here — its
+     `prefetch-intent-attrs` composes the same behaviour from
+     `compose-intent-handler` at every `prefetch-intent-keys` position. Kept as
+     routing's one statement of the intent-dispatch law, for a view artefact
+     that needs it to call directly."
      [e caller-handler render-frame payload]
      (when caller-handler (caller-handler e))
      (when payload
