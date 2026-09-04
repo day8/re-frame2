@@ -213,19 +213,37 @@
                :rf.http/aborted reply + clears the slot — so the LIVE
                :rf.http/managed-abort fx resolves it end-to-end."
    :platforms #{:client}}
-  (fn fx-seed-in-flight [_frame-ctx {:keys [request-id]}]
-    (rf.http.registry/record-in-flight!
-      request-id nil
-      {:url      pending-url
-       :abort-fn (fn [reason]
-                   (rf.http.registry/clear-in-flight! request-id)
-                   ;; rf2-ibksxg — the canonical abort reply: :status :cancelled
-                   ;; with the :rf.http/aborted map under :error.
-                   (rf/dispatch [::reply {:status        :cancelled
-                                          :cancelled?    true
-                                          :cancel/reason reason
-                                          :error         {:kind   :rf.http/aborted
-                                                          :reason reason}}]))})
+  (fn fx-seed-in-flight [frame-ctx {:keys [request-id]}]
+    ;; The ISSUING FRAME, read off this fx's context. A `:request-id` is
+    ;; frame-LOCAL (Spec 014 §Frame scope), so the registry keys cancellation
+    ;; on (frame, request-id) and the live :rf.http/managed-abort fx resolves
+    ;; only its OWN frame's handle. The frame is also what the deferred
+    ;; abort-fn dispatches under: by the time it runs there is no ambient
+    ;; frame, and in re-frame2 frame identity is CARRIED, not found.
+    (let [frame (:frame frame-ctx)]
+      (rf.http.registry/record-in-flight!
+        request-id nil
+        {:url      pending-url
+         ;; Stamped exactly as the live transport stamps every handle it
+         ;; records. Not decoration: an UNSTAMPED handle keys under `nil`,
+         ;; a scope no frame-scoped abort can reach, which would leave the
+         ;; abort step (5) below silently resolving nothing (rf2-s4dp).
+         :frame    frame
+         :abort-fn (fn [reason]
+                     ;; Frame-EXACT cleanup, for the same reason lookup is
+                     ;; frame-scoped. `clear-in-flight!`'s one-arg form is an
+                     ;; ANY-FRAME sweep — it would clear this id in EVERY
+                     ;; frame, so a sibling mount's live slot would be
+                     ;; deregistered along with this one.
+                     (rf.http.registry/clear-in-flight-in-frame! frame request-id)
+                     ;; rf2-ibksxg — the canonical abort reply: :status :cancelled
+                     ;; with the :rf.http/aborted map under :error.
+                     (rf/dispatch [::reply {:status        :cancelled
+                                            :cancelled?    true
+                                            :cancel/reason reason
+                                            :error         {:kind   :rf.http/aborted
+                                                            :reason reason}}]
+                                  {:frame frame}))}))
     nil))
 
 (rf/reg-event ::fire-in-flight
@@ -301,11 +319,18 @@
                populated, exercising the per-actor in-flight surface
                without spawning a real machine actor."
    :platforms #{:client}}
-  (fn fx-issue-as-actor [_frame-ctx {:keys [actor-id request-id]}]
-    (rf.http.registry/record-in-flight!
-      request-id actor-id
-      {:abort-fn (fn [_reason] nil)
-       :url      pending-url})
+  (fn fx-issue-as-actor [frame-ctx {:keys [actor-id request-id]}]
+    ;; Same carried frame as the seed fx above, and for the same reason: the
+    ;; ACTOR index is keyed (frame, actor-id) too, so an unstamped handle
+    ;; lands in the `nil` scope while every other slot in this testbed sits
+    ;; under the host frame. Actor addresses are frame-LOCAL, exactly as
+    ;; request-ids are (rf2-s4dp).
+    (let [frame (:frame frame-ctx)]
+      (rf.http.registry/record-in-flight!
+        request-id actor-id
+        {:abort-fn (fn [_reason] nil)
+         :frame    frame
+         :url      pending-url}))
     nil))
 
 (rf/reg-event ::concurrent-by-actor
@@ -322,12 +347,19 @@
 ;; path a :rf.machine/destroy cascade / frame teardown drives.
 (rf/reg-fx :managed-http/destroy-actor
   {:doc       "Testbed-only fx: drive the framework abort-on-actor-destroy
-               for the supplied actor-id — the SAME path a state-machine
-               actor destroy / frame teardown takes (Spec 014 §Abort on
-               actor destroy)."
+               for the supplied actor-id, FRAME-SCOPED — the isolated form
+               a state-machine actor destroy / frame teardown takes (Spec
+               014 §Abort on actor destroy)."
    :platforms #{:client}}
-  (fn fx-destroy-actor [_frame-ctx {:keys [actor-id]}]
-    (rf.http.managed/abort-on-actor-destroy actor-id)
+  (fn fx-destroy-actor [frame-ctx {:keys [actor-id]}]
+    ;; The 2-arity is the FRAME-SCOPED form: it aborts only this frame's
+    ;; actor, leaving a same-named actor in a sibling frame untouched. The
+    ;; 1-arity is the documented ANY-FRAME seam, which sweeps the actor-id in
+    ;; EVERY frame — the very reach the frame-scoped keys removed from the
+    ;; abort half, so a testbed demonstrating the contract should not model
+    ;; it (rf2-s4dp). Actor addresses are frame-local, so this pairs with the
+    ;; :frame stamp `issue-as-actor` puts on the handles it records.
+    (rf.http.managed/abort-on-actor-destroy (:frame frame-ctx) actor-id)
     nil))
 
 (rf/reg-event ::actor-teardown
