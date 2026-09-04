@@ -26,6 +26,13 @@
     clean `isError` result, BEFORE any downstream reader gets a chance
     to silently walk a scalar as a sequence (a string iterates
     character-by-character) or drop it.
+  - `run-opts-semantic-error` — the SEMANTIC peer of those shape
+    guards: a correctly-shaped run option carrying an identifier the
+    server does not know (`:active-modes` id, `:cell-overrides` KEY)
+    is refused rather than dropped, so a typo cannot execute a
+    different scenario than the one the agent asked for (rf2-sw1d).
+    `substrate-arg-error` is the same rule on the third run-option
+    slot.
 
   ## Bounded-allowlist keyword resolution
 
@@ -129,9 +136,18 @@
   every KEY through `rf.mcp-base.args/safe-keyword` against `allowed` — the
   variant's declared arg-key set. A key outside the set is DROPPED (no
   intern), so an attacker cannot mint fresh keywords by streaming unique
-  override keys, and a typo'd override simply doesn't apply rather than
-  poisoning the keyword table. Values pass through verbatim — they are
-  data, not identifiers. Non-map input yields `nil` (no overrides)."
+  override keys. Values pass through verbatim — they are data, not
+  identifiers. Non-map input yields `nil` (no overrides).
+
+  The drop is DEFENCE IN DEPTH, not the boundary contract. This
+  docstring used to add 'a typo'd override simply doesn't apply', which
+  described the behaviour accurately but was the wrong answer at an
+  agent boundary: the three handlers now refuse an unknown override key
+  up front via `run-opts-semantic-error` (rf2-sw1d), so a typo returns
+  `isError` naming the key rather than a successful run for a reduced
+  tuple. By the time this coercer sees a map from a handler, every key
+  has already resolved; the drop survives only so a direct-invoke caller
+  that skips the guard still cannot intern."
   [overrides allowed]
   (when (map? overrides)
     (persistent!
@@ -253,6 +269,138 @@
              :substrate  (str raw)
              :registered (vec (rf.story-mcp.tools.cljs-resolve/registered-substrates))}))))))
 
+(defn- raw-id-str
+  "Render a caller-supplied identifier for a diagnostic WITHOUT interning
+  it. A string is echoed exactly as the agent wrote it (so the agent can
+  match the rejected token against its own call); anything else (a number
+  / boolean / nil sent for a keyword-typed slot) is rendered in read
+  syntax so a type confusion is visible rather than stringified into a
+  look-alike. Never calls `keyword`."
+  [v]
+  (if (string? v) v (pr-str v)))
+
+(defn- unresolved-ids
+  "The subset of `raws` that does NOT resolve against the bounded set
+  `allowed`, as raw display strings (via `raw-id-str` — no intern).
+  The probe is `rf.mcp-base.args/safe-keyword`, the SAME resolver the
+  coercer uses, so the guard and `read-run-opts` can never disagree about
+  what counts as known. Order is the caller's, so the diagnostic lists
+  the offending ids in the order they were supplied."
+  [raws allowed]
+  (into [] (comp (remove #(some? (rf.mcp-base.args/safe-keyword % allowed)))
+                 (map raw-id-str))
+        raws))
+
+(defn run-opts-semantic-error
+  "Reject an UNKNOWN identifier in the semantic run-option slots
+  (`:active-modes` ids, `:cell-overrides` KEYS) for the resolved variant
+  `vk`, instead of executing a different scenario than the one asked for.
+
+  Shape validation is NOT this function's job — call
+  `run-opts-shape-error` first (and `substrate-arg-error` for the third
+  run-option slot) and short-circuit on a non-nil result. Like
+  `read-run-opts`, this assumes `:active-modes` (when present) is already
+  a collection and `:cell-overrides` (when present) already a map.
+
+  Returns nil when every supplied identifier resolves (or both slots are
+  absent — an ABSENT option legitimately defaults); otherwise an
+  `isError` result naming the offending raw ids and the accepted set.
+
+  ## Why this refuses rather than drops (rf2-sw1d)
+
+  `read-run-opts` resolves both slots through the bounded-allowlist
+  `safe-keyword` gate and DROPS what misses, which is the correct
+  no-intern posture but the wrong ANSWER at an agent boundary: the drop
+  is silent, so a typo'd or stale mode / override key yields a
+  `:status :pass`, a share URL, or a visual-regression `:content-hash`
+  for a DIFFERENT tuple than the caller requested. Both slots are
+  semantically material — `spec/API.md` records `:cell-overrides` as
+  identity-bearing, and `snapshot-identity`'s own descriptor says a
+  mode / override change produces a different hash — so a silently
+  different run is false evidence at precisely the automation boundary
+  Story-MCP exists to make trustworthy. A rejected call costs the agent
+  one round trip; a silently different run costs it the whole chain of
+  inference built on the result.
+
+  This is the same rule the boundary already applies on its other
+  identifier axes — unknown top-level argument keys
+  (`:rf.story-mcp/unknown-arguments`), an unknown `:variant-id` /
+  `:story-id`, an unknown `:substrate` (`substrate-arg-error`) and an
+  unknown decorator `:kind` are all refused, each naming the accepted
+  set — extended to the two nested slots that still dropped. It does NOT
+  change Story's own runtime resolution, which stays deliberately
+  tolerant so the UI shell and play runner can ignore a stale persisted
+  mode (`re-frame.story.args/mode-args`, whose contract explicitly
+  delegates the diagnosis here: *\"tools surface the mismatch as a
+  validation warning\"*). Passive hydration may discard stale state; an
+  explicit agent command must not certify another tuple.
+
+  ## Ordering — modes first, atomically
+
+  Modes are validated FIRST and as a whole: a mixed known+unknown list
+  rejects rather than running the known subset, because a partial mode
+  set is exactly the 'different scenario' this guards against. Only once
+  every mode resolves is the cell-override allowlist derived, because
+  that allowlist is the variant's EFFECTIVE arg keys UNDER those modes
+  (`cell-override-key-set`) — Story merges mode args before cell-local
+  overrides, so an arg introduced only by an active mode is a legitimate
+  override target. Deriving it from an unvalidated mode list would
+  reject a good override key on the strength of a bad mode id.
+
+  ## Accepted sets are DERIVED, never a second copy
+
+  Both sets are read live at error time from the same sources the
+  coercer uses — `rf.story/list-modes` for modes,
+  `cell-override-key-set` for override keys — so the diagnostic cannot
+  drift from the allowlist actually enforced. Nothing here hard-codes a
+  roster.
+
+  ## No-intern invariant preserved
+
+  Unknown ids are reported as RAW strings via `raw-id-str`. The
+  membership probe is `safe-keyword`, which resolves through
+  `find-keyword` on the JVM, so a hostile caller streaming unique
+  identifiers still interns nothing — the security posture that
+  introduced the drop is kept; only the success is withdrawn."
+  [arguments vk]
+  (let [raw-modes     (:active-modes arguments)
+        modes?        (some? raw-modes)
+        mode-set      (rf.story/list-modes)
+        unknown-modes (when modes? (unresolved-ids raw-modes mode-set))]
+    (if (seq unknown-modes)
+      (rf.story-mcp.tools.result/error-result
+        (str "Unknown :active-modes id(s): " (pr-str unknown-modes)
+             ". Registered modes: " (pr-str (mapv str (sort mode-set)))
+             ". (Call list-modes for the current set. A present-but-unknown mode is"
+             " REFUSED, not ignored — running the known subset would execute a"
+             " different scenario than the one requested. Omit :active-modes"
+             " entirely to render under no mode.)")
+        {:rf.error     :rf.error/story-mcp-unknown-active-mode
+         :active-modes unknown-modes
+         :registered   (mapv str (sort mode-set))})
+      ;; Every supplied mode resolved — derive the override allowlist
+      ;; UNDER those modes, then apply the same rule to its keys.
+      (let [active-modes  (when modes?
+                            (into [] (keep #(rf.mcp-base.args/safe-keyword % mode-set)) raw-modes))
+            raw-overrides (:cell-overrides arguments)
+            allowed       (when (map? raw-overrides) (cell-override-key-set vk active-modes))
+            unknown-keys  (when (map? raw-overrides) (unresolved-ids (keys raw-overrides) allowed))]
+        (when (seq unknown-keys)
+          (rf.story-mcp.tools.result/error-result
+            (str "Unknown :cell-overrides key(s): " (pr-str unknown-keys)
+                 " for variant " (pr-str vk)
+                 (when (seq active-modes) (str " under active modes " (pr-str (mapv str active-modes))))
+                 ". Overridable arg keys here: " (pr-str (mapv str (sort allowed)))
+                 ". (A cell override may only override an arg already present in the"
+                 " cell's effective args — read them from preview-variant's"
+                 " :effective-args. A present-but-unknown key is REFUSED, not dropped:"
+                 " running or hashing without it would answer for a different tuple.)")
+            {:rf.error       :rf.error/story-mcp-unknown-cell-override-key
+             :cell-overrides unknown-keys
+             :variant-id     (str vk)
+             :active-modes   (mapv str (or active-modes []))
+             :allowed        (mapv str (sort allowed))}))))))
+
 (defn read-run-opts
   "Build the `re-frame.story/run-variant` opts map from the standard MCP
   arg slots (`:substrate`, `:active-modes`, `:cell-overrides`) for the
@@ -260,12 +408,17 @@
   resulting map is the minimal shape `run-variant` / `snapshot-identity`
   / `variant-share-url` expect.
 
-  SHAPE VALIDATION is NOT this function's job — call
-  `run-opts-shape-error` first and short-circuit on a non-nil result.
-  This function assumes `:active-modes` (when present) is already a
-  collection and `:cell-overrides` (when present) is already a map;
-  fed a scalar, `:active-modes` silently degrades (a string iterates
-  character-by-character) rather than erroring.
+  VALIDATION is NOT this function's job — it is a pure coercer. Call
+  `run-opts-shape-error` (shape), `substrate-arg-error` and
+  `run-opts-semantic-error` (unknown identifiers, rf2-sw1d) first and
+  short-circuit on a non-nil result. This function assumes
+  `:active-modes` (when present) is already a collection and
+  `:cell-overrides` (when present) is already a map; fed a scalar,
+  `:active-modes` silently degrades (a string iterates
+  character-by-character) rather than erroring. Every handler runs the
+  full guard chain, so in production every id reaching here already
+  resolved — the drops below are the retained no-intern floor for a
+  direct-invoke caller, not the boundary's answer to a typo.
 
   Shared by the `preview-variant`, `run-variant`, and
   `snapshot-identity` handlers — the same set `run-opts-shape-error`
