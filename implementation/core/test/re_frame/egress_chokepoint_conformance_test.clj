@@ -311,7 +311,42 @@
      ;; would ride it through untouched; under a frameless one it would
      ;; blanket-redact the scheme and host that are the whole point of the
      ;; record. The carrier scrub is the stronger guarantee on this path.
-     re-frame.ssr.response})
+     re-frame.ssr.response
+
+     ;; rf2-xpd8 (PR1) — `emit-app-db-rejection-record!` ships the `:where
+     ;; :app-db`, `:rollback? true` candidate rejection on the always-on
+     ;; `:errors` stream, from INSIDE `validate-app-schema!`'s own
+     ;; `debug-enabled?` gate, so a dev build's rejected transaction is not
+     ;; silent on the stream an application registers to hear about its own
+     ;; errors. This caller is unusual on this list in one respect and it is
+     ;; worth stating: it is DEV-GATED, so it reaches an off-box shipper in no
+     ;; build at all — the vetting below is therefore a floor, not the ceiling
+     ;; the SSR entries above need.
+     ;;
+     ;; VETTED structural-only, and BUILT FROM a closed allow-list rather than
+     ;; filtered down from the dev trace's tags — the `re-frame.router`
+     ;; boundary-arm discipline, applied for the same reason. Every slot is a
+     ;; framework keyword (`:error`, `:where :app-db`, `:rollback? true`,
+     ;; `:recovery :no-recovery`), a structural id (`:frame`, and `:event-id` /
+     ;; `:failing-id`, both the dispatched event's registered keyword), the
+     ;; developer's OWN `reg-app-schema` registration root (`:registered-path`
+     ;; — a literal vector the application author wrote, never a value lifted
+     ;; out of app-db), `:time`, or `:reason`.
+     ;;
+     ;; `:reason` is prose, and the two questions that matters for are both
+     ;; answered by composing it here instead of reusing the trace's. It is
+     ;; built from `:registered-path` plus `re-frame.error/type-of-value` of
+     ;; the failing leaf — a closed eight-tag vocabulary with a host class-name
+     ;; fallback — so the VALUE never reaches it. The dev trace's own `:reason`
+     ;; (`reason-string`) could not: it interpolates `(pr-str schema)`, which
+     ;; is unbounded, and the leaf path, whose Malli `:in` segments are not all
+     ;; structural (a `:set` failure's segment IS the failing element value).
+     ;; Which is also why `:path` is omitted outright rather than scrubbed, as
+     ;; are `:value`, `:received`, `:explain`, `:explain-humanized` and
+     ;; `:schema` — all of them stay on the DCE'd dev trace, which this change
+     ;; leaves byte-identical. No exception residual (a rejected candidate is a
+     ;; validator verdict, not a throw).
+     re-frame.schemas.validate})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
