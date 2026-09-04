@@ -157,6 +157,23 @@ Two contract facts, each pinned against the shipped spec:
     as the setup skill's Lock 9. Retire deliberately at a real first publish.
     See `m0_publication_route_problems`.
 
+  * **Rule 6b — the same lock over the SKILL LEAVES (rf2-qivv).** Rule 6 scans
+    MIGRATION_MD only, because the corrected setup.md wording legitimately
+    QUOTES the banned instruction in negated form ("Do **not** leave the dep
+    alone"). That exemption left the leaves unguarded and a POSITIVE copy
+    survived in setup.md's `## Edge cases` for four months: a per-feature
+    artefact not yet published should be left alone and deferred until it
+    lands — the instruction M-0, in the same leaf, forbids, and the more
+    dangerous polarity because it reads as a specific EXCEPTION after the
+    general rule. Following it ships a required M-27..M-33 source rewrite
+    without the module that implements it. The repair is a NEGATION-AWARE scan
+    of the leaves: the same shapes, reported only where the match's own CLAUSE
+    carries no negation cue. Clause-scoped, not line-scoped — the stale
+    sentence carried "not yet published" and "no v2 version" earlier on its own
+    line, so a line-wide test reads the defect as legal. MIGRATION_MD stays on
+    Rule 6's stricter whole-file assertion. Retire with Rule 6 at a real first
+    publish. See `skill_leaf_publication_route_problems`.
+
 All of these rules are written to fire ONLY on the stale ASSERTION / bad-command
 shape, never on the corrected wording that states the negation — and never on the
 unrelated, still-live `:on-error` *surfaces* (a machine `:spawn :on-error`
@@ -1834,6 +1851,132 @@ def m0_publication_route_problems() -> list[str]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Rule 6b - the same publication-route lock over the SKILL LEAVES (rf2-qivv).
+#
+# Rule 6 above scans MIGRATION_MD only, and its docstring says why: the
+# corrected setup.md wording legitimately QUOTES the banned instruction in
+# negated form ("Do **not** leave the dep alone"), so a whole-file scan of the
+# leaves would red on the correct sentence. That exemption left the leaves
+# unguarded, and a POSITIVE copy survived in setup.md's `## Edge cases` from
+# 140e3b20419 (2026-05-12) until rf2-qivv: a per-feature artefact not yet
+# published should be "left alone", flagged in the report, and deferred until
+# it lands - the exact instruction M-0, in the SAME leaf, forbids. It is the
+# more dangerous polarity for an agent because it is phrased as a specific
+# EXCEPTION placed after the general rule. Following it completes a required
+# M-27..M-33 source rewrite WITHOUT the module that implements it, and the app
+# then fails at the `:require` or at the first call
+# (`:rf.error/<artefact>-artefact-missing`, `:rf.error/no-such-fx` /
+# `no-such-handler`, or epoch's silent degrade - auto-cross-cutting.md
+# "Per-feature artefact adds"), not in the report a deferral would write.
+#
+# The repair is not a wider scan but a NEGATION-AWARE one: the same shapes over
+# the skill leaves, reported only where the match's OWN CLAUSE carries no
+# negation cue. Clause-scoped rather than line-scoped, and that distinction is
+# the whole rule - the stale sentence itself carries "not yet published" and
+# "no v2 version" EARLIER ON THE SAME LINE, so a line-wide or fixed-window
+# negation test reads those as the negation and passes the defect through. The
+# clause boundary (the `:` after "edge case") is what separates the two.
+# Fixtures SETUP-1..SETUP-4 pin both polarities against the real sentences,
+# and SETUP-3 pins the clause scoping itself as load-bearing.
+#
+# MIGRATION_MD deliberately stays on Rule 6's stricter whole-file assertion:
+# the corpus carries no legitimate negated quotation of the instruction, and
+# granting it a negation allowance would hand back the rf2-snjn5 lock.
+#
+# Retire this with Rule 6 at a real first publish - it pins the same
+# pre-publish polarity.
+# ---------------------------------------------------------------------------
+
+# Emphasis markers are stripped before the negation test so `Do **not**` reads
+# as `Do not`. Clause boundaries are the punctuation a clause's polarity cannot
+# survive. The `:` is the one that catches the shipped rf2-qivv defect; the `,`
+# is what stops a LEADING CONDITIONAL from shielding the instruction behind it
+# ("If the artefact is not published, wait until a release lands" - fixture
+# SETUP-2b, which read clean until the comma was added). Both live sentences in
+# the leaf place their negation adjacent to the verb, so neither boundary costs
+# a legal one.
+_EMPHASIS_RE = re.compile(r"[*_`]+")
+_CLAUSE_BOUNDARY_RE = re.compile("[.;:,\u2014]|--")
+SKILL_NEGATION_CUE_RE = re.compile(
+    r"\b(?:not|never|cannot|can't|don't|doesn't|won't|rather than|instead of)\b",
+    re.IGNORECASE,
+)
+
+SKILL_ROUTE_PROBLEM = (
+    "SKILL-ROUTE-STOP-AND-WAIT: a migration-skill leaf tells the reader to "
+    "leave the dep alone / defer it / hold the migration for a release, and "
+    "the match's own clause carries no negation. Nothing is published, so "
+    "EVERY `day8/re-frame2*` coordinate is in that state - core, adapter and "
+    "per-feature artefact alike - and a per-feature artefact is not a second "
+    "publication decision: it is added DURING this migration, at the "
+    "coordinate kind and author-supplied pin already chosen at M-0, differing "
+    "only in its own `:deps/root` / `:local/root` sub-path (re-frame2-setup "
+    "references/deps-versions.md, Choosing the coordinate). Deferring it ships "
+    "an M-27..M-33 source rewrite without the module that implements it, which "
+    "fails at the `:require` or at the first call - not in the report. "
+    "(rf2-qivv.)"
+)
+
+
+def _clause_is_negated(line: str, offset: int) -> bool:
+    """True when the clause ENDING at `offset` carries a negation cue.
+
+    Clause, not line. The rf2-qivv stale sentence carried "not yet published"
+    and "no v2 version" earlier on its own line, so a line-wide test reads the
+    defect as legal prose; only the text after the last clause boundary
+    decides polarity."""
+    prefix = _EMPHASIS_RE.sub("", line[:offset])
+    last = 0
+    for boundary in _CLAUSE_BOUNDARY_RE.finditer(prefix):
+        last = boundary.end()
+    return bool(SKILL_NEGATION_CUE_RE.search(prefix[last:]))
+
+
+def _skill_leaf_route_problems(text: str) -> list[tuple[int, str, str]]:
+    """Rule-6b drift in one migration-skill leaf: the Rule-6 stop-and-wait
+    shapes, reported only where the match's own clause is not negated.
+    `(lineno, label, excerpt)`. Text-pure so the self-test can exercise it
+    against fixtures and against a mutation of the shipped leaf."""
+    problems: list[tuple[int, str, str]] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        for match in M0_STOP_AND_WAIT_RE.finditer(line):
+            if _clause_is_negated(line, match.start()):
+                continue
+            problems.append((lineno, SKILL_ROUTE_PROBLEM, line.strip()))
+            break
+    return problems
+
+
+def _skill_leaf_files() -> list[Path]:
+    """The user-facing leaves Rule 6b scans: SKILL.md + references/*.md,
+    globbed so a new leaf is covered automatically. MIGRATION_MD is
+    deliberately absent - it stays on Rule 6's stricter whole-file assertion,
+    which has no negation allowance to give away. The skill's spec/
+    re-authoring meta-docs are out of scope, as they are for every other rule
+    here."""
+    return [SKILL_DIR / "SKILL.md"] + sorted(
+        (SKILL_DIR / "references").glob("*.md")
+    )
+
+
+def skill_leaf_publication_route_problems() -> list[str]:
+    """Run the Rule-6b publication-route lock over the shipped skill leaves."""
+    files = [path for path in _skill_leaf_files() if path.is_file()]
+    if not files:
+        return [
+            "SETUP: no migration-skill leaves found under "
+            f"{SKILL_DIR.relative_to(REPO_ROOT).as_posix()} - the Rule-6b "
+            "skill-leaf publication-route lock cannot run."
+        ]
+    out: list[str] = []
+    for path in files:
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        for lineno, label, excerpt in _skill_leaf_route_problems(_slurp(path)):
+            out.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
+    return out
+
+
 def find_drift(files: list[Path]) -> tuple[list[str], int]:
     problems: list[str] = []
     lines_checked = 0
@@ -1879,6 +2022,7 @@ def run(*, verbose: bool, ci: bool) -> int:
     problems.extend(m1_anchor_problems())
     problems.extend(form3_capture_once_retarget_problems())
     problems.extend(m0_publication_route_problems())
+    problems.extend(skill_leaf_publication_route_problems())
 
     if verbose:
         print(
@@ -1898,7 +2042,9 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "rf2-v84zn), Form-3 reactive-owner ownership (Rule 5c — "
                 "rf2-ynved), Form-3 capture-once retarget-invariance drift "
                 "(rf2-aalo4n), M-0 publication-route drift (Rule 6 — "
-                "rf2-snjn5), or M-1 classifier / kickoff-anchor drift found."
+                "rf2-snjn5), skill-leaf stop-and-wait route drift (Rule 6b — "
+                "rf2-qivv), or M-1 classifier / kickoff-anchor drift "
+                "found."
             )
         return 0
 
@@ -3288,6 +3434,107 @@ def _self_test() -> int:
     for problem in _live_m0_delegation_problems():
         print(f"SELF-TEST FAIL (M0 delegation live): {problem}")
         failures += 1
+
+    # --- Rule 6b fixtures - skill-leaf publication-route lock (rf2-qivv) ------
+    # Rule 6 exempts the skill leaves because M-0's corrected wording quotes the
+    # banned instruction in NEGATED form. These fixtures are the two real
+    # sentences that exemption has to tell apart, taken verbatim from setup.md:
+    # the negated M-0 one (legal) and the positive `## Edge cases` one that
+    # survived there until rf2-qivv (the defect).
+    def expect_leaf(text: str, *, dirty: bool, label: str) -> None:
+        nonlocal failures
+        got = bool(_skill_leaf_route_problems(text))
+        if got != dirty:
+            print(
+                f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got {got} "
+                f"for skill-leaf route text: {text!r}"
+            )
+            failures += 1
+
+    LEAF_NEGATED = (
+        "and the migration proceeds normally - apply every M/O-rule exactly as "
+        "you would against a published target. Do **not** leave the dep alone, "
+        "and do **not** stop and wait for a release."
+    )
+    expect_leaf(
+        LEAF_NEGATED, dirty=False,
+        label="SETUP-1 M-0's negated quotation stays legal",
+    )
+
+    LEAF_STALE = (
+        '**Per-feature artefact not yet published.** Same shape as M-0\'s '
+        '"no v2 version" edge case: leave the dep alone, flag in the report, '
+        "the author updates manually when the artefact lands."
+    )
+    expect_leaf(
+        LEAF_STALE, dirty=True,
+        label="SETUP-2 the rf2-qivv stale per-feature defer paragraph is dirty",
+    )
+
+    expect_leaf(
+        "If the artefact is not published, wait until a release lands before "
+        "adding it.",
+        dirty=True,
+        label="SETUP-2b an unnegated wait-for-a-release instruction is dirty",
+    )
+
+    # SETUP-3 - why the negation test is CLAUSE-scoped and not line-scoped, and
+    # the tooth that keeps it that way. The stale sentence carries "not yet
+    # published" AND "no v2 version" earlier on its own line, so a line-wide or
+    # fixed-window negation test reads those as the negation and passes the
+    # defect through; only the clause after the `:` decides polarity. Both
+    # halves are asserted, so weakening `_clause_is_negated` to a line test
+    # reds here even if SETUP-2 were ever softened.
+    _stale_match = M0_STOP_AND_WAIT_RE.search(LEAF_STALE)
+    if _stale_match is None:
+        print(
+            "SELF-TEST FAIL (SETUP-3): the stale fixture no longer matches the "
+            "Rule-6 stop-and-wait shapes, so it can prove nothing about the "
+            "skill-leaf lock."
+        )
+        failures += 1
+    else:
+        _stale_prefix = _EMPHASIS_RE.sub("", LEAF_STALE[: _stale_match.start()])
+        if not SKILL_NEGATION_CUE_RE.search(_stale_prefix):
+            print(
+                "SELF-TEST FAIL (SETUP-3 line-cue): the stale fixture no longer "
+                "carries a negation cue EARLIER ON ITS LINE, so it can no "
+                "longer prove that clause scoping - not a line-wide test - is "
+                "what catches the rf2-qivv defect."
+            )
+            failures += 1
+        if _clause_is_negated(LEAF_STALE, _stale_match.start()):
+            print(
+                "SELF-TEST FAIL (SETUP-3 clause): the clause test reads the "
+                "rf2-qivv stale sentence as negated. The cue must be required "
+                "in the match's OWN clause; a wider window lets the defect "
+                "land again."
+            )
+            failures += 1
+
+    # SETUP-4 - live tooth against the SHIPPED leaf, not a fixture that could
+    # drift away from it: setup.md must scan clean today, and re-growing the
+    # stale paragraph in it must red.
+    _live_leaf = SKILL_DIR / "references" / "setup.md"
+    if not _live_leaf.is_file():
+        print(f"SELF-TEST FAIL (SETUP-4): {_live_leaf.name} missing.")
+        failures += 1
+    else:
+        _live_text = _slurp(_live_leaf)
+        if _skill_leaf_route_problems(_live_text):
+            print(
+                "SELF-TEST FAIL (SETUP-4 live): the shipped setup.md already "
+                "trips Rule 6b, so the mutation tooth cannot prove the guard "
+                "has bite. Fix the leaf (or the rule) first."
+            )
+            failures += 1
+        elif not _skill_leaf_route_problems(_live_text + "\n\n" + LEAF_STALE):
+            print(
+                "SELF-TEST FAIL (SETUP-4 undetected): re-growing the stale "
+                "per-feature defer paragraph in the shipped setup.md did not "
+                "trip Rule 6b - the rf2-qivv defect could land again."
+            )
+            failures += 1
 
     # Live-corpus teeth: the SHIPPED owners must both carry the invariant, and a
     # mutation that drops the A→B sentence from either owner must be caught — so a
