@@ -150,6 +150,82 @@
           js/Error #"resource-bad-spec"
           (rf.resources/reg-resource :test/bad-nil nil valid-request)))))
 
+(defn- defn-request
+  "A `defn`'d handler — the shape `#'defn-request` below takes a Var of."
+  [_params _ctx]
+  {:request {:method :get :url "/api/defn"}})
+
+(deftest reg-resource-rejects-non-callable-request
+  ;; rf2-76md — the THIRD slot is the resource's HANDLER, and the ensure path
+  ;; invokes it as `((:request spec) params ctx)`. Presence (`contains?`) was
+  ;; the only gate, so a non-callable value registered cleanly, stayed
+  ;; introspectable, and failed at the FIRST read instead of at the mistake.
+  ;; The displaced failure has TWO distinct shapes, and the second is the
+  ;; dangerous one:
+  ;;   * 42 / "nope"  -> raw host cast error, `ex-data` nil, naming neither
+  ;;                     the resource nor its definition site;
+  ;;   * :kw / {:a 1} -> `ifn?`, so it is INVOKED happily and returns nil as
+  ;;                     the 2-arity not-found default => a SILENT nil request.
+  (testing "the two rejected classes are genuinely distinct (discriminator —
+            without this row the suite could pass while the silent class
+            regressed, since only the loud class throws on its own)"
+    (is (and (not (fn? 42)) (not (ifn? 42)))
+        "a number is not invokable at all — the LOUD host-cast class")
+    (is (and (not (fn? :kw)) (ifn? :kw))
+        "a keyword IS ifn? — the SILENT class a bare `ifn?` gate would admit")
+    (is (nil? (:kw {:slug "s"} nil))
+        "and invoking it 2-arity yields nil, which is exactly why the gate is
+         not `ifn?`"))
+  (testing "every non-callable :request is rejected AT REGISTRATION with the
+            canonical structured error, not a downstream host throw"
+    (doseq [bad [42 "nope" :kw {:a 1} #{:a} [:a] nil]]
+      (let [ex (try (rf.resources/reg-resource :test/nonfn-request (valid-spec) bad)
+                    nil
+                    (catch :default e e))
+            d  (ex-data ex)]
+        (is (some? ex)
+            (str "a non-callable :request " (pr-str bad) " must throw at "
+                 "registration, not register and fail at the first read"))
+        (is (= :rf.error/resource-bad-spec (:rf.error/id d))
+            (str (pr-str bad) " surfaces the canonical registration error id"))
+        (is (= :fix-registration (:recovery d))
+            (str (pr-str bad) " carries the :fix-registration recovery"))
+        (is (= :test/nonfn-request (:resource-id d))
+            (str (pr-str bad) " names the offending resource in ex-data"))
+        (is (= bad (:value d))
+            (str (pr-str bad) " rides the :value ex-data slot"))
+        (is (nil? (rf.resources/resource-meta :test/nonfn-request))
+            (str "a rejected " (pr-str bad) " is NOT introspectable — the "
+                 "rejection precedes registry mutation")))))
+  (testing "OVER-REJECTION GUARD — every legitimate handler shape still
+            registers unchanged. This half is the one that protects working
+            code: the gate is `fn? or var?`, deliberately not bare `fn?`,
+            because `#'my-fetch` (the idiomatic hot-reload / REPL-redefinition
+            indirection) invokes fine on both hosts but is NOT `fn?` on the
+            JVM — `clojure.lang.Var` implements `IFn` but not `Fn`. This is a
+            .cljs suite, so the row below runs on the host where CLJS `Var`
+            DOES list `Fn`; the JVM half of the asymmetry is pinned by the
+            sibling .cljc mutation suite, which runs on both."
+    (doseq [[label good] [["inline fn"      (fn [_p _c] {:request {:url "/i"}})]
+                          ["defn'd fn"      defn-request]
+                          ["Var of a defn"  #'defn-request]
+                          ["partial"        (partial (fn [_x _p _c] {:request {:url "/p"}}) 1)]
+                          ["comp"           (comp identity (fn [_p _c] {:request {:url "/c"}}))]
+                          ["memoized fn"    (memoize (fn [_p _c] {:request {:url "/m"}}))]
+                          ["fn with meta"   (with-meta (fn [_p _c] {:request {:url "/w"}}) {:tag 1})]]]
+      (is (= :test/good-request
+             (rf.resources/reg-resource :test/good-request (valid-spec) good))
+          (str label " must still register — the gate must not reject working code"))
+      (is (some? (rf.resources/resource-meta :test/good-request))
+          (str label " is introspectable after registration"))
+      (rf.resources/clear-resource :test/good-request))
+    (is (var? #'defn-request)
+        "control: `#'defn-request` really is a Var, so the Var row above is
+         not vacuously just another ordinary fn")
+    (is (not (identical? defn-request #'defn-request))
+        "control: the Var and the fn it holds are genuinely different values,
+         so the Var row cannot pass by silently testing the plain fn twice")))
+
 (deftest reserved-scope-namespace-typo-rejected-fail-closed
   ;; rf2-y7lcqy — a bare keyword in the framework-reserved :rf.scope/*
   ;; namespace that is NOT one of the closed enum (:rf.scope/global,

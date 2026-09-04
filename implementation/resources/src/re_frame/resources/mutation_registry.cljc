@@ -84,6 +84,29 @@
                   "transport) :request returns a Spec 014 managed-HTTP args "
                   "map (the causal write). Per Spec 016 §Mutations.")
              {:mutation-id mutation-id})))
+  ;; ...and it must be CALLABLE — the resource-side reasoning applies verbatim
+  ;; (see `re-frame.resources.registry`'s matching gate). `:rf.mutation/execute`
+  ;; invokes the third slot as `((:request spec) params nil)`, so a non-callable
+  ;; value registers cleanly and fails at the first write: a number/string as a
+  ;; raw host ClassCastException with `ex-data` nil, a keyword/map SILENTLY as a
+  ;; nil args map. Same ruled core predicate (a plain fn OR a Var) — not bare
+  ;; `fn?`, because the hosts disagree on Vars (JVM `Var` implements `IFn` but
+  ;; not `Fn`, so `(fn? #'my-write)` is FALSE there and TRUE in CLJS, where
+  ;; `Var` lists `Fn`), and `#'my-write` is the idiomatic hot-reload
+  ;; indirection; and not `ifn?`, which admits the silent-nil shapes.
+  (when-not (or (fn? (:request spec)) (var? (:request spec)))
+    (throw (registration-error
+             :rf.error/mutation-bad-spec
+             'rf/reg-mutation
+             (str "mutation " mutation-id "'s :request (the THIRD slot) must "
+                  "be a fn, got " (pr-str (type (:request spec))) ". The "
+                  "grammar is (reg-mutation " mutation-id " {…} "
+                  "(fn [params ctx] -> managed-http-args)); a Var (#'my-write) "
+                  "is also accepted. A non-callable :request registers cleanly "
+                  "and then fails at the first write — as a raw host cast "
+                  "error, or (for a keyword/map) silently as a nil request. "
+                  "Per Spec 016 §Mutations.")
+             {:mutation-id mutation-id :value (:request spec)})))
   (when-not (contains? spec :params-schema)
     (throw (registration-error
              :rf.error/mutation-bad-spec
