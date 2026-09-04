@@ -142,10 +142,11 @@ clojure -M:test
 ```
 
 The behavioural tier — a real shadow-cljs compile, the focused test
-under Node, the emitted page in Chromium, and the `:advanced` release —
-is opt-in with `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` and needs a primed
-`implementation/node_modules` plus a Playwright Chromium. See
-[Principles §P7](./spec/Principles.md#p7--tested-end-to-end-per-substrate).
+under Node, the emitted page in Chromium, then the `:advanced` release
+and the emitted page in Chromium again over that optimised bundle, for
+every substrate — is opt-in with `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` and
+needs a primed `implementation/node_modules` plus a Playwright Chromium.
+See [Principles §P7](./spec/Principles.md#p7--tested-end-to-end-per-substrate).
 
 ## Spec
 

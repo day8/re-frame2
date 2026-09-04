@@ -89,7 +89,7 @@ github.com/day8/re-frame2-template/        ; external repo (NEW) — the TEMPLAT
 │   ├── release_gate_test.clj              ; workflow-sanity coverage for template-release.yml
 │   └── repo_split_spec_test.clj           ; executable checks for the §2.1.x deps-new grammar
 ├── test-support/
-│   └── dev-page-boot-proof.cjs            ; Chromium dev-page boot driver (emitted-app tier)
+│   └── page-boot-proof.cjs                ; Chromium page-boot driver, dev + release (emitted-app tier)
 └── .github/workflows/
     └── template-release.yml               ; tag-on-release CI (moved from the monorepo — see §3.2)
 
@@ -322,7 +322,7 @@ off that same root:
 - `release_gate_test.clj` slurps
   `<repo-root>/.github/workflows/template-release.yml`.
 - `emitted_test_run_test.clj` launches
-  `<repo-root>/tools/template/test-support/dev-page-boot-proof.cjs`.
+  `<repo-root>/tools/template/test-support/page-boot-proof.cjs`.
 
 In the monorepo the framework marker and the template body sit under one
 root, so the conflation is invisible. **That is exactly what makes the
@@ -354,7 +354,7 @@ Every current path consumer, and the root it must read from:
 | `test_support` / `template-resource-dir` | `resources/` (deps-new `:src-dirs`) | template |
 | `repo_split_spec_test` | `spec/005-Repo-Split.md` | template |
 | `release_gate_test` | `.github/workflows/template-release.yml` | template |
-| `emitted_test_run_test` (boot proof) | `test-support/dev-page-boot-proof.cjs` | template |
+| `emitted_test_run_test` (boot proof) | `test-support/page-boot-proof.cjs` | template |
 | `version_lockstep_test` (`:rf2-version`) | `VERSION` | framework |
 | `version_lockstep_test` (react / shadow pins) | `implementation/package.json` | framework |
 | `version_lockstep_test` (clojure + substrate pins) | `implementation/core/deps.edn`, `implementation/adapters/reagent/deps.edn`, `implementation/adapters/uix/deps.edn` | framework |
@@ -615,8 +615,10 @@ and the test-architecture setup per §3.2.1):
        `skills/re-frame2-setup/references/first-counter.md`;
      - **behavioural compile / run + browser** (`emitted_test_run_test`)
        — compile the emitted app against `:local/root` framework paths,
-       junction `implementation/node_modules`, and boot the dev page
-       under Chromium via `test-support/dev-page-boot-proof.cjs`;
+       junction `implementation/node_modules`, and boot the page under
+       Chromium via `test-support/page-boot-proof.cjs` twice per
+       substrate: once over the dev bundle, once over the `:advanced`
+       release;
      - **release-workflow sanity** (`release_gate_test`) — read against
        the template repo's own
        `.github/workflows/template-release.yml`;
