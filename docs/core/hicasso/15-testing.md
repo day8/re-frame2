@@ -536,6 +536,28 @@ browser engine:
 - hydration against real server bytes;
 - performance budgets.
 
+**The driver is Playwright.** Like L3's Testing Library it is an npm package
+rather than a classpath entry, and it is the only dependency on this page that
+also downloads a browser:
+
+```bash
+npm install --save-dev playwright@1.59.1
+npx playwright install chromium   # add firefox and webkit as you need them
+```
+
+One API exposes `chromium`, `firefox` and `webkit`, so a spec written once runs
+on all three. Pin the version rather than floating it: the browser that comes
+down is what decides what the check can see, and `1.59.1` is the pin this
+repository's own engine gates run at.
+
+Hicasso's L4 gate is the worked example, and there is less to it than you might
+expect — a build, a server, a browser and a script, with no runner framework and
+no config file.
+[`hicasso/testbed/spec.cjs`](../../../implementation/hicasso/testbed/spec.cjs)
+is a plain file of assertions, and
+[`serve-and-run-hicasso-controlled-testbed.cjs`](../../../implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs)
+compiles the testbed build, serves it, and runs that spec once per engine.
+
 Controlled-input composition is a canonical L4 case
 ([Controlled inputs](04-controlled-inputs.md)). Performance scripts and
 budgets belong to [Performance](19-performance.md).
