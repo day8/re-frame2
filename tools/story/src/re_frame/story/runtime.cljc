@@ -1732,6 +1732,39 @@
 
 ;; ---- prepare-variant -----------------------------------------------------
 
+(defn- captured-prepare-failures
+  "The pipeline exceptions phases 0-2 CAPTURED onto `variant-id`'s frame,
+  as a (possibly empty) vector of the `:rf.error/exception` records.
+
+  `run-loaders!` / `run-events!` deliberately do not rethrow a failing
+  `:loaders` / `:setup` handler: `capture-phase-errors` collects the
+  pipeline-exception trace events and `record-error!` projects each onto
+  `[:rf.story/assertions]`, then the phase RETURNS. That is
+  `run-variant`'s gather-the-full-picture contract, and it stays — a run
+  result is meant to report every failure it saw, not abort at the first.
+  The consequence is that `prepare-ctx!` can complete WITHOUT THROWING over
+  a frame whose `:setup` never ran, which is why a caller that needs a
+  yes/no on the preparation cannot read the absence of a throw as success.
+
+  Reading the accumulator is sound BECAUSE phase 0's `ensure-fresh-frame!`
+  resets the frame's app-db — `[:rf.story/assertions]` included — so every
+  record present when phases 0-2 return belongs to THIS preparation. There
+  is no prior run's residue to mistake for a fresh failure.
+
+  `:rf.error/loader-incomplete` is deliberately NOT in this set. A
+  `:loaders-complete-when` that reports not-ready is a contract-pending
+  signal rather than a failure, and the shell plays such a variant anyway
+  (`resume-run!`'s `:force-play?` — the
+  `:story.counter-matrix/loader-never-completes` case). Refusing to
+  step-debug a variant the ordinary shell runs would take away the debugger
+  exactly where it is most wanted; the recorded assertion still tells the
+  operator the loaders never settled."
+  [variant-id]
+  (filterv (fn [{:keys [assertion passed?]}]
+             (and (= :rf.error/exception assertion)
+                  (not passed?)))
+           (read-assertions variant-id)))
+
 (defn prepare-variant
   "Re-run the PREPARE half of the four-phase lifecycle for `variant-id` —
   phases 0-2 (fresh-frame boundary, allocation, `:db-seed`, `:loaders`,
@@ -1763,7 +1796,26 @@
   `:setup` handler. Rejecting (rather than resolving an error result, as
   `run-variant` does) is what lets the caller return its UI to an honest
   inactive state instead of presenting controls over a frame that never
-  reached `:ready`.
+  reached the state the variant's `:setup` describes.
+
+  Those failures reach here by TWO routes, and only one of them is a throw:
+
+  - THROWN — an unknown variant (the plan compiler refuses with
+    `:rf.error/story-unknown-variant`) and a `:db-seed` schema violation
+    escape `prepare-ctx!`, so `rf.story.async/promise` rejects on them.
+  - CAPTURED — a throwing `:loaders` / `:setup` handler does NOT escape.
+    `run-loaders!` / `run-events!` project it onto `[:rf.story/assertions]`
+    and return normally (`run-variant`'s gather-the-full-picture contract),
+    so `prepare-ctx!` completes over a frame whose `:setup` never ran.
+
+  Reading the absence of a throw as success therefore published an active
+  cursor-0 stepper over a failed preparation — the residual the rf2-k6y2
+  post-merge audit found in the fix for rf2-k6y2 itself. So this checks
+  `captured-prepare-failures` explicitly and rejects on a non-empty set,
+  carrying the records under the thrown error's `:failures` so the caller
+  can say WHAT failed rather than only THAT it did. `run-variant` and
+  `prepare-run!` are untouched: they keep resolving a result that reports
+  every failure they saw.
 
   `opts` is the standard `run-variant` opts (`:active-modes` /
   `:cell-overrides` / `:substrate`)."
@@ -1774,12 +1826,25 @@
      (rf.story.async/promise
        (fn [resolve]
          ;; `rf.story.async/promise` rejects when this body throws, which is
-         ;; the honest settle for every prepare-half failure — including an
-         ;; unknown variant, which `prepare-context`'s plan compile already
-         ;; refuses with `:rf.error/story-unknown-variant`. Phases 0-2 are
+         ;; the honest settle for every prepare-half failure. Phases 0-2 are
          ;; synchronous, so the promise has settled by the time this returns.
          (reset-run-owner! variant-id)
          (prepare-ctx! variant-id (rf.story.frames/variant-body variant-id) opts)
+         (when-let [failures (seq (captured-prepare-failures variant-id))]
+           (rf.error/throw-error!
+             :rf.error/story-prepare-failed
+             'rf.story/prepare-variant
+             (str "re-frame2-story: variant " variant-id
+                  " — preparation (phases 0-2) recorded "
+                  (count failures)
+                  " captured pipeline exception(s) from :loaders / :setup, so "
+                  "the frame never reached the state the variant's :setup "
+                  "describes. The records are on the frame's "
+                  ":rf.story/assertions and under :failures here; fix the "
+                  "failing handler and prepare again.")
+             {:recovery :fix-the-failing-loader-or-setup-handler
+              :extra    {:variant/id variant-id
+                         :failures   (vec failures)}}))
          (resolve nil))))))
 
 ;; ---- watch-variant -------------------------------------------------------
