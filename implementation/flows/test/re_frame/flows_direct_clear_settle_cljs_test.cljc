@@ -50,14 +50,14 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.flows :as flows]
-   [re-frame.test-support :as test-support]
-   [re-frame.trace :as trace]
+   [re-frame.flows :as rf.flows]
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace :as rf.trace]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter substrate/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter substrate/adapter}))
 
 ;; ---- whole-stream trace recorder -----------------------------------------
 ;;
@@ -71,13 +71,13 @@
   "Run `(f captured)` with a whole-stream trace recorder installed."
   [f]
   (let [captured (atom [])]
-    (trace/register-listener!
+    (rf.trace/register-listener!
       ::direct-clear-settle-recorder
       (fn [ev] (swap! captured conj ev)))
     (try
       (f captured)
       (finally
-        (trace/unregister-listener! ::direct-clear-settle-recorder)))))
+        (rf.trace/unregister-listener! ::direct-clear-settle-recorder)))))
 
 (defn- event-ops
   "Every recorded `:rf.event` op-type operation, in capture order. Non-empty
@@ -123,7 +123,7 @@
             ;; `clear-flow` is the SOLE call between the precondition read
             ;; above and the capture below. No dispatch, no `dispatch-sync`,
             ;; no manual flow pass, no other framework call of any kind.
-            (flows/clear-flow :probe/a)
+            (rf.flows/clear-flow :probe/a)
             (let [observed   (rf/app-db-value :rf/default)
                   window-ops (event-ops captured)]
               ;; -------------------------------------------------------------
@@ -137,7 +137,7 @@
 
               ;; The already-correct half, retained so a regression here is not
               ;; masked by the dependent assertion below.
-              (is (not (contains? (get (flows/flows-snapshot) :rf/default) :probe/a))
+              (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :probe/a))
                   "A is deregistered from the per-frame registry")
               (is (not (contains? observed :a))
                   "A's output leaf is vacated")
@@ -211,7 +211,7 @@
           "precondition — the sibling frame is materialised")
 
       (let [right-before @right-derives]
-        (flows/clear-flow :probe/a {:frame :probe/left})
+        (rf.flows/clear-flow :probe/a {:frame :probe/left})
         (let [left-observed  (rf/app-db-value :probe/left)
               right-observed (rf/app-db-value :probe/right)]
           (is (= {:x 2 :b nil} left-observed)
@@ -233,7 +233,7 @@
           (rf/dispatch-sync [:seed])
           (let [before @derives]
             (reset! captured [])
-            (flows/clear-flow :probe/no-such-flow)
+            (rf.flows/clear-flow :probe/no-such-flow)
             (is (= {:x 2 :a 2 :b 2} (rf/app-db-value :rf/default))
                 "an unknown id leaves the frame exactly as it was")
             (is (zero? (- @derives before))
@@ -242,5 +242,5 @@
                 "an unknown id dispatches nothing"))))))
 
   (testing "an absent frame is a silent no-op, not a throw"
-    (is (nil? (flows/clear-flow :probe/a {:frame :probe/never-registered}))
+    (is (nil? (rf.flows/clear-flow :probe/a {:frame :probe/never-registered}))
         "clear-flow against an absent frame returns nil without throwing")))
