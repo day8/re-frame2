@@ -77,6 +77,17 @@ core sweep, each of which a line-oriented regex ratchet gets wrong:
       self-test proves that fixture goes GREEN when the runtime context is
       withheld (`_selftest_runtime_context_is_load_bearing`).
 
+  (6) A `#_` DISCARDED LIBSPEC IS NOT A REQUIRE EDGE.  The reader throws the
+      next form away, so `#_[re-frame.machines :as machines]` binds nothing —
+      but the mask, which called itself reader-level, did not consume the
+      discard and reported that alias as a live violation (the #9135
+      merged-PR audit).  On a REQUIRED repo-wide gate that is a latent
+      trunk-red: `#_` is live vocabulary here, and one ordinary edit putting
+      one in front of a framework require blocks every open PR.  The discard
+      is now a pass of its own over the masked text (`_blank_discards`), and
+      it is the one trap here whose two failure directions are NOT symmetric
+      — see the comment above that function.
+
 
 THE EXEMPTION IS DERIVED, NEVER LISTED
 
@@ -111,6 +122,13 @@ never regress; unmigrated ones ratchet DOWN as beads land (a surface below its
 floor is reported so the floor can be lowered, and `--write-baseline`
 regenerates the file).  Same shape as `scripts/check-ai-tracking-ratchet.sh`,
 which is the in-repo precedent.
+
+`--write-baseline` IS MONOTONIC, AND ITS TWO KEYS RATCHET OPPOSITE WAYS.  A
+surface floor is an allowance and may only FALL; `:min-edges` is the
+anti-blindness guard and may only RISE.  A proposed increase to any surface
+floor refuses the whole write rather than blessing the regression.  The full
+reasoning, and why one shared "floors only fall" rule is exactly wrong for
+half the file, is at `plan_baseline`.
 
 
 IT CANNOT REPORT A CONFIDENT ZERO OVER A CORPUS IT CANNOT SEE
@@ -221,9 +239,17 @@ _OPEN_TO_CLOSE = {"(": ")", "[": "]", "{": "}"}
 #     quote, not a string opener.  A masker that misses this desynchronises
 #     from the reader at the first `\"` and blanks the rest of the file — the
 #     "recognises nothing" failure, arriving as a clean run.
+#   * `#_` DISCARDS.  The reader throws the next form away entirely, so a
+#     discarded libspec is not a require edge.  This is a whole PASS rather
+#     than a case in the loop below, because delimiting "the next form"
+#     needs the balanced-bracket scanner — see `_blank_discards`.
 
 def mask_source(text: str) -> str:
-    """Blank strings, regex literals, comments and char literals, keeping offsets."""
+    """Blank strings, regex literals, comments, char literals and `#_` discards.
+
+    Offsets and newlines are preserved throughout, so a finding's reported
+    line is still the file's.
+    """
     out = list(text)
     n = len(text)
 
@@ -237,10 +263,21 @@ def mask_source(text: str) -> str:
         c = text[i]
         if c == "\\":
             # A character literal: `\a`, `\;`, `\"`, `\\`, `\newline`, `\u0041`.
+            #
+            # The LEADING BACKSLASH IS KEPT and only the name blanked, for the
+            # same reason a string keeps its delimiters below: the literal is
+            # still an ATOM of the form it sits in, and blanking it to
+            # whitespace deletes the token entirely.  That matters to
+            # `_blank_discards`, where a fully blanked `#_\a` would leave the
+            # discard looking at the NEXT form and blank live code — silently,
+            # and in the green direction.  Blanking the NAME is what keeps
+            # `\;` from opening a comment and `\"` from opening a string,
+            # which is this branch's own reason to exist; the backslash it
+            # keeps is inert to every scanner here.
             j = min(i + 2, n)
             while j < n and (text[j].isalnum() or text[j] == "-"):
                 j += 1
-            blank(i, j)
+            blank(i + 1, j)
             i = j
             continue
         if c == ";":
@@ -267,7 +304,10 @@ def mask_source(text: str) -> str:
             i = min(j, n)
             continue
         i += 1
-    return "".join(out)
+    # The discard pass runs LAST and over the already-masked text, so a `#_`
+    # written inside a string or a comment is not a discard.  It is defined
+    # below because it needs `balanced_end`.
+    return _blank_discards("".join(out))
 
 
 # --------------------------------------------------------------------------
@@ -290,6 +330,137 @@ def balanced_end(masked: str, start: int) -> int:
             if not stack:
                 return i + 1
     return -1
+
+
+# --------------------------------------------------------------------------
+# The `#_` discard (trap 6)
+# --------------------------------------------------------------------------
+#
+# `#_` THROWS THE NEXT FORM AWAY, so a discarded libspec is not a require edge.
+# The mask above was called reader-level while not consuming it, which made
+#
+#     (ns x (:require #_[re-frame.machines :as machines] [re-frame.core :as rf]))
+#
+# report `machines` as a live violation on code the reader never sees.  The
+# gate is REQUIRED and repo-wide, so that is a latent trunk-red: `#_` is live
+# vocabulary here and one ordinary edit puts it in front of a framework
+# require, at which point the gate blocks every open PR.
+#
+# TWO DIRECTIONS, AND THEY ARE NOT SYMMETRIC.  Consuming too LITTLE is a false
+# RED — loud, blocking, and impossible to miss.  Consuming too MUCH blanks live
+# code and reports a confident clean run over it, which is the silent-green
+# failure this module's docstring is about.  So `form_end` returns -1 rather
+# than guessing whenever it cannot delimit a form, and an undelimitable discard
+# is left in place: the failure that survives is the visible one.
+#
+# Over-consumption is not hypothetical.  Every one of the 11 code-position
+# discards in the tree today is a clj-kondo suppression — `#_:clj-kondo/ignore`
+# or `#_{:clj-kondo/ignore [...]}` — sitting IMMEDIATELY BEFORE live code, so a
+# pass that ate the following form as well would blank eleven live forms.  The
+# `positive/discard_consumes_exactly_one_form.cljc` fixture pins exactly that.
+
+def _skip_reader_space(masked: str, i: int) -> int:
+    """Past whitespace and commas, which the reader treats alike."""
+    n = len(masked)
+    while i < n and (masked[i].isspace() or masked[i] == ","):
+        i += 1
+    return i
+
+
+def form_end(masked: str, start: int) -> int:
+    """Index just past the ONE reader form beginning at or after `start`; -1 if none.
+
+    "One form" is the reader's unit, not the text's, so the prefixes that bind
+    to a following form are consumed with it: quote, syntax-quote, unquote,
+    deref, var-quote, tagged literals, and the two that read a form of their
+    OWN first — metadata (`^{...} form`) and a nested discard (`#_#_ a b`
+    drops both `a` and `b`).
+    """
+    n = len(masked)
+    i = _skip_reader_space(masked, start)
+    while i < n:
+        c = masked[i]
+        if masked.startswith("#_", i):
+            # A nested discard: it eats a form, and THEN this one still needs
+            # the form it was itself reaching for.
+            inner = form_end(masked, i + 2)
+            if inner == -1:
+                return -1
+            i = _skip_reader_space(masked, inner)
+            continue
+        if c == "^" or masked.startswith("#^", i):
+            # Metadata reads its own form and attaches to the next one.
+            inner = form_end(masked, i + (2 if c == "#" else 1))
+            if inner == -1:
+                return -1
+            i = _skip_reader_space(masked, inner)
+            continue
+        if c in "'`@":
+            i = _skip_reader_space(masked, i + 1)
+            continue
+        if c == "~":
+            i = _skip_reader_space(masked, i + (2 if masked.startswith("~@", i) else 1))
+            continue
+        if c == "#":
+            if masked.startswith("#?@", i):
+                i = _skip_reader_space(masked, i + 3)
+                continue
+            if masked.startswith("#?", i) or masked.startswith("#'", i):
+                i = _skip_reader_space(masked, i + 2)
+                continue
+            if masked.startswith(("#(", "#{", '#"'), i):
+                # The dispatch character sits directly on the collection or
+                # masked regex that IS the form.
+                i += 1
+                continue
+            # A tagged literal — `#inst "..."`, `#js {...}`, `#:ns{...}`: a tag
+            # token and then the form it tags.
+            j = i + 1
+            while j < n and not masked[j].isspace() and masked[j] not in "()[]{},;\"":
+                j += 1
+            if j == i + 1:
+                return -1
+            i = _skip_reader_space(masked, j)
+            continue
+        break
+    if i >= n:
+        return -1
+    c = masked[i]
+    if c in _OPEN_TO_CLOSE:
+        return balanced_end(masked, i)
+    if c == '"':
+        # A masked string keeps its delimiters, so it ends at the CLOSING
+        # quote rather than at the first blank inside it.
+        close = masked.find('"', i + 1)
+        return -1 if close == -1 else close + 1
+    if c in ")]}":
+        # A discard with nothing left to discard: malformed, and not ours to
+        # repair.  Leave it alone.
+        return -1
+    j = i
+    while j < n and not masked[j].isspace() and masked[j] not in "()[]{},;\"":
+        j += 1
+    return j if j > i else -1
+
+
+def _blank_discards(masked: str) -> str:
+    """Blank each `#_` and exactly the form it discards, keeping offsets."""
+    out = list(masked)
+    i, n = 0, len(masked)
+    while i < n:
+        if masked.startswith("#_", i):
+            end = form_end(masked, i + 2)
+            if end != -1:
+                for k in range(i, end):
+                    if out[k] != "\n":
+                        out[k] = " "
+                # `form_end` already consumed any nested discards inside the
+                # span, so scanning resumes past the whole of it.
+                i = end
+                continue
+            # Undelimitable: leave it, and let the false red be visible.
+        i += 1
+    return "".join(out)
 
 
 class Token(NamedTuple):
@@ -635,6 +806,117 @@ def parse_baseline(text: str) -> Baseline:
     return Baseline(min_edges, surfaces)
 
 
+# --------------------------------------------------------------------------
+# What `--write-baseline` is allowed to write
+# --------------------------------------------------------------------------
+#
+# THE WRITER USED TO REWRITE EVERY FLOOR TO THE CURRENT COUNT AND EXIT 0.  So
+# where a surface had REGRESSED above its floor, the repair command this file's
+# own header advertises silently RAISED that floor and blessed the regression —
+# the gate went green by moving the goalposts.  Reached twice independently:
+# the #9144 merged-PR audit read it out of the code, and #9144's own worker hit
+# it in practice and had to diff the output and hand-apply only the downward
+# moves.  #9142's worker then declined to run the command at all.
+#
+# THE TWO KEYS RATCHET IN OPPOSITE DIRECTIONS, AND THIS IS THE TRAP.  It reads
+# as one rule — "floors may only fall" — and that rule is exactly WRONG for
+# half the file:
+#
+#   * a SURFACE FLOOR is an allowance.  It is checked `found > floor -> fail`,
+#     so RAISING it loosens the gate.  It may only FALL.
+#
+#   * `:min-edges` IS NOT A RATCHET FLOOR.  It is the anti-blindness guard,
+#     checked `total < min_edges -> fail`, so LOWERING it loosens the gate —
+#     the inverse.  It may only RISE.  The old writer recomputed it as
+#     `int(len(edges) * 0.9)` unconditionally, which is a LOWERING every time
+#     the corpus shrinks: #9144 measured it wanting to move 9692 -> 9691 and
+#     held it by hand for this reason, and #9142's worker reproduced the same
+#     arithmetic independently.
+#
+# Anyone applying the surface rule to `:min-edges` quietly gives up the
+# protection that stops this checker reporting a confident zero over a corpus
+# it can no longer read.  Hence two explicitly opposed comparisons below rather
+# than one shared helper: there is no shared rule to factor out.
+#
+# A PROPOSED INCREASE REFUSES THE WHOLE WRITE rather than being dropped from
+# it.  A partial write leaves a file matching neither the tree nor the previous
+# baseline, and nothing in it records which happened.  Nothing is lost by
+# refusing, either: a surface above its floor means THE GATE IS ALREADY RED, so
+# there is no state in which recording another surface's win is the next thing
+# to do.  Deliberately raising a floor stays possible and stays a HAND EDIT of
+# the EDN, which is visible in review — a `--force` flag would be reached for
+# reflexively, which is the behaviour this exists to stop.
+
+class BaselinePlan(NamedTuple):
+    baseline: Baseline
+    notes: list[str]      # what the write would change, for the operator
+    refusals: list[str]   # non-empty: write NOTHING
+
+
+def plan_baseline(
+    counts: dict[str, int], surfaces_with_files: set[str], total_edges: int,
+    previous: Baseline | None,
+) -> BaselinePlan:
+    """The baseline `--write-baseline` may write, given the one on disk."""
+    observed = {s: counts.get(s, 0) for s in sorted(surfaces_with_files)}
+    notes: list[str] = []
+    refusals: list[str] = []
+
+    if previous is None:
+        return BaselinePlan(
+            Baseline(int(total_edges * 0.9), observed),
+            [f"no readable baseline on disk: writing a fresh one "
+             f"({len(observed)} surface(s))."],
+            [],
+        )
+
+    floors: dict[str, int] = {}
+    for surface, found in observed.items():
+        old = previous.surfaces.get(surface)
+        if old is None:
+            # A genuinely NEW surface. It has to start somewhere, and starting
+            # at its observed count is what a baseline IS — but it is called
+            # out, because this is the one path by which debt enters the file.
+            floors[surface] = found
+            notes.append(
+                f"NEW surface {surface}: floor set to its observed {found}."
+            )
+        elif found > old:
+            floors[surface] = old
+            refusals.append(
+                f"{surface}: {found} violation(s) against a floor of {old} — "
+                f"writing it would RAISE the floor by {found - old} and bless "
+                "the regression."
+            )
+        else:
+            if found < old:
+                notes.append(f"{surface}: floor {old} -> {found}.")
+            floors[surface] = found
+
+    for surface in sorted(set(previous.surfaces) - set(observed)):
+        notes.append(
+            f"surface {surface} contributes no Clojure file any more: its "
+            f"floor of {previous.surfaces[surface]} is dropped."
+        )
+
+    # `:min-edges` — the INVERSE comparison to the one above. See the block
+    # comment: lowering this loosens the gate, so the recompute is a CEILING
+    # on nothing and a floor on itself.
+    recomputed = int(total_edges * 0.9)
+    if recomputed >= previous.min_edges:
+        min_edges = recomputed
+    else:
+        min_edges = previous.min_edges
+        notes.append(
+            f":min-edges HELD at {previous.min_edges} (the recompute proposed "
+            f"{recomputed}). It is the anti-blindness guard, not an allowance: "
+            "lowering it LOOSENS the gate, so a shrinking corpus is a thing to "
+            "investigate by hand, never to write down."
+        )
+
+    return BaselinePlan(Baseline(min_edges, floors), notes, refusals)
+
+
 def render_baseline(min_edges: int, surfaces: dict[str, int]) -> str:
     width = max((len(s) for s in surfaces), default=0) + 2
     lines = [
@@ -727,11 +1009,18 @@ def scan_paths(
 # Usability floor — "recognises nothing" must not read as "found nothing"
 # --------------------------------------------------------------------------
 
-def assert_usable(
-    result: ScanResult, roster: list[str], baseline: Baseline,
-    surfaces_with_files: set[str],
+def scan_is_believable(
+    result: ScanResult, roster: list[str], min_edges: int,
 ) -> list[str]:
-    """Reasons the run cannot be believed.  Non-empty means exit 2, never 0."""
+    """Reasons the SCAN cannot be believed, independent of any baseline currency.
+
+    Split out of `assert_usable` so `--write-baseline` runs it too.  The writer
+    must refuse a corpus it could not read — a baseline regenerated from a
+    blind scan records zeroes as wins and is worse than no baseline at all —
+    but it must NOT be held to the baseline-currency checks below, since
+    adding a surface and dropping a stale one are exactly what a rewrite is
+    for.
+    """
     problems: list[str] = []
     if not roster:
         problems.append(
@@ -741,13 +1030,28 @@ def assert_usable(
     if result.files_read == 0:
         problems.append("no file was read; the scan covered nothing.")
     total = len(result.edges)
-    if total < baseline.min_edges:
+    if total < min_edges:
         problems.append(
             f"only {total} re-frame require edge(s) observed, below the "
-            f"baseline floor of {baseline.min_edges}. A clean tree does not "
+            f"baseline floor of {min_edges}. A clean tree does not "
             "lose require edges; a blind scanner does. Investigate the "
             "scanner before lowering this number."
         )
+    if result.unparseable:
+        problems.append(
+            f"{len(result.unparseable)} re-frame libspec(s) in a shape this "
+            "checker does not recognise — reported rather than skipped, "
+            "because a skipped libspec is a bare alias the gate waves through."
+        )
+    return problems
+
+
+def assert_usable(
+    result: ScanResult, roster: list[str], baseline: Baseline,
+    surfaces_with_files: set[str],
+) -> list[str]:
+    """Reasons the run cannot be believed.  Non-empty means exit 2, never 0."""
+    problems = scan_is_believable(result, roster, baseline.min_edges)
     missing = sorted(set(baseline.surfaces) - surfaces_with_files)
     if missing:
         problems.append(
@@ -763,12 +1067,6 @@ def assert_usable(
             + ". Add each to " + BASELINE_REL + " (--write-baseline). An "
             "unnamed surface is exactly how machines went unowned between the "
             "core and routing sweeps."
-        )
-    if result.unparseable:
-        problems.append(
-            f"{len(result.unparseable)} re-frame libspec(s) in a shape this "
-            "checker does not recognise — reported rather than skipped, "
-            "because a skipped libspec is a bare alias the gate waves through."
         )
     return problems
 
@@ -872,7 +1170,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--report", action="store_true", help="Per-surface census.")
     parser.add_argument(
         "--write-baseline", action="store_true",
-        help=f"Regenerate {BASELINE_REL} from the current tree.",
+        help=f"Regenerate {BASELINE_REL} from the current tree. Monotonic: a "
+             "surface floor may only fall and :min-edges may only rise, so a "
+             "regression refuses the write instead of being blessed by it.",
     )
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -930,18 +1230,63 @@ def main(argv: list[str]) -> int:
     surfaces_with_files = {surface_of(p) for p in roster}
 
     if args.write_baseline:
-        counts = result.per_surface
-        surfaces = {s: counts.get(s, 0) for s in sorted(surfaces_with_files)}
-        # Round the observed total DOWN to a stable floor: the point is to
-        # catch a scanner that has gone blind, not to red the gate the next
-        # time a namespace is deleted.
-        floor = int(len(result.edges) * 0.9)
-        (repo_root / BASELINE_REL).write_text(
-            render_baseline(floor, surfaces), encoding="utf-8", newline="\n",
+        baseline_path = repo_root / BASELINE_REL
+        previous: Baseline | None = None
+        if baseline_path.is_file():
+            try:
+                previous = parse_baseline(baseline_path.read_text(encoding="utf-8"))
+            except (OSError, BaselineError) as exc:
+                # Refuse rather than overwrite: a baseline this reader cannot
+                # read is one whose floors cannot be honoured, and clobbering
+                # it with the current counts would erase every one of them.
+                sys.stderr.write(
+                    f"error: {BASELINE_REL}: {exc}\n"
+                    "The writer will not overwrite a baseline it cannot read — "
+                    "repair the file by hand, then re-run.\n"
+                )
+                return 2
+
+        # The write path runs the SAME believability floor as the gate. A
+        # baseline regenerated from a scan that read nothing records zeroes as
+        # wins, which is strictly worse than no baseline at all.
+        problems = scan_is_believable(
+            result, roster, previous.min_edges if previous else 0,
+        )
+        if problems:
+            report_unusable(problems, result)
+            return 2
+
+        plan = plan_baseline(
+            result.per_surface, surfaces_with_files, len(result.edges), previous,
+        )
+        for note in plan.notes:
+            sys.stdout.write(f"  {note}\n")
+        if plan.refusals:
+            sys.stderr.write(
+                f"\nrefusing to write {BASELINE_REL}: "
+                f"{len(plan.refusals)} surface(s) would have their floor "
+                "RAISED, which blesses a regression instead of recording a "
+                "win:\n\n"
+            )
+            for refusal in plan.refusals:
+                sys.stderr.write(f"  {refusal}\n")
+            sys.stderr.write(
+                "\nNothing was written — a partial write would match neither "
+                "the tree nor the baseline.\nMigrate the surface(s) above, or "
+                f"if the floor genuinely must rise, edit {BASELINE_REL} BY "
+                "HAND\nso the raise is visible in review.\n\nFix:\n"
+                f"  * {_FIX_HINT}\n"
+            )
+            return 1
+
+        baseline_path.write_text(
+            render_baseline(plan.baseline.min_edges, plan.baseline.surfaces),
+            encoding="utf-8", newline="\n",
         )
         sys.stdout.write(
-            f"wrote {BASELINE_REL}: {len(surfaces)} surface(s), "
-            f":min-edges {floor} (from {len(result.edges)} observed edges).\n"
+            f"wrote {BASELINE_REL}: {len(plan.baseline.surfaces)} surface(s), "
+            f":min-edges {plan.baseline.min_edges} "
+            f"(from {len(result.edges)} observed edges).\n"
         )
         return 0
 
@@ -1015,6 +1360,7 @@ POSITIVE_FIXTURES: dict[str, tuple[str, ...]] = {
     "reader_conditional_splice.cljc": ("flows",),
     "as_alias.cljc": ("schemas",),
     "wrong_dotted_alias.cljc": ("rf.core", "rf.mach"),
+    "discard_consumes_exactly_one_form.cljc": ("machines", "routing"),
 }
 
 NEGATIVE_FIXTURES: tuple[str, ...] = (
@@ -1022,7 +1368,20 @@ NEGATIVE_FIXTURES: tuple[str, ...] = (
     "host_conditional_exemption.cljc",
     "use_site_lookalikes.cljc",
     "masked_require_shapes.cljc",
+    "discard_ns_libspec.cljc",
+    "discard_runtime_require.cljc",
 )
+
+# Each discard fixture, with the aliases its IDENTICAL LIVE TWIN must fire on.
+# The twin is the fixture's own text with the `#_` markers removed — the same
+# bytes minus two characters each — because a negative fixture on its own
+# cannot tell "correctly ignored" from "the scanner stopped seeing anything",
+# and a hand-written twin in a second file drifts away from the thing it is a
+# control for.
+DISCARD_TWINS: dict[str, tuple[str, ...]] = {
+    "discard_ns_libspec.cljc": ("machines", "schemas"),
+    "discard_runtime_require.cljc": ("directory", "routing"),
+}
 
 
 def _fixture_text(repo_root: Path, kind: str, name: str) -> tuple[str, str]:
@@ -1153,6 +1512,136 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
     expect("control: a fully-owned scan over the floor is usable",
            assert_usable(unowned, ["tools/x.cljc"], Baseline(1, {"tools": 0}),
                          {"tools"}) == [])
+
+    # ---- control 8: the `#_` discard, in BOTH directions -------------------
+    # The negative fixtures above already assert the discards are silent. What
+    # follows is the half that makes that assertion mean something: the SAME
+    # TEXT with the `#_` markers removed must fire on exactly the aliases the
+    # discards were hiding. Without it, a scanner that had stopped reading
+    # libspecs at all would read both fixtures green and look correct.
+    for name, expected in DISCARD_TWINS.items():
+        rel, text = _fixture_text(repo_root, "negative", name)
+        expect(f"control: negative/{name} carries a discard to strip",
+               "#_" in text, "no `#_` in the fixture")
+        twin = text.replace("#_", "")
+        twin_edges, twin_bad = read_file(rel, twin)
+        got = tuple(
+            v.alias for v in sorted(violations_of(twin_edges), key=lambda e: e.line)
+        )
+        expect(f"control: negative/{name} WITHOUT its `#_` fires on {expected}",
+               got == expected, f"got {got}")
+        expect(f"control: negative/{name}'s live twin parses cleanly",
+               not twin_bad, f"{twin_bad}")
+
+    # A discard consumes EXACTLY ONE form. Over-consumption is the silent
+    # direction — it blanks live code and reports a clean run — and the live
+    # `#_:clj-kondo/ignore` idiom sits immediately before real code, so this is
+    # the shape that would be eaten.
+    for label, text, want in (
+        ("a discarded ns libspec is not an edge",
+         "(ns x (:require #_[re-frame.machines :as machines] [re-frame.core :as rf]))", []),
+        ("the same libspec undiscarded IS",
+         "(ns x (:require [re-frame.machines :as machines] [re-frame.core :as rf]))", ["machines"]),
+        ("a `#_` split from its form by a newline still discards it",
+         "(ns x (:require #_\n  [re-frame.machines :as machines] [re-frame.core :as rf]))", []),
+        ("`#_#_` discards TWO forms",
+         "(ns x (:require #_#_[re-frame.a :as a] [re-frame.b :as b] [re-frame.core :as rf]))", []),
+        ("a discarded runtime require is not an edge",
+         "#_(require '[re-frame.machines :as machines])", []),
+        ("`#_:clj-kondo/ignore` does NOT eat the live form after it",
+         "#_:clj-kondo/ignore (require '[re-frame.machines :as machines])", ["machines"]),
+        ("`#_{:clj-kondo/ignore [...]}` does NOT eat the live form after it",
+         "#_{:clj-kondo/ignore [:x]}\n(require '[re-frame.machines :as machines])", ["machines"]),
+        ("a discard consumes a quote with the form it quotes",
+         "(require '[re-frame.core :as rf] #_'[re-frame.routing :as routing])", []),
+        ("a discard consumes metadata with the form it decorates",
+         "(ns x (:require #_^:m [re-frame.machines :as machines] [re-frame.core :as rf]))", []),
+        # `\a` masks to a kept backslash and a blanked name; blanking it whole
+        # would leave this discard looking at the require and eating it.
+        ("a discarded char literal does not swallow the next form",
+         "#_\\a (require '[re-frame.machines :as machines])", ["machines"]),
+        ("a discarded string does not swallow the next form",
+         '#_"txt" (require \'[re-frame.machines :as machines])',  ["machines"]),
+        ("a discarded tagged literal does not swallow the next form",
+         "#_#js {:a 1} (require '[re-frame.machines :as machines])", ["machines"]),
+        ("a `#_` written INSIDE a string discards nothing",
+         '(def s "#_")\n(require \'[re-frame.machines :as machines])', ["machines"]),
+        ("a `#_` written INSIDE a comment discards nothing",
+         ";; #_[re-frame.core :as rf]\n(require '[re-frame.machines :as machines])", ["machines"]),
+    ):
+        edges, bad = read_file("x.cljc", text)
+        expect(f"control: {label}",
+               [v.alias for v in violations_of(edges)] == want and not bad,
+               f"got {[v.alias for v in violations_of(edges)]} / {bad}")
+
+    # ---- control 9: --write-baseline is monotonic, both keys --------------
+    # `plan_baseline` is exercised directly rather than through the CLI so the
+    # REAL baseline is never a party to a test. The two keys move in OPPOSITE
+    # directions and each is asserted in both.
+    prev = Baseline(1000, {"tools": 10, "implementation/core": 0, "gone": 4})
+
+    down = plan_baseline({"tools": 3}, {"tools", "implementation/core"}, 1200, prev)
+    expect("control: a DOWNWARD refresh is written",
+           not down.refusals and down.baseline.surfaces["tools"] == 3,
+           f"{down}")
+    expect("control: a surface still at its floor is left where it is",
+           down.baseline.surfaces["implementation/core"] == 0)
+    expect("control: a surface that no longer contributes files is dropped",
+           "gone" not in down.baseline.surfaces
+           and any("gone" in n for n in down.notes), f"{down.notes}")
+
+    up = plan_baseline({"tools": 11}, {"tools", "implementation/core"}, 1200, prev)
+    expect("control: an UPWARD refresh REFUSES", len(up.refusals) == 1, f"{up.refusals}")
+    expect("control: and cannot alter the floor it wanted to raise",
+           up.baseline.surfaces["tools"] == 10, f"{up.baseline.surfaces}")
+
+    mixed = plan_baseline(
+        {"tools": 11, "implementation/core": 0}, {"tools", "implementation/core"},
+        1200, prev,
+    )
+    expect("control: ONE regression refuses the WHOLE write, wins included",
+           bool(mixed.refusals), f"{mixed}")
+
+    added = plan_baseline(
+        {"tools": 10, "brand-new": 7}, {"tools", "implementation/core", "brand-new"},
+        1200, prev,
+    )
+    expect("control: a genuinely NEW surface can still be added, and is named",
+           not added.refusals and added.baseline.surfaces["brand-new"] == 7
+           and any("brand-new" in n for n in added.notes), f"{added}")
+
+    # `:min-edges` IS THE INVERSE CASE. It is checked `total < min_edges ->
+    # fail`, so LOWERING it loosens the gate. A monotonicity rule written as
+    # "floors may only fall" is exactly wrong here, which is what #9144 hit
+    # when the writer wanted to move it 9692 -> 9691.
+    shrunk = plan_baseline({"tools": 10}, {"tools", "implementation/core"}, 1000, prev)
+    expect("control: :min-edges is NOT LOWERED when the corpus shrinks "
+           "(lowering it loosens the anti-blindness guard — the inverse of a floor)",
+           shrunk.baseline.min_edges == 1000, f"{shrunk.baseline.min_edges}")
+    expect("control: and holding it is reported, not silent",
+           any(":min-edges HELD" in n for n in shrunk.notes), f"{shrunk.notes}")
+    grown = plan_baseline({"tools": 10}, {"tools", "implementation/core"}, 2000, prev)
+    expect("control: :min-edges DOES rise when the corpus grows",
+           grown.baseline.min_edges == 1800, f"{grown.baseline.min_edges}")
+
+    fresh = plan_baseline({"tools": 4}, {"tools"}, 100, None)
+    expect("control: with no baseline on disk a fresh one is written",
+           not fresh.refusals and fresh.baseline == Baseline(90, {"tools": 4}),
+           f"{fresh.baseline}")
+
+    # The write path runs the gate's own believability floor rather than
+    # bypassing it: a baseline regenerated from a scan that read nothing
+    # records zeroes as wins.
+    expect("control: the write path's believability floor refuses a blind scan",
+           len(scan_is_believable(ScanResult(0, [], [], []), [], 10)) == 3,
+           f"{scan_is_believable(ScanResult(0, [], [], []), [], 10)}")
+    with_bad = ScanResult(
+        1, [Edge("tools/x.cljc", 1, "re-frame.core", "rf", CONTEXT_NS)], [],
+        [Unparseable("tools/x.cljc", 1, "[re-frame.m [r :as r]]", "prefix list")],
+    )
+    expect("control: and refuses a scan carrying an unparseable libspec",
+           len(scan_is_believable(with_bad, ["tools/x.cljc"], 0)) == 1,
+           f"{scan_is_believable(with_bad, ['tools/x.cljc'], 0)}")
 
     # ---- control 7: surface_of, and the granularity that matters ----------
     expect("control: implementation/ splits one level deeper",
