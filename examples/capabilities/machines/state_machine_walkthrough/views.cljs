@@ -66,6 +66,10 @@
                :data-testid "login-submit"
                :disabled (or busy? locked?)}
       (if busy? "Signing in…" "Sign in")]
+     ;; A straight read of the machine's :data — no state check, no second
+     ;; predicate. It can be, because the machine drops the error as it leaves
+     ;; :error-shown, so a non-nil error is always a live one. Data that tells
+     ;; the truth is what lets a view stay this small.
      (when (and err (not locked?))
        [:div.error-row
         [:p.error err]

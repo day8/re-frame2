@@ -70,6 +70,9 @@
 
    :actions
    {:clear-error
+    ;; Named once here, then used from two different slots below: as a
+    ;; transition :action leaving :idle, and as :error-shown's :exit. Keyword
+    ;; refs resolve machine-locally against this map, so one action serves both.
     (fn [_] {:data {:error nil}})
 
     :issue-request
@@ -104,6 +107,11 @@
 
    :states
    {:idle
+    ;; :error-shown's :exit (below) already guarantees a nil error on every path
+    ;; that reaches :idle, so for any snapshot the table itself produced this
+    ;; :action is redundant. It earns its keep on the ones a test hand-builds —
+    ;; this example's whole point being that a pure call may start from any
+    ;; :data you care to hand it.
     {:on {:walkthrough.login/submit {:target :submitting
                               :action :clear-error}}}
 
@@ -124,8 +132,23 @@
                                    :action :record-error}]}}
 
     :error-shown
-    {:on {:walkthrough.login/dismiss {:target :idle}
-          :walkthrough.login/submit  {:target :submitting}}}
+    ;; The error belongs to THIS state, so this is where it gets cleaned up.
+    ;; :exit runs on the way out — on every way out — and it is the other half
+    ;; of the pair :submitting shows above: "Use `:entry` for work that should
+    ;; happen whenever the state is entered ... Use `:exit` for cleanup"
+    ;; (docs/machines/concepts.md). Saying it once here covers both exits,
+    ;; Dismiss and a direct retry. Hanging :clear-error off each transition
+    ;; instead restates one invariant per edge, and that lasts precisely until
+    ;; someone adds a third edge and forgets.
+    ;;
+    ;; Slot order is :exit -> transition :action -> target :entry, so on a
+    ;; direct retry the stale message is gone BEFORE :submitting's
+    ;; :issue-request fires — a fresh request never rides alongside the previous
+    ;; failure. And {:data {:error nil}} MERGES, so :attempts survives untouched
+    ;; and the retry guard goes on counting.
+    {:exit :clear-error
+     :on   {:walkthrough.login/dismiss {:target :idle}
+            :walkthrough.login/submit  {:target :submitting}}}
 
     :authed
     ;; Journey's end, happy path. The :auth/authenticated tag rides along once

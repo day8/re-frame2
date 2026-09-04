@@ -57,6 +57,14 @@ at it, poke here.
   rejected attempts, then a third that the retry guard rejects, parking the
   machine in `:locked-out`.
 
+- Entry and exit as a matched pair. `:submitting` declares
+  `:entry :issue-request`, so every path *into* it issues the request;
+  `:error-shown` declares `:exit :clear-error`, so every path *out of* it drops
+  the message. Dismiss and a direct retry are both covered without either
+  transition restating it — which is why the view renders the error row from
+  `:data` alone. A non-nil error is always a live one, never a leftover from the
+  attempt before.
+
 - The same flow tested as pure function calls. Feed a starting
   [snapshot](../../../../docs/machines/glossary.md#snapshot) and an event into
   `machine-transition`, then assert against the snapshot that comes back. For
