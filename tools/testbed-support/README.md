@@ -63,9 +63,31 @@ npm package through Node.
 Because this endpoint can open a local file, it accepts launches only when all
 of these conditions hold:
 
+- the request arrives from a **loopback TCP peer** — Ring's `:remote-addr`
 - the request method is `POST`
 - the `Host` header names a loopback host
 - when present, `Origin` also names a loopback host
+
+The peer address is the boundary; the rest is defence in depth. `Host`,
+`Origin` and every `X-Forwarded-*` header are strings the client writes, so a
+remote caller can spell them as loopback — the socket the request arrived on is
+the one fact it cannot choose, and forwarding headers are deliberately ignored
+because a `:dev-http` server is a direct listener. Missing or malformed peer
+addresses are refused. A non-loopback peer reaches nothing here, not even the
+`OPTIONS` preflight.
+
+Accepted peers are the whole `127.0.0.0/8` block, IPv6 `::1` — which
+shadow-cljs reports in its expanded `0:0:0:0:0:0:0:1` spelling — and the
+IPv4-mapped `::ffff:127.0.0.1` a dual-stack socket may report. This matters
+because the testbeds listen beyond loopback: `:dev-http` entries that set no
+`:host` bind `0.0.0.0`, so the endpoint is reachable from the network and only
+the peer check turns those callers away.
+
+Running the testbed on another machine or in a container therefore no longer
+works by pointing a browser at it, and widening the check is not the answer. An
+SSH local port-forward is: `ssh -L 8031:localhost:8031 <host>` makes the tunnel
+itself the caller, so the peer the server sees is genuine loopback and nothing
+needs configuring at either end.
 
 CORS reflects only a validated loopback origin; it never emits `*`. Missing
 files return 422 before Node is spawned so the browser client can fall back to
@@ -128,7 +150,8 @@ clojure -M:test
 ```
 
 The JVM suite covers file resolution, query parsing, launch argument handling,
-JSON responses, and the method/loopback/origin guard. It also witnesses a real
+JSON responses, and the peer/method/host/origin guard — including a remote peer
+sending a forged loopback `Host`, which must never launch. It also witnesses a real
 relative Story coordinate and a real relative Xray coordinate resolving to
 their on-disk files through the handler, with `launch!` stubbed.
 

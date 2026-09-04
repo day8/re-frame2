@@ -2,13 +2,14 @@
   "Dev-only Ring endpoint for opening source coordinates in an editor.
 
   The JVM handler resolves classpath-relative files at request time and invokes
-  the Node `launch-editor` package. Launches require POST, a loopback Host, and
-  a loopback Origin when one is present. This `.clj` namespace runs only in the
+  the Node `launch-editor` package. Reaching the endpoint at all requires a
+  loopback TCP peer; launches additionally require POST, a loopback Host, and a
+  loopback Origin when one is present. This `.clj` namespace runs only in the
   shadow-cljs server and is never part of a browser bundle."
   (:require [clojure.string :as str]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri])
-  (:import [java.net URI]
+  (:import [java.net InetAddress URI]
            [java.io File InputStream InputStreamReader]
            [java.util.concurrent TimeUnit]))
 
@@ -350,8 +351,9 @@
   (when (and (string? s) (re-matches #"\d+" s))
     (try (Long/parseLong s) (catch Throwable _ nil))))
 
-;; Launches must be addressed to loopback and, when supplied, originate there.
-;; The handler separately enforces POST and reflects only validated origins.
+;; Callers must ARRIVE from loopback; launches must additionally be addressed to
+;; loopback and, when supplied, originate there. The handler separately enforces
+;; POST and reflects only validated origins.
 
 (defn ^:private loopback-host?
   "Recognize localhost, 127.0.0.0/8, and IPv6 loopback host values."
@@ -376,6 +378,49 @@
                  ;; a bare IPv4 in 127.0.0.0/8
                  (re-matches #"127\.\d{1,3}\.\d{1,3}\.\d{1,3}" bare)))))))
 
+(defn ^:private loopback-peer?
+  "Is `remote-addr` — Ring's TCP peer for this request — a loopback address?
+
+  The peer is the one caller fact a client cannot choose. `Host`, `Origin` and
+  every `X-Forwarded-*` header are strings the client writes, so a request from
+  anywhere can spell them as loopback; the socket it arrived on cannot lie.
+  This is therefore the authoritative check, and `local-request?` below is
+  defence in depth on top of it. Forwarding headers are deliberately ignored:
+  a shadow-cljs `:dev-http` server is a direct listener, so honouring one would
+  hand the decision straight back to the client.
+
+  shadow-cljs fills `:remote-addr` from `InetAddress.getHostAddress`, so values
+  arriving here are bare numeric literals — never names, never `addr:port`.
+
+  Accepted, and why each belongs in the set:
+
+  - the whole `127.0.0.0/8` block, not merely `127.0.0.1`: a client may connect
+    to any address in it (`127.0.0.53` is the systemd-resolved local stub) and
+    the kernel never routes that block off the machine;
+  - `::1`, IPv6 loopback, and its expanded spelling `0:0:0:0:0:0:0:1` — which
+    is the form `getHostAddress` actually emits, so a check for the short
+    spelling alone would refuse every genuine IPv6 caller;
+  - `::ffff:127.0.0.1`, the IPv4-mapped form a dual-stack socket may report for
+    an IPv4 loopback client.
+
+  Everything else fails closed, missing and malformed values included. Parsing
+  happens only once the string already looks like a numeric literal, so nothing
+  can reach name resolution: `getByName` would resolve `localhost` — or any
+  attacker-chosen name pointing at 127.0.0.1 — to a loopback address."
+  [remote-addr]
+  (boolean
+    (when (and (string? remote-addr) (not (str/blank? remote-addr)))
+      ;; A scope id (`::1%lo0`) names an interface, not a different address.
+      (let [s (first (str/split (str/trim remote-addr) #"%"))]
+        (when (and (string? s)
+                   ;; Numeric literals only — see the docstring's last note.
+                   (re-matches #"[0-9A-Fa-f:.]+" s)
+                   (or (str/includes? s ":")
+                       (re-matches #"\d{1,3}(?:\.\d{1,3}){3}" s)))
+          (try
+            (.isLoopbackAddress (InetAddress/getByName s))
+            (catch Throwable _ false)))))))
+
 (defn ^:private origin-host
   "Extract an Origin host, rejecting blank, malformed, and opaque origins."
   [origin]
@@ -397,7 +442,11 @@
               headers))))
 
 (defn ^:private local-request?
-  "Require a loopback Host and, when present, a loopback Origin."
+  "Require a loopback Host and, when present, a loopback Origin.
+
+  Both values are client-supplied, so this is defence in depth — it narrows a
+  loopback peer's browser to same-machine pages and closes DNS rebinding. It is
+  NOT the boundary: `loopback-peer?` is, and `handle` applies that first."
   [{:keys [headers]}]
   (let [host   (get-header headers "host")
         origin (get-header headers "origin")]
@@ -454,9 +503,9 @@
 (defn handle
   "Handle the open-in-editor path or return nil for another path.
 
-  Query keys are `file` (required), `line`, `column`, and `editor`. Only a
-  local POST reaches `launch!`. Invalid input produces JSON 400/403/405
-  responses; missing files and launch failures produce 422, as does a
+  Query keys are `file` (required), `line`, `column`, and `editor`. Only a POST
+  from a loopback TCP peer reaches `launch!`. Invalid input produces JSON
+  400/403/405 responses; missing files and launch failures produce 422, as does a
   coordinate-bearing request whose editor cannot carry the position — either
   because this endpoint named a position-blind command
   (`position-would-be-dropped?`, answered here without spawning Node) or
@@ -464,10 +513,16 @@
   one (`launch-shim`'s probe, answered at launch time). Every one of those
   non-2xx answers hands the launch to the client's `editor://` URI fallback,
   which does carry the coordinate."
-  [{:keys [uri request-method query-string] :as req}]
+  [{:keys [uri request-method query-string remote-addr] :as req}]
   (when (= uri endpoint-path)
     (let [ao (allow-origin req)]
       (cond
+        ;; The transport boundary, applied before anything a client can write.
+        ;; A remote caller reaches nothing here — not the launch path, not the
+        ;; preflight — however it spells Host, Origin or X-Forwarded-For.
+        (not (loopback-peer? remote-addr))
+        (json-resp 403 ao {:ok false :error "forbidden"})
+
         ;; Cross-port local testbeds require an OPTIONS response.
         (= request-method :options)
         {:status 204
@@ -476,7 +531,7 @@
                    "access-control-allow-headers" "content-type"
                    "vary"                          "origin"}}
 
-        ;; Apply the network boundary before resolving a path.
+        ;; Defence in depth, still before any path is resolved.
         (not (local-request? req))
         (json-resp 403 ao {:ok false :error "forbidden"})
 
