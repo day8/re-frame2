@@ -82,6 +82,16 @@ function it(label, f) {
   }
 }
 
+// `it` above calls f() WITHOUT awaiting, so an async body's rejection escapes
+// its try/catch and the test prints PASS regardless — a false green. Async
+// cases (the first-build readiness wait, which polls) are therefore queued here
+// and drained by the awaiting runner at the bottom of this file, which owns the
+// summary + exit code for both kinds.
+const asyncTests = [];
+function itAsync(label, f) {
+  asyncTests.push([label, f]);
+}
+
 console.log('examples-staging tests (rf2-pdo5mx)');
 
 // ---- parser: synthetic fixture, both brace placements --------------------
@@ -721,8 +731,200 @@ function noopIo() {
   };
 }
 
-if (failed > 0) {
-  console.error(`\nexamples-staging tests: ${failed} FAILED.`);
-  process.exit(1);
-}
-console.log('\nexamples-staging tests: all passed.');
+// ---- serve-example first-build readiness (rf2-qwy3) ----------------------
+//
+// The dev runner used to print `<build> is live at <url>` the moment
+// http-server proved it owned the staged root. In WATCH mode that root has just
+// been cleaned (rf2-rg2tze) and `shadow-cljs watch` is asynchronous, so the
+// advertised page served its host HTML + _shared assets while the `main.js` it
+// requires was still absent: a blank, non-booted app, with no bundle loaded and
+// therefore no shadow client to turn the later compile into a live reload.
+// Server ownership and application-build readiness are different facts;
+// serve-example composes them via waitForFirstBuild.
+//
+// These pin BOTH halves: the predicate's behaviour (delayed artifact, empty
+// artifact, watch died before first output) and the call-site ordering (the
+// wait precedes the live banner), so a refactor that re-opens the window fails
+// here.
+
+const {
+  waitForFirstBuild,
+  BUILD_ENTRYPOINT,
+} = require('../../examples/scripts/serve-example.cjs');
+
+const SERVE_EXAMPLE_SRC = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'examples', 'scripts', 'serve-example.cjs'),
+  'utf8',
+);
+
+it('the entrypoint serve-example waits for is the one every example host loads', () => {
+  // check-examples-assets.cjs makes `<script src="main.js">` mandatory on every
+  // example page, which is what licenses the runner to key its readiness on a
+  // fixed name rather than parsing each host page.
+  assert.strictEqual(BUILD_ENTRYPOINT, 'main.js');
+});
+
+itAsync('waitForFirstBuild waits through a DELAYED artifact, then reports ready (rf2-qwy3)', async () => {
+  // A fake producer that publishes only on the 4th probe — the cold-compile
+  // case, where the server is ready long before the bundle exists.
+  let probes = 0;
+  const result = await waitForFirstBuild({
+    fetchBody: async () => {
+      probes++;
+      return probes < 4 ? null : 'console.log("booted");';
+    },
+    isAborted: () => false,
+    sleep: async () => {},
+  });
+  assert.deepStrictEqual(result, { ok: true });
+  assert.strictEqual(probes, 4, 'must keep polling until the artifact is actually served');
+});
+
+itAsync('TEETH: waitForFirstBuild does NOT report ready on a zero-length artifact (rf2-qwy3)', async () => {
+  // An empty main.js boots nothing. Announcing it would restate the exact lie
+  // this wait removes, so an empty body must keep the runner waiting.
+  let probes = 0;
+  const result = await waitForFirstBuild({
+    fetchBody: async () => {
+      probes++;
+      // Empty for the first three probes (the acceptance criterion's
+      // "zero-length" case), then real content.
+      return probes < 4 ? '' : 'console.log("booted");';
+    },
+    isAborted: () => false,
+    sleep: async () => {},
+  });
+  assert.deepStrictEqual(result, { ok: true });
+  assert.strictEqual(probes, 4, 'a zero-length entrypoint must not satisfy readiness');
+});
+
+itAsync('TEETH: waitForFirstBuild aborts (never reports ready) when the watch dies first (rf2-qwy3)', async () => {
+  // The watch child crashed before its first compile landed. The runner must
+  // NOT announce the app as live; the caller turns this into a non-zero exit.
+  let watchDied = false;
+  let probes = 0;
+  const result = await waitForFirstBuild({
+    fetchBody: async () => {
+      probes++;
+      watchDied = true; // the watch's exit handler fires between polls
+      return null; // the entrypoint never appears
+    },
+    isAborted: () => watchDied,
+    sleep: async () => {},
+  });
+  assert.deepStrictEqual(result, { ok: false, reason: 'child-exited' });
+  assert.ok(probes >= 1, 'the wait must have actually probed before aborting');
+});
+
+itAsync('waitForFirstBuild reports ready off a REAL http server once a delayed producer writes the entrypoint (rf2-qwy3)', async () => {
+  // End-to-end over the real HTTP path serve-example uses, with a fake
+  // "watch child" (a timer) writing main.js into an initially clean staged
+  // root — no shadow-cljs required. Proves the runner stays silent while the
+  // directory holds only the host page, and flips once the bundle lands.
+  const http = require('http');
+  const { fetchToken: fetchServedBody } = require('./lib/local-browser-harness.cjs');
+
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-firstbuild-'));
+  // The freshly cleaned staged root: host page + assets present, NO main.js.
+  fs.writeFileSync(path.join(tmpRoot, 'index.html'), '<!doctype html><script src="main.js"></script>');
+
+  const server = http.createServer((req, res) => {
+    const rel = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '');
+    const target = path.join(tmpRoot, rel);
+    if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      res.statusCode = 404;
+      res.end('not found');
+      return;
+    }
+    res.statusCode = 200;
+    res.end(fs.readFileSync(target));
+  });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+
+    // Before any build: the entrypoint is genuinely unserved — the window the
+    // old code advertised as live.
+    assert.strictEqual(
+      await fetchServedBody(port, { host: '127.0.0.1', path: `/${BUILD_ENTRYPOINT}` }),
+      null,
+      'the cleaned staged root must not serve an entrypoint before the first compile',
+    );
+
+    // The fake watch child publishes the bundle a few polls in.
+    const timer = setTimeout(() => {
+      fs.writeFileSync(path.join(tmpRoot, BUILD_ENTRYPOINT), 'console.log("booted");');
+    }, 120);
+    timer.unref?.();
+
+    const result = await waitForFirstBuild({
+      fetchBody: () => fetchServedBody(port, { host: '127.0.0.1', path: `/${BUILD_ENTRYPOINT}` }),
+      isAborted: () => false,
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      pollMs: 25,
+    });
+    clearTimeout(timer);
+    assert.deepStrictEqual(result, { ok: true });
+    assert.ok(
+      fs.existsSync(path.join(tmpRoot, BUILD_ENTRYPOINT)),
+      'readiness must not be reported before the producer wrote the entrypoint',
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+it('TEETH: serve-example awaits the first build BEFORE printing the live URL (rf2-qwy3)', () => {
+  // The call-site pin. On the pre-fix ordering there is no wait at all between
+  // startLocalHttpServer's ready result and the `is live` banner, so this test
+  // fails against it — which is the whole point.
+  const waitAt = SERVE_EXAMPLE_SRC.indexOf('await waitForFirstBuild(');
+  const liveAt = SERVE_EXAMPLE_SRC.indexOf('is live at http://127.0.0.1:');
+  assert.ok(waitAt !== -1, 'serve-example must await the first-build readiness wait');
+  assert.ok(liveAt !== -1, 'serve-example must still print the live URL');
+  assert.ok(
+    waitAt < liveAt,
+    'the first-build wait must precede the live/openable banner, or the runner ' +
+      'advertises a page whose main.js is still absent',
+  );
+});
+
+it('serve-example keeps the wait on the WATCH path only, and tears down on first-build failure (rf2-qwy3)', () => {
+  // --no-watch already compiles synchronously before the server starts, so its
+  // output is complete on the first byte served; it must not grow a wait.
+  assert.ok(
+    /if\s*\(watch\)\s*\{[\s\S]{0,1200}?await waitForFirstBuild\(/.test(SERVE_EXAMPLE_SRC),
+    'the first-build wait must be guarded by the watch branch (--no-watch stays synchronous)',
+  );
+  // A watch that dies before first output must not leave the server up.
+  const failBlock = SERVE_EXAMPLE_SRC.slice(SERVE_EXAMPLE_SRC.indexOf('if (!first.ok)'));
+  assert.ok(
+    /cleanup\.cleanup\(\)/.test(failBlock.slice(0, 600)),
+    'a first-build failure must tear the server down',
+  );
+  assert.ok(
+    /return 1;/.test(failBlock.slice(0, 600)),
+    'a first-build failure must exit non-zero',
+  );
+});
+
+// Drain the queued async cases, then own the summary + exit code for the whole
+// file (both the synchronous `it` results already counted in `failed` and these).
+(async () => {
+  for (const [label, f] of asyncTests) {
+    try {
+      await f();
+      console.log(`  PASS  ${label}`);
+    } catch (err) {
+      failed++;
+      console.error(`  FAIL  ${label}`);
+      console.error(`        ${err.message || err}`);
+    }
+  }
+  if (failed > 0) {
+    console.error(`\nexamples-staging tests: ${failed} FAILED.`);
+    process.exit(1);
+  }
+  console.log('\nexamples-staging tests: all passed.');
+})();
