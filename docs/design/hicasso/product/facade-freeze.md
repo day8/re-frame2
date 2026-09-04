@@ -65,8 +65,26 @@ The evidence this freeze reads is reported, not restated, in
 
 Two applications, chosen to be as unlike each other as the ordinary gets — a RealWorld-class
 vertical slice (`rf2-hic-025`) and the canonical Todo class (`rf2-hic-086`) — were each written on
-the public door and nothing else, and each has its import discipline asserted off the ClojureScript
-analyzer rather than reviewed. **The Todo class reached a strict subset of the slice's names.**
+the public door and nothing else, and each **had** its import discipline asserted off the
+ClojureScript analyzer rather than reviewed. **The Todo class reached a strict subset of the slice's
+names.**
+
+**[2026-09-04, `rf2-cahl`: the analyzer-backed assertion is retired, and the membership below is
+reviewed as at this page's date rather than enforced.]** `rf2-6c12m.10` (2026-08-29, PR #8744)
+deleted the per-package `*surface-cljs-test*` suites together with the shared
+`examples/require_graph.clj` macro they read the ClojureScript analyzer through, and with
+`check_example_fence_coverage.py`, the checker that policed each package having a fence at all. The
+successor is one `:node-test` suite, `re-frame.hicasso.examples.fence-cljs-test`, and it is the
+inverse of the mechanism this section describes on both axes: it reads each `ns` form with
+`cljs.tools.reader` at **run** time rather than the analyzer's dependency graph at
+macro-expansion time, and it is a four-family **blocklist** — no `re-frame.hicasso.impl.*`, no
+`re-frame.bench.*`, no development-tool namespace, no test kit — rather than a positive roster of
+permitted doors, so a name outside those four families passes. Its population is every package
+under `examples/`, derived from the directory on every run. What survives mechanically is therefore
+*neither application reaches past the public door*, with a sabotage control and a planted-breach
+control behind it; *these are exactly the names each reached* — the table below — is a reviewed
+claim, true as at this page's date and held by no gate. The positive roster is deliberately not
+re-asserted; see [`specification.md` §13](specification.md#13-definition-of-done).
 
 | Frozen member | Reached by | The law it is frozen under |
 |---|---|---|
