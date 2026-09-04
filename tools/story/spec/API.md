@@ -37,10 +37,26 @@ re-export rule is:
   tokens (`re-frame.story.theme.*`), the chrome-host surface
   (`re-frame.story.ui.xray-embed/*`, `re-frame.story.xray-preset/*`,
   `re-frame.story.ui.keybindings/*`), the URL-state engine
-  (`re-frame.story.ui.url-state/*`), and the schema-validation panel
-  installer all require a direct `:require` of the sub-namespace. They
-  are public but called from the chrome itself, the shell bootstrap, or
-  the Xray preset — not from user story bodies.
+  (`re-frame.story.ui.url-state/*`), the evidence-projection pairing
+  read `re-frame.story.result/match-schema-expectations`, and the
+  schema-validation panel installer all require a direct `:require` of
+  the sub-namespace. They are public but called from the chrome itself,
+  the shell bootstrap, or the Xray preset — not from user story bodies.
+
+**Tier.** Every surface on this facade is `tooling` in the repo-wide
+taxonomy ([spec/API.md §Tier taxonomy](../../../spec/API.md#tier-taxonomy)),
+and the api-manifest carries all 116 `re-frame.story` rows at that tier
+with a facade-placement justification apiece. That is the settled
+outcome of the retrospective facade sweep (rf2-i6kh): Story is a tooling
+**product**, so per
+[Conventions §Story / Xray nuance](../../../spec/Conventions.md#keep-product-facades-coherent-no-wholesale-tier-equals-namespace-split)
+tooling legitimately *is* its front porch, and the discriminator is the
+user's workflow rather than the tier label. The facade carries **no**
+`implementation`-tier export: the sweep re-tiered the run/reset/watch
+lifecycle, the assertion, recorder, fingerprint, run-artifact,
+determinism and golden families to `tooling`, and moved the one surface
+with no user workflow (`match-schema-expectations`) off the facade to
+the sub-namespace bullet above.
 
 The split mirrors `re-frame.core`'s practice: the facade carries the
 ergonomic surface; sub-namespace requires are the discoverability

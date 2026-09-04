@@ -1029,17 +1029,18 @@
               {:duplicates dups})))
     ;; Facade-vs-disposition invariant (rf2-93sxp). A `:facade? true` row at
     ;; `:tier :implementation` says "internal" about a var that still exports
-    ;; from `re-frame.core` — annotation, not removal. Refuse it here so the
+    ;; from its façade — annotation, not removal. Refuse it here so the
     ;; disposition has to land on the surface (Conventions §Removing or
     ;; demoting a facade export — delete, don't demote).
     (when (seq demoted)
       (throw (ex-info
-              (str "Implementation-only rows exported from the facade — these "
+              (str "Implementation-only rows exported from a facade — these "
                    "`[namespace var]` pairs are `:tier :implementation` AND "
                    "`:facade? true`. A facade export cannot be internal by "
-                   "annotation: move the var off `re-frame.core` into its owning "
-                   "namespace (Conventions §Removing or demoting a facade export "
-                   "— delete, don't demote), or tier it as the surface it is:\n  "
+                   "annotation: move the var off the façade namespace it is "
+                   "rowed under into its owning namespace (Conventions "
+                   "§Removing or demoting a facade export — delete, don't "
+                   "demote), or tier it as the surface it is:\n  "
                    (str/join "\n  " (map #(str/join "/" %) demoted)))
               {:implementation-facade demoted})))
     ;; Facade-audit axes (rf2-2hpxo). Fields 3 and 4 of the diff-time facade
