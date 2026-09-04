@@ -1,5 +1,25 @@
 # Checkpoint 4 — the coverage-matrix audit
 
+> **Currency, 2026-09-04 (`rf2-l67a`, `rf2-nf8w`). This page is a dated review, not a statement about
+> the tree today, and it is the stalest of the four.** Its newest amendment is **2026-08-15** and it
+> **names no base commit anywhere** — it certifies against evidence that already existed and took no
+> measurement of its own, as it says of itself below, so a re-runner has no anchor by
+> which to tell what tree it was true of. That absence is itself a currency defect and is recorded
+> here rather than repaired, because supplying a base after the fact would be inventing one. It was
+> **reconciled to `main`@`4f54988b07` by this pass**, which re-scored nothing.
+>
+> **Three events since 2026-08-15 that its rows do not reflect.** (1) `137bd927db` (2026-08-21, PR
+> #8646, `rf2-0brem`) rewrote the *Server and hydration* required result to owe mismatch attribution
+> only on roots a re-frame2 door opens — this page has never read it, and a probe of it for the fixed
+> strings `8646`, `137bd927db`, `r3dgc`, `0brem`, `vwo53` and `6cc52f60fb` returns **0 for each**,
+> against a control of 4 for `rf2-hic-048` on the same file. (2) `rf2-s52w` closed on 2026-08-15 and
+> its ledger row reads `resolved`; this page still calls it `open` in four places. (3) `aa01f0e8a6`
+> (2026-08-29, `rf2-6c12m.31`) retired the native grammar, so the `n/$` route this page names eight
+> times no longer exists.
+>
+> **None of that moves conjunct B, which is still NOT MET** — see the amendment at that conjunct for
+> which clause leaves the enumeration and which four ids still fail it.
+
 **Verdict: the Phase 4 exit is NOT MET.**
 
 [Specification §12](specification.md#phase-4--close-the-application-coverage-matrix) states that exit as a conjunction —
@@ -89,6 +109,20 @@ module that does not exist. **A fifth clause stood here until 2026-08-15** — a
 conjunct**, which the four clauses above fail it on, over five ids, without it. The denominator this conjunct is stated
 over **was** short by three public surfaces and no longer is — that half is closed, and machine-checked. §3.
 
+**[Amended 2026-09-04, `rf2-nf8w` — a second clause leaves the enumeration, and the conjunct does not move. It is still
+NOT MET.]** The clause that leaves is *one has an attribution clause unreachable by construction*, `HS-21`, and it
+leaves twice over. First by scope: `137bd927db` (2026-08-21, PR #8646, `rf2-0brem`) rewrote the *Server and hydration*
+required result — and the SSR/hydration matrix's blanket sentence with it — to owe mismatch attribution only on roots a
+re-frame2 door opens, citing [Spec 011's hydration-mismatch detection](../../../../spec/011-SSR.md#hydration-mismatch-detection),
+which had said so normatively all along. So the clause was never unmet, only unstated. Second by deletion: the outward
+bridge it is about was retired on 2026-08-29 by `aa01f0e8a6` (`rf2-6c12m.31`) with the whole native grammar, so there is
+no longer a construction for it to be unreachable by. **Neither of those is a repair and neither is a re-score** — the
+2026-08-15 reading is kept above exactly as written. **What is left still fails the conjunct**, on the same arithmetic
+the paragraph above uses on `HS-23`: three clauses over four ids — `HS-33` measured to satisfy *neither* policy,
+`HS-17`/`HS-18` unwitnessed on the server, and `HS-34` naming a module that still does not exist, `git ls-files` finding
+no `re-frame.hicasso.routing` under `implementation/hicasso/src/` at `main`@`4f54988b07`. **Dropping `HS-21` does not
+move this conjunct, for the same reason dropping `HS-23` did not.**
+
 **Conjunct C — the bulk suite is green. UNADDRESSED, and that is neither red nor green.** The tournament published its
 deterministic work census and its clock table is recorded NOT INSTRUMENTED; it concluded, in its own words, *"no verdict
 against U1, U2, U3, U4, C3 or C4"* ([§2.8](topology-tournament.md#28-what-was-not-concluded)). Those are millisecond
@@ -129,7 +163,7 @@ Three values, and *unaddressed* never reads as *works*.
 | Accessibility | **met** | §7's Required-proof cell for this row reads *names, roles, keyboard, virtualized/overlay focus*, and every limb of it is witnessed — `test_kit_a11y_cljs_test.cljs` over three L2 kit projections, `examples/slice/a11y_cljs_test.cljs`, `.../a11y_focus_dom_cljs_test.cljs` and `combobox_keyboard_dom_cljs_test.cljs` (`rf2-hic-043`); `examples/ledger/keyboard_dom_cljs_test.cljs`, `.../virtualized_dom_cljs_test.cljs` and `overlay_focus_dom_cljs_test.cljs` (`rf2-hic-049`). **This row read NOT MET until 2026-08-14** on one further deficit: an **axe** sweep, which is in no acceptance column here and which `rf2-5q8o` ruled a **DECLINE** — a non-goal, not an unlanded witness. With that the row's only remaining deficit is gone. `rf2-5q8o` |
 | i18n and theming | **met** | the page is mounted once and never re-mounted, and `<main>`'s identity is asserted across every switch — so a mechanism that tore the tree down would show a different node |
 | Testing | **met** | L0–L2 pure kit with its runtime-parity claim held, L3 mounted facade sabotaged across four leak kinds, production-sentinel erasure chained into the release build |
-| Diagnostics | **met** | versioned projection with its schema held, four views, the cause-aware advisor. Open correction `rf2-t2d3` |
+| Diagnostics | **met** | versioned projection with its schema held, four views, the cause-aware advisor. Open correction `rf2-t2d3` · **[Amended 2026-09-04, `rf2-l67a`: `rf2-t2d3` is not open.** Its row in [`correction-ledger.md`](correction-ledger.md) reads `closed`, transitioned on 2026-08-14 against `main`@`77bee1b9b7` on a §2 Correctness re-run by the re-dispatched `rf2-hic-038`. The score is **not** touched by this note — the row read **met** with the correction open and reads **met** with it closed, so nothing here moves a verdict; what is corrected is a live-state claim that went stale the day after it was written.**]** |
 | Migration | **met** | reporter, refusal classes and shadow comparison all landed — `migration/reagent-to-hicasso/codemod/` and `.../test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs` — and so did the **population**. §7's Required-proof cell for this row reads *three representative repositories*, and `rf2-hic-055` ran three, each pinned by commit: the in-repo examples (81 files); `athensresearch/athens` @ `b463a97a0d28cbc0a29bec55feebcbe54c20de54`, canonically at [that repository's commit page](https://github.com/athensresearch/athens/commit/b463a97a0d28cbc0a29bec55feebcbe54c20de54), 131 files and 109 census sites; and `district0x/memefactory` @ `71bf92b4b4b935bda089783fd6c07041f84d34f8`, [likewise](https://github.com/district0x/memefactory/commit/71bf92b4b4b935bda089783fd6c07041f84d34f8), 102 files and 85 sites. Both SHAs are commits of those repositories rather than of this one — which is the reason each is typed with its permalink, and a second way of saying that this tree is not where they live. `day8/re-frame-10x` was the vendored-Reagent control and `implementation/hicasso/src` the clean 0/0/0 one, with determinism shown by two byte-identical athens runs. **This row read NOT MET until 2026-08-15**, on the premise that the population is the in-repo corpus alone. **Read this before re-asserting that premise, which has now been disproved twice: Migration's population spans three repositories, and the two external ones were checked out read-only and measured rather than vendored — so their absence from this tree is the method working, not the run missing.** [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) records all three runs and scores this row Witnessed. `rf2-gqp5s` **withdrawn** |
 
 **Nineteen met, one not met, none unaddressed at the row level.** The unaddressed category does real work one level down —
@@ -381,7 +415,7 @@ this page and a met conjunct B, and **not one of them is a row this checkpoint f
 
 | What stands | Owner | Kind |
 |---|---|---|
-| HS-21's outward-bridge mismatch attribution is unreachable by construction — no Spec 011 reporter on a hand-rolled `hydrateRoot` | `rf2-s52w`, open | A missing door; the ledger row is open too, and the door is the operator's call |
+| HS-21's outward-bridge mismatch attribution is unreachable by construction — no Spec 011 reporter on a hand-rolled `hydrateRoot` | `rf2-s52w`, open | A missing door; the ledger row is open too, and the door is the operator's call · **[Amended 2026-09-04, `rf2-nf8w`: every clause of this row is now wrong except the first, and the row is kept because a later reader will meet the wrong ones.** `rf2-s52w` is **closed** in the tracker, closed on 2026-08-15; its ledger row reads **`resolved`**, not `open`. And **both clauses of the stated cause are refuted**: it is not *a missing door* — `re-frame.hicasso.server/render` landed 2026-08-14 as `30317bfe0e` (PR #8236, `rf2-b6jkj`) and `impl/roots.cljs` names it one of two minters of the adoption window — and it is not *the operator's call*, because `rf2-s52w`'s own close record rules the finding **a scope, not a gap**: `onRecoverableError` is an option of an individual root, and the package sets none on a root it did not open. That is a mechanism, and it still holds at tip. What has gone is the *bridge*: `aa01f0e8a6` (2026-08-29, `rf2-6c12m.31`) deleted the native grammar, so the outward-bridged root this row describes cannot be built. **This is not a re-score** — the row stays in this table as filed, conjunct B stays NOT MET on `HS-33`, `HS-17`/`HS-18` and `HS-34`, and the `HS-21` clause's departure is recorded at conjunct B above.**]** |
 | HS-33 satisfies neither policy; its Render repair is recorded DECIDED and unbuilt | unowned — recorded in `impl.roots/open-adoption-window!` | Work, and the only one of the four that is plainly that |
 | HS-34's module does not exist, and HS-17/HS-18 are unwitnessed on the server | owed inside whichever bead lands `re-frame.hicasso.routing`; HS-17/HS-18 unowned | Work that is not yet scheduled |
 
