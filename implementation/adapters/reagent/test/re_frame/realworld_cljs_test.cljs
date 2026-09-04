@@ -2893,7 +2893,10 @@
     (is (false? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
         ":profile/unfollowed re-seeds :following false")
     ;; Rollback handler (driven directly): restores the captured prior flag.
-    (rf/dispatch-sync [:profile/follow-rollback true {:kind :rf.http/http-4xx}] {:frame f})
+    ;; The username is the identity the flip was issued on, and the handler is
+    ;; gated on it (rf2-8icg) — the cross-username refusal is pinned by
+    ;; `realworld-profile-page-cross-username` below.
+    (rf/dispatch-sync [:profile/follow-rollback "eve" true {:kind :rf.http/http-4xx}] {:frame f})
     (is (true? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
         ":profile/follow-rollback restores the captured prior following flag")))
 
@@ -2924,6 +2927,303 @@
     (profile-follow-test))
   (testing "home-context flattens the two home routes into {:tag :feed :page} (rf2-rq65wv)"
     (home-context-test)))
+
+;; ============================================================================
+;; profile page — cross-username replies stay owned by the route (rf2-8icg)
+;; ============================================================================
+;;
+;; The profile page repeats the article page's navigation-staleness law
+;; (`realworld-article-page-cross-slug` above) over its own THREE shared
+;; slices. `/profile/:username`'s on-match dispatches :profile/load and
+;; :profile.articles/load; `/profile/:username/favorites` dispatches
+;; :profile/load and :profile.favorites/load; the Follow button writes the same
+;; route-owned `[:profile …]` slice from a POST nobody's navigation
+;; supersedes. The reads are keyed per username ([:profile/load "alice"] vs
+;; [:profile/load "bob"]) — DISTINCT ids across a navigation, so managed
+;; HTTP's same-id supersede never fires between them and all of them stay
+;; independently deliverable. Correlation is therefore the app's own boundary,
+;; and it has two halves, both witnessed below:
+;;
+;;   WRITE-TIME — the requested username rides every reply target, each slice
+;;     records the username it is loading, and every terminal handler refuses a
+;;     settle whose username the slice no longer targets. Nothing gets through:
+;;     not data, not status, not the error, not the timestamp, not the machine
+;;     broadcast. `pf-slice*` compares the slice WHOLE for exactly that reason.
+;;
+;;   READ-TIME — the two list subs ask the question again when the view reads
+;;     them, because the tabs load on SEPARATE routes. /profile/alice →
+;;     /profile/bob/favorites reloads the banner and the favorited list and
+;;     never touches the AUTHORED one, which goes on holding alice's articles
+;;     quite legitimately. What it must not do is show them under bob's URL.
+;;
+;; The MACHINE matters here in a way it did not on the article page. An ungated
+;; late alice failure broadcasts :fetch-failed, which puts the :data region in
+;; :error — a state with no fetch-succeeded edge — so bob's own later success
+;; would write app-db and leave the page rendering an error over the top of it.
+;; The failure test below is that strand, refused.
+
+(defn- full-profile [username following?]
+  {:username username :bio (str "Bio of " username) :image nil :following following?})
+
+(defn- pf-slice*
+  "A profile-page slice read straight off the `:rf.db/app` partition, WHOLE —
+   status, data, error, loaded-at, attempt and username together — because the
+   bug is never the one leaf you looked at."
+  [f k]
+  (get-in (rf/frame-state-value f) [:rf.db/app k]))
+
+(defn- pf-has-tag? [f tag]
+  (rf/compute-sub [:rf.machine/has-tag? :ui/profile tag] (rf/frame-state-value f)))
+
+(defn- pf-render* [f]
+  (rf/compute-sub [:profile/render] (rf/frame-state-value f)))
+
+(defn- pf-sub* [f query]
+  (rf/compute-sub query (rf/frame-state-value f)))
+
+(defn- with-held-profile-fx
+  "Run `body-fn` against a frame whose `:rf.http/managed` is a capturing stub:
+   every request is recorded and NONE settles by itself, so each reply can be
+   delivered by hand in the order a slow network would pick. The session is a
+   third party (`zed`) so no assertion below can be satisfied by accident from
+   the logged-in user's own name."
+  [fx-id body-fn]
+  (let [lowered (atom [])]
+    (rf/reg-fx fx-id
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx args] (swap! lowered conj args) nil))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed fx-id}})]
+      (rf/dispatch-sync [:auth/store-session {:username "zed" :email "z@b.c"
+                                              :token "jwt" :bio nil :image nil}]
+                        {:frame f})
+      (body-fn f lowered))))
+
+(defn- profile-cross-username-late-success-is-refused-test []
+  (with-held-profile-fx :realworld.test/profile-cross-username
+    (fn [f lowered]
+      ;; Enter /profile/alice — its banner + authored GETs go out and stay out.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      ;; …and follow a link to /profile/bob before either settles.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob"] {:frame f})
+      (is (= 4 (count @lowered))
+          "both entries lowered a banner AND an authored-list GET — four requests")
+      (is (= 4 (count (distinct (map :request-id @lowered))))
+          "the four carry DISTINCT per-username request-ids, so same-id
+           supersede never fires between them — every one is independently
+           deliverable, and correlating each reply is the app's job")
+      (let [a-ban (req-by-id @lowered [:profile/load "alice"])
+            a-art (req-by-id @lowered [:profile.articles/load "alice"])
+            b-ban (req-by-id @lowered [:profile/load "bob"])
+            b-art (req-by-id @lowered [:profile.articles/load "bob"])]
+        (is (= [:profile/loaded "alice"] (:on-success a-ban))
+            "the banner's success target carries the username it was requested for")
+        (is (= [:profile/load-failed "alice"] (:on-failure a-ban))
+            "…and so does its failure target")
+        (is (= [:profile.articles/loaded "alice"] (:on-success a-art))
+            "…as do both of the authored list's targets")
+        (is (= [:profile.articles/load-failed "alice"] (:on-failure a-art)))
+        ;; Bob settles normally first — the ordinary path is untouched.
+        (settle-ok! f (:on-success b-ban) {:profile (full-profile "bob" false)})
+        (settle-ok! f (:on-success b-art) {:articles [(full-article "b1" "Bob one")]
+                                           :articlesCount 1})
+        (is (= "bob" (:username (pf-sub* f [:profile/data])))
+            "bob's own banner reply is accepted through the public sub")
+        (is (= ["Bob one"] (mapv :title (pf-sub* f [:profile.articles/data])))
+            "bob's own authored reply is accepted through the public sub")
+        ;; THE LATE ARRIVALS.
+        (let [ban-before (pf-slice* f :profile)
+              art-before (pf-slice* f :profile.articles)]
+          (settle-ok! f (:on-success a-ban) {:profile (full-profile "alice" true)})
+          (settle-ok! f (:on-success a-art) {:articles [(full-article "a1" "Alice one")]
+                                             :articlesCount 9})
+          (is (= {:username "bob"} (route-params* f))
+              "the route still says bob")
+          (is (= ban-before (pf-slice* f :profile))
+              "a late alice banner success changes NOTHING on the profile slice
+               — data, status, error, loaded-at, attempt and username all stand")
+          (is (= art-before (pf-slice* f :profile.articles))
+              "…and the late alice authored success changes nothing on the
+               authored-list slice")
+          (is (= 1 (pf-sub* f [:profile.articles/count]))
+              "…so bob's grand count is not replaced by alice's nine"))))))
+
+(defn- profile-cross-username-late-failure-is-refused-test []
+  (with-held-profile-fx :realworld.test/profile-cross-username-fail
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob"] {:frame f})
+      (let [a-ban (req-by-id @lowered [:profile/load "alice"])
+            a-art (req-by-id @lowered [:profile.articles/load "alice"])
+            b-ban (req-by-id @lowered [:profile/load "bob"])
+            b-art (req-by-id @lowered [:profile.articles/load "bob"])]
+        (is (true? (pf-has-tag? f :data/loading))
+            "bob's banner fetch is still out — the :data region sits at :loading")
+        (is (= :loading (:status (pf-slice* f :profile.articles)))
+            "…and so is his authored list")
+        ;; ALICE FAILS WHILE BOB IS STILL LOADING. This is the strand the fix
+        ;; is about: :error has no fetch-succeeded edge, so an accepted alice
+        ;; failure here would outlive bob's own success.
+        (settle-fail! f (:on-failure a-ban))
+        (settle-fail! f (:on-failure a-art))
+        (is (true? (pf-has-tag? f :data/loading))
+            "a late alice failure never reaches the machine — the :data region
+             is still :loading, not :error")
+        (is (false? (pf-has-tag? f :data/error))
+            "…so the page-level error presentation stays shut")
+        (is (nil? (pf-sub* f [:profile/error]))
+            "…and no error banner is raised over bob")
+        (is (nil? (:error (pf-slice* f :profile.articles)))
+            "…nor over bob's authored list")
+        ;; Bob's own replies land and render — the strand refused.
+        (settle-ok! f (:on-success b-ban) {:profile (full-profile "bob" false)})
+        (settle-ok! f (:on-success b-art) {:articles [(full-article "b1" "Bob one")]
+                                           :articlesCount 1})
+        (is (= "bob" (:username (pf-sub* f [:profile/data])))
+            "bob's own banner success is accepted")
+        (is (= :loaded (pf-render* f))
+            "…and carries the machine to :loaded, so the page is NOT stranded
+             in an error presentation an earlier profile's failure caused"))
+      ;; NON-VACUITY for the failure gate: a CURRENT username's own failure is
+      ;; still accepted. The gate correlates; it does not swallow failures.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/carol"] {:frame f})
+      (let [c-ban (req-by-id @lowered [:profile/load "carol"])
+            c-art (req-by-id @lowered [:profile.articles/load "carol"])]
+        (settle-fail! f (:on-failure c-ban))
+        (settle-fail! f (:on-failure c-art))
+        (is (= :error (:status (pf-slice* f :profile)))
+            "carol's OWN banner failure is accepted")
+        (is (some? (pf-sub* f [:profile/error]))
+            "…with its message surfaced")
+        (is (= :error (pf-render* f))
+            "…and the machine does reach the error presentation for its own failure")
+        (is (= :error (:status (pf-slice* f :profile.articles)))
+            "carol's OWN authored failure is accepted too")))))
+
+(defn- profile-username-change-resets-and-cross-tab-read-guard-test []
+  (with-held-profile-fx :realworld.test/profile-transition
+    (fn [f lowered]
+      ;; Load alice's banner + authored list fully.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                  {:profile (full-profile "alice" false)})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile.articles/load "alice"]))
+                  {:articles [(full-article "a1" "Alice one")] :articlesCount 1})
+      (is (= ["Alice one"] (mapv :title (pf-sub* f [:profile.articles/data]))))
+      ;; SAME-username refresh control: re-firing the route's loads for the
+      ;; profile already on screen keeps the loaded data up while they are out.
+      (reset! lowered [])
+      (rf/dispatch-sync [:profile/load] {:frame f})
+      (rf/dispatch-sync [:profile.articles/load] {:frame f})
+      (is (= :fetching (:status (pf-slice* f :profile)))
+          "a same-username re-load is a REFRESH — :fetching, not :loading")
+      (is (= "alice" (:username (pf-sub* f [:profile/data])))
+          "…and alice's banner stays renderable while it is out")
+      (is (= ["Alice one"] (mapv :title (pf-sub* f [:profile.articles/data])))
+          "…as do her authored rows")
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                  {:profile (full-profile "alice" false)})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile.articles/load "alice"]))
+                  {:articles [(full-article "a1" "Alice one")] :articlesCount 1})
+      ;; Now NAVIGATE across BOTH user and tab: /profile/alice →
+      ;; /profile/bob/favorites reloads the banner and the FAVORITED list, and
+      ;; never touches the authored one.
+      (reset! lowered [])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob/favorites"] {:frame f})
+      (is (= 2 (count @lowered))
+          "the favorites route reloads exactly two things: the banner and the
+           favorited list")
+      (is (some? (req-by-id @lowered [:profile.favorites/load "bob"]))
+          "…the favorited list being one of them")
+      (is (nil? (req-by-id @lowered [:profile.articles/load "bob"]))
+          "…and NO authored-list request for bob is issued at all")
+      (is (= :loading (:status (pf-slice* f :profile)))
+          "a username CHANGE is not a refresh — the banner slice starts over")
+      (is (nil? (pf-sub* f [:profile/data]))
+          "…so alice's banner is not exposed under bob's URL while bob loads")
+      ;; THE READ-TIME HALF. The authored slice still holds alice's rows, quite
+      ;; legitimately — nothing reloaded it. It must not SHOW them under bob.
+      (is (= "alice" (:username (pf-slice* f :profile.articles)))
+          "the authored slice still targets alice — this route never reloaded it")
+      (is (= 1 (count (:data (pf-slice* f :profile.articles))))
+          "…and alice's rows are still sitting in it")
+      (is (nil? (pf-sub* f [:profile.articles/data]))
+          "…but the read-time guard refuses to expose them under bob's URL")
+      (is (zero? (pf-sub* f [:profile.articles/count]))
+          "…and refuses to count them either")
+      (is (= [] (pf-sub* f [:profile/current-articles]))
+          "…so the tab the view is rendering reads empty while bob's own
+           favorited list is still in flight"))))
+
+(defn- profile-cross-username-follow-settles-are-refused-test []
+  (with-held-profile-fx :realworld.test/profile-cross-username-follow
+    (fn [f lowered]
+      ;; Land on alice and let her banner settle, so Follow has a profile to act on.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                  {:profile (full-profile "alice" false)})
+      (rf/dispatch-sync [:profile/follow] {:frame f})
+      (is (true? (:following (pf-sub* f [:profile/data])))
+          "the optimistic flip lands on alice right away")
+      (let [a-follow (req-by-method+url @lowered :post "/profiles/alice/follow")]
+        (is (= [:profile/followed "alice"] (:on-success a-follow))
+            "the follow POST's success target carries the username the flip was
+             issued on — the follow POST has no :request-id, deliberately, so
+             this target is the only identity the reply carries back")
+        (is (= [:profile/follow-rollback "alice" false] (:on-failure a-follow))
+            "…and its failure target carries that username AND the flag to restore")
+        ;; The reader gives up waiting and opens bob's profile.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob"] {:frame f})
+        (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "bob"]))
+                    {:profile (full-profile "bob" false)})
+        (let [before (pf-slice* f :profile)]
+          ;; Alice's follow SUCCEEDS, late. :profile/followed re-seeds the WHOLE
+          ;; banner map from its reply, so ungated this would put alice's name,
+          ;; bio and avatar under bob's URL — not merely flip a flag.
+          (settle-ok! f (:on-success a-follow) {:profile (full-profile "alice" true)})
+          (is (= before (pf-slice* f :profile))
+              "a late alice follow success changes NOTHING on bob's banner slice")
+          (is (= "bob" (:username (pf-sub* f [:profile/data])))
+              "…so bob's name is still the one on screen")
+          ;; The same held request's ROLLBACK branch: either branch is a reply
+          ;; the transport could have picked, and both must be refused.
+          (settle-fail! f (:on-failure a-follow))
+          (is (= before (pf-slice* f :profile))
+              "a late alice rollback changes nothing either — bob's :following
+               flag is not flipped by a failure that was never his")))
+      ;; NON-VACUITY for BOTH branches: bob's own follow settles are accepted.
+      (rf/dispatch-sync [:profile/follow] {:frame f})
+      (settle-ok! f (:on-success (req-by-method+url @lowered :post "/profiles/bob/follow"))
+                  {:profile (full-profile "bob" true)})
+      (is (true? (:following (pf-sub* f [:profile/data])))
+          "bob's OWN follow success is accepted and re-seeds :following true")
+      (rf/dispatch-sync [:profile/unfollow] {:frame f})
+      (is (false? (:following (pf-sub* f [:profile/data])))
+          "the optimistic unfollow flip lands")
+      (settle-fail! f (:on-failure (req-by-method+url @lowered :delete "/profiles/bob/follow")))
+      (is (true? (:following (pf-sub* f [:profile/data])))
+          "bob's OWN rollback is accepted — it restores the captured prior flag,
+           so the gate correlates rather than swallowing rollbacks"))))
+
+(deftest realworld-profile-page-cross-username
+  (testing "cross-username banner/authored requests are independently
+            deliverable; usernames ride both reply targets; a LATE alice
+            success cannot overwrite the active bob page (rf2-8icg)"
+    (profile-cross-username-late-success-is-refused-test))
+  (testing "a LATE alice failure cannot strand bob's machine in :error, and
+            bob's own success still renders :loaded; a CURRENT username's own
+            failure IS accepted (the failure gate's non-vacuity control)
+            (rf2-8icg)"
+    (profile-cross-username-late-failure-is-refused-test))
+  (testing "a username change resets the banner while a same-username re-load
+            retains it as a refresh; the cross-TAB read guard keeps alice's
+            still-loaded authored rows off bob's URL (rf2-8icg)"
+    (profile-username-change-resets-and-cross-tab-read-guard-test))
+  (testing "a held alice follow settles — success or rollback — cannot mutate
+            bob's banner, while bob's own follow success and rollback are both
+            accepted (rf2-8icg)"
+    (profile-cross-username-follow-settles-are-refused-test)))
 
 ;; ============================================================================
 ;; http — failure->message + pure pagination/query helpers
