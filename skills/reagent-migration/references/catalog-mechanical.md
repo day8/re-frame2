@@ -1,6 +1,6 @@
 # M-tier — "do this" (mechanical rewrites)
 
-> Unambiguous, safe, observably-identical view-tier rewrites. Apply them
+> Unambiguous, safe view-tier rewrites. Apply them
 > directly — but always **gate the whole view first**
 > ([`gotchas.md`](gotchas.md)): if the view also trips a D/R rule, leave the
 > entire view on Reagent. A mechanical rewrite is only "safe" inside a view that
@@ -9,6 +9,12 @@
 > Every rule cites a `MIG-NN` id so the author can audit the change. The id
 > names the **Reagent construct you found**, not the destination shape.
 > Examples are abstract — use the *shape*, not these literal names.
+>
+> "Mechanical" means the destination shape is not a judgment call. It does not
+> promise identical **timing**: the handler-lifting rules (MIG-04/05, MIG-06,
+> MIG-33) move the dispatch out of the router queue and into the callback's own
+> turn. That is stated once in [`mental-model.md`](mental-model.md) §3 and
+> checked once, per view, in MIG-04 / 05 below.
 
 ## MIG-01 — Form-1 view → `h/defview`, positional params → one prop map
 
@@ -91,6 +97,51 @@ inside a map or an inner vector arrives at the handler as the literal keyword
 nesting the marker.
 
 Anything a closure did beyond these two shapes → MIG-18 (D).
+
+### The lift changes WHEN the event drains — check once per view
+
+`#(dispatch [:go 1])` **queued** the event and returned; `{:on-click [:go 1]}`
+**drains** it inside the callback's turn ([`mental-model.md`](mental-model.md)
+§3). Take the vector anyway — it is what nearly every application handler wants,
+and it is the spelling the rest of this skill assumes.
+
+The exception is narrow, so spend **one** check per converted view, not one per
+handler. Ask only whether something in this view *states* that the event must
+stay queued until after the callback returns:
+
+- a comment or a test asserting the pre-dispatch state is still observable
+  immediately after the click;
+- a later propagation listener, or the browser's default action, that the
+  handler is written to run **ahead of**;
+- imperative code right after the dispatch that reads state it expects the
+  handler not to have touched yet.
+
+If nothing says so, lift it and move on. Ordinary "click → event → re-render"
+handlers are not this case.
+
+**Where something does say so, keep the queue explicitly.** Capture the frame
+during **render** and close a plain callback over its queued `:dispatch`:
+
+```clojure
+;; the rare ordering-sensitive site — the event stays queued, as it was
+(h/defview go-btn [_]
+  (let [{:keys [dispatch]} (rf/capture-frame)]        ; render time (MIG-31)
+    [:button {:on-click (fn [_e] (dispatch [:go 1]) nil)} "Go"]))
+```
+
+`rf/capture-frame` hands back a bundle whose `:dispatch` is core's **queued**
+op — the same enqueue-and-return the Reagent version had — so ordering is
+preserved rather than approximated. It stays a **plain fn**, so it reaches React
+by identity and nothing reads its return; the explicit `nil` is what keeps that
+true if the callback is later moved to `h/event`, where a returned vector *is*
+dispatched.
+
+**This is not the same as leaving the original closure in place.** A bare
+ambient `#(rf/dispatch [:go 1])` has no frame when the browser calls it and
+fails at click time with `:rf.error/no-frame-context` (MIG-26). The render-time
+capture is the whole difference: it is what carries the frame into the callback.
+Keep the capture in the render body, and use this shape only for the site that
+needs it — a view that reaches for it everywhere has misread the check above.
 
 ## MIG-06 — `preventDefault` → the `::h/prevent` head
 
@@ -415,9 +466,11 @@ nothing. The whole map is **composition-gated**: a keystroke arriving
 mid-IME-composition commits nothing, which is exactly what the hand-written
 version got wrong for every user who composes.
 
-Two things to carry: a branch value that is neither a vector nor a function is
-**silently dropped**, and a key map at `:on-submit` prevents on every branch
-(MIG-06).
+Three things to carry: a branch value that is neither a vector nor a function is
+**silently dropped**, a key map at `:on-submit` prevents on every branch
+(MIG-06), and a branch dispatches in the callback's turn like any other intent —
+the queued `case` became a synchronous drain, so MIG-04 / 05's one check applies
+to this rewrite too.
 
 ## MIG-34 — `dangerouslySetInnerHTML` converts, and that is the problem
 
