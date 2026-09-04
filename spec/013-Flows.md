@@ -477,6 +477,22 @@ Four properties follow, and they are the reason this shape was chosen over re-ru
 
 **`clear-flow` cleanup.** Default behaviour is `dissoc-in` on the flow's `:output-path` in the owning frame's `app-db` — the slot is vacated when the flow goes away. Stale derived values left behind would confuse downstream consumers. Apps that want to preserve the value should copy it elsewhere before clearing. Sibling frames are unaffected.
 
+### The same boundary for a direct `clear-flow`
+
+> **NORMATIVE.** `clear-flow` called as a plain function OUTSIDE an event drain **has vacated the flow's `:output-path`, and recomputed every dependent flow against that absence, by the time the call returns.** No application-authored follow-up event is required, and none may be required by any future revision of this section.
+
+The boundary above is stated for the fx route because that is where the one-drain lag was first visible. It is not a property of the *transport*: `clear-flow` is documented as a synchronous deregister-and-vacate function, callable from boot code, tests, and per-tenant setup, so the same invariant has to hold when it is called directly. Without it the call returns leaving an `app-db` in which a live flow still publishes a value derived from a slot that no longer exists — repaired only when some later, *unrelated* event happens to drain the frame. That is worse than a plain lag: it self-heals in a busy application and so presents as intermittent, and any test that dispatches after the clear passes whether or not the defect is present.
+
+Three points bound the rule.
+
+1. **Only dependents are recomputed; nothing else cascades.** Vacation stays leaf-only and applies to the cleared flow's own `:output-path`. A dependent flow is still registered, so it keeps publishing its slot — now derived from the cleared input's absence, exactly as the fx route leaves it. Its slot is not removed.
+2. **The failure boundary is the direct caller's.** If a remaining flow's `:derive` throws while settling, the deregistration and vacation stand — they are already committed, and are what the caller asked for — the settle's candidate `app-db` is discarded unwritten, and the ordinary `:rf.error/flow-eval-exception` (per [§Failure semantics](#failure-semantics), with its `:phase` discriminator) propagates to the caller. This is the existing structured failure reported through the existing path; a direct synchronous call reports its own failure to its own caller rather than deferring it. There is no rollback of the clear, and no new error category.
+3. **In-drain calls are unchanged.** A `clear-flow` issued from inside a handler or a `:rf.fx/*` effect queues its vacation for the current pending-`:db` flow pass, and that pass performs the settle — which is where the fx route's one-settle, topological behaviour above comes from. Settling again at the call site would write a live `app-db` the deferred commit is about to replace.
+
+Unknown flow ids and absent frames remain silent no-ops: with no flow to clear there is nothing to settle, and teardown stays idempotent. As with the fx route, **the observable contract is the boundary, not the transport** — no public settle event, function, or flag exists, `clear-flow`'s arities are unchanged, and the settle is one ordinary pass under the standard dirty check, not fixed-point iteration.
+
+This section governs `clear-flow` only. `reg-flow`'s direct path is outside its scope and is unchanged; do not read symmetry into it.
+
 ## Re-registration
 
 `reg-flow` with an already-registered `:id` (against the same frame) performs a **surgical update** — same semantics as every other `reg-*` per [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics). The new flow's definition replaces the old in `(get @flows frame-id)`; `last-inputs` for `[frame-id flow-id]` is reset (the new flow re-evaluates on the next event regardless of input change); the next drain's topsort observes the new dependency edges automatically (per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection); v1 does not memoise the sort). In-flight events finish against the resolved handler at the time they entered the drain. Re-registering the same flow id against a *different* frame is not a replacement — it adds an independent definition to the second frame's slot.
