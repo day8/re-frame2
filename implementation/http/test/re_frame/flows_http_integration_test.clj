@@ -115,11 +115,19 @@
   actor-id indexes stay consistent (rather than a raw `swap!` of the
   `in-flight` atom that bypasses those invariants). The provided
   `abort-fn` is the recording closure the test uses to observe whether
-  `:rf.http/managed-abort` fired."
+  `:rf.http/managed-abort` fired.
+
+  rf2-o8ek — the seed carries `:frame`, exactly as production does: both
+  `record-in-flight!` sites in `http-transport` stamp `:frame (:frame ctx)`,
+  and that ctx value came from `require-frame-stamp!`, so a real in-flight
+  handle can never lack one. The frame is now part of the registry key, and
+  this test's cancel dispatches from the default frame, so the seed must name
+  it — otherwise the handle is registered in a scope no dispatch can reach."
   [request-id abort-fn]
   (rf.http.registry/seed-in-flight-for-test!
     {:request-id request-id
      :actor-id   nil
+     :frame      :rf/default
      :url        (str "/api/" (name request-id))
      :abort-fn   abort-fn}))
 

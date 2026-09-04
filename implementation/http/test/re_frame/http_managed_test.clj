@@ -2523,11 +2523,11 @@
     ;; conditional-atomic evict on completion keeps it at zero.
     (doseq [i (range 500)]
       (let [rid      [:fetch-doc i]
-            issuance (rf.http.registry/next-issuance! rid)]
+            issuance (rf.http.registry/next-issuance! :frame/counters rid)]
         (is (= 1 issuance) "a fresh distinct id starts at issuance 1")
         (is (= 1 (rf.http.registry/issuance-counter-count))
             "exactly one live counter while the request is in flight")
-        (rf.http.registry/evict-issuance-on-completion! rid issuance)
+        (rf.http.registry/evict-issuance-on-completion! :frame/counters rid issuance)
         (is (zero? (rf.http.registry/issuance-counter-count))
             "the counter is evicted the moment the request completes")))
     (is (zero? (rf.http.registry/issuance-counter-count))
@@ -2541,24 +2541,34 @@
   bumped it past the superseded attempt's issuance BEFORE the supersede."
     (rf.http.registry/reset-issuance-counters-for-test!)
     (let [rid [:search-box :q]
-          n1  (rf.http.registry/next-issuance! rid)   ; attempt A: issuance 1
-          n2  (rf.http.registry/next-issuance! rid)]  ; supersede → attempt B: issuance 2
+          n1  (rf.http.registry/next-issuance! :frame/counters rid)   ; attempt A: issuance 1
+          n2  (rf.http.registry/next-issuance! :frame/counters rid)]  ; supersede → attempt B: issuance 2
       (is (= 1 n1))
       (is (= 2 n2) "the superseding attempt gets a distinct, higher issuance")
       ;; Attempt A (the SUPERSEDED one) terminates. Its evict keys on issuance 1,
       ;; but the counter is already at 2 → the atomic compare-and-drop SKIPS.
-      (rf.http.registry/evict-issuance-on-completion! rid n1)
+      (rf.http.registry/evict-issuance-on-completion! :frame/counters rid n1)
       (is (= 1 (rf.http.registry/issuance-counter-count))
           "the superseded attempt's eviction does NOT drop the live counter")
-      (is (= 3 (rf.http.registry/next-issuance! rid))
+      (is (= 3 (rf.http.registry/next-issuance! :frame/counters rid))
           "the counter survived at 2, so the next issuance is 3 — no work-id collision")
       ;; The final live attempt terminates with the counter at its own issuance.
-      (rf.http.registry/evict-issuance-on-completion! rid 3)
+      (rf.http.registry/evict-issuance-on-completion! :frame/counters rid 3)
       (is (zero? (rf.http.registry/issuance-counter-count))
           "the id's final attempt evicts cleanly, bounding the map")))
   ;; A nil request-id never had a counter (anonymous requests stay at issuance 1
   ;; without touching the map) — eviction is a no-op.
   (rf.http.registry/reset-issuance-counters-for-test!)
-  (rf.http.registry/evict-issuance-on-completion! nil 1)
+  (rf.http.registry/evict-issuance-on-completion! :frame/counters nil 1)
   (is (zero? (rf.http.registry/issuance-counter-count))
-      "evicting a nil request-id is a no-op"))
+      "evicting a nil request-id is a no-op")
+  ;; rf2-o8ek — the counter is FRAME-SCOPED: a sibling frame reusing the same
+  ;; raw id runs its own sequence and starts at 1, rather than inheriting the
+  ;; other frame's count (measured pre-fix: frame B's FIRST issuance read 2).
+  (rf.http.registry/reset-issuance-counters-for-test!)
+  (is (= 1 (rf.http.registry/next-issuance! :frame/a :shared)))
+  (is (= 1 (rf.http.registry/next-issuance! :frame/b :shared))
+      "a sibling frame's first issuance under the same raw id is 1, not 2")
+  (is (= 2 (rf.http.registry/next-issuance! :frame/a :shared))
+      "each frame advances its own counter independently")
+  (rf.http.registry/reset-issuance-counters-for-test!))

@@ -630,7 +630,7 @@
     ;; supersede has ALREADY bumped the counter past this (superseded) attempt's
     ;; issuance, so the evict skips and the live successor keeps the id; only a
     ;; genuinely-quiescent id is dropped.
-    (rf.http.registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+    (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
     ;; rf2-3fc89f.9 — terminal for this request: detach the external
     ;; `:abort-signal` listener so a shared / parent controller retains no
     ;; completed-request listener. Fires for every abort reason (this is the
@@ -818,7 +818,7 @@
       (rf.http.registry/clear-in-flight! (:request-id ctx) (:handle ctx))
       ;; rf2-k47b3d — terminal completion: evict this id's issuance counter
       ;; (conditional-atomic; skips when a live re-issue has bumped past it).
-      (rf.http.registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+      (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
       ;; rf2-3fc89f.9 — terminal: detach the external abort-signal listener
       ;; (covers the success, accept-failure, and sample-(2) abort branches
       ;; below; idempotent with the abort-path detach in `dispatch-aborted!`).
@@ -912,7 +912,7 @@
       ;; (conditional-atomic; skips when a live re-issue has bumped past it, so
       ;; a superseded-then-reclassified attempt does not drop the successor's
       ;; live counter).
-      (rf.http.registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+      (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
       ;; rf2-3fc89f.9 — terminal: detach the external abort-signal listener
       ;; (natural terminal failure + the abort-precedence reclassification;
       ;; idempotent with the abort-path detach in `dispatch-aborted!`).

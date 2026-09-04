@@ -387,7 +387,11 @@
         ;; attempt has one work id (EP-0007 / Managed-Effects §Work-id
         ;; correlation §184). An anonymous request (nil request-id) never
         ;; supersedes and stays at issuance 1.
-        issuance     (rf.http.registry/next-issuance! request-id)
+        ;;
+        ;; rf2-o8ek — the counter is keyed by (issuing frame, request-id): a
+        ;; sibling frame reusing the same raw id runs its own sequence, so
+        ;; this frame's first issuance is 1 whatever the sibling has done.
+        issuance     (rf.http.registry/next-issuance! frame-id request-id)
         normalised   (assoc normalised0 :issuance issuance)]
     ;; rf2-azcmd3 — supersession emits the SUPERSEDED attempt's canonical
     ;; `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope trace
@@ -399,8 +403,14 @@
     ;; (`:reason :request-id-superseded`) — that suppresses its app reply; this
     ;; ADDS the canonical stale reply-envelope row the old `:rf.http/aborted`
     ;; trace alone did not record.
+    ;;
+    ;; rf2-o8ek — supersession is scoped to the ISSUING FRAME. Reusable app
+    ;; code writes one ordinary stable id (`:request-id :articles/load`) and
+    ;; two isolated frames running it must not suppress each other's live
+    ;; request; the frame the runtime already holds supplies that isolation
+    ;; without the caller qualifying the id by hand.
     (when request-id
-      (when-let [superseded (rf.http.registry/supersede! request-id)]
+      (when-let [superseded (rf.http.registry/supersede! frame-id request-id)]
         (rf.http.transport/emit-superseded-stale-trace!
           superseded
           (rf.http.reply/work-id {:request-id   request-id
@@ -419,10 +429,27 @@
   `swap!` traffic per abort. Now the single source of truth lives at
   the failure-finalise site; this handler only fires the abort-fn.
 
-  rf2-rak684 — routes through the shared `registry/abort-in-flight!`
-  abort-by-request-id seam (the SAME seam the resources out-of-cascade
-  teardown reaches through the `:http/abort-in-flight!` late-bind hook),
-  so the fx and the teardown hook fire identical abort semantics."
-  [_frame-ctx request-id]
-  (rf.http.registry/abort-in-flight! request-id :user)
+  rf2-rak684 / rf2-o8ek — routes through `registry/abort-in-flight-in-frame!`,
+  the FRAME-SCOPED sibling of the `registry/abort-in-flight!` seam the
+  resources out-of-cascade teardown reaches through the
+  `:http/abort-in-flight!` late-bind hook. Both fire identical abort semantics
+  and differ only in scope, and the difference is forced by what each caller
+  holds: resources carries a token that is already frame-qualified
+  (`[:rf.req frame-id work-id]`, Spec 016), whereas this fx receives the
+  caller's RAW `:request-id` — a frame-LOCAL name that reusable app code
+  reuses across frames by design. Aborting by that raw id process-globally let
+  a `[:rf.http/managed-abort :articles/load]` dispatched in one frame cancel a
+  sibling frame's live request; scoping to the issuing frame is what makes the
+  effect obey the frame-isolation contract (Spec 014 §`:request-id`).
+
+  The frame comes from the fx context's `:frame` — the EP-0002 carried
+  invariant, the same stamp `managed-handler` requires. A nil stamp is an
+  invariant failure (`:rf.error/no-frame-context`), never a synthesised
+  `:rf/default`."
+  [frame-ctx request-id]
+  (let [frame-id (rf.frame/require-frame-stamp!
+                   (:frame frame-ctx) :rf.http/managed-abort
+                   {:where 'rf.http/managed-abort
+                    :event-id (first (:event frame-ctx))})]
+    (rf.http.registry/abort-in-flight-in-frame! frame-id request-id :user))
   nil)
