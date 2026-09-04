@@ -413,3 +413,137 @@
           "the any-frame seam still resolves a frame-qualified token")
       (is (= [:resource-superseded] @seen)))
     (rf.http.managed/clear-all-in-flight!)))
+
+;; ---- rf2-o8ek AUDIT — the CLEANUP half of the same isolation ---------------
+;;
+;; The merged repair frame-scoped the registry KEYS, which isolated the abort
+;; and supersede paths. The post-merge audit found two CLEANUP paths that still
+;; escaped that scope, and both looked migrated:
+;;
+;;  1. a seeded-handle demo that gained a `:frame` stamp but kept the ANY-FRAME
+;;     one-arg `clear-in-flight!` in its abort closure;
+;;  2. `clear-in-flight!`'s nil-handle fallback, taken inside the publication
+;;     window between `record-in-flight!` and the `reset!` of the cell the
+;;     abort-fn reads. Both live-fetch hosts acknowledge that window; on the JVM
+;;     another thread can fire the just-published abort-fn while it is open.
+;;
+;; Neither is an abort path, which is why frame-scoped keys did not cover them.
+;; The standing law they now witness: A CLEANUP PATH THAT POSSESSES AN ISSUING
+;; FRAME MUST BE FRAME-EXACT. Cleaning a sibling's slot is not a lesser fault
+;; than aborting it — it leaves a LIVE request unregistered, so nothing can
+;; abort it afterwards and its UI can sit loading forever.
+
+(defn- seed-two-frames-under-one-id!
+  "Register a handle in frame A and frame B under the SAME raw `shared-id`,
+  each recording its own aborts. Returns the aborts atom. Neither closure
+  cleans up — these tests are about which SLOTS a cleanup call reaches, so the
+  cleanup under test is always made explicitly by the test body."
+  []
+  (let [seen (atom [])]
+    (doseq [frame-id [:frame/a :frame/b]]
+      (rf.http.registry/record-in-flight!
+        shared-id nil
+        {:frame    frame-id
+         :url      "http://x/articles"
+         :abort-fn (fn [reason] (swap! seen conj [frame-id reason]))}))
+    seen))
+
+(deftest seeded-demo-abort-closure-clears-only-its-own-frames-slot
+  (testing "rf2-o8ek audit (1) — a seeded-handle demo's abort closure holds the
+            frame it carried in, but not the handle (the closure is built as
+            part of the map `record-in-flight!` is still consuming). It must
+            clean through `clear-in-flight-in-frame!`. The one-arg form it
+            reads as a shorthand for is an ANY-FRAME sweep: with the demo
+            mounted in two frames under one stable id, cancelling A deletes
+            BOTH slots and B's live request becomes unregistered/unabortable"
+    (rf.http.managed/clear-all-in-flight!)
+    (let [seen (atom [])
+          ;; The example's exact shape: `frame` and `request-id` are lexical,
+          ;; the handle is not.
+          mk   (fn [frame-id]
+                 (rf.http.registry/record-in-flight!
+                   shared-id nil
+                   {:frame    frame-id
+                    :url      "api/long"
+                    :abort-fn (fn [reason]
+                                (rf.http.registry/clear-in-flight-in-frame! frame-id shared-id)
+                                (swap! seen conj [frame-id reason]))}))]
+      (mk :frame/a)
+      (mk :frame/b)
+      ;; Cancel in frame A through the production frame-scoped abort seam —
+      ;; what `[:rf.http/managed-abort id]` dispatched in A resolves to.
+      (is (true? (rf.http.registry/abort-in-flight-in-frame! :frame/a shared-id :user))
+          "frame A's own handle is found and fired")
+      (is (= [[:frame/a :user]] @seen)
+          "only frame A's closure ran")
+      (is (nil? (rf.http.registry/lookup-in-flight :frame/a shared-id))
+          "frame A's slot is cleaned up by its own closure")
+      (is (some? (rf.http.registry/lookup-in-flight :frame/b shared-id))
+          "frame B's identically-named LIVE request is still registered — the audit's failure was here, and it is silent: no abort fires in B, its slot simply vanishes and nothing can cancel it afterwards")
+      (is (true? (rf.http.registry/abort-in-flight-in-frame! :frame/b shared-id :user))
+          "and B remains abortable, which is the consequence that was lost")
+      (is (= [[:frame/a :user] [:frame/b :user]] @seen)))
+    (rf.http.managed/clear-all-in-flight!)))
+
+(deftest pre-publication-clear-cannot-reach-a-sibling-frame
+  (testing "rf2-o8ek audit (2) — the transport's cleanup runs with a nil handle
+            for as long as the publication window is open. The two-arg form has
+            no frame to be exact about and falls back to the ANY-FRAME sweep, so
+            every transport site passes the ctx frame through the three-arity.
+            A nil handle from frame A must clear frame A's own slot and leave an
+            already-live sibling's alone. The original reasoning — that the
+            window precedes any successor — covers same-frame succession only"
+    (rf.http.managed/clear-all-in-flight!)
+    (let [seen (seed-two-frames-under-one-id!)]
+      ;; Frame A's abort-fn fires while its cell is still nil.
+      (rf.http.registry/clear-in-flight! :frame/a shared-id nil)
+      (is (nil? (rf.http.registry/lookup-in-flight :frame/a shared-id))
+          "frame A's own slot IS cleared — the window still must not leak a slot")
+      (is (some? (rf.http.registry/lookup-in-flight :frame/b shared-id))
+          "frame B's already-live request under the same raw id survives")
+      (is (= [] @seen)
+          "and no abort-fn fired in either frame — a clear is not an abort"))
+    (rf.http.managed/clear-all-in-flight!))
+
+  (testing "the same call with a PUBLISHED handle is unchanged: identity-conditional, so a same-id successor within the frame is not evicted"
+    (rf.http.managed/clear-all-in-flight!)
+    (let [old (rf.http.registry/record-in-flight!
+                shared-id nil {:frame :frame/a :abort-fn (fn [_] nil) :url "old"})
+          new (rf.http.registry/record-in-flight!
+                shared-id nil {:frame :frame/a :abort-fn (fn [_] nil) :url "new"})]
+      (rf.http.registry/clear-in-flight! :frame/a shared-id old)
+      (is (identical? new (rf.http.registry/lookup-in-flight :frame/a shared-id))
+          "the old attempt's clear no-ops against the successor that took the slot"))
+    (rf.http.managed/clear-all-in-flight!)))
+
+(deftest frame-exact-clear-walks-the-actor-index-too
+  (testing "rf2-o8ek audit — `clear-in-flight-in-frame!` is a full cleanup, not
+            a request-index-only one: it recovers the handle it just removed and
+            drops it from that frame's actor slot by identity, leaving a
+            same-named actor in a sibling frame untouched. A half-cleanup here
+            would strand an actor-index entry, which is the leak class
+            rf2-lz7se / rf2-meq28 closed on the handle-bearing paths"
+    (rf.http.managed/clear-all-in-flight!)
+    (let [actor-id :worker/proc]
+      (doseq [frame-id [:frame/a :frame/b]]
+        (rf.http.registry/record-in-flight!
+          shared-id actor-id
+          {:frame frame-id :abort-fn (fn [_] nil) :url "http://x/y"}))
+      (is (= 1 (count (get (rf.http.registry/actor-in-flight-snapshot :frame/a) actor-id))))
+      (rf.http.registry/clear-in-flight-in-frame! :frame/a shared-id)
+      (is (nil? (get (rf.http.registry/actor-in-flight-snapshot :frame/a) actor-id))
+          "frame A's actor slot is emptied, not stranded")
+      (is (= 1 (count (get (rf.http.registry/actor-in-flight-snapshot :frame/b) actor-id)))
+          "the same-named actor in frame B keeps its handle"))
+    (rf.http.managed/clear-all-in-flight!))
+
+  (testing "a nil request-id is a documented no-op — an anonymous request is indexed only in actor-in-flight, reachable only by handle identity"
+    (rf.http.managed/clear-all-in-flight!)
+    (let [handle (rf.http.registry/record-in-flight!
+                   nil :worker/anon {:frame :frame/a :abort-fn (fn [_] nil) :url "u"})]
+      (rf.http.registry/clear-in-flight-in-frame! :frame/a nil)
+      (is (= 1 (count (get (rf.http.registry/actor-in-flight-snapshot :frame/a) :worker/anon)))
+          "the anonymous handle is untouched — the two-arg handle form owns it")
+      (rf.http.registry/clear-in-flight! nil handle)
+      (is (nil? (get (rf.http.registry/actor-in-flight-snapshot :frame/a) :worker/anon))))
+    (rf.http.managed/clear-all-in-flight!)))

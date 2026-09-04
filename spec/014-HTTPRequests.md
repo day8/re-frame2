@@ -682,7 +682,10 @@ When a fresh request supersedes a prior one with the same `:request-id` **in the
 
 1. a fresh request supersedes only a **prior request from the same frame**; a sibling frame holding the same `:request-id` keeps its request live and its reply undisturbed;
 2. `[:rf.http/managed-abort id]` aborts only the **dispatching frame's** request under that id;
-3. the issuance counter that discriminates a superseded attempt from its superseder runs **per frame**, so a frame's first issuance under an id is `1` however many times a sibling has re-issued.
+3. the issuance counter that discriminates a superseded attempt from its superseder runs **per frame**, so a frame's first issuance under an id is `1` however many times a sibling has re-issued;
+4. **registry cleanup is scoped the same way.** Releasing a request's registry slot — on natural completion, on abort, or inside the window before a freshly-issued handle is published — releases only the *issuing* frame's slot. A sibling frame's identically-named request stays registered, and therefore stays cancellable.
+
+Clause 4 is not a restatement of the first three: cleanup is not an abort, and it fails **silently**. Sweeping a sibling's slot fires none of its callbacks and raises nothing; the sibling's request simply becomes unregistered, so no later `[:rf.http/managed-abort id]`, actor destroy, or frame teardown can reach it and its UI can sit loading indefinitely. A cleanup path that knows which frame it is cleaning up for must therefore use that frame, even where it cannot name the handle.
 
 This is the [frame-isolation contract](002-Frames.md#routing-the-dispatch-envelope) applied to request *lifetime*, matching what [§Frame awareness](#frame-awareness) already promises for reply *routing* and what [§Chain order and frame scope](#chain-order-and-frame-scope) already states for the interceptor chain: "an interceptor registered against frame A does NOT fire for a request dispatched from frame B". Cancellation is the third such surface, and it is scoped the same way.
 
