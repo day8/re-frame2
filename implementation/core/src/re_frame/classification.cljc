@@ -1170,8 +1170,8 @@
                         ;; NOT a dispatched event. It egresses VERBATIM here,
                         ;; mirroring the always-on record's
                         ;; `error-emit/raw-identity-query-vector-event?` skip
-                        ;; (keyed on the SAME `:op :subscribe` realm the UI /
-                        ;; core emitters stamp). Projecting it would misread the
+                        ;; (keyed on the SAME `:op :subscribe` realm the core
+                        ;; emitters stamp). Projecting it would misread the
                         ;; vector as a dispatched event and borrow a same-id
                         ;; EVENT registration's `:sensitive` paths to mutate the
                         ;; identity — a LEGAL event/sub id collision, since the

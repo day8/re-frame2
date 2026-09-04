@@ -2234,8 +2234,9 @@
   `[:sub]`-then-`[:event]` fallback. `:op` is RATIFIED PUBLIC on the record
   wherever the realm is known (rf2-a2x2w — resolving the rf2-1kph4/#6194
   record-shape contradiction: `:op` is a small closed-enum realm attribution,
-  useful to an off-box shipper and consistent with the UI throwing `(frame)`
-  surface that already carries it — see Spec 009 §Error contract, the
+  useful to an off-box shipper and, at the time of that ruling, consistent with
+  the ui throwing `(frame)` surface which carried it too — that surface has
+  since been retired (rf2-0yp7w); see Spec 009 §Error contract, the
   `:rf.error/frame-destroyed` row); it is NOT a hidden slot. The bare router
   drain / no-such-frame emitters carry NO realm (the 3-arity → nil `op`), so
   they keep the fallback and the tight record shape — unchanged. Callers that

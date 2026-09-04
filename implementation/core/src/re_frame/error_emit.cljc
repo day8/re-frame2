@@ -263,10 +263,14 @@
 ;; enum value under rf2-xtqs. It was already unobservable — `error-source-coord`
 ;; short-circuits on a nil `id`, and a `:capture` read carried none by
 ;; construction, so the branch and the `op`-absent fallback below returned nil
-;; alike. The core router / subs emitters carry no
-;; `:op`; for them the lookup falls back to `[:sub]`-then-`[:event]`, which
-;; keeps them correct (the subs sub-id hits `[:sub]`; the router event-id
-;; misses `[:sub]` then hits `[:event]`). A miss on the resolved realm falls
+;; alike. The ORDINARY address-directed ROUTER emitter carries no
+;; `:op`; for it the lookup falls back to `[:sub]`-then-`[:event]`, which keeps
+;; it correct (the event-id misses `[:sub]` then hits `[:event]`). The SUBS
+;; emitter is NOT in that fallback: `subs/emit-frame-destroyed-recovery!` is
+;; subscribe-realm BY CONSTRUCTION and stamps `:op :subscribe` UNCONDITIONALLY
+;; (rf2-alk8a), so it takes the `:subscribe` case above and resolves realm-exact
+;; under `[:sub id]` — never stealing a same-keyword event's coord. A miss on
+;; the resolved realm falls
 ;; through to nil → the `:source-coord` slot is absent.
 
 (def ^:private sub-error-categories
