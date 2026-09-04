@@ -510,6 +510,15 @@
   Comments are dropped; a node kind with no textual form records as
   `#<nodeType>` rather than vanishing.
 
+  **Spec 006's two dev-mode view annotations are dropped as well**, and it
+  is the sorting argument one step on: `data-rf2-source-coord` and
+  `data-rf-view` name the DECLARATION rather than the page, so two
+  spellings of one page — which is the comparison this door exists for —
+  carry different view names and would never be equal. The roster and the
+  full argument are `runtime/annotation-attributes`. A witness whose
+  subject IS the annotation therefore reads the attribute off the node
+  directly rather than through here.
+
   It answers the DOM's shape and nothing about React: two canonically
   equal pages may still differ in lifecycle, identity and hydration —
   distinct claims, each owed its own witness (004B, and the specification
@@ -534,6 +543,8 @@
               (case (.-nodeType n)
                 1 (let [tag   (str/lower-case (.-tagName n))
                         attrs (->> (array-seq (.-attributes n))
+                                   (remove (fn [a] (contains? runtime/annotation-attributes
+                                                              (.-name a))))
                                    (map (fn [a] [(.-name a) (.-value a)]))
                                    (sort-by first))]
                     (.push out (str "<" tag))
