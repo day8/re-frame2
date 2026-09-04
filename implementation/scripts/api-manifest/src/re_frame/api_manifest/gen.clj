@@ -26,6 +26,18 @@
       because they are human-classification axes that cannot be derived
       from code (the Tier closed vocabulary lives in spec/API.md §Tier
       taxonomy; the owning Spec is editorial).
+    - :justification / :action are the FACADE-AUDIT axes, also curated,
+      and carried on `:facade? true` rows only. They are fields 3 and 4
+      of the four the diff-time facade obligation names (spec/Conventions
+      §Facade policy — tier, owner spec, facade-placement justification,
+      recommended action); fields 1 and 2 are `:tier` and `:owner` above.
+      Before this pair existed the two remaining fields lived only in PR
+      bodies, so the manifest table Conventions describes could not be
+      read off the tree at all. `:action` is the closed placement verdict
+      vocabulary `#{:keep :rename :move :internal-public}`;
+      `:justification` is the prose reason — Conventions is explicit that
+      *it was convenient* is not one and *every consumer calls it on
+      their first hour* is.
     - The manifest is their JOIN. Code owns *what exists*; the sidecar
       owns *how it is classified*; neither fact has two homes.
 
@@ -753,14 +765,50 @@
   (= 're-frame.core ns-sym))
 
 (defn- classification-for
-  "Look up the curated {:tier :owner :status} for a `[ns var]` pair.
-   Returns nil (→ a drift error) when the sidecar has no entry."
+  "Look up the curated {:tier :owner :status (:justification) (:action)}
+   for a `[ns var]` pair. Returns nil (→ a drift error) when the sidecar
+   has no entry."
   [classification ns-sym var-sym]
   (get classification [(name ns-sym) (name var-sym)]))
+
+(def facade-action-vocab
+  "The CLOSED placement-verdict vocabulary of the facade audit, owned by
+   spec/Conventions.md §Facade policy (field 4 of the diff-time
+   obligation — \"Recommended action\"):
+
+     :keep            front-porch, or a justified single-import re-export;
+                      the var stays on the facade.
+     :rename          the spelling violates the lifecycle-verb law or the
+                      vocabulary; the surface stays, the name changes.
+     :move            the var belongs behind an existing subnamespace door
+                      and ordinary facade users do not need it.
+     :internal-public re-exported for one host/tool embed seam, not a
+                      consumer-facing surface.
+
+   `:move` is DELIBERATELY accepted on a live `:facade? true` row: the
+   table must be able to RECORD a ruled move before the move executes.
+   The gate that makes the move happen is the tracker edge onto the
+   release bead, not this generator."
+  #{:keep :rename :move :internal-public})
 
 ;; ---------------------------------------------------------------------------
 ;; Building the manifest rows.
 ;; ---------------------------------------------------------------------------
+
+(defn- with-facade-audit
+  "Attach the two curated facade-audit axes to `row` from its curated
+   source `c` (a `:classification` value, or a `:cljs-only` row).
+
+   ABSENT axes are NOT assoc'd, so a non-facade row carries no `:action`
+   / `:justification` key at all rather than a nil-valued one. That keeps
+   the emitted EDN two columns narrower on the ~425 non-facade rows, and
+   — the reason it matters mechanically — keeps `check!`'s row-set diff
+   honest: a nil-valued key on every generated row would differ from
+   every committed row and report the whole manifest as added+removed."
+  [row c]
+  (cond-> row
+    (:action c)        (assoc :action (:action c))
+    (:justification c) (assoc :justification (:justification c))))
 
 (defn build-rows
   "Return `[rows missing]` where rows is the sorted vector of manifest
@@ -772,35 +820,39 @@
         jvm-rows-and-missing
         (for [[ns-sym var-sym kind] (all-jvm-vars)]
           (if-let [c (classification-for classification ns-sym var-sym)]
-            {:row {:namespace         (name ns-sym)
-                   :var               (name var-sym)
-                   :tier              (:tier c)
-                   :kind              kind
-                   :owner             (:owner c)
-                   :status            (:status c)
-                   :facade?           (facade? ns-sym)
-                   :runtime-verified? true}}
+            {:row (with-facade-audit
+                    {:namespace         (name ns-sym)
+                     :var               (name var-sym)
+                     :tier              (:tier c)
+                     :kind              kind
+                     :owner             (:owner c)
+                     :status            (:status c)
+                     :facade?           (facade? ns-sym)
+                     :runtime-verified? true}
+                    c)}
             {:missing [(name ns-sym) (name var-sym)]}))
         jvm-rows (keep :row jvm-rows-and-missing)
         missing  (keep :missing jvm-rows-and-missing)
         cljs-rows
         (for [r (:cljs-only sidecar)]
-          {:namespace         (:namespace r)
-           :var               (:var r)
-           :tier              (:tier r)
-           :kind              (:kind r)
-           :owner             (:owner r)
-           :status            (:status r)
-           :facade?           (boolean (:facade? r))
+          (with-facade-audit
+           {:namespace         (:namespace r)
+            :var               (:var r)
+            :tier              (:tier r)
+            :kind              (:kind r)
+            :owner             (:owner r)
+            :status            (:status r)
+            :facade?           (boolean (:facade? r))
            ;; Per-row flag (rf2-2mtte): a `:cljs-only` row is
            ;; `:runtime-verified? true` once the CLJS-side enumeration
            ;; probe (implementation/scripts/api-manifest/probe/, run by
            ;; `npm run test:cljs`) covers its namespace — the probe is the
            ;; CLJS equivalent of the JVM `ns-publics` existence-check.
            ;; Rows the probe does not (yet) cover stay `false`. The JVM
-           ;; generator carries the curated flag through verbatim; it does
-           ;; not itself run the CLJS probe.
-           :runtime-verified? (boolean (:runtime-verified? r))})
+            ;; generator carries the curated flag through verbatim; it does
+            ;; not itself run the CLJS probe.
+            :runtime-verified? (boolean (:runtime-verified? r))}
+           r))
         rows (->> (concat jvm-rows cljs-rows)
                   (sort-by (juxt :namespace :var))
                   vec)]
@@ -863,6 +915,49 @@
        (sort-by (juxt first second))
        vec))
 
+(defn unjustified-facade-rows
+  "Return a sorted vector of `[namespace var]` for every `:facade? true`
+   row whose `:justification` is missing or blank (rf2-2hpxo).
+
+   Field 3 of the diff-time facade obligation (spec/Conventions.md §Facade
+   policy) is the facade-placement justification — *why* a non-front-porch
+   surface is nonetheless on the facade, or why a front-porch classification
+   earns the export. Conventions calls a facade addition that lands without
+   the four fields \"a reviewable defect, not a style nit\"; until this axis
+   existed the obligation had no mechanical home, so a defect could only be
+   caught by a reviewer reading the PR body. Blank counts as missing: an
+   empty string records nothing.
+
+   Scoped to `:facade? true` deliberately. The obligation in Conventions is
+   on FACADE exports; requiring prose on all ~528 rows would be a different,
+   much larger rule than the one the spec states."
+  [rows]
+  (->> rows
+       (filter :facade?)
+       (remove #(let [j (:justification %)]
+                  (and (string? j) (not (str/blank? j)))))
+       (map (juxt :namespace :var))
+       (sort-by (juxt first second))
+       vec))
+
+(defn bad-action-facade-rows
+  "Return a sorted vector of `[namespace var action]` for every
+   `:facade? true` row whose `:action` is absent or outside
+   `facade-action-vocab` (rf2-2hpxo).
+
+   Field 4 of the diff-time facade obligation is the recommended action —
+   the placement verdict the audit inherits. It is a CLOSED vocabulary, so
+   a typo (`:keeep`) or a coined value (`:defer`) is drift exactly as an
+   invented tier would be, and `nil` — the shape a new facade export has
+   before anyone classifies it — is refused for the same reason."
+  [rows]
+  (->> rows
+       (filter :facade?)
+       (remove #(contains? facade-action-vocab (:action %)))
+       (map (juxt :namespace :var :action))
+       (sort-by (juxt first second))
+       vec))
+
 (defn build-manifest
   "Build the full manifest data structure (the value written to
    spec/api-manifest.edn). Throws on missing / stale sidecar entries with
@@ -878,7 +973,9 @@
   (let [[rows missing] (build-rows sidecar)
         stale          (stale-sidecar-entries sidecar)
         dups           (duplicate-rows rows)
-        demoted        (implementation-facade-rows rows)]
+        demoted        (implementation-facade-rows rows)
+        unjustified    (unjustified-facade-rows rows)
+        bad-actions    (bad-action-facade-rows rows)]
     (when (seq missing)
       (throw (ex-info
               (str "Public vars with no sidecar classification (add a "
@@ -927,19 +1024,54 @@
                    "— delete, don't demote), or tier it as the surface it is:\n  "
                    (str/join "\n  " (map #(str/join "/" %) demoted)))
               {:implementation-facade demoted})))
-    {:meta {:doc        (str "GENERATED public-API manifest — do NOT hand-edit "
-                             "the :vars list. Regenerate with: clojure -M -m "
-                             "re-frame.api-manifest.gen (run from "
-                             "implementation/scripts/api-manifest/). The "
-                             "tier/owner/status axes are curated in "
-                             "spec/api-manifest-metadata.edn; existence + kind "
-                             "+ facade? are derived from live public vars. "
-                             "See that generator ns for the design.")
-            :keystone   "rf2-3nbl5.2"
-            :var-count  (count rows)
-            :tier-vocab [:front-porch :advanced :tooling :adapter
-                         :testing :internal-public :implementation
-                         :deprecated]}
+    ;; Facade-audit axes (rf2-2hpxo). Fields 3 and 4 of the diff-time facade
+    ;; obligation (Conventions §Facade policy) are curated on every
+    ;; `:facade? true` row, so the manifest table Conventions describes is
+    ;; readable off the tree instead of living in PR bodies.
+    (when (seq unjustified)
+      (throw (ex-info
+              (str "Facade rows with no :justification — every `:facade? true` "
+                   "row must record WHY the var is on the facade (field 3 of "
+                   "the diff-time obligation, spec/Conventions.md §Facade "
+                   "policy; \"it was convenient\" is not a justification, "
+                   "\"every consumer calls it in their first hour\" is). Add "
+                   "`:justification \"…\"` to each pair's "
+                   "spec/api-manifest-metadata.edn entry:\n  "
+                   (str/join "\n  " (map #(str/join "/" %) unjustified)))
+              {:unjustified-facade unjustified})))
+    (when (seq bad-actions)
+      (throw (ex-info
+              (str "Facade rows with a missing or unknown :action — every "
+                   "`:facade? true` row must record the placement verdict "
+                   "(field 4 of the diff-time obligation, spec/Conventions.md "
+                   "§Facade policy) as one of "
+                   (str/join " " (sort facade-action-vocab))
+                   ". Fix each pair's spec/api-manifest-metadata.edn entry:\n  "
+                   (str/join "\n  "
+                             (map (fn [[ns-str var-str action]]
+                                    (str ns-str "/" var-str " (:action "
+                                         (pr-str action) ")"))
+                                  bad-actions)))
+              {:bad-action-facade bad-actions})))
+    {:meta {:doc          (str "GENERATED public-API manifest — do NOT hand-edit "
+                               "the :vars list. Regenerate with: clojure -M -m "
+                               "re-frame.api-manifest.gen (run from "
+                               "implementation/scripts/api-manifest/). The "
+                               "tier/owner/status axes are curated in "
+                               "spec/api-manifest-metadata.edn; existence + kind "
+                               "+ facade? are derived from live public vars. "
+                               "The :action and :justification columns are the "
+                               "facade-audit axes (spec/Conventions.md §Facade "
+                               "policy fields 4 and 3) — also curated, and "
+                               "present on :facade? true rows ONLY, which is "
+                               "why most rows carry neither. "
+                               "See that generator ns for the design.")
+            :keystone     "rf2-3nbl5.2"
+            :var-count    (count rows)
+            :tier-vocab   [:front-porch :advanced :tooling :adapter
+                           :testing :internal-public :implementation
+                           :deprecated]
+            :action-vocab (vec (sort facade-action-vocab))}
      :vars rows}))
 
 ;; ---------------------------------------------------------------------------
@@ -947,14 +1079,25 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private row-key-order
-  [:namespace :var :tier :kind :owner :status :facade? :runtime-verified?])
+  [:namespace :var :tier :kind :owner :status :facade? :runtime-verified?
+   :action :justification])
+
+(def ^:private optional-row-keys
+  "Row keys emitted only when the row CARRIES them. The two facade-audit
+   axes are curated on `:facade? true` rows alone, so the ~425 non-facade
+   rows have no such key and the emitted line stays two columns narrower
+   rather than carrying `:action nil :justification nil`."
+  #{:action :justification})
 
 (defn- ordered-row
   "An array-map preserving the canonical key order so the printed EDN is
    stable across runs (sorted-map would alphabetise; we want :namespace
-   first)."
+   first). Optional keys the row does not carry are omitted entirely."
   [row]
-  (apply array-map (mapcat (fn [k] [k (get row k)]) row-key-order)))
+  (apply array-map
+         (mapcat (fn [k] [k (get row k)])
+                 (remove #(and (optional-row-keys %) (not (contains? row %)))
+                         row-key-order))))
 
 (defn render-edn
   "Render the manifest to a deterministic EDN string. One row per line
@@ -970,8 +1113,10 @@
   (let [{:keys [meta vars]} manifest
         raw (str ";; GENERATED by implementation/scripts/api-manifest — do NOT hand-edit.\n"
                  ";; Regenerate: clojure -M -m re-frame.api-manifest.gen (from\n"
-                 ";; implementation/scripts/api-manifest/). Curated tier/owner/status\n"
-                 ";; live in spec/api-manifest-metadata.edn. Keystone rf2-3nbl5.2.\n"
+                 ";; implementation/scripts/api-manifest/). Curated tier/owner/status —\n"
+                 ";; and, on :facade? true rows only, the facade-audit :action /\n"
+                 ";; :justification axes — live in spec/api-manifest-metadata.edn.\n"
+                 ";; Keystone rf2-3nbl5.2.\n"
                  "{:meta\n "
                  (with-out-str (pprint/pprint meta))
                  " :vars\n ["

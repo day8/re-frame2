@@ -1,6 +1,8 @@
 (ns re-frame.api-manifest.gen-test
-  "Regression tests for the manifest generator's one-row-per-public-var
-  invariant (rf2-nlnd9y.2).
+  "Regression tests for the manifest generator's row-level invariants: the
+  one-row-per-public-var rule (rf2-nlnd9y.2), the facade-vs-disposition rule
+  (rf2-93sxp), and the two facade-audit axes (rf2-2hpxo, at the foot of this
+  file). Each is a shape the generator must REFUSE rather than emit.
 
   THE BUG. The generated manifest is contractually one row per public var
   (gen ns docstring §THE ARTEFACT). JVM-derived rows are unique by
@@ -178,6 +180,165 @@
       (catch clojure.lang.ExceptionInfo e
         (is (= [["re-frame.core" "capture-frame"]]
                (:implementation-facade (ex-data e))))))))
+
+;; ---------------------------------------------------------------------------
+;; The facade-audit axes — :justification / :action (rf2-2hpxo).
+;;
+;; spec/Conventions.md §Facade policy makes a diff that adds a public var to a
+;; facade record FOUR fields in the same PR: tier, owner spec, facade-placement
+;; justification, recommended action. Fields 1 and 2 have been curated in the
+;; sidecar since rf2-3nbl5.2; fields 3 and 4 had NO home in the tree at all —
+;; they lived in PR bodies if anywhere — so the "manifest table" Conventions
+;; describes did not exist for any export. These two axes are that table, and
+;; the throws below are what make the diff-time obligation mechanical instead
+;; of a reviewer's memory.
+;;
+;; Both are scoped to `:facade? true` rows on purpose: the Conventions
+;; obligation is on FACADE exports, and requiring prose on all ~528 rows would
+;; be a different and much larger rule than the one the spec states.
+;; ---------------------------------------------------------------------------
+
+(deftest unjustified-facade-rows-flags-only-facade-rows
+  (testing "a facade row with no :justification is flagged; a facade row WITH
+            one, and a non-facade row without one, are not"
+    (is (= [["re-frame.core" "silent"]]
+           (gen/unjustified-facade-rows
+             [{:namespace "re-frame.core" :var "spoken" :facade? true
+               :action :keep :justification "day-one vocabulary"}
+              {:namespace "re-frame.core" :var "silent" :facade? true
+               :action :keep}
+              ;; off the facade — the obligation does not reach it
+              {:namespace "re-frame.machines" :var "reg-machine*"
+               :facade? false}])))))
+
+(deftest unjustified-facade-rows-treats-blank-as-missing
+  (testing "an empty or whitespace :justification records nothing, so it is
+            refused exactly as an absent one is"
+    (is (= [["re-frame.core" "blank"] ["re-frame.core" "empty"]
+            ["re-frame.core" "not-a-string"]]
+           (gen/unjustified-facade-rows
+             [{:namespace "re-frame.core" :var "empty" :facade? true
+               :action :keep :justification ""}
+              {:namespace "re-frame.core" :var "blank" :facade? true
+               :action :keep :justification "   \n  "}
+              {:namespace "re-frame.core" :var "not-a-string" :facade? true
+               :action :keep :justification :keep}])))))
+
+(deftest bad-action-facade-rows-accepts-the-closed-vocabulary
+  (testing "every member of the closed vocabulary passes on a facade row —
+            :move included, because the table must be able to RECORD a ruled
+            move before the move executes"
+    (is (empty?
+          (gen/bad-action-facade-rows
+            (for [a gen/facade-action-vocab]
+              {:namespace "re-frame.core" :var (name a) :facade? true
+               :action a :justification "reason"}))))
+    (is (= #{:keep :rename :move :internal-public} gen/facade-action-vocab))))
+
+(deftest bad-action-facade-rows-flags-missing-and-unknown
+  (testing "an absent :action (the shape a new, unclassified facade export
+            has) and a coined or mistyped one are both flagged, with the
+            offending value carried for the message"
+    (is (= [["re-frame.core" "absent" nil]
+            ["re-frame.core" "coined" :defer]
+            ["re-frame.core" "typo" :keeep]]
+           (gen/bad-action-facade-rows
+             [{:namespace "re-frame.core" :var "typo" :facade? true
+               :action :keeep :justification "reason"}
+              {:namespace "re-frame.core" :var "coined" :facade? true
+               :action :defer :justification "reason"}
+              {:namespace "re-frame.core" :var "absent" :facade? true
+               :justification "reason"}
+              ;; off the facade — carries neither axis and is not flagged
+              {:namespace "re-frame.epoch" :var "restore-epoch!"
+               :facade? false}])))))
+
+(defn- live-sidecar-without
+  "The REAL committed sidecar with `ks` dissoc'd from one live facade var's
+   classification. Using the real sidecar keeps the missing / stale /
+   duplicate / implementation-facade checks passing, so the axis under test
+   is what fires."
+  [& ks]
+  (let [sidecar (gen/read-sidecar)
+        k       ["re-frame.core" "capture-frame"]]
+    (assert (get-in sidecar [:classification k :justification])
+            "precondition: the sidecar justifies re-frame.core/capture-frame")
+    (assert (get-in sidecar [:classification k :action])
+            "precondition: the sidecar classifies re-frame.core/capture-frame")
+    (update-in sidecar [:classification k] #(apply dissoc % ks))))
+
+(deftest build-manifest-throws-on-unjustified-facade-row
+  (testing "build-manifest refuses a facade row with no :justification — the
+            throw is what turns generation / --check red"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"Facade rows with no :justification"
+          (gen/build-manifest (live-sidecar-without :justification))))))
+
+(deftest build-manifest-unjustified-ex-data-lists-the-key
+  (testing "the thrown ex-data names the offending [namespace var]"
+    (try
+      (gen/build-manifest (live-sidecar-without :justification))
+      (is false "expected build-manifest to throw on the unjustified row")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= [["re-frame.core" "capture-frame"]]
+               (:unjustified-facade (ex-data e))))))))
+
+(deftest build-manifest-throws-on-unknown-action
+  (testing "build-manifest refuses a facade row whose :action is outside the
+            closed vocabulary"
+    (let [sidecar (assoc-in (gen/read-sidecar)
+                            [:classification ["re-frame.core" "capture-frame"]
+                             :action]
+                            :defer)]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #"Facade rows with a missing or unknown :action"
+            (gen/build-manifest sidecar))))))
+
+(deftest build-manifest-throws-on-missing-action
+  (testing "an absent :action is refused too — it is the shape an unclassified
+            new facade export has, which is exactly what the gate is for"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"Facade rows with a missing or unknown :action"
+          (gen/build-manifest (live-sidecar-without :action))))))
+
+(deftest build-manifest-does-not-require-the-axes-off-the-facade
+  (testing "dropping both axes from a NON-facade row leaves generation green —
+            the obligation is on facade exports only"
+    (let [sidecar (gen/read-sidecar)
+          k       ["re-frame.epoch" "restore-epoch!"]]
+      (assert (get-in sidecar [:classification k])
+              "precondition: the sidecar classifies re-frame.epoch/restore-epoch!")
+      (assert (nil? (get-in sidecar [:classification k :justification]))
+              "precondition: a non-facade row carries no :justification today")
+      (is (map? (gen/build-manifest
+                  (update-in sidecar [:classification k]
+                             dissoc :justification :action)))))))
+
+;; ---------------------------------------------------------------------------
+;; Live: the committed manifest carries both axes on every facade row.
+;; ---------------------------------------------------------------------------
+
+(deftest live-manifest-facade-rows-all-carry-both-axes
+  (testing "the committed spec/api-manifest.edn justifies and classifies every
+            :facade? true row (non-vacuous: it has many facade rows)"
+    (let [rows   (:vars (gen/read-committed-manifest))
+          facade (filter :facade? rows)]
+      (is (pos? (count facade)) "precondition: the manifest has facade rows")
+      (is (empty? (gen/unjustified-facade-rows rows)))
+      (is (empty? (gen/bad-action-facade-rows rows))))))
+
+(deftest live-manifest-axes-are-facade-scoped
+  (testing "no NON-facade row carries either axis — the two columns mean
+            'facade audit', so a stray one on an ordinary row would read as a
+            classification nobody made"
+    (let [rows (remove :facade? (:vars (gen/read-committed-manifest)))]
+      (is (pos? (count rows)) "precondition: the manifest has non-facade rows")
+      (is (empty? (filter #(or (contains? % :action)
+                               (contains? % :justification))
+                          rows))))))
 
 (deftest live-manifest-has-no-implementation-facade-rows
   (testing "the committed spec/api-manifest.edn carries no :facade? true row
