@@ -149,20 +149,27 @@ renamed without something going red.
 | The testing kit, `re-frame.hicasso.test` | `implementation/hicasso/test_kit/src`, on `:src-dirs` so the jar carries it, deliberately outside the artefact's `:paths` | the kit's own witnesses on the CLJS lane, plus the `rf.error/hicasso-test-` sentinel in `check_production_erasure.cjs` | reachable only from a test, by reachability — no shipping namespace requires it (rf2-rxf49) |
 | Server/hydration policy, per surface | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | each `dispositions.md` inventory id points at its policy row | see §4 — the Phase 4 exit this rests on is **NOT MET** |
 
-Reproduce the first and third rows with:
-
-```sh
-python implementation/hicasso/scripts/check_facade_inventory.py
-python implementation/hicasso/scripts/check_complaint_catalogue.py
-```
+The first and third rows were reproduced by running
+~~`implementation/hicasso/scripts/check_facade_inventory.py`~~ and
+~~`implementation/hicasso/scripts/check_complaint_catalogue.py`~~. **[Struck 2026-09-04, `rf2-87iu`.]**
+**Neither script exists, so this is a record of how the numbers were taken and not an instruction.** It
+was a runnable `sh` block until this pass, which is a real hazard in this tree rather than untidiness:
+fenced blocks under `docs/design/hicasso/` are pasteable deliverables and are held to a stricter rule
+than the rest of the corpus for exactly that reason, and a reader who pasted this one got two
+`No such file` errors and no counts. The two amendments below say when each command went and why;
+they are unchanged.
 
 **[Amended 2026-08-29, `rf2-6c12m.17`.]** The second command no longer runs: PR #8753 (`rf2-6c12m.7`) deleted `check_complaint_catalogue.py` and its `hicasso-complaint-catalogue` job, and with them the reserved, pending-retirement and tombstone sections of `complaints.md`. Which refusal ids exist and which are retired is now Spec 009's rows alone — a struck-through row is the tombstone — reconciled against the emitters by `scripts/check_keyword_catalogue_drift.py` in both directions. The 2026-08-18 count in the table stands as the measurement it was.
 
 **[Amended 2026-08-30, `rf2-6c12m.8`.]** Neither command runs now: PR #8775 deleted `check_facade_inventory.py` and its `hicasso-facade-inventory` job as well, with `check_budget_ledger.py`, `check_naming_census.py` and their jobs, because the ledgers they policed were closed programme records gated as if live. `dispositions.md`, `budgets.md`, `naming-ledger.md` and the full `invariants.md` are design history in this directory; beside the code stay the 15-row `invariants.md` and the 43-row `server-policy.md`, ungated. The first row's 2026-08-18 count stands as the measurement it was.
 
-Both print their own counts, which is where the numbers above came from. If a figure on this page and a
-figure that script prints ever disagree, **the script is right**: it reads the door, and this page only
-reports what it read.
+Both printed their own counts, which is where the numbers above came from. While they existed the rule
+was that if a figure on this page and a figure a script printed ever disagreed, **the script was
+right**: it read the door, and this page only reported what it read. **[Amended 2026-09-04,
+`rf2-87iu`: put in the past tense, which is the only change.]** The rule had stood in the present
+tense underneath two amendments saying the scripts were deleted, so it read as a live tie-breaker
+naming an arbiter that no longer runs. **The counts above are now unarbitrated**: they are the
+2026-08-18 readings, and nothing at tip can re-take them.
 
 ## 4. The compatibility matrix
 

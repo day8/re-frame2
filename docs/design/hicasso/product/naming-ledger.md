@@ -8,6 +8,12 @@
 > in [`naming-packet.md`](naming-packet.md); nothing rosters public names against this
 > table any more and it is not maintained. Rows 48 and 52 carry a dated note from the
 > demotion pass.
+>
+> **[Amended 2026-09-04, `rf2-87iu`.]** What that demotion leaves §13's *small, internally coherent
+> language* bullet resting on is now stated in one place — [`naming-packet.md` §7](naming-packet.md),
+> at the paragraph describing the deleted gate. In short: **a dated 2026-08-20 reading, not a live
+> instrument**, chosen deliberately when the checker was deleted. Row 18 was verified against tip by
+> the same pass and needed no change — it already reads LANDED.
 
 **Rule**: nobody renames mid-flow; prototype names are used consistently everywhere; every naming question found by any bead is appended here as a row. The consolidation bead (rf2-hic-065) publishes the complete packet; its recommendations apply as defaults immediately; the operator's single sitting overrides rows asynchronously and rf2-hic-066 re-runs the sweep as a diff.
 

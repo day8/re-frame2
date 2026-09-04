@@ -48,7 +48,7 @@ one sweep. The sitting's agenda is the packet residue, not these.
 |---|---|---|---|---|
 | 1 | the one callback macro | `hfn` → **`h/event`**. `h/handler` rejected as a cross-adaptor false friend | rename the door macro and the corpus; **plus** the semantic residue in §6.1 | `h/fn` 251 occurrences / 61 files; `hfn` 205 / 56 |
 | 13 | root lifecycle constructors | `root!` → **`mount!`**; `hydrate-root!` → **`hydrate!`**. The rest of the door stands as landed | rename two constructors; `render!`/`unmount!` untouched | `h/root!` 35 / 20; `hydrate-root!` 144 / 35. The guide already teaches `h/mount!` (12) against `h/root!` (1) |
-| 18 | `hframe` | **RETIRE** in favour of core `rf/current-frame-id` + zero-arity `rf/capture-frame` admitted during a Hicasso body | **STOPS — semantic.** See §6.2 | `hframe` 124 / 30; `h/frame` 118 / 19 |
+| 18 | `hframe` | **RETIRE** in favour of core `rf/current-frame-id` + zero-arity `rf/capture-frame` admitted during a Hicasso body | **STOPS — semantic.** See §6.2 · **[Amended 2026-09-04, `rf2-87iu`: the stop is EXECUTED, and this cell is the last record still reading as though it stands.]** `rf2-t32wg` was ruled option C by the operator on 2026-08-30 and executed as `rf2-6c12m.13`, PR #8784: one semantic rule in core, `hframe` and its `h/` alias deleted with no compatibility alias. `hframe` has **zero** occurrences under `implementation/hicasso/src/` at `main`@`4f54988b07` — measured against a control of 37 for `defview` in the same tree, so the zero is an absence and not a failed probe. [`naming-ledger.md`](naming-ledger.md) row 18 already reads LANDED; this page did not. | `hframe` 124 / 30; `h/frame` 118 / 19 |
 | 24 | mounted test facade re-render verb | **`hm/rerender!`**. `render!` rejected — it collides with the product facade's `h/render!` (row 13) | rename the shipped `hm/render!` | `hm/render!` 5 / 4. The guide already types `hm/rerender!` (1) against `hm/render!` (0) |
 | 31 | motion respellings | stand **as taught** — `motion/presence` head, `::motion/mounting` / `::motion/unmounting` override keys | nothing on the guide side; the engine respells with row 5's namespace move | — |
 
@@ -300,6 +300,18 @@ between the advisory's reading and the source, not between two shipped descripti
 
 ### 6.2 Row 18 — the preferred alternative does not work today
 
+> **[Amended 2026-09-04, `rf2-87iu`. It works now, and this section is history.]** The seam this
+> section says must land first **has landed**. `rf2-t32wg` was ruled option C by the operator on
+> 2026-08-30 — *a refusing render extent may still expose its declared frame to the pure identity and
+> capture doors, while stateful ambient operations stay refused*, branched in `require-current-frame!`
+> with the mismatch check first — and executed as `rf2-6c12m.13`, PR #8784, which deleted `hframe`,
+> its `h/` alias, its error id and its documentation with **no compatibility alias**. So the heading
+> above is false at tip and the section below is kept as the record of why the row was held from
+> 2026-08-15 to 2026-08-30, not as a live constraint. Row 18 in the table above and in
+> [`naming-ledger.md`](naming-ledger.md) is **EXECUTED**. The occurrence figures in the paragraphs
+> below are likewise historical: they were taken before the sweep, `implementation/hicasso/src/`
+> reads **zero** `hframe` today, and the survivors elsewhere are docs, bench and test trees.
+
 `hframe` RETIRES by operator ruling, in favour of core `rf/current-frame-id` and zero-arity
 `rf/capture-frame` admitted during a Hicasso body. But **zero-arity `rf/capture-frame`
 inside a Hicasso body refuses today** — measured, with `:operation :capture-frame`,
@@ -359,6 +371,34 @@ in naming-ledger.md"*, exit **0**. That is the bead's acceptance condition met m
 rather than by inspection. A non-zero count from here is a public name minted since
 publication with no ledger row — precisely what section 3 of
 [`dispositions.md`](dispositions.md) forbids.
+
+> **[Amended 2026-09-04, `rf2-87iu`. Nothing below stands; both homes are gone, and this is where the
+> consequence for §13 is recorded.]** The `hicasso-naming-census` job was deleted from
+> `.github/workflows/test.yml` by `49aa8116c4` on 2026-08-30 and the `scripts/test-fast-pr.sh` block
+> by `bb3a92cd73` four minutes earlier, both `rf2-6c12m.8` / PR #8775, together with
+> `check_naming_census.py` itself and the matching `SPINE_LANES` entry named in the last sentence
+> below. **No naming-census instrument survives at tip**: four fixed-string probes — `naming_census`,
+> `naming-census`, `naming census`, `check_naming` — return hits only in prose and in two tombstone
+> comments (`.github/workflows/test.yml` and `scripts/check_fast_pr_gap.py`, both inside the
+> surviving guide-samples lane's comment block), and no script, job or npm lane matches any of them.
+> The paragraph below is kept because it records how the gate was wired and why it rode the spine
+> rather than the invariants chain, which is what a future rebuild would need.
+>
+> **The dated sentence `rf2-87iu` asks for, stated plainly. §13's *small, internally coherent
+> language* bullet ([`specification.md` §13](specification.md#13-definition-of-done)) is held by the
+> 2026-08-20 reading — 106 public names across 11 shipped namespaces, 0 unrostered, self-test exit 0
+> over 12 checks including the seeded-export positive control — and NOT by any live instrument.**
+> That end state was chosen, not drifted into: the operator's own 2026-08-30 pass deleted the checker
+> deliberately, and its stated reason is on the record in `implementation/hicasso/spec/README.md` —
+> *closed programme records were being gated as if live*. **What is not on the record is whether that
+> pass weighed this particular consequence**, and this note does not assume it did: the reason it
+> gives is about gating a closed ledger, and §13 is not mentioned. So the clause is witnessed by a
+> dated snapshot, which is a legitimate end state for a closed programme record and is also the one
+> thing an audit cannot verify. **If a live witness is wanted again, what would settle it** is an
+> instrument that enumerates shipped public names the way the deleted one did — reading `(def
+> ^{:doc ...})` forms, which `motion.cljs` and `overlay.cljs` carry, and excluding `defview` samples
+> inside docstrings — with the seeded-export positive control that made its zero readable. A
+> hand-rolled enumeration is not that, and would fail on exactly those two shapes.
 
 **Standing since `rf2-st1x5`,** in two homes rather than the three that bead anticipated.
 The `hicasso-naming-census` job in `.github/workflows/test.yml` runs it unconditionally —

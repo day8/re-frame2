@@ -1,5 +1,28 @@
 # Checkpoint 3 — the native-tier adoption review
 
+> **Currency, 2026-09-04 (`rf2-l67a`, `rf2-nf8w`). This page reviews a tier that no longer ships, and
+> is a dated record rather than a statement about the tree today.** It ran on 2026-08-14 at
+> `main`@`f455316fbf`, its §2 re-run was taken at `main`@`77bee1b9b7`, and its newest amendment is
+> 2026-08-21 (`rf2-r3dgc`). It was **reconciled to `main`@`4f54988b07` by this pass**, which re-scored
+> nothing.
+>
+> **The event its rows do not reflect.** On 2026-08-29, `aa01f0e8a6` (`rf2-6c12m.31`, wave 2 of
+> ruling `rf2-6c12m.3` Option A) shrank `re-frame.hicasso.native` from 1,116 lines to 82 and deleted
+> the native grammar: `$`, `props`, `defcomponent`, `memo`, `lazy`, `component`, `marker`,
+> `tier-sentinel`, `prop-slots`, `el`, `props*`, `declared-server`, `server-policies` and
+> `check-child!`, with their seven `:rf.error/hicasso-native-*` emitters, and the **eight `native_*`
+> suites — 91 deftests, 5,234 lines**. `use-sub` and `use-frame` are the whole public surface that
+> survives. So the `n/$`, `n/props`, `n/defcomponent` and `prop-slots` this page names throughout
+> **do not exist at tip**, and neither do the suites its evidence columns cite. The verdict, the
+> twelve misses and the freeze rule stand as the record of 2026-08-14; none of them can now be moved
+> by measurement, because the subject is gone.
+>
+> **What was re-run.** `rf2-nf8w` re-took this record's §2 Correctness section against
+> `main`@`4f54988b07` on 2026-09-04. Two of its four conjuncts pass, one is unreproducible for the
+> reason just given, and the result is written into the `rf2-s52w` row of
+> [`correction-ledger.md`](correction-ledger.md) and into [Row 5](#row-5--server-and-hydration)
+> below. **Row 5's score does not move.**
+
 **Verdict: the Phase 3 exit is NOT MET, and the host, outward-bridge and hot-path facade are
 therefore NOT frozen.** The canonical native-tier checklist is not green — no row of the eight is
 green on every clause it states — and the exit's own second conjunct, *a measured hot boundary … meet
@@ -191,6 +214,17 @@ because the recorded `:server` policy was consulted by nothing) was found and fi
 a semantic-tree claim standing in for server bytes was found anywhere**, which was this section's
 sharpest question.
 
+**[Amended 2026-09-04, `rf2-l67a` — the surfaces this paragraph scores no longer exist.]** Of the set
+it names, only *both hooks* survives: `re-frame.hicasso.native` is 82 lines at tip whose entire
+public surface is `use-sub` and `use-frame`, and `n/$`, `n/props`, `n/defcomponent` and the
+memo/lazy/ref helpers were deleted with the rest of the grammar by `aa01f0e8a6` on 2026-08-29
+(`rf2-6c12m.31`). The witnesses too: the eight `native_*` suites that carried the `react-dom/server`
+byte readings on both policy arms went in the same commit. **The reading is kept exactly as taken** —
+it was true of `main`@`f455316fbf` on 2026-08-14 and this note is not a re-score — but a reader must
+not carry the sentence forward as a claim about the package. The one clause of it that a 2026-09-04
+re-run could still take is the last: `rf2-nf8w` re-read the surviving parity witnesses and found each
+still naming the equality it proves, with server bytes and element shape asserted by separate rows.
+
 - **Unmet — mismatch attribution is unreachable for the outward bridge.** The row requires *mismatch
   attribution*; an outward-bridged root is built by the consumer's own `createElement`, so
   `impl.mount/hydrate-root!` cannot adopt it and a hand-rolled `hydrateRoot` installs no Spec 011
@@ -211,6 +245,26 @@ sharpest question.
   re-scores nothing**: it takes no measurement, runs no section of the protocol, and leaves Row 5's
   *Not green* and this page's verdict where §2 put them. Whether the row's score moves is a §2 re-run's
   to say.
+
+  **[Amended 2026-09-04, `rf2-nf8w` — the §2 re-run has now said, and the answer is no.]** §2
+  Correctness was re-taken against `main`@`4f54988b07` on 2026-09-04, in a worktree of its own, by a
+  reviewer who wrote none of the fixes. **Row 5 stays *Not green*, and this page's verdict is
+  unmoved.** The reason is not that the clause failed — it is that the row's subject was retired
+  under it. `aa01f0e8a6` (2026-08-29, `rf2-6c12m.31`) deleted the native grammar and its eight
+  suites, so `HS-24`–`HS-30`'s `n/$`, `n/props`, `n/defcomponent` and the memo/lazy/ref helpers are
+  gone, the outward bridge this bullet is about is gone with them, and
+  `native_abi_dom_cljs_test.cljs` — the 1,028-line file carrying the *a-consumer-built-root-hydrates-
+  a-bridged-subtree-with-no-framework-reporter* witness that `rf2-s52w` landed, and the plant that
+  falsified it — was deleted in the same commit. **A score cannot move on a re-measurement that has
+  nothing left to measure**, and inventing a substitute subject would be re-scoring, which this
+  amendment is forbidden to do exactly as the one above it was. What the re-run *could* take is
+  recorded in the `rf2-s52w` row of [`correction-ledger.md`](correction-ledger.md): the three-way
+  matrix and the bundle gate both green with captured exit **0**, the parity-witness conjunct read
+  and passing, and this record's own sabotage 3 replanted and reddening its surviving witness with
+  captured exit **1**. **The mechanism the bullet names is untouched and still true**:
+  `impl/roots.cljs:23` still states that `onRecoverableError` is an option of an *individual*
+  `hydrateRoot`, so a root the consumer opens carries no framework reporter. It is the *bridge*, not
+  the mechanism, that has gone.
 - **Quality — the row points at the wrong document.** Its deciding evidence is the SSR/hydration
   matrix, which is a table of **policy** carrying no witness column and no test citation. The witness
   ledger is [`dispositions.md` §2.1](dispositions.md). A reviewer following the release checklist

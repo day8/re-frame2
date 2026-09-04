@@ -1,5 +1,18 @@
 # Checkpoint 2 — the slice review record
 
+> **Currency, 2026-09-04 (`rf2-l67a`). This page is a dated review, not a statement about the tree
+> today.** It ran on 2026-08-13, was first measured at `main`@`5d54f50d76` and re-measured whole at
+> `f96aaf8d73`; it carries no amendment marker of its own, so 2026-08-13 is the whole of its
+> history. It was **reconciled to `main`@`4f54988b07` by this pass**, which re-scored nothing and
+> re-ran no section. Read every row below in the past tense.
+>
+> **What that pass corrected.** One cell — the L0–L3 testing-facade row in
+> [§3](#3-what-was-re-run-and-what-it-measures), whose path set and line count are both stale — and
+> it is amended beside itself there rather than rewritten. **This page cites none of the retired
+> native surfaces**: probing it for the fixed strings `n/$`, `n/props`, `n/defcomponent`,
+> `prop-slots`, `native_` and `hicasso.native` returns 0 for each, against a control of 4 for
+> `2026-08` on the same file. No other cell was re-read.
+
 **Verdict: the Phase 2 exit is MET, and the ordinary authoring facade is frozen** —
 [`facade-freeze.md`](facade-freeze.md) — **with one law it could not apply.**
 
@@ -106,7 +119,7 @@ bead's close note:
 | Deliverable | Where it landed | Checked here by |
 |---|---|---|
 | The application flow — routing, keyed list, edit, async mutation, controlled fields, errors, reset | `examples/slice/*`, 7 namespaces + 8 suites | reading all seven; every row of the seven is present, and pagination, runtime-selected content and a nested error region were added later by `rf2-hic-074` |
-| L0–L3 testing facade | `test_kit/src/re_frame/hicasso/test/{core,mounted}.cljs` | `mounted.cljs` read in full — 12 public doors, 1998 lines |
+| L0–L3 testing facade | `test_kit/src/re_frame/hicasso/test/{core,mounted}.cljs` | `mounted.cljs` read in full — 12 public doors, 1998 lines · **[Amended 2026-09-04, `rf2-l67a`: both halves of this citation are stale, and one of them was never right.** There is no `test/core.cljs` at tip and `git log --all` finds none at that path in the whole history, so the brace was wrong when written — the L0–L2 pure kit is `test_kit/src/re_frame/hicasso/test.cljs`, one directory up, beside `test/{forms,mounted,runtime,server}.cljs`. And `mounted.cljs` is **2,147 lines with 13 top-level `defn` forms** at `main`@`4f54988b07`, not 1,998 and 12. **The 2026-08-13 reading is kept as written**: it records what was read on the day, and this note records what has moved since, which is the only thing that makes the difference legible. Nothing here re-scores the row.**]** |
 | First versioned evidence projection | `impl/evidence.cljs` | present, adapter-neutral, owned by `rf2-hic-023` |
 | Xray mounted / read / intent / explain-render views | `tools/xray/src/day8/re_frame2_xray/panels/hicasso.cljs` | four view fns and the four-way dispatch at `:555-558`, under the `:hicasso` L4 tab |
 | The complaint catalogue | [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md) + `check_complaint_catalogue.py` | gate run: 74 live, 6 reserved, 1 pending retirement, 1 retired; every live row emitted and rowed in Spec 009, every anchor resolving |

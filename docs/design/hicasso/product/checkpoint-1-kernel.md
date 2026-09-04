@@ -1,5 +1,21 @@
 # Checkpoint 1 — the kernel review record
 
+> **Currency, 2026-09-04 (`rf2-l67a`). This page is a dated review, not a statement about the tree
+> today.** It was measured at `main`@`d079143b91` on 2026-08-13 and its newest amendment is
+> 2026-08-13; it was **reconciled to `main`@`4f54988b07` by this pass**, which re-scored nothing and
+> re-ran no section. Read every row below in the past tense.
+>
+> **What that pass found, and did not find, on this page.** The large event between the two dates is
+> the `rf2-6c12m` reduction wave — `re-frame.hicasso.native` shrank to `use-sub` and `use-frame` and
+> its grammar and eight suites were deleted (`aa01f0e8a6`, 2026-08-29, `rf2-6c12m.31`), and four
+> ledgers and three checkers were demoted or deleted on 2026-08-30 (`rf2-6c12m.8`, PR #8775). **This
+> page cites none of the retired native surfaces**: probing it for the fixed strings `n/$`,
+> `n/props`, `n/defcomponent`, `prop-slots`, `native_` and `hicasso.native` returns 0 for each,
+> against a control of 16 for `2026-08` on the same file. **No cell here is corrected by this pass** —
+> which is a statement about the six probes above and not a re-verification of the rows, none of
+> which was re-read. The page's own open conjunct — the byte-exact boundary shell — is unmoved and is
+> tracked in [`correction-ledger.md`](correction-ledger.md), not here.
+
 **Verdict: the correctness half of the Phase 1 exit is CONFIRMED; the exit as a whole is NOT MET.**
 Checkpoint 1 (`rf2-hic-019`) was re-dispatched to a reviewer who wrote none of the fixes and ran on
 `main`@`d079143b91` on 2026-08-13. All eleven of its dependencies had landed. This record **supersedes**
