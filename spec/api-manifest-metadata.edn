@@ -141,13 +141,131 @@
   ;;     Migrated off the `:xray-spec-known-unmanifested` allowlist into real
   ;;     :cljs-only rows so the gkp0t Xray-spec projection check resolves them
   ;;     to manifest rows and the 2mtte CLJS probe runtime-verifies them.
-  ;;     ALL are curated subsets (direction-1 only — the probe verifies each
-  ;;     rowed var still resolves; rename / removal → RED). The mount family is
+  ;;     The mount family is
   ;;     `internal-public` per spec/API.md §Tiering of cross-tool surfaces (the
   ;;     standing classification); the published constants + the Xray↔MCP read
   ;;     seam + the editor-chip are `tooling` (dev/inspection surfaces consumed
   ;;     by story-mode chrome, docs generators, and the pair-MCP servers — not
-  ;;     application logic). Owner "tools/xray"; status "post-v1 lib". ---
+  ;;     application logic). Owner "tools/xray"; status "post-v1 lib".
+  ;;
+  ;;     TWO PROBE POSTURES, and the split is deliberate (rf2-ar67). The
+  ;;     `core` FACADE below is FULLY-ROWED — the probe checks both
+  ;;     directions, so an export added there without a row, or a row with no
+  ;;     live var, goes RED. Every OTHER Xray namespace here stays a curated
+  ;;     SUBSET (direction-1 only — the probe verifies each rowed var still
+  ;;     resolves; rename / removal → RED, but an unrowed addition is
+  ;;     tolerated). The facade earns the stricter posture because it is the
+  ;;     one namespace whose whole point is to BE the enumerated surface:
+  ;;     tools/xray/spec/API.md §Wider public surface rows all sixteen of its
+  ;;     exports by name, so a seventeenth arriving unclassified is exactly
+  ;;     the accretion Conventions §Facade policy exists to stop. The subset
+  ;;     namespaces are ordinary implementation namespaces that happen to
+  ;;     publish a few documented vars; holding them to completeness would
+  ;;     row their internals. ---
+  ;;
+  ;; day8.re-frame2-xray.core — THE FACADE (rf2-ar67, the third slice of the
+  ;; retrospective facade sweep spec/Conventions.md §Facade policy mandates
+  ;; before the first external alpha; slice 1 was re-frame.core / rf2-2hpxo,
+  ;; slice 2 re-frame.story / rf2-i6kh). Conventions line 1203 names three
+  ;; facade namespaces and this is the third; these rows are what let the
+  ;; generator's facade-audit invariants reach it.
+  ;;
+  ;; `:facade? true` is carried PER ROW here rather than derived from
+  ;; `gen/facade-namespaces`, because `facade?` is a JVM-side predicate and
+  ;; this namespace is CLJS-only — see that Var's docstring for the two
+  ;; routes. The roster still names it, so the non-vacuity test
+  ;; `live-manifest-has-facade-rows-in-every-enrolled-facade` guards these
+  ;; sixteen flags: blank them and it goes RED.
+  ;;
+  ;; `:tier :tooling` on all sixteen, per Conventions §Story / Xray nuance —
+  ;; for a tooling PRODUCT, tooling can legitimately BE the front porch, and
+  ;; the discriminator is the user's workflow, not the tier label. This is the
+  ;; same reading the Story slice reached on its own evidence, not an import
+  ;; of it: the two products are alike in the one respect that matters here
+  ;; (a single tooling artefact with no late-bind seam), and Xray's own spec
+  ;; supplies the evidence per row below. `:implementation` is refused for
+  ;; facade rows outright (gen/implementation-facade-rows), and the eligible
+  ;; doc-coverage tiers (`:front-porch` / `:advanced` / `:adapter` /
+  ;; `:testing`) would oblige a docs/api/ page per var, which Xray documents
+  ;; in its own spec tree instead.
+  ;;
+  ;; ALL SIXTEEN ARE `:action :keep`, and that is a measured result rather
+  ;; than a default. Xray's own spec has ALREADY performed the move analysis
+  ;; this audit would otherwise have to run: tools/xray/spec/API.md §Wider
+  ;; public surface names the TWO surfaces deliberately NOT re-exported
+  ;; through the facade (the per-key config setters beyond the four
+  ;; highest-traffic ones, and the keybinding attach!/detach! lifecycle pair)
+  ;; and says why for each. The line between porch and workshop is drawn and
+  ;; documented; every var below sits on the porch side of a line the product
+  ;; spec already argued. Nothing here is a move candidate under the audit
+  ;; discriminator (an existing owning namespace is already a clearer door
+  ;; AND ordinary hosts do not need the name) — each name backs a step of an
+  ;; ordinary host workflow: install, control visibility, pick the inspected
+  ;; frame, focus a panel, configure at boot.
+  ;;
+  ;; NO RENAME IS RECORDED, and one name is left for an operator ruling
+  ;; instead: `load-theme` is the only export here that mutates without a
+  ;; bang (it installs a <style> override into <head> via
+  ;; global-styles/set-host-theme-css!, which DOES carry the bang). The other
+  ;; fifteen are consistent — TWELVE mutators all banged, and the three
+  ;; no-bang names (`status`, `target-frame`, `valid-focus-panels`) are
+  ;; reads. But `load-*` is on NO row of the closed lifecycle-verb roster,
+  ;; and Conventions §Lifecycle-verb law says in terms that adding a verb to
+  ;; that table is a Spec change, not a per-author call — so the repair is
+  ;; ambiguous between spelling it `load-theme!` and giving `load-*` a roster
+  ;; row, and choosing here would be coining. Recorded `:keep` with the
+  ;; uncertainty in its justification (the CONTESTED clause's shape, and the
+  ;; same posture the Story slice took for canonical-hash /
+  ;; make-run-artifact / run-artifact?); raised as its own bead. PLACEMENT is
+  ;; not in doubt — only the spelling.
+  {:namespace "day8.re-frame2-xray.core" :var "init!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch for a tooling product: the manual-install entry point, and one of exactly two install paths a host chooses between (the other is wiring day8.re-frame2-xray.preload into :devtools/preloads). tools/xray/spec/API.md §Canonical documents it first and rf2-g2a5v fixes its role against configure! and persisted Settings -- configure! is static boot config, init! the lifecycle hook that receives the merged config. A host that requires the facade at all requires it for this."}
+  {:namespace "day8.re-frame2-xray.core" :var "open!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch: the default true-inline mount, and by tools/xray/spec/API.md §open! / open-overlay! / popout! what 95% of host code reaches for. Conventions §Lifecycle-verb law rows open! / close! as the visibility pair, so the spelling is the law's own. Also one of the six verbs the preload mirrors onto window.day8.re_frame2_xray, which keeps the CLJS and JS-console vocabularies identical."}
+  {:namespace "day8.re-frame2-xray.core" :var "open-overlay!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Names a DISTINCT mount surface, not a mode of open!: the transient ESC-closeable overlay that floats above the host instead of participating in its layout. rf2-sa4fr ruled the rename question explicitly -- a mode-symmetric triplet (open-inline! / open-overlay! / open-popout!) was considered and REFUSED because the three verbs name kinds of mount, and flattening them would cost the rank signal that bare open! is the default. That standing ruling is why no :rename is recorded here."}
+  {:namespace "day8.re-frame2-xray.core" :var "close!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch: the visibility half of the open! / close! pair Conventions §Lifecycle-verb law names -- close! hides an already-mounted shell and leaves it re-open!-able, which is why it is NOT unmount! or destroy-*. Splitting it from open! would split one two-call workflow across two requires."}
+  {:namespace "day8.re-frame2-xray.core" :var "toggle!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch: the verb behind Xray's own Ctrl+Shift+C chord, so a host that takes the chord back via keybinding/detach! rebinds it to exactly this var. Documented in tools/xray/spec/API.md §Canonical and mirrored onto the browser global with the other five mount verbs."}
+  {:namespace "day8.re-frame2-xray.core" :var "popout!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Names a DISTINCT mount surface: the same-browser second window, where the shell gets its own document context, React root, theme cascade and keybinding. Covered by the same rf2-sa4fr ruling as open-overlay!, and by 017-Test-Coverage-Matrix as a shipped host-facing launch mode."}
+  {:namespace "day8.re-frame2-xray.core" :var "status" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch, and the FIRST call a host makes when Xray does not appear: it returns the mount/API state including the last non-blocking diagnostic for a missing [data-rf-xray-host] layout host. tools/xray/spec/API.md §Wider public surface rows it among the six browser globals the preload installs, so the console recovery path and the CLJS one are the same var. A read, hence no bang."}
+  {:namespace "day8.re-frame2-xray.core" :var "target-frame" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch: the one-shot read of which HOST frame Xray is inspecting -- the read half of the frame-picker pair, returning nil for UNSELECTED because EP-0002 (rf2-bd4div) removed the :rf/default absence-repair fallback. Reactive consumers subscribe to :rf.xray/target-frame directly, so this var exists precisely for the non-reactive host call the facade is for."}
+  {:namespace "day8.re-frame2-xray.core" :var "set-target-frame!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch: the write half of the pair above, and the surface a host with several frames needs on its first afternoon. Named parallel to the :rf.xray/target-frame sub and :rf.xray/set-target-frame event it drives, so the facade spelling matches runtime reality. Banged per Conventions §Naming bucket 3 -- it mutates Xray's own :rf/xray frame."}
+  {:namespace "day8.re-frame2-xray.core" :var "focus!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "An explicitly-recorded deliberate single-import re-export, which is the exception Conventions §Facade policy provides for: tools/xray/spec/API.md §Wider public surface rows it in the focus namespace as `focus! (the entry point, re-exported through core)`. The owning namespace day8.re-frame2-xray.focus keeps the command shape, the ownership boundary and the pure translation fn; the facade carries only the host-facing door, because the host sending the command is Story, not Xray. Contract at 008-Embedding-Contract §Host-facing focus API."}
+  {:namespace "day8.re-frame2-xray.core" :var "valid-focus-panels" :kind :var :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Kept WITH focus! because it is step one of that same two-call workflow: a host validates a panel selector against this set BEFORE sending a focus command, so moving it behind the focus namespace would split a two-line host snippet across two requires for no gain. Renamed on the facade from the owner's valid-panels to say WHICH panels -- the facade has no other panel vocabulary, so the bare name would read as the whole panel inventory. It mirrors the live Dynamic L4 tab registry, so it tracks shipped tabs rather than pinning a list."}
+  {:namespace "day8.re-frame2-xray.core" :var "load-theme" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "PLACEMENT is settled and is what this axis records: tools/xray/spec/API.md §Canonical rows it, and editor-driven palette sync is an ordinary host workflow reached in one call, so it stays on the facade. SPELLING IS LEFT FOR AN OPERATOR RULING and is deliberately NOT recorded as :rename. This is the one export here that mutates without a bang -- it installs a <style> override into <head> through global-styles/set-host-theme-css!, which does carry one -- and Conventions §Naming bucket 3 would bang it. But `load-*` appears on NO row of the closed lifecycle-verb roster, and §Lifecycle-verb law states that adding a verb to that table is a Spec change rather than a per-author call, so the repair is genuinely ambiguous between load-theme! and a roster row for load-*. Recorded keep with the uncertainty stated, per the CONTESTED clause; a rename after the first external alpha would be a consumer-visible break, which is why it is raised now rather than assumed."}
+  {:namespace "day8.re-frame2-xray.core" :var "configure!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "Front porch, and named by Conventions §Lifecycle-verb law on THIS facade specifically -- configure! is the config-mutation verb across re-frame.core, re-frame.story and day8.re-frame2-xray.core alike. It is also the entry point the boot order is written around: requiring the facade is side-effect-free (rf2-5w06uu), so a host calls configure! and only then init!, which is what lets :rf.xray/auto-open? false win deterministically before any auto-open."}
+  {:namespace "day8.re-frame2-xray.core" :var "set-auto-open!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "One of exactly four per-key setters tools/xray/spec/API.md §Wider public surface names as deliberately re-exported so common boot wiring lands in one require -- and the same section names the setters deliberately NOT re-exported (set-project-root!, set-keybinding-enabled!, set-filter-seed! and the rest, which hosts reach through day8.re-frame2-xray.config). The porch/workshop line this audit exists to draw is therefore already drawn and documented for this family, and this var is on the porch side of it: suppressing auto-open is boot-time wiring almost every embedding host does."}
+  {:namespace "day8.re-frame2-xray.core" :var "set-editor!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "One of the four highest-traffic setters §Wider public surface re-exports by name. It backs the Open-in-editor affordance, which is per-developer configuration nearly every host sets once at boot, and its accepted values (:vscode / :cursor / :windsurf / :zed / :idea / {:custom <uri-template>}) are the ones a reader most often wants beside init!."}
+  {:namespace "day8.re-frame2-xray.core" :var "set-egress-profile!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+   :action :keep
+   :justification "One of the four highest-traffic setters §Wider public surface re-exports by name, and the one with the strongest reason to be legible from the facade: it selects the EP-0015 per-(tool,frame) reveal grain, where :rf.egress/local-redacted is the default and :rf.egress/local-raw is the trusted-local operator opt-in that reveals sensitive AND large values verbatim. A privacy opt-in belongs where a reviewer will see it, not behind a subnamespace door."}
   ;;
   ;; day8.re-frame2-xray.mount — the shell lifecycle (only `mounted?` rowed;
   ;; the open/close/teardown machinery is "otherwise unrowed-internal").
@@ -486,8 +604,12 @@
  ;;      where the behaviour lives, kept off the manifest because it is
  ;;      not a surface anyone may call from outside `tools/xray/src/`.
  ;;      `day8.re-frame2-xray.egress` (rf2-7htk7) is the case: the
- ;;      panel-local fail-closed projection the two human copy
- ;;      affordances use. It replaced the public
+ ;;      panel-local fail-closed projection Xray's ONE human
+ ;;      value-egress affordance uses — the command-palette
+ ;;      `Snapshot app-db` verb (rf2-rshr; rf2-6r9j.24 retired the
+ ;;      universal EDN-widget copy button, and Static Machines' Copy
+ ;;      Mermaid is value-free by contract, so it is not an egress
+ ;;      site). It replaced the public
  ;;      `day8.re-frame2-xray.runtime` seam, whose four rows this file
  ;;      carried until rf2-7htk7 retired it in favour of
  ;;      `re-frame2-pair.runtime` as the single agent runtime — the

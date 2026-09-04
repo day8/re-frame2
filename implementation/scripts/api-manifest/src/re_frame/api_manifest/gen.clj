@@ -770,14 +770,36 @@
    `re-frame.core` alone. Widening a set is the whole edit; a second
    predicate would let the two facades drift apart.
 
-   `day8.re-frame2-xray.core` is deliberately ABSENT: it carries no manifest
-   rows at all (its namespace is not on `jvm-namespaces`), so naming it here
-   would be a claim the generator cannot yet check. Enrolling it is rf2-ar67."
-  '#{re-frame.core re-frame.story})
+   ALL THREE ARE NOW ENROLLED (rf2-ar67 added the Xray facade), so this set
+   is the generator's copy of the Conventions roster and the two are meant to
+   be read against each other.
+
+   BUT THE THIRD ARRIVES BY A DIFFERENT ROUTE, and the distinction matters
+   before anyone edits this set. `facade?` below is consulted ONLY for
+   JVM-introspected rows (see `build-rows`), so it is what marks
+   `re-frame.core` and `re-frame.story`. `day8.re-frame2-xray.core` is
+   CLJS-ONLY — it cannot be `require`d on the JVM and is not on
+   `jvm-namespaces` — so its rows are curated under `:cljs-only` and carry
+   `:facade? true` PER ROW, which `build-rows` reads straight off the row.
+   Naming it here therefore changes no row's flag.
+
+   It is named here anyway, and the reason is a real guard rather than
+   tidiness: `live-manifest-has-facade-rows-in-every-enrolled-facade` walks
+   THIS set and asserts each member contributes `:facade? true` rows to the
+   COMMITTED MANIFEST — a check that reads the manifest, not `ns-publics`, so
+   it reaches the CLJS arm exactly as well as the JVM one. Blank the sixteen
+   sidecar flags and that test goes red. Before rf2-ar67 the same reasoning
+   ran the other way: with no Xray rows to point at, naming it here would
+   have been a claim nothing could check."
+  '#{re-frame.core re-frame.story day8.re-frame2-xray.core})
 
 (defn- facade?
   "A var is part of a user-facing façade iff it is published from one of
-   `facade-namespaces`. Everything else lives in its home artefact namespace."
+   `facade-namespaces`. Everything else lives in its home artefact namespace.
+
+   JVM-side only — every caller is on the `all-jvm-vars` path. The CLJS-only
+   façade (`day8.re-frame2-xray.core`) never reaches this predicate; its rows
+   carry `:facade?` themselves. See `facade-namespaces` for the two routes."
   [ns-sym]
   (contains? facade-namespaces ns-sym))
 
