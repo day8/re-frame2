@@ -134,7 +134,7 @@
       (is (str/includes? src "(defn with-indicators")
           (str "`with-indicators` re-export missing from " pair-mcp-reexport-rel)))
     (testing "pair-mcp wire.cljs delegates to the mcp-base canonical helper"
-      (is (str/includes? src "base-envelope/with-indicators")
+      (is (str/includes? src "rf.mcp-base.envelope/with-indicators")
           (str "pair-mcp `with-indicators` no longer delegates to "
                "`re-frame.mcp-base.envelope/with-indicators`. The emit-path "
                "MUST stay centralised in mcp-base (rf2-ee38b.19) — a "
