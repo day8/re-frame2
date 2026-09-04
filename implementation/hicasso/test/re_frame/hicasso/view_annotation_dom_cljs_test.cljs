@@ -77,6 +77,24 @@
   [_]
   [:p {:class "wins" :data-rf-view "author-set"} "wins"])
 
+(rf.hicasso/defview author-wins-in-another-spelling
+  "A body that writes the STRING spelling of `data-rf-view`, in a map big
+  enough to be a PersistentHashMap.
+
+  `merge` cannot collapse two spellings of one React slot, so before
+  rf2-c5w1's audit repair both keys survived and `convert-props` let the
+  map's iteration order pick the emitted value — which an array map hid by
+  iterating in insertion order. The eleven fillers are what make the shape
+  a hash map; nothing else about them matters."
+  [_]
+  [:p {:class          "wins-string"
+       "data-rf-view"  "author-string"
+       :data-filler-0  "0" :data-filler-1 "1" :data-filler-2  "2"
+       :data-filler-3  "3" :data-filler-4 "4" :data-filler-5  "5"
+       :data-filler-6  "6" :data-filler-7 "7" :data-filler-8  "8"
+       :data-filler-9  "9" :data-filler-10 "10"}
+   "wins"])
+
 (rf.hicasso/defview inner-view
   "The inner half of a boundary-rooted pair — it tags its OWN root."
   [_]
@@ -101,6 +119,7 @@
    [plain-root {}]
    [attrs-root {}]
    [author-wins {}]
+   [author-wins-in-another-spelling {}]
    [boundary-root {}]
    [fragment-root {}]])
 
@@ -171,6 +190,24 @@
         (is (str/starts-with? (coord-attr handle ".wins")
                               (str view-ns ":author-wins:"))
             "and the attribute it did NOT write is still stamped")
+        (finally (rf.hicasso.impl.mount/release! handle))))))
+
+(deftest the-author-wins-a-collision-in-any-spelling-of-the-slot
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (skip! ":node-test has no DOM")
+    (let [handle (mounted!)]
+      (try
+        (is (= "author-string" (view-attr handle ".wins-string"))
+            "a body that wrote the STRING `\"data-rf-view\"` keeps its value
+             too — the framework's entry is dropped at the CANONICAL SLOT,
+             not at the keyword, so nothing is left for the map's iteration
+             order to choose between (rf2-c5w1, audit of PR #9191)")
+        (is (str/starts-with? (coord-attr handle ".wins-string")
+                              (str view-ns ":author-wins-in-another-spelling:"))
+            "and the annotation it did not write is still stamped — ownership
+             is per slot, not a blanket refusal to annotate")
+        (is (= "5" (attr handle ".wins-string" "data-filler-5"))
+            "the author's ordinary attributes are untouched")
         (finally (rf.hicasso.impl.mount/release! handle))))))
 
 ;; ---------------------------------------------------------------------------
