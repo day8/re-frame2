@@ -49,12 +49,22 @@
 (def ^:private path (js/require "path"))
 
 (def ^:private roots
-  "Where witness packages may live, relative to the runner's working
-  directory (`implementation/`, where `npm run test:cljs` runs). Two, for
-  the reason `shadow-cljs.edn` puts both on `:source-paths`: `test_kit/test`
-  exists so a witness can be written while `hicasso/test` is held."
-  ["hicasso/test/re_frame/hicasso/examples"
-   "hicasso/test_kit/test/re_frame/hicasso/examples"])
+  "Where witness packages live, relative to the runner's working directory
+  (`implementation/`, where `npm run test:cljs` runs).
+
+  ONE root, and it exists. A second was listed here until 2026-09-04 —
+  `hicasso/test_kit/test/re_frame/hicasso/examples`, on the reasoning that
+  `shadow-cljs.edn` puts `hicasso/test_kit/test` on `:source-paths` so a
+  witness could be written there while `hicasso/test` was held. That
+  source path is real, but no `examples` directory has ever existed under
+  it, so the entry named a root that was not there and the `existsSync`
+  guard below made its absence silent (rf2-60jv). It is dropped rather
+  than kept as a forward declaration: this fence is about what the tree
+  has, and a speculative root is the kind of unpaid-for apparatus
+  `rf2-6c12m` was opened to remove. **If a witness package is ever written
+  under `test_kit/test`, add its root back here in the same commit** —
+  nothing else fences it, which is the `navigation` failure above."
+  ["hicasso/test/re_frame/hicasso/examples"])
 
 (defn- source-files
   "Every `.cljs` / `.cljc` under `dir`, recursively."

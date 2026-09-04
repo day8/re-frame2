@@ -25,13 +25,15 @@ What that leaves is worth stating plainly, because it is the finding rather than
 
 Four application namespaces under `implementation/hicasso/test/re_frame/hicasso/examples/forms/` — `db`, `events`, `subs`, `views` — beside the slice, the Todo witness, the four-field editor, the grid and the typeahead, where `hicasso/test` is already on the `:source-paths` both test lanes compile from. No `:source-paths` entry was added and no route is registered.
 
-The application reaches **four** foreign namespaces: `clojure.string`, `re-frame.core`, `re-frame.hicasso` and `re-frame.resources`. The last is the one no other Hicasso witness names, and it is the whole of the mutation-status recipe. The roster is pinned and read off the ClojureScript analyzer's own dependency graph rather than off the `ns` forms.
+The application reaches **four** foreign namespaces: `clojure.string`, `re-frame.core`, `re-frame.hicasso` and `re-frame.resources`. The last is the one no other Hicasso witness names, and it is the whole of the mutation-status recipe. That roster was pinned and read off the ClojureScript analyzer's own dependency graph rather than off the `ns` forms.
+
+**[2026-09-04, `rf2-60jv`: the roster is now a reviewed claim.]** `rf2-6c12m.10` deleted `forms.surface-cljs-test` with the rest of the per-package `*surface-cljs-test*` suites. Its successor, `re-frame.hicasso.examples.fence-cljs-test`, derives its population from the `examples/` directory on every run and reads each `ns` form with `cljs.tools.reader`; it is a **four-family blocklist** — no Hicasso internal, no benchmark tree, no development tool, no test kit — so it holds *nothing here reaches past the public door* and holds neither the count of four nor the absent routing edge. Both are true as at this page's date and neither is enforced; the positive roster is deliberately not re-asserted ([`specification.md` §13](specification.md#13-definition-of-done)).
 
 | suite | lane | what it owns |
 |---|---|---|
 | `forms.l0-cljs-test` | `:node-test` | the rules as pure functions, and every transition through a real frame |
 | `forms.l2-cljs-test` | `:node-test` | the bodies as semantic trees on the kit, and the two structural traps |
-| `forms.surface-cljs-test` | `:node-test` | the import discipline, the door roster, the absent routing edge |
+| `examples.fence-cljs-test` | `:node-test` | the import discipline for this package and every other, as a four-family blocklist — **not** the door roster, and **not** the absent routing edge |
 | `forms.flow-dom-cljs-test` | `:browser-test` | the mounted rows — node identity, focus, real blur ordering, foreign drift |
 
 ## The three recipes, and the door each is written on

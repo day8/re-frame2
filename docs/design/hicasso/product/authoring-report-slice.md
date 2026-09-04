@@ -25,7 +25,9 @@ The most useful single fact for a facade freeze is the list of doors an ordinary
 
 `::h/revision` belongs on that list too, and it arrived there by a different road: it was reached for, written into two fields and two handlers, believed, and then measured to be doing nothing. That is finding 5.
 
-The import discipline is asserted mechanically rather than reviewed: `surface-cljs-test` reads each application namespace's `:requires` / `:require-macros` / `:uses` / `:use-macros` off the ClojureScript analyzer and pins that roster of four, so a fifth door cannot arrive quietly.
+The import discipline **was** asserted mechanically rather than reviewed: `slice.surface-cljs-test` read each application namespace's `:requires` / `:require-macros` / `:uses` / `:use-macros` off the ClojureScript analyzer and pinned that roster of four, so a fifth door could not arrive quietly.
+
+**[2026-09-04, `rf2-60jv`: that suite no longer exists, and the roster above is now a reviewed claim rather than an enforced one.]** `rf2-6c12m.10` deleted the per-package `*surface-cljs-test*` suites together with the shared `require_graph.clj` macro they read the analyzer through, and replaced them with one suite, `re-frame.hicasso.examples.fence-cljs-test` (`:node-test`), which derives its package population from the `examples/` directory **on every run** and reads each `ns` form with `cljs.tools.reader` rather than off the analyzer. **It is a blocklist, not a roster**: it fails a package that names a Hicasso internal, the benchmark tree, a development tool or the test kit, and passes any other namespace. So *this application reaches past the public door* is still held mechanically, with a sabotage control and a planted-breach control; *this application reaches exactly these four doors, and a fifth cannot arrive quietly* is true as at this report's date and is **no longer held by a gate**. The positive roster is deliberately not re-asserted anywhere — see [`specification.md` §13](specification.md#13-definition-of-done).
 
 ## Findings
 

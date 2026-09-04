@@ -10,15 +10,17 @@ The criteria are frozen at commit `afbb58febc`, which is the effective revision 
 
 Six application namespaces under `implementation/hicasso/test/re_frame/hicasso/examples/typeahead/`, on the public door and nothing else: `db`, `events`, `service`, `subs`, `views`, `app`. It does debounce, supersession, stale-reply suppression, refresh-with-data, cancellation, two async resources (suggestions parameterised by a term, details parameterised by a chosen id), and hover prefetch.
 
-The application reaches **four** foreign namespaces — `clojure.string`, `re-frame.core`, `re-frame.hicasso`, `re-frame.adapter.uix` — which is the same four [the slice](authoring-report-slice.md) needed for a static form. Nothing in the resource story required a fifth. That roster is pinned and read off the ClojureScript analyzer's own dependency graph rather than off the `ns` forms.
+The application reaches **four** foreign namespaces — `clojure.string`, `re-frame.core`, `re-frame.hicasso`, `re-frame.adapter.uix` — which is the same four [the slice](authoring-report-slice.md) needed for a static form. Nothing in the resource story required a fifth. That roster was pinned and read off the ClojureScript analyzer's own dependency graph rather than off the `ns` forms.
+
+**[2026-09-04, `rf2-60jv`: the roster is now a reviewed claim.]** `rf2-6c12m.10` deleted `typeahead.surface-cljs-test` with the rest of the per-package `*surface-cljs-test*` suites. Its successor, `re-frame.hicasso.examples.fence-cljs-test`, derives its population from the `examples/` directory on every run and reads each `ns` form with `cljs.tools.reader`; it is a **four-family blocklist** — no Hicasso internal, no benchmark tree, no development tool, no test kit — so it holds *nothing here reaches past the public door* and holds neither the count of four nor the absent routing edge. Both are true as at this page's date and neither is enforced; the positive roster is deliberately not re-asserted ([`specification.md` §13](specification.md#13-definition-of-done)).
 
 | suite | lane | what it owns |
 |---|---|---|
 | `typeahead.l0-cljs-test` | `:node-test` | the census, the model, and the C2 reachability demonstrations |
-| `typeahead.surface-cljs-test` | `:node-test` | the import discipline and the absent routing edge |
+| `examples.fence-cljs-test` | `:node-test` | the import discipline for this package and every other, as a four-family blocklist — **not** the absent routing edge |
 | `typeahead.demand-dom-cljs-test` | `:browser-test` | the mounted rows — abandonment population, retained structures, the request that outlives its read |
 
-The witness registers no route, deliberately, and the surface suite asserts the absent edge (`rf2-hic-025` finding 8, filed as `rf2-wqnl`).
+The witness registers no route, deliberately (`rf2-hic-025` finding 8, filed as `rf2-wqnl`). **That absence is now reviewed rather than asserted**: the suite that asserted the absent edge was deleted with the rest of the `*surface-cljs-test*` family, and its successor does not fence a public namespace such as `re-frame.routing` — a require of one would pass. The application registers no route as at this page's date; nothing reds if a later edit adds one.
 
 ## How the census is produced
 

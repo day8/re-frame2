@@ -125,18 +125,16 @@ These names are a provisional facade. Phase 0 freezes the laws and classificatio
 | server/hydration contract | A Render or Client-only policy for every inventory id under the canonical matrix; root-scoped identity, errors, adoption, and cleanup |
 | error region | A minimal `h/error-boundary` surface |
 
-The separately imported `re-frame.hicasso.native` namespace, conventionally aliased `n`, is the self-contained hot-path surface. Its complete provisional grammar and example live in the [public-language specification](lanes/ergonomics-api.md#optional-native-surface):
+The separately imported `re-frame.hicasso.native` namespace, conventionally aliased `n`, is the self-contained hot-path surface. It is two React hooks and nothing else; the island they serve lives in the [public-language specification](lanes/ergonomics-api.md#optional-native-surface):
 
 | Surface | Contract |
 |---|---|
-| `n/$` | Compile one explicit element form to direct React construction; apply native React props and callback semantics, never Hicasso intent or control lowering |
-| `n/props` | Disambiguate a dynamic map or JavaScript object as the props operand without adding a React wrapper |
-| `n/defcomponent` | Define a top-level native function component with stable identity, source/HMR metadata, one props/children ABI, and an explicit server policy that defaults to Client-only |
 | `n/use-sub` | Read re-frame2 state through a native React hook under the current Hicasso frame |
 | `n/use-frame` | Obtain frame-locked operations from that same context |
-| native ABI helpers | Preserve the component contract through memoization, lazy loading, refs, and outward/inward embedding where raw React would otherwise erase the marker |
 
-React hooks remain React's surface and may be called directly inside `n/defcomponent`; Hicasso adds wrappers only after repeated native-island code proves material value. Phase 3 freezes the grammar and ABI only when every row of the canonical native-tier checklist passes.
+**[Amended 2026-09-04, `rf2-aunp`, under the `rf2-6c12m.3` ruling of 2026-08-29:** this table published four further names as shipped surface — `n/$`, `n/props`, `n/defcomponent`, and a *native ABI helpers* row carrying the component contract through memoization, lazy loading, refs and outward/inward embedding. Option A deleted all four, and none of them appears anywhere in `implementation/` today. They are **removed** here rather than marked in place, because this table states what the public model *is*; their text stands in this document's history before that date, and [`lanes/ergonomics-api.md`](lanes/ergonomics-api.md#optional-native-surface) — the lane that owns this surface — carries the retirement record in full.**]**
+
+React hooks remain React's surface and are called directly inside the island, which owns its own source and therefore its own hook order; Hicasso adds wrappers only after repeated island code proves material value. Phase 3 freezes the two hooks' contract only when every live row of the canonical native-tier checklist passes.
 
 The interpreted grammar needs a fragment, raw React element escape, one props map, and a small reserved-data vocabulary: event value, checked value, explicit prevention, and controlled-value revision. Existing `rf/current-frame-id` and `rf/capture-frame` remain the frame doors; Hicasso should not duplicate them. Applications get one obvious `h` facade, with optional capabilities in clearly named namespaces and no alias sprawl; the facade and each optional namespace have bundle-reachability proofs.
 
@@ -177,7 +175,7 @@ Buffered drafts, touched/submit-attempt validation, and mutation status belong i
 
 An ordinary render callback returns Hiccup only through `h/as-element`; this makes the conversion visible without a general callback taxonomy. Component and host definitions are minted at top level, never during render. Literal owned props win collisions by presence. Imperative integrations receive an idempotent acquire/release recipe and adversarial StrictMode/remount tests. A tiny optional portal helper lowers Hiccup into `createPortal`, preserves frame/context, documents React-tree event bubbling and target-change identity, and has an explicit client/server policy.
 
-Add a thin outward bridge so a native React parent—whether authored with `n/defcomponent`, UIx, or JavaScript—can render a minted Hicasso view under the existing frame provider without another root or exposure of the internal codec/`rfProps` ABI.
+Add a thin outward bridge so a native React parent—whether authored in raw React, UIx, or JavaScript—can render a minted Hicasso view under the existing frame provider without another root or exposure of the internal codec/`rfProps` ABI.
 
 ## 5. Native React hot path
 
@@ -200,13 +198,13 @@ Large oscillating read sets are suspect because whole-set reconciliation can bec
 
 ### Rung 3 — direct React output from a Hicasso boundary
 
-A `defview` may return an existing React element, normally constructed with `n/$` and equally able to come from UIx or raw React. The boundary keeps its frame, Hicasso reads, props, memo wrapper, and lifecycle but skips Hiccup lowering for that result. This is the narrowest escape when measurement says the codec/markup walk is material.
+A `defview` may return an existing React element, constructed with `react/createElement` (or a `.jsx` file) or by UIx. The boundary keeps its frame, Hicasso reads, props, memo wrapper, and lifecycle but skips Hiccup lowering for that result. This is the narrowest escape when measurement says the codec/markup walk is material.
 
 Native React semantics begin inside the returned element. Hicasso event lowering, controlled-field normalization, structural assertions, and key diagnostics do not inspect it. Use native React props and callbacks. Hooks do not belong in the dynamically composed `defview` body; hook-intensive behavior belongs in a separately defined native component so hook order cannot depend on Hicasso data paths.
 
 ### Rung 4 — named native React island
 
-A virtualizer, editor, drag/animation surface, canvas/WebGL coordinator, retained vendor widget, or hot hook-intensive collection becomes a named native component. The default self-contained route is `n/defcomponent` with `n/use-sub` and `n/use-frame`; UIx is an optional mature route, and a JavaScript/TypeScript component enters through the host bridge. Every route stays inside the same React root and shared re-frame2 frame context.
+A virtualizer, editor, drag/animation surface, canvas/WebGL coordinator, retained vendor widget, or hot hook-intensive collection becomes a named native component — an **island**. It is written in React, raw or UIx, and mounted through `h/defhost` (or `[:>]` for a one-off); when it needs Hicasso state it reaches it through `n/use-sub` and `n/use-frame`, and an island that reads nothing needs neither. A JavaScript/TypeScript component enters the same way, through the host bridge. Every route stays inside the same React root and shared re-frame2 frame context.
 
 The crossing has an explicit prop, child, callback, error, cleanup, diagnostics, and SSR contract. The native boundary is visible to Xray; its internal React subtree is opaque unless its re-frame reads pass through the supported native hooks. Repeated raw escapes graduate to a named host or island. A one-off raw element remains useful for migration and truly one-off interop, but it is not advertised as the performance tier.
 
@@ -350,7 +348,7 @@ Every envelope carries schema, producer, operation, scope, basis, completeness, 
 
 Emit the standard adapter-neutral fields that can be proved: view, frame, source, current reads, known cause, attempt outcome, commit/rendered event, and unmount. Stable occurrence identity requires a commit-owned identifier. User Timing is complementary.
 
-The differentiating feature is a hot-view advisor that ranks time/frequency/read churn/fan-out, then classifies computation, topology, lowering, React, or layout pressure. It recommends native extraction only when it addresses the measured owner, selects the smallest credible route—direct `n/$`, a named Hicasso-native component, UIx, or a foreign React host—and otherwise points to computation, topology, boundary, or virtualization work.
+The differentiating feature is a hot-view advisor that ranks time/frequency/read churn/fan-out, then classifies computation, topology, lowering, React, or layout pressure. It recommends native extraction only when it addresses the measured owner, selects the smallest credible route—direct React output from the boundary, a named island in raw React or UIx, or a foreign React host—and otherwise points to computation, topology, boundary, or virtualization work.
 
 ## 11. Innovation portfolio
 
@@ -485,11 +483,11 @@ Hicasso is ready to be the native re-frame2 adapter when all of the following ar
 - The full correctness matrix passes with sabotage controls and exact cleanup.
 - The representative app, controlled grid, compound host, virtualizer, and imperative SDK use only public surfaces.
 - React-library interop is a core contract: providers, compound components, ReactNode slots, render props, refs, errors, lazy boundaries, outward embedding, and same-root native islands pass their ownership tests.
-- Every inventoried public surface passes its policy row in the [canonical SSR/hydration matrix](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) even when the optional Node service is not deployed.
+- Every inventoried public surface passes its **live** policy row in the [canonical SSR/hydration matrix](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) even when the optional Node service is not deployed. The two native-tier rows that matrix marks retired describe a surface that no longer ships and are not scored; the surviving tier's obligation is the two hooks' server behaviour, stated on the row that replaces them.
 - Ordinary performance meets the ratified user-visible, regression, mount, update, and heap budgets.
 - The read-free boundary shell meets the operative byte-exact `1 KB` line or has a separately ratified, prospective operator disposition; a relative regression budget cannot substitute for it.
 - Qualified bulk evidence covers the named sparse, broad, reorder, and controlled-edit populations and meets the ratified budgets. Warm allocation is not a release blocker and carries no product claim unless its instrument qualifies.
-- Every row of the [canonical native-tier acceptance checklist](lanes/hot-path-architecture.md#canonical-native-tier-acceptance-checklist) passes; no partial parity result substitutes for that checklist.
+- Every **live** row of the [canonical native-tier acceptance checklist](lanes/hot-path-architecture.md#canonical-native-tier-acceptance-checklist) passes; no partial parity result substitutes for the rows that remain. The rows that checklist marks retired — the `n/$` form grammar and the component ABI — describe a surface deleted by `rf2-6c12m.3` and are not scored, and no row is waived by success on another.
 - The testing ladder is supported, with honest opacity boundaries and browser coverage for browser laws.
 - Xray explains current reads and causal work, accounts for loss, guides hot extraction, respects privacy, and erases from production.
 - Every motivating use case is assigned to core, optional module, recipe, host escape, or explicit non-goal.
@@ -500,6 +498,10 @@ Hicasso is ready to be the native re-frame2 adapter when all of the following ar
 Client v0 does not wait for an unused production SSR deployment, but the hydration contract and React-server compatibility tests are mandatory. **The bounded Node service is itself a v0 deliverable, built and witnessed to the spec Phase 5 item 7 states.**
 
 > *Amended 2026-08-12 by operator ruling (Mike, in session, 17:36 AUSEST; `rf2-xpq9`).* The sentence this replaces read **"The bounded Node service ships when a named caller exists"**, and the ruling **REMOVES** that condition — every Phase 5 item is v0 scope, `rf2-hic-056` is awake and its `[DORMANT]` marker is lifted. This is the definition of done, so the change is load-bearing rather than editorial: v0 is not complete until the service is built. **What does not move**: building it is the obligation, deploying it for a live consumer is not, which is why the first clause of this paragraph stands unchanged and why the surface row above still requires every inventoried surface to pass its policy with the service absent.
+
+> *Amended 2026-09-04 (`rf2-aunp`), restating two bullets over the surface that survived `rf2-6c12m.3`.* **The native tier is two hooks.** That ruling took Option A on 2026-08-29: `re-frame.hicasso.native` is `n/use-sub` and `n/use-frame`, 82 lines and two public names, and `n/$`, `n/props`, `n/defcomponent`, `n/memo` and `n/lazy` are deleted — they occur nowhere in `implementation/`. Bullets 7 and 11 were written over that deleted grammar and could not be scored as they stood: they sent a reader to a checklist whose first two rows and a matrix whose two native rows describe names the package does not have. Both bullets are now **restated over the live rows**, and both canonical tables mark their retired rows in place rather than deleting them, because those rows are the record of what was once owed. **No verdict is re-scored and no threshold moves by this amendment.** **Bullet 6 needed no restatement and is unchanged**: its *same-root native islands* names a subject that survives the ruling intact — an island is a React component, raw or UIx, mounted through `h/defhost` under the same root, frame and app-db as the Hiccup around it, which is `native.cljc`'s own definition and the [guide's islands chapter](../../../core/hicasso/10-native-tier.md). Only the authoring route changed; the ownership tests the bullet demands are owed exactly as before.
+
+> *Amended 2026-09-04 (`rf2-60jv`), recording the currency of the public-surface-only bullet.* **The claim stands; its positive witness is gone and is deliberately not re-asserted.** The per-package `*surface-cljs-test*` suites that pinned each application's exact roster of permitted doors were deleted by `rf2-6c12m.10`, and no file matching `*surface*` survives under `implementation/hicasso/`. Their successor, `re-frame.hicasso.examples.fence-cljs-test`, derives its population from the `examples/` directory on **every run** and carries a sabotage control and a planted-breach control — but it is a four-family **blocklist** (`re-frame.hicasso.impl.*`, `re-frame.bench.*`, the `tools/` namespaces, the test kit), not a permitted-door roster: a require of anything outside those four families passes. What the blocklist does not carry — each package's exact door roster, the absent-routing-edge assertions, and the ledger vendor's *names nothing of ours* claim — is now **reviewed rather than enforced**, true as at the date each reporting page records, and those pages say so. **Where the five named witnesses stand**: the representative app, the controlled grid and the virtualizer are inside that fence. **The compound host and the imperative SDK are outside every fence by construction** — both live outside `examples/`, and both are `*-cljs-test` files, which the fence's `suite?` predicate drops — and each requires `re-frame.hicasso.impl.codec`, `.impl.collector` and `.impl.mount`, the SDK also `re-frame.hicasso.test.runtime`. Those requires are the **harness's**, for mounting and for observation; the subjects they exercise are built on public surfaces, so this is not a breach of the bullet. The honest reading of the bullet today: mechanically held for three of the five, held by review for all five.
 
 ## Supporting specifications
 
