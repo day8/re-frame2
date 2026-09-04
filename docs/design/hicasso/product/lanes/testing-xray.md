@@ -9,14 +9,16 @@ Testing and diagnostics are product surfaces, not documentation afterthoughts. S
 | Tier | Scope | Correct tool |
 |---|---|---|
 | L0 | event handlers, subscriptions, state transitions | pure CLJ/CLJS tests |
-| L1 | codecs, intents, controlled-field/presence laws, native-form expansion and ABI helpers | pure data/property and macro-expansion tests |
+| L1 | codecs, intents, controlled-field/presence laws | pure data/property and macro-expansion tests (`h/defview` and `h/defhost` are the macros left) |
 | L2 | one hook-free Hicasso body; it expands no children of its own, and a nested boundary is recorded as the call it is | restricted semantic-tree harness |
 | L3 | React lifecycle, hooks, context, refs, foreign hosts and native components | mounted React DOM tests |
 | L4 | IME, caret, focus, hydration, layout, performance | Chromium, Firefox, and WebKit witnesses |
 
+*Two subjects were removed from this page on 2026-09-04 (`rf2-aunp`) because `rf2-6c12m.3` deleted them on 2026-08-29, not because any tier's obligation changed.* L1's scope read "codecs, intents, controlled-field/presence laws, **native-form expansion and ABI helpers**", and the opacity sentence below read "Hooks, **`n/$` results**, native components, and raw/foreign hosts are opaque". `n/$` and the ABI helpers are gone, so L1 has no native form to expand; the direct React element that form used to build is still opaque to L2 and still refuses to L3, which is what that sentence now says in React's own spelling. L3's "native components" is untouched and still means what it always did: an island is a React component. No tier moved and no tool changed.
+
 The L2 harness is not a JVM renderer or alternate execution semantics. It invokes the view body under a discardable subscription resolver and returns a versioned semantic tree with small `find`, `attrs`, `text`, and `intents` helpers. The body is the function itself when a test names it, and otherwise the one the minted `defview` head carries: the mint attaches it to the head under a dev-only property so a hook-free harness can reach it, which is a single own property and not a registry. That property does not survive an `:advanced` build with `goog.DEBUG` false, so a minted head refuses there.
 
-Before defining another schema, audit the existing versioned structural-tree and Spec-011 assertion utilities and reuse compatible data/helpers only; do not inherit another renderer, SSR authority, or simulated React lifecycle. Hooks, `n/$` results, native components, and raw/foreign hosts are opaque and refuse with a pointer to L3. Missing fixtures refuse; they are never replaced with fake React dispatchers.
+Before defining another schema, audit the existing versioned structural-tree and Spec-011 assertion utilities and reuse compatible data/helpers only; do not inherit another renderer, SSR authority, or simulated React lifecycle. Hooks, directly returned React elements, native components, and raw/foreign hosts are opaque and refuse with a pointer to L3. Missing fixtures refuse; they are never replaced with fake React dispatchers.
 
 The mounted facade should provide isolated-frame `mount!`, `hydrate!`, `render!`, `dispatch-and-settle!`, `settle!`, `advance-clock!`, `unmount!`, and `assert-clean!`. It should interoperate with Testing Library and user-event instead of introducing another selector language. Cleanup unmounts, waits for Hicasso quiescence, compares residue with the pre-mount baseline, and only then resets.
 
@@ -55,7 +57,7 @@ Preserve the live Xray consumer contract while replacing producer semantics behi
 3. Did props, context, a read-set change, or a host boundary trigger the work?
 4. Where are read fan-out, read-set churn, render storms, retries, and abandoned work concentrated?
 5. Is time in the body, Hiccup lowering, React commit, layout, or paint?
-6. Which boundary is a credible topology-tuning or native-island candidate, and is direct `n/$`, a named Hicasso-native component, UIx, or a foreign host the smallest fitting route?
+6. Which boundary is a credible topology-tuning or native-island candidate, and is a direct React element, a named island in raw React or UIx, or a foreign host the smallest fitting route? (*This question read* "direct `n/$`, a named Hicasso-native component, UIx, or a foreign host" *until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` deleted both Hicasso spellings on 2026-08-29 and the routes they named survive as React's own.*)
 7. What is unknown, capped, opaque, or uncorrelated?
 
 Render timing is not commit evidence. Correlate event, subscription recomputation, boundary invalidation, body run, commit, and paint when the instruments support it; label every missing link. Xray owns bounded retention. React DevTools and browser performance tools remain the authority for React commits and paint.

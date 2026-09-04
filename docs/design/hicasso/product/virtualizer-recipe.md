@@ -4,7 +4,7 @@ The evidence for [specification.md](specification.md#7-complete-use-case-coverag
 
 `rf2-hic-047` **changes no runtime and adds no namespace to the artefact.** It is one screen written on the shipped public doors, a stand-in for the npm package a consumer would install, and the suites that hold them. The screen is the **ledger**: ten thousand records, twenty-four rows in the document, a controlled field and a toggle in every row.
 
-> **Scope, corrected at source.** This bead's title names an imperative SDK as well. It does not own one: the bead's own scope-correction note assigns that witness to `rf2-hic-067`, which has landed it — `implementation/hicasso/test/re_frame/hicasso/imperative_sdk_dom_cljs_test.cljs`, one foreign instance owned through `n/defcomponent` + `h/defhost` on the acquire/release recipe. This page is the virtualizer half and nothing else.
+> **Scope, corrected at source.** This bead's title names an imperative SDK as well. It does not own one: the bead's own scope-correction note assigns that witness to `rf2-hic-067`, which has landed it — `implementation/hicasso/test/re_frame/hicasso/imperative_sdk_dom_cljs_test.cljs`, one foreign instance owned through `react/createElement` + `h/defhost` on the acquire/release recipe. (*This sentence said* "`n/defcomponent` + `h/defhost`" *until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` deleted `n/defcomponent` on 2026-08-29, and that suite is live and unchanged in what it proves — its own header table names `react/createElement` with a `:ref` for the node it owns and `h/defhost` for the crossing into hiccup.*) This page is the virtualizer half and nothing else.
 
 ## Where it lives, and why not under `examples/`
 
@@ -118,6 +118,6 @@ A screen with the first and not the second re-renders every mounted row on every
 
 ## What was not needed
 
-No `n/defcomponent`, no `:ref`, no effect, no imperative handle, no memo hint, no second root and no second state owner. The vendor's scroll offset is React state and dies with the fiber; the application holds no reactive cell of its own anywhere.
+No island component of any kind, no `:ref`, no effect, no imperative handle, no memo hint, no second root and no second state owner. (*This read* "No `n/defcomponent`" *until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` deleted that name on 2026-08-29, so the sentence now names the thing rather than the retired spelling. What the recipe did not need is unchanged.*) The vendor's scroll offset is React state and dies with the fiber; the application holds no reactive cell of its own anywhere.
 
 Nor was a `re-frame.hicasso.virtual` module extracted. The [specification.md](specification.md#7-complete-use-case-coverage) §7 second-caller gate applies and the caller count is one: this screen. What a second consumer would share with it is the four rules on this page, and prose is exactly the right carrier for a rule whose whole content is *which value to put at `:key`*. If a second screen arrives and copies the pin plumbing rather than the reasoning, that is the moment to revisit — and the [requirements mine](requirements-mine.md) row is where the count is kept.
