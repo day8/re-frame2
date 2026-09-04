@@ -201,6 +201,50 @@
       (is (= 3 @ext-effect-count) "exactly once"))))
 
 ;; ---- (5) a prepare failure settles honestly ------------------------------
+;;
+;; `begin!` has ONE branch for a failed preparation: the promise's rejection
+;; path, whose `.catch` drops the slot so the section returns to its inactive
+;; state. So `prepare-variant` REJECTING is not a stylistic choice about how
+;; an error travels — it is the whole of what stops the debugger presenting
+;; step controls over a frame that never reached the `:setup` state.
+;;
+;; The failure classes split by HOW the failure travels, and the split is
+;; invisible from the call site:
+;;
+;;   • THROWN — an unknown variant (the plan compiler refuses), a `:db-seed`
+;;     that violates a registered schema. The throw escapes `prepare-ctx!`
+;;     and `rf.story.async/promise` rejects on it.
+;;
+;;   • CAPTURED — a throwing `:loaders` or `:setup` handler. `run-loaders!` /
+;;     `run-events!` deliberately do NOT rethrow: `capture-phase-errors`
+;;     collects the pipeline-exception trace events and `record-error!`
+;;     projects each onto the frame's `[:rf.story/assertions]`, then the
+;;     phase RETURNS normally. That is `run-variant`'s gather-the-full-picture
+;;     contract and it stays. But it means `prepare-ctx!` completes without
+;;     throwing over a frame whose `:setup` never ran (rf2-k6y2 post-merge
+;;     audit) — so the captured class needs its OWN check, and these tests
+;;     are it.
+
+#?(:clj
+   (defn- begin-outcome
+     "Drive the exact composition `stepper-state/begin!` performs — the
+     runtime seam, then `play/begin-stepper!` ONLY on the resolve path — and
+     report which branch ran (`:then` / `:catch`).
+
+     `begin!`'s CLJS body is `(-> (prepare-variant v) (.then …) (.catch …))`;
+     `rf.story.async/then` + `catch*` are the portable spelling of that same
+     pair, so this drives the control flow the Start button drives rather
+     than a re-description of it."
+     [vid]
+     (let [branch (atom nil)]
+       (-> (rf.story.runtime/prepare-variant vid)
+           (rf.story.async/then   (fn [_]
+                                    (rf.story.play/begin-stepper! vid)
+                                    (reset! branch :then)
+                                    nil))
+           (rf.story.async/catch* (fn [_] (reset! branch :catch) nil))
+           (rf.story.async/deref-blocking 2000))
+       @branch)))
 
 #?(:clj
    (deftest prepare-variant-rejects-on-a-failed-preparation
@@ -211,3 +255,82 @@
        (let [p (rf.story.runtime/prepare-variant :story.stepper/never-registered)]
          (is (thrown? java.util.concurrent.ExecutionException
                       (rf.story.async/deref-blocking p 2000)))))))
+
+#?(:clj
+   (deftest start-takes-the-resolve-branch-for-a-healthy-variant
+     (testing "the positive control for the two tests below: a variant that
+               prepares cleanly resolves, so Start reaches `begin-stepper!`
+               and publishes a slot. Without this the `:catch` assertions
+               below would pass on a seam that rejected everything"
+       (let [vid :story.stepper/mutating]
+         (reg-mutating! vid)
+         (is (= :then (begin-outcome vid))
+             "a clean preparation takes the resolve branch")
+         (is (some? (slot vid))
+             "and Start primed the stepper substrate")
+         (is (= 0 (count-of vid))
+             "over the :setup state, with the script still pending")))))
+
+#?(:clj
+   (deftest start-refuses-a-captured-setup-failure
+     (testing "a `:setup` handler that THROWS is captured onto
+               `[:rf.story/assertions]` rather than propagated, so phases 0-2
+               return normally — but the frame never reached the state the
+               variant's `:setup` describes. Start must take the rejection
+               branch and publish NO stepper, exactly as it does for an
+               unknown variant (acceptance 3)"
+       (let [vid :story.stepper/setup-throws]
+         (rf/reg-event :probe/setup-throws
+           (fn [_ _] (throw (ex-info "setup handler blew up" {:probe true}))))
+         (rf.story/reg-variant vid
+           {:setup  [[:probe/setup-throws]]
+            :script [[:dispatch-sync [:probe/inc-and-effect]]]})
+         (is (= :catch (begin-outcome vid))
+             "the failed preparation rejects rather than resolving nil")
+         (is (nil? (slot vid))
+             "so Start never primed the substrate")
+         (is (zero? @ext-effect-count)
+             "and issued no script effect")
+         (is (seq (filter (comp false? :passed?)
+                          (rf.story.runtime/read-assertions vid)))
+             "while the captured failure REMAINS on the frame — the
+              rejection reports the failure, it does not erase it")))))
+
+#?(:clj
+   (deftest start-refuses-a-captured-loader-failure
+     (testing "the same for a throwing `:loaders` handler: `run-loaders!`
+               captures it into the assertions accumulator and returns, so
+               Start must branch on the recorded failure rather than on a
+               throw that never arrives"
+       (let [vid :story.stepper/loader-throws]
+         (rf/reg-event :probe/loader-throws
+           (fn [_ _] (throw (ex-info "loader blew up" {:probe true}))))
+         (rf.story/reg-variant vid
+           {:loaders [[:probe/loader-throws]]
+            :setup   [[:counter/initialise 0]]
+            :script  [[:dispatch-sync [:probe/inc-and-effect]]]})
+         (is (= :catch (begin-outcome vid))
+             "the failed preparation rejects rather than resolving nil")
+         (is (nil? (slot vid))
+             "so Start never primed the substrate")
+         (is (zero? @ext-effect-count)
+             "and issued no script effect")))))
+
+#?(:clj
+   (deftest the-full-run-path-still-gathers-the-whole-picture
+     (testing "`run-variant` is UNCHANGED by the refusal above: a captured
+               `:setup` failure still RESOLVES a result carrying the failed
+               assertion rather than rejecting. The narrowing is Start's
+               alone — the runner keeps reporting everything it saw"
+       (let [vid :story.stepper/setup-throws-full-run]
+         (rf/reg-event :probe/setup-throws
+           (fn [_ _] (throw (ex-info "setup handler blew up" {:probe true}))))
+         (rf.story/reg-variant vid
+           {:setup  [[:probe/setup-throws]]
+            :script [[:dispatch-sync [:probe/inc-and-effect]]]})
+         (let [result (rf.story.async/deref-blocking
+                        (rf.story.runtime/run-variant vid) 2000)]
+           (is (map? result)
+               "the full run resolved a result rather than rejecting")
+           (is (seq (filter (comp false? :passed?) (:assertions result)))
+               "carrying the captured failure"))))))

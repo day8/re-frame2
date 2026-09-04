@@ -157,7 +157,19 @@
                 ;; `:db-seed`, a throwing loader / `:setup` handler) rejects.
                 ;; Leave the slot cleared so the section returns to its
                 ;; honest inactive state rather than offering step controls
-                ;; over a frame that never reached `:ready`.
+                ;; over a frame whose `:setup` never ran.
+                ;;
+                ;; This branch is the ONLY thing standing between a failed
+                ;; preparation and an active cursor-0 stepper over it, and
+                ;; only HALF the failures arrive as a throw: a failing
+                ;; `:loaders` / `:setup` handler is CAPTURED onto
+                ;; `[:rf.story/assertions]` by `run-loaders!` / `run-events!`,
+                ;; which then return normally. `prepare-variant` inspects the
+                ;; accumulator and rejects explicitly for that class — do not
+                ;; "simplify" that check away on the reading that a
+                ;; preparation which did not throw succeeded (rf2-k6y2
+                ;; post-merge audit). The records stay on the frame either
+                ;; way, so the pane can still say what failed.
                 (swap! results-atom dissoc variant-id)
                 nil))))
 

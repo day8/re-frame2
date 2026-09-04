@@ -508,7 +508,44 @@ A preparation failure — an unknown variant, a `:db-seed` that violates a
 registered schema, a throwing loader or `:setup` handler — REJECTS the
 promise `prepare-variant` returns, and `begin!` leaves the section in its
 inactive state rather than offering step controls over a frame that never
-reached `:ready`.
+reached the state the variant's `:setup` describes.
+
+Those failures reach `prepare-variant` by two routes, and **only one of them
+is a throw** — which is why the rejection is a decision the seam makes
+rather than one it inherits:
+
+| Route     | Cause                                                        | How it arrives                                                        |
+|-----------|--------------------------------------------------------------|-----------------------------------------------------------------------|
+| Thrown    | unknown variant; a `:db-seed` schema violation               | escapes phases 0-2; the promise rejects on it                          |
+| Captured  | a throwing `:loaders` / `:setup` handler                     | recorded onto `[:rf.story/assertions]`; **the phase returns normally** |
+
+The captured route is `run-variant`'s gather-the-full-picture contract
+(`002-Runtime.md` §Error projection — a run reports every failure it saw
+rather than aborting at the first) and it STAYS. But it means the absence of
+a throw is NOT evidence of a successful preparation: phases 0-2 complete over
+a frame whose `:setup` never ran. `prepare-variant` therefore inspects the
+frame's freshly-reset assertions accumulator after phases 0-2 and rejects
+with `:rf.error/story-prepare-failed` (carrying the records under
+`:failures`) when it holds a captured `:rf.error/exception`. Reading the
+accumulator is sound because phase 0's fresh-frame boundary clears it, so
+every record present belongs to THIS preparation.
+
+That was the rf2-k6y2 post-merge audit's finding: the first fix moved Start
+onto `prepare-variant` and had `begin!` branch on rejection alone, so a
+captured `:setup` failure resolved `nil` and published an active cursor-0
+stepper over a failed preparation — the same class of lie as the original
+defect, one lifecycle half further in.
+
+`:rf.error/loader-incomplete` is deliberately NOT a prepare failure. A
+`:loaders-complete-when` that reports not-ready is a contract-pending signal
+rather than an exception, and the ordinary shell plays such a variant anyway
+(`resume-run!`'s `:force-play?`). Refusing to step-debug a variant the shell
+itself runs would withdraw the debugger exactly where it is most wanted; the
+recorded assertion still tells the operator the loaders never settled.
+
+`run-variant` and `prepare-run!` are unchanged by this: they keep RESOLVING a
+result that reports every failure they saw. The refusal is Start's alone,
+because Start is the only caller that must decide whether to present controls.
 
 ### Controls
 
