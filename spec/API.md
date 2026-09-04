@@ -972,7 +972,7 @@ The canonical machine read is the registered `[:rf/machine machine-id]` subscrip
 
 See [007-Stories.md](007-Stories.md).
 
-All Story surfaces are **tooling** (a Storybook-shaped dev surface — registration, execution, introspection — not application logic). Since the retrospective facade sweep (rf2-i6kh) that statement is **exact rather than a summary with an exception**: all 116 `re-frame.story` manifest rows carry `:tier :tooling`, and the facade holds no `implementation` carve-out. Absorbs story F-8; see [§Tiering of cross-tool surfaces](#tiering-of-cross-tool-surfaces-story-xray-pair-mcp).
+All Story surfaces are **tooling** (a Storybook-shaped dev surface — registration, execution, introspection — not application logic). Since the retrospective facade sweep (rf2-i6kh) that statement is **exact rather than a summary with an exception**: all 121 `re-frame.story` manifest rows carry `:tier :tooling`, and the facade holds no `implementation` carve-out. 116 of the 121 are JVM-introspected; the other five are the `#?(:cljs …)` arm of a split-host facade (`register-substrate!` / `registered-substrates` / `mount-shell!` / `unmount-shell!` / `active-shell`), rowed under `:cljs-only` with `:facade? true` per row and held **fully-rowed** by the CLJS enumeration probe. Absorbs story F-8; see [§Tiering of cross-tool surfaces](#tiering-of-cross-tool-surfaces-story-xray-pair-mcp).
 
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|

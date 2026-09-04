@@ -14,7 +14,8 @@ re-export rule is:
   `*`-fn partners, the run/reset/watch/destroy lifecycle, the registry
   query family, the assertion + recorder facades, the canonical
   vocabulary tables, `configure!`, the `*-id` Vars for built-in
-  decorators, the shell-mount surface (CLJS-only), and `variant-share-url`
+  decorators, the shell-mount surface and the substrate-registration
+  pair (both CLJS-only), and `variant-share-url`
   all sit on the facade. Story does **not** publish `add-marks` /
   `set-marks` — durable app-db classification is frame-owned, declared via
   the `:sensitive` / `:large` slots on a variant body (rf2-bsk1d9; see
@@ -45,7 +46,7 @@ re-export rule is:
 
 **Tier.** Every surface on this facade is `tooling` in the repo-wide
 taxonomy ([spec/API.md §Tier taxonomy](../../../spec/API.md#tier-taxonomy)),
-and the api-manifest carries all 116 `re-frame.story` rows at that tier
+and the api-manifest carries all 121 `re-frame.story` rows at that tier
 with a facade-placement justification apiece. That is the settled
 outcome of the retrospective facade sweep (rf2-i6kh): Story is a tooling
 **product**, so per
@@ -57,6 +58,18 @@ lifecycle, the assertion, recorder, fingerprint, run-artifact,
 determinism and golden families to `tooling`, and moved the one surface
 with no user workflow (`match-schema-expectations`) off the facade to
 the sub-namespace bullet above.
+
+**121, not 116 — the count moved for a reason worth stating.** The
+sweep's first pass classified the 116 exports the JVM manifest generator
+can `ns-publics`, and `re-frame.story` is a split-host `.cljc`: its
+`#?(:cljs …)` arm publishes five more facade fns
+(`register-substrate!`, `registered-substrates`, `mount-shell!`,
+`unmount-shell!`, `active-shell`) that no JVM introspection can reach.
+Its own post-merge audit caught them. They now carry `:cljs-only`
+manifest rows with the same four fields as every other facade row, and
+the CLJS enumeration probe holds `re-frame.story` **fully-rowed** in
+both directions — so a sixth CLJS-only export cannot arrive here
+unclassified, and none of the five can be renamed or removed silently.
 
 The split mirrors `re-frame.core`'s practice: the facade carries the
 ergonomic surface; sub-namespace requires are the discoverability
@@ -405,6 +418,20 @@ assertion the sugar doesn't cover (`:sub-equals`, `:state-is`,
 `:no-warnings`, `:effect-emitted`, `:dispatched?`). Both positions
 produce the same record. See [`004-Assertions.md`](004-Assertions.md)
 §Assertions — one atom, two positions.
+
+## Substrate registration
+
+CLJS-only, and the write half of the pair whose read half
+(`registered-substrates`) is rowed under [§Registry
+queries](#registry-queries). A host calls `register-substrate!` once at
+boot for each substrate it wants Story to render against; the Reagent
+substrate registers itself via `install-canonical-vocabulary!`. Both
+sit on the facade — `re-frame.story.ui.multi-substrate` is the internal
+door, not the one host code calls.
+
+| Fn | Signature | Spec |
+|---|---|---|
+| `register-substrate!` | `(register-substrate! substrate-id render-fn)` | [`002-Runtime.md`](002-Runtime.md) §Substrate hooks; [`005-SOTA-Features.md`](005-SOTA-Features.md) §Multi-substrate side-by-side rendering |
 
 ## Shell lifecycle
 
