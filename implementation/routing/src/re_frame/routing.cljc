@@ -570,9 +570,11 @@
 #?(:cljs (rf.late-bind/set-fn! :routing/activate-link! rf.routing.link/activate-link!))
 
 ;; NOTE — there is deliberately no late-bind seam for `:prefetch :intent`
-;; (rf2-6r9j.15). `rf/route-link` reaches `rf.routing.link/prefetch-payload`,
-;; `prefetch-on-intent!` and `prefetch-intent-keys` by direct call, and no view
-;; artefact consumes them through the hook table, so publishing them only
-;; promised reachability that did not exist. Per Spec 012 §Route-plan prefetch
-;; the law still lives in `re-frame.routing.link`; a view artefact that needs
-;; it should land a real reader first and publish only the keys it reads.
+;; (rf2-6r9j.15). `rf/route-link` reaches `rf.routing.link/prefetch-payload`
+;; and `prefetch-intent-keys` by direct call, and `prefetch-on-intent!` not at
+;; all — see that fn's docstring for what composes the intent handlers in its
+;; place. No view artefact consumes any of the three through the hook table,
+;; so publishing them only promised reachability that did not exist. Per Spec
+;; 012 §Route-plan prefetch the law still lives in `re-frame.routing.link`; a
+;; view artefact that needs it should land a real reader first and publish
+;; only the keys it reads.
