@@ -897,6 +897,17 @@
   hydration WIRE payload, while these maps carry the raw scoped `:resource/key`
   the withholding rule exists to suppress.
 
+  CLOCK — `clock-ms` is the CALLER's, and the production pass does not share
+  its own: `project-resources-runtime-db` reads `rf.interop/epoch-now-ms` into
+  a private `let` and exposes neither that reading nor a callback, so a host
+  calling this to account for a rendered response necessarily evaluates a
+  SECOND reading. Pass the `clock-ms` the response was rendered under, or
+  accept that an entry whose staleness boundary falls between the two readings
+  can classify one way on the wire and the other in the record. Exactly two
+  slots drift that way — `:freshness` and `:refetch-on-client?`, both derived
+  from `rf.resources.state/entry-stale?`; `:withheld?`, `:disposition` and
+  `:projected-key` are key-identity facts and cannot (rf2-oryb).
+
   So do not read this helper's existence as evidence that projection decisions
   are recorded anywhere — an earlier version of this docstring asserted that the
   host adapter records it, which was never true of any adapter in-tree
