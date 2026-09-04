@@ -44,8 +44,8 @@
     and the DOM read-back is what checks it rather than this comment.
 
   Owner: the operator-owned standard bead rf2-2rtt6.1; this arm rf2-a4x1o."
-  (:require [re-frame.adapter.uix :as uixa]
-            [re-frame.bench.hicasso.p0-reagent-views :as v]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
             [uix.core :refer [$ defui]]))
 
 ;; ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@
 ;; read, and nothing else.
 
 (defui m1-cell [{:keys [i]}]
-  (let [v (uixa/use-subscribe [:p0/cell i])]
+  (let [v (rf.adapter.uix/use-subscribe [:p0/cell i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str v)))))
@@ -72,15 +72,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defui m2-field [{:keys [i]}]
-  (let [v (uixa/use-subscribe [:p0/cell i])]
+  (let [v (rf.adapter.uix/use-subscribe [:p0/cell i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (v/field-value i v)
+                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i v)
                       :read-only true})
-       ($ :p.err (v/field-error i)))))
+       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
 
 (defui m2 [{:keys [n]}]
   ($ :form.p0form
@@ -105,5 +105,5 @@
   application supplies the frame its boundaries resolve `use-subscribe`
   against."
   [view n]
-  ($ uixa/frame-provider {:frame v/subs-frame}
+  ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame}
      ($ view {:n n})))

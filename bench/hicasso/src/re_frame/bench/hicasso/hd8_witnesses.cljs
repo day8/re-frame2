@@ -106,7 +106,7 @@
   bead is `rf2-2rtt6.1`."
   (:require ["react" :as react]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uixa]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [reagent2.impl.template :as slim-template]
             [uix.core :refer [$ defui]])
@@ -297,8 +297,8 @@
 ;; runs unchanged.
 
 (defui ux-m-row [{:keys [i]}]
-  (let [frame (uixa/use-current-frame)
-        v     (uixa/use-subscribe frame [:hd8/row i])
+  (let [frame (rf.adapter.uix/use-current-frame)
+        v     (rf.adapter.uix/use-subscribe frame [:hd8/row i])
         d     (dispatch-for frame)]
     ($ :li.row {:data-index i :on-click (fn [_] (d [:hd8/touch i]))}
        ($ :span.label "row ")
@@ -312,8 +312,8 @@
           ($ ux-m-row {:key i :i i})))))
 
 (defui ux-u-cell [{:keys [i]}]
-  (let [frame (uixa/use-current-frame)
-        v     (uixa/use-subscribe frame [:hd8/cell i])
+  (let [frame (rf.adapter.uix/use-current-frame)
+        v     (rf.adapter.uix/use-subscribe frame [:hd8/cell i])
         d     (dispatch-for frame)]
     ($ :span.cell {:data-i i :on-click (fn [_] (d [:hd8/touch i]))} v)))
 
@@ -339,7 +339,7 @@
 ;; it, and the gap between the rungs is the price of that purchase.
 
 (defn r1-m-row [i frame]
-  (let [v (uixa/use-subscribe frame [:hd8/row i])
+  (let [v (rf.adapter.uix/use-subscribe frame [:hd8/row i])
         d (dispatch-for frame)]
     [:li.row {:data-index i :on-click (fn [_] (d [:hd8/touch i]))}
      [:span.label "row "]
@@ -352,7 +352,7 @@
     (for [i (range n)] ^{:key i} [:f> r1-m-row i frame])]])
 
 (defn r1-u-cell [i frame]
-  (let [v (uixa/use-subscribe frame [:hd8/cell i])
+  (let [v (rf.adapter.uix/use-subscribe frame [:hd8/cell i])
         d (dispatch-for frame)]
     [:span.cell {:data-i i :on-click (fn [_] (d [:hd8/touch i]))} v]))
 
@@ -406,8 +406,8 @@
              props))
 
 (defn r2-m-row [i]
-  (let [frame (uixa/use-current-frame)
-        v     (uixa/use-subscribe frame [:hd8/row i])
+  (let [frame (rf.adapter.uix/use-current-frame)
+        v     (rf.adapter.uix/use-subscribe frame [:hd8/row i])
         d     (dispatch-for frame)]
     [:li.row (lower-events d {:data-index i :on-click [:hd8/touch i]})
      [:span.label "row "]
@@ -420,8 +420,8 @@
     (for [i (range n)] ^{:key i} [:f> r2-m-row i])]])
 
 (defn r2-u-cell [i]
-  (let [frame (uixa/use-current-frame)
-        v     (uixa/use-subscribe frame [:hd8/cell i])
+  (let [frame (rf.adapter.uix/use-current-frame)
+        v     (rf.adapter.uix/use-subscribe frame [:hd8/cell i])
         d     (dispatch-for frame)]
     [:span.cell (lower-events d {:data-i i :on-click [:hd8/touch i]}) v]))
 

@@ -72,17 +72,17 @@
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [clojure.string :as str]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.order-guard :as guard]
-            [re-frame.bench.p0-arms :as arms]
-            [re-frame.bench.p0-fixture :as fx]
-            [re-frame.bench.p0-floor :as floor]
-            [re-frame.bench.p0-harness :as h]
-            [re-frame.bench.p0-hicasso :as hic]
-            [re-frame.bench.p0-reagent :as rg]
-            [re-frame.bench.p0-uix :as ux]
-            [re-frame.bench.p0-workcount :as wc]
-            [re-frame.frame :as frame]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.order-guard :as rf.bench.order-guard]
+            [re-frame.bench.p0-arms :as rf.bench.p0-arms]
+            [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
+            [re-frame.bench.p0-floor :as rf.bench.p0-floor]
+            [re-frame.bench.p0-harness :as rf.bench.p0-harness]
+            [re-frame.bench.p0-hicasso :as rf.bench.p0-hicasso]
+            [re-frame.bench.p0-reagent :as rf.bench.p0-reagent]
+            [re-frame.bench.p0-uix :as rf.bench.p0-uix]
+            [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
+            [re-frame.frame :as rf.frame]
             ;; THE CANDIDATE ARM'S THREE DOORS, called at four seams, and
             ;; they are the PACKAGE's now (rf2-fe0l). They used to be
             ;; `re-frame.bench.hicasso.arm1.*` — the frozen prototype
@@ -96,9 +96,9 @@
             ;; Bench requiring package is the allowed direction;
             ;; `hicasso/scripts/check_freeze.py`'s SEALED rule forbids
             ;; only package requiring bench.
-            [re-frame.hicasso.impl.collector :as hic-collector]
-            [re-frame.hicasso.test.runtime :as hic-runtime]
-            [re-frame.hicasso.impl.mount :as hic-mount]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [uix.dom :as uix-dom]))
@@ -107,9 +107,9 @@
   "Boundaries in one root of the `grid` family — the same 300 the clock
   rows drive, so a per-boundary figure here and a bulk ratio there
   describe the same page."
-  fx/cells-n)
+  rf.bench.p0-fixture/cells-n)
 
-(def rows-per-root fx/w1-rows)
+(def rows-per-root rf.bench.p0-fixture/w1-rows)
 
 ;; ---------------------------------------------------------------------------
 ;; Arms — keyed `family/substrate`, the same naming the driver schedules on
@@ -176,7 +176,7 @@
   [hiccup-of selector expected]
   {:selector    selector
    :expected    expected
-   :mount-one   (fn [c i] (hic-mount/root! c arms/frame-id (hiccup-of i)))
+   :mount-one   (fn [c i] (rf.hicasso.impl.mount/root! c rf.bench.p0-arms/frame-id (hiccup-of i)))
    :unmount-one (fn [handle]
                   (react-dom/flushSync (fn [] (.unmount (:root handle)))))})
 
@@ -191,7 +191,7 @@
   by a boundary count its own DOM did not have. At `cells` = [[per-root]]
   it is the arm the table used to hold, to the byte."
   [cells]
-  (assoc (react-root-arm (fn [_] (floor/u-grid (vec (repeat cells 0))))
+  (assoc (react-root-arm (fn [_] (rf.bench.p0-floor/u-grid (vec (repeat cells 0))))
                          ".cell" cells)
          :segment nil :keys-expected 0))
 
@@ -216,26 +216,26 @@
   now a number this instrument checks on every mount instead of an
   argument about a file."
   {:list/floor
-   (assoc (react-root-arm (fn [_] (floor/w1 (mapv fx/row-value (range rows-per-root))))
+   (assoc (react-root-arm (fn [_] (rf.bench.p0-floor/w1 (mapv rf.bench.p0-fixture/row-value (range rows-per-root))))
                           ".row" rows-per-root)
           :segment nil :keys-expected 0)
 
    :list/reagent
-   (assoc (reagent-root-arm (fn [_] (rg/w1-root arms/frame-id rows-per-root))
+   (assoc (reagent-root-arm (fn [_] (rf.bench.p0-reagent/w1-root rf.bench.p0-arms/frame-id rows-per-root))
                             ".row" rows-per-root)
           :segment :reagent-subs :keys-expected rows-per-root)
 
    :list/uix
-   (assoc (uix-root-arm (fn [_] (ux/w1-root arms/frame-id rows-per-root))
+   (assoc (uix-root-arm (fn [_] (rf.bench.p0-uix/w1-root rf.bench.p0-arms/frame-id rows-per-root))
                         ".row" rows-per-root)
           :segment :uix-subs :keys-expected rows-per-root)
 
    :grid/reagent
-   (assoc (reagent-root-arm (fn [_] (rg/u-root arms/frame-id)) ".cell" per-root)
+   (assoc (reagent-root-arm (fn [_] (rf.bench.p0-reagent/u-root rf.bench.p0-arms/frame-id)) ".cell" per-root)
           :segment :reagent-subs :keys-expected per-root)
 
    :grid/uix
-   (assoc (uix-root-arm (fn [_] (ux/u-root arms/frame-id)) ".cell" per-root)
+   (assoc (uix-root-arm (fn [_] (rf.bench.p0-uix/u-root rf.bench.p0-arms/frame-id)) ".cell" per-root)
           :segment :uix-subs :keys-expected per-root)})
 
 ;; ---------------------------------------------------------------------------
@@ -253,8 +253,8 @@
   property of a hand-written page."
   [substrate reads q]
   (let [root-of (case substrate
-                  :reagent (fn [r] (rg/fan-root arms/frame-id (* r per-root) per-root reads))
-                  :uix     (fn [r] (ux/fan-root arms/frame-id (* r per-root) per-root reads)))
+                  :reagent (fn [r] (rf.bench.p0-reagent/fan-root rf.bench.p0-arms/frame-id (* r per-root) per-root reads))
+                  :uix     (fn [r] (rf.bench.p0-uix/fan-root rf.bench.p0-arms/frame-id (* r per-root) per-root reads)))
         base    (case substrate
                   :reagent (reagent-root-arm root-of ".cell" per-root)
                   :uix     (uix-root-arm root-of ".cell" per-root))]
@@ -278,7 +278,7 @@
 ;; on ITS OWN instrument (validation.md:180-189) and this instrument has
 ;; no 3/7/20 rung on any substrate until now.
 ;;
-;; `fx/fan-key` supplies the keys unchanged: at Q = B·R the rule
+;; `rf.bench.p0-fixture/fan-key` supplies the keys unchanged: at Q = B·R the rule
 ;; `(n·R + k) mod Q` is the identity over `0 … B·R−1`, so every one of
 ;; the E edges lands on its own key and Q = E exactly. The DOM is
 ;; identical at every rung on every substrate — one `span.cell` per
@@ -324,13 +324,13 @@
         cells   (long cells)
         base    (case substrate
                   :reagent (reagent-root-arm
-                             (fn [r] (rg/lad-root arms/frame-id (* r cells) cells reads))
+                             (fn [r] (rf.bench.p0-reagent/lad-root rf.bench.p0-arms/frame-id (* r cells) cells reads))
                              ".cell" cells)
                   :uix     (uix-root-arm
-                             (fn [r] (ux/lad-root arms/frame-id (* r cells) cells reads))
+                             (fn [r] (rf.bench.p0-uix/lad-root rf.bench.p0-arms/frame-id (* r cells) cells reads))
                              ".cell" cells)
                   :hicasso (hicasso-root-arm
-                             (fn [r] (hic/lad-grid (* r cells) cells reads))
+                             (fn [r] (rf.bench.p0-hicasso/lad-grid (* r cells) cells reads))
                              ".cell" cells))]
     (assoc base
            ;; The candidate reads through `re-frame.subs` and the
@@ -406,9 +406,9 @@
    ;; own residue lands in the baseline, and no arm's teardown is ever
    ;; forced — which is what leaves the survival metric something to
    ;; measure (rf2-2rtt6.34).
-   (hic-collector/reset-runtime!)
-   (let [segment (first (filter #(= segment-id (:id %)) arms/segments))]
-     (when segment (arms/enter-segment! segment (long grid-width))))
+   (rf.hicasso.impl.collector/reset-runtime!)
+   (let [segment (first (filter #(= segment-id (:id %)) rf.bench.p0-arms/segments))]
+     (when segment (rf.bench.p0-arms/enter-segment! segment (long grid-width))))
    true))
 
 ;; ---------------------------------------------------------------------------
@@ -438,7 +438,7 @@
   quantity the two published heap families disagreed about, and it is
   cheaper to count it than to argue about it."
   []
-  (if-some [f (frame/frame arms/frame-id)]
+  (if-some [f (rf.frame/frame rf.bench.p0-arms/frame-id)]
     (count @(:sub-cache f))
     0))
 
@@ -461,15 +461,15 @@
   (let [opts       (js->clj opts :keywordize-keys true)
         arm        (arm-for (keyword arm-id) opts)
         {:keys [mount-one unmount-one selector expected keys-expected]} arm
-        _          (when-some [q (:keys opts)] (fx/set-fan-keys! q))
-        containers (mapv (fn [_] (h/container!)) (range k))
+        _          (when-some [q (:keys opts)] (rf.bench.p0-fixture/set-fan-keys! q))
+        containers (mapv (fn [_] (rf.bench.p0-harness/container!)) (range k))
         handles    (into [] (map-indexed (fn [i c] (mount-one c i))) containers)
         elements   (.-length (.querySelectorAll js/document selector))
         want       (* k expected)
         live       (live-key-count)]
     (reset! held {:arm (keyword arm-id) :unmount-one unmount-one
                   :handles handles :containers containers})
-    (let [hic (hic-runtime/residue)]
+    (let [hic (rf.hicasso.test.runtime/residue)]
       #js {:elements     elements
            :expected     want
            :keys         live
@@ -1195,11 +1195,11 @@
         ;;
         ;; It sits in the `let`, which is evaluated before `buf[0]` — the
         ;; first sample and therefore the opening of the measured region.
-        ;; `wc/snapshot` allocates an object, so where it is called is not
+        ;; `rf.bench.p0-workcount/snapshot` allocates an object, so where it is called is not
         ;; a style question: inside the region it would be the sampler
         ;; allocating on the arm's behalf, which is the one thing an
         ;; allocation instrument may not do.
-        work0   (wc/snapshot)]
+        work0   (rf.bench.p0-workcount/snapshot)]
     (aset buf 0 (mem))
     (dotimes [i n]
       (let [base (* k i)]
@@ -1207,8 +1207,8 @@
         (cond
           write? (do (vswap! alloc-tick inc)
                      (if all?
-                       (arms/write-all! @alloc-tick)
-                       (arms/write-page! @alloc-tick))
+                       (rf.bench.p0-arms/write-all! @alloc-tick)
+                       (rf.bench.p0-arms/write-page! @alloc-tick))
                      ;; THE SEAM. At stride 2 this is a test of a boolean
                      ;; local and nothing else — the same class of branch
                      ;; as the `reagent?` test immediately below it, which
@@ -1261,12 +1261,12 @@
            ;; Both are read OUTSIDE the sampled region — `work0` before
            ;; `buf[0]`, this one after the last leg's closing sample.
            :work0   work0
-           :work    (wc/snapshot)
+           :work    (rf.bench.p0-workcount/snapshot)
            ;; What the PAGE was compiled with, not what the driver asked
            ;; for. A closure-define that failed to reach the compiler
            ;; leaves counters that never move, which reads exactly like a
            ;; window that did no work.
-           :counting (wc/armed?)
+           :counting (rf.bench.p0-workcount/armed?)
            :text    (when cell (.-textContent cell))})))
 
 ;; ---------------------------------------------------------------------------
@@ -1289,7 +1289,7 @@
                                (if-some [m (.-memory js/performance)]
                                  (.-usedJSHeapSize m)
                                  -1))
-             :slotOrder      (fn [n round] (clj->js (guard/slot-order n round)))
+             :slotOrder      (fn [n round] (clj->js (rf.bench.order-guard/slot-order n round)))
              ;; ONE expression of the arm-order rule, used by both rows.
              ;; The heap row's samples are produced by the DRIVER (only it
              ;; can force a collection), so the driver hands them back in
@@ -1297,7 +1297,7 @@
              ;; the clock row uses in-page. A second copy of the rule in
              ;; JavaScript would be a second place for it to drift.
              :verdict        (fn [samples tolerance]
-                               (pr-str (guard/verdict (js->clj samples :keywordize-keys true)
+                               (pr-str (rf.bench.order-guard/verdict (js->clj samples :keywordize-keys true)
                                                       {:tolerance tolerance})))
              ;; ONE expression of the positive-control rule too, and it is
              ;; the LANE's. The driver owns the collector, so it is the
@@ -1305,7 +1305,7 @@
              ;; per-round readings — and until rf2-95s5b it printed that
              ;; pair as a bare ratio nothing adjudicated.
              ;;
-             ;; THE RULE IS `lane/control-verdict-strict`, EVERY ROUND
+             ;; THE RULE IS `rf.bench.hicasso.lane/control-verdict-strict`, EVERY ROUND
              ;; INSIDE THE BAND (rf2-egdaq). It used to be the lane's
              ;; overlap rule, which asks only that the measured RANGE meet
              ;; the band — and on a counter this precise that is not a
@@ -1358,7 +1358,7 @@
              ;; is built as flat `#js` objects one level down too.
              :controlVerdict (fn [predicted per-round slack]
                                (let [vs (vec (js->clj per-round))
-                                     v  (lane/control-verdict-strict predicted vs slack)]
+                                     v  (rf.bench.hicasso.lane/control-verdict-strict predicted vs slack)]
                                  #js {:ok       (boolean (:ok? v))
                                       :rule     (name (:rule v))
                                       :why      (:why v)
@@ -1372,7 +1372,7 @@
                                                               :measured (:measured o)
                                                               :offBy    (:off-by o)})
                                                        (:outside v)))}))
-             :guardSelfTest  (fn [] (pr-str (guard/self-test)))
+             :guardSelfTest  (fn [] (pr-str (rf.bench.order-guard/self-test)))
              ;; The fan-out sweep's two doors, and both of them are RULES
              ;; rather than arithmetic, so both live here rather than in a
              ;; JavaScript restatement the driver would own alone. The
@@ -1455,7 +1455,7 @@
              ;; HD-002 clause (d)'s failure and a different and worse
              ;; finding than a large per-boundary figure.
              :hicassoResidue (fn []
-                               (let [r (hic-runtime/residue)]
+                               (let [r (rf.hicasso.test.runtime/residue)]
                                  #js {:cells      (:cells r)
                                       :cellRefs   (:cell-refs r)
                                       :boundaries (:boundaries r)
@@ -1475,7 +1475,7 @@
              ;; `--enable-precise-memory-info` and the sampling stride.
              ;; `workCount` is the raw census, for a preflight that wants
              ;; to watch the counters move outside a window.
-             :workArmed      (fn [] (wc/armed?))
-             :workCount      (fn [] (wc/snapshot))
+             :workArmed      (fn [] (rf.bench.p0-workcount/armed?))
+             :workCount      (fn [] (rf.bench.p0-workcount/snapshot))
              :boundariesPerRoot #js {:list rows-per-root :grid per-root}})
   nil)

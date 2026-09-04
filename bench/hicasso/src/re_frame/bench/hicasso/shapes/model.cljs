@@ -85,7 +85,7 @@
   registration is `re-frame.routing`'s own `reg-route` — the roster adds
   no routing machinery, it consumes the artefact's."
   (:require [re-frame.core :as rf]
-            [re-frame.routing :as routing]))
+            [re-frame.routing :as rf.routing]))
 
 ;; ---------------------------------------------------------------------------
 ;; The seed data — Conduit's own field names, from a deterministic index
@@ -295,9 +295,9 @@
   re-registration replaces), and called from [[make-frame!]] so every
   witness that mounts a page has the table its links resolve against."
   []
-  (routing/reg-route :conduit/home {} "/")
-  (routing/reg-route :conduit.profile/show {} "/profile/:username")
-  (routing/reg-route :conduit.article/show {} "/article/:slug")
+  (rf.routing/reg-route :conduit/home {} "/")
+  (rf.routing/reg-route :conduit.profile/show {} "/profile/:username")
+  (rf.routing/reg-route :conduit.article/show {} "/article/:slug")
   nil)
 
 (defn make-frame!
@@ -316,12 +316,12 @@
   did not see it: its runs measured the pre-migration blobs its
   provenance table records, and the branch was rebase-merged over the
   migration without a clock re-run). Declaring the shipped
-  `routing/hash-url-strategy` here makes the routing-owned href the
+  `rf.routing/hash-url-strategy` here makes the routing-owned href the
   census's own form, through routing's law rather than around it."
   [frame-id opts]
   (register-routes!)
   (rf/make-frame {:id frame-id
-                  :url-strategy routing/hash-url-strategy
+                  :url-strategy rf.routing/hash-url-strategy
                   :initial-events [[:conduit/seed opts]]})
   frame-id)
 

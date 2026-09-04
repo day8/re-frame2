@@ -1,5 +1,5 @@
 (ns re-frame.bench.hicasso.lane-window-dom-cljs-test
-  "`lane/verified-write!`'s two window shapes, and the claim that neither
+  "`rf.bench.hicasso.lane/verified-write!`'s two window shapes, and the claim that neither
   one serves both scheduler families (rf2-pq7d8).
 
   This is a CORRECTNESS test of the instrument, not a benchmark: nothing
@@ -37,7 +37,7 @@
   ## What would have caught the recorded fault
 
   [[microtask-arm-is-unverified-under-the-yielding-window]] is that test.
-  It goes red on the window `lane/verified-write!` had before rf2-pq7d8,
+  It goes red on the window `rf.bench.hicasso.lane/verified-write!` had before rf2-pq7d8,
   and for the right reason: `N unverified of N` against a DOM that never
   changed. The row that fault produced read `0.16–0.50x` the floor — a
   precise wrong number, and the sixteenth of its kind on these surfaces.
@@ -47,7 +47,7 @@
   a stated skip under `:node-test`, which is the posture the other `*-dom`
   suites keep."
   (:require [cljs.test :refer-macros [async deftest is testing]]
-            [re-frame.bench.hicasso.lane :as lane]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]))
 
 (def ^:private off-browser
   "no DOM on this runtime — the claim is a DOM read-back inside a measured
@@ -59,7 +59,7 @@
 
 (defn- cell-container!
   "A container holding one `data-i=\"0\"` cell reading `\"old\"` — the
-  smallest page `lane/text-at` can probe."
+  smallest page `rf.bench.hicasso.lane/text-at` can probe."
   []
   (let [c (js/document.createElement "div")]
     (set! (.-innerHTML c) "<span data-i=\"0\">old</span>")
@@ -126,12 +126,12 @@
      :force!    (fn [] (when-some [v @queue] (commit! container v) (reset! queue nil)))}))
 
 (defn- write-once!
-  "One `lane/verified-write!` against `arm`; answers a promise of
+  "One `rf.bench.hicasso.lane/verified-write!` against `arm`; answers a promise of
   `[result tally-value]`."
   [arm container]
-  (let [t (lane/tally)]
-    (-> (lane/verified-write! t {:arm arm :container container} 0 "new" [0])
-        (.then (fn [r] [r (lane/tally-value t)])))))
+  (let [t (rf.bench.hicasso.lane/tally)]
+    (-> (rf.bench.hicasso.lane/verified-write! t {:arm arm :container container} 0 "new" [0])
+        (.then (fn [r] [r (rf.bench.hicasso.lane/tally-value t)])))))
 
 ;; ---------------------------------------------------------------------------
 ;; The microtask family — the fault, and the repair
@@ -141,7 +141,7 @@
   (testing "a microtask-scheduled arm measured through the YIELDING window
            loses its commit, and the DOM read-back is what says so"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [c   (cell-container!)
               arm (dissoc (microtask-scheduled-arm c) :scheduler)]
@@ -153,7 +153,7 @@
                            "and the tally must publish it as 1 unverified of 1")
                        ;; The page is untouched, so the milliseconds this
                        ;; window measured are a measurement of nothing.
-                       (is (= "old" (lane/text-at c 0))
+                       (is (= "old" (rf.bench.hicasso.lane/text-at c 0))
                            "the cell must still read the OLD value")
                        ;; The commit is not lost, merely parked: a LATE DOM,
                        ;; not a dead one, which is why the clock reading
@@ -174,7 +174,7 @@
   (testing "declaring :scheduler :microtask puts NOTHING between the write
            and the drain, so the commit lands inside the window"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [c   (cell-container!)
               arm (microtask-scheduled-arm c)]
@@ -182,7 +182,7 @@
               (.then (fn [[r tally]]
                        (is (true? (:ok? r)) "the write-then-drain window must verify")
                        (is (= {:writes 1 :unverified 0} tally) "0 unverified of 1")
-                       (is (= "new" (lane/text-at c 0))
+                       (is (= "new" (rf.bench.hicasso.lane/text-at c 0))
                            "and the page must actually carry the written value")
                        (is (nil? @(:parked arm))
                            "nothing was parked — the drain got there first")
@@ -200,7 +200,7 @@
   (testing "the yield is LOAD-BEARING for an arm whose notification is
            queued somewhere other than the queue the harness yields to"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [c   (cell-container!)
               arm (queued-notification-arm c)]
@@ -208,7 +208,7 @@
               (.then (fn [[r tally]]
                        (is (true? (:ok? r)) "the yielding window must verify this family")
                        (is (= {:writes 1 :unverified 0} tally) "0 unverified of 1")
-                       (is (= "new" (lane/text-at c 0)))))
+                       (is (= "new" (rf.bench.hicasso.lane/text-at c 0)))))
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (.remove c) (done)))))))))
 
@@ -216,7 +216,7 @@
   (testing "and the write-then-drain window BREAKS that same arm — so
            neither shape is universally right, which is the finding"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [c   (cell-container!)
               arm (assoc (queued-notification-arm c) :scheduler :microtask)]
@@ -225,7 +225,7 @@
                        (is (false? (:ok? r))
                            "draining immediately must find this arm's queue empty")
                        (is (= {:writes 1 :unverified 1} tally) "1 unverified of 1")
-                       (is (= "old" (lane/text-at c 0)))))
+                       (is (= "old" (rf.bench.hicasso.lane/text-at c 0)))))
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (.remove c) (done)))))))))
 
@@ -239,7 +239,7 @@
            makes this change additive and leaves every published P0 row
            standing"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [c    (cell-container!)
               seen (atom [])
@@ -289,7 +289,7 @@
 
 (defn- ops-for
   "`k` ops, each its OWN cell and its OWN value — the caller obligation
-  `lane/verified-writes!` states, so no read-back can be satisfied by a
+  `rf.bench.hicasso.lane/verified-writes!` states, so no read-back can be satisfied by a
   neighbour's commit."
   [k]
   (mapv (fn [i] [i (str "v" i) [i]]) (range k)))
@@ -300,13 +300,13 @@
            whole batch, which is what makes a batched figure comparable
            with the unbatched one it supersedes"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [k    3
               c    (grid-container! k)
               seen (atom [])
-              t    (lane/tally)]
-          (-> (lane/verified-writes! t {:arm (recording-arm c seen) :container c} (ops-for k))
+              t    (rf.bench.hicasso.lane/tally)]
+          (-> (rf.bench.hicasso.lane/verified-writes! t {:arm (recording-arm c seen) :container c} (ops-for k))
               (.then (fn [r]
                        (is (= [:wrote :microtask-ran :forced
                                :wrote :microtask-ran :forced
@@ -318,7 +318,7 @@
                        ;; The tally counts OPERATIONS, not samples: a batched
                        ;; row that banked one write per window would publish
                        ;; `N unverified of M` with an M a tenth of the truth.
-                       (is (= {:writes k :unverified 0} (lane/tally-value t))
+                       (is (= {:writes k :unverified 0} (rf.bench.hicasso.lane/tally-value t))
                            "the tally banks every op in the batch")))
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (.remove c) (done)))))))))
@@ -328,17 +328,17 @@
            the BROAD row pass a batch of one and not move, while the narrow
            row batches"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [c    (grid-container! 1)
               seen (atom [])
-              t    (lane/tally)]
-          (-> (lane/verified-writes! t {:arm (recording-arm c seen) :container c} (ops-for 1))
+              t    (rf.bench.hicasso.lane/tally)]
+          (-> (rf.bench.hicasso.lane/verified-writes! t {:arm (recording-arm c seen) :container c} (ops-for 1))
               (.then (fn [r]
                        (is (= [:wrote :microtask-ran :forced] @seen)
                            "one write, one yield, one drain — the unbatched shape")
                        (is (true? (:ok? r)))
-                       (is (= {:writes 1 :unverified 0} (lane/tally-value t)))))
+                       (is (= {:writes 1 :unverified 0} (rf.bench.hicasso.lane/tally-value t)))))
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (.remove c) (done)))))))))
 
@@ -346,14 +346,14 @@
   (testing "the microtask family's batched window is one synchronous run —
            not even a microtask separates a drain from the next write"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [k    3
               c    (grid-container! k)
               seen (atom [])
-              t    (lane/tally)
+              t    (rf.bench.hicasso.lane/tally)
               arm  (assoc (recording-arm c seen) :scheduler :microtask)]
-          (-> (lane/verified-writes! t {:arm arm :container c} (ops-for k))
+          (-> (rf.bench.hicasso.lane/verified-writes! t {:arm arm :container c} (ops-for k))
               (.then (fn [r]
                        ;; The first 2k entries are the WINDOW, and they are
                        ;; write/drain/write/drain with nothing in between. The
@@ -370,7 +370,7 @@
                               (vec (drop (* 2 k) @seen)))
                            "and the arm's own microtasks ran only once the window had closed")
                        (is (zero? (:gap-ms r)) ":gap-ms must be 0.0, not merely small")
-                       (is (= {:writes k :unverified 0} (lane/tally-value t)))))
+                       (is (= {:writes k :unverified 0} (rf.bench.hicasso.lane/tally-value t)))))
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (.remove c) (done)))))))))
 
@@ -378,19 +378,19 @@
   (testing "an arm whose commits never land reads `k unverified of k`, not
            one — the count a published row quotes is per OPERATION"
     (async done
-      (if-not (lane/browser?)
+      (if-not (rf.bench.hicasso.lane/browser?)
         (do (is true off-browser) (done))
         (let [k   3
               c   (grid-container! k)
-              t   (lane/tally)
+              t   (rf.bench.hicasso.lane/tally)
               ;; Writes nothing to the page at all: the window's milliseconds
               ;; are real and they measure nothing.
               arm {:id :never-commits :write! (fn [_i _v] nil) :force! (fn [] nil)}]
-          (-> (lane/verified-writes! t {:arm arm :container c} (ops-for k))
+          (-> (rf.bench.hicasso.lane/verified-writes! t {:arm arm :container c} (ops-for k))
               (.then (fn [r]
                        (is (false? (:ok? r)))
                        (is (= [false false false] (:oks r)))
-                       (is (= {:writes k :unverified k} (lane/tally-value t))
+                       (is (= {:writes k :unverified k} (rf.bench.hicasso.lane/tally-value t))
                            "k unverified of k")))
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (.remove c) (done)))))))))

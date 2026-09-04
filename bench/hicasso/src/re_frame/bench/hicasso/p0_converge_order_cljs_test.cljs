@@ -77,7 +77,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.set :as set]
             [clojure.walk :as walk]
-            [re-frame.bench.hicasso.p0-converge-app :as app]))
+            [re-frame.bench.hicasso.p0-converge-app :as rf.bench.hicasso.p0-converge-app]))
 
 ;; ---------------------------------------------------------------------------
 ;; The published vectors
@@ -107,7 +107,7 @@
   "Replay a PUBLISHED five-round vector. Every published five-round run
   was Reagent-start, and the start is stated rather than defaulted."
   [vs]
-  (app/segment-order-verdict vs 5 :reagent-subs))
+  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 5 :reagent-subs))
 
 (defn- close-to?
   "Within `tol`. Every figure below is quoted from the studio page at
@@ -213,7 +213,7 @@
            UIx-first rounds reading 0.7 is a figure that says `slower`
            when one segment leads and `faster` when the other does — no
            direction to publish, and the run must not"
-    (let [r (app/segment-order-verdict [1.40 0.70 1.45 0.72 1.38] 5 :reagent-subs)]
+    (let [r (rf.bench.hicasso.p0-converge-app/segment-order-verdict [1.40 0.70 1.45 0.72 1.38] 5 :reagent-subs)]
       (is (= :numerator-slower (:direction (:reagent-first r))))
       (is (= :numerator-faster (:direction (:uix-first r))))
       (is (false? (:direction-agrees? r)))
@@ -235,7 +235,7 @@
            construction — the repair rf2-6i0i2 took, and the design the
            entry now runs"
     (let [vs [1.10 1.20 1.30 1.40 1.50 1.60]
-          r  (app/segment-order-verdict vs 6 :reagent-subs)]
+          r  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)]
       (is (true? (:balanced-design? r)))
       (is (= 3 (:n (:reagent-first r))))
       (is (= 3 (:n (:uix-first r))))
@@ -254,8 +254,8 @@
            which is exactly the confound the counterbalanced runs exist
            to break"
     (let [vs [1.30 1.10 1.25 1.12 1.35 1.11]
-          r  (app/segment-order-verdict vs 6 :reagent-subs)
-          u  (app/segment-order-verdict vs 6 :uix-subs)]
+          r  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
+          u  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :uix-subs)]
       (is (= :reagent-subs (:start r)))
       (is (= :uix-subs (:start u)))
       (is (= [1.30 1.25 1.35] (:per-round (:reagent-first r))))
@@ -268,8 +268,8 @@
            vector that refuses under one start refuses under the other
            with the directions exchanged"
     (let [vs [1.40 0.70 1.45 0.72 1.38 0.69]
-          r  (app/segment-order-verdict vs 6 :reagent-subs)
-          u  (app/segment-order-verdict vs 6 :uix-subs)]
+          r  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
+          u  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :uix-subs)]
       (is (= :numerator-slower (:direction (:reagent-first r))))
       (is (= :numerator-faster (:direction (:reagent-first u))))
       (is (true? (:refuse? r)))
@@ -306,7 +306,7 @@
            {:start :uix-subs     :vs [2.7222 2.4210 2.4444 2.8750 2.3889 2.3889]}]})
 
 (defn- legs [row] (map (fn [{:keys [vs start]}]
-                         (app/segment-order-verdict vs 6 start "the reactive leg's"))
+                         (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 start "the reactive leg's"))
                        (get leg row)))
 
 (deftest every-published-leg-run-resolves-a-magnitude
@@ -572,7 +572,7 @@
   readings give 877/1024 = 0.8564, which is the 0.856 the page
   publishes. A displayed number is not an input."
   [vs start]
-  (let [r (app/segment-order-verdict vs 6 start)]
+  (let [r (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 start)]
     (js/Math.log (/ (mean (:per-round (:reagent-first r)))
                     (mean (:per-round (:uix-first r)))))))
 
@@ -815,7 +815,7 @@
 
 (defn- strata-of [row]
   (mapcat (fn [run]
-            (let [v (app/segment-order-verdict (get run row) 6 (:start run))]
+            (let [v (rf.bench.hicasso.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
               [(:reagent-first v) (:uix-first v)]))
           ensemble))
 
@@ -840,7 +840,7 @@
            are the individually-unpublishable points the aggregate rule
            deliberately keeps in the ensemble"
     (let [verdicts (for [run ensemble row rows]
-                     [(:run run) row (app/segment-order-verdict (get run row) 6 (:start run))])
+                     [(:run run) row (rf.bench.hicasso.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))])
           unresolved (remove #(:magnitude-resolved? (nth % 2)) verdicts)]
       (is (= 37 (count (filter #(:magnitude-resolved? (nth % 2)) verdicts))))
       (is (= 3 (count unresolved)))
@@ -854,7 +854,7 @@
            40`, which is the discredited 11-of-12 restated on the
            balanced design and no longer an effect"
     (is (= 23 (count (for [run ensemble row rows
-                           :let [v (app/segment-order-verdict (get run row) 6 (:start run))]
+                           :let [v (rf.bench.hicasso.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
                            :when (> (:mean (:reagent-first v)) (:mean (:uix-first v)))]
                        [(:run run) row]))))))
 
@@ -1186,7 +1186,7 @@
            rather than quoted: the two order strata point opposite ways
            across 1.0, so `segment-order-verdict` refuses and the driver
            exits 1. The driver was right"
-    (let [vd (app/segment-order-verdict (:M1 run-5-per-round) 6 :reagent-subs)]
+    (let [vd (rf.bench.hicasso.p0-converge-app/segment-order-verdict (:M1 run-5-per-round) 6 :reagent-subs)]
       (is (true? (:refuse? vd)))
       (is (false? (:direction-agrees? vd)))
       (is (false? (:magnitude-resolved? vd)))
@@ -1198,7 +1198,7 @@
            overlap and every one resolves a magnitude. Run 5 is not a bad
            run; it is a run whose M1 sat on parity"
     (doseq [row [:M2 :broad :narrow]]
-      (let [vd (app/segment-order-verdict (get run-5-per-round row) 6 :reagent-subs)]
+      (let [vd (rf.bench.hicasso.p0-converge-app/segment-order-verdict (get run-5-per-round row) 6 :reagent-subs)]
         (is (false? (:refuse? vd)) (str (name row) " — no refusal"))
         (is (true? (:magnitude-resolved? vd)) (str (name row) " — magnitude resolved"))
         (is (close? (get (nth retake 4) row) (mean (get run-5-per-round row)))
@@ -1292,7 +1292,7 @@
 ;; natural flagged invocation.
 ;;
 ;; Three facts, in the order the run establishes them: which arms the row's
-;; PLAN plants, what [[app/ratom-leg]] DECIDES from a round, and what the
+;; PLAN plants, what [[rf.bench.hicasso.p0-converge-app/ratom-leg]] DECIDES from a round, and what the
 ;; RECORD then publishes. Pure arithmetic over constants — no DOM, no clock,
 ;; no browser, like everything else in this namespace.
 
@@ -1311,7 +1311,7 @@
            every assertion below rests on, and it is asked of the entry's
            own plan rather than restated beside it"
     (doseq [row flagged-rows]
-      (let [ids (set (app/reagent-segment-arm-ids row true))]
+      (let [ids (set (rf.bench.hicasso.p0-converge-app/reagent-segment-arm-ids row true))]
         (is (contains? ids :reagent-subs) (str row " must always run the denominator"))
         (is (= (contains? rows-carrying-the-arm row)
                (contains? ids :reagent-ratom))
@@ -1320,7 +1320,7 @@
            unflagged invocation the instrument the four published rows
            were measured on"
     (doseq [row flagged-rows]
-      (is (not (contains? (set (app/reagent-segment-arm-ids row false)) :reagent-ratom))
+      (is (not (contains? (set (rf.bench.hicasso.p0-converge-app/reagent-segment-arm-ids row false)) :reagent-ratom))
           (str row " under HICASSO_RATOM=off")))))
 
 (deftest the-leg-is-formed-only-when-every-round-measured-the-arm
@@ -1329,21 +1329,21 @@
                                      ratom (assoc :reagent-ratom ratom))}})]
     (testing "six rounds that all measured the arm: the leg is 4.0 / 3.0,
              once per round"
-      (let [l (app/ratom-leg (mapv round (repeat 6 3.0)))]
+      (let [l (rf.bench.hicasso.p0-converge-app/ratom-leg (mapv round (repeat 6 3.0)))]
         (is (= 6 (count l)))
         (is (every? #(close? 1.3333 %) l))))
     (testing "no round measured it — nil, and NOT a quotient over a
              denominator that was never taken. This is the M2 and narrow
              case, and `subs / nil` is `Infinity` in JavaScript rather
              than an error, so nothing downstream would have complained"
-      (is (nil? (app/ratom-leg (mapv round (repeat 6 nil))))))
+      (is (nil? (rf.bench.hicasso.p0-converge-app/ratom-leg (mapv round (repeat 6 nil))))))
     (testing "a PARTIAL arm is no arm: one round short and the leg is nil,
              because a figure that quietly changes what it averages over
              is worse than one that is absent"
-      (is (nil? (app/ratom-leg (mapv round [3.0 3.0 3.0 3.0 3.0 nil])))))
+      (is (nil? (rf.bench.hicasso.p0-converge-app/ratom-leg (mapv round [3.0 3.0 3.0 3.0 3.0 nil])))))
     (testing "and a zero denominator divides to Infinity, so it is refused
              at the same door"
-      (is (nil? (app/ratom-leg (mapv round (repeat 6 0.0))))))))
+      (is (nil? (rf.bench.hicasso.p0-converge-app/ratom-leg (mapv round (repeat 6 0.0))))))))
 
 (def ^:private synthetic-ms
   "One reading vector per arm id, constant, so every ratio the record
@@ -1361,9 +1361,9 @@
   of that row's ACTUAL flagged arm set. The Reagent segment's arms come
   from the entry's own plan, so no premise is transcribed here."
   [row]
-  (let [reagent-arms (select-keys synthetic-ms (app/reagent-segment-arm-ids row true))
+  (let [reagent-arms (select-keys synthetic-ms (rf.bench.hicasso.p0-converge-app/reagent-segment-arm-ids row true))
         uix-arms     (select-keys synthetic-ms [:floor :uix-subs :ctl-2x])]
-    (:record (app/row-record
+    (:record (rf.bench.hicasso.p0-converge-app/row-record
                {:row row
                 :grade :bar
                 :doc "a contract fixture, not a measurement"

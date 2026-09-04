@@ -40,19 +40,19 @@
   under `:node-test` every DOM claim degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support])
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-ratom-activation-dom)
 
@@ -65,7 +65,7 @@
   read, so the mounted occurrence repaints only if the commit's cell is
   actually notified."
   [_]
-  [:output#readout (str (rt/sub [:hic/n]))])
+  [:output#readout (str (rf.bench.hicasso.arm1.runtime/sub [:hic/n]))])
 
 (defview bump
   "A committed `:on-click` site — the operator's press, driven for real."
@@ -83,14 +83,14 @@
   (is true (str "a repaint claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (lane/leave-act-environment!)
-  (rt/reset-runtime!)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
   (rf/reg-sub :hic/n (fn [db _] (:n db)))
   (rf/reg-event :hic/bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
   (rf/reg-event :hic/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
   (rf/reg-event :hic/set-other (fn [{:keys [db]} [_ v]] {:db (assoc db :other v)}))
   (rf/make-frame {:id frame-id :initial-events [[:hic/set-n 0]]})
-  (rt/reset-body-runs!)
+  (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
   frame-id)
 
 (defn- settle!
@@ -98,17 +98,17 @@
 
   `reagent.core/flush` runs the reactions a write enqueued, which is what
   turns an activated node's recompute into the `notify-w` the cell's watch
-  rides; `mount/settle!` is the empty `flushSync` that lets the sync-lane
+  rides; `rf.bench.hicasso.arm1.mount/settle!` is the empty `flushSync` that lets the sync-lane
   `onStoreChange` that raised commit. The bench spells the pair as
   `(flushSync (fn [] (r/flush)))`, which is the same two acts in one
   call."
   []
   (r/flush)
-  (mount/settle!)
+  (rf.bench.hicasso.arm1.mount/settle!)
   nil)
 
 (defn- write! [handle event]
-  (rt/dispatch! (:frame handle) event)
+  (rf.bench.hicasso.arm1.runtime/dispatch! (:frame handle) event)
   (settle!))
 
 (defn- press! [handle]
@@ -123,11 +123,11 @@
 ;; ===========================================================================
 
 (deftest a-mounted-boundary-repaints-under-the-reagent-adapter
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [page {}])]
+      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [page {}])]
         (try
           (is (= "0" (readout-text handle))
               "the first render read the seeded value — it always did; the
@@ -146,18 +146,18 @@
           (is (= "2" (readout-text handle))
               "0 → 1 → 2: the channel stays armed rather than firing once")
           (finally
-            (mount/release! handle)))))))
+            (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ===========================================================================
 ;; 2 — a real press, which is what the operator drives
 ;; ===========================================================================
 
 (deftest a-real-press-repaints-the-mounted-boundary
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [page {}])]
+      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [page {}])]
         (try
           (is (= "0" (readout-text handle)))
           (press! handle)
@@ -167,26 +167,26 @@
               "and the sibling reader repainted off the same movement — the
                whole round trip a page performs, with nothing hand-driven")
           (finally
-            (mount/release! handle)))))))
+            (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ===========================================================================
 ;; 3 — the adversarial companion: activation must not make it chatty
 ;; ===========================================================================
 
 (deftest a-write-that-moved-nothing-repaints-no-boundary
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [page {}])]
+      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [page {}])]
         (try
           (is (= "0" (readout-text handle)))
-          (rt/reset-body-runs!)
+          (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
           (write! handle [:hic/set-n 0])
-          (is (zero? (rt/body-runs))
+          (is (zero? (rf.bench.hicasso.arm1.runtime/body-runs))
               "an equal re-write moved nothing, so no body re-ran")
           (write! handle [:hic/set-other :noise])
-          (is (zero? (rt/body-runs))
+          (is (zero? (rf.bench.hicasso.arm1.runtime/body-runs))
               "…and neither did a write to a key this sub never reads")
           (is (= "0" (readout-text handle))
               "the DOM is untouched by either write")
@@ -194,7 +194,7 @@
           (testing "positive control — the silences above are silences, not
                     a dead channel that would make this whole row vacuous"
             (write! handle [:hic/set-n 6])
-            (is (pos? (rt/body-runs)))
+            (is (pos? (rf.bench.hicasso.arm1.runtime/body-runs)))
             (is (= "6" (readout-text handle))))
           (finally
-            (mount/release! handle)))))))
+            (rf.bench.hicasso.arm1.mount/release! handle)))))))

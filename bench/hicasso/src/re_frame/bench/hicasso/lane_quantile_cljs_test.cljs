@@ -41,7 +41,7 @@
   window that will point the estimator at an application is a separate
   quiet-box run and is not this bead's — see `budgets.md` §9.4."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.lane :as lane]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -73,34 +73,34 @@
   (testing "the fixture DISCRIMINATES — the two conventions disagree on it"
     (let [xs (vec (range 1 21))]                            ; 1..20, n = 20
       (is (= 20 (count xs)))
-      (is (not (close? (lane/quantile xs 0.95) (nearest-rank xs 0.95)))
+      (is (not (close? (rf.bench.hicasso.lane/quantile xs 0.95) (nearest-rank xs 0.95)))
           "if these agree the case below has stopped testing the definition")))
 
   (testing "and the answer is the interpolated one, not the nearest rank"
     (let [xs (vec (range 1 21))]
       ;; h = (20-1)*0.95 = 18.05 -> v[18] + (v[19] - v[18]) * 0.05
       ;;                          = 19   + 1 * 0.05 = 19.05
-      (is (close? 19.05 (lane/quantile xs 0.95)))
+      (is (close? 19.05 (rf.bench.hicasso.lane/quantile xs 0.95)))
       (is (= 19 (nearest-rank xs 0.95))
           "the convention NOT taken, stated so the difference is on the page")))
 
   (testing "q = 0 is the minimum and q = 1 is the maximum, exactly"
     (let [xs [7.5 2.25 9.0 4.0]]
-      (is (= 2.25 (lane/quantile xs 0)))
-      (is (= 9.0 (lane/quantile xs 1)))))
+      (is (= 2.25 (rf.bench.hicasso.lane/quantile xs 0)))
+      (is (= 9.0 (rf.bench.hicasso.lane/quantile xs 1)))))
 
   (testing "the sample need not arrive sorted"
     (let [asc  (vec (range 1 21))
           desc (vec (reverse asc))
           shuf [13 2 20 7 1 19 4 11 16 6 3 18 9 14 5 12 17 8 15 10]]
       (is (= (set asc) (set shuf)) "the shuffled fixture is the same sample")
-      (is (close? (lane/quantile asc 0.95) (lane/quantile desc 0.95)))
-      (is (close? (lane/quantile asc 0.95) (lane/quantile shuf 0.95)))))
+      (is (close? (rf.bench.hicasso.lane/quantile asc 0.95) (rf.bench.hicasso.lane/quantile desc 0.95)))
+      (is (close? (rf.bench.hicasso.lane/quantile asc 0.95) (rf.bench.hicasso.lane/quantile shuf 0.95)))))
 
   (testing "a one-sample and an empty sample"
-    (is (= 4.0 (lane/quantile [4.0] 0.99)))
-    (is (nil? (lane/quantile [] 0.95)))
-    (is (nil? (lane/quantile nil 0.95)))))
+    (is (= 4.0 (rf.bench.hicasso.lane/quantile [4.0] 0.99)))
+    (is (nil? (rf.bench.hicasso.lane/quantile [] 0.95)))
+    (is (nil? (rf.bench.hicasso.lane/quantile nil 0.95)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The consistency with `:p50`, which is why this convention and not another
@@ -111,8 +111,8 @@
     (doseq [xs [[3.0 1.0 2.0]
                 [5.0 1.0 4.0 2.0 3.0]
                 (vec (range 1 22))]]
-      (let [p50 (:p50 (lane/summarise xs))]
-        (is (= p50 (lane/quantile xs 0.5))
+      (let [p50 (:p50 (rf.bench.hicasso.lane/summarise xs))]
+        (is (= p50 (rf.bench.hicasso.lane/quantile xs 0.5))
             (str "p50 and quantile 0.5 must be one estimator on " (count xs) " samples"))
         (is (some #(= % p50) xs)
             "an odd count answers a member of its own sample"))))
@@ -123,7 +123,7 @@
                 [0.1 0.3]
                 [2.4 2.5 2.6 2.7 2.8 2.9]
                 (vec (range 1 21))]]
-      (is (close? (:p50 (lane/summarise xs)) (lane/quantile xs 0.5))
+      (is (close? (:p50 (rf.bench.hicasso.lane/summarise xs)) (rf.bench.hicasso.lane/quantile xs 0.5))
           (str "p50 and quantile 0.5 must agree on " (count xs) " samples"))))
 
   (testing "`:p50`'s own spelling is UNCHANGED by this bead — the two-branch
@@ -131,9 +131,9 @@
     ;; The values below are the pre-`rf2-xa8wo` behaviour, transcribed. A
     ;; refactor that routed `:p50` through `quantile` would move a published
     ;; figure by up to one ulp, and this is the assertion that would catch it.
-    (is (= 2.0 (:p50 (lane/summarise [1.0 2.0 3.0]))))
-    (is (= 2.5 (:p50 (lane/summarise [1.0 2.0 3.0 4.0]))))
-    (is (= (/ (+ 0.1 0.3) 2.0) (:p50 (lane/summarise [0.1 0.3]))))))
+    (is (= 2.0 (:p50 (rf.bench.hicasso.lane/summarise [1.0 2.0 3.0]))))
+    (is (= 2.5 (:p50 (rf.bench.hicasso.lane/summarise [1.0 2.0 3.0 4.0]))))
+    (is (= (/ (+ 0.1 0.3) 2.0) (:p50 (rf.bench.hicasso.lane/summarise [0.1 0.3]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; What a SHORT sample does to a tail quantile — the docstring's own caveat,
@@ -144,7 +144,7 @@
   (testing "at n = 20 a p99 sits between the top two readings and is no
             reading the sample ever took"
     (let [xs  (vec (range 1 21))
-          p99 (lane/quantile xs 0.99)]
+          p99 (rf.bench.hicasso.lane/quantile xs 0.99)]
       ;; h = 19*0.99 = 18.81 -> 19 + (20-19)*0.81 = 19.81
       (is (close? 19.81 p99))
       (is (< 19 p99 20) "strictly between the second-largest and the largest")
@@ -154,7 +154,7 @@
   (testing "a quantile never exceeds the maximum, however short the sample"
     (doseq [n [1 2 3 5 20 101]]
       (let [xs (vec (range 1 (inc n)))
-            s  (lane/summarise xs)]
+            s  (rf.bench.hicasso.lane/summarise xs)]
         (is (<= (:p50 s) (:p95 s) (:p99 s) (:max s))
             (str "quantiles must be monotone and bounded by :max at n = " n))
         (is (>= (:p95 s) (:min s)))))))
@@ -167,18 +167,18 @@
 (deftest summarise-carries-the-tail-quantiles-and-keeps-everything-else
   (testing "the four fields every existing caller destructures are unmoved"
     (let [xs (vec (range 1 21))
-          s  (lane/summarise xs)]
+          s  (rf.bench.hicasso.lane/summarise xs)]
       (is (= 20 (:n s)))
       (is (= 1 (:min s)))
       (is (= 20 (:max s)))
       (is (= 10.5 (:p50 s)))))
 
-  (testing "and `:p95` / `:p99` are [[lane/quantile]] and not a second spelling"
+  (testing "and `:p95` / `:p99` are [[rf.bench.hicasso.lane/quantile]] and not a second spelling"
     (let [xs [4.2 1.9 3.3 8.8 2.7 5.1 6.4 7.0 9.6 0.5
               3.9 2.1 6.9 5.5 1.2 8.1 4.7 7.7 0.9 9.1]
-          s  (lane/summarise xs)]
-      (is (= (lane/quantile xs 0.95) (:p95 s)))
-      (is (= (lane/quantile xs 0.99) (:p99 s)))))
+          s  (rf.bench.hicasso.lane/summarise xs)]
+      (is (= (rf.bench.hicasso.lane/quantile xs 0.95) (:p95 s)))
+      (is (= (rf.bench.hicasso.lane/quantile xs 0.99) (:p99 s)))))
 
   (testing "and the summary carries EXACTLY these six keys"
     ;; Frozen here, next to the function, because it used to be frozen by
@@ -187,13 +187,13 @@
     ;; adding a field reddened a test with no opinion about fields. A shape
     ;; worth holding is worth holding where a reader would look for it.
     (is (= #{:n :min :max :p50 :p95 :p99}
-           (set (keys (lane/summarise [1.0 2.0 3.0]))))))
+           (set (keys (rf.bench.hicasso.lane/summarise [1.0 2.0 3.0]))))))
 
   (testing "an empty sample is still `nil` rather than a map of nothings"
-    (is (nil? (lane/summarise [])))
-    (is (nil? (lane/summarise nil))))
+    (is (nil? (rf.bench.hicasso.lane/summarise [])))
+    (is (nil? (rf.bench.hicasso.lane/summarise nil))))
 
   (testing "a one-sample answers that sample at every quantile"
-    (let [s (lane/summarise [3.75])]
+    (let [s (rf.bench.hicasso.lane/summarise [3.75])]
       (is (= 1 (:n s)))
       (is (= 3.75 (:min s) (:max s) (:p50 s) (:p95 s) (:p99 s))))))

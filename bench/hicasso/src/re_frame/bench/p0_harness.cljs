@@ -57,7 +57,7 @@
   this arm rf2-2rtt6.4."
   (:require ["react-dom" :as react-dom]
             [clojure.string :as str]
-            [re-frame.bench.order-guard :as guard]))
+            [re-frame.bench.order-guard :as rf.bench.order-guard]))
 
 ;; ---------------------------------------------------------------------------
 ;; The clock
@@ -74,7 +74,7 @@
 (defn- round4 [x]
   (/ (js/Math.round (* (double x) 10000.0)) 10000.0))
 
-(defn p50 [xs] (guard/median xs))
+(defn p50 [xs] (rf.bench.order-guard/median xs))
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical DOM — the fairness gate
@@ -373,14 +373,14 @@
   fact is published and the guard's `:unchecked` refusal stands."
   [k samples]
   (let [score (fn [nm f]
-                (let [a  (guard/adjacency k samples f {:seams? true})
+                (let [a  (rf.bench.order-guard/adjacency k samples f {:seams? true})
                       as (vals (:arms a))]
                   {:name            nm
                    :fn              f
                    :min-distinct    (apply min (map :distinct as))
                    :max-modal-share (apply max (map :modal-share as))}))
-        cands [(score :reflecting guard/slot-order)
-               (score :rotating   guard/rotation-only)]
+        cands [(score :reflecting rf.bench.order-guard/slot-order)
+               (score :rotating   rf.bench.order-guard/rotation-only)]
         ok    (filter #(>= (:min-distinct %) 2) cands)]
     (if (seq ok)
       (assoc (apply min-key :max-modal-share ok) :sufficient? true)

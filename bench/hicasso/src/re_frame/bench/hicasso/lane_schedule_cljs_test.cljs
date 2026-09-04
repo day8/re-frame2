@@ -7,7 +7,7 @@
   `order-guard`'s `:predecessor` factor strata every banked sample by
   exactly that.
 
-  It did throw it away. [[lane/collect!]] carried `:prev` forward from the
+  It did throw it away. [[rf.bench.hicasso.lane/collect!]] carried `:prev` forward from the
   last sample it BANKED, so at each round's first measured sample the
   predecessor it recorded was the PREVIOUS ROUND'S last measured arm —
   never the warm-up sample that had just run. Replaying the schedule
@@ -43,7 +43,7 @@
   ## Arm counts
 
   4, 5, 7, 8 and 9 — `direct_return_clock`'s, `amp_merge_clock`'s before
-  `rf2-z143r`'s ladder and after it, the count `lane/observe!`'s own
+  `rf2-z143r`'s ladder and after it, the count `rf.bench.hicasso.lane/observe!`'s own
   docstring prices the fault at, and `amp_merge_clock`'s again once
   `rf2-v5oto`'s two clean-pair arms land. The fault is invariant to all
   of them, which is the same arithmetic that settles `rf2-6ta5r`'s
@@ -68,7 +68,7 @@
   which is the point: it should not be possible to land the mechanism and
   leave the reasoning that declined it standing."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.lane :as lane]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]))
 
 ;; ---------------------------------------------------------------------------
 ;; The replay
@@ -80,7 +80,7 @@
   [4 5 7 8 9])
 
 (defn- replay
-  "Run `lane/rounds!` over `n` arms with a stub that records the true
+  "Run `rf.bench.hicasso.lane/rounds!` over `n` arms with a stub that records the true
   execution order and answers each call's index in it.
 
   Answers `{:samples … :readings … :truth […]}`, where `truth` is EVERY
@@ -88,7 +88,7 @@
   [n sampling rounds]
   (let [truth (atom [])
         arms  (mapv (fn [i] {:id (keyword (str "arm-" i))}) (range n))
-        out   (lane/rounds! arms sampling rounds
+        out   (rf.bench.hicasso.lane/rounds! arms sampling rounds
                             (fn [arm]
                               (let [i (count @truth)]
                                 (swap! truth conj (name (:id arm)))
@@ -203,7 +203,7 @@
   "Both samplings the lane's page-mount clocks have run, each with the span
   of PRIOR EXECUTIONS OF ITS OWN ARM that the run's last third sits at.
 
-  `lane/rounds!`'s docstring quotes both spans as the reason a run-level
+  `rf.bench.hicasso.lane/rounds!`'s docstring quotes both spans as the reason a run-level
   pre-warm was declined; these are the same two numbers, checked. The
   file-level [[sampling]] above stays pinned at the pair the predecessor
   fault was found under — that fault is invariant to the numbers and this

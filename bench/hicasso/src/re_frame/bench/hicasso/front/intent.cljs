@@ -248,8 +248,8 @@
   [[re-frame.bench.hicasso.front.controlled]] wraps the handler this
   namespace produced, after it has produced it, and nothing about the
   lowering changes because of it (rf2-fki5d)."
-  (:require [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---------------------------------------------------------------------------
 ;; The ambient frame (HD-020(a))
@@ -329,7 +329,7 @@
   exactly the render extent HD-002 clause (a) governs, so it is exactly
   where ambient `rf/subscribe` / `rf/dispatch` must stop resolving. It is
   bound HERE, fused into the binding this function already performs, rather
-  than through `frame/call-with-ambient-frame-refused` around the call:
+  than through `rf.frame/call-with-ambient-frame-refused` around the call:
   `binding` pushes and pops its whole set once, so the fence costs the arm
   no additional frame — the general seam exists for substrates that are not
   already binding something.
@@ -363,7 +363,7 @@
   ([frame-kw dispatch body-fn]
    (binding [*frame*                       frame-kw
              *dispatch*                    dispatch
-             frame/*ambient-frame-refusal* (cond-> ambient-frame-refusal
+             rf.frame/*ambient-frame-refusal* (cond-> ambient-frame-refusal
                                              frame-kw (assoc :extent-frame frame-kw))]
      (body-fn))))
 
@@ -1023,7 +1023,7 @@
   (let [{:keys [frame payload native? veto]} (unwrap-navigate k v)
         veto-fn (lower-veto k veto)]
     (fn hicasso-navigate [e]
-      (if-some [activate (late-bind/get-fn :routing/activate-link!)]
+      (if-some [activate (rf.late-bind/get-fn :routing/activate-link!)]
         (activate e veto-fn frame payload native?)
         (when veto-fn (veto-fn e)))
       nil)))

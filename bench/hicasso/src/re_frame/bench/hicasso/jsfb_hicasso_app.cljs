@@ -39,10 +39,10 @@
   gates that rather than this docstring.
 
   Owner: rf2-rguy1."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as hmount]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
             [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.jsfb-model :as m]
+            [re-frame.bench.hicasso.jsfb-model :as rf.bench.hicasso.jsfb-model]
             [re-frame.core :as rf])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
@@ -105,8 +105,8 @@
   ;; The UIx adapter, for the reason the clock page states: Arm 1's
   ;; React-hook spine is built over it and its own witnesses install it.
   ;; The adapter is the substrate the CANDIDATE runs on, not a third arm.
-  (rf/init! uix-adapter/adapter)
-  (m/reset-seed!)
-  (m/register!)
-  (m/make-frame!)
-  (hmount/root! (js/document.getElementById "main") m/frame-id [app {}]))
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.jsfb-model/reset-seed!)
+  (rf.bench.hicasso.jsfb-model/register!)
+  (rf.bench.hicasso.jsfb-model/make-frame!)
+  (rf.bench.hicasso.arm1.mount/root! (js/document.getElementById "main") rf.bench.hicasso.jsfb-model/frame-id [app {}]))

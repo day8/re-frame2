@@ -47,8 +47,8 @@
   things that were never in danger of differing, and this file would
   pass while checking nothing."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.amp-merge-clock-app :as amp]
-            [re-frame.bench.hicasso.front.codec :as codec]))
+            [re-frame.bench.hicasso.amp-merge-clock-app :as rf.bench.hicasso.amp-merge-clock-app]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]))
 
 ;; ---------------------------------------------------------------------------
 ;; The witness's own inputs
@@ -120,7 +120,7 @@
   two, so a comparison between them is a comparison of the same
   quantity."
   [hiccup]
-  (codec/merge-caller (attrs-of hiccup)))
+  (rf.bench.hicasso.front.codec/merge-caller (attrs-of hiccup)))
 
 ;; ---------------------------------------------------------------------------
 ;; The cliff itself
@@ -151,7 +151,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest rung-1-prime-writes-expandeds-eight-keys-and-no-ninth
-  (let [lean (attrs-of (amp/field-lean draft errors id :description false
+  (let [lean (attrs-of (rf.bench.hicasso.amp-merge-clock-app/field-lean draft errors id :description false
                                        classless-remainder))]
     (testing "`field-lean` writes `:expanded`'s keys, in `:expanded`'s order"
       (is (= expanded-attr-keys (vec (keys lean)))))
@@ -162,11 +162,11 @@
       (is (not (contains? lean :class))
           "the passenger is absent, which is the whole of the repair"))
     (testing "and the codec meets that map by identity — there is no `:&` here"
-      (is (identical? lean (codec/merge-caller lean))))))
+      (is (identical? lean (rf.bench.hicasso.front.codec/merge-caller lean))))))
 
 (deftest the-lg-helper-differs-from-the-plain-one-by-the-TAG-alone
-  (let [plain (amp/field-lean    draft errors id :description false classless-remainder)
-        lg    (amp/field-lean-lg draft errors id :description false classless-remainder)]
+  (let [plain (rf.bench.hicasso.amp-merge-clock-app/field-lean    draft errors id :description false classless-remainder)
+        lg    (rf.bench.hicasso.amp-merge-clock-app/field-lean-lg draft errors id :description false classless-remainder)]
     (testing "same remainder in, same attribute map out"
       (is (= (attrs-of plain) (attrs-of lg)))
       (is (= (vec (keys (attrs-of plain))) (vec (keys (attrs-of lg))))
@@ -189,9 +189,9 @@
             ;; its helper takes them back out; `:no-dissoc-lean` passes
             ;; them as arguments. Both are handed the SAME remainder, so
             ;; the round trip is the only thing between them.
-            merged (presented (amp/field draft errors id
+            merged (presented (rf.bench.hicasso.amp-merge-clock-app/field draft errors id
                                          (merge {:k k :busy? false} remainder)))
-            lean   (presented (amp/field-no-dissoc draft errors id k false
+            lean   (presented (rf.bench.hicasso.amp-merge-clock-app/field-no-dissoc draft errors id k false
                                                    remainder))]
         (is (= merged lean) "the same attribute map")
         (is (= (vec (keys merged)) (vec (keys lean))) "in the same order")
@@ -206,7 +206,7 @@
 
 (deftest the-old-rungs-crossed-the-cliff
   (testing "rung (1): `field-explicit` writes `:class` whether or not there is one"
-    (let [old (attrs-of (amp/field-explicit draft errors id :description false
+    (let [old (attrs-of (rf.bench.hicasso.amp-merge-clock-app/field-explicit draft errors id :description false
                                             classless-remainder))]
       (is (contains? old :class))
       (is (nil? (:class old)) "the passenger, and its value is nil")
@@ -215,10 +215,10 @@
           "a hash map where `:expanded` and `field-lean` build an array map")))
 
   (testing "rung (3): the `:class nil` call site crosses where `:merged` does not"
-    (let [merged (presented (amp/field draft errors id
+    (let [merged (presented (rf.bench.hicasso.amp-merge-clock-app/field draft errors id
                                        (merge {:k :description :busy? false}
                                               classless-remainder)))
-          old    (presented (amp/field-no-dissoc draft errors id :description false
+          old    (presented (rf.bench.hicasso.amp-merge-clock-app/field-no-dissoc draft errors id :description false
                                                  classless-remainder+nil-class))]
       (is (= 8 (count merged)))
       (is (instance? PersistentArrayMap merged))

@@ -460,9 +460,9 @@ test('THE CANDIDATE ARM READS THE PACKAGE — its two doors are the facade', () 
 
 test('THE HEAP RIG READS THE PACKAGE — all three doors, none of them arm1', () => {
   const req = nsRequires(HEAP);
-  assert.match(req, /\[re-frame\.hicasso\.impl\.mount :as hic-mount\]/, 'the mount door');
-  assert.match(req, /\[re-frame\.hicasso\.impl\.collector :as hic-collector\]/, 'the runtime reset');
-  assert.match(req, /\[re-frame\.hicasso\.test\.runtime :as hic-runtime\]/, 'the structural census');
+  assert.match(req, /\[re-frame\.hicasso\.impl\.mount :as rf\.hicasso\.impl\.mount\]/, 'the mount door');
+  assert.match(req, /\[re-frame\.hicasso\.impl\.collector :as rf\.hicasso\.impl\.collector\]/, 'the runtime reset');
+  assert.match(req, /\[re-frame\.hicasso\.test\.runtime :as rf\.hicasso\.test\.runtime\]/, 'the structural census');
   assert.ok(
     !/re-frame\.bench\.hicasso\.arm1/.test(req),
     'p0_heap.cljs must not REQUIRE the frozen prototype (naming it in prose is fine)'
@@ -474,9 +474,9 @@ test('THE FOUR SEAMS CALL THROUGH THOSE ALIASES, and no fifth one is hiding', ()
   // site keeps the old one. These are the four sites rf2-fe0l enumerated,
   // counted in the code and not in the commentary.
   const code = codeOf(HEAP);
-  assert.strictEqual(countOf(code, 'hic-mount/root!'), 1, 'the mount door, once');
-  assert.strictEqual(countOf(code, 'hic-collector/reset-runtime!'), 1, 'the runtime reset, once');
-  assert.strictEqual(countOf(code, 'hic-runtime/residue'), 2, 'the live census and the post-unmount read');
+  assert.strictEqual(countOf(code, 'rf.hicasso.impl.mount/root!'), 1, 'the mount door, once');
+  assert.strictEqual(countOf(code, 'rf.hicasso.impl.collector/reset-runtime!'), 1, 'the runtime reset, once');
+  assert.strictEqual(countOf(code, 'rf.hicasso.test.runtime/residue'), 2, 'the live census and the post-unmount read');
   // The prototype's alias. Its absence is what says no seam was missed.
   assert.strictEqual(countOf(code, 'hic-rt/'), 0, 'no call site left on the old alias');
 });
@@ -2042,11 +2042,11 @@ test('the RETENTION ladder is not moved by any of this', () => {
   // only ever one write to name.
   assert.match(
     HEAP,
-    /\(if all\?\s+\(arms\/write-all! @alloc-tick\)\s+\(arms\/write-page! @alloc-tick\)\)/,
+    /\(if all\?\s+\(rf\.bench\.p0-arms\/write-all! @alloc-tick\)\s+\(rf\.bench\.p0-arms\/write-page! @alloc-tick\)\)/,
     "write-page! is the alloc window's DEFAULT arm and write-all! the else-arm"
   );
   assert.strictEqual(
-    (HEAP.match(/\(arms\/write-all! /g) || []).length,
+    (HEAP.match(/\(rf\.bench\.p0-arms\/write-all! /g) || []).length,
     1,
     'and write-all! is reachable from exactly ONE place in this namespace'
   );
@@ -2121,12 +2121,12 @@ test('the clock and bulk rows are not moved either', () => {
   // and must still call `enter-segment!` with no width — the arity that seeds
   // the published grid to the byte.
   const APP = fs.readFileSync(path.join(__dirname, 'p0_app.cljs'), 'utf8');
-  assert.match(APP, /\(arms\/enter-segment! segment\)/, 'the clock rows pass no width');
+  assert.match(APP, /\(rf\.bench\.p0-arms\/enter-segment! segment\)/, 'the clock rows pass no width');
   assert.doesNotMatch(APP, /:p0\/write-page/, 'and no clock row drives the new write');
   const ARMS = fs.readFileSync(path.join(__dirname, 'p0_arms.cljs'), 'utf8');
   assert.match(
     ARMS,
-    /\(\[segment\] \(enter-segment! segment fx\/cells-n\)\)/,
+    /\(\[segment\] \(enter-segment! segment rf\.bench\.p0-fixture\/cells-n\)\)/,
     'because the default arity IS the published width'
   );
 });

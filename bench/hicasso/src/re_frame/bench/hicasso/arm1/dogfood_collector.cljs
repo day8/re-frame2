@@ -38,7 +38,7 @@
   Mounted by `arm1_dogfood_dom_cljs_test` — and mounting it is what
   started the six-week K7 clock (HD-014)."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.dogfood :as d])
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (defview head [_]
@@ -50,10 +50,10 @@
 (defview new-item [_]
   [:form.new {:on-submit [:dogfood/create]}
    [:input.new-input {:type        "text"
-                      :value       (sub [:dogfood/draft d/new-draft-key])
-                      :on-input    [:dogfood/edit-draft d/new-draft-key :re-frame.hicasso/value]
+                      :value       (sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])
+                      :on-input    [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key :re-frame.hicasso/value]
                       :on-key-down {"Enter"  [:dogfood/create]
-                                    "Escape" [:dogfood/cancel d/new-draft-key]}}]
+                                    "Escape" [:dogfood/cancel rf.bench.hicasso.front.dogfood/new-draft-key]}}]
    [:button.add {:type "submit"} "Add"]])
 
 (defn- filter-button

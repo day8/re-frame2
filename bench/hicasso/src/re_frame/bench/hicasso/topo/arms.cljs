@@ -39,7 +39,7 @@
   each other: a memo bail-out that this file counted and the runtime did
   not would be a real disagreement rather than a rounding one."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.topo.model :as m])
+            [re-frame.bench.hicasso.topo.model :as rf.bench.hicasso.topo.model])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 ;; ---------------------------------------------------------------------------
@@ -176,14 +176,14 @@
   `:boundaries` counts registrations holding at least one read edge — the
   list plus, per arm, its row or chunk boundaries. A `coarse` page is one
   boundary because there is nothing beneath it holding a read."
-  ([arm b] (expected arm b m/window-size))
+  ([arm b] (expected arm b rf.bench.hicasso.topo.model/window-size))
   ([arm b w]
-   (let [rendered (m/rendered-rows arm b w)]
+   (let [rendered (rf.bench.hicasso.topo.model/rendered-rows arm b w)]
      {:rendered-rows rendered
-      :elements      (m/elements-for rendered)
-      :edges         (inc (m/memberships arm b w))
+      :elements      (rf.bench.hicasso.topo.model/elements-for rendered)
+      :edges         (inc (rf.bench.hicasso.topo.model/memberships arm b w))
       :boundaries    (case arm
                        :fine    (inc b)
                        :coarse  1
-                       :chunked (inc (long (Math/ceil (/ b m/chunk-size))))
+                       :chunked (inc (long (Math/ceil (/ b rf.bench.hicasso.topo.model/chunk-size))))
                        :virtual (inc (min b w)))})))

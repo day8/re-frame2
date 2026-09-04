@@ -33,20 +33,20 @@
   the same [[re-frame.bench.hicasso.shapes.card/card]] calls (69 x 17 =
   1,173 of the 1,202 elements are the card's own markup, byte-for-byte by
   construction). The twin is not trusted: at boot both pages are mounted
-  and their canonical DOM compared (`lane/canonical`, attribute names
+  and their canonical DOM compared (`rf.bench.hicasso.lane/canonical`, attribute names
   sorted), and the run is fatal on disagreement. A profile of a page that
   is not the acceptance page would be rf2-cvvb7's fault with extra steps.
 
   ## The arms
 
-  Realized input (`codec/realize-deep` outside the window) isolates the
+  Realized input (`rf.bench.hicasso.front.codec/realize-deep` outside the window) isolates the
   walk from the body's lazy tail; the one lazy arm prices that tail —
   on a mount the `for` seqs realize INSIDE `as-element`, so the
   mount-billed walk includes the card calls and their sub reads.
 
   | arm           | input    | what it prices |
   |---------------|----------|----------------|
-  | `ship-lazy`   | lazy     | the mount-billed walk: interpretation PLUS the body's lazy card/sub work |
+  | `ship-lazy`   | lazy     | the mount-billed walk: interpretation PLUS the body's lazy rf.bench.hicasso.shapes.card/sub work |
   | `ship`        | realized | the shipping walk alone |
   | `local`       | realized | the in-namespace copy — the ablation baseline, and the in-process A/B's OLD arm |
   | `no-create`   | realized | `local` with `react/createElement` swapped for a two-field object mint |
@@ -66,7 +66,7 @@
   rebuilt the attribute map of every element carrying a `#id`/`.class`
   shorthand — against a `local` copy that performed it. rf2-2rtt6.36
   **deleted** that surgery: the shorthand is folded onto the object the
-  walk EMITS (`codec/fold-shorthand!`), where the slot is already
+  walk EMITS (`rf.bench.hicasso.front.codec/fold-shorthand!`), where the slot is already
   resolved, and the fast lane that existed only to dodge the map copy
   went with it. `convert-props`' three lanes became two.
 
@@ -132,16 +132,16 @@
 
   Owner bead: rf2-y1jkm. Driver: `run.cjs` with
   HICASSO_INIT_FN=re-frame.bench.hicasso.walk-profile-app/-main."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as arm1-mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt :refer [sub]]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.controlled :as controlled]
-            [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.bench.hicasso.front.slot :as slot]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.card :as card]
-            [re-frame.bench.hicasso.shapes.large-template :as lt]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime :refer [sub]]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.bench.hicasso.front.slot :as rf.bench.hicasso.front.slot]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.card :as rf.bench.hicasso.shapes.card]
+            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
             [re-frame.core :as rf]
             ["react" :as react])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
@@ -154,7 +154,7 @@
 
 (defn page-hiccup
   "The large-template page's body forms, verbatim minus the run counter:
-  the same chrome, the same `(card/card slug)` calls, the same tag-pill
+  the same chrome, the same `(rf.bench.hicasso.shapes.card/card slug)` calls, the same tag-pill
   `for`. Must run inside a body context (the reads). The parity gate
   below is what makes this a copy rather than a claim."
   []
@@ -183,7 +183,7 @@
             "Global Feed"]]]]
         [:div.article-list {:data-testid "article-list"}
          (for [slug (sub [:conduit/slugs])]
-           (card/card slug))]]
+           (rf.bench.hicasso.shapes.card/card slug))]]
        [:div.col-md-3
         [:div.sidebar
          [:p "Popular Tags"]
@@ -204,17 +204,17 @@
   canonical DOM agrees and matches the arithmetic. Fatal, before any
   clock."
   []
-  (let [c-real (arm1-mount/fresh-container!)
-        c-twin (arm1-mount/fresh-container!)
-        h-real (arm1-mount/root! c-real frame-id [lt/page {}])
-        h-twin (arm1-mount/root! c-twin frame-id [twin-page {}])
-        canon-real (lane/canonical c-real)
-        canon-twin (lane/canonical c-twin)
-        n-real (lane/element-count c-real)
-        n-twin (lane/element-count c-twin)
-        expected (lt/element-arithmetic)]
-    (arm1-mount/unmount! h-real)
-    (arm1-mount/unmount! h-twin)
+  (let [c-real (rf.bench.hicasso.arm1.mount/fresh-container!)
+        c-twin (rf.bench.hicasso.arm1.mount/fresh-container!)
+        h-real (rf.bench.hicasso.arm1.mount/root! c-real frame-id [rf.bench.hicasso.shapes.large-template/page {}])
+        h-twin (rf.bench.hicasso.arm1.mount/root! c-twin frame-id [twin-page {}])
+        canon-real (rf.bench.hicasso.lane/canonical c-real)
+        canon-twin (rf.bench.hicasso.lane/canonical c-twin)
+        n-real (rf.bench.hicasso.lane/element-count c-real)
+        n-twin (rf.bench.hicasso.lane/element-count c-twin)
+        expected (rf.bench.hicasso.shapes.large-template/element-arithmetic)]
+    (rf.bench.hicasso.arm1.mount/unmount! h-real)
+    (rf.bench.hicasso.arm1.mount/unmount! h-twin)
     (when-not (and (= canon-real canon-twin)
                    (= expected n-real n-twin))
       (throw (ex-info (str "twin parity FAILED: the profiled page is not the "
@@ -222,9 +222,9 @@
                            " expected " expected " canonical "
                            (if (= canon-real canon-twin) "agrees" "DISAGREES") ")")
                       {:expected expected :real n-real :twin n-twin})))
-    ;; `lane/utf8-bytes` and not `count`: `-main` prints this as "canonical
+    ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count`: `-main` prints this as "canonical
     ;; bytes", and `count` answers UTF-16 code units (rf2-2rtt6.121).
-    {:elements n-real :bytes (lane/utf8-bytes canon-real)}))
+    {:elements n-real :bytes (rf.bench.hicasso.lane/utf8-bytes canon-real)}))
 
 ;; ---------------------------------------------------------------------------
 ;; The body-context door
@@ -234,11 +234,11 @@
 
 (defn in-body
   "Run `f` inside a boundary body context — ambient frame bound, reads
-  legal — via the runtime's own public [[rt/render-body]], and answer
+  legal — via the runtime's own public [[rf.bench.hicasso.arm1.runtime/render-body]], and answer
   `(f)`. The trailing `[:span]` is the body's element and is outside
   every timed window."
   [f]
-  (rt/render-body frame-id (fn [_] (vreset! !out (f)) [:span]) {})
+  (rf.bench.hicasso.arm1.runtime/render-body frame-id (fn [_] (vreset! !out (f)) [:span]) {})
   @!out)
 
 ;; ---------------------------------------------------------------------------
@@ -249,7 +249,7 @@
 ;; the donor's three createElement arities, the single-pass props reduce)
 ;; with an integer `mode` consulted at the five phase sites. `case` on an
 ;; int compiles to a JS switch; the full-default instance is validated
-;; against `codec/as-element` in the ARMS table rather than assumed
+;; against `rf.bench.hicasso.front.codec/as-element` in the ARMS table rather than assumed
 ;; equivalent.
 
 (def ^:const M-FULL 0)
@@ -315,7 +315,7 @@
   [mode k v]
   (if (identical? mode M-NO-LOWER)
     (if (or (vector? v) (map? v)) nil v)
-    (intent/lower-prop k v)))
+    (rf.bench.hicasso.front.intent/lower-prop k v)))
 
 (declare local-convert-prop-value)
 
@@ -327,7 +327,7 @@
 
 (defn- walk-fold-shorthand!
   "Fold the tag's `#id`/`.class` shorthand onto the object the walk just
-  emitted — `codec/fold-shorthand!`'s shape, which is private there — or
+  emitted — `rf.bench.hicasso.front.codec/fold-shorthand!`'s shape, which is private there — or
   the no-fold stub, which answers the object untouched.
 
   Asked of the EMITTED object, so there is no spelling left to resolve:
@@ -348,7 +348,7 @@
           (unchecked-set o class-slot
                          (if (undefined? declared)
                            shorthand
-                           (codec/class-names shorthand declared)))))
+                           (rf.bench.hicasso.front.codec/class-names shorthand declared)))))
       o)))
 
 (def ^:private reserved-names #{"__proto__" "prototype" "constructor"})
@@ -375,13 +375,13 @@
 
 (defn- local-prop-name [k]
   (if-not (or (keyword? k) (symbol? k))
-    (if (string? k) (slot/prop-name k) k)
+    (if (string? k) (rf.bench.hicasso.front.slot/prop-name k) k)
     (let [n (name k)]
       (if (reserved-names n)
-        (slot/prop-name k)
+        (rf.bench.hicasso.front.slot/prop-name k)
         (if (.call local-has-own local-prop-cache n)
           (unchecked-get local-prop-cache n)
-          (let [converted (slot/prop-name k)]
+          (let [converted (rf.bench.hicasso.front.slot/prop-name k)]
             (unchecked-set local-prop-cache n converted)
             converted))))))
 
@@ -402,7 +402,7 @@
   ablation baseline AND the in-process A/B's old arm, and an old arm
   that calls the candidate's own converter absorbs the candidate and
   undersells it. PR #7383's audit named this exact site — the `local`
-  walk reached straight into `codec/convert-prop-value`, which that same
+  walk reached straight into `rf.bench.hicasso.front.codec/convert-prop-value`, which that same
   PR changed, so the quoted old-vs-new figure was measured against a
   baseline the candidate had already reached into.
 
@@ -416,7 +416,7 @@
   `merge-shorthand` and the map-copying `dissoc` the candidate also
   replaced were **deleted** from the codec by rf2-2rtt6.36, so there is
   no shipping shape left to copy and rf2-2rtt6.70 re-pointed
-  [[walk-convert-props]] at the lanes that ship. `codec/cached-parse`
+  [[walk-convert-props]] at the lanes that ship. `rf.bench.hicasso.front.codec/cached-parse`
   likewise keeps the candidate's cheaper reserved-name check, because
   the `parse-raw` benefit line prices the TAG CACHE and needs both its
   arms on one parse implementation. So `local` is the pre-optimisation
@@ -469,13 +469,13 @@
                                                 (walk-lower mode k v)))))
                        o)))
                  #js {}
-                 (codec/merge-caller (or props {})))
+                 (rf.bench.hicasso.front.codec/merge-caller (or props {})))
       parsed)))
 
 (defn- walk-parse [mode tag]
   (if (identical? mode M-PARSE-RAW)
-    (codec/parse-tag tag)
-    (codec/cached-parse tag)))
+    (rf.bench.hicasso.front.codec/parse-tag tag)
+    (rf.bench.hicasso.front.codec/cached-parse tag)))
 
 (defn- walk-native [mode argv]
   (let [parsed     (walk-parse mode (nth argv 0))
@@ -485,15 +485,15 @@
         ;; first lane, and wrapping it in an empty map is exactly what
         ;; hides the lane from the clock.
         js-props   (walk-convert-props mode props parsed)]
-    (controlled/install! (.-tag ^js parsed) js-props)
+    (rf.bench.hicasso.front.controlled/install! (.-tag ^js parsed) js-props)
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (walk-make-element mode (.-tag ^js parsed) js-props argv (if has-props? 2 1))))
 
 (defn- walk-boundary [mode argv]
   (let [has-props? (map? (nth argv 1 nil))
-        props      (codec/merge-caller (if has-props? (nth argv 1) {}))
-        children   (codec/realize-children argv (if has-props? 2 1))
-        body-props (codec/realize-deep (cond-> (dissoc props :key)
+        props      (rf.bench.hicasso.front.codec/merge-caller (if has-props? (nth argv 1) {}))
+        children   (rf.bench.hicasso.front.codec/realize-children argv (if has-props? 2 1))
+        body-props (rf.bench.hicasso.front.codec/realize-deep (cond-> (dissoc props :key)
                                          children (assoc :children children)))
         head       (nth argv 0)
         js-props   #js {"rfProps" body-props}]
@@ -501,8 +501,8 @@
     ;; The frame-as-a-prop variant's one emission cost (rf2-2rtt6.39).
     ;; Priced at nothing on THIS page — the census counts zero boundaries
     ;; — and copied anyway, so the arm stays a copy of what ships.
-    (when (codec/frame-prop-head? head)
-      (unchecked-set js-props "rfFrame" intent/*frame*))
+    (when (rf.bench.hicasso.front.codec/frame-prop-head? head)
+      (unchecked-set js-props "rfFrame" rf.bench.hicasso.front.intent/*frame*))
     (walk-create mode head js-props)))
 
 (defn- walk-fragment [mode argv]
@@ -518,7 +518,7 @@
       (= :<> head)                 (walk-fragment mode argv)
       (and (or (keyword? head) (symbol? head) (string? head))
            (not (= :<> head)))     (walk-native mode argv)
-      (codec/boundary-head? head)  (walk-boundary mode argv)
+      (rf.bench.hicasso.front.codec/boundary-head? head)  (walk-boundary mode argv)
       :else (throw (ex-info "bad head in local walk" {:head head})))))
 
 (defn- walk-el [mode x]
@@ -574,7 +574,7 @@
                 (cond
                   (= :<> head) (bump :fragment)
                   (or (keyword? head) (symbol? head) (string? head))
-                  (let [p (codec/cached-parse head)]
+                  (let [p (rf.bench.hicasso.front.codec/cached-parse head)]
                     (bump :native)
                     (when (.-className ^js p) (bump :shorthand-class))
                     (when (.-id ^js p) (bump :shorthand-id)))
@@ -600,7 +600,7 @@
   "Whole-page walks inside ONE timing window. Chrome clamps
   `performance.now` to 100 us; eight ~1,200-element walks hold the window
   in whole milliseconds, so the clamp is percent-level noise, not the
-  signal (the same argument as `lane/mount-batch!`)."
+  signal (the same argument as `rf.bench.hicasso.lane/mount-batch!`)."
   8)
 
 (defn- fresh-pages
@@ -614,7 +614,7 @@
 
 (defn- realize-pages! [^js pages]
   (dotimes [i (.-length pages)]
-    (codec/realize-deep (aget pages i)))
+    (rf.bench.hicasso.front.codec/realize-deep (aget pages i)))
   pages)
 
 (defn- timed-walks
@@ -626,14 +626,14 @@
     (fn []
       (let [pages (fresh-pages walks-per-sample)
             _     (when realize? (realize-pages! pages))
-            t0    (lane/now-ms)]
+            t0    (rf.bench.hicasso.lane/now-ms)]
         (dotimes [i walks-per-sample]
           (walk-one (aget pages i)))
-        (- (lane/now-ms) t0)))))
+        (- (rf.bench.hicasso.lane/now-ms) t0)))))
 
 (def ^:private arms
-  [{:id :ship-lazy   :realize? false :walk (fn [h] (codec/as-element h))}
-   {:id :ship        :realize? true  :walk (fn [h] (codec/as-element h))}
+  [{:id :ship-lazy   :realize? false :walk (fn [h] (rf.bench.hicasso.front.codec/as-element h))}
+   {:id :ship        :realize? true  :walk (fn [h] (rf.bench.hicasso.front.codec/as-element h))}
    {:id :local       :realize? true  :walk (fn [h] (walk-el M-FULL h))}
    {:id :no-create   :realize? true  :walk (fn [h] (walk-el M-NO-CREATE h))}
    {:id :no-props    :realize? true  :walk (fn [h] (walk-el M-NO-PROPS h))}
@@ -681,11 +681,11 @@
   [reps ^js arr f]
   (let [sink (volatile! nil)
         n    (.-length arr)
-        t0   (lane/now-ms)]
+        t0   (rf.bench.hicasso.lane/now-ms)]
     (dotimes [_ reps]
       (dotimes [i n]
         (vreset! sink (f (aget arr i)))))
-    (let [ms (- (lane/now-ms) t0)]
+    (let [ms (- (rf.bench.hicasso.lane/now-ms) t0)]
       (/ (* 1e6 ms) (* reps n)))))
 
 (def ^:private micro-reps 300)
@@ -696,16 +696,16 @@
                        (dotimes [i (.-length keys)]
                          (.push a (name (aget keys i))))
                        a)]
-    [[:cached-parse-hit    (ns-per-op micro-reps tags (fn [t] (codec/cached-parse t)))]
-     [:parse-tag-fresh     (ns-per-op (quot micro-reps 10) tags (fn [t] (codec/parse-tag t)))]
-     [:cached-prop-name    (ns-per-op micro-reps keys (fn [k] (codec/cached-prop-name k)))]
-     [:event-prop?-regex   (ns-per-op micro-reps keys (fn [k] (intent/event-prop? k)))]
+    [[:cached-parse-hit    (ns-per-op micro-reps tags (fn [t] (rf.bench.hicasso.front.codec/cached-parse t)))]
+     [:parse-tag-fresh     (ns-per-op (quot micro-reps 10) tags (fn [t] (rf.bench.hicasso.front.codec/parse-tag t)))]
+     [:cached-prop-name    (ns-per-op micro-reps keys (fn [k] (rf.bench.hicasso.front.codec/cached-prop-name k)))]
+     [:event-prop?-regex   (ns-per-op micro-reps keys (fn [k] (rf.bench.hicasso.front.intent/event-prop? k)))]
      [:reserved-set-lookup (ns-per-op micro-reps fixed-names (fn [n] (reserved-names n)))]
      [:reserved-identical  (ns-per-op micro-reps fixed-names
                                       (fn [n] (or (identical? "__proto__" n)
                                                   (identical? "prototype" n)
                                                   (identical? "constructor" n))))]
-     [:convert-prop-value  (ns-per-op micro-reps vals (fn [v] (codec/convert-prop-value v)))]
+     [:convert-prop-value  (ns-per-op micro-reps vals (fn [v] (rf.bench.hicasso.front.codec/convert-prop-value v)))]
      [:create-element-min  (ns-per-op (quot micro-reps 10) tags
                                       (fn [_] (react/createElement "div" simple-props)))]]))
 
@@ -716,14 +716,14 @@
 (defn- fmt [x n] (.toFixed ^number x n))
 
 (defn- arm-rows
-  "Fold `lane/rounds!` readings into per-arm p50/min/max (ms per WALK —
+  "Fold `rf.bench.hicasso.lane/rounds!` readings into per-arm p50/min/max (ms per WALK —
   the window is `walks-per-sample` walks)."
   [readings]
   (into {}
         (map (fn [id]
                (let [xs (mapcat #(get % id) readings)
                      per-walk (mapv #(/ % walks-per-sample) xs)]
-                 [id (lane/summarise per-walk)])))
+                 [id (rf.bench.hicasso.lane/summarise per-walk)])))
         (map :id arms)))
 
 (defn- phase-line [label ship-p50 base p50 elements]
@@ -739,7 +739,7 @@
 ;;
 ;; Until rf2-1huc this arm had none, so `run.cjs`'s `HICASSO_CONTROL_FAILED`
 ;; exit path was dead here: the run was guarded against ORDERING
-;; (`lane/guard!`, exit 2) and against PAGE FIDELITY ([[parity!]], fatal) but
+;; (`rf.bench.hicasso.lane/guard!`, exit 2) and against PAGE FIDELITY ([[parity!]], fatal) but
 ;; not against the instrument HAVING SIGNAL AT ALL. A run whose ablations had
 ;; stopped biting would still print a full table and exit 0.
 
@@ -750,7 +750,7 @@
   fold for a reported figure and the wrong one for a control: pooling is
   exactly how a good round vouches for a bad one."
   [round id]
-  (:p50 (lane/summarise (mapv #(/ % walks-per-sample) (get round id)))))
+  (:p50 (rf.bench.hicasso.lane/summarise (mapv #(/ % walks-per-sample) (get round id)))))
 
 (defn- per-round-delta
   "`hi` minus `lo` in ms per walk, one number per round."
@@ -773,7 +773,7 @@
   parses cost, as this run's OWN micro table prices them.
 
   `parse-raw` differs from `local` at exactly one site — [[walk-parse]]
-  calls `codec/parse-tag` fresh where `local` calls `codec/cached-parse`
+  calls `rf.bench.hicasso.front.codec/parse-tag` fresh where `local` calls `rf.bench.hicasso.front.codec/cached-parse`
   — and it does so once per native element. The MICRO table times both
   primitives over [[collect-roster]]'s tags, which is that same
   population, element for element. So the extra work `parse-raw` does per
@@ -783,7 +783,7 @@
 
   ## Why a FLOOR and not a band
 
-  The bead's candidate was `lane/control-verdict` — a two-sided band
+  The bead's candidate was `rf.bench.hicasso.lane/control-verdict` — a two-sided band
   around this prediction. Costed rather than assumed, it does not hold:
   the micro loop is the CHEAPEST possible arrangement of the same calls
   (one warm array, one call site, no allocation surviving the loop),
@@ -801,7 +801,7 @@
 
   ## Why EVERY ROUND and not an overlap
 
-  `lane/control-verdict` passes a control whose measured range merely
+  `rf.bench.hicasso.lane/control-verdict` passes a control whose measured range merely
   OVERLAPS the band. Its disagreement with `hd8-rows/positive-control!`'s
   every-round-inside rule was rf2-egdaq, settled on 2026-08-21 as a
   SPLIT: the heap arm's ten published figures were re-adjudicated strict
@@ -849,13 +849,13 @@
         ;; than sliding through a comparison that is false either way.
         stated? (pos? floor)]
     {:row        :tag-cache-floor
-     :predicted  (lane/round4 floor)
-     :bar        (lane/round4 bar)
+     :predicted  (rf.bench.hicasso.lane/round4 floor)
+     :bar        (rf.bench.hicasso.lane/round4 bar)
      :slack      control-slack
      :stated?    stated?
      :population {:micro-roster n-tags :walk-parses parses}
-     :per-round  (mapv lane/round4 deltas)
-     :worst      (lane/round4 worst)
+     :per-round  (mapv rf.bench.hicasso.lane/round4 deltas)
+     :worst      (rf.bench.hicasso.lane/round4 worst)
      :ok?        (and same? stated? (>= worst bar))
      :why        (cond
                    (not same?)
@@ -906,8 +906,8 @@
   (let [deltas (per-round-delta readings :ship-lazy :ship)
         worst  (apply min deltas)]
     {:row       :lazy-tail-direction
-     :per-round (mapv lane/round4 deltas)
-     :worst     (lane/round4 worst)
+     :per-round (mapv rf.bench.hicasso.lane/round4 deltas)
+     :worst     (rf.bench.hicasso.lane/round4 worst)
      :ok?       (pos? worst)
      :why       (if (pos? worst)
                   (str "ship-lazy above ship in all " (count deltas)
@@ -941,28 +941,28 @@
     (js/console.log (str ";;   " (name row) ": " (control-status r) " — " why))))
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (lane/self-test!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
-          (lt/make-frame! frame-id)
-          (lt/reseed! frame-id)
+          (rf.bench.hicasso.shapes.large-template/make-frame! frame-id)
+          (rf.bench.hicasso.shapes.large-template/reseed! frame-id)
           (let [{:keys [elements bytes]} (parity!)]
             (js/console.log (str ";; twin parity OK — " elements " elements, "
-                                 bytes " canonical bytes, identical to lt/page"))
+                                 bytes " canonical bytes, identical to rf.bench.hicasso.shapes.large-template/page"))
             ;; The census + rosters, from one realized page.
-            (let [page (in-body (fn [] (codec/realize-deep (page-hiccup))))
+            (let [page (in-body (fn [] (rf.bench.hicasso.front.codec/realize-deep (page-hiccup))))
                   cs   (census page)
                   roster (collect-roster page)
                   ;; The interleaved rounds.
                   {:keys [readings samples]}
-                  (lane/rounds! arms sampling rounds
+                  (rf.bench.hicasso.lane/rounds! arms sampling rounds
                                 (fn [{:keys [realize? walk]}]
                                   (timed-walks realize? walk)))
                   rows (arm-rows readings)
-                  gv   (lane/guard! samples "walk-profile arms (in-page ms, diagnostic)")
+                  gv   (rf.bench.hicasso.lane/guard! samples "walk-profile arms (in-page ms, diagnostic)")
                   ship (:p50 (get rows :ship))
                   local (:p50 (get rows :local))
                   micro (micro-table roster)
@@ -971,14 +971,14 @@
                   ;; constant carried from a previous one.
                   control [(tag-cache-floor-row readings cs (:tags roster) micro)
                            (lazy-tail-direction-row readings)]]
-              (lane/record! :walk-profile-census cs)
-              (lane/record! :walk-profile-arms
-                            (into {} (map (fn [[k v]] [k (-> v (update :min lane/round4)
-                                                             (update :max lane/round4)
-                                                             (update :p50 lane/round4))])) rows))
-              (lane/record! :walk-profile-micro
-                            (into {} (map (fn [[k v]] [k (lane/round4 v)])) micro))
-              (lane/record! :walk-profile-control control)
+              (rf.bench.hicasso.lane/record! :walk-profile-census cs)
+              (rf.bench.hicasso.lane/record! :walk-profile-arms
+                            (into {} (map (fn [[k v]] [k (-> v (update :min rf.bench.hicasso.lane/round4)
+                                                             (update :max rf.bench.hicasso.lane/round4)
+                                                             (update :p50 rf.bench.hicasso.lane/round4))])) rows))
+              (rf.bench.hicasso.lane/record! :walk-profile-micro
+                            (into {} (map (fn [[k v]] [k (rf.bench.hicasso.lane/round4 v)])) micro))
+              (rf.bench.hicasso.lane/record! :walk-profile-control control)
               (js/console.log ";; ==== WALK PROFILE (ms per whole-page walk; diagnostic in-page clock) ====")
               (js/console.log (str ";;   elements " elements
                                    "  walks/sample " walks-per-sample
@@ -1016,7 +1016,7 @@
               ;; this file ever set it, so that exit was unreachable here.
               (when-not (every? :ok? control)
                 (set! (.-HICASSO_CONTROL_FAILED js/window) true))
-              (lane/done!)))))
+              (rf.bench.hicasso.lane/done!)))))
       (.catch (fn [e]
-                (lane/fail! (or (some-> e .-message) (str e)))
-                (lane/done!)))))
+                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.hicasso.lane/done!)))))

@@ -78,7 +78,7 @@
   Both are hiccup **data**, written in the parent boundary's body — and
   both are walked by the codec inside **this class's own React render**,
   one render later, after that body's dynamic extent has unwound. So
-  `intent/*dispatch*` was unbound at the moment the codec reached them,
+  `rf.bench.hicasso.front.intent/*dispatch*` was unbound at the moment the codec reached them,
   and before the binding below existed an intent at an event position on
   the fallback or on a native child raised
   `:rf.error/hicasso-intent-outside-boundary` at render, while an `h/event`
@@ -119,10 +119,10 @@
   browser calls outside React's own work loop — an intent handler that
   throws lands in the browser's error channel, not here. That is React's
   boundary, not this arm's, and the arm inherits it exactly."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.intent :as intent]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
             ["react" :as react]))
 
 (defn- props-of
@@ -134,7 +134,7 @@
 (defn- frame-of
   "The frame this boundary is mounted under, read through `contextType`."
   [^js this]
-  (adapter-context/context-value->current-frame (.-context this)))
+  (rf.adapter.context/context-value->current-frame (.-context this)))
 
 (defn- report!
   "Fire `:on-error` for the failure React just caught. A vector is an
@@ -147,7 +147,7 @@
   (let [on-error (:on-error (props-of this))]
     (cond
       (vector? on-error) (when-some [frame-kw (frame-of this)]
-                           (rt/dispatch! frame-kw (conj on-error error)))
+                           (rf.bench.hicasso.arm1.runtime/dispatch! frame-kw (conj on-error error)))
       (fn? on-error)     (on-error error)
       :else              nil))
   nil)
@@ -176,7 +176,7 @@
     (set! (.-prototype ^js ctor) proto)
     (set! (.-constructor proto) ctor)
     (set! (.-displayName ^js ctor) "hicasso/boundary")
-    (set! (.-contextType ^js ctor) adapter-context/frame-context)
+    (set! (.-contextType ^js ctor) rf.adapter.context/frame-context)
     ;; React 19 requires the static marker for the boundary to catch at
     ;; all. It cannot reach the instance, so it only flips the render
     ;; marker; everything with a side effect is the commit's.
@@ -210,9 +210,9 @@
                 ;; binding is unconditional so the branch does not exist, and
                 ;; an intent written under a frameless boundary still lands on
                 ;; the existing loud error naming the intent.
-                (intent/with-frame frame-kw (when frame-kw (rt/frame-dispatch frame-kw))
+                (rf.bench.hicasso.front.intent/with-frame frame-kw (when frame-kw (rf.bench.hicasso.arm1.runtime/frame-dispatch frame-kw))
                   (fn []
                     (if (some? error)
-                      (codec/as-element (if (fn? fallback) (fallback error) fallback))
-                      (codec/as-element (into [:<>] children)))))))))
-    (codec/mark-boundary! ctor)))
+                      (rf.bench.hicasso.front.codec/as-element (if (fn? fallback) (fallback error) fallback))
+                      (rf.bench.hicasso.front.codec/as-element (into [:<>] children)))))))))
+    (rf.bench.hicasso.front.codec/mark-boundary! ctor)))

@@ -57,19 +57,19 @@
   Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
   stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.test-support :as test-support])
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-props-bailout-dom)
 
@@ -114,8 +114,8 @@
   [{:keys [id banner]}]
   (swap! !row-runs inc)
   [:li.row {:data-id id}
-   [:span.title (str (:title (rt/sub [:dogfood/todo id])))]
-   [:span.done (if (rt/sub [:dogfood/done? id]) "done" "open")]
+   [:span.title (str (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo id])))]
+   [:span.done (if (rf.bench.hicasso.arm1.runtime/sub [:dogfood/done? id]) "done" "open")]
    (when banner [:span.banner (str banner)])])
 
 (defview page
@@ -125,10 +125,10 @@
   [_]
   (swap! !page-runs inc)
   [:div.page
-   [:h1.chrome (str (rt/sub [:dogfood/draft chrome-key]))]
-   [:span.remaining (str (rt/sub [:dogfood/remaining]))]
+   [:h1.chrome (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/draft chrome-key]))]
+   [:span.remaining (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/remaining]))]
    [:ul.rows
-    (for [id (rt/sub [:dogfood/visible-ids])]
+    (for [id (rf.bench.hicasso.arm1.runtime/sub [:dogfood/visible-ids])]
       [row {:key id :id id}])]])
 
 (defview forwarding-page
@@ -136,11 +136,11 @@
   one edit, and the whole of claim 3."
   [_]
   (swap! !page-runs inc)
-  (let [banner (rt/sub [:dogfood/draft chrome-key])]
+  (let [banner (rf.bench.hicasso.arm1.runtime/sub [:dogfood/draft chrome-key])]
     [:div.page
      [:h1.chrome (str banner)]
      [:ul.rows
-      (for [id (rt/sub [:dogfood/visible-ids])]
+      (for [id (rf.bench.hicasso.arm1.runtime/sub [:dogfood/visible-ids])]
         [row {:key id :id id :banner banner}])]]))
 
 ;; ---------------------------------------------------------------------------
@@ -150,15 +150,15 @@
 (defn- fresh!
   ([] (fresh! row-count))
   ([n]
-   (lane/leave-act-environment!)
-   (dogfood/make-frame! frame-id n)
-   (dogfood/reseed! frame-id n)
+   (rf.bench.hicasso.lane/leave-act-environment!)
+   (rf.bench.hicasso.front.dogfood/make-frame! frame-id n)
+   (rf.bench.hicasso.front.dogfood/reseed! frame-id n)
    (reset-runs!)
    frame-id))
 
 (defn- mount-page!
   ([] (mount-page! page))
-  ([view] (mount/root! (mount/fresh-container!) frame-id [view {}])))
+  ([view] (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [view {}])))
 
 (defn- rows-of [handle]
   (array-seq (.querySelectorAll (:container handle) "li.row")))
@@ -169,14 +169,14 @@
   (some-> (.querySelector (:container handle) "h1.chrome") (.-textContent)))
 
 (defn- write-chrome! [handle text]
-  (mount/dispatch! handle [:dogfood/edit-draft chrome-key text]))
+  (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/edit-draft chrome-key text]))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the cascade is gone
 ;; ---------------------------------------------------------------------------
 
 (deftest a-page-chrome-write-re-renders-no-unchanged-row
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -184,7 +184,7 @@
         (try
           (let [nodes-before (vec (rows-of handle))
                 text-before  (row-texts handle)
-                edges-before (:edges (rt/stats))]
+                edges-before (:edges (rf.bench.hicasso.arm1.runtime/stats))]
             (is (= row-count (count nodes-before)))
             (reset-runs!)
             (write-chrome! handle "typed")
@@ -205,10 +205,10 @@
             (is (= nodes-before (vec (rows-of handle)))
                 "and they are the IDENTICAL DOM nodes — React neither
                  replaced nor re-patched a subtree")
-            (is (= edges-before (:edges (rt/stats)))
+            (is (= edges-before (:edges (rf.bench.hicasso.arm1.runtime/stats)))
                 "a bail-out is not an unmount: every row still holds its
                  edges, so the next write to one of them still arrives"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — a subscription still propagates, in the commit that re-renders the page
@@ -222,7 +222,7 @@
            consults the comparator for all 100 rows — every one of which
            has `=` props, including the toggled one, whose props map is
            `{:id 37}` before and after. Exactly one must re-render anyway"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (fresh!)
@@ -230,7 +230,7 @@
           (try
             (let [before (row-texts handle)]
               (reset-runs!)
-              (mount/dispatch! handle [:dogfood/toggle moved-row])
+              (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/toggle moved-row])
               (is (= 1 (:page (runs)))
                   "the page re-ran — `:dogfood/remaining` moved, so this is
                    genuinely the parent-re-renders case and not a narrow
@@ -245,20 +245,20 @@
                     "exactly one row's DOM moved, and it is the one written to")
                 (is (re-find #"done" (nth after moved-row))
                     "and it moved in the right direction")))
-            (finally (mount/release! handle))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! handle))))))))
 
 (deftest a-frozen-row-would-fail-the-claim-above
   (testing "the toggle assertion is not passing vacuously — the same row
            read `open` before the write, so `differing-indices` above is a
            live comparison rather than one that always answers empty"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (fresh!)
         (let [handle (mount-page!)]
           (try
             (is (re-find #"open" (nth (row-texts handle) moved-row)))
-            (finally (mount/release! handle))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2b — a CONTEXT change still propagates
@@ -274,29 +274,29 @@
            carry different titles: every row's props map is `{:id n}` before
            and after, so props alone would bail every one of them out and
            freeze the page on the old frame's data"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (fresh!)
-        (lane/leave-act-environment!)
-        (dogfood/make-frame! other-frame-id row-count)
-        (dogfood/reseed! other-frame-id row-count)
+        (rf.bench.hicasso.lane/leave-act-environment!)
+        (rf.bench.hicasso.front.dogfood/make-frame! other-frame-id row-count)
+        (rf.bench.hicasso.front.dogfood/reseed! other-frame-id row-count)
         ;; Give the other frame a row the first frame does not have.
-        (rt/dispatch! other-frame-id [:dogfood/edit-draft moved-row "from the other frame"])
-        (rt/dispatch! other-frame-id [:dogfood/commit moved-row])
+        (rf.bench.hicasso.arm1.runtime/dispatch! other-frame-id [:dogfood/edit-draft moved-row "from the other frame"])
+        (rf.bench.hicasso.arm1.runtime/dispatch! other-frame-id [:dogfood/commit moved-row])
         (let [handle (mount-page!)]
           (try
             (is (re-find #"todo" (nth (row-texts handle) moved-row))
                 "the first frame's data is on screen")
             (reset-runs!)
-            (mount/render! (assoc handle :frame other-frame-id) [page {}])
-            (mount/settle!)
+            (rf.bench.hicasso.arm1.mount/render! (assoc handle :frame other-frame-id) [page {}])
+            (rf.bench.hicasso.arm1.mount/settle!)
             (is (= row-count (:rows (runs)))
                 "every row re-rendered, though not one row's props moved")
             (is (re-find #"from the other frame" (nth (row-texts handle) moved-row))
                 "and the DOM carries the NEW frame's value — a memo that
                  outranked context would have frozen the page here")
-            (finally (mount/release! handle))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — props still propagate
@@ -308,7 +308,7 @@
            row's props. A bail-out that never re-rendered would be worse
            than one that always did, so this is the half that says the
            comparator is comparing and not simply refusing"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (fresh!)
@@ -322,7 +322,7 @@
                      " rows' props moved"))
             (is (= row-count (.-length (.querySelectorAll (:container handle) "span.banner")))
                 "and the forwarded value reached the DOM of every one")
-            (finally (mount/release! handle))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A comparison that throws renders, rather than crashing the tree
@@ -344,9 +344,9 @@
   [_]
   (swap! !page-runs inc)
   [:div.page
-   [:h1.chrome (str (rt/sub [:dogfood/draft chrome-key]))]
+   [:h1.chrome (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/draft chrome-key]))]
    [:ul.rows
-    (for [id (take 5 (rt/sub [:dogfood/visible-ids]))]
+    (for [id (take 5 (rf.bench.hicasso.arm1.runtime/sub [:dogfood/visible-ids]))]
       [explosive-row {:key id :id id :boom (Explosive. id)}])]])
 
 (deftest a-props-comparison-that-throws-fails-open
@@ -357,7 +357,7 @@
            (rf2-5al9d7): an extra render is always the safe branch, and
            skipping on a failed comparison risks a stale UI. `areEqual`
            inverts the polarity, so failing open is answering false"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (fresh!)
@@ -374,14 +374,14 @@
                  an error: the throw was caught and answered false")
             (is (= "boom" (chrome-text handle))
                 "and the page is still live and still painting")
-            (finally (mount/release! handle))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — it is a law, not a number that holds at one B
 ;; ---------------------------------------------------------------------------
 
 (deftest no-row-re-renders-whatever-the-page-size
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (doseq [n [10 50 200]]
       (fresh! n)
@@ -394,4 +394,4 @@
               (str "zero rows re-rendered at B = " n " — the cascade was
                    linear in B, so a repair that only held at one size
                    would not be a repair"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))

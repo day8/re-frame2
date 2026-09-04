@@ -203,9 +203,9 @@
   author never wrote an attribute named `revision`, so nothing on the
   page explains the denial except this paragraph."
   (:require [clojure.string :as str]
-            [re-frame.bench.hicasso.front.controlled :as controlled]
-            [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.bench.hicasso.front.slot :as slot]
+            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.bench.hicasso.front.slot :as rf.bench.hicasso.front.slot]
             ["react" :as react]))
 
 (declare as-element)
@@ -339,7 +339,7 @@
   ;; one entry per distinct literal, minted on first sight, correct for
   ;; the life of the build.
   ;;
-  ;; `event?` is the name-string's answer (`intent/event-prop?` on the
+  ;; `event?` is the name-string's answer (`rf.bench.hicasso.front.intent/event-prop?` on the
   ;; NAME), and the consumer must gate it on `keyword?` — a symbol
   ;; spelled `on-click` shares the entry but is NOT an event position
   ;; (event-prop? answers false for symbols), which is why the flag is
@@ -353,12 +353,12 @@
   "The [[PropSlot]] for a keyword or symbol prop literal whose name is
   `n`. Every field a pure function of the literal, per the deftype note."
   [k n]
-  (let [js-name (slot/prop-name k)]
+  (let [js-name (rf.bench.hicasso.front.slot/prop-name k)]
     (->PropSlot js-name
                 (reserved-name? js-name)
                 ;; asked of the NAME, not of `k` — a symbol shares the
                 ;; entry, and `event-prop?` already answers a boolean
-                (intent/event-prop? n)
+                (rf.bench.hicasso.front.intent/event-prop? n)
                 ;; "ref" — [[ref-slot]], spelled literally because the def
                 ;; sits below; `identical?` on primitive strings is value
                 ;; comparison.
@@ -388,9 +388,9 @@
   stated on the emitted name rather than on the key."
   [cache]
   (doto cache
-    (unchecked-set "class" (->PropSlot (slot/prop-name :class) false false false true))
-    (unchecked-set "for" (->PropSlot (slot/prop-name :for) false false false false))
-    (unchecked-set "charset" (->PropSlot (slot/prop-name :charset) false false false false))))
+    (unchecked-set "class" (->PropSlot (rf.bench.hicasso.front.slot/prop-name :class) false false false true))
+    (unchecked-set "for" (->PropSlot (rf.bench.hicasso.front.slot/prop-name :for) false false false false))
+    (unchecked-set "charset" (->PropSlot (rf.bench.hicasso.front.slot/prop-name :charset) false false false false))))
 
 (def ^:private prop-cache (seed-prop-cache! (empty-cache)))
 
@@ -430,7 +430,7 @@
   dependence the owned-literal law exists to remove."
   [k]
   (if-not (or (keyword? k) (symbol? k))
-    (if (string? k) (slot/prop-name k) k)
+    (if (string? k) (rf.bench.hicasso.front.slot/prop-name k) k)
     (let [^PropSlot s (prop-slot k (name k))]
       (.-js-name s))))
 
@@ -765,7 +765,7 @@
   lowerable value at an event position, not a marked callback) goes
   straight to [[convert-prop-value]] without entering the lowering at
   all, which is the branch nearly every attribute on a census page
-  takes. The paths [[intent/lower-prop]] IS entered on reproduce its
+  takes. The paths [[rf.bench.hicasso.front.intent/lower-prop]] IS entered on reproduce its
   answers by construction: it re-asks `event-prop?` and re-takes the
   same branch this slot was minted from. A string key keeps the donor's
   uncached path, byte for byte.
@@ -799,12 +799,12 @@
 
                              (and (.-event? s) (keyword? k))
                              (if (or (vector? v) (map? v) (fn? v))
-                               (intent/lower-prop k v)
+                               (rf.bench.hicasso.front.intent/lower-prop k v)
                                v)
 
                              :else
-                             (if (intent/callback? v)
-                               (intent/lower-prop k v)
+                             (if (rf.bench.hicasso.front.intent/callback? v)
+                               (rf.bench.hicasso.front.intent/lower-prop k v)
                                v)))))
         o)
       (let [n (cached-prop-name k)]
@@ -813,7 +813,7 @@
                               (cond
                                 (identical? ref-slot n)   (check-ref! k v)
                                 (identical? class-slot n) (class-names (unchecked-get o class-slot) v)
-                                :else                     (intent/lower-prop k v)))))
+                                :else                     (rf.bench.hicasso.front.intent/lower-prop k v)))))
         o))))
 
 (defn convert-props
@@ -1265,7 +1265,7 @@
      frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
      justification falsified by what it permitted.
   2. **It did not survive the arm's other boundary variant.** A
-     frame-fed head ([[mark-frame-prop!]]) reads `intent/*frame*` at
+     frame-fed head ([[mark-frame-prop!]]) reads `rf.bench.hicasso.front.intent/*frame*` at
      ELEMENT-creation time, which in a fallback is mint time, where the
      var is `nil` — so it baked `nil` in, minted happily, and threw
      `:rf.error/no-frame-prop` one render into the server response.
@@ -2157,8 +2157,8 @@
         ;; map was the whole cost of telling it so (rf2-y1jkm).
         js-props    (convert-props props parsed)
         _           (when-some [r (get props revision-key)]
-                      (unchecked-set js-props controlled/revision-slot r))
-        component   (controlled/install! (.-tag parsed) js-props)]
+                      (unchecked-set js-props rf.bench.hicasso.front.controlled/revision-slot r))
+        component   (rf.bench.hicasso.front.controlled/install! (.-tag parsed) js-props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element component js-props argv (if has-props? 2 1))))
 
@@ -2201,11 +2201,11 @@
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     ;; THE FRAME AS DATA (rf2-2rtt6.39). Only for a head that asked for
     ;; it, so the context-fed incumbent's element carries exactly what it
-    ;; always carried and the two variants are comparable. `intent/*frame*`
+    ;; always carried and the two variants are comparable. `rf.bench.hicasso.front.intent/*frame*`
     ;; is bound by the ancestor body this element is being created inside;
     ;; at the root there is no ancestor body and [[root-element]] binds it.
     (when (frame-prop-head? head)
-      (unchecked-set js-props "rfFrame" intent/*frame*))
+      (unchecked-set js-props "rfFrame" rf.bench.hicasso.front.intent/*frame*))
     (react/createElement (element-type head) js-props)))
 
 (def ^:private html-attr-slots
@@ -2437,7 +2437,7 @@
           class?       (if keyword-ish? (.-class? s) (identical? class-slot slot))
           event?       (if keyword-ish?
                          (and (.-event? s) (keyword? k))
-                         (intent/event-prop? k))]
+                         (rf.bench.hicasso.front.intent/event-prop? k))]
       (when-not reserved?
         (unchecked-set o slot
           (cond
@@ -2445,7 +2445,7 @@
             (check-ref! k v)
 
             (contains? declared slot)
-            (intent/lower-declared-prop k v (get declared slot))
+            (rf.bench.hicasso.front.intent/lower-declared-prop k v (get declared slot))
 
             ;; The slot's own coercion, and the slot's own composition —
             ;; the same law [[convert-entry]] takes at the native
@@ -2469,7 +2469,7 @@
                 ;; one. Both live in the `:else` arm only: no claimed
                 ;; slot pays either, and the NATIVE walk
                 ;; ([[convert-entry]]) is not on this path at all.
-                (when (intent/callback? v)
+                (when (rf.bench.hicasso.front.intent/callback? v)
                   (refuse-unclaimed-host-callback! head k))
                 ;; The SLOT, never the key: `:class` and `:className` are
                 ;; one position, and the named-value rule is written
@@ -2949,7 +2949,7 @@
   intent vector legal, and an intent written outside a boundary stays the
   loud `:rf.error/hicasso-intent-outside-boundary` it was."
   [frame-kw hiccup]
-  (binding [intent/*frame* frame-kw]
+  (binding [rf.bench.hicasso.front.intent/*frame* frame-kw]
     (as-element hiccup)))
 
 ;; ---------------------------------------------------------------------------

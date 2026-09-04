@@ -33,13 +33,13 @@
   rf2-2rtt6.2's `:hicasso-bench` build id.
 
   Normative owner: `docs/design/hicasso/decisions.md` HD-008."
-  (:require [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.adapter.reagent-slim :as slim-adapter]
-            [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.hd8-rows :as rows]
-            [re-frame.bench.hicasso.hd8-witnesses :as w]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.hd8-rows :as rf.bench.hicasso.hd8-rows]
+            [re-frame.bench.hicasso.hd8-witnesses :as rf.bench.hicasso.hd8-witnesses]))
 
 (def ^:private rounds 6)
 (def ^:private mount-sampling {:warmup 4 :samples 12})
@@ -198,9 +198,9 @@
 
 (defn- install! [which]
   (rf/init! (case which
-              :reagent reagent-adapter/adapter
-              :slim    slim-adapter/adapter
-              uix-adapter/adapter))
+              :reagent rf.adapter.reagent/adapter
+              :slim    rf.adapter.reagent-slim/adapter
+              rf.adapter.uix/adapter))
   which)
 
 ;; ---------------------------------------------------------------------------
@@ -210,18 +210,18 @@
 (defn- run-all! []
   (let [which    (query-adapter)
         _        (install! which)
-        arm-ids  (get rows/arm-ids-for which)
-        write-ids (get rows/write-arm-ids-for which)
+        arm-ids  (get rf.bench.hicasso.hd8-rows/arm-ids-for which)
+        write-ids (get rf.bench.hicasso.hd8-rows/write-arm-ids-for which)
         ;; THE CLOCK'S OWN GRAIN, taken in the run it governs. Every page in
         ;; this studio asserted "Chrome clamps performance.now() to 100 µs"
         ;; and then reasoned against that constant; the write rows' floor is
         ;; a single commit and sits ON it, so the number decides whether
         ;; those rows have a magnitude at all and is measured rather than
         ;; quoted (rf2-d2tzk).
-        clock    (rows/clock-resolution! clock-resolution-samples)]
-    (lane/leave-act-environment!)
-    (doseq [id arm-ids] (rows/ensure-frame! id))
-    (record! :method (rows/method-record which arm-ids write-ids rounds mount-sampling write-sampling))
+        clock    (rf.bench.hicasso.hd8-rows/clock-resolution! clock-resolution-samples)]
+    (rf.bench.hicasso.lane/leave-act-environment!)
+    (doseq [id arm-ids] (rf.bench.hicasso.hd8-rows/ensure-frame! id))
+    (record! :method (rf.bench.hicasso.hd8-rows/method-record which arm-ids write-ids rounds mount-sampling write-sampling))
     (record! :clock-resolution clock)
     (set! (.-HD8_CLOCK js/window) (clj->js clock))
 
@@ -239,7 +239,7 @@
     ;; `catch` is the fail-closed path (`assert-teardown-clean!` uses it for
     ;; the same reason), and a `when-not` here would print the failure and
     ;; then measure the whole plan anyway.
-    (let [st (rows/yield-correction-self-test)]
+    (let [st (rf.bench.hicasso.hd8-rows/yield-correction-self-test)]
       (record! :yield-correction-self-test st)
       ;; Also on a JS-readable channel, so the driver can fail on it instead
       ;; of parsing EDN it has no reader for.
@@ -265,13 +265,13 @@
     ;; the argument. `parity-can-fail?` below remains the anti-vacuity gate.
 
     ;; ---- the fairness gate, before any clock ------------------------------
-    (let [problems (rows/parity-problems arm-ids)]
+    (let [problems (rf.bench.hicasso.hd8-rows/parity-problems arm-ids)]
       (if (seq problems)
         (do (record! :parity {:ok? false :problems problems})
             (fail! (str "canonical-DOM parity failed — every figure below it would be "
                         "a comparison of two different pages: " (pr-str problems)))
             (done!))
-        (let [can-fail? (rows/parity-can-fail? arm-ids)]
+        (let [can-fail? (rf.bench.hicasso.hd8-rows/parity-can-fail? arm-ids)]
           (record! :parity {:ok? true :can-fail? can-fail?
                             :note (str "every arm built the same page, compared as canonical "
                                        "DOM with attribute names sorted; the same comparison "
@@ -283,7 +283,7 @@
                 (done!))
 
             ;; ---- the positive control, then the lowering check -------------
-            (let [pc (record! :positive-control (rows/positive-control! 3 control-sampling))]
+            (let [pc (record! :positive-control (rf.bench.hicasso.hd8-rows/positive-control! 3 control-sampling))]
               (if-not (:within? pc)
                 ;; FAIL CLOSED. This used to `console.warn` and then measure
                 ;; everything anyway, so a run whose instrument could not see
@@ -301,8 +301,8 @@
                                 "says it must, so no clock figure in this run would be "
                                 "reportable and none was taken."))
                     (done!))
-                (-> (if (rows/donor-run? which)
-                      (rows/lowering-works! which)
+                (-> (if (rf.bench.hicasso.hd8-rows/donor-run? which)
+                      (rf.bench.hicasso.hd8-rows/lowering-works! which)
                       ;; The donor rungs are not in this run's arm set (see
                       ;; `arm-ids-for`), so there is no lowering here to check
                       ;; and a check that trivially passed would be worse than
@@ -325,16 +325,16 @@
 
                           ;; ---- the clocks ----------------------------------
                           (do
-                            (doseq [wit rows/witnesses]
+                            (doseq [wit rf.bench.hicasso.hd8-rows/witnesses]
                               (record-row! (keyword (str "mount-" (name (:id wit))))
-                                           (rows/measure-mount! wit arm-ids rounds mount-sampling))
+                                           (rf.bench.hicasso.hd8-rows/measure-mount! wit arm-ids rounds mount-sampling))
                               ;; A teardown that threw is checked BETWEEN rows,
                               ;; not swallowed until the end: an arm whose
                               ;; unmount failed leaves its watches and its
                               ;; caches standing, and the next row is then
                               ;; measured on a page that is carrying them
                               ;; (rf2-f5roa, from the PR #7263 audit).
-                              (rows/assert-teardown-clean! (str "mount-" (name (:id wit)))))
+                              (rf.bench.hicasso.hd8-rows/assert-teardown-clean! (str "mount-" (name (:id wit)))))
                             ;; The harness microtask, priced before the write rows
                             ;; and outside every one of their windows. A
                             ;; microtask-scheduled arm's window does not contain
@@ -343,22 +343,22 @@
                             ;; — and, since this bead, ADJUDICATED against them
                             ;; rather than left beside them as an observation.
                             (let [yc* (volatile! nil)]
-                              (-> (rows/yield-cost! write-sampling)
+                              (-> (rf.bench.hicasso.hd8-rows/yield-cost! write-sampling)
                                   (.then (fn [yc]
                                            (record! :yield-cost yc)
                                            (vreset! yc* yc)
-                                           (rows/measure-write! write-ids which :narrow rounds write-sampling clock)))
+                                           (rf.bench.hicasso.hd8-rows/measure-write! write-ids which :narrow rounds write-sampling clock)))
                                   (.then (fn [r]
                                            (record-row! :write-narrow r)
-                                           (rows/assert-teardown-clean! "write-narrow")
-                                           (-> (rows/measure-write! write-ids which :bulk rounds write-sampling clock)
+                                           (rf.bench.hicasso.hd8-rows/assert-teardown-clean! "write-narrow")
+                                           (-> (rf.bench.hicasso.hd8-rows/measure-write! write-ids which :bulk rounds write-sampling clock)
                                                (.then (fn [b] #js [r b])))))
                                   (.then
                                     (fn [pair]
                                       (let [narrow (aget pair 0)
                                             bulk   (aget pair 1)]
                                         (record-row! :write-bulk bulk)
-                                        (rows/assert-teardown-clean! "write-bulk")
+                                        (rf.bench.hicasso.hd8-rows/assert-teardown-clean! "write-bulk")
                                         ;; ---- THE CORRECTION-OR-REFUSAL CONTRACT ----
                                         ;; The asymmetry between the two window shapes
                                         ;; used to be recorded here and nothing else:
@@ -373,8 +373,8 @@
                                         ;; positive control takes, for the same reason:
                                         ;; a figure the instrument cannot stand behind
                                         ;; is not a measurement.
-                                        (let [verdicts {:write-narrow (rows/yield-correction narrow which @yc*)
-                                                        :write-bulk   (rows/yield-correction bulk which @yc*)}
+                                        (let [verdicts {:write-narrow (rf.bench.hicasso.hd8-rows/yield-correction narrow which @yc*)
+                                                        :write-bulk   (rf.bench.hicasso.hd8-rows/yield-correction bulk which @yc*)}
                                               refused  (into {} (filter (fn [[_ v]] (= :refused (:verdict v)))) verdicts)]
                                           (record! :yield-correction verdicts)
                                           (doseq [[k v] verdicts] (correction! k v))

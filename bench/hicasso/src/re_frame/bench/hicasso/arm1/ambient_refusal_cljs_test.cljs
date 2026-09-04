@@ -13,7 +13,7 @@
   spelling threw. Silence or a throw, decided by a dependency choice
   made elsewhere.
 
-  Core now has a refusal tier (`frame/call-with-ambient-frame-refused`)
+  Core now has a refusal tier (`rf.frame/call-with-ambient-frame-refused`)
   and [[re-frame.bench.hicasso.front.intent/with-frame]] establishes it
   over every Hicasso render extent, so the answer is the same under every
   adapter: a loud `:rf.error/ambient-frame-refused` naming the collector.
@@ -29,7 +29,7 @@
   runs under that same publication. Remove the fence and the refusal
   rows go green-to-red as a pair with that control staying green.
 
-  A body run is reached through `rt/render-body` rather than a React
+  A body run is reached through `rf.bench.hicasso.arm1.runtime/render-body` rather than a React
   root on purpose: React routes a render-phase throw to `reportError`,
   where `cljs.test` cannot see it, and a row that cannot see its own
   exception is a row that cannot go red. The real-React half — the
@@ -45,28 +45,28 @@
   one, together with each legitimate carry spelling proved individually."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.intent :as intent]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::rt122)
 
 (defn- make-frame! []
-  (live-frame/make-frame {:id frame-id})
-  (frame/replace-app-db! frame-id {:v 7})
+  (rf.live-frame/make-frame {:id frame-id})
+  (rf.frame/replace-app-db! frame-id {:v 7})
   (rf/reg-sub :rt122/v (fn [db _] (:v db)))
   (rf/reg-event :rt122/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
   frame-id)
@@ -80,7 +80,7 @@
   React root. Same save/restore shape the core adapter suite uses for its
   corrupted-context rows."
   [frame-kw thunk]
-  (let [^js ctx  adapter-context/frame-context
+  (let [^js ctx  rf.adapter.context/frame-context
         original (.-_currentValue ctx)]
     (set! (.-_currentValue ctx) frame-kw)
     (try (thunk)
@@ -98,10 +98,10 @@
   "The always-on error records `thunk` produced."
   [thunk]
   (let [records (volatile! [])]
-    (error-emit/register-error-listener! ::rt122 (fn [r] (vswap! records conj r)))
+    (rf.error-emit/register-error-listener! ::rt122 (fn [r] (vswap! records conj r)))
     (try (thunk)
          (catch :default _ nil)
-         (finally (error-emit/unregister-error-listener! ::rt122)))
+         (finally (rf.error-emit/unregister-error-listener! ::rt122)))
     @records))
 
 ;; ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (is (= f (frame/resolve-current-frame))
+          (is (= f (rf.frame/resolve-current-frame))
               "tier 2 is genuinely answering here; if it were not, every
                refusal row below would be proving nothing")
           (is (= 7 @(rf/subscribe [:rt122/v]))
@@ -132,7 +132,7 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data (outcome #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))]
+          (let [data (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))]
             (is (= :rf.error/ambient-frame-refused (:rf.error/id data))
                 (str "expected the refusal; got " (pr-str data)))
             (is (= :subscribe (:operation data)))
@@ -149,7 +149,7 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data (outcome #(rt/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
+          (let [data (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
             (is (= :rf.error/ambient-frame-refused (:rf.error/id data))
                 (str "expected the refusal; got " (pr-str data)))
             (is (= :dispatch (:operation data)))
@@ -163,7 +163,7 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data   (outcome #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
+          (let [data   (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
                 reason (:reason data)]
             (is (string? reason))
             (is (re-find #"collector" reason)
@@ -182,7 +182,7 @@
       (with-context-frame f
         (fn []
           (let [records (captured-errors
-                          #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))]
+                          #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))]
             (is (some (fn [r] (= :rf.error/ambient-frame-refused (:error r))) records)
                 (str "no always-on record for the refusal: " (pr-str records)))))))))
 
@@ -198,7 +198,7 @@
       (with-context-frame f
         (fn []
           (let [seen (volatile! ::unset)]
-            (rt/render-body f
+            (rf.bench.hicasso.arm1.runtime/render-body f
                             (fn [_]
                               (rf/with-frame f (vreset! seen @(rf/subscribe [:rt122/v])))
                               [:li])
@@ -216,7 +216,7 @@
       (with-context-frame f
         (fn []
           (let [seen (volatile! ::unset)]
-            (rt/render-body f
+            (rf.bench.hicasso.arm1.runtime/render-body f
                             (fn [_]
                               (vreset! seen @(rf/subscribe [:rt122/v] {:frame f}))
                               [:li])
@@ -230,7 +230,7 @@
       (with-context-frame f
         (fn []
           (let [seen (volatile! ::unset)]
-            (rt/render-body f (fn [_] (vreset! seen (rt/sub [:rt122/v])) [:li]) {})
+            (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:rt122/v])) [:li]) {})
             (is (= 7 @seen) "the read the author is supposed to write")))))))
 
 (deftest the-refusal-unwinds-with-the-body
@@ -245,12 +245,12 @@
       (with-context-frame f
         (fn []
           (let [deferred (volatile! nil)]
-            (rt/render-body f
+            (rf.bench.hicasso.arm1.runtime/render-body f
                             (fn [_]
                               (vreset! deferred (fn [] @(rf/subscribe [:rt122/v])))
                               [:li])
                             {})
-            (is (= f (frame/resolve-current-frame))
+            (is (= f (rf.frame/resolve-current-frame))
                 "the binding popped with the body run")
             (is (= 7 (@deferred))
                 "and the very same closure that would have refused inside
@@ -263,8 +263,8 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (rt/render-body f (fn [_] [:li]) {})
-          ((rt/frame-dispatch f) [:rt122/bump])
+          (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] [:li]) {})
+          ((rf.bench.hicasso.arm1.runtime/frame-dispatch f) [:rt122/bump])
           (is (= 8 @(rf/subscribe [:rt122/v]))
               "the intent's dispatch landed and an ambient read outside the
                extent still resolves"))))))
@@ -286,14 +286,14 @@
   (testing "the ordinary path pays one nil-test and answers exactly what it
            answered before: tier 1 wins, then tier 2, then nil"
     (let [f (make-frame!)]
-      (is (nil? (frame/resolve-current-frame)) "no tier answers")
+      (is (nil? (rf.frame/resolve-current-frame)) "no tier answers")
       (with-context-frame f
-        (fn [] (is (= f (frame/resolve-current-frame)) "tier 2 answers")))
+        (fn [] (is (= f (rf.frame/resolve-current-frame)) "tier 2 answers")))
       (rf/with-frame f
-        (is (= f (frame/resolve-current-frame)) "tier 1 answers"))
+        (is (= f (rf.frame/resolve-current-frame)) "tier 1 answers"))
       (with-context-frame ::other
         (fn [] (rf/with-frame f
-                 (is (= f (frame/resolve-current-frame))
+                 (is (= f (rf.frame/resolve-current-frame))
                      "tier 1 still wins over tier 2")))))))
 
 ;; ---------------------------------------------------------------------------
@@ -331,7 +331,7 @@
   live, so it is the anchor rather than a second copy of the spelling."
   [f]
   (:rf.error/id
-    (outcome #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))))
+    (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))))
 
 (deftest a-carry-inside-a-body-is-admitted-while-a-read-refuses
   (testing "FLIPPED under rf2-t32wg, which admits the pure doors: this row
@@ -345,7 +345,7 @@
           held (volatile! nil)]
       (with-context-frame f
         (fn []
-          (let [data   (outcome #(rt/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))
+          (let [data   (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))
                 anchor (refusal-id f)]
             (is (some? anchor)
                 "precondition: an ambient READ still refuses here, so the
@@ -366,28 +366,28 @@
            differs between adapters — is not reached at all. Counted here
            rather than reasoned about"
     (let [f        (make-frame!)
-          original (late-bind/get-fn :adapter/current-frame)
+          original (rf.late-bind/get-fn :adapter/current-frame)
           calls    (volatile! 0)]
       (is (some? original)
           "precondition: an adapter has published the hook, so a zero below
            means 'not consulted' rather than 'nothing to consult'")
-      (late-bind/set-fn! :adapter/current-frame
+      (rf.late-bind/set-fn! :adapter/current-frame
                          (fn [] (vswap! calls inc) (original)))
       (try
         (with-context-frame f
           (fn []
             (vreset! calls 0)
-            (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {}))
+            (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {}))
             (is (zero? @calls)
                 "the refused carry never asked the adapter")
 
             (vreset! calls 0)
-            (is (= f (frame/resolve-current-frame))
+            (is (= f (rf.frame/resolve-current-frame))
                 "control: one call outside the body")
             (is (pos? @calls)
                 "and THAT read did ask it — so the zero above is the tier
                  being withdrawn, not a hook that is never called")))
-        (finally (late-bind/set-fn! :adapter/current-frame original))))))
+        (finally (rf.late-bind/set-fn! :adapter/current-frame original))))))
 
 (deftest the-prototypes-refusal-sentence-still-names-the-carry
   (testing "rf2-hnrww's first half, on the FROZEN prototype's own sentence.
@@ -400,7 +400,7 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data   (outcome #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
+          (let [data   (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
                 reason (:reason data)]
             (is (string? reason))
             (is (re-find #"CARRYING" reason)
@@ -426,9 +426,9 @@
           held (volatile! nil)]
       (with-context-frame f
         (fn []
-          (rt/render-body f (fn [_] (vreset! held (rf/capture-frame f)) [:li]) {})))
+          (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame f)) [:li]) {})))
       (is (= f (:frame @held)))
-      (is (nil? frame/*ambient-frame-refusal*) "the extent has unwound")
+      (is (nil? rf.frame/*ambient-frame-refusal*) "the extent has unwound")
       ((:dispatch-sync @held) [:rt122/bump])
       (is (= 8 @(rf/subscribe [:rt122/v] {:frame f}))
           "the carried api dispatched into its own frame"))))
@@ -444,9 +444,9 @@
           held (volatile! nil)]
       (with-context-frame f
         (fn []
-          (rt/render-body f
+          (rf.bench.hicasso.arm1.runtime/render-body f
                           (fn [_]
-                            (vreset! held (rf/capture-frame (intent/hframe)))
+                            (vreset! held (rf/capture-frame (rf.bench.hicasso.front.intent/hframe)))
                             [:li])
                           {})))
       (is (= f (:frame @held)))
@@ -481,8 +481,8 @@
   "A SECOND live frame, so 'the carried stamp names a different frame' is a
   real frame rather than a keyword nobody registered."
   []
-  (live-frame/make-frame {:id other-frame-id})
-  (frame/replace-app-db! other-frame-id {:v 99})
+  (rf.live-frame/make-frame {:id other-frame-id})
+  (rf.frame/replace-app-db! other-frame-id {:v 99})
   other-frame-id)
 
 (deftest a-mismatched-carried-stamp-is-refused-inside-a-body
@@ -497,7 +497,7 @@
       (with-context-frame f
         (fn []
           (let [data   (rf/with-frame other
-                         (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {})))
+                         (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {})))
                 anchor (refusal-id f)]
             (is (some? anchor)
                 "precondition: an ambient read refuses here at all, so the
@@ -522,8 +522,8 @@
       (with-context-frame f
         (fn []
           (rf/with-frame other
-            (let [read     (outcome #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
-                  dispatch (outcome #(rt/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
+            (let [read     (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
+                  dispatch (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
               (is (= :subscribe (:operation read)))
               (is (= other (:carried-frame read))
                   (str "an ambient read under a mismatched scope refuses; got "
@@ -542,7 +542,7 @@
       (with-context-frame f
         (fn []
           (let [reason (:reason (rf/with-frame other
-                                  (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {}))))]
+                                  (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {}))))]
             (is (string? reason))
             (is (str/includes? reason (pr-str other)) "it names the carried stamp")
             (is (str/includes? reason (pr-str f)) "and the extent's own frame")
@@ -566,7 +566,7 @@
       (with-context-frame f
         (fn []
           (rf/with-frame f
-            (rt/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
+            (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
       (is (= f (:frame @held))
           "the ambient carry still answers when the stamp IS the extent's frame")
       ((:dispatch-sync @held) [:rt122/bump])
@@ -589,6 +589,6 @@
       (with-context-frame f
         (fn []
           (rf/with-frame built
-            (rt/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
+            (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
       (is (= f (:frame @held))
           "a stamp equal to the extent's frame is the extent's frame"))))

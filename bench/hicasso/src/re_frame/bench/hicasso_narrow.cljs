@@ -41,7 +41,7 @@
                            Reagent's own `r/atom` and `make-reaction`,
                            Reagent's own batching. 300 layer-1
                            subscriptions, one per cell. The write door is
-                           `frame/replace-app-db!`, the SAME door the
+                           `rf.frame/replace-app-db!`, the SAME door the
                            donor row used, so the two are comparable
                            leg-for-leg.
 
@@ -135,8 +135,8 @@
   verification tally all existed here and there.
 
   So the shared parts are TAKEN from the lane rather than restated:
-  [[summarise]] and `chain` are `lane/`'s, and the schedule is
-  `guard/slot-order`, which the lane also merely holds. What stays local
+  [[summarise]] and `chain` are `rf.bench.hicasso.lane/`'s, and the schedule is
+  `rf.bench.order-guard/slot-order`, which the lane also merely holds. What stays local
   is what is genuinely this window's — the clock (`(js/performance.now)`
   with no branch inside a timed leg), the six-leg accumulator, and the
   `goog.object` string-literal discipline the `:advanced` bundle needs.
@@ -153,11 +153,11 @@
   Spec donor: rf2-ssn1o (closed, do-not-refile)."
   (:require ["react-dom" :as react-dom]
             [goog.object :as gobj]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.order-guard :as guard]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [reagent.core :as r]
             [reagent.dom.client :as rdc])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -435,8 +435,8 @@
     (fn [i val]
       (case write-door
         :replace-app-db
-        (let [db (frame/frame-app-db-value frame-id)]
-          (frame/replace-app-db!
+        (let [db (rf.frame/frame-app-db-value frame-id)]
+          (rf.frame/replace-app-db!
             frame-id
             (if (= i :all)
               (assoc db :cells (vec (repeat cells-n val)))
@@ -469,7 +469,7 @@
 
 (defn make-arms
   "The measured arms, in the order they are DECLARED — the run order is
-  `guard/slot-order`'s and varies with the sample index."
+  `rf.bench.order-guard/slot-order`'s and varies with the sample index."
   []
   (into [(instrument-arm)
          (bare-ratom-arm)
@@ -497,7 +497,7 @@
   `act` diverts work to its own queue, which is not what a browser does,
   and every reading here is the browser's."
   []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   nil)
 
@@ -526,8 +526,8 @@
 
 (def ^:private chain
   "Fold `xs` into a serial promise chain, threading an accumulator —
-  `lane/chain`, not a restatement of it (rf2-uhw11)."
-  lane/chain)
+  `rf.bench.hicasso.lane/chain`, not a restatement of it (rf2-uhw11)."
+  rf.bench.hicasso.lane/chain)
 
 (defn- timed-write!
   "One narrow write, clocked at every leg boundary, then verified at the
@@ -600,7 +600,7 @@
 
 (defn run-round!
   "One round: `(+ warmup samples)` sample indices, every arm measured at
-  every index, arm order `guard/slot-order` — rotate, then REFLECT on odd
+  every index, arm order `rf.bench.order-guard/slot-order` — rotate, then REFLECT on odd
   indices.
 
   The reflection is the both-orders discipline in situ. A bare cyclic
@@ -608,7 +608,7 @@
   slot `(a - s) mod k`, so its predecessor is `(a - 1) mod k` at every
   sample index. Reflecting on odd indices replaces every `a -> a+1`
   adjacency with `a -> a-1`, which is what gives each arm two
-  predecessors in balance and lets [[guard/verdict]] ask the question at
+  predecessors in balance and lets [[rf.bench.order-guard/verdict]] ask the question at
   all.
 
   Answers a promise of `{:samples [...] :bad n}` where each sample carries
@@ -621,7 +621,7 @@
   [mounts {:keys [warmup samples writes]} position0]
   (let [k     (count mounts)
         total (+ warmup samples)
-        plan  (vec (for [s (range total) j (guard/slot-order k s)] [s j]))]
+        plan  (vec (for [s (range total) j (rf.bench.order-guard/slot-order k s)] [s j]))]
     (chain {:samples [] :bad 0 :prev nil :pos position0}
            (range (count plan))
       (fn [acc idx]
@@ -659,13 +659,13 @@
   mean alone. Overlapping ranges mean indistinguishable, and a report that
   quotes a central value without its range cannot say that.
 
-  `lane/summarise`, not a restatement of it. This lane and the mount lane
+  `rf.bench.hicasso.lane/summarise`, not a restatement of it. This lane and the mount lane
   are two INSTRUMENTS — a mount is one timed commit, a narrow write is
   write, microtask, flush, verify — but they are one METHOD, and the
   method must not be written down twice (rf2-uhw11). The `slot-order`
   degeneracy this repository has just finished repairing was a method
   written down three times and fixed in one of them (rf2-ouwh8)."
-  lane/summarise)
+  rf.bench.hicasso.lane/summarise)
 
 (defn per-write
   "Divide a per-SAMPLE leg figure by the writes it contains."
@@ -697,7 +697,7 @@
   [samples tolerance]
   (let [by-arm (group-by :arm samples)]
     {:arms   (into {} (map (fn [[id ss]] [id (arm-summary ss)])) by-arm)
-     :guard  (guard/verdict
+     :guard  (rf.bench.order-guard/verdict
                (mapv (fn [s] {:arm         (name (:arm s))
                               :value       (per-write (:total s) (:writes s))
                               :predecessor (some-> (:predecessor s) name)
@@ -725,7 +725,7 @@
   because the guard that adjudicates these figures is the CLJC one this
   bundle carries, not the `.cjs` copy the donor's Node drivers reach."
   []
-  (let [st (guard/self-test)]
+  (let [st (rf.bench.order-guard/self-test)]
     (doseq [c (:checks st)]
       (js/console.log (str ";; HN order-guard " (if (:ok c) "ok  " "FAIL")
                            " " (:name c)

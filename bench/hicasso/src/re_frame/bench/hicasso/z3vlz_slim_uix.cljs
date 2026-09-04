@@ -10,17 +10,17 @@
   The UIx adapter is REFERENCED, not merely required — `adapter-ref` is
   exported onto `window` — so `:advanced` cannot prove the namespace dead
   and elide the load-time hook publication that candidate (c) is about."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.z3vlz-probe :as probe]
-            [re-frame.bench.hicasso.z3vlz-slim-substrate :as slim]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.z3vlz-probe :as rf.bench.hicasso.z3vlz-probe]
+            [re-frame.bench.hicasso.z3vlz-slim-substrate :as rf.bench.hicasso.z3vlz-slim-substrate]
             [re-frame.core :as rf]))
 
-(def ^:export adapter-ref uix-adapter/adapter)
+(def ^:export adapter-ref rf.adapter.uix/adapter)
 
 (defn ^:export -main []
   (set! (.-Z3VLZ_UIX_ADAPTER js/window) (pr-str (:kind adapter-ref)))
-  (rf/init! slim/adapter)
-  (probe/run-probe! slim/substrate
+  (rf/init! rf.bench.hicasso.z3vlz-slim-substrate/adapter)
+  (rf.bench.hicasso.z3vlz-probe/run-probe! rf.bench.hicasso.z3vlz-slim-substrate/substrate
               {:bundle      :slim+uix
                :installed   :reagent-slim
                :compiled-in [:reagent2 :uix]}

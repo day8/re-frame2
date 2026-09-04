@@ -136,11 +136,11 @@
   refusal publishes no figure for it.
 
   Owner: rf2-2rtt6.80; phase 3 rf2-2rtt6.87."
-  (:require [re-frame.adapter.uix :as uixa]
-            [re-frame.bench.hicasso.lane :as lane]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [uix.core :as uix :refer-macros [defui $]]
             ["react-dom/server" :as rdom-server]))
 
@@ -193,7 +193,7 @@
   ;; purpose: that ordering, and not a timer, is what places the snapshot at
   ;; the first instant after the commit-owned subscribe.
   (let [f @target-frame
-        v (uixa/use-subscribe f query-v)]
+        v (rf.adapter.uix/use-subscribe f query-v)]
     (when-let [g @at-render] (g))
     (uix/use-effect
       (fn [] (when-let [g @at-commit] (g)) js/undefined)
@@ -273,7 +273,7 @@
   ([n read-integers?] (run-trial! n read-integers? false))
   ([n read-integers? hydrate?]
   (let [frame-id      (keyword "rf.adoptwit" (str "trial-" n))
-        container     (lane/fresh-container!)
+        container     (rf.bench.hicasso.lane/fresh-container!)
         t0            (volatile! nil)
         t1            (volatile! nil)
         render-tenant (volatile! nil)
@@ -284,11 +284,11 @@
     (rf/dispatch-sync [::seed] {:frame frame-id})
     (reset! builds 0)
     (reset! target-frame frame-id)
-    (let [cache (:sub-cache (frame/frame frame-id))
+    (let [cache (:sub-cache (rf.frame/frame frame-id))
           cold? (nil? (get @cache query-v))]
       (reset! at-render
               (fn []
-                (vreset! t0 (lane/now-ms))
+                (vreset! t0 (rf.bench.hicasso.lane/now-ms))
                 (when read-integers?
                   ;; The render's escrowed +1 is what keeps this entry
                   ;; tenanted, so the reaction read HERE is the render's.
@@ -296,7 +296,7 @@
       (reset! at-commit
               (fn []
                 (when (nil? @t1)
-                  (vreset! t1 (lane/now-ms))
+                  (vreset! t1 (rf.bench.hicasso.lane/now-ms))
                   (when read-integers?
                     (let [tenant (get-in @cache [query-v :reaction])]
                       (vreset! snap
@@ -314,7 +314,7 @@
       (when hydrate?
         ;; The page as it arrives, before any JavaScript has adopted it.
         (set! (.-innerHTML container) @server-markup))
-      (let [unmount (substrate-adapter/render ($ Boundary) container
+      (let [unmount (rf.substrate.adapter/render ($ Boundary) container
                                               (if hydrate? {:hydrate? true} {}))]
         (-> (js/Promise.race #js [committed (timeout-after commit-budget-ms :timeout)])
             ;; The SETTLED read happens one horizon-crossing later, and
@@ -339,7 +339,7 @@
                             (= outcome :timeout)
                             (assoc :dom-at-timeout (.-textContent container))
                             (not= outcome :timeout)
-                            (assoc :gap-ms (lane/round4 (- @t1 @t0)))
+                            (assoc :gap-ms (rf.bench.hicasso.lane/round4 (- @t1 @t0)))
 
                             (and (not= outcome :timeout) read-integers?)
                             (merge @snap)
@@ -382,10 +382,10 @@
 (defn- gap-summary [rows]
   (let [gaps (keep :gap-ms rows)]
     (merge {:trials (count rows) :committed (count gaps)}
-           (some-> (lane/summarise gaps)
-                   (update :min lane/round4)
-                   (update :max lane/round4)
-                   (update :p50 lane/round4)))))
+           (some-> (rf.bench.hicasso.lane/summarise gaps)
+                   (update :min rf.bench.hicasso.lane/round4)
+                   (update :max rf.bench.hicasso.lane/round4)
+                   (update :p50 rf.bench.hicasso.lane/round4)))))
 
 (defn- disqualifiers
   "Every reason `rows` cannot carry an adoption reading, in the order a reader
@@ -538,7 +538,7 @@
         (fn [rows]
           (let [summary (gap-summary rows)
                 bad     (disqualifiers rows ceiling-ms)]
-            (lane/record! :hydration {:horizon-ms horizon-ms
+            (rf.bench.hicasso.lane/record! :hydration {:horizon-ms horizon-ms
                                       :ceiling-ms ceiling-ms
                                       :summary    summary
                                       :rows       rows
@@ -568,7 +568,7 @@
                              (str "A MARGIN, NOT A CONTRACT: React documents no maximum "
                                   "render-to-subscribe interval. Re-run when the react / "
                                   "react-dom / playwright pins move.")]))))
-            (lane/done!))))))
+            (rf.bench.hicasso.lane/done!))))))
 
 (defn- adjudicate-adoption!
   "PHASE 2 — reached only from a qualifying phase-1 gap, and refusing again if
@@ -581,7 +581,7 @@
         (fn [rows]
           (let [summary (gap-summary rows)
                 bad     (disqualifiers rows ceiling-ms)]
-            (lane/record! :adoption {:horizon-ms horizon-ms
+            (rf.bench.hicasso.lane/record! :adoption {:horizon-ms horizon-ms
                                      :ceiling-ms ceiling-ms
                                      :summary    summary
                                      :rows       rows})
@@ -592,7 +592,7 @@
                             (into ["phase 1 qualified but an adoption mount did not, so its"
                                    "integers were discarded unread."]
                                   bad))
-                  (lane/done!)
+                  (rf.bench.hicasso.lane/done!)
                   (js/Promise.resolve nil))
               (let [faults (adoption-faults rows)]
                 (if (seq faults)
@@ -601,7 +601,7 @@
                                        "commit still did not adopt the render's build. On a qualifying"
                                        "page that is a MECHANISM regression, not a scheduling one."]
                                       faults))
-                      (lane/done!)
+                      (rf.bench.hicasso.lane/done!)
                       (js/Promise.resolve nil))
                   ;; Phase 2 held, so the hydration schedule is worth asking
                   ;; about — and phase 2's records are what its parity row is
@@ -614,7 +614,7 @@
   [rows horizon-ms ceiling-ms]
   (let [summary (gap-summary rows)
         bad     (disqualifiers rows ceiling-ms)]
-    (lane/record! :gap {:horizon-ms horizon-ms
+    (rf.bench.hicasso.lane/record! :gap {:horizon-ms horizon-ms
                         :ceiling-ms ceiling-ms
                         :summary    summary
                         :rows       rows})
@@ -626,29 +626,29 @@
                            "This is not a failure of the adoption; it is a refusal to"
                            "adjudicate it here."]
                           bad))
-          (lane/done!)
+          (rf.bench.hicasso.lane/done!)
           (js/Promise.resolve nil))
       (adjudicate-adoption! horizon-ms ceiling-ms))))
 
 (defn ^:export -main []
-  (rf/init! uixa/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   ;; Every reading here is taken outside React's act queue, so the commit
   ;; measured is the commit a consumer's page performs.
-  (lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/leave-act-environment!)
   (let [{:keys [horizon-ms ceiling-ms error]} (params)]
     (if error
-      (do (lane/fail! error) (lane/done!))
+      (do (rf.bench.hicasso.lane/fail! error) (rf.bench.hicasso.lane/done!))
       (-> (js/Promise.resolve nil)
           (.then (fn [_] (register!) (render-server-markup!)))
           ;; WARM-UP: printed, never counted. The first mount on a fresh page
           ;; pays React's own lazy initialisation.
           (.then (fn [_] (run-trials! (trial-ids "w" warmup-trials) false)))
           (.then (fn [warm]
-                   (lane/record! :warmup {:rows warm})
+                   (rf.bench.hicasso.lane/record! :warmup {:rows warm})
                    (js/console.log (str ";; warm-up gaps (discarded): "
                                         (pr-str (mapv :gap-ms warm)) " ms"))
                    (run-trials! (trial-ids "g" gap-trials) false)))
           (.then (fn [rows] (adjudicate-gap! rows horizon-ms ceiling-ms)))
           (.catch (fn [e]
-                    (lane/fail! (or (some-> e .-message) (str e)))
-                    (lane/done!)))))))
+                    (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
+                    (rf.bench.hicasso.lane/done!)))))))

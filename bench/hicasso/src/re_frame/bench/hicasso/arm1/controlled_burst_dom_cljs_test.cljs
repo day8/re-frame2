@@ -92,23 +92,23 @@
   `:value` / `:on-input` cells, unchanged, so HD-020's ≤2-hook budget is
   untouched and `arm1_hook_ledger_dom_cljs_test` still gates it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.grid :as grid]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.grid :as rf.bench.hicasso.arm1.grid]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; Same as the grid suite: the fixture's default leaves a dynamic-var
      ;; frame stamp in scope, and the carried-invariant chain resolves that
      ;; tier before React context.
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::burst-grid)
 
@@ -125,13 +125,13 @@
 ;; against the tag string — the UIx selector has nothing to select.
 
 (defn- fresh! []
-  (lane/leave-act-environment!)
-  (grid/make-frame! frame-id grid/cells)
-  (grid/reseed! frame-id grid/cells)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.arm1.grid/make-frame! frame-id rf.bench.hicasso.arm1.grid/cells)
+  (rf.bench.hicasso.arm1.grid/reseed! frame-id rf.bench.hicasso.arm1.grid/cells)
   frame-id)
 
 (defn- arm-mount! []
-  (mount/root! (mount/fresh-container!) frame-id [grid/grid {:n grid/cells}]))
+  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [rf.bench.hicasso.arm1.grid/grid {:n rf.bench.hicasso.arm1.grid/cells}]))
 
 (defn- cell-input [handle i] (.querySelector (:container handle) (str "#c" i)))
 
@@ -152,8 +152,8 @@
   "The out-of-band setup door — OUT of the discrete-event path, so this
   is where `settle!` is legitimate. Never part of any burst."
   [i v]
-  (rt/dispatch! frame-id [:agrid/set i v])
-  (mount/settle!)
+  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:agrid/set i v])
+  (rf.bench.hicasso.arm1.mount/settle!)
   nil)
 
 (defn- with-grid
@@ -163,7 +163,7 @@
   (fresh!)
   (let [handle (arm-mount!)]
     (try (f handle)
-         (finally (mount/release! handle)))))
+         (finally (rf.bench.hicasso.arm1.mount/release! handle)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The instrument
@@ -229,7 +229,7 @@
            event object itself — a burst row whose events silently carried
            the wrong signal would be a green gate over an unexercised door
            (the dead-isComposing lesson)"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM, and no InputEvent constructor")
       (do
         (let [e (burst-event "h")]
@@ -256,13 +256,13 @@
             (fn [handle]
               (let [n (cell-input handle 7)]
                 (.focus n)
-                (reset! grid/!body-runs 0)
+                (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
                 (let [[r] (burst! n 7 "x")]
                   (is (true? (:delivered r))
                       "dispatchEvent returned true — nothing cancelled it")
                   (is (= "x" (:model r)) "the event reached the model")
                   (is (= "x" (:value r)) "and the echo landed in the same turn")
-                  (is (= 1 @grid/!body-runs) "through exactly one body run"))))))))))
+                  (is (= 1 @rf.bench.hicasso.arm1.grid/!body-runs) "through exactly one body run"))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the plain burst: k keystrokes, k landings, in order
@@ -273,13 +273,13 @@
            every keystroke landing on its predecessor's outcome, so the
            final value is what the sequence implies and not merely what
            the last event carried"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
           (let [n (cell-input handle 7)]
             (.focus n)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (let [rs (burst! n 7 "hello")]
               (is (every? :delivered rs) "all five dispatches delivered")
               (is (= ["h" "he" "hel" "hell" "hello"] (mapv :value rs))
@@ -294,7 +294,7 @@
             (is (= "hello" (model-value 7)) "the model holds the sequence")
             (is (= "hello" (.-value n)) "so does the DOM")
             (is (= [5 5] (caret n)) "caret at 5")
-            (is (= 5 @grid/!body-runs)
+            (is (= 5 @rf.bench.hicasso.arm1.grid/!body-runs)
                 "and the body ran exactly k times — one per keystroke,
                  not one for the burst and not a hundred")))))))
 
@@ -303,18 +303,18 @@
            nothing between one dispatchEvent and the next mutate. The
            endpoint alone: if any keystroke had been dropped or deferred,
            the model could not spell the sequence"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
           (let [n (cell-input handle 7)]
             (.focus n)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (bare-burst! n "hello")
             (is (= "hello" (model-value 7)))
             (is (= "hello" (.-value n)))
             (is (= [5 5] (caret n)))
-            (is (= 5 @grid/!body-runs))))))))
+            (is (= 5 @rf.bench.hicasso.arm1.grid/!body-runs))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — refusals interleaved: the next keystroke lands on the restored state
@@ -325,13 +325,13 @@
            accepted subset, each refusal's restore happens INSIDE its own
            event, and the next keystroke in the burst builds on the
            restored field rather than on the refused character"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
           (let [n (cell-input handle 11)]
             (.focus n)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (let [rs (burst! n 11 "1a2b3")]
               (is (= ["1" "1" "12" "12" "123"] (mapv :value rs))
                   "each refused character is off the screen on the line
@@ -344,7 +344,7 @@
                    next keystroke expects it"))
             (is (= "123" (model-value 11)) "the accepted subset, in order")
             (is (= "123" (.-value n)))
-            (is (= 3 @grid/!body-runs)
+            (is (= 3 @rf.bench.hicasso.arm1.grid/!body-runs)
                 "three accepted keystrokes, three body runs — a refusal
                  moves no model and re-renders nothing")))))))
 
@@ -354,7 +354,7 @@
            refusal landing on the acceptance's converge, all mid-string,
            where React alone would have dumped the caret at the end of
            the field on every one of them"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -362,7 +362,7 @@
             (set-model! 11 "12345")
             (.focus n)
             (.setSelectionRange n 2 2)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (let [rs (burst! n 11 "z9z")]
               (is (= ["12345" "129345" "129345"] (mapv :value rs))
                   "z refused, 9 accepted at the position the restore
@@ -373,7 +373,7 @@
                    the end by the refusal's restore, nor by the
                    acceptance's converge, nor by the second refusal's"))
             (is (= "129345" (model-value 11)))
-            (is (= 1 @grid/!body-runs) "one acceptance, one body run")))))))
+            (is (= 1 @rf.bench.hicasso.arm1.grid/!body-runs) "one acceptance, one body run")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — normalising models: the caret arithmetic survives k successive
@@ -385,13 +385,13 @@
            by the model (h → H), so every keystroke costs a converge, and
            the burst is five successive restores each of which the next
            keystroke builds on"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
           (let [n (cell-input handle 13)]
             (.focus n)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (let [rs (burst! n 13 "hello")]
               (is (= ["H" "HE" "HEL" "HELL" "HELLO"] (mapv :value rs))
                   "each lowercase keystroke came back uppercased inside
@@ -402,7 +402,7 @@
                    through five rewrites"))
             (is (= "HELLO" (model-value 13)))
             (is (= "HELLO" (.-value n)))
-            (is (= 5 @grid/!body-runs) "five acceptances, five body runs")))))))
+            (is (= 5 @rf.bench.hicasso.arm1.grid/!body-runs) "five acceptances, five body runs")))))))
 
 (deftest a-grouping-burst-survives-length-changing-normalisation-mid-burst
   (testing "1,2,3,4,5 into the :group cell — the fourth keystroke changes
@@ -410,13 +410,13 @@
            every absolute offset in the field is wrong and only the
            offset-from-the-end arithmetic can carry the caret through the
            rest of the burst"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
           (let [n (cell-input handle 17)]
             (.focus n)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (let [rs (burst! n 17 "12345")]
               (is (= ["1" "12" "123" "1,234" "12,345"] (mapv :value rs))
                   "the grouping landed inside the fourth keystroke's own
@@ -429,7 +429,7 @@
             (is (= "12,345" (model-value 17)))
             (is (= "12,345" (.-value n)))
             (is (= [6 6] (caret n)))
-            (is (= 5 @grid/!body-runs))))))))
+            (is (= 5 @rf.bench.hicasso.arm1.grid/!body-runs))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — the ordering claim, where a broken door changes the STRING
@@ -441,7 +441,7 @@
            the WRONG PLACE: abdc instead of abcd. A final value equal to
            the last event's payload is not enough; it has to be what the
            SEQUENCE of keystrokes implies, position and all"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -449,7 +449,7 @@
             (set-model! 7 "ad")
             (.focus n)
             (.setSelectionRange n 1 1)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (let [rs (burst! n 7 "bc")]
               (is (= ["abd" "abcd"] (mapv :value rs))
                   "b landed at position 1; c landed AFTER b, because the
@@ -461,4 +461,4 @@
                  a caret thrown to the end between two keystrokes of one
                  burst")
             (is (= "abcd" (.-value n)))
-            (is (= 2 @grid/!body-runs))))))))
+            (is (= 2 @rf.bench.hicasso.arm1.grid/!body-runs))))))))

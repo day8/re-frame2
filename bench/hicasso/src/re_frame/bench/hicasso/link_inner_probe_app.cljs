@@ -22,15 +22,15 @@
   A replica is not the fn — it is the same expression on the same data,
   which is what a decomposition needs when the stages are `defn-`
   private. The anchor arm (`:route-url`) keeps both probes on one scale."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.large-template :as lt]
-            [re-frame.bench.hicasso.shapes.model :as m]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
             [re-frame.core :as rf]
-            [re-frame.identity :as identity]
-            [re-frame.routing :as routing]
-            [re-frame.routing.address :as address]))
+            [re-frame.identity :as rf.identity]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.address :as rf.routing.address]))
 
 (def frame-id ::frame)
 
@@ -38,8 +38,8 @@
 
 (defn- link-targets []
   (let [a #js []]
-    (dotimes [i lt/article-count]
-      (let [art (m/article i)
+    (dotimes [i rf.bench.hicasso.shapes.large-template/article-count]
+      (let [art (rf.bench.hicasso.shapes.model/article i)
             u   (:username (:author art))]
         (.push a {:to :conduit.profile/show :params {:username u}})
         (.push a {:to :conduit.profile/show :params {:username u}})
@@ -98,22 +98,22 @@
 (def ^:private passes-per-sample 4)
 
 (defn- timed-door [pass!]
-  (let [t0 (lane/now-ms)]
+  (let [t0 (rf.bench.hicasso.lane/now-ms)]
     (dotimes [_ passes-per-sample]
-      (rt/render-body frame-id (fn [_] (pass!) [:span]) {}))
-    (- (lane/now-ms) t0)))
+      (rf.bench.hicasso.arm1.runtime/render-body frame-id (fn [_] (pass!) [:span]) {}))
+    (- (rf.bench.hicasso.lane/now-ms) t0)))
 
 (def ^:private arm-ids [:floor :ideal :emit-loop :set-build :addr-keys :route-url :ctl2])
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (lane/self-test!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
-          (lt/make-frame! frame-id)
-          (lt/reseed! frame-id)
+          (rf.bench.hicasso.shapes.large-template/make-frame! frame-id)
+          (rf.bench.hicasso.shapes.large-template/reseed! frame-id)
           (let [targets (link-targets)
                 ideals  (ideal-parts targets)
                 n       (alength targets)
@@ -145,35 +145,35 @@
                           (dotimes [i n]
                             (let [t (aget targets i)]
                               (vreset! sink
-                                       [(seq (remove address/address-keys (keys t)))
+                                       [(seq (remove rf.routing.address/address-keys (keys t)))
                                         (into (array-map)
-                                              (sort-by (comp identity/canonical-bytes key)
+                                              (sort-by (comp rf.identity/canonical-bytes key)
                                                        (remove (fn [[_ v]] (nil? v)) {})))]))))}
                  {:id :route-url
                   :pass (fn []
                           (dotimes [i n]
-                            (vreset! sink (routing/route-url (aget targets i)))))}
+                            (vreset! sink (rf.routing/route-url (aget targets i)))))}
                  {:id :ctl2
                   :pass (fn []
                           (dotimes [_ 2]
                             (dotimes [i n]
-                              (vreset! sink (routing/route-url (aget targets i))))))}]
+                              (vreset! sink (rf.routing/route-url (aget targets i))))))}]
                 {:keys [readings samples]}
-                (lane/rounds! arms {:warmup 4 :samples 8} 5
+                (rf.bench.hicasso.lane/rounds! arms {:warmup 4 :samples 8} 5
                               (fn [{:keys [pass]}] (timed-door pass)))
                 rows (into {}
                            (map (fn [id]
                                   (let [xs (mapcat #(get % id) readings)]
-                                    [id (lane/summarise (mapv #(/ % passes-per-sample) xs))])))
+                                    [id (rf.bench.hicasso.lane/summarise (mapv #(/ % passes-per-sample) xs))])))
                            arm-ids)
-                gv   (lane/guard! samples "link inner decomposition (in-page ms, diagnostic)")
-                ctl  (lane/control-verdict (* 2.0 (:p50 (get rows :route-url)))
+                gv   (rf.bench.hicasso.lane/guard! samples "link inner decomposition (in-page ms, diagnostic)")
+                ctl  (rf.bench.hicasso.lane/control-verdict (* 2.0 (:p50 (get rows :route-url)))
                                            (let [s (get rows :ctl2)]
                                              {:min (:min s) :max (:max s) :mean (:p50 s)})
                                            0.25)]
             (when-not (:ok? ctl)
               (throw (ex-info (str "positive control failed: " (:why ctl)) {})))
-            (lane/record! :link-inner rows)
+            (rf.bench.hicasso.lane/record! :link-inner rows)
             (js/console.log ";; ==== LINK INNER DECOMPOSITION (ms per 207-call pass; diagnostic) ====")
             (doseq [id arm-ids]
               (let [{:keys [p50 min max]} (get rows id)]
@@ -184,7 +184,7 @@
             (js/console.log (str ";;   control: " (:why ctl)))
             (when (:refuse? gv)
               (set! (.-HICASSO_GUARD_REFUSED js/window) true))
-            (lane/done!))))
+            (rf.bench.hicasso.lane/done!))))
       (.catch (fn [e]
-                (lane/fail! (or (some-> e .-message) (str e)))
-                (lane/done!)))))
+                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.hicasso.lane/done!)))))

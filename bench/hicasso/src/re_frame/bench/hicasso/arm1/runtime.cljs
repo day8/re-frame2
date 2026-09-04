@@ -155,7 +155,7 @@
   once realised; it would simply never update again.
 
   This arm is safe by construction: [[run-once]] closes the window around
-  `codec/as-element`, and the codec is eager everywhere it walks —
+  `rf.bench.hicasso.front.codec/as-element`, and the codec is eager everywhere it walks —
   `expand-seq` drives a seq to exhaustion, `realize-children` folds one
   into a vector, a seq at a *native* prop position goes through
   `clj->js`, and `front.codec/realize-deep` forces every lazy sequence
@@ -337,9 +337,9 @@
   [[invalidate-cell!]] is the one repair all three reach:
   [[wire-cell!]] arms it per unique key against the reaction's disposal,
   which covers the two transitions that dispose; the third disposes
-  nothing — `registrar/add-replacement-hook!` fires only when a previous
+  nothing — `rf.registrar/add-replacement-hook!` fires only when a previous
   handler existed — so the arm hangs it off
-  `registrar/add-registration-hook!` ([[sub-registered!]]), narrowed to
+  `rf.registrar/add-registration-hook!` ([[sub-registered!]]), narrowed to
   first-time `:sub` registrations and to the cells that hold the id being
   registered. It costs no React hook and no per-boundary object.
 
@@ -364,16 +364,16 @@
   ViewCell-class object graph. No candidate ledger. Codec caching is the
   only accelerant (HD-004); nothing here holds a node reference, plans a
   hole, or writes the DOM."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.intent :as intent]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.performance :as performance :include-macros true]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.performance :as rf.performance :include-macros true]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
@@ -595,7 +595,7 @@
   minted-per-cell identity (rf2-aqgr2).
 
   A watch key has to be unique *within the watched reference*, and it is:
-  there is at most one cell per `(frame, query)`, `subs/subscribe` hands
+  there is at most one cell per `(frame, query)`, `rf.subs/subscribe` hands
   back that pair's own cached reaction, and no two cells ever hold the
   same reaction — so one namespaced constant collides with nothing this
   arm installs, and its namespace keeps it clear of any other watcher keyed
@@ -688,7 +688,7 @@
   of the registry one, where there is no dead reference to read back
   through because the commit acquires against the live registration."
   [frame-kw]
-  (+ @!generation (frame/frame-commit-epoch frame-kw) @!registry-epoch))
+  (+ @!generation (rf.frame/frame-commit-epoch frame-kw) @!registry-epoch))
 
 (declare flush!)
 
@@ -702,7 +702,7 @@
     (set! (.-disposed cell) true)
     (when-some [r (.-reaction cell)] (remove-watch r cell-watch-key))
     (swap! !cells dissoc (.-subKey cell))
-    (subs/unsubscribe (.-frameKw cell) (.-queryV cell)))
+    (rf.subs/unsubscribe (.-frameKw cell) (.-queryV cell)))
   nil)
 
 (defn- arm-cell-reaper!
@@ -735,7 +735,7 @@
   app-db's watcher set, so the watch below never fires, [[mark-dirty!]] never
   fires — that watch is its only caller — and no write after the mount ever
   becomes re-render work. Measured: the arm painted once and was deaf
-  thereafter. `interop/activate-derived-value!` is the substrate's own op for
+  thereafter. `rf.interop/activate-derived-value!` is the substrate's own op for
   this and is a routed no-op on the React-hook spine, which wires one watch
   per source at construction.
 
@@ -754,16 +754,16 @@
   [^js cell]
   (let [frame-kw (.-frameKw cell)
         query-v  (.-queryV cell)
-        reaction (subs/subscribe query-v {:frame frame-kw})]
+        reaction (rf.subs/subscribe query-v {:frame frame-kw})]
     (set! (.-reaction cell) reaction)
     (when (some? reaction)
       ;; On the substrate's PUSH path, before anything observes or watches it.
-      (interop/activate-derived-value! reaction)
+      (rf.interop/activate-derived-value! reaction)
       ;; ONE baseline deref, before the watch — see `acquire-cell!`.
       @reaction
       (add-watch reaction cell-watch-key
                  (fn [_ _ old nu] (when-not (= old nu) (mark-dirty! cell))))
-      (interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell))))
+      (rf.interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell))))
     cell))
 
 (defn- invalidate-cell!
@@ -806,7 +806,7 @@
     (js/setTimeout
       (fn []
         (when-not (.-disposed cell)
-          (if (nil? (frame/frame-incarnation-token (.-frameKw cell)))
+          (if (nil? (rf.frame/frame-incarnation-token (.-frameKw cell)))
             (dispose-cell! cell)
             (do (wire-cell! cell)
                 ;; Re-stamp and notify: a boundary that painted before the
@@ -818,7 +818,7 @@
 
 (defn- first-registration!
   "**The registry transition no disposal announces** (rf2-2rtt6.44
-  audit follow-up). `registrar/add-replacement-hook!` — the hook the
+  audit follow-up). `rf.registrar/add-replacement-hook!` — the hook the
   sub-cache eviction that [[invalidate-cell!]] rides is built on — fires
   only when a previous handler existed. A *first* `reg-sub` for a query
   therefore evicts nothing, disposes nothing, and would reach an arm that
@@ -829,7 +829,7 @@
   query emits `:rf.error/no-such-sub`, recovers to a nil-yielding
   reaction, and **deliberately does not cache it**, precisely so that a
   later registration is observed by the next `subscribe`
-  (`subs/build-and-cache!*`). This arm has exactly one property that
+  (`rf.subs/build-and-cache!*`). This arm has exactly one property that
   breaks that assumption — a cell holds its reaction for the life of
   every boundary reading the key, and never subscribes again — so the
   recovery the substrate declined to cache was cached anyway, in a cell,
@@ -839,7 +839,7 @@
 
   So the repair is to restore the substrate's assumption rather than to
   keep the recovery honest: the same [[invalidate-cell!]] the disposal
-  path uses, off `registrar/add-registration-hook!` — the public sibling
+  path uses, off `rf.registrar/add-registration-hook!` — the public sibling
   that fires on first-time *and* re-registration. Narrowed to the
   first-time case (`:was` nil), because the re-registration case already
   arrives as a disposal and doing it twice would rebuild one attachment
@@ -867,10 +867,10 @@
   [{:keys [kind id was]}]
   (when (and (= :sub kind) (nil? was))
     ;; `first`, not `(nth … 0)`: a registrar hook's throw is SWALLOWED by
-    ;; `registrar/register!`, so an exception here would not surface as a
+    ;; `rf.registrar/register!`, so an exception here would not surface as a
     ;; failure — it would abandon the rest of the scan silently, leaving
     ;; some cells repaired and some not. `(sub [])` is a legal call that
-    ;; reaches a cell (`subs/subscribe` treats a nil query-id as a miss
+    ;; reaches a cell (`rf.subs/subscribe` treats a nil query-id as a miss
     ;; like any other), and `nth` on it would throw.
     (doseq [^js cell (vals @!cells)]
       (when (and (= id (first (.-queryV cell)))
@@ -909,7 +909,7 @@
 ;; every `:sub` one, and the scan above only on a first-time `:sub`.
 #_:clj-kondo/ignore
 (defonce ^:private first-registration-armed
-  (do (registrar/add-registration-hook! sub-registered!) true))
+  (do (rf.registrar/add-registration-hook! sub-registered!) true))
 
 (defn- acquire-cell!
   "**Commit-phase only.** Take (building if necessary) the durable
@@ -1133,7 +1133,7 @@
      (`observation/probe`), and single-threaded CLJS is what makes the
      unguarded deref safe: nothing can evict between the `get` and the
      `@`.
-  2. **A truly cold key computes PURE** — `subs/compute-sub-with-memo`
+  2. **A truly cold key computes PURE** — `rf.subs/compute-sub-with-memo`
      against ONE coherent frame-state snapshot, minted lazily on the
      run's first cold read ([[run-once]] resets the box, so a fence
      re-run or a StrictMode double-invoke computes against the state
@@ -1142,7 +1142,7 @@
      a cache insert, an in-tick evict and a dispose cascade per read,
      this path pays a registrar lookup and the sub's own body. Each
      compute threads a FRESH per-read memo seeded with
-     `subs/observation-opts-key`, so an unregistered query emits the
+     `rf.subs/observation-opts-key`, so an unregistered query emits the
      always-on `:rf.error/no-such-sub` exactly as the reactive build
      does and recovers to the same nil; the run-level dedup lives in
      the box's own value map, where a key already computed this run is
@@ -1163,7 +1163,7 @@
      predecessor's whole behaviour on that edge, kept rather than
      re-spelled.
 
-  The compute sits inside `live-frame/call-with-frame-resolution` for
+  The compute sits inside `rf.live-frame/call-with-frame-resolution` for
   the same two reasons `subscribe` itself does: an image-loaded frame's
   registrar lookups must resolve through that frame's own image, and the
   wrapper's read-time coalesced flush is what makes a `reg-sub` issued
@@ -1182,32 +1182,32 @@
   the port could stake commit-free Tier-1 reads on the equivalence
   first."
   [frame-kw query-v]
-  (let [frame-record (frame/frame frame-kw)]
+  (let [frame-record (rf.frame/frame frame-kw)]
     (if (nil? frame-record)
-      (subs/subscribe-once query-v {:frame frame-kw})
-      (live-frame/call-with-frame-resolution
+      (rf.subs/subscribe-once query-v {:frame frame-kw})
+      (rf.live-frame/call-with-frame-resolution
         frame-kw
         (fn []
           (if-some [r (:reaction (get @(:sub-cache frame-record) query-v))]
             @r
             (let [^js pr (or (.-probe rstate)
-                             (when-some [fs (frame/frame-state-value frame-kw)]
+                             (when-some [fs (rf.frame/frame-state-value frame-kw)]
                                (let [^js fresh #js {"fs" fs "vals" {}}]
                                  (set! (.-probe rstate) fresh)
                                  fresh)))]
               (if (nil? pr)
                 ;; The frame died between the record resolve and the
                 ;; state read — recover exactly as rung 3 does.
-                (subs/subscribe-once query-v {:frame frame-kw})
+                (rf.subs/subscribe-once query-v {:frame frame-kw})
                 ;; `find`, not `get`: a memoised nil (an unregistered
                 ;; query's recovery) is a HIT, and the one emission per
                 ;; distinct unknown key per run rides on that.
                 (if-some [kv (find (unchecked-get pr "vals") query-v)]
                   (val kv)
-                  (let [v (subs/compute-sub-with-memo
+                  (let [v (rf.subs/compute-sub-with-memo
                             query-v
                             (unchecked-get pr "fs")
-                            (atom {subs/observation-opts-key
+                            (atom {rf.subs/observation-opts-key
                                    {:frame frame-kw}}))]
                     (unchecked-set pr "vals"
                                    (assoc (unchecked-get pr "vals") query-v v))
@@ -1575,13 +1575,13 @@
   ;; count is the one that says so.
   (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
   (when ^boolean js/goog.DEBUG
-    (codec/set-lowering-owner! (unchecked-get body-fn "displayName")))
+    (rf.bench.hicasso.front.codec/set-lowering-owner! (unchecked-get body-fn "displayName")))
   (try
-    (intent/with-frame frame-kw (frame-dispatch frame-kw)
-      (fn [] (codec/as-element (body-fn props))))
+    (rf.bench.hicasso.front.intent/with-frame frame-kw (frame-dispatch frame-kw)
+      (fn [] (rf.bench.hicasso.front.codec/as-element (body-fn props))))
     (finally
       (set! (.-frame rstate) nil)
-      (when ^boolean js/goog.DEBUG (codec/set-lowering-owner! nil)))))
+      (when ^boolean js/goog.DEBUG (rf.bench.hicasso.front.codec/set-lowering-owner! nil)))))
 
 (defn render-body
   "Run a boundary body under the generation fence and return its element;
@@ -1696,7 +1696,7 @@
   [:use-context/frame :use-sync-external-store/subscription-epoch])
 
 (defn- resolve-frame! [frame-kw]
-  (if (or (nil? frame-kw) (= adapter-context/no-provider-sentinel frame-kw))
+  (if (or (nil? frame-kw) (= rf.adapter.context/no-provider-sentinel frame-kw))
     (fail! :rf.error/no-frame-context
            're-frame.bench.hicasso.arm1.runtime/shell
            (str "A Hicasso boundary rendered with no frame in scope. Mount the "
@@ -1711,7 +1711,7 @@
   position of ordinary code around them, and it is what lets the
   subscription hook close over the reads the body just made."
   [body-fn js-props]
-  (let [frame-kw (resolve-frame! (react/useContext adapter-context/frame-context))
+  (let [frame-kw (resolve-frame! (react/useContext rf.adapter.context/frame-context))
         props    (or (unchecked-get js-props "rfProps") {})
         element  (render-body frame-kw body-fn props)
         ^js entry (.-entry rstate)]
@@ -1907,10 +1907,10 @@
   [view-name body-fn]
   (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
   (let [component (fn hicasso-boundary [js-props]
-                    (performance/mark-and-measure :render view-name
+                    (rf.performance/mark-and-measure :render view-name
                       (shell body-fn js-props)))]
     (unchecked-set component "displayName" view-name)
-    (codec/memoize-boundary! (codec/mark-boundary! component))))
+    (rf.bench.hicasso.front.codec/memoize-boundary! (rf.bench.hicasso.front.codec/mark-boundary! component))))
 
 (defn mint-frame-prop-view!
   "[[mint-view!]]'s frame-fed twin (rf2-2rtt6.39): the same boundary, the
@@ -1933,11 +1933,11 @@
   [view-name body-fn]
   (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
   (let [component (fn hicasso-frame-prop-boundary [js-props]
-                    (performance/mark-and-measure :render view-name
+                    (rf.performance/mark-and-measure :render view-name
                       (frame-prop-shell body-fn js-props)))]
     (unchecked-set component "displayName" view-name)
-    (codec/memoize-boundary!
-      (codec/mark-frame-prop! (codec/mark-boundary! component)))))
+    (rf.bench.hicasso.front.codec/memoize-boundary!
+      (rf.bench.hicasso.front.codec/mark-frame-prop! (rf.bench.hicasso.front.codec/mark-boundary! component)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Retained inventory — honest accounting, not a claimed absence
@@ -2066,7 +2066,7 @@
      :entries    (reduce + 0 (map (fn [[_ v]] (count v)) @!entries))
      :generation (generation)
      :frames     (count @!frame-ops)
-     :codec      (codec/cache-sizes)}))
+     :codec      (rf.bench.hicasso.front.codec/cache-sizes)}))
 
 (defn entry-buckets
   "The read-set entry cache's bucket occupancy — `{:buckets n :max-bucket

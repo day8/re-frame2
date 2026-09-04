@@ -85,7 +85,7 @@
   spend an effect on it. Deadlines are absolute instants stored when a
   key starts exiting, so a timer re-armed for an unrelated reason cannot
   extend a child's retention past its terminal bound."
-  (:require [re-frame.bench.hicasso.front.codec :as codec]))
+  (:require [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]))
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved keys
@@ -202,7 +202,7 @@
   failure this whole ruling exists to delete."
   [child phase]
   (let [props (props-of child)]
-    (if (codec/boundary-head? (nth child 0))
+    (if (rf.bench.hicasso.front.codec/boundary-head? (nth child 0))
       (do
         (when (some #(contains? props %) override-keys)
           (fail! :rf.error/hicasso-presence-override-on-a-view
@@ -218,7 +218,7 @@
             base     (when props (apply dissoc props override-keys))]
         (cond
           (map? override)
-          (with-props child (merge base (codec/without-structural override)))
+          (with-props child (merge base (rf.bench.hicasso.front.codec/without-structural override)))
 
           ;; Nothing to strip and nothing to merge: the child is already
           ;; exactly what it should render as, so it comes back untouched

@@ -4,7 +4,7 @@
 
   `defview` boundaries now report through Spec 009's Performance
   channel: [[re-frame.bench.hicasso.arm1.runtime/mint-view!]] wraps the
-  component fn React calls in `(performance/mark-and-measure :render
+  component fn React calls in `(rf.performance/mark-and-measure :render
   view-name …)`, so a build that flips
   `re-frame.performance/enabled?` gets one `rf:render:<view-id>`
   User-Timing measure per boundary render.
@@ -51,13 +51,13 @@
   doubles as the bead's SSR clause: a server pass leaves no durable
   registration behind a bracket."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
             [re-frame.core :as rf]
-            [re-frame.performance :as performance :include-macros true]
-            [re-frame.test-support :as test-support]
+            [re-frame.performance :as rf.performance :include-macros true]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
@@ -72,10 +72,10 @@
 (rf/reg-event :rm/seed (fn [_ _] {:db {:title "quarterly"}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!) (rt/reset-body-runs!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!) (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The page — two boundaries, so "one measure per boundary" has something
@@ -85,7 +85,7 @@
 (defview title-row
   "A boundary that reads, so its body is a real body and not a constant."
   [_]
-  [:h1.title (rt/sub [:rm/title])])
+  [:h1.title (rf.bench.hicasso.arm1.runtime/sub [:rm/title])])
 
 (defview measured-page
   "The outer boundary. Two heads render per pass, which is what makes the
@@ -122,7 +122,7 @@
   renderer calls, minus the browser."
   [hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.bench.hicasso.arm1.mount/provider frame-id (rf.bench.hicasso.front.codec/root-element frame-id hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the id rule (no flag needed; it is a property of the mint)
@@ -139,9 +139,9 @@
     (is (= "re-frame.bench.hicasso.arm1.render-measure-cljs-test/measured-page"
            (.-displayName measured-page)))
     (is (= "rf:render:re-frame.bench.hicasso.arm1.render-measure-cljs-test/title-row"
-           (performance/build-name :render (.-displayName title-row))))
+           (rf.performance/build-name :render (.-displayName title-row))))
     (is (= "rf:render:re-frame.bench.hicasso.arm1.render-measure-cljs-test/measured-page"
-           (performance/build-name :render (.-displayName measured-page))))))
+           (rf.performance/build-name :render (.-displayName measured-page))))))
 
 (deftest the-id-rule-holds-for-a-mint-view-name-without-a-namespace
   (testing "`mint-view!` is also called directly (the frame-prop rows, the
@@ -149,10 +149,10 @@
             it verbatim, so the shape stays `rf:render:<id>` with no
             namespace invented — the same contract a non-namespaced
             `reg-view` keyword id gets."
-    (let [head (rt/mint-view! "bare-row" (fn [_] [:span "x"]))]
+    (let [head (rf.bench.hicasso.arm1.runtime/mint-view! "bare-row" (fn [_] [:span "x"]))]
       (is (= "bare-row" (.-displayName head)))
       (is (= "rf:render:bare-row"
-             (performance/build-name :render (.-displayName head)))))))
+             (rf.performance/build-name :render (.-displayName head)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the off path: the render happens, and nothing is measured
@@ -165,16 +165,16 @@
             without them 'no rf: measures landed' is a statement about a
             page that never rendered — and the empty measure stream says
             the bracket added nothing to it."
-    (when-not performance/enabled?
+    (when-not rf.performance/enabled?
       (fresh!)
       (clear-measures!)
-      (rt/reset-body-runs!)
+      (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
       (let [html (server-html [measured-page {}])]
         (is (re-find #"quarterly" html)
             "the page rendered its subscription value — the render is real")
         (is (re-find #"class=\"page\"" html)
             "and its markup is the ordinary markup")
-        (is (= 2 (rt/body-runs))
+        (is (= 2 (rf.bench.hicasso.arm1.runtime/body-runs))
             "two boundary bodies ran — the page and the row")
         (is (= [] (rf-measure-names))
             "and NOTHING reached the User-Timing stream")))))
@@ -185,13 +185,13 @@
             renders would leave ten retained entries in a flag-on build
             with retention on; here they leave none, and the body-run
             count proves ten renders were asked for."
-    (when-not performance/enabled?
+    (when-not rf.performance/enabled?
       (fresh!)
       (clear-measures!)
-      (rt/reset-body-runs!)
+      (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
       (dotimes [_ 5]
         (server-html [measured-page {}]))
-      (is (= 10 (rt/body-runs)) "five passes over two boundaries")
+      (is (= 10 (rf.bench.hicasso.arm1.runtime/body-runs)) "five passes over two boundaries")
       (is (= [] (rf-measure-names))
           "and the retained buffer is still empty"))))
 
@@ -202,11 +202,11 @@
             writes a measure and (retention off) clears it, and holds no
             reference of its own. `stats` is the arm's own enumeration of
             what survived."
-    (when-not performance/enabled?
+    (when-not rf.performance/enabled?
       (fresh!)
       (clear-measures!)
       (server-html [measured-page {}])
-      (is (zero? (:boundaries (rt/stats)))
+      (is (zero? (:boundaries (rf.bench.hicasso.arm1.runtime/stats)))
           "a server pass committed nothing — no registration holds a reader slot")
       (is (= [] (rf-measure-names))
           "and left no User-Timing entry either"))))

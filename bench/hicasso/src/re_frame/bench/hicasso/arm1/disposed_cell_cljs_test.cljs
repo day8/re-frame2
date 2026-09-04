@@ -36,16 +36,16 @@
   adapter: on an unwatchable host a subscription never notifies and the
   `notified` half of every row would pass by never firing."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; The rebuild rows resume on a later tick, and `cljs.test` refuses a
      ;; fn-form fixture for an `async` test — the fn-form's ambient scope is
      ;; a dynamic binding that would be unwound before the body resumes.
@@ -54,7 +54,7 @@
      ;; BEFORE React context, so a fixture-installed ambient frame would
      ;; answer reads for a frame this file never made.
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 ;; This file's OWN queries and OWN frames: a re-registration is a global
 ;; act, and re-registering a query some other suite reads would be a test
@@ -63,15 +63,15 @@
 (def ^:private q-node [:disposedcell/node])
 
 (defn- make-frame! [id db]
-  (live-frame/make-frame {:id id})
-  (frame/replace-app-db! id db)
+  (rf.live-frame/make-frame {:id id})
+  (rf.frame/replace-app-db! id db)
   id)
 
 (defn- reader
   "A boundary whose whole body is one read, so the read set is one key
   and the snapshot arithmetic is one term."
   [q seen]
-  (fn [_] (let [v (rt/sub q)] (vreset! seen v) [:li (str v)])))
+  (fn [_] (let [v (rf.bench.hicasso.arm1.runtime/sub q)] (vreset! seen v) [:li (str v)])))
 
 (defn- settle!
   "Run the macrotask queue once. `invalidate-cell!`'s rebuild is deferred
@@ -101,26 +101,26 @@
     (async done
     (let [seen (volatile! nil)
           f    (make-frame! ::registry {:v 1})]
-      (rt/render-body f (reader q-reg seen) {})
-      (let [entry    (rt/last-reads)
+      (rf.bench.hicasso.arm1.runtime/render-body f (reader q-reg seen) {})
+      (let [entry    (rf.bench.hicasso.arm1.runtime/last-reads)
             hits     (volatile! 0)
-            release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
-        (is (= 1 (:cells (rt/stats)))
+            release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
+        (is (= 1 (:cells (rf.bench.hicasso.arm1.runtime/stats)))
             "RETAINED: the commit acquired a cell, so the key's reaction is
              held for the life of this boundary — which is what makes the
              warm read a pure deref, and what exposes it to a disposal")
 
         (testing "the CONTROL — the watch is live before the re-registration"
-          (frame/replace-app-db! f {:v 2})
+          (rf.frame/replace-app-db! f {:v 2})
           (is (= 1 @hits) "a write notified the boundary")
-          (rt/render-body f (reader q-reg seen) {})
+          (rf.bench.hicasso.arm1.runtime/render-body f (reader q-reg seen) {})
           (is (= 2 @seen) "and the re-render read the new value"))
 
         ;; THE RE-REGISTRATION.
         (rf/reg-sub (first q-reg) (fn [db _] (* 10 (:v db))))
 
         (testing "the next render computes against the NEW registration"
-          (rt/render-body f (reader q-reg seen) {})
+          (rf.bench.hicasso.arm1.runtime/render-body f (reader q-reg seen) {})
           (is (= 20 @seen)
               "20, not 2: the cell's reaction was disposed by the sub-cache
                eviction, so the read falls through to `subscribe-once`,
@@ -131,12 +131,12 @@
             (testing "and the durable attachment is rebuilt, so later writes
                       notify again"
               (let [before @hits]
-                (frame/replace-app-db! f {:v 3})
+                (rf.frame/replace-app-db! f {:v 3})
                 (is (pos? (- @hits before))
                     "the boundary was notified — without the rebuild the cell
                      is deaf from the disposal onwards, because `-dispose`
                      cleared the watcher set this arm's `add-watch` was in")))
-            (rt/render-body f (reader q-reg seen) {})
+            (rf.bench.hicasso.arm1.runtime/render-body f (reader q-reg seen) {})
             (is (= 30 @seen) "and it reads the new handler over the new db")
             (release!)
             (done))))))))
@@ -151,22 +151,22 @@
             strictly worse: it looks alive."
     (rf/reg-sub (first q-reg) (fn [db _] (:v db)))
     (let [f (make-frame! ::registry-retired {:v 1})]
-      (rt/render-body f (reader q-reg (volatile! nil)) {})
-      (let [entry    (rt/last-reads)
-            release! (rt/commit-boundary! entry (fn []))
+      (rf.bench.hicasso.arm1.runtime/render-body f (reader q-reg (volatile! nil)) {})
+      (let [entry    (rf.bench.hicasso.arm1.runtime/last-reads)
+            release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn []))
             ;; Reach past the repair: hold the reaction the cell held, then
             ;; re-register. This is exactly the object the cell kept before
             ;; `invalidate-cell!` existed.
-            held     (rt/cell-reaction [f q-reg])]
+            held     (rf.bench.hicasso.arm1.runtime/cell-reaction [f q-reg])]
         (is (some? held) "precondition: the cell holds a reaction")
         (rf/reg-sub (first q-reg) (fn [db _] (* 10 (:v db))))
-        (frame/replace-app-db! f {:v 7})
+        (rf.frame/replace-app-db! f {:v 7})
         (is (= 7 @held)
             "the disposed container answers 7 — the RETIRED `(:v db)` over
              the new db — where the live registration answers 70. A term in
              `getSnapshot` would have scheduled a re-render that read
              exactly this")
-        (is (nil? (rt/cell-reaction [f q-reg]))
+        (is (nil? (rf.bench.hicasso.arm1.runtime/cell-reaction [f q-reg]))
             "which is why the cell drops the reference instead: the repair
              is to stop reading through it, not to re-read it")
         (release!)))))
@@ -188,30 +188,30 @@
     (async done
     (let [seen (volatile! nil)
           f    (make-frame! ::node {:v 1})]
-      (rt/render-body f (reader q-node seen) {})
-      (let [entry    (rt/last-reads)
+      (rf.bench.hicasso.arm1.runtime/render-body f (reader q-node seen) {})
+      (let [entry    (rf.bench.hicasso.arm1.runtime/last-reads)
             hits     (volatile! 0)
-            release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))
-            token-a  (frame/frame-incarnation-token f)
-            basis-a  (rt/commit-basis f)]
+            release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))
+            token-a  (rf.frame/frame-incarnation-token f)
+            basis-a  (rf.bench.hicasso.arm1.runtime/commit-basis f)]
         (is (= 1 @seen) "incarnation A's value")
 
         ;; THE REINCARNATION.
-        (frame/destroy-frame! f)
+        (rf.frame/destroy-frame! f)
         (make-frame! f {:v 99})
 
         (testing "the precondition this axis exists for — the basis TIES"
-          (is (not (identical? token-a (frame/frame-incarnation-token f)))
+          (is (not (identical? token-a (rf.frame/frame-incarnation-token f)))
               "a distinct incarnation, and `frame-incarnation-token` is the
                public reader that says so")
-          (is (= basis-a (rt/commit-basis f))
+          (is (= basis-a (rf.bench.hicasso.arm1.runtime/commit-basis f))
               "and yet the basis is the number it was: the epoch restarted at
                0 and climbed back to exactly where it stood. A tie, not a
                near-miss — so no arithmetic over these two terms could have
                distinguished the incarnations"))
 
         (testing "the boundary reads the SUCCESSOR's app-db"
-          (rt/render-body f (reader q-node seen) {})
+          (rf.bench.hicasso.arm1.runtime/render-body f (reader q-node seen) {})
           (is (= 99 @seen)
               "99, not 1: the destroyed incarnation's reaction was disposed
                with its frame, so the read resolves against the frame that is
@@ -221,9 +221,9 @@
           (fn []
             (testing "and the rebuilt attachment tracks the successor"
               (let [before @hits]
-                (frame/replace-app-db! f {:v 100})
+                (rf.frame/replace-app-db! f {:v 100})
                 (is (pos? (- @hits before)) "a write on B notified the boundary"))
-              (rt/render-body f (reader q-node seen) {})
+              (rf.bench.hicasso.arm1.runtime/render-body f (reader q-node seen) {})
               (is (= 100 @seen)))
             (release!)
             (done))))))))
@@ -236,17 +236,17 @@
             the basis ties."
     (rf/reg-sub (first q-node) (fn [db _] (:v db)))
     (let [f (make-frame! ::node-pinned {:v 1})]
-      (rt/render-body f (reader q-node (volatile! nil)) {})
-      (let [entry    (rt/last-reads)
-            release! (rt/commit-boundary! entry (fn []))
-            held     (rt/cell-reaction [f q-node])]
+      (rf.bench.hicasso.arm1.runtime/render-body f (reader q-node (volatile! nil)) {})
+      (let [entry    (rf.bench.hicasso.arm1.runtime/last-reads)
+            release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn []))
+            held     (rf.bench.hicasso.arm1.runtime/cell-reaction [f q-node])]
         (is (some? held) "precondition: the cell holds a reaction")
-        (frame/destroy-frame! f)
+        (rf.frame/destroy-frame! f)
         (make-frame! f {:v 99})
         (is (= 1 @held)
             "the pinned container answers incarnation A's 1 where the live
              frame holds 99")
-        (is (nil? (rt/cell-reaction [f q-node]))
+        (is (nil? (rf.bench.hicasso.arm1.runtime/cell-reaction [f q-node]))
             "so the cell drops it")
         (release!)))))
 
@@ -260,12 +260,12 @@
             an event armed once per unique key. So the shell is unchanged,
             the snapshot arithmetic is unchanged, and `subscribe` still
             closes over the read set alone."
-    (is (= 2 (count rt/shell-hook-ledger))
+    (is (= 2 (count rf.bench.hicasso.arm1.runtime/shell-hook-ledger))
         "still two hooks — the disposal hook is not a React hook")
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
-           rt/shell-hook-ledger)
+           rf.bench.hicasso.arm1.runtime/shell-hook-ledger)
         "and the same two, in the same order")
-    (let [inv (rt/retained-inventory)]
+    (let [inv (rf.bench.hicasso.arm1.runtime/retained-inventory)]
       (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
              (into #{} (map :token) (:absent inv)))
           "the enumerated absences are unchanged: no per-boundary object was
@@ -276,11 +276,11 @@
             risked on every boundary in the application"
     (rf/reg-sub (first q-reg) (fn [db _] (:v db)))
     (let [f     (make-frame! ::registry-clean {:v 1})
-          _     (rt/render-body f (reader q-reg (volatile! nil)) {})
-          entry (rt/last-reads)
-          at-render (rt/snapshot-of entry)
-          release!  (rt/commit-boundary! entry (fn []))]
-      (is (= at-render (rt/snapshot-of entry))
+          _     (rf.bench.hicasso.arm1.runtime/render-body f (reader q-reg (volatile! nil)) {})
+          entry (rf.bench.hicasso.arm1.runtime/last-reads)
+          at-render (rf.bench.hicasso.arm1.runtime/snapshot-of entry)
+          release!  (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn []))]
+      (is (= at-render (rf.bench.hicasso.arm1.runtime/snapshot-of entry))
           "acquisition still moves nothing: the cell is born at the same
            basis the staged term reported, and arming a disposal hook is not
            a term")

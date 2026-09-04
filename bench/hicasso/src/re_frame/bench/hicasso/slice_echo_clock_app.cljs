@@ -59,8 +59,8 @@
      READ OFF THE MIRROR THE APPLICATION WRITES below: the check is
      read out of the DOM INSIDE those rendering steps, before style,
      layout and paint, so a verified sample is one whose painted frame
-     carried the echo. It banks into `lane/tally` and
-     `lane/assert-verified!` refuses the run at `N unverified of M`.
+     carried the echo. It banks into `rf.bench.hicasso.lane/tally` and
+     `rf.bench.hicasso.lane/assert-verified!` refuses the run at `N unverified of M`.
   3. THE NEGATIVE CONTROL ON THE ECHO ITSELF, taken once at boot:
      [[echo-discrimination!]] performs the keystroke's SETUP MUTATION
      ALONE — the native value write, with no DOM event and therefore no
@@ -94,10 +94,10 @@
   therefore adjudicates the INSTRUMENT'S WINDOW and not merely its
   sensitivity.
 
-  It is adjudicated under `lane/control-verdict-strict` — every round
+  It is adjudicated under `rf.bench.hicasso.lane/control-verdict-strict` — every round
   inside the band — and not under the overlap rule, because these legs are
   tens of milliseconds and nowhere near the 100 µs clamp Chrome puts on
-  `performance.now()`. `lane/control-verdict`'s own docstring names that exactly: a
+  `performance.now()`. `rf.bench.hicasso.lane/control-verdict`'s own docstring names that exactly: a
   batched window lifting the legs clear of the quantum is the condition
   under which the strict rule is the one to use.
 
@@ -114,7 +114,7 @@
   banked parts cover every visit, warm-up included — [[bank-aux!]] is
   called from inside [[measure-one!]], which the lane calls for both —
   and [[structure-over-measured]] narrows them to the visits
-  `lane/rounds-async!` actually returned, using the MASK the lane's own
+  `rf.bench.hicasso.lane/rounds-async!` actually returned, using the MASK the lane's own
   [[re-frame.bench.hicasso.lane/visit-plan]] produces rather than a second
   reading of the schedule. At `{:warmup 8 :samples 12}` over five rounds
   that is `60` values per arm on both, against the `100` an unnarrowed
@@ -171,7 +171,7 @@
 
   ## THE POPULATION IS THE SLICE APPLICATION, MOUNTED THROUGH ITS OWN DOOR
 
-  [[boot!]] calls `h/mount!` with the slice's own `[views/app {}]` and the
+  [[boot!]] calls `rf.hicasso/mount!` with the slice's own `[views/app {}]` and the
   same two `:initial-events` its `-main` passes, differing only in which
   route it opens on — which is data the application already takes. Nothing
   here reaches under `re-frame.hicasso.impl.*`, nothing rebuilds a view,
@@ -238,13 +238,13 @@
   writes it only when the element has no `checked` prop, and this one has.
 
   Owner: rf2-xa8wo."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.lane :as lane]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.slice.events :as slice-events]
-            [re-frame.hicasso.examples.slice.routes :as slice-routes]
-            [re-frame.hicasso.examples.slice.views :as slice-views]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
+            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
+            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]))
 
 ;; ---------------------------------------------------------------------------
 ;; The knobs — every one of them a SCHEDULE knob, never a line
@@ -260,10 +260,10 @@
   "Per-round warm-up and measured counts.
 
   `:warmup 8` is `rf2-h904p`'s value and is carried rather than chosen:
-  `lane/rounds!`'s docstring records that it puts the +27% step this lane
+  `rf.bench.hicasso.lane/rounds!`'s docstring records that it puts the +27% step this lane
   sees after a site's sixth execution inside the warm-up. `:samples 12`
   is the same file's figure. **A tail quantile over 12 is mostly
-  interpolation** — `lane/quantile`'s docstring prices exactly that — so
+  interpolation** — `rf.bench.hicasso.lane/quantile`'s docstring prices exactly that — so
   the run that reads this instrument will want more, and raising these
   two is how it gets them."
   {:warmup 8 :samples 12})
@@ -336,7 +336,7 @@
   more the more of them there are. Exposed so the DOM self-test can read
   the same counter [[take-plan!]] adjudicates."
   []
-  (lane/tally-value (:echo-tally @!state)))
+  (rf.bench.hicasso.lane/tally-value (:echo-tally @!state)))
 
 (defn banked-structure
   "[[bank-aux!]]'s raw per-arm `{:commit :to-raf :raf-to-paint}` vectors,
@@ -395,7 +395,7 @@
   article's title plus one letter of [[rotor]] ([[keystroke-plan]]) or
   the title the application is already showing ([[toggle-plan]]), and the
   only door into `[:drafts slug :title]` is `::events/edit` carrying
-  `::h/value` off a real `input` event — which is to say, off a value
+  `::rf.hicasso/value` off a real `input` event — which is to say, off a value
   this file typed.
 
   PRINTABLE ASCII, and that is not cosmetic. The first spelling of this
@@ -435,7 +435,7 @@
   "Keep the FIRST refusal's detail, so a run that dies on `N unverified of
   M` says which conjunct went and against what.
 
-  `lane/tally` counts and does not describe, and a bare count over a
+  `rf.bench.hicasso.lane/tally` counts and does not describe, and a bare count over a
   two-part check is a diagnosis the operator has to reproduce. One
   `swap!` on a slot that is written at most once a run is cheaper than
   that."
@@ -503,19 +503,19 @@
   (js/Promise.
     (fn [resolve reject]
       (try
-        (let [t0 (lane/now-ms)]
+        (let [t0 (rf.bench.hicasso.lane/now-ms)]
           (interact!)
-          (let [t-commit (lane/now-ms)]
+          (let [t-commit (rf.bench.hicasso.lane/now-ms)]
             (when after-commit! (after-commit!))
             (js/requestAnimationFrame
               (fn []
                 (try
-                  (let [t-raf (lane/now-ms)
+                  (let [t-raf (rf.bench.hicasso.lane/now-ms)
                         echo  (observe-at-frame)]
                     (js/setTimeout
                       (fn []
                         (try
-                          (let [t-paint (lane/now-ms)]
+                          (let [t-paint (rf.bench.hicasso.lane/now-ms)]
                             (resolve {:ms              (- t-paint t0)
                                       :commit-ms       (- t-commit t0)
                                       :to-raf-ms       (- t-raf t0)
@@ -627,8 +627,8 @@
   the control has to occupy the interval the window is measuring rather
   than yield it."
   [ms]
-  (let [end (+ (lane/now-ms) ms)]
-    (loop [] (when (< (lane/now-ms) end) (recur)))))
+  (let [end (+ (rf.bench.hicasso.lane/now-ms) ms)]
+    (loop [] (when (< (rf.bench.hicasso.lane/now-ms) end) (recur)))))
 
 (defn- blocked-plan
   "[[keystroke-plan]] plus [[blocked-ms]] of blocked main thread on
@@ -668,7 +668,7 @@
   rather than a visit — so it cannot tell them apart, and it does not try.
   It banks everything, and [[structure-over-measured]] narrows the parts
   down to the measured population before they are published, using the
-  mask `lane/visit-plan` produces.
+  mask `rf.bench.hicasso.lane/visit-plan` produces.
 
   The two consumers want different populations, which is why the
   narrowing is at publication rather than here. The TALLY wants every
@@ -831,20 +831,20 @@
   `act` flag have to survive it, so it installs its own through
   `re-frame.test-support`'s reset fixture and restores the flag itself."
   [container frame-id]
-  (let [handle (h/mount! container
+  (let [handle (rf.hicasso/mount! container
                          {:frame          frame-id
-                          :initial-events [[::slice-events/seed]
+                          :initial-events [[::rf.hicasso.examples.slice.events/seed]
                                            [:rf.route/navigate
-                                            {:to     slice-routes/article
+                                            {:to     rf.hicasso.examples.slice.routes/article
                                              :params {:slug article-slug}}]]}
-                         [slice-views/app {}])]
+                         [rf.hicasso.examples.slice.views/app {}])]
     (swap! !state assoc
            :container container
            :handle handle
            :tick 0
            :aux {}
            :first-refusal nil
-           :echo-tally (lane/tally))
+           :echo-tally (rf.bench.hicasso.lane/tally))
     (-> (after-paint)
         (.then (fn [_] (after-paint)))
         (.then (fn [_]
@@ -863,7 +863,7 @@
   self-test mounts and unmounts around each of its rows."
   []
   (let [{:keys [container handle]} @!state]
-    (when handle (h/unmount! handle))
+    (when handle (rf.hicasso/unmount! handle))
     (when (and container (.-parentNode container))
       (.removeChild (.-parentNode container) container))
     (swap! !state assoc :container nil :handle nil :base-title nil)
@@ -883,21 +883,21 @@
   "Per arm id, the `:measured?` flag of each of that arm's visits IN THE
   ORDER [[bank-aux!]] appended them.
 
-  Taken from `lane/visit-plan` — the schedule both of the lane's loops
+  Taken from `rf.bench.hicasso.lane/visit-plan` — the schedule both of the lane's loops
   walk — rather than re-derived from `warmup`, `samples` and
-  `lane/slot-order` here. A second reading of the schedule is the exact
+  `rf.bench.hicasso.lane/slot-order` here. A second reading of the schedule is the exact
   shape this lane has paid for twice, and it would be worse here than
   usual: a mask that drifted would not fail, it would publish a
   distribution over the wrong visits and say nothing.
 
-  The order is safe to rely on because `lane/rounds-async!` runs its
+  The order is safe to rely on because `rf.bench.hicasso.lane/rounds-async!` runs its
   visits SERIALLY — visit *n+1* starts only once *n*'s promise has
   resolved — so [[bank-aux!]]'s appends happen in plan order."
   [arms sampling rounds]
   (reduce (fn [m {:keys [arm measured?]}]
             (update m (:id arm) (fnil conj []) measured?))
           {}
-          (lane/visit-plan arms sampling rounds)))
+          (rf.bench.hicasso.lane/visit-plan arms sampling rounds)))
 
 (defn- keep-measured
   "`xs` narrowed to the visits the lane measured. REFUSES rather than
@@ -928,9 +928,9 @@
     (into {}
           (map (fn [[id {:keys [commit to-raf raf-to-paint]}]]
                  (let [m (get mask id)]
-                   [id {:commit       (lane/summarise (keep-measured id m commit))
-                        :to-raf       (lane/summarise (keep-measured id m to-raf))
-                        :raf-to-paint (lane/summarise (keep-measured id m raf-to-paint))}])))
+                   [id {:commit       (rf.bench.hicasso.lane/summarise (keep-measured id m commit))
+                        :to-raf       (rf.bench.hicasso.lane/summarise (keep-measured id m to-raf))
+                        :raf-to-paint (rf.bench.hicasso.lane/summarise (keep-measured id m raf-to-paint))}])))
           aux)))
 
 (defn control-per-round
@@ -942,8 +942,8 @@
   its own denominator is what `control-verdict-strict` asks for."
   [readings]
   (mapv (fn [round]
-          (lane/round4 (- (:p50 (lane/summarise (get round :ctl-blocked)))
-                          (:p50 (lane/summarise (get round :keystroke))))))
+          (rf.bench.hicasso.lane/round4 (- (:p50 (rf.bench.hicasso.lane/summarise (get round :ctl-blocked)))
+                          (:p50 (rf.bench.hicasso.lane/summarise (get round :keystroke))))))
         readings))
 
 (defn take-plan!
@@ -955,14 +955,14 @@
   the evidence on the console rather than only the refusal."
   []
   (.then
-    (lane/rounds-async! arms sampling rounds measure-one!)
+    (rf.bench.hicasso.lane/rounds-async! arms sampling rounds measure-one!)
     (fn [{:keys [readings samples]}]
       (let [by-arm  (readings-by-arm readings)
-            control (lane/control-verdict-strict blocked-ms
+            control (rf.bench.hicasso.lane/control-verdict-strict blocked-ms
                                                  (control-per-round readings)
                                                  control-slack)
-            verdict (lane/guard! samples "slice interaction-to-paint")]
-        (lane/record! :slice-echo
+            verdict (rf.bench.hicasso.lane/guard! samples "slice interaction-to-paint")]
+        (rf.bench.hicasso.lane/record! :slice-echo
                       {:window     :interaction-to-paint
                        :population {:app   're-frame.hicasso.examples.slice
                                     :route :article
@@ -974,31 +974,31 @@
                                                                rounds)
                                           :measured-per-arm (* (:samples sampling) rounds))
                        :populations populations
-                       :summary    (into {} (map (fn [[id xs]] [id (lane/summarise xs)])) by-arm)
+                       :summary    (into {} (map (fn [[id xs]] [id (rf.bench.hicasso.lane/summarise xs)])) by-arm)
                        :structure  (structure-over-measured arms sampling rounds (:aux @!state))
                        :control    control
                        :guard      (select-keys verdict [:refuse? :contaminated?
                                                          :unchecked? :tolerance])
-                       :echo       (cond-> (lane/tally-value (:echo-tally @!state))
+                       :echo       (cond-> (rf.bench.hicasso.lane/tally-value (:echo-tally @!state))
                                      (:first-refusal @!state)
                                      (assoc :first-refusal (:first-refusal @!state)))
-                       :runtime    (lane/runtime-label)
+                       :runtime    (rf.bench.hicasso.lane/runtime-label)
                        :note       (str "No line is applied to any figure above. U1-U4 are "
                                         "read against this instrument in their own quiet-box "
                                         "window, not here.")})
         (set! (.-HICASSO_GUARD_REFUSED js/window) (boolean (:refuse? verdict)))
         (set! (.-HICASSO_CONTROL_FAILED js/window) (not (:ok? control)))
-        (lane/assert-verified! (:echo-tally @!state) "slice interaction-to-paint")
+        (rf.bench.hicasso.lane/assert-verified! (:echo-tally @!state) "slice interaction-to-paint")
         nil))))
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (if-not (lane/self-test!)
-    (lane/fail! (str "the arm-order self-test failed — the copy of the schedule "
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (if-not (rf.bench.hicasso.lane/self-test!)
+    (rf.bench.hicasso.lane/fail! (str "the arm-order self-test failed — the copy of the schedule "
                      "rule this app is about to rely on no longer behaves like "
                      "the one the .cjs drivers use, so nothing may be measured"))
-    (-> (boot! (or (js/document.getElementById "app") (lane/fresh-container!))
+    (-> (boot! (or (js/document.getElementById "app") (rf.bench.hicasso.lane/fresh-container!))
                ::frame)
         ;; The echo's negative control runs BEFORE the first warm-up
         ;; visit and its throw travels the same `.catch` as any other
@@ -1006,6 +1006,6 @@
         ;; rather than publishing a record nobody should read.
         (.then (fn [_] (echo-discrimination!)))
         (.then (fn [_] (take-plan!)))
-        (.catch (fn [e] (lane/fail! (lane/describe-throw "slice-echo-clock-app" e))))
-        (.then (fn [_] (lane/done!)))))
+        (.catch (fn [e] (rf.bench.hicasso.lane/fail! (rf.bench.hicasso.lane/describe-throw "slice-echo-clock-app" e))))
+        (.then (fn [_] (rf.bench.hicasso.lane/done!)))))
   nil)

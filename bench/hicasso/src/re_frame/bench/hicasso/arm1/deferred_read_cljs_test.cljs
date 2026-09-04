@@ -38,7 +38,7 @@
 
   ## What this change does, and what it deliberately does not
 
-  `codec/realize-deep` — already the one walk at the crossing — refuses
+  `rf.bench.hicasso.front.codec/realize-deep` — already the one walk at the crossing — refuses
   an **unforced** `delay` it reaches, and refuses it *inside the render
   of the body that wrote it*, so the stack lands on the author's own call
   site. It does not force the delay: that would change the meaning of the
@@ -63,22 +63,22 @@
   `plain-atom` has no reactivity layer, so a subscription under it never
   notifies and every commit assertion would pass by never firing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
-     :init-fn (fn [] (rt/reset-runtime!))}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
+     :init-fn (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-deferred-read)
 
 (defn- seeded! []
-  (rt/reset-runtime!)
-  (dogfood/make-frame! frame-id 3)
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (rf.bench.hicasso.front.dogfood/make-frame! frame-id 3)
   frame-id)
 
 (defn- key-of [query] [frame-id query])
@@ -90,29 +90,29 @@
   (unchecked-get (.-props element) "rfProps"))
 
 (defn- render [body-fn props]
-  (let [element (rt/render-body frame-id body-fn props)]
-    {:element element :entry (rt/last-reads) :reads (rt/reads-of (rt/last-reads))}))
+  (let [element (rf.bench.hicasso.arm1.runtime/render-body frame-id body-fn props)]
+    {:element element :entry (rf.bench.hicasso.arm1.runtime/last-reads) :reads (rf.bench.hicasso.arm1.runtime/reads-of (rf.bench.hicasso.arm1.runtime/last-reads))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The bodies
 ;; ---------------------------------------------------------------------------
 
 (defn- child-derefs-body [{:keys [d]}] [:li.deref (str @d)])
-(def ^:private child-derefs (rt/mint-view! "deferred/child-derefs" child-derefs-body))
+(def ^:private child-derefs (rf.bench.hicasso.arm1.runtime/mint-view! "deferred/child-derefs" child-derefs-body))
 
 (defn- parent-delay-body
   "The crossing this file exists for: an explicit deferral written by one
   body and forced by another."
   [_]
-  [child-derefs {:d (delay (:title (rt/sub [:dogfood/todo 1])))}])
+  [child-derefs {:d (delay (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo 1])))}])
 
 (defn- child-calls-body [{:keys [f]}] [:li.call (str (f))])
-(def ^:private child-calls (rt/mint-view! "deferred/child-calls" child-calls-body))
+(def ^:private child-calls (rf.bench.hicasso.arm1.runtime/mint-view! "deferred/child-calls" child-calls-body))
 
 (defn- parent-fn-body
   "The shape that is NOT in the class: the child re-runs it every render."
   [_]
-  [child-calls {:f (fn [] (:title (rt/sub [:dogfood/todo 1])))}])
+  [child-calls {:f (fn [] (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo 1])))}])
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the refusal, at the crossing, in the writing body's render
@@ -137,9 +137,9 @@
   (testing "a render that threw is an abandoned render, and an abandoned
            render mutates neither the index nor a reference — the
            refusal is a diagnostic, not a half-built boundary"
-    (let [before (rt/residue)]
+    (let [before (rf.bench.hicasso.arm1.runtime/residue)]
       (try (render parent-delay-body {}) (catch :default _ nil))
-      (is (= before (rt/residue))))))
+      (is (= before (rf.bench.hicasso.arm1.runtime/residue))))))
 
 (deftest the-refusal-reaches-wherever-the-walk-reaches
   (testing "the delay is refused at every position the crossing walk
@@ -153,7 +153,7 @@
                        ["inside a lazy seq"      {:d (map (fn [_] (delay 1)) (range 1))}]
                        ["inside a set"           {:d #{(delay 1)}}]]]
       (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
-                            (codec/realize-deep v))
+                            (rf.bench.hicasso.front.codec/realize-deep v))
           label))))
 
 ;; ---------------------------------------------------------------------------
@@ -168,10 +168,10 @@
   [:li.deref-key (str @(first (keys m)))])
 
 (def ^:private child-derefs-key
-  (rt/mint-view! "deferred/child-derefs-key" child-derefs-key-body))
+  (rf.bench.hicasso.arm1.runtime/mint-view! "deferred/child-derefs-key" child-derefs-key-body))
 
 (defn- parent-key-delay-body [_]
-  [child-derefs-key {:m {(delay (:title (rt/sub [:dogfood/todo 1]))) :marked}}])
+  [child-derefs-key {:m {(delay (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo 1]))) :marked}}])
 
 (deftest a-delay-held-as-a-map-key-is-refused-exactly-as-a-value-is
   (testing "the invariant is about **reach** — every unforced `delay`
@@ -190,7 +190,7 @@
                        ["a key of a map inside a seq"     {:v (list {(delay 1) :marked})}]
                        ["a key of a map inside a set"     {:v #{{(delay 1) :marked}}}]]]
       (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
-                            (codec/realize-deep v))
+                            (rf.bench.hicasso.front.codec/realize-deep v))
           label))))
 
 (deftest a-key-held-delay-is-refused-before-the-child-can-cache-it
@@ -226,7 +226,7 @@
            respect but where the `delay` sits, and that is the finding: the
            position it occupies changes nothing about what it does to the
            edge, so the walk's **reach** was the whole of the defect."
-    (let [d      (delay (:title (rt/sub [:dogfood/todo 1])))
+    (let [d      (delay (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo 1])))
           props  {:m {d :marked}}
           first' (render child-derefs-key-body props)
           again  (render child-derefs-key-body props)]
@@ -242,7 +242,7 @@
            property `realize-children`'s one-level flatten made necessary
            for seqs holds identically for a deferral"
     (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
-                          (render (fn [_] [child-derefs (delay (rt/sub [:dogfood/remaining]))]) {})))))
+                          (render (fn [_] [child-derefs (delay (rf.bench.hicasso.arm1.runtime/sub [:dogfood/remaining]))]) {})))))
 
 (deftest a-delay-the-author-already-forced-crosses-untouched
   (seeded!)
@@ -251,7 +251,7 @@
            calling anything, and is harmless wherever it goes — so the
            refusal costs the legitimate spelling nothing"
     (let [parent (render (fn [_]
-                           (let [d (delay (:title (rt/sub [:dogfood/todo 1])))]
+                           (let [d (delay (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo 1])))]
                              @d
                              [child-derefs {:d d}]))
                          {})
@@ -276,7 +276,7 @@
            mechanism the refusal exists to prevent, and it is asserted
            rather than described so that removing the refusal cannot
            quietly restore it."
-    (let [d      (delay (:title (rt/sub [:dogfood/todo 1])))
+    (let [d      (delay (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo 1])))
           first' (render child-derefs-body {:d d})
           again  (render child-derefs-body {:d d})]
       (is (= #{(key-of [:dogfood/todo 1])} (:reads first'))
@@ -357,7 +357,7 @@
            than a discovery."
     (let [parent  (render (fn [_]
                             (reset! !parked
-                                    (map (fn [id] (:title (rt/sub [:dogfood/todo id]))) (range 3)))
+                                    (map (fn [id] (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo id]))) (range 3)))
                             [:li])
                           {})
           reader  (render (fn [_] [:li (str (doall @!parked))]) {})]
@@ -370,7 +370,7 @@
           "and every row lands on whichever body happened to force it")))
   (testing "the same, one step nearer: the reference is at a boundary
            prop, so the codec SEES it and still may not open it"
-    (let [box    (atom (map (fn [id] (:title (rt/sub [:dogfood/todo id]))) (range 3)))
+    (let [box    (atom (map (fn [id] (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo id]))) (range 3)))
           parent (render (fn [_] [child-derefs {:d box}]) {})
           props  (crossing-props (:element parent))
           child  (render (fn [{:keys [d]}] [:li (str (doall @d))]) props)]

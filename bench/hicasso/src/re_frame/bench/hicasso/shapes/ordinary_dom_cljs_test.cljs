@@ -15,7 +15,7 @@
      `<form>` creates a card, clears the draft by explicit revision,
      and **auto-prevents**. The store-write rows beside them witness the
      fan-out from a commit and are named for that — they reach the
-     model through `rt/dispatch!`, so a missing `:on-input`, a
+     model through `rf.bench.hicasso.arm1.runtime/dispatch!`, so a missing `:on-input`, a
      substituted value placeholder or a lost submit prevent leaves every
      one of them green. That was PR #7372's audit finding, and §3b is
      the repair.
@@ -31,19 +31,19 @@
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against real React
   DOM; under `:node-test` every claim degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.controlled :as controlled]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.model :as m]
-            [re-frame.bench.hicasso.shapes.ordinary :as shape]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.hicasso.shapes.ordinary :as rf.bench.hicasso.shapes.ordinary]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; Load-bearing, for the reason `arm1_dogfood_dom_cljs_test` records:
      ;; the fixture's default leaves a dynamic-var frame stamp in scope and
      ;; the carried-invariant chain resolves it BEFORE React context.
@@ -52,7 +52,7 @@
      ;; entry reapers are macrotasks, so the residue a React unmount leaves
      ;; is not readable inside one synchronous test body.
      :async?        true
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::shape-ordinary)
 
@@ -68,14 +68,14 @@
   (is true (str "shape 1's witness needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (lane/leave-act-environment!)
-  (m/make-frame! frame-id seed)
-  (m/reseed! frame-id seed)
-  (shape/reset-runs!)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.shapes.model/make-frame! frame-id seed)
+  (rf.bench.hicasso.shapes.model/reseed! frame-id seed)
+  (rf.bench.hicasso.shapes.ordinary/reset-runs!)
   frame-id)
 
 (defn- mount! []
-  (mount/root! (mount/fresh-container!) frame-id [shape/screen {}]))
+  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [rf.bench.hicasso.shapes.ordinary/screen {}]))
 
 (defn- q [handle sel] (.querySelector (:container handle) sel))
 (defn- q* [handle sel] (array-seq (.querySelectorAll (:container handle) sel)))
@@ -86,7 +86,7 @@
 ;; app-db" from "the field still shows what the keystroke wrote".
 ;; ---------------------------------------------------------------------------
 
-(defn- draft [] (get-in (rf/app-db-value frame-id) [:drafts m/comment-draft-key] ""))
+(defn- draft [] (get-in (rf/app-db-value frame-id) [:drafts rf.bench.hicasso.shapes.model/comment-draft-key] ""))
 (defn- comment-ids [] (:comment-order (rf/app-db-value frame-id)))
 (defn- body-of [id] (get-in (rf/app-db-value frame-id) [:comments id :body]))
 
@@ -95,7 +95,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-screen-is-layout-form-and-list-at-the-fifty-element-band
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -113,24 +113,24 @@
             (is (= comment-count (count (q* handle ".comments-list > .card")))))
           (testing "and the whole screen is the ~50-element shape, at the size
                    the arithmetic predicts"
-            (let [predicted (shape/element-arithmetic comment-count mine-count)
-                  n         (lane/element-count (:container handle))]
+            (let [predicted (rf.bench.hicasso.shapes.ordinary/element-arithmetic comment-count mine-count)
+                  n         (rf.bench.hicasso.lane/element-count (:container handle))]
               (is (= predicted n)
-                  (str "chrome " shape/chrome-elements " + form "
-                       shape/form-elements " + " (- comment-count mine-count)
-                       " cards x " shape/elements-per-card " + " mine-count
-                       " own cards x " shape/elements-per-own-card " = " predicted
+                  (str "chrome " rf.bench.hicasso.shapes.ordinary/chrome-elements " + form "
+                       rf.bench.hicasso.shapes.ordinary/form-elements " + " (- comment-count mine-count)
+                       " cards x " rf.bench.hicasso.shapes.ordinary/elements-per-card " + " mine-count
+                       " own cards x " rf.bench.hicasso.shapes.ordinary/elements-per-own-card " = " predicted
                        "; the DOM holds " n))
               (is (<= 40 n 60)
                   (str "and that is the charter's ~50-element shape (" n ")"))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the list is the model's, including the per-row branch
 ;; ---------------------------------------------------------------------------
 
 (deftest the-cards-carry-the-models-comments-and-the-author-only-control
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -139,7 +139,7 @@
           (doseq [i (range comment-count)]
             (let [card (q handle (str "[data-testid=\"comment-card-" i "\"]"))]
               (is (some? card) (str "card " i " rendered"))
-              (is (= (:body (m/comment-for i))
+              (is (= (:body (rf.bench.hicasso.shapes.model/comment-for i))
                      (.-textContent (.querySelector card "[data-testid=\"comment-body\"]")))
                   (str "card " i " carries the model's body"))))
           (testing "the delete control appears on exactly the reader's own comments"
@@ -148,13 +148,13 @@
             (is (some? (q handle "[data-testid=\"delete-comment-0\"]")))
             (is (nil? (q handle "[data-testid=\"delete-comment-1\"]"))
                 "and a comment that is not yours renders no delete control"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3a — the form's fan-out, from a commit
 ;; ---------------------------------------------------------------------------
 ;;
-;; These three reach the model through `rt/dispatch!` and commit with an
+;; These three reach the model through `rf.bench.hicasso.arm1.runtime/dispatch!` and commit with an
 ;; explicit `settle!`. That is the right door for a FAN-OUT claim — *when
 ;; this key moves, this is what the page shows* — and the wrong one for
 ;; any claim about the handlers the page is written with, because it
@@ -164,7 +164,7 @@
 ;; owns that claim now, through the door the browser uses.
 
 (deftest a-draft-commit-fans-out-to-the-controlled-textarea
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -175,23 +175,23 @@
           ;; the lowered `:on-input` closure eventually calls — but NOT
           ;; the closure, and not the event that reaches it. §3b is where
           ;; that half is witnessed.
-          (rt/dispatch! frame-id [:conduit/edit-draft m/comment-draft-key "nice piece"])
-          (mount/settle!)
+          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:conduit/edit-draft rf.bench.hicasso.shapes.model/comment-draft-key "nice piece"])
+          (rf.bench.hicasso.arm1.mount/settle!)
           (is (= "nice piece" (.-value (q handle "textarea")))
               "the echo landed without waiting for a later turn")
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 (deftest submitting-creates-a-card-and-clears-the-draft
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [handle (mount!)]
         (try
-          (rt/dispatch! frame-id [:conduit/edit-draft m/comment-draft-key "nice piece"])
-          (mount/settle!)
-          (rt/dispatch! frame-id [:conduit/post-comment])
-          (mount/settle!)
+          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:conduit/edit-draft rf.bench.hicasso.shapes.model/comment-draft-key "nice piece"])
+          (rf.bench.hicasso.arm1.mount/settle!)
+          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:conduit/post-comment])
+          (rf.bench.hicasso.arm1.mount/settle!)
           (is (= (inc comment-count) (count (q* handle ".comments-list > .card"))))
           (is (= "nice piece"
                  (.-textContent (q handle (str "[data-testid=\"comment-card-" comment-count "\"] "
@@ -202,25 +202,25 @@
                value equality")
           (is (some? (q handle (str "[data-testid=\"delete-comment-" comment-count "\"]")))
               "a comment you just posted is your own, so it gets the control")
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 (deftest an-in-flight-post-disables-the-form
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [handle (mount!)]
         (try
           (is (false? (.-disabled (q handle "textarea"))))
-          (rt/dispatch! frame-id [:conduit/begin [:post-comment]])
-          (mount/settle!)
+          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:conduit/begin [:post-comment]])
+          (rf.bench.hicasso.arm1.mount/settle!)
           (is (true? (.-disabled (q handle "textarea"))) "R-A10: busy discipline")
           (is (true? (.-disabled (q handle "[data-testid=\"comment-submit\"]"))))
           (is (= "Posting…" (.-textContent (q handle "[data-testid=\"comment-submit\"]"))))
-          (rt/dispatch! frame-id [:conduit/settle [:post-comment]])
-          (mount/settle!)
+          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:conduit/settle [:post-comment]])
+          (rf.bench.hicasso.arm1.mount/settle!)
           (is (false? (.-disabled (q handle "textarea"))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3b — the same form, through the door the browser uses
@@ -258,7 +258,7 @@
 ;;   agree on the line after the event returns. That is the arm's own
 ;;   flush, not this file's.
 ;; - **A submit's page update lands on React's next microtask.** The
-;;   model moves synchronously — `rt/dispatch!` is the arm's synchronous
+;;   model moves synchronously — `rf.bench.hicasso.arm1.runtime/dispatch!` is the arm's synchronous
 ;;   door — but nothing flushes React inside the event, and React 19
 ;;   schedules sync-lane work in a microtask (`ensureRootIsScheduled` →
 ;;   `processRootScheduleInMicrotask`) rather than at the end of
@@ -334,7 +334,7 @@
     (fn [] (.removeEventListener js/window "error" on-err) @!errs)))
 
 (deftest a-real-keystroke-moves-the-model-and-the-field-in-the-callers-turn
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -345,7 +345,7 @@
             (.setSelectionRange node 0 0)
             (is (= "" (draft)) "the model holds no draft before anything is typed")
             (is (= "" (.-value node)) "and the field agrees with it")
-            (shape/reset-runs!)
+            (rf.bench.hicasso.shapes.ordinary/reset-runs!)
             (let [stop! (error-watch!)
                   ev    (type-into! node "n")
                   errs  (stop!)]
@@ -355,7 +355,7 @@
                   "the :on-input intent reached the model, and ::h/value
                    materialised as the value the field carried — a
                    substituted placeholder lands here")
-              (is (= "n" (controlled/last-rendered node))
+              (is (= "n" (rf.bench.hicasso.front.controlled/last-rendered node))
                   "and React COMMITTED it back into this element in the same
                    turn. Read off React's own mirror of the committed value
                    prop rather than off `.value`, which would read \"n\"
@@ -368,36 +368,36 @@
                   (str "and nothing threw inside the handler — React would have
                         routed it to reportError and left this row green: "
                        (pr-str errs)))
-              (is (= 1 (shape/runs-of :comment-form)) "one keystroke re-ran the form")
-              (is (= 0 (shape/runs-of :screen)) "and not the screen")
-              (is (= 0 (shape/runs-of :comment-card)) "and no card at all"))
+              (is (= 1 (rf.bench.hicasso.shapes.ordinary/runs-of :comment-form)) "one keystroke re-ran the form")
+              (is (= 0 (rf.bench.hicasso.shapes.ordinary/runs-of :screen)) "and not the screen")
+              (is (= 0 (rf.bench.hicasso.shapes.ordinary/runs-of :comment-card)) "and no card at all"))
             ;; A SECOND keystroke, because one cannot tell a live
             ;; placeholder from a constant: the value the intent carries has
             ;; to be what the field holds NOW, not what it held when the
             ;; closure was minted.
             (let [ev (type-into! node "i")]
               (is (= "ni" (draft)) "the placeholder read the field again")
-              (is (= "ni" (controlled/last-rendered node)))
+              (is (= "ni" (rf.bench.hicasso.front.controlled/last-rendered node)))
               (is (= "ni" (.-value node)))
               (is (false? (.-defaultPrevented ev)))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 (deftest submitting-the-rendered-form-posts-and-auto-prevents
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
       (let [handle (mount!)
             node   (q handle "textarea.form-control")
             form   (q handle "form.comment-form")
-            finish (fn [] (mount/release! handle) (done))]
+            finish (fn [] (rf.bench.hicasso.arm1.mount/release! handle) (done))]
         (.focus node)
         (.setSelectionRange node 0 0)
         ;; Composed on purpose: the draft this posts arrived through the
         ;; field's own handler, so a broken `:on-input` reds this row too.
         (type-into! node "nice piece")
         (is (= "nice piece" (draft)) "typed through the field, not written past it")
-        (shape/reset-runs!)
+        (rf.bench.hicasso.shapes.ordinary/reset-runs!)
         (let [stop! (error-watch!)
               ev    (submit! form)]
           (is (true? (.-defaultPrevented ev))
@@ -434,9 +434,9 @@
                       "the comment you just posted is your own, so it gets
                        the control"))
                 (testing "and the commit woke the boundaries that read what moved"
-                  (is (= 1 (shape/runs-of :screen)) "the list boundary reads the order")
-                  (is (= 1 (shape/runs-of :comment-form)) "the form reads the draft")
-                  (is (= 1 (shape/runs-of :comment-card))
+                  (is (= 1 (rf.bench.hicasso.shapes.ordinary/runs-of :screen)) "the list boundary reads the order")
+                  (is (= 1 (rf.bench.hicasso.shapes.ordinary/runs-of :comment-form)) "the form reads the draft")
+                  (is (= 1 (rf.bench.hicasso.shapes.ordinary/runs-of :comment-card))
                       "and exactly ONE card body ran — the new row's. The five
                        already on screen bailed out on equal props, so a post
                        is a narrow write and not a list rebuild"))
@@ -447,36 +447,36 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest typing-re-runs-the-form-boundary-and-nothing-else
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [handle (mount!)]
         (try
-          (is (= comment-count (shape/runs-of :comment-card)) "the mount ran every card once")
-          (shape/reset-runs!)
-          (rt/dispatch! frame-id [:conduit/edit-draft m/comment-draft-key "n"])
-          (mount/settle!)
-          (is (= 1 (shape/runs-of :comment-form))
+          (is (= comment-count (rf.bench.hicasso.shapes.ordinary/runs-of :comment-card)) "the mount ran every card once")
+          (rf.bench.hicasso.shapes.ordinary/reset-runs!)
+          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:conduit/edit-draft rf.bench.hicasso.shapes.model/comment-draft-key "n"])
+          (rf.bench.hicasso.arm1.mount/settle!)
+          (is (= 1 (rf.bench.hicasso.shapes.ordinary/runs-of :comment-form))
               "the keystroke re-ran the form")
-          (is (= 0 (shape/runs-of :screen))
+          (is (= 0 (rf.bench.hicasso.shapes.ordinary/runs-of :screen))
               "and did NOT re-run the screen, which reads the order and not the draft")
-          (is (= 0 (shape/runs-of :comment-card))
+          (is (= 0 (rf.bench.hicasso.shapes.ordinary/runs-of :comment-card))
               "and re-ran no card at all — the claim a DOM comparison cannot make")
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — the conditional read costs what the branch costs
 ;; ---------------------------------------------------------------------------
 
 (deftest a-card-that-cannot-delete-does-not-hold-the-delete-edge
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [handle (mount!)]
         (try
-          (let [edges (:edges (rt/stats))
+          (let [edges (:edges (rf.bench.hicasso.arm1.runtime/stats))
                 ;; screen: [:conduit/comment-ids]                      = 1
                 ;; form:   [:conduit/comment-pending?] + [:conduit/draft k] = 2
                 ;; card:   [:conduit/comment id] + [:conduit/user]     = 2 each
@@ -489,33 +489,33 @@
             (is (< edges (+ 1 2 (* 3 comment-count)))
                 "and it is strictly fewer than a declaration that named all
                  three reads up front would have cost"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Teardown — read while the runtime still holds it
 ;; ---------------------------------------------------------------------------
 ;;
-;; `mount/release!` resets the runtime, so a residue reading taken after it
+;; `rf.bench.hicasso.arm1.mount/release!` resets the runtime, so a residue reading taken after it
 ;; answers zero however badly teardown went (rf2-2rtt6.48). This one is
 ;; taken between the unmount and the reset.
 
 (deftest the-screen-leaves-no-residue
-  (if-not (mount/browser?)
+  (if-not (rf.bench.hicasso.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
       (let [handle (mount!)]
-        (rt/dispatch! frame-id [:conduit/edit-draft m/comment-draft-key "x"])
-        (mount/settle!)
-        (is (pos? (:cell-refs (rt/stats)))
+        (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:conduit/edit-draft rf.bench.hicasso.shapes.model/comment-draft-key "x"])
+        (rf.bench.hicasso.arm1.mount/settle!)
+        (is (pos? (:cell-refs (rf.bench.hicasso.arm1.runtime/stats)))
             "the mounted screen holds references, so the reading below is a
              reading of something")
-        (mount/unmount! handle)
+        (rf.bench.hicasso.arm1.mount/unmount! handle)
         (js/setTimeout (fn []
                          (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                                (rt/residue))
+                                (rf.bench.hicasso.arm1.runtime/residue))
                              "React's own cleanup released every edge, reference
                               and cached entry")
-                         (rt/reset-runtime!)
+                         (rf.bench.hicasso.arm1.runtime/reset-runtime!)
                          (done))
                        8)))))

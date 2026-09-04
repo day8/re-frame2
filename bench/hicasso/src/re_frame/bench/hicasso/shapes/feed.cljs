@@ -25,14 +25,14 @@
 
       ;; large-template, one boundary:
       (for [slug (sub [:conduit/slugs])]
-        (card/card slug))
+        (rf.bench.hicasso.shapes.card/card slug))
 
       ;; feed, one boundary per card:
       (for [slug (sub [:conduit/slugs])]
         [article-card {:key slug :slug slug}])
 
   plus the four lines of [[article-card]] below, whose entire body is the
-  same `(card/card slug)`. `bulk_dom_cljs_test` asserts the two pages
+  same `(rf.bench.hicasso.shapes.card/card slug)`. `bulk_dom_cljs_test` asserts the two pages
   build byte-identical card DOM, so \"the only edit\" is a comparison and
   not a claim.
 
@@ -61,9 +61,9 @@
 
   `.cljc`-compatible by construction (HD-020(d))."
   (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.shapes.card :as card]
-            [re-frame.bench.hicasso.shapes.large-template :as lt]
-            [re-frame.bench.hicasso.shapes.model :as m])
+            [re-frame.bench.hicasso.shapes.card :as rf.bench.hicasso.shapes.card]
+            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (def article-count
@@ -78,7 +78,7 @@
   "Predicted element count — the same chrome as the large template, the
   same card, a different number of them."
   []
-  (+ lt/chrome-elements tag-count (* card/elements-per-card article-count)))
+  (+ rf.bench.hicasso.shapes.large-template/chrome-elements tag-count (* rf.bench.hicasso.shapes.card/elements-per-card article-count)))
 
 (def !card-runs
   "How many card bodies have run. Shape 3's claim is that one commit makes
@@ -100,7 +100,7 @@
   [[re-frame.bench.hicasso.shapes.card]] for why that is the point."
   [{:keys [slug]}]
   (swap! !card-runs inc)
-  (card/card slug))
+  (rf.bench.hicasso.shapes.card/card slug))
 
 (defview page
   "The feed, one boundary per card."
@@ -142,11 +142,11 @@
                                       :data-testid (str "tag-" tag)}
              tag])]]]]]]))
 
-(defn make-frame! [frame-id] (m/make-frame! frame-id seed))
-(defn reseed! [frame-id] (m/reseed! frame-id seed))
+(defn make-frame! [frame-id] (rf.bench.hicasso.shapes.model/make-frame! frame-id seed))
+(defn reseed! [frame-id] (rf.bench.hicasso.shapes.model/reseed! frame-id seed))
 
 (defn slug-at
   "The slug of the `i`th article, for a witness that wants to name one row
   out of three hundred."
   [i]
-  (:slug (m/article i)))
+  (:slug (rf.bench.hicasso.shapes.model/article i)))

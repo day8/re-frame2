@@ -94,8 +94,8 @@
      of them repaired the ARM. The tolerance is not the arm's to move."
   (:require ["react-dom" :as react-dom]
             [clojure.string :as str]
-            [re-frame.bench.order-guard :as guard]
-            [re-frame.frame :as frame]))
+            [re-frame.bench.order-guard :as rf.bench.order-guard]
+            [re-frame.frame :as rf.frame]))
 
 ;; ---------------------------------------------------------------------------
 ;; Clock and summary — small enough that the lane owes the donor tree nothing
@@ -459,7 +459,7 @@
   where its arms' references live, and nothing more general than that."
   ([frame-id] (residue frame-id nil))
   ([frame-id counters]
-   (let [cache (some-> (frame/frame frame-id) :sub-cache deref)]
+   (let [cache (some-> (rf.frame/frame frame-id) :sub-cache deref)]
      (into {:body-children (.-childElementCount js/document.body)
             :sub-entries   (count cache)
             :sub-ref-count (reduce + 0 (map #(or (:ref-count %) 0) (vals cache)))}
@@ -561,7 +561,7 @@
   copy here would be a second authority with nothing holding it in step —
   and the copy that did exist, in `b6-harness`, is exactly where the `k = 2`
   degeneracy survived a fix to this one."
-  guard/slot-order)
+  rf.bench.order-guard/slot-order)
 
 (defn sample-collector
   "A mutable collector for the guard's samples.
@@ -1378,7 +1378,7 @@
   measure nothing — the copy of the rule it is about to rely on no longer
   behaves like the one the `.cjs` drivers use."
   []
-  (guard/print-self-test!))
+  (rf.bench.order-guard/print-self-test!))
 
 (defn guard!
   "Adjudicate `samples` and print the report. `:refuse?` is what the
@@ -1386,8 +1386,8 @@
   ([samples] (guard! samples nil {}))
   ([samples title] (guard! samples title {}))
   ([samples title opts]
-   (let [v (guard/verdict samples (merge {:tolerance 0.10} opts))]
-     (doseq [l (guard/report-lines v title)] (js/console.log l))
+   (let [v (rf.bench.order-guard/verdict samples (merge {:tolerance 0.10} opts))]
+     (doseq [l (rf.bench.order-guard/report-lines v title)] (js/console.log l))
      v)))
 
 ;; ---------------------------------------------------------------------------

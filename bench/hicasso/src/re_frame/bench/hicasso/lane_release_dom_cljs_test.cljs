@@ -1,5 +1,5 @@
 (ns re-frame.bench.hicasso.lane-release-dom-cljs-test
-  "`lane/release!`'s claim that a NORMAL RETURN is not proof of release,
+  "`rf.bench.hicasso.lane/release!`'s claim that a NORMAL RETURN is not proof of release,
   and the census extension that lets a family count its own references
   (rf2-2rtt6.2, second audit).
 
@@ -21,7 +21,7 @@
   a stated skip under `:node-test`, which is the posture the other `*-dom`
   suites keep."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.lane :as lane]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]))
 
 (def ^:private off-browser
   "no DOM on this runtime — the claim is a DOM read taken at release, and
@@ -47,32 +47,32 @@
   (testing "an unmount that returns normally leaving its page standing is
            recorded at the site and adjudicated as a teardown failure —
            the exact shape the second audit planted and watched pass"
-    (if-not (lane/browser?)
+    (if-not (rf.bench.hicasso.lane/browser?)
       (is true off-browser)
-      (do (lane/drain-teardown-failures!) ;; a clean slate for the claim
-          (lane/release! (populated-mount (fn [_c] nil)))
+      (do (rf.bench.hicasso.lane/drain-teardown-failures!) ;; a clean slate for the claim
+          (rf.bench.hicasso.lane/release! (populated-mount (fn [_c] nil)))
           (is (thrown-with-msg? js/Error #"teardown FAILED"
-                (lane/assert-teardown-clean! "the no-op release"))
+                (rf.bench.hicasso.lane/assert-teardown-clean! "the no-op release"))
               "a normal return must not pass for a release")))))
 
 (deftest a-release-that-emptied-its-container-is-clean
   (testing "the same path records nothing when the unmount actually
            releases — the check reads the page, not the promise"
-    (if-not (lane/browser?)
+    (if-not (rf.bench.hicasso.lane/browser?)
       (is true off-browser)
-      (do (lane/drain-teardown-failures!)
-          (lane/release! (populated-mount (fn [c] (.replaceChildren c))))
-          (is (nil? (lane/assert-teardown-clean! "the real release"))
+      (do (rf.bench.hicasso.lane/drain-teardown-failures!)
+          (rf.bench.hicasso.lane/release! (populated-mount (fn [c] (.replaceChildren c))))
+          (is (nil? (rf.bench.hicasso.lane/assert-teardown-clean! "the real release"))
               "an emptied container is the release, observed")))))
 
 (deftest a-throwing-unmount-is-recorded-once
   (testing "a throw is already the record — the container read does not
            stack a second failure onto the same release"
-    (if-not (lane/browser?)
+    (if-not (rf.bench.hicasso.lane/browser?)
       (is true off-browser)
-      (do (lane/drain-teardown-failures!)
-          (lane/release! (populated-mount (fn [_c] (throw (js/Error. "boom")))))
-          (let [fs (lane/drain-teardown-failures!)]
+      (do (rf.bench.hicasso.lane/drain-teardown-failures!)
+          (rf.bench.hicasso.lane/release! (populated-mount (fn [_c] (throw (js/Error. "boom")))))
+          (let [fs (rf.bench.hicasso.lane/drain-teardown-failures!)]
             (is (= 1 (count fs)) "one release, one record")
             (is (= "boom" (:error (first fs)))
                 "and the record carries the throw, not the container count"))))))
@@ -85,19 +85,19 @@
   (testing "a family whose references live outside the frame cache and the
            body supplies its own counter, and the residue assertion
            refuses on it by the same equality"
-    (if-not (lane/browser?)
+    (if-not (rf.bench.hicasso.lane/browser?)
       (is true off-browser)
       (let [live     (atom 0)
             counters {:family-refs (fn [] @live)}
-            baseline (lane/residue ::no-such-frame counters)]
+            baseline (rf.bench.hicasso.lane/residue ::no-such-frame counters)]
         (is (= 0 (:family-refs baseline))
             "the caller's counter is part of the reading")
         (swap! live inc) ;; the surviving root's reference
         (is (thrown-with-msg? js/Error #"RESIDUE"
-              (lane/assert-residue! baseline ::no-such-frame
+              (rf.bench.hicasso.lane/assert-residue! baseline ::no-such-frame
                                     "the row" counters))
             "one live reference outside both built-in counters must refuse")
         (reset! live 0)
-        (is (= baseline (lane/assert-residue! baseline ::no-such-frame
+        (is (= baseline (rf.bench.hicasso.lane/assert-residue! baseline ::no-such-frame
                                               "the row" counters))
             "and back at baseline the same census passes")))))

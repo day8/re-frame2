@@ -12,7 +12,7 @@
 
   Every synchronous assertion runs on the line after `dispatchEvent`
   returns. There is **no `act` anywhere in this file**, and no `flushSync`
-  inside a discrete-event path an assertion reads: `mount/settle!` appears
+  inside a discrete-event path an assertion reads: `rf.bench.hicasso.arm1.mount/settle!` appears
   only after an OUT-OF-BAND dispatch, which is the setup door and never
   the claim.
 
@@ -107,14 +107,14 @@
   Runtime: `-dom-cljs-test`; under `:node-test` every claim degrades to a
   stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.grid :as grid]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.controlled :as controlled]
-            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.grid :as rf.bench.hicasso.arm1.grid]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support]
+            [re-frame.test-support :as rf.test-support]
             [uix.core :refer [$ defui]]
             [uix.compiler.input]
             ;; Required so `:uix-reagent-input` can be SELECTED rather than
@@ -198,8 +198,8 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private runtime-fixture
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; `:ambient-frame nil` is load-bearing: the fixture's default leaves
      ;; a dynamic-var frame stamp in scope and the carried-invariant chain
      ;; resolves that tier BEFORE React context, so the UIx comparator
@@ -207,7 +207,7 @@
      ;; provider's.
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (use-fixtures :each
   {:before (:before runtime-fixture)
@@ -230,15 +230,15 @@
   an id that already exists, and `reseed!` is the model's own door for
   returning a live frame to its seeded state."
   []
-  (lane/leave-act-environment!)
-  (grid/make-frame! frame-id grid/cells)
-  (grid/reseed! frame-id grid/cells)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.arm1.grid/make-frame! frame-id rf.bench.hicasso.arm1.grid/cells)
+  (rf.bench.hicasso.arm1.grid/reseed! frame-id rf.bench.hicasso.arm1.grid/cells)
   frame-id)
 
 (defn- arm-mount!
   "The arm's grid, on the arm's own root."
   []
-  (mount/root! (mount/fresh-container!) frame-id [grid/grid {:n grid/cells}]))
+  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [rf.bench.hicasso.arm1.grid/grid {:n rf.bench.hicasso.arm1.grid/cells}]))
 
 (defn- cell-input [handle i] (.querySelector (:container handle) (str "#c" i)))
 
@@ -290,8 +290,8 @@
   async-normalisation door. OUT of the discrete-event path, so this is
   where `settle!` is legitimate."
   [i v]
-  (rt/dispatch! frame-id [:agrid/set i v])
-  (mount/settle!)
+  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:agrid/set i v])
+  (rf.bench.hicasso.arm1.mount/settle!)
   nil)
 
 (defn- after-a-frame
@@ -311,7 +311,7 @@
    (fresh!)
    (let [handle (arm-mount!)]
      (try (f handle)
-          (finally (mount/release! handle) (restore-adapter-pin!))))))
+          (finally (rf.bench.hicasso.arm1.mount/release! handle) (restore-adapter-pin!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The UIx comparator — its own root, its own provider
@@ -323,18 +323,18 @@
 ;; keystroke — the ONLY variable is which library minted the element.
 
 (defui uix-cell [{:keys [i]}]
-  (let [v                        (uix-adapter/use-subscribe [:agrid/cell i])
-        {:keys [dispatch-sync]}  (uix-adapter/use-frame)]
+  (let [v                        (rf.adapter.uix/use-subscribe [:agrid/cell i])
+        {:keys [dispatch-sync]}  (rf.adapter.uix/use-frame)]
     ($ :input {:id        (str "u" i)
                :type      "text"
                :value     v
                :on-change (fn [e] (dispatch-sync [:agrid/edit i (.. e -target -value)]))})))
 
 (defn- uix-mount! [i]
-  (let [container (mount/fresh-container!)
+  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
         root      (react-dom-client/createRoot container)]
     (react-dom/flushSync
-      (fn [] (.render root ($ uix-adapter/frame-provider {:frame frame-id}
+      (fn [] (.render root ($ rf.adapter.uix/frame-provider {:frame frame-id}
                               ($ uix-cell {:i i})))))
     {:root root :container container}))
 
@@ -382,7 +382,7 @@
 
 (deftest the-arms-input-is-reacts-own-whatever-the-selector-says
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       ;; THE PIN THAT WOULD CHANGE A UIx CELL. Both elements are minted in
       ;; the same turn, on the same frame, against the same model, with
@@ -396,7 +396,7 @@
               a     (cell-input arm 11)
               u     (.querySelector (:container ctrl) "#u11")]
           (set-model! 11 "12")
-          (mount/settle!)
+          (rf.bench.hicasso.arm1.mount/settle!)
           (.focus a)
           (.setSelectionRange a 2 2)
           (type-into! a "a")
@@ -424,7 +424,7 @@
                 (catch :default e
                   (is false (str "the deferred converge threw: " (ex-message e)))))
               (uix-release! ctrl)
-              (mount/release! arm)
+              (rf.bench.hicasso.arm1.mount/release! arm)
               (restore-adapter-pin!)
               (done))))))))
 
@@ -432,7 +432,7 @@
   (testing "the selector cannot reach `react/createElement \"input\"`, so
            the arm's cell is byte-identical under both pins — which is what
            licenses every row below to name React and mean it"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (let [reading (fn [impl]
                       (with-grid impl
@@ -456,11 +456,11 @@
   (testing "100 cells mounted; a real `input` event on one of them reaches
            app-db and comes back to the DOM before the event returns — no
            act, no flushSync, no yield"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
-          (is (= grid/cells (.-length (.querySelectorAll (:container handle) ".cell")))
+          (is (= rf.bench.hicasso.arm1.grid/cells (.-length (.querySelectorAll (:container handle) ".cell")))
               "the witness is at its stated size")
           (let [n (cell-input handle 7)]
             (.focus n)
@@ -472,16 +472,16 @@
 
 (deftest the-echo-is-one-body-run-not-one-hundred
   (testing "the per-keystroke budget: a keystroke in cell 7 re-runs cell 7"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
           (let [n (cell-input handle 7)]
             (.focus n)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (type-into! n "x")
-            (is (= 1 @grid/!body-runs)
-                (str "one boundary body ran, not " grid/cells))))))))
+            (is (= 1 @rf.bench.hicasso.arm1.grid/!body-runs)
+                (str "one boundary body ran, not " rf.bench.hicasso.arm1.grid/cells))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — :mid-string-caret
@@ -490,7 +490,7 @@
 (deftest editing-mid-string-leaves-the-caret-where-the-typing-put-it
   (testing "the model agreed with the field, so React wrote nothing and the
            cursor stayed where the character went in"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -515,7 +515,7 @@
            Measured against the same keystroke on the shipped paths:
            React alone leaves [5 5], and UIx's port reaches [3 3] one
            animation frame later"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -537,7 +537,7 @@
            at the END of the field and that is where React's write leaves
            the caret anyway; it stays green for the better reason, which
            is that the offset is taken from the end"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -558,7 +558,7 @@
   (testing "a commit that moves a DIFFERENT cell's subscription writes
            nothing here, so nothing here moves — the index's narrowness
            read as a caret rather than as a re-render count"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -582,7 +582,7 @@
            to run at the end of. Restoring a RANGE is a second algorithm
            besides — two offsets rather than one — and rf2-n3dxw keeps it.
            Nothing here pretends otherwise"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -645,12 +645,12 @@
            `isComposing` is not on it, so a gate reading it off the
            synthetic event is dead on React and only the legacy keyCode
            half ever fires"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (fresh!)
         (reset! !probe [])
-        (let [handle (mount/root! (mount/fresh-container!) frame-id [compose-probe {}])]
+        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [compose-probe {}])]
           (try
             (let [node (.querySelector (:container handle) ".probe")
                   e    (key-event {:key "Enter" :composing? true :key-code 229})]
@@ -670,12 +670,12 @@
                 (is (= 229 (:key-code seen))
                     "while the legacy signal survives the synthetic
                      interface, because keyCode IS on React's list")))
-            (finally (mount/release! handle))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! handle))))))))
 
 (deftest a-composing-enter-commits-nothing
   (testing "both signals, each on its own, through a real React keydown on
            a real cell"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -711,7 +711,7 @@
 (deftest a-refused-keystroke-moves-no-model-and-re-runs-no-boundary
   (testing "cell 11 takes digits only. The browser has already shown the
            letter; the model does not move, so NOTHING re-renders"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -719,10 +719,10 @@
             (set-model! 11 "12")
             (.focus n)
             (.setSelectionRange n 2 2)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (type-into! n "a")
             (is (= "12" (model-value 11)) "the model refused the letter")
-            (is (zero? @grid/!body-runs)
+            (is (zero? @rf.bench.hicasso.arm1.grid/!body-runs)
                 "and no boundary body ran at all — the value the model holds
                  did not change, so there was nothing for React to
                  re-render")))))))
@@ -733,7 +733,7 @@
            keystroke — so the write below cannot have come from a render.
            It is React's own controlled-state restore, and all of it lands
            before `dispatchEvent` returns"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -741,12 +741,12 @@
             (set-model! 11 "12")
             (.focus n)
             (.setSelectionRange n 2 2)
-            (reset! grid/!body-runs 0)
+            (reset! rf.bench.hicasso.arm1.grid/!body-runs 0)
             (type-into! n "a")
             (is (= "12" (.-value n))
                 "the refused character is off the screen, on the next line")
             (is (= "12" (model-value 11)) "and the field and the model agree")
-            (is (zero? @grid/!body-runs) "with nothing re-rendered to do it")
+            (is (zero? @rf.bench.hicasso.arm1.grid/!body-runs) "with nothing re-rendered to do it")
             (is (= [2 2] (caret n))
                 "caret at the position before the refused character —
                  because the edit was AT the end, which is where React's
@@ -761,7 +761,7 @@
            gets the caret right and arrives an animation frame late.
 
            Here both halves land before `dispatchEvent` returns"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -793,7 +793,7 @@
            the user just typed. `front/controlled_dom_cljs_test`
            reproduces that deletion; this row is what says it does not
            happen here"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -863,18 +863,18 @@
            MOVES when the rendered value moves. If React ever stopped
            writing it, this goes red by name instead of five caret rows
            going quietly wrong"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
           (let [n (cell-input handle 7)]
             (set-model! 7 "abcd")
-            (is (= "abcd" (controlled/last-rendered n))
+            (is (= "abcd" (rf.bench.hicasso.front.controlled/last-rendered n))
                 "the record is what the last render put on the element")
-            (is (= (.-value n) (controlled/last-rendered n))
+            (is (= (.-value n) (rf.bench.hicasso.front.controlled/last-rendered n))
                 "and the field agrees with it before anything is typed")
             (set-model! 7 "wxyz")
-            (is (= "wxyz" (controlled/last-rendered n))
+            (is (= "wxyz" (rf.bench.hicasso.front.controlled/last-rendered n))
                 "a re-render moves the record with it — which is exactly
                  what a closure minted by the PREVIOUS render cannot do")
             (testing "and typing does not disturb it, because the value
@@ -883,7 +883,7 @@
               (.focus n)
               (.setSelectionRange n 4 4)
               (set-native-value! n "wxyzQ")
-              (is (= "wxyz" (controlled/last-rendered n))
+              (is (= "wxyz" (rf.bench.hicasso.front.controlled/last-rendered n))
                   "still the value the element rendered, not the value
                    the field shows"))))))))
 
@@ -897,7 +897,7 @@
   `number` — and does it inside the converge's own `flushSync`, against
   a wrapper the `text` render minted."
   [{:keys [i]}]
-  (let [v (rt/sub [:agrid/cell i])]
+  (let [v (rf.bench.hicasso.arm1.runtime/sub [:agrid/cell i])]
     [:input.flip {:type     (if (= "" v) "text" "number")
                   :value    v
                   :on-input [:agrid/edit i :re-frame.hicasso/value]}]))
@@ -942,12 +942,12 @@
            Measured with the post-flush reading deleted: `InvalidStateError:
            Failed to execute 'setSelectionRange' on 'HTMLInputElement': The
            input element's type ('number') does not support selection.`"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (pin! :react)
         (fresh!)
-        (let [handle (mount/root! (mount/fresh-container!) frame-id
+        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id
                                   [type-flipping-cell {:i 31}])]
           (try
             (let [before (.querySelector (:container handle) ".flip")]
@@ -984,7 +984,7 @@
                 (is (= "5" (.-value after))
                     "and the field still shows the keystroke that caused
                      the flip")
-                (is (= "" (controlled/last-rendered after))
+                (is (= "" (rf.bench.hicasso.front.controlled/last-rendered after))
                     "THE RECORD IS STALE HERE, and this is the second
                      reason to be inert rather than merely careful with
                      the caret: `setDefaultValue` skips a FOCUSED number
@@ -992,7 +992,7 @@
                      still holds what the TEXT render wrote. It is no
                      longer the value this element renders, so there is
                      nothing here the converge could correctly write")))
-            (finally (mount/release! handle) (restore-adapter-pin!))))))))
+            (finally (rf.bench.hicasso.arm1.mount/release! handle) (restore-adapter-pin!))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — :async-normalisation
@@ -1004,7 +1004,7 @@
            Nothing about the arm's door is synchronous here, and it still
            lands"
     (async done
-      (if-not (mount/browser?)
+      (if-not (rf.bench.hicasso.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         ;; NOT `with-grid`: its `finally` runs the moment the body returns,
         ;; and the body of an async test returns before its timer fires.
@@ -1020,14 +1020,14 @@
             (js/setTimeout
               (fn []
                 (try
-                  (set-model! 17 (grid/group-digits "1234"))
+                  (set-model! 17 (rf.bench.hicasso.arm1.grid/group-digits "1234"))
                   (is (= "1,234" (model-value 17)) "the late correction reached the model")
                   (is (= "1,234" (.-value n)) "and the field")
                   (is (= [5 5] (caret n))
                       "with the caret still after the last digit")
                   (catch :default e
                     (is false (str "the late correction threw: " (ex-message e)))))
-                (mount/release! handle)
+                (rf.bench.hicasso.arm1.mount/release! handle)
                 (restore-adapter-pin!)
                 (done))
               0)))))))
@@ -1096,7 +1096,7 @@
            dead-`isComposing` lesson applied to this file's own composing
            input. A row whose event silently carried `isComposing false`
            would be green over a carve-out that never engaged"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM, and no InputEvent constructor")
       (let [e (js/InputEvent. "input" #js {:bubbles     true
                                            :data        "し"
@@ -1118,7 +1118,7 @@
            by one reading of the native event, React's own restore because
            the value it compares against is the live draft — and the
            refusal arrives whole at `compositionend` instead"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -1176,7 +1176,7 @@
            `ime_run.cjs`'s measurement and not this row's. This row
            witnesses the CAUSE: the write is there on React, and it is not
            there on the arm"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (pin! :react)
@@ -1202,7 +1202,7 @@
            there was never a write to suppress, so the carve-out is
            invisible — the field tracks the draft and the model tracks it
            too, update by update"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -1224,7 +1224,7 @@
   (testing "the other half of the carve-out's behavioural claim: the model
            normalises every intermediate state as it always did, and the
            FIELD shows the composition until the exchange closes"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -1247,7 +1247,7 @@
            release cannot be that event's alone. Blur releases
            unconditionally, and the worst outcome available is the
            ordinary converge"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -1260,7 +1260,7 @@
             (.blur n)
             ;; OUT of the discrete-event claim: the row is that the release
             ;; happens at all, not that it happens in the blur's own turn.
-            (mount/settle!)
+            (rf.bench.hicasso.arm1.mount/settle!)
             (is (= "12" (.-value n))
                 "the field is the model's again with no compositionend
                  anywhere in the exchange")
@@ -1273,7 +1273,7 @@
            and a change event that is not composing releases before it
            converges, so the field cannot stay stuck on a draft the model
            never agreed to"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
         (fn [handle]
@@ -1296,7 +1296,7 @@
            no registry, no node property and no module-level record, so an
            element that goes away takes its shadow with it and the next
            mount reads the model"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (pin! :react)
@@ -1309,14 +1309,14 @@
               (composition-start! n)
               (compose-into! n "12し")
               (is (= "12し" (.-value n)) "a shadow is live when the tree goes"))
-            (finally (mount/release! first-handle)))
+            (finally (rf.bench.hicasso.arm1.mount/release! first-handle)))
           (let [second-handle (arm-mount!)]
             (try
               (is (= "12" (.-value (cell-input second-handle 11)))
                   "the remounted field is the model's, with nothing carried
                    over from the composition that never ended")
               (is (= "12" (model-value 11)))
-              (finally (mount/release! second-handle)
+              (finally (rf.bench.hicasso.arm1.mount/release! second-handle)
                        (restore-adapter-pin!)))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1328,7 +1328,7 @@
 
            **The census is read after React's unmount and BEFORE the arm's
            teardown door**, and that ordering is the whole of it.
-           `mount/release!` calls `runtime/reset-runtime!`, which disposes
+           `rf.bench.hicasso.arm1.mount/release!` calls `runtime/reset-runtime!`, which disposes
            every cell — and with them every reader membership — by fiat, so
            a residue reading taken after it is all zeros whatever the
            teardown released —
@@ -1340,7 +1340,7 @@
            unmount returns; `:cells` and `:entries` are the reaper's, one
            macrotask later, and asserting them here would assert a
            schedule rather than a release."
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (pin! :react)
@@ -1350,7 +1350,7 @@
           (.focus n)
           (type-into! n "abc")
           (is (= "abc" (model-value 7)))
-          (is (= grid/cells (:boundaries (rt/stats)))
+          (is (= rf.bench.hicasso.arm1.grid/cells (:boundaries (rf.bench.hicasso.arm1.runtime/stats)))
               "a hundred cell registrations are really standing before the
                teardown. The enclosing `grid` is a `defview` too and its
                registration is standing beside them — but its body READS
@@ -1361,13 +1361,13 @@
                record of liveness (rf2-ixb92 removed the last one). An
                edgeless boundary retains its read-set entry and React's own
                hook cells, and nothing else of this arm's")
-          (is (= (inc grid/cells) (:entries (rt/stats)))
+          (is (= (inc rf.bench.hicasso.arm1.grid/cells) (:entries (rf.bench.hicasso.arm1.runtime/stats)))
               "…which is where it shows up: 101 read-set entries, the
                hundredth-and-first being the empty read sequence the grid
                resolved")
           (react-dom/flushSync (fn [] (.unmount (:root handle))))
-          (let [census (select-keys (rt/residue) [:cell-refs :boundaries :edges])]
-            (mount/release! (assoc handle :root nil))
+          (let [census (select-keys (rf.bench.hicasso.arm1.runtime/residue) [:cell-refs :boundaries :edges])]
+            (rf.bench.hicasso.arm1.mount/release! (assoc handle :root nil))
             (restore-adapter-pin!)
             (is (= {:cell-refs 0 :boundaries 0 :edges 0} census)
                 "zero leaked subscription ref-counts, zero boundaries and zero

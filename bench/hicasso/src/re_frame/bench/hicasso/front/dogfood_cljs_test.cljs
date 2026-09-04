@@ -26,14 +26,14 @@
   first Hicasso-arm commit that mounts the dogfood screen, and that
   commit belongs to rf2-2rtt6.9 / rf2-2rtt6.10, not to this bead."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.bench.hicasso.front.intent :as intent]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
-(use-fixtures :each (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+(use-fixtures :each (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private frame-id ::dogfood)
 
@@ -41,7 +41,7 @@
   "A frame with `n` to-dos."
   ([] (seeded! 3))
   ([n]
-   (dogfood/make-frame! frame-id n)
+   (rf.bench.hicasso.front.dogfood/make-frame! frame-id n)
    frame-id))
 
 (defn- read-sub [query]
@@ -62,7 +62,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-seeded-shape-is-the-one-the-screen-is-written-against
-  (let [db (dogfood/seed-db 3)]
+  (let [db (rf.bench.hicasso.front.dogfood/seed-db 3)]
     (is (= [0 1 2] (:order db)))
     (is (= 3 (count (:todos db))))
     (is (= {:id 1 :title "todo 1" :done? false} (get-in db [:todos 1])))
@@ -105,7 +105,7 @@
 (deftest keyed-insert-delete-and-reorder-move-the-order-and-nothing-else
   (seeded! 3)
   (testing "insert appends and mints the next id"
-    (send! [:dogfood/edit-draft dogfood/new-draft-key "milk"])
+    (send! [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "milk"])
     (send! [:dogfood/create])
     (is (= [0 1 2 3] (read-sub [:dogfood/visible-ids])))
     (is (= "milk" (:title (read-sub [:dogfood/todo 3])))))
@@ -132,11 +132,11 @@
   (seeded! 3)
   (send! [:dogfood/edit-draft 0 "zero"])
   (send! [:dogfood/edit-draft 2 "two"])
-  (send! [:dogfood/edit-draft dogfood/new-draft-key "new"])
+  (send! [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "new"])
   (testing "three instances, one subscription"
     (is (= "zero" (read-sub [:dogfood/draft 0])))
     (is (= "two" (read-sub [:dogfood/draft 2])))
-    (is (= "new" (read-sub [:dogfood/draft dogfood/new-draft-key])))
+    (is (= "new" (read-sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])))
     (is (= "" (read-sub [:dogfood/draft 1])) "an instance nobody typed into"))
   (testing "commit is by explicit caller revision, never by value equality"
     (send! [:dogfood/commit 0])
@@ -160,8 +160,8 @@
 
 (deftest a-lowered-intent-reaches-a-real-event-handler
   (seeded! 3)
-  (let [el (intent/with-frame (frame-dispatch)
-                              (fn [] (codec/as-element
+  (let [el (rf.bench.hicasso.front.intent/with-frame (frame-dispatch)
+                              (fn [] (rf.bench.hicasso.front.codec/as-element
                                       [:button {:on-click [:dogfood/toggle 1]} "toggle"])))
         on-click (aget (.-props el) "onClick")]
     (is (false? (read-sub [:dogfood/done? 1])))
@@ -171,37 +171,37 @@
 
 (deftest the-controlled-field-carries-its-value-through-the-marker
   (seeded! 3)
-  (let [el (intent/with-frame (frame-dispatch)
-                              (fn [] (codec/as-element
-                                      [:input {:value (read-sub [:dogfood/draft dogfood/new-draft-key])
-                                               :on-input [:dogfood/edit-draft dogfood/new-draft-key
+  (let [el (rf.bench.hicasso.front.intent/with-frame (frame-dispatch)
+                              (fn [] (rf.bench.hicasso.front.codec/as-element
+                                      [:input {:value (read-sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])
+                                               :on-input [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key
                                                           :re-frame.hicasso/value]}])))
         on-input (aget (.-props el) "onInput")]
     (is (= "" (aget (.-props el) "value")))
     (on-input #js {:target #js {:value "mi"}})
-    (is (= "mi" (read-sub [:dogfood/draft dogfood/new-draft-key])))
+    (is (= "mi" (read-sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])))
     (on-input #js {:target #js {:value "milk"}})
-    (is (= "milk" (read-sub [:dogfood/draft dogfood/new-draft-key])))))
+    (is (= "milk" (read-sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])))))
 
 (deftest the-form-submits-once-and-prevents-the-browsers-navigation
   (seeded! 3)
-  (send! [:dogfood/edit-draft dogfood/new-draft-key "milk"])
+  (send! [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "milk"])
   (let [!prevented (atom false)
-        el (intent/with-frame (frame-dispatch)
-                              (fn [] (codec/as-element
+        el (rf.bench.hicasso.front.intent/with-frame (frame-dispatch)
+                              (fn [] (rf.bench.hicasso.front.codec/as-element
                                       [:form {:on-submit [:dogfood/create]}])))
         on-submit (aget (.-props el) "onSubmit")]
     (on-submit #js {:target #js {} :preventDefault (fn [] (reset! !prevented true))})
     (is (true? @!prevented))
     (is (= [0 1 2 3] (read-sub [:dogfood/visible-ids])))
     (is (= "milk" (:title (read-sub [:dogfood/todo 3]))))
-    (is (= "" (read-sub [:dogfood/draft dogfood/new-draft-key])))))
+    (is (= "" (read-sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])))))
 
 (deftest the-key-map-commits-on-enter-cancels-on-escape-and-is-silent-mid-composition
   (seeded! 3)
   (send! [:dogfood/edit-draft 1 "renamed"])
-  (let [el (intent/with-frame (frame-dispatch)
-                              (fn [] (codec/as-element
+  (let [el (rf.bench.hicasso.front.intent/with-frame (frame-dispatch)
+                              (fn [] (rf.bench.hicasso.front.codec/as-element
                                       [:input {:on-key-down {"Enter"  [:dogfood/commit 1]
                                                              "Escape" [:dogfood/cancel 1]}}])))
         on-key-down (aget (.-props el) "onKeyDown")]

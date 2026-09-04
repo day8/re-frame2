@@ -9,7 +9,7 @@
   Two same-process renders take two different gensyms, so a body that
   RENDERS the value makes the document nondeterministic. That is an
   authorable hazard rather than a framework one, and it is already
-  instrumented: `entry/render-twice`'s byte comparison is the standing
+  instrumented: `rf.bench.hicasso.ssr.entry/render-twice`'s byte comparison is the standing
   determinism check. Both halves are asserted here — a body that reads
   the id and keeps it out of markup renders byte-identical documents, and
   a body that deliberately prints it does not. The second row is what
@@ -22,7 +22,7 @@
   the adapters publish is client-renderer-only. That contrast no longer
   describes the tree. Since rf2-2rtt6.122 the ambient chain refuses on
   BOTH sides for ONE reason — the arm's own refusal, established by
-  `intent/with-frame` over every render extent, client or server. The
+  `rf.bench.hicasso.front.intent/with-frame` over every render extent, client or server. The
   contrast survives; its explanation changed, and a row asserting a
   renderer-specific server-side throw would now be asserting the wrong
   fact for the wrong reason.
@@ -32,18 +32,18 @@
   is proved (`ssr/entry_cljs_test`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.bench.hicasso.ssr.entry :as entry]
-            [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.bench.hicasso.ssr.entry :as rf.bench.hicasso.ssr.entry]
+            [re-frame.bench.hicasso.ssr.fixtures :as rf.bench.hicasso.ssr.fixtures]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support])
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; `:ambient-frame nil`, where the rest of the SSR suite takes the
      ;; fixture's default — and it is load-bearing rather than tidiness.
      ;; The default root-binds `frame/*current-frame*` to `:rf/default`,
@@ -51,13 +51,13 @@
      ;; FIND and never the carrying, so an ambient carry inside a body
      ;; would resolve `:rf/default` and succeed. That is core behaving
      ;; exactly as specified, and it is not the configuration a server
-     ;; request has: `entry/render` establishes no scope and a host calls
+     ;; request has: `rf.bench.hicasso.ssr.entry/render` establishes no scope and a host calls
      ;; it at top of stack. Measuring the refusal against the fixture's own
      ;; stamp would be measuring the fixture. (The mismatched-scope case is
      ;; interesting in its own right and is pinned deliberately, in
      ;; `arm1/hframe_cljs_test`.)
      :ambient-frame nil
-     :init-fn       (fn [] (fixtures/register!) (rt/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.ssr.fixtures/register!) (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private !seen
   "Every frame id a server body read, newest last."
@@ -73,15 +73,15 @@
   documented correct shape. What it renders is a subscription value, so
   the boundary is an ordinary one."
   [_]
-  (swap! !seen conj (intent/hframe))
-  [:span.row (str (rt/sub [:dogfood/remaining]))])
+  (swap! !seen conj (rf.bench.hicasso.front.intent/hframe))
+  [:span.row (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/remaining]))])
 
 (defview indiscreet
   "Renders the per-request id INTO the markup. This is the authorable
   hazard the docstring warns about, written on purpose so the
   determinism check can be watched failing."
   [_]
-  [:span.row {:data-frame (str (intent/hframe))}])
+  [:span.row {:data-frame (str (rf.bench.hicasso.front.intent/hframe))}])
 
 (defview carrying
   "Tries the AMBIENT carry — `(rf/capture-frame)`, 0-arity — inside a
@@ -92,12 +92,12 @@
   (reset! !ambient
           (try [::no-throw (rf/capture-frame)]
                (catch :default e (ex-data e))))
-  [:span.row (str (intent/hframe))])
+  [:span.row (str (rf.bench.hicasso.front.intent/hframe))])
 
 (defn- request [hiccup]
   {:hiccup   hiccup
-   :snapshot (:snapshot (fixtures/row "dogfood-snapshot"))
-   :payload  fixtures/dogfood-payload-keys})
+   :snapshot (:snapshot (rf.bench.hicasso.ssr.fixtures/row "dogfood-snapshot"))
+   :payload  rf.bench.hicasso.ssr.fixtures/dogfood-payload-keys})
 
 ;; ---------------------------------------------------------------------------
 ;; W8 — the per-request id, and the one authorable hazard
@@ -109,8 +109,8 @@
            which is what per-request isolation means when the id is the
            thing being read"
     (reset! !seen [])
-    (let [a (entry/render (request [discreet {}]))
-          b (entry/render (request [discreet {}]))]
+    (let [a (rf.bench.hicasso.ssr.entry/render (request [discreet {}]))
+          b (rf.bench.hicasso.ssr.entry/render (request [discreet {}]))]
       (is (= 2 (count @!seen)) "one read per request")
       (is (= [(:frame-id a) (:frame-id b)] @!seen)
           "each body read its OWN request's id, in order")
@@ -123,7 +123,7 @@
            documents are byte-identical anyway — because the value went
            into a read and not into the page"
     (let [{:keys [identical? differs-at] a :first b :second}
-          (entry/render-twice (request [discreet {}]))]
+          (rf.bench.hicasso.ssr.entry/render-twice (request [discreet {}]))]
       (is identical? (str "the two documents differ at index " differs-at))
       (is (not= (:frame-id a) (:frame-id b))
           "and they were different requests — this is the whole point")
@@ -136,7 +136,7 @@
            the existing render-twice byte comparison catches it. A claim
            about a check that has never been watched failing is not a
            check, so here it is failing"
-    (let [{:keys [identical? differs-at] a :first} (entry/render-twice (request [indiscreet {}]))]
+    (let [{:keys [identical? differs-at] a :first} (rf.bench.hicasso.ssr.entry/render-twice (request [indiscreet {}]))]
       (is (not identical?)
           "a document carrying the per-request gensym cannot be
            deterministic, and the determinism witness must say so")
@@ -156,7 +156,7 @@
            exactly as over the client's — so what the server reports is the
            request's own frame, and not a fact about `react-dom/server`"
     (reset! !ambient ::unset)
-    (let [{:keys [document frame-id]} (entry/render (request [carrying {}]))
+    (let [{:keys [document frame-id]} (rf.bench.hicasso.ssr.entry/render (request [carrying {}]))
           data                        @!ambient]
       (is (vector? data)
           (str "expected the carry to be admitted; got " (pr-str data)))
@@ -168,5 +168,5 @@
   (testing "while `h/frame` answers in the same body — the contrast the
            design's W11 exists for, with its explanation updated"
     (reset! !seen [])
-    (let [{:keys [frame-id]} (entry/render (request [discreet {}]))]
+    (let [{:keys [frame-id]} (rf.bench.hicasso.ssr.entry/render (request [discreet {}]))]
       (is (= [frame-id] @!seen)))))

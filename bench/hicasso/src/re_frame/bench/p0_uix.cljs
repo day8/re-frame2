@@ -34,9 +34,9 @@
   Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
   2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
   this arm rf2-2rtt6.4."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.p0-fixture :as fx]
-            [re-frame.bench.p0-workcount :as wc]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
+            [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [uix.core :refer [$ defui]]))
 
 ;; ---------------------------------------------------------------------------
@@ -44,8 +44,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defui w1-row [{:keys [i]}]
-  (wc/render!)
-  (let [text (uix-adapter/use-subscribe [:p0/row i])]
+  (rf.bench.p0-workcount/render!)
+  (let [text (rf.adapter.uix/use-subscribe [:p0/row i])]
     ($ :li.row.cell.wide {:style      {:padding-left "4px" :color "rebeccapurple"}
                           :data-index i}
        ($ :img.avatar {:src "/avatar.png" :alt ""})
@@ -64,8 +64,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defui w3-field [{:keys [i]}]
-  (wc/render!)
-  (let [{:keys [value error]} (uix-adapter/use-subscribe [:p0/field i])]
+  (rf.bench.p0-workcount/render!)
+  (let [{:keys [value error]} (rf.adapter.uix/use-subscribe [:p0/field i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
@@ -87,8 +87,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defui u-cell [{:keys [i]}]
-  (wc/render!)
-  (let [v (uix-adapter/use-subscribe [:p0/cell i])]
+  (rf.bench.p0-workcount/render!)
+  (let [v (rf.adapter.uix/use-subscribe [:p0/cell i])]
     ($ :span.cell {:data-i i} (str v))))
 
 (defui u-grid [{:keys [n]}]
@@ -108,18 +108,18 @@
 ;; rung so the floor subtraction stays honest.
 
 (defui fan-cell-0 [{:keys [j]}]
-  (wc/render!)
+  (rf.bench.p0-workcount/render!)
   ($ :span.cell {:data-i j} "0"))
 
 (defui fan-cell-1 [{:keys [j n]}]
-  (wc/render!)
-  (let [a (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 1 0)])]
+  (rf.bench.p0-workcount/render!)
+  (let [a (rf.adapter.uix/use-subscribe [:p0/fan (rf.bench.p0-fixture/fan-key n 1 0)])]
     ($ :span.cell {:data-i j} (str a))))
 
 (defui fan-cell-2 [{:keys [j n]}]
-  (wc/render!)
-  (let [a (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 2 0)])
-        b (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 2 1)])]
+  (rf.bench.p0-workcount/render!)
+  (let [a (rf.adapter.uix/use-subscribe [:p0/fan (rf.bench.p0-fixture/fan-key n 2 0)])
+        b (rf.adapter.uix/use-subscribe [:p0/fan (rf.bench.p0-fixture/fan-key n 2 1)])]
     ($ :span.cell {:data-i j} (str (+ a b)))))
 
 (defui fan-grid [{:keys [offset n-cells reads]}]
@@ -146,30 +146,30 @@
 ;; is the same shape at R = 0 and at R = 20 and the shell rung is not
 ;; measuring one fewer prop slot than the rungs it anchors.
 
-(defn- lus [n r k] (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n r k)]))
+(defn- lus [n r k] (rf.adapter.uix/use-subscribe [:p0/fan (rf.bench.p0-fixture/fan-key n r k)]))
 
 (defui lad-cell-0 [{:keys [j _n]}]
-  (wc/render!)
+  (rf.bench.p0-workcount/render!)
   ($ :span.cell {:data-i j} "0"))
 
 (defui lad-cell-1 [{:keys [j n]}]
-  (wc/render!)
+  (rf.bench.p0-workcount/render!)
   (let [v (lus n 1 0)]
     ($ :span.cell {:data-i j} (str v))))
 
 (defui lad-cell-3 [{:keys [j n]}]
-  (wc/render!)
+  (rf.bench.p0-workcount/render!)
   (let [v (+ (lus n 3 0) (lus n 3 1) (lus n 3 2))]
     ($ :span.cell {:data-i j} (str v))))
 
 (defui lad-cell-7 [{:keys [j n]}]
-  (wc/render!)
+  (rf.bench.p0-workcount/render!)
   (let [v (+ (lus n 7 0) (lus n 7 1) (lus n 7 2) (lus n 7 3)
              (lus n 7 4) (lus n 7 5) (lus n 7 6))]
     ($ :span.cell {:data-i j} (str v))))
 
 (defui lad-cell-20 [{:keys [j n]}]
-  (wc/render!)
+  (rf.bench.p0-workcount/render!)
   (let [v (+ (lus n 20 0)  (lus n 20 1)  (lus n 20 2)  (lus n 20 3)
              (lus n 20 4)  (lus n 20 5)  (lus n 20 6)  (lus n 20 7)
              (lus n 20 8)  (lus n 20 9)  (lus n 20 10) (lus n 20 11)
@@ -197,28 +197,28 @@
 ;; construction on the arm that happens to own it.
 
 (defn w1-root [frame-id rows]
-  ($ uix-adapter/frame-provider {:frame frame-id}
+  ($ rf.adapter.uix/frame-provider {:frame frame-id}
      ($ w1 {:rows rows})))
 
 (defn w3-root [frame-id fields]
-  ($ uix-adapter/frame-provider {:frame frame-id}
+  ($ rf.adapter.uix/frame-provider {:frame frame-id}
      ($ w3 {:fields fields})))
 
 (defn u-root [frame-id]
-  ($ uix-adapter/frame-provider {:frame frame-id}
-     ($ u-grid {:n fx/cells-n})))
+  ($ rf.adapter.uix/frame-provider {:frame frame-id}
+     ($ u-grid {:n rf.bench.p0-fixture/cells-n})))
 
 (defn fan-root
   "One root of the fan-out arm. `offset` is this root's base in the GLOBAL
   boundary numbering, which is what lets four roots of one frame either
   share every key or share none."
   [frame-id offset n-cells reads]
-  ($ uix-adapter/frame-provider {:frame frame-id}
+  ($ rf.adapter.uix/frame-provider {:frame frame-id}
      ($ fan-grid {:offset offset :n-cells n-cells :reads reads})))
 
 (defn lad-root
   "One root of the ladder arm (rf2-2rtt6.34). `offset` is this root's base
   in the GLOBAL boundary numbering, as [[fan-root]]'s is."
   [frame-id offset n-cells reads]
-  ($ uix-adapter/frame-provider {:frame frame-id}
+  ($ rf.adapter.uix/frame-provider {:frame frame-id}
      ($ lad-grid {:offset offset :n-cells n-cells :reads reads})))

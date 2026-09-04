@@ -65,15 +65,15 @@
   `:node-test`, which is the posture every other `*-dom` suite in this
   tree keeps. The pure rows run on both."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.slice-echo-clock-app :as clock]
-            [re-frame.hicasso.examples.slice.routes :as slice-routes]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.slice-echo-clock-app :as rf.bench.hicasso.slice-echo-clock-app]
+            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; The MAP shape, because every DOM row is `async`: `cljs.test` refuses
      ;; an async test under a fn-form fixture and ABORTS THE WHOLE NAMESPACE
@@ -84,14 +84,14 @@
      :init-fn       (fn []
                       ;; React's `act` queue is not the browser's scheduler,
                       ;; and every reading this instrument takes is taken
-                      ;; outside it — `lane/leave-act-environment!`'s own
+                      ;; outside it — `rf.bench.hicasso.lane/leave-act-environment!`'s own
                       ;; argument, applied to the suite that drives it.
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
                       ;; The reset restores the registrar to a baseline
                       ;; captured when THIS FORM was evaluated, which is
                       ;; before `slice.routes` finished loading — so the
                       ;; route the instrument navigates to would not exist.
-                      (slice-routes/register!))}))
+                      (rf.hicasso.examples.slice.routes/register!))}))
 
 (def ^:private off-browser
   "no DOM on this runtime — every claim below is a real mount, a real DOM
@@ -114,7 +114,7 @@
            (str "frame-" (swap! !frame-n inc))))
 
 (defn- with-mounted-slice
-  "Mount the slice through the instrument's own [[clock/boot!]], run
+  "Mount the slice through the instrument's own [[rf.bench.hicasso.slice-echo-clock-app/boot!]], run
   `f` — which answers a promise — and tear the root down afterwards
   whatever happened.
 
@@ -124,20 +124,20 @@
   which the keystroke row types over — would be whatever the last row
   left there."
   [f]
-  (let [container (lane/fresh-container!)]
-    (-> (clock/boot! container (fresh-frame-id))
+  (let [container (rf.bench.hicasso.lane/fresh-container!)]
+    (-> (rf.bench.hicasso.slice-echo-clock-app/boot! container (fresh-frame-id))
         (.then (fn [_] (f)))
-        (.then (fn [v] (clock/teardown!) v)
-               (fn [e] (clock/teardown!) (throw e))))))
+        (.then (fn [v] (rf.bench.hicasso.slice-echo-clock-app/teardown!) v)
+               (fn [e] (rf.bench.hicasso.slice-echo-clock-app/teardown!) (throw e))))))
 
 (defn- plan-for [arm-id]
-  (:plan (first (filter #(= arm-id (:id %)) clock/arms))))
+  (:plan (first (filter #(= arm-id (:id %)) rf.bench.hicasso.slice-echo-clock-app/arms))))
 
 (defn- one-window
   "One reading from `arm-id`'s plan, built and taken the way
-  [[clock/measure-one!]] builds and takes it."
+  [[rf.bench.hicasso.slice-echo-clock-app/measure-one!]] builds and takes it."
   [arm-id]
-  (clock/window! ((plan-for arm-id) nil)))
+  (rf.bench.hicasso.slice-echo-clock-app/window! ((plan-for arm-id) nil)))
 
 (defn- fail-async [done]
   (fn [e]
@@ -154,7 +154,7 @@
   happened.
 
   WHY THE CAPTURE PHASE AT THE DOCUMENT. React 19 attaches its listeners
-  to the ROOT CONTAINER, which `lane/fresh-container!` appends to
+  to the ROOT CONTAINER, which `rf.bench.hicasso.lane/fresh-container!` appends to
   `document.body` — so the container sits strictly below `js/document` on
   every propagation path, and a capture-phase `stopPropagation` here means
   the event never descends to it. The Hicasso handler does not run, so
@@ -275,7 +275,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-echo-refuses-the-setup-mutation-alone
-  (testing "The driver's OWN negative control, exercised. `clock/
+  (testing "The driver's OWN negative control, exercised. `rf.bench.hicasso.slice-echo-clock-app/
            echo-discrimination!` performs the keystroke arm's setup
            mutation and nothing else — the native `value` write, with no
            DOM event and therefore no handler, no dispatch, no state write
@@ -289,13 +289,13 @@
       (async done
         (-> (with-mounted-slice
               (fn []
-                (.then (clock/echo-discrimination!)
+                (.then (rf.bench.hicasso.slice-echo-clock-app/echo-discrimination!)
                        (fn [seen]
                          (is (= (:expect seen) (:glass seen))
                              "the setup mutation DID reach the glass — which is exactly
                               why a check over `.value` alone would have verified a
                               window in which the application did nothing")
-                         (is (= clock/committed-value-sentinel (:rendered seen))
+                         (is (= rf.bench.hicasso.slice-echo-clock-app/committed-value-sentinel (:rendered seen))
                              "and the mirror still carries the sentinel, because no
                               commit ran to overwrite it")
                          (is (not= (:expect seen) (:rendered seen))
@@ -328,7 +328,7 @@
                              (is (= (:expect (:echo echo)) (:glass (:echo echo)))
                                  "even though the typed character is on the glass, put
                                   there by this file's own setup write")
-                             (is (= clock/committed-value-sentinel
+                             (is (= rf.bench.hicasso.slice-echo-clock-app/committed-value-sentinel
                                     (:rendered (:echo echo)))
                                  "the mirror is untouched — no commit reached the
                                   field")))))))
@@ -358,14 +358,14 @@
                              (is (= (:want-checked (:echo echo)) (:checked (:echo echo)))
                                  "while the checkbox flipped anyway — the user agent
                                   did it, and a check over this would have passed")
-                             (is (= clock/committed-value-sentinel
+                             (is (= rf.bench.hicasso.slice-echo-clock-app/committed-value-sentinel
                                     (:rendered (:echo echo)))
                                  "and the mirror is untouched")))))))
             (.then (fn [_] (done)) (fail-async done)))))))
 
 (deftest the-window-extends-past-the-commit-by-the-injected-cost
   (testing "THE DISCRIMINATING ROW. `:ctl-blocked` spends
-           `clock/blocked-ms` on the main thread strictly between the
+           `rf.bench.hicasso.slice-echo-clock-app/blocked-ms` on the main thread strictly between the
            commit and the frame. A commit-bounded window sees none of it;
            this one must see all of it.
 
@@ -378,8 +378,8 @@
               (fn []
                 (.then (one-window :ctl-blocked)
                        (fn [{:keys [ms commit-ms echo]}]
-                         (is (>= (- ms commit-ms) clock/blocked-ms)
-                             (str "at least " clock/blocked-ms "ms of the window lies "
+                         (is (>= (- ms commit-ms) rf.bench.hicasso.slice-echo-clock-app/blocked-ms)
+                             (str "at least " rf.bench.hicasso.slice-echo-clock-app/blocked-ms "ms of the window lies "
                                   "after the point a flushSync window stops"))
                          (is (:verified? echo)
                              "and the blocked frame still carried the echo")))))
@@ -390,14 +390,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-whole-schedule-runs-and-every-echo-verifies
-  (testing "`lane/rounds-async!` drives all four arms over the real
+  (testing "`rf.bench.hicasso.lane/rounds-async!` drives all four arms over the real
            application, and the echo tally reads `0 unverified of M` with
            M the whole plan — warm-up visits included, since they bank
            their verification too.
 
            The schedule is TINY here and the module's own is not: this row
            asks whether the instrument runs, and a run that reads it wants
-           `clock/sampling` and `clock/rounds`."
+           `rf.bench.hicasso.slice-echo-clock-app/sampling` and `rf.bench.hicasso.slice-echo-clock-app/rounds`."
     (if-not (browser?)
       (skip! off-browser)
       (async done
@@ -405,26 +405,26 @@
               rounds   1]
           (-> (with-mounted-slice
                 (fn []
-                  (.then (lane/rounds-async! clock/arms sampling rounds clock/measure-one!)
+                  (.then (rf.bench.hicasso.lane/rounds-async! rf.bench.hicasso.slice-echo-clock-app/arms sampling rounds rf.bench.hicasso.slice-echo-clock-app/measure-one!)
                          (fn [{:keys [readings samples]}]
-                           (is (= (* rounds (:samples sampling) (count clock/arms))
+                           (is (= (* rounds (:samples sampling) (count rf.bench.hicasso.slice-echo-clock-app/arms))
                                   (count samples))
                                "every measured visit was banked for the guard")
                            (is (= rounds (count readings)))
                            (is (every? (fn [round]
-                                         (= (count clock/arms) (count round)))
+                                         (= (count rf.bench.hicasso.slice-echo-clock-app/arms) (count round)))
                                        readings)
                                "and every arm has a reading in every round")
                            (is (= {:writes (* rounds
                                               (+ (:warmup sampling) (:samples sampling))
-                                              (count clock/arms))
+                                              (count rf.bench.hicasso.slice-echo-clock-app/arms))
                                    :unverified 0}
-                                  (clock/verification))
+                                  (rf.bench.hicasso.slice-echo-clock-app/verification))
                                "0 unverified of M — every window, warm-up included,
                                 reached a frame that carried its own echo")
-                           (let [banked    (clock/banked-structure)
-                                 published (clock/structure-over-measured
-                                             clock/arms sampling rounds banked)
+                           (let [banked    (rf.bench.hicasso.slice-echo-clock-app/banked-structure)
+                                 published (rf.bench.hicasso.slice-echo-clock-app/structure-over-measured
+                                             rf.bench.hicasso.slice-echo-clock-app/arms sampling rounds banked)
                                  measured  (reduce
                                              (fn [m round]
                                                (reduce-kv
@@ -432,7 +432,7 @@
                                                    (update m id (fnil + 0) (count xs)))
                                                  m round))
                                              {} readings)]
-                             (doseq [{:keys [id]} clock/arms]
+                             (doseq [{:keys [id]} rf.bench.hicasso.slice-echo-clock-app/arms]
                                (is (= (get measured id)
                                       (:n (:commit (get published id)))
                                       (:n (:to-raf (get published id)))
@@ -453,7 +453,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-measured-mask-is-the-lanes-own-schedule
-  (testing "`clock/measured-mask` is derived from `lane/visit-plan` — the
+  (testing "`rf.bench.hicasso.slice-echo-clock-app/measured-mask` is derived from `rf.bench.hicasso.lane/visit-plan` — the
            one statement of the schedule both of the lane's loops walk —
            and not re-derived from `warmup`, `samples` and `slot-order`
            inside the driver. A mask that had drifted from the schedule
@@ -461,10 +461,10 @@
            visits and say nothing about it."
     (let [sampling {:warmup 2 :samples 3}
           rounds   2
-          mask     (clock/measured-mask clock/arms sampling rounds)]
-      (is (= (set (map :id clock/arms)) (set (keys mask)))
+          mask     (rf.bench.hicasso.slice-echo-clock-app/measured-mask rf.bench.hicasso.slice-echo-clock-app/arms sampling rounds)]
+      (is (= (set (map :id rf.bench.hicasso.slice-echo-clock-app/arms)) (set (keys mask)))
           "every arm has a mask")
-      (doseq [{:keys [id]} clock/arms]
+      (doseq [{:keys [id]} rf.bench.hicasso.slice-echo-clock-app/arms]
         (is (= (* rounds (+ (:warmup sampling) (:samples sampling)))
                (count (get mask id)))
             (str id " is visited once per sample index per round"))
@@ -474,7 +474,7 @@
       (is (= [false false true true true false false true true true]
              (get mask :keystroke))
           "and the warm-up block leads EVERY round, not just the first —
-           `lane/rounds!`'s own docstring prices that asymmetry"))))
+           `rf.bench.hicasso.lane/rounds!`'s own docstring prices that asymmetry"))))
 
 (deftest the-record-labels-which-population-each-figure-is-taken-over
   (testing "`:summary` and `:structure` share the measured population
@@ -485,7 +485,7 @@
     (is (= {:summary   :measured-visits
             :structure :measured-visits
             :echo      :all-visits}
-           clock/populations))))
+           rf.bench.hicasso.slice-echo-clock-app/populations))))
 
 ;; ---------------------------------------------------------------------------
 ;; The control's arithmetic, where it cannot flake
@@ -498,11 +498,11 @@
            `p50(:ctl-blocked) - p50(:keystroke)` in milliseconds."
     (let [readings [{:keystroke [10.0 12.0 14.0] :ctl-blocked [60.0 62.0 64.0]}
                     {:keystroke [20.0 20.0 20.0] :ctl-blocked [69.0 70.0 71.0]}]]
-      (is (= [50.0 50.0] (clock/control-per-round readings))
+      (is (= [50.0 50.0] (rf.bench.hicasso.slice-echo-clock-app/control-per-round readings))
           "each round pairs its own two medians")
-      (let [v (lane/control-verdict-strict clock/blocked-ms
-                                           (clock/control-per-round readings)
-                                           clock/control-slack)]
+      (let [v (rf.bench.hicasso.lane/control-verdict-strict rf.bench.hicasso.slice-echo-clock-app/blocked-ms
+                                           (rf.bench.hicasso.slice-echo-clock-app/control-per-round readings)
+                                           rf.bench.hicasso.slice-echo-clock-app/control-slack)]
         (is (:ok? v) "a control that saw exactly what it predicted passes")
         (is (= :every-round (:rule v))
             "under the strict rule — these legs are tens of milliseconds and
@@ -515,9 +515,9 @@
            would sit at zero — and the control has to say so."
     (let [readings [{:keystroke [10.0 12.0 14.0] :ctl-blocked [10.0 12.0 14.0]}
                     {:keystroke [20.0 20.0 20.0] :ctl-blocked [20.0 21.0 20.0]}]
-          v        (lane/control-verdict-strict clock/blocked-ms
-                                                (clock/control-per-round readings)
-                                                clock/control-slack)]
+          v        (rf.bench.hicasso.lane/control-verdict-strict rf.bench.hicasso.slice-echo-clock-app/blocked-ms
+                                                (rf.bench.hicasso.slice-echo-clock-app/control-per-round readings)
+                                                rf.bench.hicasso.slice-echo-clock-app/control-slack)]
       (is (not (:ok? v))
           "an instrument that cannot see a change its own arithmetic predicts
            cannot be trusted with an unpredicted one")
@@ -535,16 +535,16 @@
            16.7 ms at 60 Hz — so an injection much smaller than one frame
            can be absorbed by the quantisation entirely, and a control
            that fails for the clock is not a control."
-    (is (>= clock/blocked-ms (* 2.0 16.7))
+    (is (>= rf.bench.hicasso.slice-echo-clock-app/blocked-ms (* 2.0 16.7))
         "at least two rendering intervals at 60 Hz")
-    (let [{:keys [band predicted]} (lane/control-verdict-strict
-                                     clock/blocked-ms
-                                     [clock/blocked-ms]
-                                     clock/control-slack)]
-      (is (= clock/blocked-ms predicted)
+    (let [{:keys [band predicted]} (rf.bench.hicasso.lane/control-verdict-strict
+                                     rf.bench.hicasso.slice-echo-clock-app/blocked-ms
+                                     [rf.bench.hicasso.slice-echo-clock-app/blocked-ms]
+                                     rf.bench.hicasso.slice-echo-clock-app/control-slack)]
+      (is (= rf.bench.hicasso.slice-echo-clock-app/blocked-ms predicted)
           "the control predicts the injected duration itself — an additive
            prediction that needs no model of the application")
-      (is (<= (first band) clock/blocked-ms (second band))
+      (is (<= (first band) rf.bench.hicasso.slice-echo-clock-app/blocked-ms (second band))
           "and its band is centred on it"))))
 
 (deftest the-arm-roster-is-the-four-rows-the-file-documents
@@ -552,10 +552,10 @@
            estimands they can and cannot serve. A fifth added silently
            would leave that prose describing an instrument that no longer
            exists — the drift class this lane keeps paying for."
-    (is (= [:idle-frame :keystroke :toggle :ctl-blocked] (mapv :id clock/arms))
+    (is (= [:idle-frame :keystroke :toggle :ctl-blocked] (mapv :id rf.bench.hicasso.slice-echo-clock-app/arms))
         "floor first, so it leads the schedule")
-    (is (= [:ctl-blocked] (mapv :id (filter :control? clock/arms)))
+    (is (= [:ctl-blocked] (mapv :id (filter :control? rf.bench.hicasso.slice-echo-clock-app/arms)))
         "and exactly one of them is a control")
-    (is (pos? (:warmup clock/sampling)))
-    (is (pos? (:samples clock/sampling)))
-    (is (pos? clock/rounds))))
+    (is (pos? (:warmup rf.bench.hicasso.slice-echo-clock-app/sampling)))
+    (is (pos? (:samples rf.bench.hicasso.slice-echo-clock-app/sampling)))
+    (is (pos? rf.bench.hicasso.slice-echo-clock-app/rounds))))

@@ -25,7 +25,7 @@
   A presence child is hiccup **data**, written in the parent boundary's
   body — but it is **lowered in THIS component's render**, one React
   render later, after that body's dynamic extent has unwound. So
-  `intent/*dispatch*` is unbound at the moment the codec walks it, and
+  `rf.bench.hicasso.front.intent/*dispatch*` is unbound at the moment the codec walks it, and
   before this hook existed an intent at an event position on ANY presence
   child raised `:rf.error/hicasso-intent-outside-boundary` at render, and
   an `h/event` at one raised it at invocation. Loud, never silent — and it
@@ -74,28 +74,28 @@
   applied one render earlier, gated on `runtime/adopting?`. It costs no
   hook, changes no transform, and is scoped to the adoption window; see
   the comment at the binding below."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.bench.hicasso.front.presence :as presence]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.bench.hicasso.front.presence :as rf.bench.hicasso.front.presence]
             ["react" :as react]))
 
 (defn- now [] (js/Date.now))
 
 (defn- presence-body [js-props]
   (let [props      (or (unchecked-get js-props "rfProps") {})
-        timeout-ms (presence/check-timeout! (:timeout-ms props))
+        timeout-ms (rf.bench.hicasso.front.presence/check-timeout! (:timeout-ms props))
         children   (:children props)
         ;; The frame hook. Classified through the shared reader the whole
         ;; substrate uses, so the no-provider sentinel resolves to nil
         ;; ("no scope") rather than being mistaken for a frame keyword.
-        frame-kw   (adapter-context/context-value->current-frame
-                     (react/useContext adapter-context/frame-context))
-        hook       (react/useState presence/initial)
+        frame-kw   (rf.adapter.context/context-value->current-frame
+                     (react/useContext rf.adapter.context/frame-context))
+        hook       (react/useState rf.bench.hicasso.front.presence/initial)
         state      (aget hook 0)
         set-state  (aget hook 1)
-        stepped    (presence/step state children (now) timeout-ms)
+        stepped    (rf.bench.hicasso.front.presence/step state children (now) timeout-ms)
         ;; BORN PRESENT UNDER ADOPTION (rf2-2rtt6.84). A child a render
         ;; meets for the first time is `:mounting`, which is right for a
         ;; child that is genuinely appearing and wrong for one that is
@@ -118,27 +118,27 @@
         ;; HTML and the client's first pass agree by construction; that
         ;; agreement is the whole reason the flag is read here in the
         ;; RENDER rather than in the effect below.
-        next       (if (rt/adopting?) (presence/settle stepped) stepped)]
+        next       (if (rf.bench.hicasso.arm1.runtime/adopting?) (rf.bench.hicasso.front.presence/settle stepped) stepped)]
     ;; Adjusting state while rendering — React's own answer to "a value
     ;; derived from props that must persist". `step` is idempotent, so the
     ;; equality test converges rather than looping.
     (when-not (= next state) (set-state next))
     (react/useEffect
       (fn []
-        (let [expiry (when-some [d (presence/next-deadline next)]
+        (let [expiry (when-some [d (rf.bench.hicasso.front.presence/next-deadline next)]
                        (js/setTimeout
-                         (fn [] (set-state (fn [s] (presence/expire s (now)))))
+                         (fn [] (set-state (fn [s] (rf.bench.hicasso.front.presence/expire s (now)))))
                          (max 0 (- d (now)))))
               ;; The enter flip lands on a macrotask rather than a layout
               ;; effect: a class flip that beats the browser's first paint
               ;; of the mounting styles animates nothing, and this is the
               ;; weak half the guide teaches around.
-              enter  (when (presence/mounting? next)
-                       (js/setTimeout (fn [] (set-state presence/settle)) 0))]
+              enter  (when (rf.bench.hicasso.front.presence/mounting? next)
+                       (js/setTimeout (fn [] (set-state rf.bench.hicasso.front.presence/settle)) 0))]
           (fn []
             (when expiry (js/clearTimeout expiry))
             (when enter (js/clearTimeout enter)))))
-      #js [(presence/pending-signature next)])
+      #js [(rf.bench.hicasso.front.presence/pending-signature next)])
     ;; THE LOWERING, inside the frame (rf2-2rtt6.66). These children were
     ;; written in the parent's body and are walked here, so the ambient
     ;; frame the codec's intent lowering reads has to be re-established
@@ -146,8 +146,8 @@
     ;; the tray — the binding is unconditional so the branch does not
     ;; exist, and an intent written under a frameless tray still lands on
     ;; the existing loud error naming the intent.
-    (intent/with-frame frame-kw (when frame-kw (rt/frame-dispatch frame-kw))
-      (fn [] (codec/as-element (into [:<>] (presence/render next)))))))
+    (rf.bench.hicasso.front.intent/with-frame frame-kw (when frame-kw (rf.bench.hicasso.arm1.runtime/frame-dispatch frame-kw))
+      (fn [] (rf.bench.hicasso.front.codec/as-element (into [:<>] (rf.bench.hicasso.front.presence/render next)))))))
 
 (def presence
   "`h/presence` — a boundary that retains exiting keyed children for
@@ -155,7 +155,7 @@
   `::h/unmounting` attribute overrides while it is in that phase.
 
       [presence {:timeout-ms 300}
-       (for [t (rt/sub [:toasts/visible])]
+       (for [t (rf.bench.hicasso.arm1.runtime/sub [:toasts/visible])]
          [:div.toast {:key (:id t)
                       ::h/unmounting {:class \"toast toast--exit\"
                                       :inert true :aria-hidden true}}
@@ -166,4 +166,4 @@
   subscription and holds no cell. It inserts no wrapper node and stamps
   no `data-*`; every child it renders is the author's own node with the
   author's own attributes merged."
-  (codec/mark-boundary! (doto presence-body (aset "displayName" "hicasso/presence"))))
+  (rf.bench.hicasso.front.codec/mark-boundary! (doto presence-body (aset "displayName" "hicasso/presence"))))

@@ -73,8 +73,8 @@
   One click, one semantic event — the navigation, or the app intent that
   cancelled it. See intent.cljs §The navigate head for the click-time
   half."
-  (:require [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.late-bind :as rf.late-bind]))
 
 (def ^:private routing-artefact
   "The optional-artefact identity the fail-loud missing-hook error
@@ -148,7 +148,7 @@
 (defn on-click-roster!
   "Refuse, AT RENDER, an `:on-click` outside the route-click roster: nil,
   `[::h/prevent [:app/event]]` (the declarative veto), `h/event`, or a plain
-  function. The same roster [[intent/lower-veto]] enforces at lowering;
+  function. The same roster [[rf.bench.hicasso.front.intent/lower-veto]] enforces at lowering;
   stated twice because the two failures land differently — this one fails
   at the site that wrote the link, with the render stack, before any
   anchor exists. A BARE intent vector is the taught mistake and gets the
@@ -156,24 +156,24 @@
   (Freehand's route-link law, kept)."
   [on-click]
   (when-not (or (nil? on-click)
-                (intent/prevent-head? on-click)
-                (intent/callback? on-click)
+                (rf.bench.hicasso.front.intent/prevent-head? on-click)
+                (rf.bench.hicasso.front.intent/callback? on-click)
                 (fn? on-click))
     (fail! :rf.error/hicasso-route-link-bad-on-click
            'front.route-link/route-link
            (str "route-link's :on-click is the pre-navigation veto; it takes nil, "
-                "[" (pr-str intent/prevent-head) " [:my-event …]] (cancel the "
+                "[" (pr-str rf.bench.hicasso.front.intent/prevent-head) " [:my-event …]] (cancel the "
                 "navigation and dispatch this instead), h/event, or a plain function — "
                 "never " (pr-str on-click) ". A bare intent vector is refused "
                 "because the click already produces the one routing intent; an "
                 "application reaction belongs behind the routing event, or inside "
-                (pr-str intent/prevent-head) " if it replaces the navigation.")
+                (pr-str rf.bench.hicasso.front.intent/prevent-head) " if it replaces the navigation.")
            :veto-with-prevent-a-callback-or-nothing
            {:on-click on-click}))
   on-click)
 
 (defn- require-frame! [to]
-  (or intent/*frame*
+  (or rf.bench.hicasso.front.intent/*frame*
       (fail! :rf.error/hicasso-route-link-outside-boundary
              'front.route-link/route-link
              (str "route-link {:to " (pr-str to) "} was rendered with no ambient "
@@ -203,14 +203,14 @@
         _        (prefetch-declined! props)
         _        (on-click-roster! on-click)
         {:keys [href payload native?]}
-        ((late-bind/require-fn! :routing/link-model
+        ((rf.late-bind/require-fn! :routing/link-model
                                 'route-link
                                 routing-artefact
                                 {:to to})
          (dissoc props :on-click) frame-kw)
         attrs    (-> (apply dissoc props control-keys)
                      (assoc :href href
-                            :on-click [intent/navigate-head
+                            :on-click [rf.bench.hicasso.front.intent/navigate-head
                                        {:frame    frame-kw
                                         :payload  payload
                                         :native?  native?

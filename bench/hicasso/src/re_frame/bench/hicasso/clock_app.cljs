@@ -45,7 +45,7 @@
   `install-adapter!` is once per process, so Reagent and UIx cannot be
   interleaved inside one round — that much this lane already knew. What
   this row adds is a second, sharper constraint: a bulk write here is
-  `frame/replace-app-db!`, and **every** arm mounted against that frame
+  `rf.frame/replace-app-db!`, and **every** arm mounted against that frame
   re-renders when it lands. Two substrate arms standing in one segment
   would each pay for the other's writes, and the clock would be reading a
   page carrying an arm that is not under test. So the candidate gets a
@@ -84,16 +84,16 @@
   Owner: rf2-2rtt6.1 (standard); this entry rf2-0qj9w."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as hmount]
-            [re-frame.bench.hicasso.arm1.runtime :as hrt]
-            [re-frame.bench.hicasso.clock-views :as kv]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.p0-reagent-views :as v]
-            [re-frame.bench.hicasso.p0-uix-views :as ux]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.clock-views :as rf.bench.hicasso.clock-views]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
+            [re-frame.bench.hicasso.p0-uix-views :as rf.bench.hicasso.p0-uix-views]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [uix.dom :as uix-dom]))
@@ -132,9 +132,9 @@
   Arm 1's React-hook spine is built over it and its own witnesses install
   it — so the segment names the arm under test rather than the adapter
   underneath it, and the record says which."
-  [{:id :reagent-subs :adapter reagent-adapter/adapter :name "Reagent-on-subs"}
-   {:id :uix-subs     :adapter uix-adapter/adapter     :name "UIx-on-subs"}
-   {:id :hicasso      :adapter uix-adapter/adapter     :name "Hicasso Arm 1 (UIx adapter)"}])
+  [{:id :reagent-subs :adapter rf.adapter.reagent/adapter :name "Reagent-on-subs"}
+   {:id :uix-subs     :adapter rf.adapter.uix/adapter     :name "UIx-on-subs"}
+   {:id :hicasso      :adapter rf.adapter.uix/adapter     :name "Hicasso Arm 1 (UIx adapter)"}])
 
 (defn- segment-named [id] (first (filter #(= id (:id %)) segments)))
 
@@ -152,7 +152,7 @@
   `[:sub :p0/cell]` is registered TWICE in this bundle, at load, from two
   namespaces: `p0-reagent-views/register!` — the shared floor accessor
   every other row's arms read — and `clock-views/register-subs!`, which
-  registers the SAME computation (`v/cell-value`, so there is still one
+  registers the SAME computation (`rf.bench.hicasso.p0-reagent-views/cell-value`, so there is still one
   body) behind the recompute census the keystroke witness gates on.
 
   A second `reg-sub` from a second namespace does not OVERWRITE the first;
@@ -190,26 +190,26 @@
   segment's reactive graph."
   [seg-id]
   (let [{:keys [adapter]} (segment-named seg-id)]
-    (try (rf/destroy-frame! v/subs-frame)
-         (catch :default e (lane/teardown-failure! "enter-segment! destroy-frame!" e)))
+    (try (rf/destroy-frame! rf.bench.hicasso.p0-reagent-views/subs-frame)
+         (catch :default e (rf.bench.hicasso.lane/teardown-failure! "enter-segment! destroy-frame!" e)))
     (when (rf/current-adapter)
       (try (rf/destroy-adapter!)
-           (catch :default e (lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
+           (catch :default e (rf.bench.hicasso.lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
     ;; `reset-runtime!` drops every cell, edge and cached entry the
     ;; candidate holds — and it calls `forget-frame-ops!` on the way, so a
     ;; destroyed-and-recreated frame cannot hand the arm a memoised bundle
     ;; pointing at the previous incarnation.
-    (hrt/reset-runtime!)
+    (rf.bench.hicasso.arm1.runtime/reset-runtime!)
     (rf/init! adapter)
-    ;; `clock-views/register-subs!` and not `v/register!`: it registers
-    ;; BOTH `:p0/cell` (through `v/cell-value`, so there is one body) and
+    ;; `clock-views/register-subs!` and not `rf.bench.hicasso.p0-reagent-views/register!`: it registers
+    ;; BOTH `:p0/cell` (through `rf.bench.hicasso.p0-reagent-views/cell-value`, so there is one body) and
     ;; the indexed `:p0/draft`, both behind the recompute census the
     ;; keystroke witness gates on.
-    (kv/register-subs!)
-    (rf/make-frame {:id v/subs-frame :images clock-images})
-    (frame/replace-app-db! v/subs-frame (v/seed-cells v/cells-n 0))
-    (lane/leave-act-environment!)
-    (swap! state assoc :segment seg-id :cells (zeros v/cells-n))
+    (rf.bench.hicasso.clock-views/register-subs!)
+    (rf/make-frame {:id rf.bench.hicasso.p0-reagent-views/subs-frame :images clock-images})
+    (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0))
+    (rf.bench.hicasso.lane/leave-act-environment!)
+    (swap! state assoc :segment seg-id :cells (zeros rf.bench.hicasso.p0-reagent-views/cells-n))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@
    :mount    (fn [container]
                (let [root (react-dom-client/createRoot container)]
                  (react-dom/flushSync
-                   (fn [] (.render root (v/m1-floor (zeros n)))))
+                   (fn [] (.render root (rf.bench.hicasso.p0-reagent-views/m1-floor (zeros n)))))
                  root))
    :unmount  (fn [root] (.unmount root))})
 
@@ -438,7 +438,7 @@
   denominator of every published ratio instead of the control it is
   supposed to break."
   [id d]
-  (assoc (floor-mount-arm id ctl3-cells (/ ctl3-cells v/cells-n))
+  (assoc (floor-mount-arm id ctl3-cells (/ ctl3-cells rf.bench.hicasso.p0-reagent-views/cells-n))
          :dirty d
          :ctl3? true))
 
@@ -473,22 +473,22 @@
 
 (defn- m1-arms [seg-id]
   [plumb-arm
-   (floor-mount-arm :floor v/cells-n 1)
+   (floor-mount-arm :floor rf.bench.hicasso.p0-reagent-views/cells-n 1)
    (case seg-id
      :reagent-subs {:id      :reagent-subs
-                    :cells   v/cells-n
+                    :cells   rf.bench.hicasso.p0-reagent-views/cells-n
                     :mount   (fn [container]
                                (let [root (rdc/create-root container)]
                                  (react-dom/flushSync
-                                   (fn [] (rdc/render root (v/subs-root v/m1-subs v/cells-n))))
+                                   (fn [] (rdc/render root (rf.bench.hicasso.p0-reagent-views/subs-root rf.bench.hicasso.p0-reagent-views/m1-subs rf.bench.hicasso.p0-reagent-views/cells-n))))
                                  root))
                     :unmount (fn [root] (rdc/unmount root))}
      :uix-subs     {:id      :uix-subs
-                    :cells   v/cells-n
+                    :cells   rf.bench.hicasso.p0-reagent-views/cells-n
                     :mount   (fn [container]
                                (let [root (uix-dom/create-root container)]
                                  (react-dom/flushSync
-                                   (fn [] (uix-dom/render-root (ux/subs-root ux/m1 v/cells-n) root)))
+                                   (fn [] (uix-dom/render-root (rf.bench.hicasso.p0-uix-views/subs-root rf.bench.hicasso.p0-uix-views/m1 rf.bench.hicasso.p0-reagent-views/cells-n) root)))
                                  root))
                     :unmount (fn [root] (uix-dom/unmount-root root))}
      ;; `mount/root!` is the candidate's own door — what an Arm 1
@@ -504,11 +504,11 @@
      ;; which is the arm's own behaviour and not the harness's to
      ;; suppress.
      :hicasso      {:id      :hicasso
-                    :cells   v/cells-n
+                    :cells   rf.bench.hicasso.p0-reagent-views/cells-n
                     :mount   (fn [container]
-                               (hmount/root! container v/subs-frame (kv/m1 v/cells-n)))
+                               (rf.bench.hicasso.arm1.mount/root! container rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.clock-views/m1 rf.bench.hicasso.p0-reagent-views/cells-n)))
                     :unmount (fn [handle] (.unmount ^js (:root handle)))})
-   (floor-mount-arm :ctl-2x (* 2 v/cells-n) 2)])
+   (floor-mount-arm :ctl-2x (* 2 rf.bench.hicasso.p0-reagent-views/cells-n) 2)])
 
 (defn- ctl3-arms
   "The three-point statistic's arms, and they exist on BULK ROWS ONLY.
@@ -548,12 +548,12 @@
   refuted classification."
   [id busy]
   {:id           id
-   :cells        kv/kb-cells-n
+   :cells        rf.bench.hicasso.clock-views/kb-cells-n
    :control?     (pos? busy)
    :mount        (fn [container]
                    (let [root (react-dom-client/createRoot container)]
                      (react-dom/flushSync
-                       (fn [] (.render root (kv/kb-floor-element kv/kb-cells-n busy))))
+                       (fn [] (.render root (rf.bench.hicasso.clock-views/kb-floor-element rf.bench.hicasso.clock-views/kb-cells-n busy))))
                      root))
    :unmount      (fn [root] (.unmount root))})
 
@@ -562,25 +562,25 @@
    (kb-floor-arm :floor 0)
    (case seg-id
      :reagent-subs {:id      :reagent-subs
-                    :cells   kv/kb-cells-n
+                    :cells   rf.bench.hicasso.clock-views/kb-cells-n
                     :mount   (fn [container]
                                (let [root (rdc/create-root container)]
                                  (react-dom/flushSync
-                                   (fn [] (rdc/render root (kv/r-kb-root kv/kb-cells-n))))
+                                   (fn [] (rdc/render root (rf.bench.hicasso.clock-views/r-kb-root rf.bench.hicasso.clock-views/kb-cells-n))))
                                  root))
                     :unmount (fn [root] (rdc/unmount root))}
      :uix-subs     {:id      :uix-subs
-                    :cells   kv/kb-cells-n
+                    :cells   rf.bench.hicasso.clock-views/kb-cells-n
                     :mount   (fn [container]
                                (let [root (uix-dom/create-root container)]
                                  (react-dom/flushSync
-                                   (fn [] (uix-dom/render-root (kv/u-kb-root kv/kb-cells-n) root)))
+                                   (fn [] (uix-dom/render-root (rf.bench.hicasso.clock-views/u-kb-root rf.bench.hicasso.clock-views/kb-cells-n) root)))
                                  root))
                     :unmount (fn [root] (uix-dom/unmount-root root))}
      :hicasso      {:id      :hicasso
-                    :cells   kv/kb-cells-n
+                    :cells   rf.bench.hicasso.clock-views/kb-cells-n
                     :mount   (fn [container]
-                               (hmount/root! container v/subs-frame (kv/kb-form kv/kb-cells-n)))
+                               (rf.bench.hicasso.arm1.mount/root! container rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.clock-views/kb-form rf.bench.hicasso.clock-views/kb-cells-n)))
                     :unmount (fn [handle] (.unmount ^js (:root handle)))})
    (kb-floor-arm :ctl-50ms 50)])
 
@@ -595,8 +595,8 @@
 
 (defn- expected-elements [row-key arm]
   (if (= :keystroke row-key)
-    (kv/kb-elements (:cells arm))
-    (v/m1-elements (:cells arm))))
+    (rf.bench.hicasso.clock-views/kb-elements (:cells arm))
+    (rf.bench.hicasso.p0-reagent-views/m1-elements (:cells arm))))
 
 ;; ---------------------------------------------------------------------------
 ;; The write, and its read-back
@@ -618,12 +618,12 @@
   and the row would not measure what its name says. K is the number of
   boundaries whose value moves, and this is what makes that true."
   [k val op]
-  (let [n     v/cells-n
+  (let [n     rf.bench.hicasso.p0-reagent-views/cells-n
         prev  (:cells @state)
         start (if (= k 1) (mod (* 7 op) n) 0)
         cells (reduce (fn [cs d] (assoc cs (mod (+ start d) n) val)) prev (range k))]
     (swap! state assoc :cells cells)
-    (frame/replace-app-db! v/subs-frame {:cells cells})
+    (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame {:cells cells})
     (if (= k 1) [start] [start (mod (+ start (dec k)) n)])))
 
 (defn- drain!
@@ -681,10 +681,10 @@
   (let [arm (arm-named row-key arm-id)]
     (if (or (:plumb? arm) (= :mount (:kind (get rows row-key))))
       (settle-frame)
-      (let [container (lane/fresh-container!)
+      (let [container (rf.bench.hicasso.lane/fresh-container!)
             handle    ((:mount arm) container)
             expected  (expected-elements row-key arm)
-            got       (lane/element-count container)]
+            got       (rf.bench.hicasso.lane/element-count container)]
         (when-not (= expected got)
           (throw (js/Error. (str "the " (name arm-id) " arm built " got
                                  " elements where its own " (:cells arm)
@@ -731,7 +731,7 @@
   "Release this arm's standing mount. Never timed."
   [_row-key arm-id]
   (when-some [p (get-in @state [:prepared arm-id])]
-    (lane/release! p)
+    (rf.bench.hicasso.lane/release! p)
     (swap! state update :prepared dissoc arm-id))
   (settle-frame))
 
@@ -751,11 +751,11 @@
   or 600 boundaries is real work and charging it to the mount would price
   a teardown as part of a mount row."
   [_row-key arm]
-  (let [container (lane/fresh-container!)
+  (let [container (rf.bench.hicasso.lane/fresh-container!)
         handle    (volatile! nil)
-        t0        (lane/now-ms)
+        t0        (rf.bench.hicasso.lane/now-ms)
         _         (vreset! handle ((:mount arm) container))
-        ms        (- (lane/now-ms) t0)]
+        ms        (- (rf.bench.hicasso.lane/now-ms) t0)]
     (swap! state assoc :pending {:arm arm :container container :handle @handle})
     (.then (settle-frame) (fn [_] #js {:inPageMs ms :ok true}))))
 
@@ -764,9 +764,9 @@
   the driver AFTER it has read the counters, so nothing here is timed."
   [row-key]
   (if-some [p (:pending @state)]
-    (let [ok? (= (expected-elements row-key (:arm p)) (lane/element-count (:container p)))]
+    (let [ok? (= (expected-elements row-key (:arm p)) (rf.bench.hicasso.lane/element-count (:container p)))]
       (bank! ok?)
-      (lane/release! p)
+      (rf.bench.hicasso.lane/release! p)
       (swap! state assoc :pending nil)
       (.then (settle-frame) (fn [_] #js {:ok ok?})))
     (.then (settle-frame) (fn [_] #js {:ok true}))))
@@ -794,7 +794,7 @@
         ;; makes the control the only gate that can see it.
         dirty  (when-some [d (:dirty arm)]
                  (if (:ctl3-top? arm) (or (:sabotage @state) d) d))
-        t0     (lane/now-ms)
+        t0     (rf.bench.hicasso.lane/now-ms)
         ;; The floor renders INSIDE the `flushSync`, element tree and all,
         ;; and neither half is a convenience. `root.render` called outside
         ;; a React event schedules at React's DEFAULT lane and an empty
@@ -814,21 +814,21 @@
         probes (cond
                  (some? dirty)
                  (do (react-dom/flushSync
-                       (fn [] (.render ^js root (v/m1-floor (dirty-cells n dirty val)))))
+                       (fn [] (.render ^js root (rf.bench.hicasso.p0-reagent-views/m1-floor (dirty-cells n dirty val)))))
                      (cond-> [[0 (str val)] [(dec dirty) (str val)]]
                        (< dirty n) (conj [(dec n) "0"])))
 
                  (:floor? arm)
                  (do (react-dom/flushSync
-                       (fn [] (.render ^js root (v/m1-floor (vec (repeat n val))))))
+                       (fn [] (.render ^js root (rf.bench.hicasso.p0-reagent-views/m1-floor (vec (repeat n val))))))
                      [[0 (str val)] [(dec n) (str val)]])
 
                  :else
                  (let [ps (write-cells! k val op)]
                    (drain! (:id arm))
                    (mapv (fn [i] [i (str val)]) ps)))
-        ms     (- (lane/now-ms) t0)
-        ok?    (every? (fn [[i expect]] (= expect (lane/text-at cont i))) probes)]
+        ms     (- (rf.bench.hicasso.lane/now-ms) t0)
+        ok?    (every? (fn [[i expect]] (= expect (rf.bench.hicasso.lane/text-at cont i))) probes)]
     (bank! ok?)
     (.then (settle-frame) (fn [_] #js {:inPageMs ms :ok ok?}))))
 
@@ -918,7 +918,7 @@
          (fn [_]
            (let [els (draft-fields arm-id)
                  got (mapv (fn [i] (str (some-> els (aget i) .-value)))
-                           (range kv/kb-fields-n))
+                           (range rf.bench.hicasso.clock-views/kb-fields-n))
                  exp (mapv str (js->clj expected))]
              #js {:ok (bank! (= exp got)) :got (clj->js got)}))))
 
@@ -957,18 +957,18 @@
       ;; control so the gate exempts it by the same rule that exempts the
       ;; doubling arm.
       #js {:arm (name arm-id) :hash 0 :bytes 0 :control true}
-      (let [c (lane/fresh-container!)
+      (let [c (rf.bench.hicasso.lane/fresh-container!)
             h ((:mount arm) c)
-            s (lane/canonical c)]
-        (lane/release! {:arm arm :container c :handle h})
+            s (rf.bench.hicasso.lane/canonical c)]
+        (rf.bench.hicasso.lane/release! {:arm arm :container c :handle h})
         ;; The canon mount wrote nothing, but a Hicasso or Reagent arm
         ;; mounted here has warmed the frame's caches. Re-seed so a row's
         ;; first sample meets the same app-db every other one does.
-        (frame/replace-app-db! v/subs-frame (v/seed-cells v/cells-n 0))
-        (swap! state assoc :cells (zeros v/cells-n))
-        ;; `lane/utf8-bytes` and not `count`: the driver prints this under a
+        (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0))
+        (swap! state assoc :cells (zeros rf.bench.hicasso.p0-reagent-views/cells-n))
+        ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count`: the driver prints this under a
         ;; `bytes` label, and `count` answers UTF-16 code units (rf2-2rtt6.121).
-        #js {:arm (name arm-id) :hash (str-hash s) :bytes (lane/utf8-bytes s)
+        #js {:arm (name arm-id) :hash (str-hash s) :bytes (rf.bench.hicasso.lane/utf8-bytes s)
              :control (boolean (:control? arm))}))))
 
 ;; ---------------------------------------------------------------------------
@@ -976,15 +976,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn -main []
-  (lane/leave-act-environment!)
-  (swap! state assoc :tally (lane/tally))
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (swap! state assoc :tally (rf.bench.hicasso.lane/tally))
   (set! (.-HCLOCK js/window)
-        (lane/legible-doors
+        (rf.bench.hicasso.lane/legible-doors
         #js {:rows     (clj->js (mapv (fn [[k m]] {:id (name k) :why (:why m)}) rows))
              :segments (clj->js (mapv (fn [s] {:id (name (:id s)) :name (:name s)}) segments))
-             :cellsN    v/cells-n
-             :kbCellsN  kv/kb-cells-n
-             :kbFieldsN kv/kb-fields-n
+             :cellsN    rf.bench.hicasso.p0-reagent-views/cells-n
+             :kbCellsN  rf.bench.hicasso.clock-views/kb-cells-n
+             :kbFieldsN rf.bench.hicasso.clock-views/kb-fields-n
              :enterSegment  (fn [seg] (enter-segment! (keyword seg)) true)
              ;; `dirty` is the DECLARED count and never the sabotaged one.
              ;; The driver's prediction is derived from what the page says
@@ -1011,19 +1011,19 @@
              ;; THE RECOMPUTE CENSUS. Armed and read in a WARM-UP sample,
              ;; so no measured sample carries its cost, and around a REAL
              ;; keypress, so what it counts is the path the row publishes.
-             :censusStart   (fn [] (kv/census-start!) true)
-             :censusTake    (fn [] (kv/census-take!))
+             :censusStart   (fn [] (rf.bench.hicasso.clock-views/census-start!) true)
+             :censusTake    (fn [] (rf.bench.hicasso.clock-views/census-take!))
              :settle        (fn [] (settle-frame))
              :sabotage      (fn [d] (sabotage! d))
-             :tally         (fn [] (clj->js (lane/tally-value (:tally @state))))
-             :teardownCheck (fn [] (clj->js (mapv :where (lane/drain-teardown-failures!))))
-             :runtime       (fn [] (pr-str (lane/runtime-label)))
+             :tally         (fn [] (clj->js (rf.bench.hicasso.lane/tally-value (:tally @state))))
+             :teardownCheck (fn [] (clj->js (mapv :where (rf.bench.hicasso.lane/drain-teardown-failures!))))
+             :runtime       (fn [] (pr-str (rf.bench.hicasso.lane/runtime-label)))
              ;; Both censuses, because neither sees the other's references:
-             ;; `lane/residue` counts attached containers and the frame's
+             ;; `rf.bench.hicasso.lane/residue` counts attached containers and the frame's
              ;; sub-cache, `runtime/residue` counts the candidate's own
              ;; cells, edges and cached entries.
-             :residue       (fn [] (pr-str {:lane (lane/residue v/subs-frame)
-                                            :arm1 (hrt/residue)}))}))
+             :residue       (fn [] (pr-str {:lane (rf.bench.hicasso.lane/residue rf.bench.hicasso.p0-reagent-views/subs-frame)
+                                            :arm1 (rf.bench.hicasso.arm1.runtime/residue)}))}))
   (set! (.-HCLOCK_READY js/window) true)
   (js/console.log ";; HCLOCK ready")
   nil)

@@ -82,22 +82,22 @@
   remaining rows are what stops the repair from being \"re-render
   always\": a clean mount must ask React for nothing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.frame :as frame]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
-     :init-fn (fn [] (rt/reset-runtime!))}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
+     :init-fn (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-staged-tear)
 
 (defn- seeded! []
-  (rt/reset-runtime!)
-  (dogfood/make-frame! frame-id 3)
+  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (rf.bench.hicasso.front.dogfood/make-frame! frame-id 3)
   frame-id)
 
 (defn- render
@@ -105,15 +105,15 @@
   the read-set entry — the object React's `subscribe` and `getSnapshot`
   hang off."
   [body-fn]
-  (rt/render-body frame-id body-fn {})
-  (rt/last-reads))
+  (rf.bench.hicasso.arm1.runtime/render-body frame-id body-fn {})
+  (rf.bench.hicasso.arm1.runtime/last-reads))
 
 (defn- done-row
   "A boundary reading one row's done? flag, and recording what it read.
   The read is the whole body, so the boundary's read set is one key and
   the arithmetic below is one term."
   [seen]
-  (fn [_] (let [v (rt/sub [:dogfood/done? 0])] (vreset! seen v) [:li (str v)])))
+  (fn [_] (let [v (rf.bench.hicasso.arm1.runtime/sub [:dogfood/done? 0])] (vreset! seen v) [:li (str v)])))
 
 ;; ---------------------------------------------------------------------------
 ;; The tear, and its repair
@@ -130,25 +130,25 @@
     (let [seen  (volatile! nil)
           entry (render (done-row seen))]
       (is (false? @seen) "the render read, and this is what it put on screen")
-      (is (zero? (:cells (rt/stats)))
+      (is (zero? (:cells (rf.bench.hicasso.arm1.runtime/stats)))
           "STAGED, not retained: nothing holds this key, so there is no
            cell, no watch and no epoch — `commit-boundary!` below is the
            first acquisition")
-      (let [at-render  (rt/snapshot-of entry)
-            generation (rt/generation)
-            frame-e    (frame/frame-commit-epoch frame-id)]
+      (let [at-render  (rf.bench.hicasso.arm1.runtime/snapshot-of entry)
+            generation (rf.bench.hicasso.arm1.runtime/generation)
+            frame-e    (rf.frame/frame-commit-epoch frame-id)]
         ;; THE GAP.
-        (rt/dispatch! frame-id [:dogfood/toggle 0])
-        (is (= generation (rt/generation))
+        (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
+        (is (= generation (rf.bench.hicasso.arm1.runtime/generation))
             "the generation did NOT move — there was no watch to fire, so
              the change happened within one generation, which is precisely
              the witness §6.1 asks for")
-        (is (> (frame/frame-commit-epoch frame-id) frame-e)
+        (is (> (rf.frame/frame-commit-epoch frame-id) frame-e)
             "but the frame's own physical-install epoch did, and it moved
              without anybody watching anything")
         ;; THE COMMIT: React calls the entry's `subscribe`.
-        (let [release! (rt/commit-boundary! entry (fn []))]
-          (is (not= at-render (rt/snapshot-of entry))
+        (let [release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn []))]
+          (is (not= at-render (rf.bench.hicasso.arm1.runtime/snapshot-of entry))
               "so the number React stored at render is not the number it
                re-reads after `subscribe` — `updateStoreInstance` finds a
                moved store and schedules the boundary")
@@ -171,13 +171,13 @@
     (seeded!)
     (let [seen  (volatile! nil)
           entry (render (done-row seen))]
-      (rt/dispatch! frame-id [:dogfood/toggle 0])
+      (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
       (let [hits     (volatile! 0)
-            release! (rt/commit-boundary! entry (fn [] (vswap! hits inc)))]
+            release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
         (is (= 0 @hits)
             "the commit notified nobody — the watch was armed one move too
              late to have reported it")
-        (rt/dispatch! frame-id [:dogfood/commit 0])
+        (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/commit 0])
         (is (= 0 @hits)
             "and a later write that moves nothing brings no correction
              either: the ordinary invalidation path is done with this
@@ -191,9 +191,9 @@
            in the application pays a second render."
     (seeded!)
     (let [entry     (render (done-row (volatile! nil)))
-          at-render (rt/snapshot-of entry)
-          release!  (rt/commit-boundary! entry (fn []))]
-      (is (= at-render (rt/snapshot-of entry))
+          at-render (rf.bench.hicasso.arm1.runtime/snapshot-of entry)
+          release!  (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn []))]
+      (is (= at-render (rf.bench.hicasso.arm1.runtime/snapshot-of entry))
           "acquisition alone moves nothing: the cell is born at the same
            basis the staged term reported")
       (release!))))
@@ -208,15 +208,15 @@
            increases."
     (seeded!)
     (let [warm  (render (done-row (volatile! nil)))
-          hold! (rt/commit-boundary! warm (fn []))]
-      (is (= 1 (:cells (rt/stats))) "RETAINED: an earlier commit holds the key")
+          hold! (rf.bench.hicasso.arm1.runtime/commit-boundary! warm (fn []))]
+      (is (= 1 (:cells (rf.bench.hicasso.arm1.runtime/stats))) "RETAINED: an earlier commit holds the key")
       (let [entry      (render (done-row (volatile! nil)))
-            at-render  (rt/snapshot-of entry)
-            generation (rt/generation)]
-        (rt/dispatch! frame-id [:dogfood/toggle 0])
-        (is (= (inc generation) (rt/generation))
+            at-render  (rf.bench.hicasso.arm1.runtime/snapshot-of entry)
+            generation (rf.bench.hicasso.arm1.runtime/generation)]
+        (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
+        (is (= (inc generation) (rf.bench.hicasso.arm1.runtime/generation))
             "the pre-existing watch fired, so the generation moved here")
-        (is (not= at-render (rt/snapshot-of entry))
+        (is (not= at-render (rf.bench.hicasso.arm1.runtime/snapshot-of entry))
             "and the epoch sum moved with it")
         (hold!)))))
 
@@ -239,10 +239,10 @@
           then-  (volatile! nil)]
       (render (fn [_]
                 (vswap! runs inc)
-                (vreset! first- (rt/sub [:dogfood/done? 0]))
+                (vreset! first- (rf.bench.hicasso.arm1.runtime/sub [:dogfood/done? 0]))
                 (when (= 1 @runs)
-                  (rt/dispatch! frame-id [:dogfood/toggle 0]))
-                (vreset! then- (rt/sub [:dogfood/done? 0]))
+                  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0]))
+                (vreset! then- (rf.bench.hicasso.arm1.runtime/sub [:dogfood/done? 0]))
                 [:li (str @then-)]))
       (is (= 2 @runs) "the fence re-ran the body against the newer commit")
       (is (= @first- @then-)
@@ -260,10 +260,10 @@
            summed — no second scratch, nothing keyed by a render or an
            attempt, no per-read object, and no commit-phase deref of a
            subscription value."
-    (is (= 2 (count rt/shell-hook-ledger))
+    (is (= 2 (count rf.bench.hicasso.arm1.runtime/shell-hook-ledger))
         "still two hooks; the repair rides `useSyncExternalStore`'s own
          snapshot re-check rather than buying a third")
-    (let [inv (rt/retained-inventory)]
+    (let [inv (rf.bench.hicasso.arm1.runtime/retained-inventory)]
       (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
              (into #{} (map :token) (:absent inv)))
           "the enumerated absences are unchanged")))
@@ -271,9 +271,9 @@
            which is the clause the repair had to stay inside: the staged
            term is READ from the frame, never recorded by the render"
     (seeded!)
-    (let [before (rt/stats)]
+    (let [before (rf.bench.hicasso.arm1.runtime/stats)]
       (render (done-row (volatile! nil)))
-      (let [after (rt/stats)]
+      (let [after (rf.bench.hicasso.arm1.runtime/stats)]
         (is (= (:cells before) (:cells after)) "no cell built")
         (is (= (:cell-refs before) (:cell-refs after)) "no reference taken")
         (is (= (:boundaries before) (:boundaries after)) "no boundary registered")

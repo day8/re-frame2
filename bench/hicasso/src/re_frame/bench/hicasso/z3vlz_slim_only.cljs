@@ -20,13 +20,13 @@
   `implementation/hicasso/test/re_frame/bench/hicasso/z3vlz_run.cjs` on
   rf2-2rtt6.2's `:hicasso-bench` build id — no new build id, so
   `implementation/shadow-cljs.edn` is untouched."
-  (:require [re-frame.bench.hicasso.z3vlz-probe :as probe]
-            [re-frame.bench.hicasso.z3vlz-slim-substrate :as slim]
+  (:require [re-frame.bench.hicasso.z3vlz-probe :as rf.bench.hicasso.z3vlz-probe]
+            [re-frame.bench.hicasso.z3vlz-slim-substrate :as rf.bench.hicasso.z3vlz-slim-substrate]
             [re-frame.core :as rf]))
 
 (defn ^:export -main []
-  (rf/init! slim/adapter)
-  (probe/run-probe! slim/substrate
+  (rf/init! rf.bench.hicasso.z3vlz-slim-substrate/adapter)
+  (rf.bench.hicasso.z3vlz-probe/run-probe! rf.bench.hicasso.z3vlz-slim-substrate/substrate
               {:bundle      :slim-only
                :installed   :reagent-slim
                :compiled-in [:reagent2]}

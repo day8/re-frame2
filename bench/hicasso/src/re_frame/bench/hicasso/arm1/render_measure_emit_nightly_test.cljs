@@ -32,7 +32,7 @@
 
   [[the-perf-flag-is-actually-on]] is first and is not a courtesy: a
   perf-emission suite whose every row is wrapped in `(when
-  performance/enabled? …)` reads as a pass in a build where the flag is
+  rf.performance/enabled? …)` reads as a pass in a build where the flag is
   off, which is a gate nobody has watched fire. If this file is ever
   compiled into a runner without the goog-defines, it goes red and says
   which flag is missing.
@@ -48,13 +48,13 @@
   [[a-head-react-never-invoked-produces-no-measure]] states exactly
   that, at the level a headless runner can state it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
             [re-frame.core :as rf]
-            [re-frame.performance :as performance :include-macros true]
-            [re-frame.test-support :as test-support]
+            [re-frame.performance :as rf.performance :include-macros true]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server])
   (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
 
@@ -69,10 +69,10 @@
 (rf/reg-event :rm-on/seed (fn [_ _] {:db {:title "quarterly"}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rt/reset-runtime!) (rt/reset-body-runs!))}))
+     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!) (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The page
@@ -80,7 +80,7 @@
 
 (defview title-row
   [_]
-  [:h1.title (rt/sub [:rm-on/title])])
+  [:h1.title (rf.bench.hicasso.arm1.runtime/sub [:rm-on/title])])
 
 (defview note-row
   [_]
@@ -146,7 +146,7 @@
 
 (defn- server-html [hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.bench.hicasso.arm1.mount/provider frame-id (rf.bench.hicasso.front.codec/root-element frame-id hiccup))))
 
 (def ^:private page-name
   "re-frame.bench.hicasso.arm1.render-measure-emit-nightly-test/measured-page")
@@ -164,12 +164,12 @@
             decision. A build without the goog-defines would make every
             row below vacuous, so the flags are a row rather than a
             precondition nobody checks."
-    (is performance/enabled?
+    (is rf.performance/enabled?
         (str "re-frame.performance/enabled? is FALSE in this runner. This ns "
              "belongs to the :node-test-perf-nightly build "
              "(:closure-defines {re-frame.performance/enabled? true "
              "re-frame.performance/retain-entries? true}); run it there."))
-    (is performance/retain-entries?
+    (is rf.performance/retain-entries?
         (str "re-frame.performance/retain-entries? is FALSE, so each measure is "
              "cleared right after emit and a synchronous getEntriesByType read "
              "finds nothing. Flip it for this runner."))))
@@ -185,11 +185,11 @@
             pinned naming rule (the head's displayName)."
     (fresh!)
     (clear-measures!)
-    (rt/reset-body-runs!)
+    (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
     (let [html  (server-html [measured-page {}])
           names (render-measure-names)]
       (is (re-find #"quarterly" html) "the page really rendered")
-      (is (= 3 (rt/body-runs)) "three boundary bodies ran")
+      (is (= 3 (rf.bench.hicasso.arm1.runtime/body-runs)) "three boundary bodies ran")
       (is (= #{page-name title-name note-name}
              (set (map #(subs % (count render-prefix)) names)))
           "one entry per rendered head, each named by its displayName")
@@ -223,10 +223,10 @@
             which is bumped somewhere else entirely, agrees."
     (fresh!)
     (clear-measures!)
-    (rt/reset-body-runs!)
+    (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
     (dotimes [_ 3]
       (server-html [measured-page {}]))
-    (is (= 9 (rt/body-runs)))
+    (is (= 9 (rf.bench.hicasso.arm1.runtime/body-runs)))
     (is (= 9 (count (render-measure-names)))
         "one measure per body run — the fence never retried, so the two
          counters are the same number arrived at two ways")
@@ -288,13 +288,13 @@
             its own row rather than an assumption."
     (fresh!)
     (clear-measures!)
-    (rt/reset-body-runs!)
-    (let [row  (rt/mint-frame-prop-view!
+    (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+    (let [row  (rf.bench.hicasso.arm1.runtime/mint-frame-prop-view!
                  "frame-prop/measured-row"
-                 (fn [_] [:li.fp (str (rt/sub [:rm-on/title]))]))
+                 (fn [_] [:li.fp (str (rf.bench.hicasso.arm1.runtime/sub [:rm-on/title]))]))
           html (server-html [row {}])]
       (is (re-find #"quarterly" html) "the frame-fed boundary rendered")
-      (is (= 1 (rt/body-runs)))
+      (is (= 1 (rf.bench.hicasso.arm1.runtime/body-runs)))
       (is (= [(str render-prefix "frame-prop/measured-row")]
              (render-measure-names))
           "and it emitted exactly one entry, named the same way"))))

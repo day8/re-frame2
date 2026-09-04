@@ -60,12 +60,12 @@
   2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
   this arm rf2-2rtt6.4."
   (:require [cljs.reader :as reader]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.order-guard :as guard]
-            [re-frame.bench.p0-arms :as arms]
-            [re-frame.bench.p0-fixture :as fx]
-            [re-frame.bench.p0-harness :as h]
-            [re-frame.bench.p0-heap :as heap]))
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.order-guard :as rf.bench.order-guard]
+            [re-frame.bench.p0-arms :as rf.bench.p0-arms]
+            [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
+            [re-frame.bench.p0-harness :as rf.bench.p0-harness]
+            [re-frame.bench.p0-heap :as rf.bench.p0-heap]))
 
 (def order-tolerance
   "A relative difference of medians for the arm-order guard. A browser
@@ -95,7 +95,7 @@
   reported — that is the arm-order guard's rule, applied at the seam it
   cannot see."
   [r]
-  (if (even? r) (vec arms/segments) (vec (rseq (vec arms/segments)))))
+  (if (even? r) (vec rf.bench.p0-arms/segments) (vec (rseq (vec rf.bench.p0-arms/segments)))))
 
 (defn- witness-order
   "Witness order for round `r`, alternating exactly as the segments do.
@@ -109,7 +109,7 @@
   permanent property of one witness, which is the same trap as a fixed arm
   order one level up."
   [r]
-  (if (even? r) (vec arms/mount-witnesses) (vec (rseq (vec arms/mount-witnesses)))))
+  (if (even? r) (vec rf.bench.p0-arms/mount-witnesses) (vec (rseq (vec rf.bench.p0-arms/mount-witnesses)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The parity gate — run before any clock is read, in EVERY segment
@@ -126,7 +126,7 @@
   [segment-id]
   (reduce
     (fn [acc {:keys [id elements arms-for]}]
-      (let [{:keys [mounts agree? canon counts disagree]} (h/parity (arms-for segment-id))]
+      (let [{:keys [mounts agree? canon counts disagree]} (rf.bench.p0-harness/parity (arms-for segment-id))]
         (try
           (assoc acc id
                  {:canon    canon
@@ -138,9 +138,9 @@
                               (conj {:problem  :element-count
                                      :expected elements
                                      :got      counts}))})
-          (finally (doseq [m mounts] (h/release! m))))))
+          (finally (doseq [m mounts] (rf.bench.p0-harness/release! m))))))
     {}
-    arms/mount-witnesses))
+    rf.bench.p0-arms/mount-witnesses))
 
 (defn- parity!
   "Both segments' parity, plus the CROSS-segment check. The floor is in
@@ -149,17 +149,17 @@
   built one page."
   []
   (let [parities (reduce (fn [acc {:keys [id] :as segment}]
-                           (arms/enter-segment! segment)
+                           (rf.bench.p0-arms/enter-segment! segment)
                            (assoc acc id (parity-of-segment! id)))
                          {}
-                         arms/segments)
+                         rf.bench.p0-arms/segments)
         problems (into []
                        (for [[seg ws] parities
                              [w {:keys [problems]}] ws
                              p problems]
                          (assoc p :segment seg :witness w)))
         cross    (into []
-                       (for [{:keys [id]} arms/mount-witnesses
+                       (for [{:keys [id]} rf.bench.p0-arms/mount-witnesses
                              :let [a (get-in parities [:reagent-subs id :canon :floor])
                                    b (get-in parities [:uix-subs id :canon :floor])]
                              :when (not= a b)]
@@ -182,13 +182,13 @@
         pos    (atom 0)
         probes (atom [])]
     (doseq [{:keys [id] :as segment} (segment-order r)]
-      (arms/enter-segment! segment)
-      (swap! probes conj (assoc (h/probe) :round r :segment id))
+      (rf.bench.p0-arms/enter-segment! segment)
+      (swap! probes conj (assoc (rf.bench.p0-harness/probe) :round r :segment id))
       (doseq [{:keys [elements per-sample] :as w} (witness-order r)]
         (let [as (get arms-of [(:id w) id])
               {:keys [readings order bad total position schedule]}
-              (h/mount-round! as sampling elements per-sample @pos)
-              norm (h/normalise readings :floor)]
+              (rf.bench.p0-harness/mount-round! as sampling elements per-sample @pos)
+              norm (rf.bench.p0-harness/normalise readings :floor)]
           (reset! pos position)
           (swap! acc assoc-in [(:id w) id]
                  {:p50 (:p50 norm) :ratio (:ratio norm) :order order
@@ -217,13 +217,13 @@
   rather than about the arms, and the control is the instrument that shows
   it."
   [sampling arms]
-  (let [{:keys [readings]} (h/mount-round! arms
+  (let [{:keys [readings]} (rf.bench.p0-harness/mount-round! arms
                                            (update sampling :warmup * 3)
                                            nil 1 100000)]
     ;; `nil` as the expectation: the two control arms build DIFFERENT
     ;; pages by construction, which is the whole point of the control and
     ;; the one place the element gate cannot apply.
-    (get-in (h/normalise readings :control-1x) [:ratio :control-2x])))
+    (get-in (rf.bench.p0-harness/normalise readings :control-1x) [:ratio :control-2x])))
 
 (defn- bulk-round-of-segments!
   "One round of one bulk `kind` over both segments, in this round's
@@ -231,27 +231,27 @@
   [r kind sampling]
   (let [acc (atom {})
         pos (atom 200000)]
-    (-> (arms/chain nil (segment-order r)
+    (-> (rf.bench.p0-arms/chain nil (segment-order r)
                     (fn [_ segment]
-                      (arms/enter-segment! segment)
-                      (let [mounts (arms/mount-bulk-arms! (arms/bulk-arms (:id segment)))]
-                        (-> (arms/bulk-round! mounts kind sampling @pos)
+                      (rf.bench.p0-arms/enter-segment! segment)
+                      (let [mounts (rf.bench.p0-arms/mount-bulk-arms! (rf.bench.p0-arms/bulk-arms (:id segment)))]
+                        (-> (rf.bench.p0-arms/bulk-round! mounts kind sampling @pos)
                             (.then (fn [{:keys [readings legs order bad total
                                                 position schedule]}]
                                      (reset! pos position)
-                                     (arms/release-bulk-arms! mounts)
-                                     (let [norm (h/normalise readings :floor)]
+                                     (rf.bench.p0-arms/release-bulk-arms! mounts)
+                                     (let [norm (rf.bench.p0-harness/normalise readings :floor)]
                                        (swap! acc assoc (:id segment)
                                               {:p50   (:p50 norm)
                                                :ratio (:ratio norm)
-                                               :legs  (arms/leg-summary legs)
+                                               :legs  (rf.bench.p0-arms/leg-summary legs)
                                                :order order
                                                :bad   bad
                                                :total total
                                                :schedule schedule})
                                        nil)))
                             (.catch (fn [e]
-                                      (arms/release-bulk-arms! mounts)
+                                      (rf.bench.p0-arms/release-bulk-arms! mounts)
                                       (throw e)))))))
         (.then (fn [_] @acc)))))
 
@@ -264,15 +264,15 @@
         ;; through one call site and the sites went megamorphic on nothing
         ;; the benchmark is trying to measure.
         arms-of  (into {}
-                       (for [{:keys [id]} arms/segments
-                             {w :id :keys [arms-for]} arms/mount-witnesses]
+                       (for [{:keys [id]} rf.bench.p0-arms/segments
+                             {w :id :keys [arms-for]} rf.bench.p0-arms/mount-witnesses]
                          [[w id] (arms-for id)]))
         par      (parity! )]
     (if-not (:ok? par)
       (do (fail! (str "the arms do not build the same page under :advanced — "
                       (pr-str (:problems par))))
           (js/Promise.resolve nil))
-      (let [control (control-round! sampling (arms/control-arms))
+      (let [control (control-round! sampling (rf.bench.p0-arms/control-arms))
             {mount-rows :rows probes :probes}
             (mount-round-of-segments! r sampling arms-of)]
         (-> (bulk-round-of-segments! r :broad sampling)
@@ -283,7 +283,7 @@
                                    :parity      par
                                    :probes      probes
                                    :control     control
-                                   :collector   @h/gc-available?
+                                   :collector   @rf.bench.p0-harness/gc-available?
                                    :mount       mount-rows
                                    :bulk-broad  broad
                                    :bulk-narrow narrow}))))))))))
@@ -336,12 +336,12 @@
     {:witness              witness-id
      :doc                  doc
      :arms                 [:floor :reagent-subs :uix-subs]
-     :ratio-to-floor       {:reagent-subs (h/across-rounds (:ratio rg))
-                            :uix-subs     (h/across-rounds (:ratio ux))}
+     :ratio-to-floor       {:reagent-subs (rf.bench.p0-harness/across-rounds (:ratio rg))
+                            :uix-subs     (rf.bench.p0-harness/across-rounds (:ratio ux))}
      :per-round            {:reagent-subs {:p50 (:p50 rg) :ratio (:ratio rg)}
                             :uix-subs     {:p50 (:p50 ux) :ratio (:ratio ux)}}
      :legs                 {:reagent-subs (:legs rg) :uix-subs (:legs ux)}
-     :red-zone-clock       (assoc (h/ratio-of-ratios ux-r rg-r)
+     :red-zone-clock       (assoc (rf.bench.p0-harness/ratio-of-ratios ux-r rg-r)
                                   :axis :clock
                                   :numerator :uix-subs
                                   :denominator :reagent-subs
@@ -360,9 +360,9 @@
                                  "seam's drift and nothing else. It is published rather "
                                  "than assumed to be 1.0.")}
      :schedule             {:reagent-subs (:schedule rg) :uix-subs (:schedule ux)}
-     :order-verdict        {:reagent-subs (guard/verdict (:order rg)
+     :order-verdict        {:reagent-subs (rf.bench.order-guard/verdict (:order rg)
                                                          {:tolerance order-tolerance})
-                            :uix-subs     (guard/verdict (:order ux)
+                            :uix-subs     (rf.bench.order-guard/verdict (:order ux)
                                                          {:tolerance order-tolerance})}
      :verification         {:unverified (+ (:bad rg) (:bad ux))
                             :of         (+ (:total rg) (:total ux))}}))
@@ -388,14 +388,14 @@
         mount    (into {}
                        (map (fn [{:keys [id doc]}]
                               [id (row id doc [:mount id])]))
-                       arms/mount-witnesses)
+                       rf.bench.p0-arms/mount-witnesses)
         broad    (row :U-broad
-                      (str "one write that all " fx/cells-n " subscribed cells read — "
+                      (str "one write that all " rf.bench.p0-fixture/cells-n " subscribed cells read — "
                            "re-render THROUGHPUT, where fine grain buys nothing because "
                            "all the work is genuinely required")
                       [:bulk-broad])
         narrow   (row :U-narrow
-                      (str "one write exactly ONE of " fx/cells-n " subscribed cells "
+                      (str "one write exactly ONE of " rf.bench.p0-fixture/cells-n " subscribed cells "
                            "reads — LOCALISATION, where fine grain either shows up or "
                            "does not")
                       [:bulk-narrow])
@@ -409,15 +409,15 @@
                       "ROUND PER PAGE so no round inherits another's heap. false here "
                       "means the page was launched without --js-flags=--expose-gc and "
                       "this is a DIFFERENT instrument.")}
-     :control   {:predicted arms/control-predicted
+     :control   {:predicted rf.bench.p0-arms/control-predicted
                  :per-round controls
                  :measured  {:mean (/ (reduce + 0.0 controls) (count controls))
                              :min  (apply min controls)
                              :max  (apply max controls)}
                  :note      (str "control-2x / control-1x, predicted from element "
                                  "arithmetic: w1-elements(2n)/w1-elements(n) = "
-                                 (fx/w1-elements (* 2 fx/w1-rows)) "/"
-                                 (fx/w1-elements fx/w1-rows)
+                                 (rf.bench.p0-fixture/w1-elements (* 2 rf.bench.p0-fixture/w1-rows)) "/"
+                                 (rf.bench.p0-fixture/w1-elements rf.bench.p0-fixture/w1-rows)
                                  ". Both arms are FLOOR arms, so the control prices the "
                                  "instrument and not a candidate.")}
      :mount     mount
@@ -447,7 +447,7 @@
   numerator nor the denominator (see `p0-harness/mount-sample!`): counting
   it as verified would let the control dilute a real failure, and counting
   it as unverified would red every run for ever. The control is
-  adjudicated by its own gate instead — [[lane/control-verdict]], below —
+  adjudicated by its own gate instead — [[rf.bench.hicasso.lane/control-verdict]], below —
   and the driver reports it beside this figure rather than folding one
   into the other."
   [agg]
@@ -466,7 +466,7 @@
   printed inside the record and nothing read it, and the positive control
   was published as a bare ratio nothing adjudicated.
 
-  The adjudication is the LANE's, not a second copy: [[lane/control-verdict]]
+  The adjudication is the LANE's, not a second copy: [[rf.bench.hicasso.lane/control-verdict]]
   is what this arm publishes its controls under, and what it DECIDES is not
   this namespace's to change. Read its docstring before quoting `:ok?`: the
   rule is range OVERLAP, not every-round-inside.
@@ -474,7 +474,7 @@
   ## And OVERLAP is the right rule HERE, which is not true of the heap row
   ## (rf2-egdaq, settled)
 
-  The lane spells a second rule — [[lane/control-verdict-strict]], every
+  The lane spells a second rule — [[rf.bench.hicasso.lane/control-verdict-strict]], every
   round inside the band — and `re-frame.bench.p0-heap` moved this driver's
   OTHER row onto it. This row stays on overlap, on measurement rather than
   on inertia. THIS CONTROL IS A CLOCK RATIO. `control-round!` reads two
@@ -507,7 +507,7 @@
   [round-edns slack]
   (let [agg (aggregate (vec round-edns))
         vt  (verification-totals agg)
-        ctl (lane/control-verdict (get-in agg [:control :predicted])
+        ctl (rf.bench.hicasso.lane/control-verdict (get-in agg [:control :predicted])
                                   (select-keys (get-in agg [:control :measured])
                                                [:min :max :mean])
                                   slack)
@@ -527,7 +527,7 @@
 (defn ^:export -main
   []
   (try
-    (h/leave-act-environment!)
+    (rf.bench.p0-harness/leave-act-environment!)
     ;; The arm-order guard's own self-test, BEFORE anything is measured.
     ;; Its checks are recorded fixtures replayed from the live study — the
     ;; 2.0125x, the 0.43% slope, the twelve-window warm-up sweep, the
@@ -535,7 +535,7 @@
     ;; every figure below unpublishable, and finding that out after the run
     ;; is wasteful. THE GUARD REFUSES AND THE DRIVER EXITS 2; the repair is
     ;; to the arm.
-    (let [st (guard/self-test)]
+    (let [st (rf.bench.order-guard/self-test)]
       (set! (.-P0_GUARD_SELF_TEST js/window) (pr-str st))
       (doseq [c (:checks st)]
         (js/console.log (str ";; P0 order-guard " (if (:ok c) "ok  " "FAIL") " " (:name c)
@@ -544,7 +544,7 @@
         (fail! "the arm-order guard's self-test FAILED — nothing may be measured")))
     (case (mode)
       "heap"
-      (do (heap/install!)
+      (do (rf.bench.p0-heap/install!)
           (js/console.log ";; P0 heap instrument installed")
           (set! (.-P0_READY js/window) true))
 

@@ -67,7 +67,7 @@
   not reopened by inspection:
 
   1. **The BATCHED write window IS now adopted on the narrow row, and it
-     came with its re-run (rf2-9zysg).** `lane/mount-batch!`'s argument —
+     came with its re-run (rf2-9zysg).** `rf.bench.hicasso.lane/mount-batch!`'s argument —
      timing `k` operations as one sample lifts a reading clear of Chrome's
      100 µs `performance.now()` clamp, and is not the same as summing `k`
      separately-clamped readings — applies to the narrow write row, which
@@ -84,21 +84,21 @@
      passes a batch of one — the pre-batch window exactly — and did not
      move; the mount rows (4–13 ms) never needed it.
 
-  2. **`lane/control-verdict` is WEAKER than [[positive-control!]]'s own
+  2. **`rf.bench.hicasso.lane/control-verdict` is WEAKER than [[positive-control!]]'s own
      rule and would be a downgrade.** The lane passes a control whose
      measured range merely OVERLAPS ±slack of the prediction; this one
      requires EVERY round inside the band. Letting a good round vouch for a
      bad one is how an instrument stops being one, and the stricter rule
      stays.
 
-  3. **`lane/tally` counts `{:of :bad}` in one atom; this row counts them
+  3. **`rf.bench.hicasso.lane/tally` counts `{:of :bad}` in one atom; this row counts them
      PER ARM.** A pooled count says half the writes failed and leaves a
      reader to guess which arm. The per-arm map is the difference between a
      diagnosis and a mystery, and it is threaded immutably through the
      promise chain rather than mutated beside it.
 
   4. **The verdict is adjudicated in the DRIVER, not in ClojureScript.**
-     `lane/guard!` adjudicates in-bundle with the `.cljc` copy of the rule;
+     `rf.bench.hicasso.lane/guard!` adjudicates in-bundle with the `.cljc` copy of the rule;
      `hd8_run.cjs` adjudicates with the `.cjs` copy. The two copies are
      held in step by shared self-test fixtures, and a lane that exercises
      the other one is worth more than the symmetry.
@@ -108,11 +108,11 @@
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uixa]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.hd8-witnesses :as w]
+            [re-frame.frame :as rf.frame]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.hd8-witnesses :as rf.bench.hicasso.hd8-witnesses]
             [reagent.core :as reagent]
             [reagent.dom.client :as rdc]
             [reagent.ratom :as reagent-ratom]
@@ -131,8 +131,8 @@
   its dispatch lookup. Runs OUTSIDE every measured window."
   [arm-id]
   (let [fid (frame-of arm-id)]
-    (rf/make-frame {:id fid :initial-events [[:hd8/seed w/cells-n]]})
-    (w/prime-frame! fid)
+    (rf/make-frame {:id fid :initial-events [[:hd8/seed rf.bench.hicasso.hd8-witnesses/cells-n]]})
+    (rf.bench.hicasso.hd8-witnesses/prime-frame! fid)
     fid))
 
 (defn reseed!
@@ -140,10 +140,10 @@
   row never measures a page that a previous round already mutated."
   [arm-id]
   (let [fid (frame-of arm-id)]
-    (rf/with-frame fid (rf/dispatch-sync [:hd8/seed w/cells-n]))
+    (rf/with-frame fid (rf/dispatch-sync [:hd8/seed rf.bench.hicasso.hd8-witnesses/cells-n]))
     nil))
 
-(defn- db-of [arm-id] (frame/frame-app-db-value (frame-of arm-id)))
+(defn- db-of [arm-id] (rf.frame/frame-app-db-value (frame-of arm-id)))
 
 ;; ===========================================================================
 ;; MOUNT arms
@@ -190,7 +190,7 @@
   through the published UIx provider. Not a DOM element, so parity is
   untouched."
   [fid child]
-  ($ uixa/frame-provider {:frame fid} child))
+  ($ rf.adapter.uix/frame-provider {:frame fid} child))
 
 ;; -- the M page -------------------------------------------------------------
 
@@ -198,20 +198,20 @@
   (let [fid (frame-of id)]
     (case id
       :floor        (react-root-arm :floor (fn [{:keys [n]}]
-                                             (w/floor-m {:rows (:rows (db-of :floor))
+                                             (rf.bench.hicasso.hd8-witnesses/floor-m {:rows (:rows (db-of :floor))
                                                          :n    n})))
       :reagent      (reagent-arm :reagent
                                  (fn [{:keys [n]}]
-                                   [rf/frame-provider {:frame fid} [w/rg-m n]]))
+                                   [rf/frame-provider {:frame fid} [rf.bench.hicasso.hd8-witnesses/rg-m n]]))
       :reagent-slim (slim-arm :reagent-slim
                               (fn [{:keys [n]}]
-                                [rf/frame-provider {:frame fid} [w/rg-m n]]))
+                                [rf/frame-provider {:frame fid} [rf.bench.hicasso.hd8-witnesses/rg-m n]]))
       :uix          (react-root-arm :uix (fn [{:keys [n]}]
-                                           (provided fid ($ w/ux-m {:n n}))))
+                                           (provided fid ($ rf.bench.hicasso.hd8-witnesses/ux-m {:n n}))))
       :donor-r1     (react-root-arm :donor-r1 (fn [{:keys [n]}]
-                                                (w/slim-element (w/r1-m n fid))))
+                                                (rf.bench.hicasso.hd8-witnesses/slim-element (rf.bench.hicasso.hd8-witnesses/r1-m n fid))))
       :donor-r2     (react-root-arm :donor-r2 (fn [{:keys [n]}]
-                                                (provided fid (w/slim-element (w/r2-m n))))))))
+                                                (provided fid (rf.bench.hicasso.hd8-witnesses/slim-element (rf.bench.hicasso.hd8-witnesses/r2-m n))))))))
 
 ;; -- the U page (mounted for parity; measured by the write rows) ------------
 
@@ -219,20 +219,20 @@
   (let [fid (frame-of id)]
     (case id
       :floor        (react-root-arm :floor (fn [{:keys [n]}]
-                                             (w/floor-u {:cells (:cells (db-of :floor))
+                                             (rf.bench.hicasso.hd8-witnesses/floor-u {:cells (:cells (db-of :floor))
                                                          :n     n})))
       :reagent      (reagent-arm :reagent
                                  (fn [{:keys [n]}]
-                                   [rf/frame-provider {:frame fid} [w/rg-u n]]))
+                                   [rf/frame-provider {:frame fid} [rf.bench.hicasso.hd8-witnesses/rg-u n]]))
       :reagent-slim (slim-arm :reagent-slim
                               (fn [{:keys [n]}]
-                                [rf/frame-provider {:frame fid} [w/rg-u n]]))
+                                [rf/frame-provider {:frame fid} [rf.bench.hicasso.hd8-witnesses/rg-u n]]))
       :uix          (react-root-arm :uix (fn [{:keys [n]}]
-                                           (provided fid ($ w/ux-u {:n n}))))
+                                           (provided fid ($ rf.bench.hicasso.hd8-witnesses/ux-u {:n n}))))
       :donor-r1     (react-root-arm :donor-r1 (fn [{:keys [n]}]
-                                                (w/slim-element (w/r1-u n fid))))
+                                                (rf.bench.hicasso.hd8-witnesses/slim-element (rf.bench.hicasso.hd8-witnesses/r1-u n fid))))
       :donor-r2     (react-root-arm :donor-r2 (fn [{:keys [n]}]
-                                                (provided fid (w/slim-element (w/r2-u n))))))))
+                                                (provided fid (rf.bench.hicasso.hd8-witnesses/slim-element (rf.bench.hicasso.hd8-witnesses/r2-u n))))))))
 
 ;; ===========================================================================
 ;; The arm sets — one adapter per process (Spec 006)
@@ -298,17 +298,17 @@
   [{:id       :M
     :doc      "300 rows, each a boundary with its own subscription and its own handler — markup-dominant"
     :arm-of   m-arm
-    :props    {:n w/rows-n}
+    :props    {:n rf.bench.hicasso.hd8-witnesses/rows-n}
     :small    {:n 6}
-    :elements (w/m-elements w/rows-n)
-    :small-elements (w/m-elements 6)}
+    :elements (rf.bench.hicasso.hd8-witnesses/m-elements rf.bench.hicasso.hd8-witnesses/rows-n)
+    :small-elements (rf.bench.hicasso.hd8-witnesses/m-elements 6)}
    {:id       :U
     :doc      "a 300-cell grid, same per-cell shape — the page the write rows drive"
     :arm-of   u-arm
-    :props    {:n w/cells-n}
+    :props    {:n rf.bench.hicasso.hd8-witnesses/cells-n}
     :small    {:n 6}
-    :elements (w/u-elements w/cells-n)
-    :small-elements (w/u-elements 6)}])
+    :elements (rf.bench.hicasso.hd8-witnesses/u-elements rf.bench.hicasso.hd8-witnesses/cells-n)
+    :small-elements (rf.bench.hicasso.hd8-witnesses/u-elements 6)}])
 
 (defn arms-for [witness arm-ids] (mapv (:arm-of witness) arm-ids))
 
@@ -322,7 +322,7 @@
   that held under `:none` and failed under `:advanced` would be a renaming
   bug silently deciding the comparison."
   [witness arm-ids props]
-  (lane/parity (arms-for witness arm-ids) props))
+  (rf.bench.hicasso.lane/parity (arms-for witness arm-ids) props))
 
 (defn parity-problems
   "Answer a vector of problems — empty when every arm built one page with
@@ -345,7 +345,7 @@
 
                 (not (pos? (count (get canon (first arm-ids) ""))))
                 (conj {:witness id :size what :problem :built-nothing}))
-              (finally (doseq [mnt mounts] (lane/release! mnt))))))
+              (finally (doseq [mnt mounts] (rf.bench.hicasso.lane/release! mnt))))))
         problems
         [[props elements :stress] [small small-elements :small]]))
     []
@@ -362,21 +362,21 @@
     (try
       (and (not= (:reference a) (:reference b)) (:agree? a) (:agree? b))
       (finally
-        (doseq [mnt (:mounts a)] (lane/release! mnt))
-        (doseq [mnt (:mounts b)] (lane/release! mnt))))))
+        (doseq [mnt (:mounts a)] (rf.bench.hicasso.lane/release! mnt))
+        (doseq [mnt (:mounts b)] (rf.bench.hicasso.lane/release! mnt))))))
 
 ;; ===========================================================================
 ;; The mount clock — with the order-guard's per-sample records
 ;; ===========================================================================
 
-(def ^:private round4 lane/round4)
-(defn- p50 [xs] (:p50 (lane/summarise xs)))
+(def ^:private round4 rf.bench.hicasso.lane/round4)
+(defn- p50 [xs] (:p50 (rf.bench.hicasso.lane/summarise xs)))
 
 (def slot-order
-  "Slot order for `k` arms at sample index `s` — `lane/slot-order`, and
+  "Slot order for `k` arms at sample index `s` — `rf.bench.hicasso.lane/slot-order`, and
   nothing local.
 
-  This was a local override, added because `lane/slot-order` composed a
+  This was a local override, added because `rf.bench.hicasso.lane/slot-order` composed a
   rotation with a reflection and the two CANCEL at `k = 2`: rotating a pair
   by one is the same permutation as reversing it, so `[0 1]` came back at
   every index and a two-arm plan ran in ONE ORDER for ever. The arm-order
@@ -390,7 +390,7 @@
   `rf2-ouwh8` has since repaired the schedule where it lives — so the
   override is gone and this name is the lane's, exactly like every other
   mechanism in this file."
-  lane/slot-order)
+  rf.bench.hicasso.lane/slot-order)
 
 (defn mount-round!
   "One round over `arms`: `(+ warmup samples)` sample indices, every arm
@@ -410,7 +410,7 @@
     (dotimes [s (+ warmup samples)]
       (doseq [j (slot-order k s)]
         (let [arm (nth arms j)
-              mnt (lane/mount-arm! arm props)
+              mnt (rf.bench.hicasso.lane/mount-arm! arm props)
               p   @pos]
           (when (>= s warmup)
             (swap! acc update (:id arm) conj (:ms mnt))
@@ -420,7 +420,7 @@
                               :position    p}))
           (reset! prev (:id arm))
           (swap! pos inc)
-          (lane/release! mnt))))
+          (rf.bench.hicasso.lane/release! mnt))))
     {:readings @acc :samples @recs :position @pos}))
 
 (defn normalise
@@ -466,7 +466,7 @@
   includes 1.0 — in which case the two arms are INDISTINGUISHABLE on this
   witness and the mean must not be quoted as a winner.
 
-  The arithmetic is `lane/ratio-between` and no longer a second copy of it
+  The arithmetic is `rf.bench.hicasso.lane/ratio-between` and no longer a second copy of it
   (rf2-f5roa). It is fed this row's raw `:p50` maps rather than its
   floor-normalised `:ratio` maps — algebraically the floor cancels either
   way, but rounding to four places twice is not the same as rounding once,
@@ -478,7 +478,7 @@
           (keep (fn [[a b]]
                   (when (and (contains? present a) (contains? present b))
                     [(keyword (str (name a) "-over-" (name b)))
-                     (lane/ratio-between p50s a b)])))
+                     (rf.bench.hicasso.lane/ratio-between p50s a b)])))
           head-to-head-pairs)))
 
 (defn measure-mount!
@@ -502,7 +502,7 @@
      :doc       (:doc witness)
      :arms      (vec arm-ids)
      :per-round norm
-     :summary   (lane/across-rounds (mapv :ratio norm))
+     :summary   (rf.bench.hicasso.lane/across-rounds (mapv :ratio norm))
      :head-to-head (head-to-head norm)
      :samples   (:samples acc)}))
 
@@ -596,7 +596,7 @@
   published ranges carry that noise (rf2-9zysg). Timing `k` writes as ONE
   sample lifts the window clear of the clamp, and it is NOT the same as
   summing `k` separately-clamped readings, which quantises `k` times and
-  adds the errors. `lane/mount-batch!` does exactly this for mounts.
+  adds the errors. `rf.bench.hicasso.lane/mount-batch!` does exactly this for mounts.
 
   The cost is that a batched window cannot verify each write in the turn
   its own drain ran in, because there is only one clock. It verifies all
@@ -630,7 +630,7 @@
   carries the evidence, including the positive control (a plain component
   reading a plain `reagent2.core/atom`, no re-frame anywhere on the path)
   that reproduces it in all four bundle compositions. The general form —
-  the same fixed yield in the shared `lane/verified-write!` — is rf2-pq7d8,
+  the same fixed yield in the shared `rf.bench.hicasso.lane/verified-write!` — is rf2-pq7d8,
   and it HAS since been repaired: the lane takes the same `:scheduler`
   declaration and gives it these same two shapes, lifted from here rather
   than invented a second time. That repair is additive — an arm that
@@ -659,9 +659,9 @@
       ;; is one synchronous run, so not even a microtask separates a drain
       ;; from the next write.
       (fn [steps]
-        (let [t0 (lane/now-ms)]
+        (let [t0 (rf.bench.hicasso.lane/now-ms)]
           (doseq [s steps] ((:write! s)) (force!))
-          (let [ms (- (lane/now-ms) t0)]
+          (let [ms (- (rf.bench.hicasso.lane/now-ms) t0)]
             (js/Promise.resolve {:ms ms :oks (verify-all steps)}))))
       ;; Write, yield ONE microtask, drain — per operation, k times, under
       ;; one clock. The next write starts in the turn the previous drain
@@ -669,10 +669,10 @@
       ;; 2k: the fixed yield is preserved per operation, never batched away
       ;; and never doubled.
       (fn [steps]
-        (let [t0 (lane/now-ms)]
+        (let [t0 (rf.bench.hicasso.lane/now-ms)]
           (letfn [(run [ss]
                     (if (empty? ss)
-                      (let [ms (- (lane/now-ms) t0)]
+                      (let [ms (- (rf.bench.hicasso.lane/now-ms) t0)]
                         (js/Promise.resolve {:ms ms :oks (verify-all steps)}))
                       (do ((:write! (first ss)))
                           (-> (js/Promise.resolve nil)
@@ -700,7 +700,7 @@
         force! (fn []
                  (if (= arm-id :floor)
                    (react-dom/flushSync
-                     (fn [] (.render ^js @rt (w/floor-u {:cells @state :n w/cells-n}))))
+                     (fn [] (.render ^js @rt (rf.bench.hicasso.hd8-witnesses/floor-u {:cells @state :n rf.bench.hicasso.hd8-witnesses/cells-n}))))
                    (spine-drain! adapter)))]
     {:id     arm-id
      :mount  (fn [container]
@@ -709,11 +709,11 @@
                    (reset! state (:cells (db-of :floor)))
                    (vreset! rt r)
                    (react-dom/flushSync
-                     (fn [] (.render r (w/floor-u {:cells @state :n w/cells-n}))))
+                     (fn [] (.render r (rf.bench.hicasso.hd8-witnesses/floor-u {:cells @state :n rf.bench.hicasso.hd8-witnesses/cells-n}))))
                    r)
                  (let [handle (volatile! nil)]
                    (react-dom/flushSync
-                     (fn [] (vreset! handle ((:mount arm) container {:n w/cells-n} 0))))
+                     (fn [] (vreset! handle ((:mount arm) container {:n rf.bench.hicasso.hd8-witnesses/cells-n} 0))))
                    @handle)))
      :write! (fn [i val]
                (if (= arm-id :floor)
@@ -725,7 +725,7 @@
                  ;; and the report says so: a fine-grained substrate can and
                  ;; should beat it on a narrow write.
                  (if (= i :all)
-                   (reset! state (vec (repeat w/cells-n val)))
+                   (reset! state (vec (repeat rf.bench.hicasso.hd8-witnesses/cells-n val)))
                    (swap! state assoc i val))
                  (if (= i :all)
                    (rf/dispatch-sync [:hd8/set-all val] {:frame fid})
@@ -752,8 +752,8 @@
 
 (defn release-write-arms!
   "Release every write arm. A throw is RECORDED, never swallowed — and a
-  normal return is not taken at its word: `lane/container-released!` reads
-  each container before it is removed, exactly as `lane/release!` does,
+  normal return is not taken at its word: `rf.bench.hicasso.lane/container-released!` reads
+  each container before it is removed, exactly as `rf.bench.hicasso.lane/release!` does,
   because a root that survives its own unmount does so on a DETACHED tree
   no later census can see (rf2-jk3vj)."
   [mounts]
@@ -761,8 +761,8 @@
     (when (try ((:unmount arm) handle)
                true
                (catch :default e
-                 (lane/teardown-failure! (str "release-write-arms! " (:id arm)) e)))
-      (lane/container-released! (str "release-write-arms! " (:id arm)) container))
+                 (rf.bench.hicasso.lane/teardown-failure! (str "release-write-arms! " (:id arm)) e)))
+      (rf.bench.hicasso.lane/container-released! (str "release-write-arms! " (:id arm)) container))
     (.remove container)))
 
 (defn assert-teardown-clean!
@@ -776,7 +776,7 @@
   — the same fail-closed path parity and the lowering check already take
   (rf2-f5roa, from the PR #7263 audit)."
   [after]
-  (let [fs (lane/drain-teardown-failures!)]
+  (let [fs (rf.bench.hicasso.lane/drain-teardown-failures!)]
     (when (seq fs)
       (throw (ex-info (str "teardown FAILED after " after
                            " — an arm did not unmount, so its React root, watches and "
@@ -807,7 +807,7 @@
   `probes` is a SEQ and used to be a single cell, which was thin on the
   BULK row (rf2-f5roa): a broad write changes all 300 cells, this probed
   cell 0, and a page left stale by a commit landing outside the window can
-  still carry one fresh cell from the previous write. `lane/bulk-probes`
+  still carry one fresh cell from the previous write. `rf.bench.hicasso.lane/bulk-probes`
   is the rule now, and the P0 arm three files away already used it. The
   NARROW row is unchanged and was already right — one cell changes, so one
   probe is the whole page's worth of verification.
@@ -881,15 +881,15 @@
                             ;; batch's k cells are k distinct cells.
                             ;;
                             ;; A broad write changes every cell, so it is
-                            ;; verified at three (`lane/bulk-probes`); a
+                            ;; verified at three (`rf.bench.hicasso.lane/bulk-probes`); a
                             ;; narrow write changes one, so it is verified
                             ;; at that one.
                             ops (mapv (fn [c]
                                         (let [o (+ (* p bk) c)
                                               v (str "v" o)]
                                           (if (= kind :bulk)
-                                            [:all v (lane/bulk-probes o w/cells-n)]
-                                            (let [cell (mod o w/cells-n)]
+                                            [:all v (rf.bench.hicasso.lane/bulk-probes o rf.bench.hicasso.hd8-witnesses/cells-n)]
+                                            (let [cell (mod o rf.bench.hicasso.hd8-witnesses/cells-n)]
                                               [cell v [cell]]))))
                                       (range bk))]
                         (-> (timed-write! mnt ops)
@@ -1119,7 +1119,7 @@
                                 :writes-per-sample (if (= kind :bulk) 1 narrow-batch-k)
                                 :arms         (vec arm-ids)
                                 :per-round    (:rounds-out acc)
-                                :summary      (lane/across-rounds (mapv :ratio (:rounds-out acc)))
+                                :summary      (rf.bench.hicasso.lane/across-rounds (mapv :ratio (:rounds-out acc)))
                                 :head-to-head (head-to-head (:rounds-out acc))
                                 :unverified   (:unverified acc)
                                 :writes       (:total acc)
@@ -1146,10 +1146,10 @@
   would add two resolution ticks per step and price a window the arms
   never run. At `k = 1` this is the original one-turn reading exactly."
   [k]
-  (let [t0 (lane/now-ms)]
+  (let [t0 (rf.bench.hicasso.lane/now-ms)]
     (letfn [(run [n]
               (if (zero? n)
-                (js/Promise.resolve (- (lane/now-ms) t0))
+                (js/Promise.resolve (- (rf.bench.hicasso.lane/now-ms) t0))
                 (-> (js/Promise.resolve nil)
                     (.then (fn [_] (run (dec n)))))))]
       (run k))))
@@ -1203,8 +1203,8 @@
             (.then
               (run narrow-batch-k)
               (fn [xsk]
-                (let [s1  (lane/summarise xs1)
-                      sk  (lane/summarise xsk)
+                (let [s1  (rf.bench.hicasso.lane/summarise xs1)
+                      sk  (rf.bench.hicasso.lane/summarise xsk)
                       per (fn [v] (when (number? v) (/ v narrow-batch-k)))]
                   {:control :harness-microtask-yield
                    ;; The original one-turn reading, unchanged, so nothing
@@ -1245,7 +1245,7 @@
 
 (defn- tick-once
   "One observation of the clock's grain: the first difference
-  [[lane/now-ms]] reports after a busy wait, or `nil` if it reported none
+  [[rf.bench.hicasso.lane/now-ms]] reports after a busy wait, or `nil` if it reported none
   within `spin-cap` reads.
 
   A clamped clock answers the SAME value for every read inside a tick, so
@@ -1254,9 +1254,9 @@
   it answers `nil` so a missing reading fails closed rather than arriving
   as a small number."
   [spin-cap]
-  (let [t0 (lane/now-ms)]
+  (let [t0 (rf.bench.hicasso.lane/now-ms)]
     (loop [i 0]
-      (let [t1 (lane/now-ms)]
+      (let [t1 (rf.bench.hicasso.lane/now-ms)]
         (cond
           (> t1 t0)      (round4 (- t1 t0))
           (>= i spin-cap) nil
@@ -1289,7 +1289,7 @@
   (let [spin-cap 5000000
         ds       (vec (repeatedly n #(tick-once spin-cap)))
         good     (vec (remove nil? ds))
-        s        (lane/summarise good)]
+        s        (rf.bench.hicasso.lane/summarise good)]
     {:control     :clock-resolution
      :tick        (when (= (count good) (count ds)) (:min s))
      :p50         (:p50 s)
@@ -1297,7 +1297,7 @@
      :n           (count ds)
      :unresolved  (- (count ds) (count good))
      :distinct    (vec (sort (distinct good)))
-     :note (str "the smallest difference lane/now-ms reports, measured by spinning until "
+     :note (str "the smallest difference rf.bench.hicasso.lane/now-ms reports, measured by spinning until "
                 "the clock advances. A denominator at this size cannot be told from one "
                 "half its size or twice it, so a ratio taken against it carries the grain "
                 "rather than the arm (rf2-d2tzk)")}))
@@ -1396,7 +1396,7 @@
 
   A floor-normalised entry is formed from its own arm and from the floor,
   which is its denominator; a head-to-head pair from the two arms
-  `lane/ratio-between` named in it. An entry a publication mask has
+  `rf.bench.hicasso.lane/ratio-between` named in it. An entry a publication mask has
   replaced with `:unpublished` contributes nothing, because there is no
   longer a figure there for anything to change.
 
@@ -1612,7 +1612,7 @@
                 ;; dropped — the corrected map carries exactly the pairs the
                 ;; original published, never one it withheld.
                 summary'  (inherit-publication-mask
-                            (lane/across-rounds (mapv :ratio corrected))
+                            (rf.bench.hicasso.lane/across-rounds (mapv :ratio corrected))
                             (:summary row))
                 h2h'      (select-keys (head-to-head corrected)
                                        (keys (:head-to-head row)))
@@ -1665,7 +1665,7 @@
      :arms              arms
      :writes-per-sample k
      :per-round         per-round
-     :summary           (lane/across-rounds (mapv :ratio per-round))
+     :summary           (rf.bench.hicasso.lane/across-rounds (mapv :ratio per-round))
      :head-to-head      (head-to-head per-round)}))
 
 (defn- grain-fixture
@@ -1932,9 +1932,9 @@
   wide enough to pass an honest instrument and far too tight to pass one
   that is not measuring the page."
   [rounds sampling]
-  (let [n         w/rows-n
+  (let [n         rf.bench.hicasso.hd8-witnesses/rows-n
         half      (quot n 2)
-        predicted (/ (double (w/m-elements n)) (double (w/m-elements half)))
+        predicted (/ (double (rf.bench.hicasso.hd8-witnesses/m-elements n)) (double (rf.bench.hicasso.hd8-witnesses/m-elements half)))
         ;; The two sizes are TWO ARMS in ONE round, interleaved and
         ;; reflected like everything else. They were not, in the first cut,
         ;; and the control promptly read 0.42 in one round of three — the
@@ -1943,9 +1943,9 @@
         ;; to detect, which would have made it a source of false alarm
         ;; rather than an instrument.
         full-arm  (react-root-arm :control-full
-                                  (fn [_] (w/floor-m {:rows (:rows (db-of :floor)) :n n})))
+                                  (fn [_] (rf.bench.hicasso.hd8-witnesses/floor-m {:rows (:rows (db-of :floor)) :n n})))
         half-arm  (react-root-arm :control-half
-                                  (fn [_] (w/floor-m {:rows (:rows (db-of :floor)) :n half})))
+                                  (fn [_] (rf.bench.hicasso.hd8-witnesses/floor-m {:rows (:rows (db-of :floor)) :n half})))
         per-round (mapv (fn [_]
                           (let [r (mount-round! [full-arm half-arm] {} sampling 0)]
                             (round4 (/ (p50 (get (:readings r) :control-full))
@@ -1999,11 +1999,11 @@
         cleanup!  (fn []
                     (try (react-dom/flushSync (fn [] (.unmount root)))
                          (catch :default e
-                           (lane/teardown-failure! "lowering-works! cleanup" e)))
+                           (rf.bench.hicasso.lane/teardown-failure! "lowering-works! cleanup" e)))
                     (.remove container)
                     (reseed! :donor-r2))]
     (react-dom/flushSync
-      (fn [] (.render root (provided fid (w/slim-element (w/r2-u 8))))))
+      (fn [] (.render root (provided fid (rf.bench.hicasso.hd8-witnesses/slim-element (rf.bench.hicasso.hd8-witnesses/r2-u 8))))))
     (let [before (cell-text container 3)
           node   (.querySelector container "[data-i=\"3\"]")]
       (.click node)

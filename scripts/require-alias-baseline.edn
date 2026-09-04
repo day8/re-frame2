@@ -19,7 +19,7 @@
  :surfaces
  {
   ".clj-kondo"                            0
-  "bench"                                 701
+  "bench"                                 0
   "docs"                                  0
   "examples"                              0
   "implementation/adapters"               337

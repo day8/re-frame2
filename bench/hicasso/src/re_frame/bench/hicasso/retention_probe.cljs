@@ -109,9 +109,9 @@
 
   Owner: rf2-flqpd."
   (:require [goog.object :as gobj]
-            [re-frame.bench.p0-arms :as arms]
-            [re-frame.bench.p0-heap :as heap]
-            [re-frame.frame :as frame]))
+            [re-frame.bench.p0-arms :as rf.bench.p0-arms]
+            [re-frame.bench.p0-heap :as rf.bench.p0-heap]
+            [re-frame.frame :as rf.frame]))
 
 ;; ---------------------------------------------------------------------------
 ;; The census
@@ -147,7 +147,7 @@
   starting value once every root is unmounted."
   [frame-id]
   (try
-    (if-let [f (frame/frame frame-id)]
+    (if-let [f (rf.frame/frame frame-id)]
       (if-let [cache (:sub-cache f)]
         (let [entries   (vals @cache)
               ;; The entry shape is the sub-cache's, not this probe's, so
@@ -175,9 +175,9 @@
   disposes these; a segment entry that left them watched would retain the
   physical container and everything reachable from it — which is H2."
   [frame-id]
-  {:app-db     (try (watch-count (frame/app-db-container frame-id))
+  {:app-db     (try (watch-count (rf.frame/app-db-container frame-id))
                     (catch :default _ :unreadable))
-   :runtime-db (try (watch-count (frame/runtime-db-container frame-id))
+   :runtime-db (try (watch-count (rf.frame/runtime-db-container frame-id))
                     (catch :default _ :unreadable))})
 
 (defn census
@@ -188,8 +188,8 @@
   well, so its absence is reported (`-1`) rather than fatal."
   []
   (let [mem (when (exists? js/performance) (gobj/get js/performance "memory"))]
-    #js {"subCache"     (clj->js (sub-cache-census arms/frame-id))
-         "projections"  (clj->js (projection-census arms/frame-id))
+    #js {"subCache"     (clj->js (sub-cache-census rf.bench.p0-arms/frame-id))
+         "projections"  (clj->js (projection-census rf.bench.p0-arms/frame-id))
          "bodyChildren" (.-childElementCount js/document.body)
          "domElements"  (.-length (.querySelectorAll js/document "*"))
          ;; WHETHER THE PAGE CAN COLLECT AT ALL, reported on every reading.
@@ -214,7 +214,7 @@
   driver can force a collection and a reading taken on the collector's
   own schedule is a reading of the collector."
   []
-  (heap/install!)
+  (rf.bench.p0-heap/install!)
   (set! (.-RETENTION js/window) #js {:census (fn [] (census))})
   (set! (.-RETENTION_READY js/window) true)
   nil)

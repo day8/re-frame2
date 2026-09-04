@@ -79,16 +79,16 @@
   amendment); this entry rf2-2rtt6.56."
   (:require ["react" :as react]
             ["react-dom/client" :as react-dom-client]
-            [re-frame.adapter.uix :as uixa]
-            [re-frame.bench.hicasso.arm1.mount :as arm1-mount]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.shapes.feed :as feed]
-            [re-frame.bench.hicasso.shapes.large-template :as lt]
-            [re-frame.bench.hicasso.shapes.model :as m]
-            [re-frame.bench.hicasso.shapes.ordinary :as ordinary]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.shapes.feed :as rf.bench.hicasso.shapes.feed]
+            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
+            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.hicasso.shapes.ordinary :as rf.bench.hicasso.shapes.ordinary]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             [reagent.dom.client :as rdc]
             [uix.core :refer [$ defui]])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -97,7 +97,7 @@
 ;; The three rows, their seeds and their arithmetic
 ;; ===========================================================================
 ;;
-;; Stress seeds are the roster's own (`lt/seed`, `feed/seed`, and the
+;; Stress seeds are the roster's own (`rf.bench.hicasso.shapes.large-template/seed`, `rf.bench.hicasso.shapes.feed/seed`, and the
 ;; ordinary witness's `{:articles 2 :comments 5 :tags 2}`), so a clock row
 ;; is taken on exactly the page the roster's witnesses assert. Small seeds
 ;; exist for the parity gate — agreement at one size is not evidence until
@@ -105,24 +105,24 @@
 
 (def rows
   {:large-template
-   {:seed     lt/seed
+   {:seed     rf.bench.hicasso.shapes.large-template/seed
     :small-a  {:articles 6 :tags 10}
     :small-b  {:articles 7 :tags 10}
     :elements (fn [{:keys [articles]}]
-                (+ lt/chrome-elements lt/tag-count (* 17 articles)))}
+                (+ rf.bench.hicasso.shapes.large-template/chrome-elements rf.bench.hicasso.shapes.large-template/tag-count (* 17 articles)))}
    :feed
-   {:seed     feed/seed
+   {:seed     rf.bench.hicasso.shapes.feed/seed
     :small-a  {:articles 6 :tags 10}
     :small-b  {:articles 7 :tags 10}
     :elements (fn [{:keys [articles]}]
-                (+ lt/chrome-elements lt/tag-count (* 17 articles)))}
+                (+ rf.bench.hicasso.shapes.large-template/chrome-elements rf.bench.hicasso.shapes.large-template/tag-count (* 17 articles)))}
    :ordinary
    {:seed     {:articles 2 :comments 5 :tags 2}
     :small-a  {:articles 2 :comments 3 :tags 2}
     :small-b  {:articles 2 :comments 4 :tags 2}
     :elements (fn [{:keys [comments]}]
                 (let [mine (count (filter #(zero? (mod % 4)) (range comments)))]
-                  (ordinary/element-arithmetic comments mine)))}})
+                  (rf.bench.hicasso.shapes.ordinary/element-arithmetic comments mine)))}})
 
 (defn- doubled
   "The seed at TWICE the row's card count — what the positive control
@@ -171,8 +171,8 @@
           arm-id  arm-ids
           :when   (not= arm-id :floor)]
     (let [fid (frame-of row-key arm-id)]
-      (m/make-frame! fid (:seed (get rows row-key)))
-      (m/reseed! fid (:seed (get rows row-key)))
+      (rf.bench.hicasso.shapes.model/make-frame! fid (:seed (get rows row-key)))
+      (rf.bench.hicasso.shapes.model/reseed! fid (:seed (get rows row-key)))
       (prime-frame! fid)))
   nil)
 
@@ -182,7 +182,7 @@
   [row-key arm-ids seed]
   (doseq [arm-id arm-ids
           :when  (not= arm-id :floor)]
-    (m/reseed! (frame-of row-key arm-id) seed))
+    (rf.bench.hicasso.shapes.model/reseed! (frame-of row-key arm-id) seed))
   nil)
 
 ;; ===========================================================================
@@ -242,10 +242,10 @@
 ;; resolved routes would be a fourth arm rather than a floor.
 
 (def ^:private link-model
-  (delay (late-bind/require-fn! :routing/link-model 'census-clock-arms {} {})))
+  (delay (rf.late-bind/require-fn! :routing/link-model 'census-clock-arms {} {})))
 
 (def ^:private activate-link!
-  (delay (late-bind/require-fn! :routing/activate-link! 'census-clock-arms {} {})))
+  (delay (rf.late-bind/require-fn! :routing/activate-link! 'census-clock-arms {} {})))
 
 (defn- route-attrs
   "One census anchor's routing-owned half: the href routing synthesises for
@@ -266,7 +266,7 @@
 ;; ARM: the React floor — the calibrator, no substrate at all
 ;; ===========================================================================
 ;;
-;; Hand-written `createElement` over a plain seeded value (`m/seed-db`
+;; Hand-written `createElement` over a plain seeded value (`rf.bench.hicasso.shapes.model/seed-db`
 ;; called directly — no frame, no subscription, no handler indirection).
 ;; One hoisted inert handler, for the reason hd8's floor hoists its own:
 ;; the calibrator must not be billed for a closure per element that no
@@ -286,7 +286,7 @@
               (fel "a" #js {:className "author-link"
                             :href (str "#/profile/" (:username author))}
                    (fel "img" #js {:className "user-pic"
-                                   :src (m/avatar-src (:image author)) :alt ""}))
+                                   :src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}))
               (fel "div" #js {:className "info"}
                    (fel "a" #js {:className "author"
                                  :href (str "#/profile/" (:username author))}
@@ -371,7 +371,7 @@
                 (fel "a" #js {:className "comment-author"
                               :href (str "#/profile/" (:username author))}
                      (fel "img" #js {:className "comment-author-img"
-                                     :src (m/avatar-src (:image author)) :alt ""})
+                                     :src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""})
                      " "
                      (:username author))
                 (fel "span" #js {:className "date-posted"} createdAt)
@@ -450,7 +450,7 @@
     ($ :div.article-preview {:key slug :data-testid (str "article-preview-" slug)}
        ($ :div.article-meta
           ($ :a.author-link {:href (:href pic-link) :on-click (:on-click pic-link)}
-             ($ :img.user-pic {:src (m/avatar-src (:image author)) :alt ""}))
+             ($ :img.user-pic {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}))
           ($ :div.info
              ($ :a.author {:href (:href name-link) :on-click (:on-click name-link)}
                 (:username author))
@@ -520,12 +520,12 @@
   shape (five coarse reads) is NOT the census's (141 per-instance) —
   the stamp says so on every row."
   [_props]
-  (let [frame      (uixa/use-current-frame)
-        order      (uixa/use-subscribe frame [:conduit/slugs])
-        articles   (uixa/use-subscribe frame [:census56/articles])
-        tags       (uixa/use-subscribe frame [:conduit/tags])
-        your-feed? (uixa/use-subscribe frame [:conduit/your-feed?])
-        pending    (uixa/use-subscribe frame [:census56/pending])
+  (let [frame      (rf.adapter.uix/use-current-frame)
+        order      (rf.adapter.uix/use-subscribe frame [:conduit/slugs])
+        articles   (rf.adapter.uix/use-subscribe frame [:census56/articles])
+        tags       (rf.adapter.uix/use-subscribe frame [:conduit/tags])
+        your-feed? (rf.adapter.uix/use-subscribe frame [:conduit/your-feed?])
+        pending    (rf.adapter.uix/use-subscribe frame [:census56/pending])
         d          (dispatch-for frame)]
     (ux-chrome your-feed? tags d
                (for [slug order]
@@ -536,19 +536,19 @@
   "SHAPE 3's card in UIx — one component per card, the census's own
   per-instance read pair, three hooks."
   [{:keys [slug]}]
-  (let [frame    (uixa/use-current-frame)
-        article  (uixa/use-subscribe frame [:conduit/article slug])
-        pending? (uixa/use-subscribe frame [:conduit/favorite-pending? slug])
+  (let [frame    (rf.adapter.uix/use-current-frame)
+        article  (rf.adapter.uix/use-subscribe frame [:conduit/article slug])
+        pending? (rf.adapter.uix/use-subscribe frame [:conduit/favorite-pending? slug])
         d        (dispatch-for frame)]
     (ux-card-body slug article pending? d frame)))
 
 (defui ux-feed-page
   "SHAPE 3 in UIx — the same feed, one boundary per card."
   [_props]
-  (let [frame      (uixa/use-current-frame)
-        order      (uixa/use-subscribe frame [:conduit/slugs])
-        tags       (uixa/use-subscribe frame [:conduit/tags])
-        your-feed? (uixa/use-subscribe frame [:conduit/your-feed?])
+  (let [frame      (rf.adapter.uix/use-current-frame)
+        order      (rf.adapter.uix/use-subscribe frame [:conduit/slugs])
+        tags       (rf.adapter.uix/use-subscribe frame [:conduit/tags])
+        your-feed? (rf.adapter.uix/use-subscribe frame [:conduit/your-feed?])
         d          (dispatch-for frame)]
     (ux-chrome your-feed? tags d
                (for [slug order]
@@ -560,10 +560,10 @@
   edge the census page charges only to the reader's own (the dogfood UIx
   rendering records the same limit)."
   [{:keys [id]}]
-  (let [frame    (uixa/use-current-frame)
-        c        (uixa/use-subscribe frame [:conduit/comment id])
-        user     (uixa/use-subscribe frame [:conduit/user])
-        deleting? (uixa/use-subscribe frame [:conduit/delete-pending? id])
+  (let [frame    (rf.adapter.uix/use-current-frame)
+        c        (rf.adapter.uix/use-subscribe frame [:conduit/comment id])
+        user     (rf.adapter.uix/use-subscribe frame [:conduit/user])
+        deleting? (rf.adapter.uix/use-subscribe frame [:conduit/delete-pending? id])
         d        (dispatch-for frame)
         {:keys [body createdAt author]} c
         mine?    (= (:username user) (:username author))
@@ -573,7 +573,7 @@
           ($ :p.card-text {:data-testid "comment-body"} body))
        ($ :div.card-footer
           ($ :a.comment-author {:href (:href byline) :on-click (:on-click byline)}
-             ($ :img.comment-author-img {:src (m/avatar-src (:image author)) :alt ""})
+             ($ :img.comment-author-img {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""})
              " "
              (:username author))
           ($ :span.date-posted createdAt)
@@ -586,9 +586,9 @@
                ($ :i.ion-trash-a)))))))
 
 (defui ux-comment-form [_props]
-  (let [frame    (uixa/use-current-frame)
-        pending? (uixa/use-subscribe frame [:conduit/comment-pending?])
-        draft    (uixa/use-subscribe frame [:conduit/draft m/comment-draft-key])
+  (let [frame    (rf.adapter.uix/use-current-frame)
+        pending? (rf.adapter.uix/use-subscribe frame [:conduit/comment-pending?])
+        draft    (rf.adapter.uix/use-subscribe frame [:conduit/draft rf.bench.hicasso.shapes.model/comment-draft-key])
         d        (dispatch-for frame)]
     ($ :form.card.comment-form {:data-testid "comment-form"
                                 :on-submit   (fn [e]
@@ -601,7 +601,7 @@
               :placeholder "Write a comment..."
               :value       draft
               :disabled    pending?
-              :on-input    (fn [e] (d [:conduit/edit-draft m/comment-draft-key
+              :on-input    (fn [e] (d [:conduit/edit-draft rf.bench.hicasso.shapes.model/comment-draft-key
                                        (.. e -target -value)]))}))
        ($ :div.card-footer
           ($ :button.btn.btn-sm.btn-primary {:type        "submit"
@@ -613,8 +613,8 @@
   "SHAPE 1 in UIx — the article page's comment column, the roster's own
   seven-boundary decomposition."
   [_props]
-  (let [frame (uixa/use-current-frame)
-        ids   (uixa/use-subscribe frame [:conduit/comment-ids])]
+  (let [frame (rf.adapter.uix/use-current-frame)
+        ids   (rf.adapter.uix/use-subscribe frame [:conduit/comment-ids])]
     ($ :div.article-page
        ($ :div.container.page
           ($ :div.row
@@ -653,7 +653,7 @@
     [:div.article-preview {:key slug :data-testid (str "article-preview-" slug)}
      [:div.article-meta
       [:a.author-link {:href (:href pic-link) :on-click (:on-click pic-link)}
-       [:img.user-pic {:src (m/avatar-src (:image author)) :alt ""}]]
+       [:img.user-pic {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}]]
       [:div.info
        [:a.author {:href (:href name-link) :on-click (:on-click name-link)} (:username author)]
        [:span.date createdAt]]
@@ -750,7 +750,7 @@
       [:p.card-text {:data-testid "comment-body"} body]]
      [:div.card-footer
       [:a.comment-author {:href (:href byline) :on-click (:on-click byline)}
-       [:img.comment-author-img {:src (m/avatar-src (:image author)) :alt ""}]
+       [:img.comment-author-img {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}]
        " "
        (:username author)]
       [:span.date-posted createdAt]
@@ -773,10 +773,10 @@
       [:textarea.form-control {:data-testid "comment-body-input"
                                :rows        3
                                :placeholder "Write a comment..."
-                               :value       @(subscribe [:conduit/draft m/comment-draft-key])
+                               :value       @(subscribe [:conduit/draft rf.bench.hicasso.shapes.model/comment-draft-key])
                                :disabled    pending?
                                :on-input    (fn [e] (dispatch [:conduit/edit-draft
-                                                               m/comment-draft-key
+                                                               rf.bench.hicasso.shapes.model/comment-draft-key
                                                                (.. e -target -value)]))}]]
      [:div.card-footer
       [:button.btn.btn-sm.btn-primary {:type        "submit"
@@ -802,9 +802,9 @@
 ;; ===========================================================================
 
 (def ^:private hicasso-page
-  {:large-template lt/page
-   :feed           feed/page
-   :ordinary       ordinary/screen})
+  {:large-template rf.bench.hicasso.shapes.large-template/page
+   :feed           rf.bench.hicasso.shapes.feed/page
+   :ordinary       rf.bench.hicasso.shapes.ordinary/screen})
 
 (def ^:private ux-page
   {:large-template ux-lt-page
@@ -826,22 +826,22 @@
 
 (defn arm
   "The lane arm for `arm-id` on `row-key` — `{:id :mount :unmount}`, the
-  shape `lane/mount-arm!` times. `:floor` and `:ctl-2x` close over plain
+  shape `rf.bench.hicasso.lane/mount-arm!` times. `:floor` and `:ctl-2x` close over plain
   seeded values built at load; the reactive arms close over their frames."
   [row-key arm-id]
   (let [fid (frame-of row-key arm-id)]
     (case arm-id
-      :floor   (let [db (m/seed-db (:seed (get rows row-key)))]
+      :floor   (let [db (rf.bench.hicasso.shapes.model/seed-db (:seed (get rows row-key)))]
                  (react-root-arm :floor (fn [] (floor-element row-key db))))
-      :ctl-2x  (let [db (m/seed-db (doubled row-key))]
+      :ctl-2x  (let [db (rf.bench.hicasso.shapes.model/seed-db (doubled row-key))]
                  (assoc (react-root-arm :ctl-2x (fn [] (floor-element row-key db)))
                         :control? true
                         :parity-exempt? true))
       :hicasso (react-root-arm :hicasso
-                 (fn [] (arm1-mount/provider fid
-                          (codec/as-element [(get hicasso-page row-key) {}]))))
+                 (fn [] (rf.bench.hicasso.arm1.mount/provider fid
+                          (rf.bench.hicasso.front.codec/as-element [(get hicasso-page row-key) {}]))))
       :uix     (react-root-arm :uix
-                 (fn [] ($ uixa/frame-provider {:frame fid}
+                 (fn [] ($ rf.adapter.uix/frame-provider {:frame fid}
                            ($ (get ux-page row-key) {}))))
       :reagent {:id      :reagent
                 :mount   (fn [container _props _n]
@@ -880,13 +880,13 @@
   [row-key arm-ids seed]
   (reseed-row! row-key arm-ids seed)
   (let [expected (elements-at row-key seed)
-        db       (m/seed-db seed)
+        db       (rf.bench.hicasso.shapes.model/seed-db seed)
         arms     (mapv (fn [id]
                          (if (= id :floor)
                            (react-root-arm :floor (fn [] (floor-element row-key db)))
                            (arm row-key id)))
                        arm-ids)
-        p        (lane/parity arms {})]
+        p        (rf.bench.hicasso.lane/parity arms {})]
     (try
       {:agree?    (:agree? p)
        :counts    (:counts p)
@@ -894,7 +894,7 @@
        :reference (:reference p)
        :disagree  (:disagree p)}
       (finally
-        (doseq [mnt (:mounts p)] (lane/release! mnt))))))
+        (doseq [mnt (:mounts p)] (rf.bench.hicasso.lane/release! mnt))))))
 
 (defn parity-problems
   "Every row, at stress size and at a small size: every arm builds ONE

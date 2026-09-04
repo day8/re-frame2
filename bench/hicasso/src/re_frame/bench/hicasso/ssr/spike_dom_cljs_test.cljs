@@ -76,7 +76,7 @@
   a debug-gated counter is dead code the compiler removes. (`rstate`
   carries `^js` and its keys are string literals, so `:infer-externs
   :auto` keeps `.-bodyRuns` off Closure's renamer too — the same spelling
-  discipline `mount/adoption-window-closer`'s `displayName` stamp
+  discipline `rf.bench.hicasso.arm1.mount/adoption-window-closer`'s `displayName` stamp
   documents.) So the adversarial hazard (F6) does not reach the counter
   this row reads: it is present in every build, and this row reads it in
   the one whose runtime it stamps. [[runtime-stamp]] records that stamp
@@ -86,26 +86,26 @@
   React DOM; under `:node-test` every DOM claim degrades to a stated
   skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.dogfood-collector :as collector]
-            [re-frame.bench.hicasso.arm1.dogfood-script :as script]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.arm1.dogfood-collector :as rf.bench.hicasso.arm1.dogfood-collector]
+            [re-frame.bench.hicasso.arm1.dogfood-script :as rf.bench.hicasso.arm1.dogfood-script]
             [re-frame.bench.hicasso.arm1.hydration-support
              :refer [adopted! every-server-node? open-console-capture! server-dom!
                      server-node? stamp-server-nodes!]]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.ssr.entry :as entry]
-            [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
+            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.ssr.entry :as rf.bench.hicasso.ssr.entry]
+            [re-frame.bench.hicasso.ssr.fixtures :as rf.bench.hicasso.ssr.fixtures]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::ssr-spike)
 
 (def ^:private todo-count
   "The seeded size, taken from the corpus row rather than chosen here —
-  `fixtures/corpus`'s `dogfood-snapshot` is seeded `(dogfood/seed-db 8)`,
+  `rf.bench.hicasso.ssr.fixtures/corpus`'s `dogfood-snapshot` is seeded `(rf.bench.hicasso.front.dogfood/seed-db 8)`,
   and [[same-snapshot!]] asserts the client frame holds exactly that."
   8)
 
@@ -130,14 +130,14 @@
   {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0})
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
-                      (fixtures/register!)
-                      (rt/reset-runtime!)
-                      (rt/reset-body-runs!))}))
+                      (rf.bench.hicasso.ssr.fixtures/register!)
+                      (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+                      (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
 
 (defn- skip! [why]
   (is true (str "an SSR spike row needs a real React DOM — " why)))
@@ -145,7 +145,7 @@
 (defn runtime-stamp
   "The runtime a row was taken on, carried BESIDE the row.
 
-  Deliberately NOT `lane/runtime-label`: that one reports
+  Deliberately NOT `rf.bench.hicasso.lane/runtime-label`: that one reports
   `:optimizations :advanced` as a LITERAL, which is true of every arm in
   the bench lane and false here. A stamp that names the wrong build is
   worse than no stamp."
@@ -170,10 +170,10 @@
   written out, so `the same snapshot` is a checked claim on both sides
   rather than two call sites that happen to agree today."
   []
-  (lane/leave-act-environment!)
-  (dogfood/make-frame! frame-id todo-count)
-  (dogfood/reseed! frame-id todo-count)
-  (is (= (dogfood/seed-db todo-count) (rf/app-db-value frame-id))
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.front.dogfood/make-frame! frame-id todo-count)
+  (rf.bench.hicasso.front.dogfood/reseed! frame-id todo-count)
+  (is (= (rf.bench.hicasso.front.dogfood/seed-db todo-count) (rf/app-db-value frame-id))
       "the client frame holds exactly the snapshot the server rendered")
   frame-id)
 
@@ -193,15 +193,15 @@
   ask for DIFFERENT bytes without inventing a second request shape."
   ([] (server! nil))
   ([opts]
-   (rt/reset-runtime!)
-   (rt/reset-body-runs!)
-   (let [{:keys [html]} (entry/render (merge (fixtures/row "dogfood-snapshot") opts))
-         runs (rt/body-runs)]
+   (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+   (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+   (let [{:keys [html]} (rf.bench.hicasso.ssr.entry/render (merge (rf.bench.hicasso.ssr.fixtures/row "dogfood-snapshot") opts))
+         runs (rf.bench.hicasso.arm1.runtime/body-runs)]
      ;; The server render is over before anything is hydrated, so its
      ;; counter is read here and the runtime the hydration is measured on
      ;; starts empty.
-     (rt/reset-runtime!)
-     (rt/reset-body-runs!)
+     (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+     (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
      {:html html :body-runs runs})))
 
 (defn- hydrate-and-adopt!
@@ -224,9 +224,9 @@
   ([html capture-opts]
    (let [container (stamp-server-nodes! (server-dom! html))
         {:keys [captured close!]} (open-console-capture! capture-opts)
-         handle    (mount/hydrate-root! container frame-id [collector/screen {}])
+         handle    (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id [rf.bench.hicasso.arm1.dogfood-collector/screen {}])
          at-return (count @captured)
-         open?     (rt/adopting?)]
+         open?     (rf.bench.hicasso.arm1.runtime/adopting?)]
      (-> (adopted!)
          (.then (fn [ok]
                   (close!)
@@ -241,7 +241,7 @@
   "A cold, ordinary client mount of the same screen on the same frame —
   the control every parity row is stated against."
   []
-  (mount/root! (mount/fresh-container!) frame-id [collector/screen {}]))
+  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [rf.bench.hicasso.arm1.dogfood-collector/screen {}]))
 
 ;; ===========================================================================
 ;; X1(b) — CANONICAL-DOM PARITY
@@ -249,7 +249,7 @@
 
 (deftest x1b-the-hydrated-dom-equals-the-client-only-dom
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         ;; The CONTROL goes first, on the freshest frame. If it went last a
@@ -257,9 +257,9 @@
         ;; residue from the mount before it.
         (same-snapshot!)
         (let [cold      (client-only!)
-              cold-dom  (lane/canonical (:container cold))
-              cold-runs (rt/body-runs)]
-          (mount/release! cold)
+              cold-dom  (rf.bench.hicasso.lane/canonical (:container cold))
+              cold-runs (rf.bench.hicasso.arm1.runtime/body-runs)]
+          (rf.bench.hicasso.arm1.mount/release! cold)
           (same-snapshot!)
           (let [{:keys [html body-runs]} (server!)]
             (-> (hydrate-and-adopt! html)
@@ -270,7 +270,7 @@
                       (is (= [] warnings)
                           (str "React reported nothing on either channel: "
                                (pr-str warnings)))
-                      (let [hydrated-dom (lane/canonical container)]
+                      (let [hydrated-dom (rf.bench.hicasso.lane/canonical container)]
                         (is (= cold-dom hydrated-dom)
                             "**canonical-DOM parity.** The page React adopted
                              from the server's bytes is the page a cold client
@@ -287,13 +287,13 @@
                              above is an equality of something")
                         (is (= todo-count
                                (.-length (.querySelectorAll container ".row"))))
-                        ;; `lane/utf8-bytes` and not `count`, which answers
+                        ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count`, which answers
                         ;; UTF-16 code units (rf2-2rtt6.121).
-                        (report! "X1b" {:canonical-bytes  (lane/utf8-bytes hydrated-dom)
+                        (report! "X1b" {:canonical-bytes  (rf.bench.hicasso.lane/utf8-bytes hydrated-dom)
                                         :rows             todo-count
                                         :server-body-runs body-runs
                                         :cold-body-runs   cold-runs}))
-                      (finally (mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
 
 (deftest x1b-the-canonical-comparator-can-answer-false
   (testing "**the mutation proof for X1(b).** The comparator is a
@@ -302,7 +302,7 @@
            reading if the same call can say `different`. One toggle on the
            hydrated screen, and it does"
     (async done
-      (if-not (mount/browser?)
+      (if-not (rf.bench.hicasso.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (same-snapshot!)
@@ -311,12 +311,12 @@
                 (.then
                   (fn [{:keys [handle container]}]
                     (try
-                      (let [before (lane/canonical container)]
-                        (mount/dispatch! handle [:dogfood/toggle 0])
-                        (is (not= before (lane/canonical container))
+                      (let [before (rf.bench.hicasso.lane/canonical container)]
+                        (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/toggle 0])
+                        (is (not= before (rf.bench.hicasso.lane/canonical container))
                             "the same comparator, the same container, one
                              changed row — and it says so"))
-                      (finally (mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
 
 ;; ===========================================================================
 ;; X2 — ADOPTION IS REAL
@@ -324,7 +324,7 @@
 
 (deftest x2-adoption-is-real
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (same-snapshot!)
@@ -339,7 +339,7 @@
                          returns before the tree is adopted and the window
                          has to outlive the call")
                     (is (true? adopted?) "the closer's passive effect ran")
-                    (is (false? (rt/adopting?)) "and shut the window")
+                    (is (false? (rf.bench.hicasso.arm1.runtime/adopting?)) "and shut the window")
 
                     (testing "(a) ZERO HYDRATION-MISMATCH WARNINGS, on both
                              the channels React 19 uses, across the WHOLE
@@ -367,15 +367,15 @@
                              ONCE, **counted** in `run-once` where a body is
                              invoked (rf2-2rtt6.84 (6)) rather than inferred
                              from the renders React was asked for"
-                      (is (= boundary-count (rt/body-runs))
+                      (is (= boundary-count (rf.bench.hicasso.arm1.runtime/body-runs))
                           (str "each of the screen's " boundary-count
                                " boundaries ran its body exactly once to "
-                               "adopt — read " (rt/body-runs)))
+                               "adopt — read " (rf.bench.hicasso.arm1.runtime/body-runs)))
                       (is (= boundary-count body-runs)
                           (str "and the SERVER ran the same " boundary-count
                                " bodies for the same screen, so the two sides "
                                "rendered the same tree — read " body-runs))
-                      (is (= boundary-count (inc (:boundaries (rt/stats))))
+                      (is (= boundary-count (inc (:boundaries (rf.bench.hicasso.arm1.runtime/stats))))
                           (str "…and the runtime's own census agrees with the
                                 roster this row names, so " boundary-count
                                " is not a constant nobody checks. `:boundaries`
@@ -386,23 +386,23 @@
                                 correctly absent (`runtime/stats` says exactly
                                 this). Exactly one such boundary on this
                                 screen, hence the `inc`; read "
-                               (:boundaries (rt/stats))))
-                      (is (= boundary-count (:entries (rt/stats)))
+                               (:boundaries (rf.bench.hicasso.arm1.runtime/stats))))
+                      (is (= boundary-count (:entries (rf.bench.hicasso.arm1.runtime/stats)))
                           "**and every one of them is subscribed to an entry
                            still in the cache** — the row the 0 → 4 ms reap
                            horizon exists for")
-                      (is (pos? (:cell-refs (rt/stats)))
+                      (is (pos? (:cell-refs (rf.bench.hicasso.arm1.runtime/stats)))
                           "and the references are real"))
 
-                    (report! "X2" {:body-runs-client (rt/body-runs)
+                    (report! "X2" {:body-runs-client (rf.bench.hicasso.arm1.runtime/body-runs)
                                    :body-runs-server body-runs
                                    :boundary-count   boundary-count
                                    :sync-warnings    sync-warnings
                                    :warnings         warnings
-                                   :stats            (select-keys (rt/stats)
+                                   :stats            (select-keys (rf.bench.hicasso.arm1.runtime/stats)
                                                                   [:cells :cell-refs
                                                                    :boundaries :entries])})
-                    (finally (mount/release! handle) (done)))))))))))
+                    (finally (rf.bench.hicasso.arm1.mount/release! handle) (done)))))))))))
 
 (deftest x2-the-console-capture-can-answer-false
   (testing "**the mutation proof for X2(a), and a measurement of the
@@ -426,11 +426,11 @@
            rule this row does not soften, because the error is not
            unasserted here, it IS the assertion"
     (async done
-      (if-not (mount/browser?)
+      (if-not (rf.bench.hicasso.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (same-snapshot!)
-          (let [{:keys [html]} (server! {:snapshot (dogfood/seed-db (inc todo-count))})]
+          (let [{:keys [html]} (server! {:snapshot (rf.bench.hicasso.front.dogfood/seed-db (inc todo-count))})]
             (-> (hydrate-and-adopt! html {:swallow-uncaught? true})
                 (.then
                   (fn [{:keys [handle container warnings sync-warnings]}]
@@ -449,7 +449,7 @@
                       (is (= todo-count (.-length (.querySelectorAll container ".row")))
                           "and the client's model won, as a hydration
                            mismatch's recovery must")
-                      (finally (mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
 
 (deftest x2-the-node-identity-check-can-answer-false
   (testing "**the mutation proof for X2(b).** `root!` — an ordinary client
@@ -457,7 +457,7 @@
            nodes away and builds its own. Every stamp must be gone. That is
            the difference `hydrate-root!` makes, stated as a measurement
            rather than as a claim about which API was called"
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (same-snapshot!)
@@ -465,7 +465,7 @@
               container (stamp-server-nodes! (server-dom! html))]
           (is (every-server-node? container ".row")
               "the stamps are on before anything mounts")
-          (let [handle (mount/root! container frame-id [collector/screen {}])]
+          (let [handle (rf.bench.hicasso.arm1.mount/root! container frame-id [rf.bench.hicasso.arm1.dogfood-collector/screen {}])]
             (try
               (is (pos? (.-length (.querySelectorAll container ".row")))
                   "the client mount built the page")
@@ -473,7 +473,7 @@
                   "and NONE of its rows is a server node — a plain mount
                    replaces the DOM, so the identity check in X2(b) is
                    measuring adoption and not merely the presence of markup")
-              (finally (mount/release! handle)))))))))
+              (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))))
 
 (deftest x2-a-props-equal-re-render-runs-no-body
   (testing "**the mutation proof for X2(c)** (HD-028's rider). The counter
@@ -484,7 +484,7 @@
            here — and would then be unable to tell a genuine adoption from
            a skipped one"
     (async done
-      (if-not (mount/browser?)
+      (if-not (rf.bench.hicasso.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (same-snapshot!)
@@ -493,17 +493,17 @@
                 (.then
                   (fn [{:keys [handle container]}]
                     (try
-                      (rt/reset-body-runs!)
-                      (mount/render! handle [collector/screen {}])
-                      (is (zero? (rt/body-runs))
+                      (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+                      (rf.bench.hicasso.arm1.mount/render! handle [rf.bench.hicasso.arm1.dogfood-collector/screen {}])
+                      (is (zero? (rf.bench.hicasso.arm1.runtime/body-runs))
                           (str "a props-equal re-render ran no body; read "
-                               (rt/body-runs)))
+                               (rf.bench.hicasso.arm1.runtime/body-runs)))
                       (is (every-server-node? container ".row")
                           "and every row is still the SERVER'S node — the
                            re-render did not tear the adopted tree down,
-                           which is what `mount/tree`'s hydrated root shape
+                           which is what `rf.bench.hicasso.arm1.mount/tree`'s hydrated root shape
                            buys")
-                      (finally (mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
 
 ;; ===========================================================================
 ;; X4 — THE SCREEN IS ALIVE
@@ -526,12 +526,12 @@
                                (fn [record]
                                  (when (= frame-id (:frame record))
                                    (swap! log conj (:event record)))))
-        (script/run-steps!
-          (script/interaction-steps handle)
+        (rf.bench.hicasso.arm1.dogfood-script/run-steps!
+          (rf.bench.hicasso.arm1.dogfood-script/interaction-steps handle)
           (fn []
-            (let [result {:intents @log :dom (lane/canonical (:container handle))}]
+            (let [result {:intents @log :dom (rf.bench.hicasso.lane/canonical (:container handle))}]
               (rf/unregister-listener! :events ::x4)
-              (mount/release! handle)
+              (rf.bench.hicasso.arm1.mount/release! handle)
               (resolve result))))))))
 
 (defn- hydrated-script-run!
@@ -548,7 +548,7 @@
 
 (deftest x4-the-hydrated-screen-dispatches-the-stated-intents
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       ;; The control first, on the freshest frame — same reasoning as X1(b).
       (do
@@ -559,10 +559,10 @@
                             (fn [hydrated-run] [cold-run hydrated-run]))))
             (.then
               (fn [[cold-run hydrated-run]]
-                (is (= script/interaction-intents (:intents cold-run))
+                (is (= rf.bench.hicasso.arm1.dogfood-script/interaction-intents (:intents cold-run))
                     "the client-only screen dispatches exactly the stated
                      intents — and nothing for the two composing keystrokes")
-                (is (= script/interaction-intents (:intents hydrated-run))
+                (is (= rf.bench.hicasso.arm1.dogfood-script/interaction-intents (:intents hydrated-run))
                     "**and so does the HYDRATED screen.** Seventeen real DOM
                      events — clicks, prototype-setter keystrokes, native
                      `keydown`s carrying `isComposing` and `keyCode` — reach
@@ -576,7 +576,7 @@
                      interactions, not just at adoption")
                 (report! "X4" {:steps          17
                                :intents        (count (:intents hydrated-run))
-                               :intents-match? (= script/interaction-intents
+                               :intents-match? (= rf.bench.hicasso.arm1.dogfood-script/interaction-intents
                                                   (:intents hydrated-run))
                                :dom-match?     (= (:dom cold-run) (:dom hydrated-run))})))
             ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
@@ -593,7 +593,7 @@
            server rendered, and the first keystroke after adoption echoes
            in the caller's own turn, exactly as on the client-only screen"
     (async done
-      (if-not (mount/browser?)
+      (if-not (rf.bench.hicasso.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (same-snapshot!)
@@ -613,14 +613,14 @@
                             "and it holds what the server rendered: the
                              seeded app-db carries no draft, so hydration
                              converged nothing")
-                        (script/type-into! input "milk")
-                        (mount/settle!)
+                        (rf.bench.hicasso.arm1.dogfood-script/type-into! input "milk")
+                        (rf.bench.hicasso.arm1.mount/settle!)
                         (is (= "milk" (.-value (.querySelector container ".new-input")))
                             "the echo landed without waiting for a later turn")
                         (is (server-node? (.querySelector container ".new-input"))
                             "and it is STILL the server's node — the echo did
                              not remount the field"))
-                      (finally (mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
 
 ;; ===========================================================================
 ;; X5 — TEARDOWN CLEAN
@@ -628,7 +628,7 @@
 
 (deftest x5-unmounting-the-hydrated-root-leaves-no-residue
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.bench.hicasso.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (same-snapshot!)
@@ -639,28 +639,28 @@
                   (is (true? adopted?) "adoption completed")
                   ;; Drive it, so the teardown has something to release that
                   ;; the adoption alone did not install.
-                  (mount/dispatch! handle [:dogfood/toggle 0])
-                  (mount/dispatch! handle [:dogfood/set-filter :all])
-                  (is (pos? (:cell-refs (rt/stats)))
+                  (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/toggle 0])
+                  (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/set-filter :all])
+                  (is (pos? (:cell-refs (rf.bench.hicasso.arm1.runtime/stats)))
                       "the hydrated screen holds references, so the reading
                        below is a reading of something")
                   ;; `unmount!`, never `release!`: `release!` resets the
                   ;; runtime, and a reading taken after that reset is a
                   ;; reading of an emptied table — zero however badly the
                   ;; teardown went (rf2-2rtt6.48).
-                  (mount/unmount! handle)
+                  (rf.bench.hicasso.arm1.mount/unmount! handle)
                   (js/setTimeout
                     (fn []
-                      (is (= nothing-retained (rt/residue))
+                      (is (= nothing-retained (rf.bench.hicasso.arm1.runtime/residue))
                           (str "**React's own cleanup released every edge, "
                                "reference and cached entry on the HYDRATED "
-                               "path.** Read " (pr-str (rt/residue))))
-                      (report! "X5" {:residue (rt/residue)})
+                               "path.** Read " (pr-str (rf.bench.hicasso.arm1.runtime/residue))))
+                      (report! "X5" {:residue (rf.bench.hicasso.arm1.runtime/residue)})
                       (rf/destroy-frame! frame-id)
                       (is (nil? (rf/app-db-value frame-id))
                           "and the frame is destroyable — an adopted root
                            leaves nothing holding it open")
-                      (rt/reset-runtime!)
+                      (rf.bench.hicasso.arm1.runtime/reset-runtime!)
                       (done))
                     reaper-horizon-ms)))))))))
 
@@ -672,7 +672,7 @@
            resets the runtime, so it would report zero here too, with a
            whole screen still adopted"
     (async done
-      (if-not (mount/browser?)
+      (if-not (rf.bench.hicasso.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (same-snapshot!)
@@ -694,7 +694,7 @@
                     ;; The doomed root's teardown is the ACT UNDER TEST, not
                     ;; cleanup: what follows reads what it left behind. It stays
                     ;; exactly here.
-                    (mount/unmount! (:handle doomed))
+                    (rf.bench.hicasso.arm1.mount/unmount! (:handle doomed))
                     ;; The reaper's horizon is a MACROTASK, and the row has to
                     ;; AWAIT it rather than let a bare timer carry the
                     ;; assertions off the end of the chain. Returned as a
@@ -707,10 +707,10 @@
                         (js/setTimeout
                           (fn []
                             (try
-                              (is (not= nothing-retained (rt/residue))
+                              (is (not= nothing-retained (rf.bench.hicasso.arm1.runtime/residue))
                                   "a live adopted screen is visible to the residue
                                    reading")
-                              (is (pos? (:cell-refs (rt/residue)))
+                              (is (pos? (:cell-refs (rf.bench.hicasso.arm1.runtime/residue)))
                                   "and it is visible as held references, which is
                                    the quantity X5 asserts to be zero")
                               (resolve nil)
@@ -728,5 +728,5 @@
                 ;; thing that rejected — so the row cannot hand a live adopted
                 ;; screen to the namespace after it.
                 (.then (fn [_]
-                         (some-> @survivor* :handle mount/release!)
+                         (some-> @survivor* :handle rf.bench.hicasso.arm1.mount/release!)
                          (done))))))))))

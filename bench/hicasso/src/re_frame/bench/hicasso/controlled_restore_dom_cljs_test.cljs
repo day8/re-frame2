@@ -143,9 +143,9 @@
     assertion gets one home."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uixa]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support]
+            [re-frame.test-support :as rf.test-support]
             [uix.core :refer [$ defui]]
             [uix.compiler.input]
             ;; Required so `:uix-reagent-input` can be SELECTED rather
@@ -261,8 +261,8 @@
 
 (defui cell-view [{:keys [i door converge?]}]
   (swap! !body-runs inc)
-  (let [v                                (uixa/use-subscribe [:cgrid/cell i])
-        {:keys [dispatch dispatch-sync]} (uixa/use-frame)
+  (let [v                                (rf.adapter.uix/use-subscribe [:cgrid/cell i])
+        {:keys [dispatch dispatch-sync]} (rf.adapter.uix/use-frame)
         send                             (if (= :queued door) dispatch dispatch-sync)]
     (swap! !rendered assoc i v)
     ($ :div.cell
@@ -352,7 +352,7 @@
    (reset! !rendered {})
    (let [root (react-dom-client/createRoot container)]
      (react-dom/flushSync
-      (fn [] (.render root ($ uixa/frame-provider {:frame frame-id}
+      (fn [] (.render root ($ rf.adapter.uix/frame-provider {:frame frame-id}
                               ($ grid-view {:n n :door door :converge? converge?})))))
      root)))
 
@@ -418,8 +418,8 @@
 ;; evaluated, so it has to sit below the `reg-*` calls above — a
 ;; `use-fixtures` placed at the top of the file strands every one of
 ;; them and the whole grid renders empty.
-(use-fixtures :each (test-support/make-reset-runtime-fixture
-                     {:adapter uixa/adapter :ambient-frame nil :async? true}))
+(use-fixtures :each (rf.test-support/make-reset-runtime-fixture
+                     {:adapter rf.adapter.uix/adapter :ambient-frame nil :async? true}))
 
 ;; ---------------------------------------------------------------------------
 ;; The selector itself — the reason every row below names an implementation

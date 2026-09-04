@@ -32,7 +32,7 @@
   none, so there is now nothing on the wire to lean on either. The
   measurement stands unchanged and
   [[the-byte-digest-separates-the-two-pages-render-hash-cannot]] still
-  takes that exact pair, now over `ssr-hash/render-tree-hash` directly:
+  takes that exact pair, now over `rf.ssr.hash/render-tree-hash` directly:
   the degeneracy is a fact about hashing an unresolved root form, not
   about this entry, so removing the emission does not retire it. It is
   the reason this row is entitled to say `deterministic` where the
@@ -48,25 +48,25 @@
   different pages to take two different digests."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
             ;; rf2-2rtt6.121 — for `utf8-bytes` alone. The lane is already on
             ;; the `:node-test` classpath (its `*_dom_cljs_test` siblings
             ;; require it and `cljs-test$` matches them too), so this adds no
             ;; dependency the build did not already carry.
-            [re-frame.bench.hicasso.lane :as lane]
-            [re-frame.bench.hicasso.ssr.entry :as entry]
-            [re-frame.bench.hicasso.ssr.fixtures :as fixtures]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.hicasso.ssr.entry :as rf.bench.hicasso.ssr.entry]
+            [re-frame.bench.hicasso.ssr.fixtures :as rf.bench.hicasso.ssr.fixtures]
             ;; rf2-2rtt6.91 — the entry ships no render hash, so the control
             ;; row takes the hash it is a control AGAINST directly.
-            [re-frame.ssr.hash :as ssr-hash]
-            [re-frame.test-support :as test-support]))
+            [re-frame.ssr.hash :as rf.ssr.hash]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      :async?  true
-     :init-fn (fn [] (fixtures/register!))}))
+     :init-fn (fn [] (rf.bench.hicasso.ssr.fixtures/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; SHA-256
@@ -100,8 +100,8 @@
 
 (deftest x1a-the-seeded-dogfood-snapshot-renders-byte-identical-documents
   (async done
-    (let [row (fixtures/row dogfood-row-id)
-          {:keys [identical? differs-at] a :first b :second} (entry/render-twice row)]
+    (let [row (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id)
+          {:keys [identical? differs-at] a :first b :second} (rf.bench.hicasso.ssr.entry/render-twice row)]
       (is (some? row) "the corpus still carries the row this witness renders")
       (is identical?
            (str "the same bundle and the same snapshot rendered two DIFFERENT "
@@ -121,7 +121,7 @@
               (report! "X1a"
                        {:row          dogfood-row-id
                         :sha256       ha
-                        ;; `lane/utf8-bytes` and not `count` (rf2-2rtt6.121).
+                        ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count` (rf2-2rtt6.121).
                         ;; THIS FIGURE MOVES, and it is the one published
                         ;; figure in this repair that does: measured
                         ;; 2026-08-06, the same document is 3,042 code units
@@ -135,11 +135,11 @@
                         ;; error. The DOCUMENT itself has since shrunk (that
                         ;; bead saw 3,101/3,119), which is corpus drift and
                         ;; nothing to do with the ruler.
-                        :bytes        (lane/utf8-bytes (:document a))
+                        :bytes        (rf.bench.hicasso.lane/utf8-bytes (:document a))
                         ;; rf2-2rtt6.91 — the published column, taken where
                         ;; the fact lives now that the entry emits none.
-                        :render-hash  (str (ssr-hash/render-tree-hash
-                                             (:hiccup (fixtures/row dogfood-row-id))))})))
+                        :render-hash  (str (rf.ssr.hash/render-tree-hash
+                                             (:hiccup (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id))))})))
           ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs the
           ;; whole remainder of the run synchronously, so a `.catch` downstream
           ;; of it would claim a later namespace's throw as this row's and fire
@@ -155,9 +155,9 @@
            row above is measuring the renderer's silence rather than its
            determinism"
     (async done
-      (let [row (fixtures/row dogfood-row-id)
-            eight (:document (entry/render row))
-            nine  (:document (entry/render (assoc row :snapshot (dogfood/seed-db 9))))]
+      (let [row (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id)
+            eight (:document (rf.bench.hicasso.ssr.entry/render row))
+            nine  (:document (rf.bench.hicasso.ssr.entry/render (assoc row :snapshot (rf.bench.hicasso.front.dogfood/seed-db 9))))]
         (is (not= eight nine))
         (-> (js/Promise.all #js [(sha256-hex eight) (sha256-hex nine)])
             (.then (fn [[h8 h9]]
@@ -183,10 +183,10 @@
            have shipped is a constant, so its absence costs this row
            nothing"
     (async done
-      (let [dog       (entry/render (fixtures/row dogfood-row-id))
-            conduit   (entry/render (fixtures/row "conduit-feed"))
-            dog-h     (ssr-hash/render-tree-hash (:hiccup (fixtures/row dogfood-row-id)))
-            conduit-h (ssr-hash/render-tree-hash (:hiccup (fixtures/row "conduit-feed")))]
+      (let [dog       (rf.bench.hicasso.ssr.entry/render (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id))
+            conduit   (rf.bench.hicasso.ssr.entry/render (rf.bench.hicasso.ssr.fixtures/row "conduit-feed"))
+            dog-h     (rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id)))
+            conduit-h (rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.hicasso.ssr.fixtures/row "conduit-feed")))]
         (is (not (contains? (:payload dog) :rf/render-hash))
             "no hash on the wire for an adoption-tier root")
         (is (= dog-h conduit-h)

@@ -32,7 +32,7 @@
   on purpose ([[parity-can-fail?]]), because an equality that cannot
   answer false is not a gate.
 
-  It is MOUNTED-DOM equality here, through `lane/canonical`, and that is
+  It is MOUNTED-DOM equality here, through `rf.bench.hicasso.lane/canonical`, and that is
   a STRONGER claim than the deterministic half made. That file states its
   own limit explicitly: it settles markup under `renderToStaticMarkup`
   and says nothing about a mounted node's properties or what a commit
@@ -44,7 +44,7 @@
 
   One page written twice, at [[boundaries]] boundaries, mounted into a
   fresh container inside ONE `react-dom/flushSync` window
-  (`lane/mount-batch!`). The window therefore holds the substrate's
+  (`rf.bench.hicasso.lane/mount-batch!`). The window therefore holds the substrate's
   element construction AND React's render, commit and DOM mutation —
   which is the point: the escape removes CLJS lowering from a cost React
   otherwise dominates, and a figure that excluded React's share would
@@ -70,7 +70,7 @@
 
   ## The control is adjudicated STRICTLY, and per round (rf2-gsn62)
 
-  `lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
+  `rf.bench.hicasso.lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
   `:hiccup` ratio must sit inside ±25% of 2.00x, and one bad round
   refuses the run however good the others were. This instrument is
   entitled to that rule and the coarse-leg rows are not — the 2026-07-31
@@ -94,7 +94,7 @@
 
   ## The published figure
 
-  `lane/ratio-between :direct :hiccup` over the per-round floor-normalised
+  `rf.bench.hicasso.lane/ratio-between :direct :hiccup` over the per-round floor-normalised
   ratios — direct-return mount time as a fraction of the hiccup spelling's,
   with its range and its `:straddles-1?` flag. A range that includes 1.0
   means INDISTINGUISHABLE and the row must say so rather than quote the
@@ -106,10 +106,10 @@
   existing `:hicasso-bench` build id via `HICASSO_INIT_FN` — no
   `shadow-cljs.edn` edit, which is what the driver's `--config-merge`
   exists for."
-  (:require [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.lane :as lane]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
+            [re-frame.hicasso :as rf.hicasso]
             ["react" :as react]))
 
 (def frame-id ::direct-return-clock)
@@ -158,11 +158,11 @@
   "The ordinary Rung 1 spelling. Two ambient reads, an intent vector at a
   callback slot, and a controlled field."
   [{:keys [id]}]
-  (let [label (h/sub [:dr/label id])
-        n     (count (h/sub [:dr/tags id]))]
+  (let [label (rf.hicasso/sub [:dr/label id])
+        n     (count (rf.hicasso/sub [:dr/tags id]))]
     [:div {:class "row" :on-click [:dr/picked id]}
      [:span {:class "label"} (str label " " n)]
-     [:input {:class "field" :value label :on-input [:dr/edited id ::h/value]}]]))
+     [:input {:class "field" :value label :on-input [:dr/edited id ::rf.hicasso/value]}]]))
 
 (defn direct-body
   "The Rung 3 spelling of the same page. The reads are the boundary's,
@@ -171,8 +171,8 @@
   function — and no controlled repair, so the field's echo is the
   author's to write."
   [{:keys [id]}]
-  (let [label (h/sub [:dr/label id])
-        n     (count (h/sub [:dr/tags id]))]
+  (let [label (rf.hicasso/sub [:dr/label id])
+        n     (count (rf.hicasso/sub [:dr/tags id]))]
     (react/createElement "div" #js {:className "row" :onClick (fn [_] nil)}
       (react/createElement "span" #js {:className "label"} (str label " " n))
       (react/createElement "input" #js {:className "field" :value label
@@ -185,9 +185,9 @@
   [_]
   nil)
 
-(h/defview hiccup-arm [props] (hiccup-body props))
-(h/defview direct-arm [props] (direct-body props))
-(h/defview floor-arm  [props] (floor-body props))
+(rf.hicasso/defview hiccup-arm [props] (hiccup-body props))
+(rf.hicasso/defview direct-arm [props] (direct-body props))
+(rf.hicasso/defview floor-arm  [props] (floor-body props))
 
 ;; ---------------------------------------------------------------------------
 ;; The page — identical for every arm but the body
@@ -216,9 +216,9 @@
 
 (defn- mount-page
   [view]
-  (fn [container _props _n] (h/mount! container {:frame frame-id} (page view))))
+  (fn [container _props _n] (rf.hicasso/mount! container {:frame frame-id} (page view))))
 
-(defn- unmount-page [handle] (h/unmount! handle))
+(defn- unmount-page [handle] (rf.hicasso/unmount! handle))
 
 (def ^:private arms
   [{:id :floor  :k 1 :elements floor-elements :parity-exempt? true
@@ -252,8 +252,8 @@
   splits round one, which is the contrast the guard reported; at
   `:warmup 8` it lands inside the warm-up and no measured sample straddles
   it. `{:warmup 8 :samples 12}` is also what every other harness riding
-  [[lane/mount-batch!]] already runs. That set is checkable and small —
-  `(lane/mount-batch!` has five call sites on this lane, this file,
+  [[rf.bench.hicasso.lane/mount-batch!]] already runs. That set is checkable and small —
+  `(rf.bench.hicasso.lane/mount-batch!` has five call sites on this lane, this file,
   `amp_merge_clock_app`, `coldmount_app`, `p0_converge_app` and
   `p0_reagent_app` — and the last three all sample at 8/12, so the two
   clocks were the lane's only batched-mount outliers. This arm stops
@@ -299,7 +299,7 @@
   probe that cannot pass manufactures a defect and hides real ones behind
   it."
   [arm container]
-  (and (= (:elements arm) (lane/element-count container))
+  (and (= (:elements arm) (rf.bench.hicasso.lane/element-count container))
        (or (= :floor (:id arm))
            (= (expected-far-end) (far-end container)))))
 
@@ -309,10 +309,10 @@
 
 (defn parity!
   "Mount every arm at once and compare the judged arms' canonical DOM.
-  Answers `lane/parity`'s verdict with the mounts already released."
+  Answers `rf.bench.hicasso.lane/parity`'s verdict with the mounts already released."
   []
-  (let [{:keys [mounts] :as p} (lane/parity arms nil)]
-    (doseq [m mounts] (lane/release! m))
+  (let [{:keys [mounts] :as p} (rf.bench.hicasso.lane/parity arms nil)]
+    (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
     p))
 
 (defn parity-can-fail?
@@ -321,15 +321,15 @@
   to the run's own labels afterwards, so nothing downstream is measured
   on the mutated page."
   []
-  (let [before (let [m (lane/mount-arm! (nth arms 1) nil)
-                     s (lane/canonical (:container m))]
-                 (lane/release! m)
+  (let [before (let [m (rf.bench.hicasso.lane/mount-arm! (nth arms 1) nil)
+                     s (rf.bench.hicasso.lane/canonical (:container m))]
+                 (rf.bench.hicasso.lane/release! m)
                  s)]
     (rf/with-frame frame-id
       (rf/dispatch-sync [:dr/seed (seed-db boundaries mutated-label)]))
-    (let [after (let [m (lane/mount-arm! (nth arms 2) nil)
-                      s (lane/canonical (:container m))]
-                  (lane/release! m)
+    (let [after (let [m (rf.bench.hicasso.lane/mount-arm! (nth arms 2) nil)
+                      s (rf.bench.hicasso.lane/canonical (:container m))]
+                  (rf.bench.hicasso.lane/release! m)
                   s)]
       (rf/with-frame frame-id
         (rf/dispatch-sync [:dr/seed (seed-db boundaries default-label)]))
@@ -341,12 +341,12 @@
 
 (defn- measure-one!
   [tally arm]
-  (let [{:keys [ms mounts]} (lane/mount-batch! arm nil (:k arm))]
+  (let [{:keys [ms mounts]} (rf.bench.hicasso.lane/mount-batch! arm nil (:k arm))]
     (doseq [m mounts]
       (let [ok? (verified? arm (:container m))]
         (swap! tally (fn [{:keys [of bad]}]
                        {:of (inc of) :bad (if ok? bad (inc bad))}))))
-    (doseq [m mounts] (lane/release! m))
+    (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
     ms))
 
 (defn- fmt [x n] (.toFixed (double x) n))
@@ -357,7 +357,7 @@
        "BEFORE the clock starts; the :ctl-2x arm's sample is the SAME operation "
        "performed TWICE inside one window, so its per-sample constants double "
        "with its work and its prediction is 2.00x by construction rather than by "
-       "model — adjudicated by lane/control-verdict-strict, which requires EVERY "
+       "model — adjudicated by rf.bench.hicasso.lane/control-verdict-strict, which requires EVERY "
        "round's ctl-2x/hiccup ratio to sit inside ±"
        (.toFixed (* 100.0 control-slack) 0)
        "% of it rather than merely the range, and records the per-round values so "
@@ -375,9 +375,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
-  (lane/leave-act-environment!)
-  (lane/self-test!)
+  (rf/init! rf.adapter.uix/adapter)
+  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.hicasso.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
@@ -390,12 +390,12 @@
           ;; known able to disagree.
           (let [p         (parity!)
                 can-fail? (parity-can-fail?)]
-            (lane/record! :direct-return-clock-parity
+            (rf.bench.hicasso.lane/record! :direct-return-clock-parity
                           {:agree?    (:agree? p)
                            :disagree  (:disagree p)
                            :counts    (:counts p)
                            :can-fail? can-fail?
-                           :bytes     (lane/utf8-bytes (or (:reference p) ""))})
+                           :bytes     (rf.bench.hicasso.lane/utf8-bytes (or (:reference p) ""))})
             (when-not (:agree? p)
               (throw (ex-info (str "FAIRNESS GATE: the two arms do not build the same "
                                    "mounted page, so no ratio between them is about the "
@@ -407,40 +407,40 @@
                                    "that cannot answer false is not a gate, and the "
                                    "agreement above is worth nothing.")
                               {}))))
-          (lane/assert-teardown-clean! "the fairness gate")
-          (.then (lane/settle!) (fn [_] nil))))
+          (rf.bench.hicasso.lane/assert-teardown-clean! "the fairness gate")
+          (.then (rf.bench.hicasso.lane/settle!) (fn [_] nil))))
       (.then
         (fn [_]
-          (let [baseline (lane/residue frame-id)
-                tally    (lane/tally)
+          (let [baseline (rf.bench.hicasso.lane/residue frame-id)
+                tally    (rf.bench.hicasso.lane/tally)
                 {:keys [readings samples]}
-                (lane/rounds! arms sampling rounds (partial measure-one! tally))
-                norm     (mapv #(lane/normalise % :floor) readings)
+                (rf.bench.hicasso.lane/rounds! arms sampling rounds (partial measure-one! tally))
+                norm     (mapv #(rf.bench.hicasso.lane/normalise % :floor) readings)
                 ratios   (mapv :ratio norm)
-                summ     (lane/across-rounds ratios)
+                summ     (rf.bench.hicasso.lane/across-rounds ratios)
                 p50s     (mapv :p50 norm)
                 abs      (into {}
                                (map (fn [{:keys [id]}]
-                                      [id (lane/summarise (mapv #(get % id) p50s))]))
+                                      [id (rf.bench.hicasso.lane/summarise (mapv #(get % id) p50s))]))
                                arms)
-                escape   (lane/ratio-between ratios :direct :hiccup)
-                gv       (lane/guard! samples "direct-return clock arms (in-page ms)")
+                escape   (rf.bench.hicasso.lane/ratio-between ratios :direct :hiccup)
+                gv       (rf.bench.hicasso.lane/guard! samples "direct-return clock arms (in-page ms)")
                 ;; THE POSITIVE CONTROL, per round and strictly (rf2-gsn62).
                 ;; `:ctl-2x` is `:hiccup`'s own operation performed twice in
                 ;; one window, so 2.00x is arithmetic rather than a model,
                 ;; and dividing each round by ITS OWN `:hiccup` leaves the
                 ;; floor and the round's drift out of it.
-                ctl-ratio (lane/ratio-between ratios :ctl-2x :hiccup)
-                ctl      (lane/control-verdict-strict
+                ctl-ratio (rf.bench.hicasso.lane/ratio-between ratios :ctl-2x :hiccup)
+                ctl      (rf.bench.hicasso.lane/control-verdict-strict
                            2.0 (:per-round ctl-ratio) control-slack)
-                tv       (lane/tally-value tally)]
-            (lane/assert-teardown-clean! "the measured rounds")
-            (lane/record! :direct-return-clock
+                tv       (rf.bench.hicasso.lane/tally-value tally)]
+            (rf.bench.hicasso.lane/assert-teardown-clean! "the measured rounds")
+            (rf.bench.hicasso.lane/record! :direct-return-clock
                           {:benchmark   :hicasso.P0/direct-return-clock
                            :bead        "rf2-5yn9"
                            :cites       "budgets.md D10-D13 (rf2-hic-033) — the deterministic half, NOT re-derived here"
                            :grade       :distributional
-                           :runtime     (lane/runtime-label)
+                           :runtime     (rf.bench.hicasso.lane/runtime-label)
                            :boundaries  boundaries
                            :elements    {:floor floor-elements :page page-elements}
                            :design      {:rounds rounds :sampling sampling}
@@ -481,10 +481,10 @@
               (set! (.-HICASSO_GUARD_REFUSED js/window) true))
             (when-not (:ok? ctl)
               (set! (.-HICASSO_CONTROL_FAILED js/window) true))
-            (.then (lane/settle!)
+            (.then (rf.bench.hicasso.lane/settle!)
                    (fn [_]
-                     (lane/assert-residue! baseline frame-id "the measured rounds")
-                     (lane/done!))))))
+                     (rf.bench.hicasso.lane/assert-residue! baseline frame-id "the measured rounds")
+                     (rf.bench.hicasso.lane/done!))))))
       (.catch (fn [e]
-                (lane/fail! (or (some-> e .-message) (str e)))
-                (lane/done!)))))
+                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.hicasso.lane/done!)))))

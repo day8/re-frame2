@@ -11,9 +11,9 @@
   arm that passed 78 of 78 while the slim arm failed 78 of 78), preserved
   here as the brief requires: a negative result about reagent-slim is only
   meaningful beside a positive one taken in the same harness."
-  (:require [re-frame.bench.hicasso.z3vlz-probe :as probe]
-            [re-frame.bench.hicasso.z3vlz-reagent-substrate :as stock]
-            [re-frame.bench.hicasso.z3vlz-slim-substrate :as slim]
+  (:require [re-frame.bench.hicasso.z3vlz-probe :as rf.bench.hicasso.z3vlz-probe]
+            [re-frame.bench.hicasso.z3vlz-reagent-substrate :as rf.bench.hicasso.z3vlz-reagent-substrate]
+            [re-frame.bench.hicasso.z3vlz-slim-substrate :as rf.bench.hicasso.z3vlz-slim-substrate]
             [re-frame.core :as rf]))
 
 (defn install-stock?
@@ -25,8 +25,8 @@
 
 (defn ^:export -main []
   (let [stock? (install-stock?)]
-    (rf/init! (if stock? stock/adapter slim/adapter))
-    (probe/run-probe! (if stock? stock/substrate slim/substrate)
+    (rf/init! (if stock? rf.bench.hicasso.z3vlz-reagent-substrate/adapter rf.bench.hicasso.z3vlz-slim-substrate/adapter))
+    (rf.bench.hicasso.z3vlz-probe/run-probe! (if stock? rf.bench.hicasso.z3vlz-reagent-substrate/substrate rf.bench.hicasso.z3vlz-slim-substrate/substrate)
                 {:bundle      :slim+reagent
                  :installed   (if stock? :reagent :reagent-slim)
                  :compiled-in [:reagent2 :reagent]}

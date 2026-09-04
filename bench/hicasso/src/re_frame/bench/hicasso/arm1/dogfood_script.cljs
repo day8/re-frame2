@@ -31,8 +31,8 @@
   Nothing here reads a subscription, mounts anything or asserts
   anything. The steps take a mount HANDLE (`{:container …}`) and the
   caller owns the mount, the capture and the assertions."
-  (:require [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.front.dogfood :as dogfood]))
+  (:require [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
+            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]))
 
 ;; ---------------------------------------------------------------------------
 ;; The three ways a user touches a page
@@ -84,16 +84,16 @@
    [:dogfood/set-filter :done]
    [:dogfood/set-filter :active]
    [:dogfood/set-filter :all]
-   [:dogfood/edit-draft dogfood/new-draft-key "milk"]
-   [:dogfood/cancel dogfood/new-draft-key]
-   [:dogfood/edit-draft dogfood/new-draft-key "milk"]
+   [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "milk"]
+   [:dogfood/cancel rf.bench.hicasso.front.dogfood/new-draft-key]
+   [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "milk"]
    [:dogfood/create]
    [:dogfood/edit-draft 0 "x"]
    [:dogfood/cancel 0]
    [:dogfood/edit-draft 3 "renamed"]
    [:dogfood/commit 3]
    [:dogfood/remove 2]
-   [:dogfood/edit-draft dogfood/new-draft-key "bread"]
+   [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "bread"]
    [:dogfood/create]])
 
 (defn interaction-steps
@@ -153,4 +153,4 @@
   (if (empty? steps)
     (k)
     (do ((first steps))
-        (js/setTimeout (fn [] (mount/settle!) (run-steps! (rest steps) k)) 8))))
+        (js/setTimeout (fn [] (rf.bench.hicasso.arm1.mount/settle!) (run-steps! (rest steps) k)) 8))))

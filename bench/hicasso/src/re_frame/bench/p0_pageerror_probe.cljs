@@ -17,7 +17,7 @@
   the judgement: *a wrong stub is not a cheaper proof, it is a fiction that
   can pass or fail for reasons that have nothing to do with the gate.*
 
-  So there is no stub. `-main` below calls `p0-app/-main` — the published
+  So there is no stub. `-main` below calls `rf.bench.p0-app/-main` — the published
   entry, unchanged — and then schedules a throw from a task the app does
   not own. That is rf2-sib23's fault shape exactly: the page throws AND
   STILL reaches its own completion sentinel, the case no page-side
@@ -25,7 +25,7 @@
 
   ## The throw is DETACHED, and that is the whole point
 
-  A `setTimeout` callback is a task `p0-app/-main` has already returned
+  A `setTimeout` callback is a task `rf.bench.p0-app/-main` has already returned
   from. Its throw escapes the app's `(catch :default e ...)`, sets no
   `window.P0_ERROR`, and rejects no `page.evaluate` — it reaches Playwright
   as `pageerror` and nowhere else. `sentinel.cjs`'s header carries the
@@ -61,11 +61,11 @@
   NOTHING SHIPS THIS. No driver names this namespace by default, no build
   in `shadow-cljs.edn` points at it, and `pageerror_exit_path.test.cjs`
   pins both facts."
-  (:require [re-frame.bench.p0-app :as p0-app]))
+  (:require [re-frame.bench.p0-app :as rf.bench.p0-app]))
 
 (defn ^:export -main
   []
-  (p0-app/-main)
+  (rf.bench.p0-app/-main)
   ;; AFTER the app has returned, and therefore after the sentinel it set.
   (js/setTimeout
    (fn []
