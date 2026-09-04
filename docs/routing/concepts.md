@@ -191,7 +191,7 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 | `:params` | Path params for `:to` |
 | `:replace?` | `replaceState` instead of `pushState` |
 | `:query` | Replace query wholesale |
-| `:query-merge` | Edit current query (`nil` removes a key) |
+| `:query-merge` | Edit current query — a **map** of deltas (a `nil` *member* value removes that key; a non-map value rejects) |
 | `:scroll` | `:top` / `:restore` / `:preserve` override |
 | `:fragment` | `#fragment` |
 | `:bypass-leave?` | `true` skips this route's `:can-leave` confirmation for one navigation |

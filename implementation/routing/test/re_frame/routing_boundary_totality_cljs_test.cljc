@@ -36,6 +36,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as rf.fx]
    [re-frame.identity :as rf.identity]
    [re-frame.interop :as rf.interop]
    [re-frame.routing :as rf.routing]
@@ -158,8 +159,30 @@
           "{} remains a valid exact no-op on both hosts")
       (is (nil? (rf.routing.address/classify {:query-merge {:page 2}} current))
           "a map delta still passes on both hosts"))
-    ;; …and the rejection really holds through the real dispatch door.
-    (rf/dispatch-sync [:rf.route/navigate {:query-merge [:page 2]}])
-    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                      [:rf.runtime/routing :current]))
-        "the rejected navigate left the route slice unchanged (no commit)")))
+    ;; …and the rejection really holds through the real dispatch door, from a
+    ;; LANDED route. Establishing a current route first is what makes this row
+    ;; discriminating: dispatched with no current route the request would
+    ;; reject `:no-current-route` either way and the row would pass whether or
+    ;; not rule 9 existed.
+    (rf/reg-route :route/search
+                  {:query [:map [:q {:optional true} :string]
+                                [:page {:optional true} :int]]}
+                  "/search")
+    (let [pushed (atom [])
+          slice  (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                                [:rf.runtime/routing :current]))]
+      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+                    (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/transitioned "/search?q=clojure&page=1"])
+      (let [query-before (:query (slice))
+            token-before (:nav-token (slice))]
+        (is (= {:q "clojure" :page 1} query-before)
+            "precondition: a real current route exists on this host")
+        (reset! pushed [])
+        (rf/dispatch-sync [:rf.route/navigate {:query-merge [:page 2]}])
+        (is (= query-before (:query (slice)))
+            "the rejected navigate left the query unchanged — no commit on this host")
+        (is (= token-before (:nav-token (slice)))
+            "…and the nav-token did not advance")
+        (is (empty? @pushed)
+            "…and no URL effect committed")))))
