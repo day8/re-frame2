@@ -30,7 +30,18 @@
     the probe holds the whole door to full completeness. This is the
     case `:jvm-only-classification` mirrors from the other side, and
     the reason that key needs no entry here.
-  - The Xray public surface (rf2-jhn46) — curated subsets (direction 1
+  - `day8.re-frame2-xray.core` (rf2-ar67) — fully-rowed, and the ONLY
+    Xray namespace held to completeness. It is the Xray FAÇADE, the third
+    of the three spec/Conventions.md §Facade policy names, and all
+    sixteen of its exports are enumerated by name in
+    tools/xray/spec/API.md §Wider public surface — so an export arriving
+    there unclassified is the accretion that policy exists to stop, and
+    BOTH directions are checked (an unrowed addition, or a row with no
+    live var, → RED). The rest of Xray stays a curated subset for the
+    reason below; they are ordinary namespaces that publish a few
+    documented vars, not enumerated surfaces.
+  - The rest of the Xray public surface (rf2-jhn46) — curated subsets
+    (direction 1
     only). spec/API.md tiers the Xray surfaces `internal-public` (the
     `mount` shell lifecycle + the `panels` `mount-<panel>!` family — the
     supported host-embed surface), `implementation` (the panel-leaf `Panel`
@@ -72,6 +83,7 @@
             [re-frame.adapter.reagent]
             [re-frame.adapter.uix]
             [re-frame.hicasso]
+            [day8.re-frame2-xray.core]
             [day8.re-frame2-xray.mount]
             [day8.re-frame2-xray.panels]
             [day8.re-frame2-xray.panels.epoch-panel]
@@ -106,8 +118,12 @@
    ;; JVM introspects them). `reconcile-rows` below carries both sets, so
    ;; the two arms reconcile against one live surface.
    "re-frame.hicasso"          (emit-ns-publics re-frame.hicasso)
+   ;; The Xray FAÇADE (rf2-ar67) — fully-rowed, unlike every other Xray
+   ;; namespace here. See `fully-rowed` below for why the postures differ.
+   "day8.re-frame2-xray.core"  (emit-ns-publics day8.re-frame2-xray.core)
    "day8.re-frame2-xray.mount" (emit-ns-publics day8.re-frame2-xray.mount)
-   ;; The Xray public surface (rf2-jhn46) — curated subsets (direction 1).
+   ;; The rest of the Xray public surface (rf2-jhn46) — curated subsets
+   ;; (direction 1).
    "day8.re-frame2-xray.panels"                      (emit-ns-publics day8.re-frame2-xray.panels)
    "day8.re-frame2-xray.panels.epoch-panel"          (emit-ns-publics day8.re-frame2-xray.panels.epoch-panel)
    "day8.re-frame2-xray.panels.app-db-diff"          (emit-ns-publics day8.re-frame2-xray.panels.app-db-diff)
@@ -129,12 +145,28 @@
    The two adapter namespaces — their public surface IS the documented
    adapter API — and the Hicasso door, which is likewise its whole
    documented authoring surface (`re-frame.hicasso.impl.*` is where the
-   non-surface lives, and the door re-exports none of it). The Xray mount
-   surface stays a curated subset (direction 1 only), so it is deliberately
-   absent here."
+   non-surface lives, and the door re-exports none of it).
+
+   `day8.re-frame2-xray.core` joins them (rf2-ar67) on the same test, and
+   the test is what separates it from its own siblings: a namespace belongs
+   here when its ENTIRE public surface is the documented API, and the Xray
+   façade's is — tools/xray/spec/API.md §Wider public surface enumerates all
+   sixteen exports by name, and the façade re-exports no internals (the
+   per-concern namespaces `mount` / `config` / `focus` / `registry` are the
+   seams Xray's own code reads). Holding it in BOTH directions is what makes
+   the manifest's sixteen `:facade? true` rows a real inventory rather than a
+   snapshot: a seventeenth export cannot arrive without a row carrying the
+   `:justification` and `:action` spec/Conventions.md §Facade policy demands
+   at diff time.
+
+   The OTHER Xray namespaces stay curated subsets (direction 1 only) and are
+   deliberately absent: `mount`, `panels`, `config` and the panel leaves are
+   implementation namespaces that publish a few documented vars, so full
+   completeness would oblige rows for their internals."
   #{"re-frame.adapter.reagent"
     "re-frame.adapter.uix"
-    "re-frame.hicasso"})
+    "re-frame.hicasso"
+    "day8.re-frame2-xray.core"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at

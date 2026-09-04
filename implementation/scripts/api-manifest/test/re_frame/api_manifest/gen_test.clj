@@ -359,13 +359,37 @@
 ;; reach every façade rather than only the framework one.
 ;; ---------------------------------------------------------------------------
 
-(deftest facade-namespaces-carries-both-enrolled-facades
-  (testing "the façade roster names re-frame.core AND re-frame.story, and does
-            NOT name day8.re-frame2-xray.core — which carries no manifest rows
-            yet, so naming it would be a claim the generator cannot check"
-    (is (contains? gen/facade-namespaces 're-frame.core))
-    (is (contains? gen/facade-namespaces 're-frame.story))
-    (is (not (contains? gen/facade-namespaces 'day8.re-frame2-xray.core)))))
+(deftest facade-namespaces-carries-all-three-enrolled-facades
+  (testing "the façade roster names exactly the three namespaces
+            spec/Conventions.md §Facade policy names — re-frame.core (the
+            framework), re-frame.story (the stories library) and
+            day8.re-frame2-xray.core (the Xray devtool, enrolled by rf2-ar67).
+            Asserted as SET EQUALITY, not three memberships: a fourth name
+            added here would silently subject a namespace to the facade-audit
+            invariants without a Conventions change, and three `contains?`
+            calls cannot see that."
+    (is (= '#{re-frame.core re-frame.story day8.re-frame2-xray.core}
+           gen/facade-namespaces))))
+
+(deftest xray-facade-rows-are-cljs-only-and-carry-the-flag-per-row
+  (testing "the Xray façade reaches the manifest by the `:cljs-only` route,
+            NOT via `facade?` — the namespace is not JVM-loadable, so every
+            one of its rows carries `:facade? true` in the sidecar itself.
+            This is the claim `facade-namespaces`' docstring makes about the
+            two routes; without it, a reader could believe adding the name to
+            that set is what flags the rows, and blanking the sidecar flags
+            would then look safe."
+    (let [sidecar   (gen/read-sidecar)
+          xray-rows (filter #(= "day8.re-frame2-xray.core" (:namespace %))
+                            (:cljs-only sidecar))]
+      (is (seq xray-rows)
+          "precondition: the sidecar carries :cljs-only rows for the Xray façade")
+      (is (not (contains? (set gen/jvm-namespaces) 'day8.re-frame2-xray.core))
+          "the Xray façade is CLJS-only — it must not be on the JVM roster")
+      (is (every? :facade? xray-rows)
+          "every Xray façade row must carry :facade? true in the sidecar")
+      (is (every? #(= :tooling (:tier %)) xray-rows)
+          "tooling is the Xray façade's front porch (Conventions §Story / Xray nuance)"))))
 
 (deftest live-manifest-has-facade-rows-in-every-enrolled-facade
   (testing "each namespace in `facade-namespaces` actually contributes

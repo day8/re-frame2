@@ -210,6 +210,52 @@ so the common boot-time wiring lands in one require. The full setter
 inventory lives in `day8.re-frame2-xray.config` — see §Wider public
 surface below.
 
+#### Facade classification and the enumerated-surface guarantee (rf2-ar67)
+
+All **16** exports above are classified in the repo-wide api-manifest
+(`spec/api-manifest.edn`), each carrying `:facade? true`, `:tier
+:tooling`, a facade-placement justification and a placement verdict —
+the four fields
+[`spec/Conventions.md`](../../../spec/Conventions.md) §Facade policy
+requires of every facade export. The verdict is **`keep` on all 16**;
+the retrospective sweep before the first external alpha recorded no
+move and no rename.
+
+It found the porch/workshop line already drawn: §Wider public surface
+below names the **two** surfaces deliberately kept *off* this facade
+(the per-key config setters beyond the four above, and the
+`keybinding/attach!` / `detach!` lifecycle pair) and says why for
+each. Tier `tooling` is not a demotion — per Conventions §Story / Xray
+nuance, for a tooling **product** tooling can legitimately *be* the
+front porch, and the discriminator is the user's workflow rather than
+the tier label. The three open verbs were not candidates for renaming
+either: §`open!` / `open-overlay!` / `popout!` — distinct verbs by
+design settled that question under `rf2-sa4fr`.
+
+**One spelling question is open and is deliberately not settled here.**
+`load-theme` is the only export on this facade that mutates without a
+`!` — it installs a `<style>` override into `<head>` via
+`global-styles/set-host-theme-css!`, which does carry the bang — while
+the other 15 are consistent (12 banged mutators; `status`,
+`target-frame` and `valid-focus-panels` are reads). Conventions
+§Naming bucket 3 would bang it, but `load-*` appears on no row of the
+§Lifecycle-verb law closed roster, and that section reserves adding a
+verb to the table as a Spec change rather than a per-author call — so
+the repair is ambiguous between `load-theme!` and a roster entry for
+`load-*`. Its **placement** on the facade is not in question.
+
+**The surface is now enumerated in both directions.** The CLJS
+enumeration probe holds `day8.re-frame2-xray.core` *fully-rowed*: an
+export added here without a manifest row, or a row whose var no longer
+resolves, turns the probe RED. This is the only Xray namespace held to
+completeness — the others (`mount`, `panels`, `config`, the panel
+leaves) publish curated subsets, so they are checked in one direction
+only. The practical consequence for a contributor: **adding a public
+var to `core.cljs` is a two-file change**, the `def` and its row in
+`spec/api-manifest-metadata.edn`, and the row must carry a
+justification and one of `keep` / `rename` / `move` /
+`internal-public`.
+
 **Requiring the facade is side-effect-free (rf2-5w06uu).** The two
 install paths are strictly separated:
 
