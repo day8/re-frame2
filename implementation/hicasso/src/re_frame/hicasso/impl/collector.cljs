@@ -849,11 +849,99 @@
   spinning."
   3)
 
+;; ---------------------------------------------------------------------------
+;; Spec 006's two dev-mode DOM annotations
+;; ---------------------------------------------------------------------------
+
+(def ^:private view-attrs-slot
+  "The dev-only own property carrying a declared view's Spec 006 DOM
+  annotations, pre-built at the mint. Written under `goog.DEBUG` only —
+  like `displayName` beside it and `views-slot` below — so a release
+  bundle carries neither the slot name nor an attribute value in it; the
+  literal is pinned on this line by
+  `scripts/check_production_erasure.cjs`."
+  "hicassoViewAttrs")
+
+(defn view-annotations
+  "The attrs map Spec 006 §Source-coord annotation and §View tagging
+  contract require on a registered view's rendered root, built ONCE per
+  declaration rather than once per render.
+
+  The formatters are core's single cross-host implementation
+  (`re-frame.source-coords`, reached here through the
+  `re-frame.adapter.context` re-export this namespace already requires),
+  so a Hicasso boundary's two attribute values are byte-identical to the
+  ones Reagent, reagent-slim, UIx and the JVM SSR registration boundary
+  emit for the same id. That is the whole property a tool rests on: one
+  reader over every substrate.
+
+  The id is `(keyword view-name)` — `view-name` is `\"<ns>/<sym>\"` and
+  the registrar entry `publish-view-alias!` writes is keyed by exactly
+  that keyword, so the attribute and the registrar agree by construction
+  and `(rf/handler-meta :view id)` answers for the node a tool just read.
+
+  The coordinate is the one `error/declaring!` recorded a moment earlier:
+  the `defview` expansion opens the declaration extent BEFORE it mints,
+  so the ledger already answers here. A boundary minted by calling
+  `mint-view!` directly — a harness, a tool, an HMR re-registration — has
+  no coordinate, and `format-source-coord` degrades those two segments to
+  `?`, which is the graceful degradation Spec 006 names for a
+  registration that bypassed the macro path."
+  [view-name]
+  (let [view-id (keyword view-name)]
+    {:data-rf2-source-coord (adapter-context/format-source-coord
+                              view-id (error/source-of view-name))
+     :data-rf-view          (adapter-context/format-view-id view-id)}))
+
+(defn annotate-root
+  "Merge a declared view's Spec 006 annotations into the root of the
+  hiccup its body just returned, and answer the hiccup to encode.
+
+  IT MUTATES THE EXISTING ROOT'S ATTRIBUTE MAP AND NEVER WRAPS. Spec 006
+  §CRITICAL constraint: mutate, do not wrap forbids a synthetic host
+  element because every layout idiom that reads the DOM tree shape breaks
+  when one is interposed — flex and grid direct children, table
+  anonymous-box generation, `:nth-child` and sibling selectors,
+  positioning ancestors, stacking contexts, containment. It is also what
+  makes the annotation free of a wrapper, a fiber and a hook, which is
+  what lets Hicasso honour the contract inside HD-020's two-hook budget:
+  the cost is two map entries on a map the codec was about to walk
+  anyway, in a dev build only.
+
+  ONLY a `:tag` root is annotated. `codec/head-kind` is the classifier the
+  codec itself dispatches on, and its other answers are exactly Spec 006's
+  documented non-DOM-root exemption: `:fragment` has no element to carry
+  an attribute; `:raw` (`[:> …]`) and `:host` hand their props straight to
+  a foreign component that never asked for framework-derived strings; and
+  `:boundary` is another declared view, which tags its own root. A root
+  that is not a vector at all — nil from a conditional body, a string, a
+  seq — is left alone for the same reason.
+
+  The author's attrs WIN the merge, matching the Reagent walk
+  (`re-frame.views.source-coord-annotation/inject-source-coord-attr`): a
+  body that wrote either attribute itself keeps the value it wrote."
+  [hiccup attrs]
+  (if (and (vector? hiccup)
+           (pos? (count hiccup))
+           (= :tag (codec/head-kind (nth hiccup 0))))
+    (let [maybe-attrs (nth hiccup 1 nil)]
+      (if (map? maybe-attrs)
+        (assoc hiccup 1 (merge attrs maybe-attrs))
+        (into [(nth hiccup 0) attrs] (rest hiccup))))
+    hiccup))
+
 (defn- run-once
   "One body run. The scratch and the probe box are reset
   **unconditionally** — a reset guarded by \"if empty\" would concatenate
   two renders' reads, which is precisely what makes StrictMode's
-  double-invoke correct here rather than additive."
+  double-invoke correct here rather than additive.
+
+  The body's hiccup passes through `annotate-root` before the codec sees
+  it, under `goog.DEBUG`, so Spec 006's two annotations land on the root
+  the boundary actually painted. Here rather than around the element the
+  codec answered, because hiccup is where the contract's mutate-the-attrs
+  rule is expressible; and inside the fence's per-attempt run rather than
+  once around it, because each attempt produces its own hiccup."
   [frame-kw body-fn props]
   (set! (.-length scratch) 0)
   (set! (.-probe rstate) nil)
@@ -865,7 +953,14 @@
   (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
   (try
     (intent/with-frame frame-kw (frame-dispatch frame-kw)
-      (fn [] (codec/as-element (body-fn props))))
+      (fn []
+        (codec/as-element
+          (let [out (body-fn props)]
+            (if ^boolean js/goog.DEBUG
+              (if-some [attrs (unchecked-get body-fn view-attrs-slot)]
+                (annotate-root out attrs)
+                out)
+              out)))))
     (finally
       (set! (.-frame rstate) nil))))
 
@@ -1033,7 +1128,13 @@
   component fn rather than in `render-body`, and what follows from that:
   docs/design/hicasso/architecture.md, section The collector."
   [view-name body-fn]
-  (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
+  (when ^boolean js/goog.DEBUG
+    (unchecked-set body-fn "displayName" view-name)
+    ;; Spec 006's two DOM annotations, built once here — the declaration
+    ;; extent `defview` opened is still open, so `view-annotations` reads
+    ;; this view's coordinate off `error`'s ledger rather than taking one
+    ;; as a parameter every mint would have to thread.
+    (unchecked-set body-fn view-attrs-slot (view-annotations view-name)))
   (let [component (fn hicasso-boundary [js-props]
                     (performance/mark-and-measure :render view-name
                       (shell body-fn js-props)))
