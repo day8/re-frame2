@@ -244,6 +244,83 @@
           #?(:clj Throwable :cljs js/Error) #"mutation-bad-spec"
           (rf/reg-mutation :m/bad-nil nil save-article-request)))))
 
+(defn- defn-write
+  "A `defn`'d write handler — `#'defn-write` below takes a Var of it."
+  [_params _ctx]
+  {:request {:method :put :url "/api/defn"}})
+
+(deftest reg-mutation-rejects-non-callable-request
+  ;; rf2-76md — `:rf.mutation/execute` invokes the THIRD slot as
+  ;; `((:request spec) params nil)`, but registration only checked `contains?`.
+  ;; A non-callable value therefore registered cleanly and failed at the first
+  ;; WRITE, in two shapes: a number/string as a raw host cast error with
+  ;; `ex-data` nil, and a keyword/map SILENTLY as nil (it is `ifn?`, so it is
+  ;; invoked and returns the 2-arity not-found default) => a nil args map.
+  (testing "the two rejected classes are genuinely distinct (discriminator —
+            the silent class throws nothing on its own, so without this row a
+            regression in it could hide behind the loud class)"
+    (is (and (not (fn? 42)) (not (ifn? 42)))
+        "a number is not invokable at all — the LOUD host-cast class")
+    (is (and (not (fn? :kw)) (ifn? :kw))
+        "a keyword IS ifn? — the SILENT class a bare `ifn?` gate would admit")
+    (is (nil? (:kw {:slug "s"} nil))
+        "and 2-arity invocation yields nil, which is why the gate is not `ifn?`"))
+  (testing "every non-callable :request is rejected AT REGISTRATION with the
+            canonical structured error"
+    (doseq [bad [42 "nope" :kw {:a 1} #{:a} [:a] nil]]
+      (let [ex (try (rf/reg-mutation :m/nonfn-request {:params-schema [:map]} bad)
+                    nil
+                    (catch #?(:clj Throwable :cljs :default) e e))
+            d  (ex-data ex)]
+        (is (some? ex)
+            (str "a non-callable :request " (pr-str bad) " must throw at "
+                 "registration, not fail at the first write"))
+        (is (= :rf.error/mutation-bad-spec (:rf.error/id d))
+            (str (pr-str bad) " surfaces the canonical registration error id"))
+        (is (= :fix-registration (:recovery d))
+            (str (pr-str bad) " carries the :fix-registration recovery"))
+        (is (= :m/nonfn-request (:mutation-id d))
+            (str (pr-str bad) " names the offending mutation in ex-data"))
+        (is (= bad (:value d))
+            (str (pr-str bad) " rides the :value ex-data slot"))
+        (is (nil? (rf/mutation-meta :m/nonfn-request))
+            (str "a rejected " (pr-str bad) " is NOT introspectable — the "
+                 "rejection precedes registry mutation")))))
+  (testing "OVER-REJECTION GUARD — every legitimate handler shape still
+            registers unchanged, on BOTH hosts. This is the half that protects
+            working code."
+    (doseq [[label good] [["inline fn"     (fn [_p _c] {:request {:url "/i"}})]
+                          ["defn'd fn"     defn-write]
+                          ["Var of a defn" #'defn-write]
+                          ["partial"       (partial (fn [_x _p _c] {:request {:url "/p"}}) 1)]
+                          ["comp"          (comp identity (fn [_p _c] {:request {:url "/c"}}))]
+                          ["memoized fn"   (memoize (fn [_p _c] {:request {:url "/m"}}))]
+                          ["fn with meta"  (with-meta (fn [_p _c] {:request {:url "/w"}}) {:tag 1})]]]
+      (is (= :m/good-request
+             (rf/reg-mutation :m/good-request {:params-schema [:map]} good))
+          (str label " must still register — the gate must not reject working code"))
+      (is (some? (rf/mutation-meta :m/good-request))
+          (str label " is introspectable after registration"))
+      (rf/clear-mutation :m/good-request)))
+  ;; The Var row above is the load-bearing one, and ONLY the JVM proves it:
+  ;; `clojure.lang.Var` implements `IFn` but NOT `Fn`, so `(fn? #'defn-write)`
+  ;; is FALSE there — a bare `fn?` gate would reject a working handler. In
+  ;; CLJS `Var` lists `Fn` in its deftype, so the same expression is TRUE and
+  ;; the `var?` arm is merely redundant. Pin the asymmetry per host so a
+  ;; future "simplify this to `fn?`" is caught rather than silently breaking
+  ;; the JVM only.
+  (testing "host asymmetry that makes the `var?` arm load-bearing (control)"
+    (is (var? #'defn-write)
+        "control: `#'defn-write` really is a Var, so the Var row is not
+         vacuously another ordinary fn")
+    (is (not (identical? defn-write #'defn-write))
+        "control: the Var and the fn it holds are genuinely different values")
+    #?(:clj  (is (not (fn? #'defn-write))
+                 "JVM: a Var is NOT `fn?` — a bare `fn?` gate would reject it")
+       :cljs (is (fn? #'defn-write)
+                 "CLJS: a Var IS `fn?` (its deftype lists `Fn`), so here the
+                  `var?` arm is redundant rather than load-bearing"))))
+
 (deftest reg-mutation-rejects-invalidate-timing-typo
   ;; rf2-t8j7oj — :invalidate-timing is a CLOSED four-value enum (Spec 016
   ;; §Mutations). A typo (`:after-succes`) would register cleanly and then

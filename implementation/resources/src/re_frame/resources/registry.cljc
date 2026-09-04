@@ -335,6 +335,44 @@
                   "transport) :request returns a Spec 014 managed-HTTP args "
                   "map. Per Spec 016 §Resource registration spec.")
              {:resource-id resource-id})))
+  ;; ...and it must be CALLABLE. Presence alone is not enough: the ensure path
+  ;; invokes the third slot as `((:request spec) params ctx)`, so a non-callable
+  ;; value survives registration (the entry is even introspectable) and fails at
+  ;; the FIRST user interaction, outside the structured registration-error
+  ;; contract. Two failure shapes, both bad: a number/string raises a raw host
+  ;; ClassCastException with `ex-data` nil, naming neither the resource nor its
+  ;; definition site; a keyword/map/symbol is `ifn?`, so it is invoked happily,
+  ;; returns nil as the 2-arity not-found default, and lowers a nil args map —
+  ;; a SILENT wrong request. Reject at registration, where the mistake is.
+  ;;
+  ;; The predicate is the ruled core one (`re-frame.subs`'s reg-sub handler
+  ;; gate, which carries the same reasoning): a plain fn OR a Var.
+  ;;
+  ;; Deliberately not bare `fn?`, and the `var?` arm is NOT redundant — the
+  ;; two hosts disagree. On the JVM `clojure.lang.Var` implements `IFn` but
+  ;; NOT `Fn`, so `(fn? #'my-fetch)` is FALSE; in CLJS `Var` lists `Fn` in its
+  ;; deftype, so the same expression is TRUE. `#'my-fetch` is the idiomatic
+  ;; hot-reload / REPL-redefinition indirection an author reaches for, and it
+  ;; invokes correctly on both hosts — so a bare `fn?` gate would reject
+  ;; working code on the JVM only, which is the worst kind of asymmetry.
+  ;;
+  ;; Deliberately not `ifn?` either, for the silent-nil reason above.
+  ;; A multimethod and a `reify`d IFn are `ifn?` but neither `fn?` nor `var?`,
+  ;; so they are rejected: that matches the ruled core gate rather than
+  ;; widening the contract here, and the error names the accepted shapes.
+  (when-not (or (fn? (:request spec)) (var? (:request spec)))
+    (throw (registration-error
+             :rf.error/resource-bad-spec
+             'rf/reg-resource
+             (str "resource " resource-id "'s :request (the THIRD slot) must "
+                  "be a fn, got " (pr-str (type (:request spec))) ". The "
+                  "grammar is (reg-resource " resource-id " {…} "
+                  "(fn [params ctx] -> managed-http-args)); a Var (#'my-fetch) "
+                  "is also accepted. A non-callable :request registers cleanly "
+                  "and then fails at the first read — as a raw host cast error, "
+                  "or (for a keyword/map) silently as a nil request. Per Spec "
+                  "016 §Resource registration spec.")
+             {:resource-id resource-id :value (:request spec)})))
   ;; `:poll-interval-ms` is OPTIONAL (Spec 016 §Polling). When present it MUST
   ;; be a number of milliseconds — a non-positive / absent value means NO
   ;; polling (the disarm rule `rf.resources.timers/schedule!` applies to a non-positive
