@@ -107,10 +107,17 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
 ```clojure
 (rf/reg-cofx :session/stored
   {:recordable? true                                            ;; durable write folds a RECORDED fact
-   :doc "Materialise + validate the persisted session; nil if absent/corrupt (a recordable generator)."}
+   :doc "Materialise + validate the persisted session. Returns the validated
+         session, else nil — when storage is ABSENT (first run, Node, SSR) or
+         its contents are UNUSABLE (unparsable JSON, or JSON failing Session).
+         Total by construction: it never throws. A recordable generator."}
   (fn []
-    (let [parsed (some-> (.getItem js/globalThis.localStorage "session")
-                         js/JSON.parse (js->clj :keywordize-keys true))]
+    (let [parsed (try
+                   (some-> (.-localStorage js/globalThis)        ;; PROPERTY first — absent on Node/SSR
+                           (.getItem "session")                  ;; nil on a first run
+                           js/JSON.parse                         ;; throws on a corrupt entry…
+                           (js->clj :keywordize-keys true))
+                   (catch :default _ nil))]                      ;; …so decoding is bounded here, never propagated
       (when (m/validate Session parsed) parsed))))               ;; ALWAYS-ON validation; recorded + re-presented
 
 (rf/reg-event :session/rehydrate
@@ -120,6 +127,15 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
 ```
 
 The generator's `(m/validate Session parsed)` is the always-on **trust** gate — it runs in production (no `goog.DEBUG` guard), so a tampered or stale `localStorage` payload is rejected before it reaches `app-db`. `:recordable? true` is what makes it **replay-safe**: without it the cofx is *ambient* (the `reg-cofx` default), so epoch-restore / SSR-hydration / time-travel re-run the generator against **live** `localStorage` and the replayed `:session/rehydrate` folds a *different* value than the one first written. This is the canonical recordable-generator shape ([`cofx.md`](../../re-frame2/references/fundamentals/cofx.md) §the app-owned recordable generator — the shipped `:todo.storage/todos` boot read).
+
+**Absent and unusable are two conditions, and the generator has to be total over both.** Different causes, same delivered value, and neither may throw:
+
+- **Absent** — `globalThis.localStorage` does not exist on Node, under SSR, or in a headless test runner, and `getItem` returns `nil` on a first run. This is the ordinary cold-boot case, so a throw here would break every new app and every Node test. The **property lookup must be the first link in the `some->` chain**: written the other way round, `(some-> (.getItem js/globalThis.localStorage "session") …)` evaluates the method call *before* `some->` can test anything, so on a host without storage it throws rather than short-circuiting. Property-first is what turns "no storage" into a `nil` flowing through the pipeline. The `try` still wraps the property access, because in a browser with site data blocked the access itself throws instead of yielding `undefined`.
+- **Unusable** — a hand-edited, truncated or stale-format entry makes `js/JSON.parse` throw, and a well-formed value of the wrong shape fails `Session`. Anomalous rather than ordinary, but the caller cannot control it either and it has the same sane default: treat it as *no session* and let the app render its signed-out state.
+
+**Why the unusable case must not simply throw.** A throw out of a coeffect supplier is not a loud failure. The framework catches it, emits `:rf.error/coeffect-exception`, and sets `:rf/skip-handler?` — so `:session/rehydrate` **never runs**, and what you observe is a boot step that silently did not happen. That is strictly harder to diagnose than the `nil` the handler already handles. Failing loudly on corrupt persisted state is a legitimate policy; a supplier throw is not how you spell it. If the app must *act* on the difference — "your session expired" versus "you were never signed in" — return a data-shaped result (`{:status :ok :session …}` / `{:status :invalid}` / `{:status :absent}`) and branch on it in the handler, rather than splitting the two into a throwing path and a `nil` path.
+
+**Do not reach for `:platforms #{:client}` in place of that guard.** The sibling `:local-storage/set` **fx** in [`imperative-effects.md`](imperative-effects.md#worked-example) carries it, and for an fx a platform skip is benign — the effect simply does not run. For a **required recordable cofx** it is not: a platform-skipped generator produces no fact at all, so a universally-dispatched `:session/rehydrate` follows the *missing-required* path instead of the promised `nil` path. Keep this cofx universal and `nil`-off-browser — the shape the shipped `:todo.storage/todos` boot read already uses.
 
 > **Two boundaries, and this read crosses both.** Validation alone closes the **trust** boundary; it does not close the **replay** boundary. For a body-read that does **not** feed durable state — the handler rejects the value, or forwards it to an fx without folding it into `app-db` / runtime-db / a snapshot — an unconditional `(m/validate Schema raw)` **in the handler body** (never behind `(when ^boolean js/goog.DEBUG …)`) is a sufficient trust gate on its own. What forces the recordable cofx *here* is the **durable** destination (`:session`): a boundary read feeding durable state is separately subject to the durable-write rule — durable state folds a *recorded* fact, never an ambient/inline host read at the write site — see [`imperative-effects.md` §the durable/diagnostic fork](imperative-effects.md#reads--the-durablediagnostic-fork-ep-0010). A boot/rehydrate read is **not** exempt: epoch-restore, SSR-hydration, and time-travel re-fold `:session/rehydrate`, so it must fold the *recorded* value, not a live re-read. (The ambient-boot-read shape — a `localStorage` read registered ambient and folded into durable app-db on `:*/initialise` — was ruled a replay hole and remediated to a recordable generator in the shipped examples; see EP-0017 §Implementation errata.)
 
