@@ -32,10 +32,22 @@
                                     literals (tokens with `<` round-trip;
                                     `</`/`<!` token breakouts fail loud).
     - `validate-attr-name!`      — HTML5-grammar gate on attribute keys.
+    - `boolean-attr-class` /
+      `boolean-attrs` /
+      `booleanish-attrs` /
+      `overloaded-boolean-attrs`  — the react-dom 19.2.0 boolean
+                                    attribute-value classes (Spec 004B
+                                    §Booleans and their neighbours). ONE
+                                    roster, read by BOTH the hiccup
+                                    emitter here and the structural-tree
+                                    serialiser (`re-frame.ssr.ui-tree`).
     - `attr-string`              — render an attribute map as
-                                    ` k1=\"v1\" k2=\"v2\"`. Boolean `true`
-                                    → bare attribute name (`disabled`);
-                                    `false` / `nil` → omitted entirely."
+                                    ` k1=\"v1\" k2=\"v2\"`. A boolean is
+                                    rendered by its attribute's class:
+                                    `aria-*` / `data-*` / booleanish
+                                    stringify `true` AND `false`; boolean
+                                    and overloaded-boolean names keep
+                                    presence semantics; `nil` → omitted."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.ssr.hash :as hash]))
@@ -464,6 +476,73 @@
         (contains? reserved-prop-keys (str/lower-case nm))
         (contains? jsx-source-prop-names nm))))
 
+;; ---- boolean attribute-value classes (rf2-r9kf) ---------------------------
+;;
+;; HTML/React attributes do NOT share one boolean rule, so a `false` value
+;; cannot mean "omit" everywhere. Spec 004B §Booleans and their neighbours
+;; carries the react-dom 19.2.0 table, row-by-row probed; these are its three
+;; rosters and the classifier both SSR serialisers read. The structural-tree
+;; serialiser (`re-frame.ssr.ui-tree`) already followed the table; the hiccup
+;; emitter did not, and dropped `aria-expanded false` / `contentEditable
+;; false` entirely — markup asserting the OPPOSITE of what the author wrote,
+;; with no hydration-mismatch signal to catch it (011 §What React-native
+;; adoption does not catch — attribute-only mismatches).
+;;
+;; ONE roster, read by both — a second copy is a drift surface, and the two
+;; emitters' PIPELINES stay separate (004B) because only the rosters and the
+;; name→class function are shared; each emitter keeps its own attribute-name
+;; handling and its own escape.
+
+(def boolean-attrs
+  "HTML boolean attributes: `true` → presence, `false`/absent → omitted.
+  Tracks react-dom 19.2.0 (004B §Booleans and their neighbours); keyed by
+  the hyphen-collapsed lowercase author name."
+  #{"allowfullscreen" "async" "autofocus" "autoplay" "checked" "controls"
+    "default" "defer" "disabled" "formnovalidate" "hidden" "inert" "ismap"
+    "itemscope" "loop" "multiple" "muted" "nomodule" "novalidate" "open"
+    "playsinline" "readonly" "required" "reversed" "selected"})
+
+(def booleanish-attrs
+  "`true`/`false` → `\"true\"`/`\"false\"`, never omitted. Tracks react-dom
+  19.2.0."
+  #{"contenteditable" "draggable" "spellcheck"})
+
+(def overloaded-boolean-attrs
+  "`true` → bare presence, `false` → omitted, any other value stringifies.
+  Tracks react-dom 19.2.0."
+  #{"download" "capture"})
+
+(defn boolean-attr-class
+  "Author attribute NAME (a string, no namespace) → the class that decides
+  how a BOOLEAN value for it serialises:
+
+    `:stringify`  — `aria-*`, `data-*`, and the booleanish family
+                    (`contentEditable` / `draggable` / `spellCheck`):
+                    `true`/`false` → `\"true\"`/`\"false\"`, NEVER omitted.
+    `:presence`   — the true HTML boolean attributes (`disabled`, `checked`,
+                    …) and the overloaded booleans (`download`, `capture`):
+                    `true` → bare name, `false` → omitted. `=\"false\"` is
+                    still TRUTHY to a browser here, so omission is the only
+                    correct rendering of `false`.
+    `:ordinary`   — everything else: a boolean never reaches markup at all
+                    (react-dom drops it rather than inventing a bare
+                    attribute).
+
+  Names are matched hyphen-collapsed and lowercased, so `:content-editable`
+  and `:contentEditable` classify alike. Only the CLASS is decided here — the
+  emitted attribute NAME is each caller's business (the hiccup emitter writes
+  author names verbatim; `re-frame.ssr.ui-tree` maps them through the React
+  prop vocabulary)."
+  [attribute-name]
+  (let [collapsed (str/lower-case (str/replace attribute-name "-" ""))]
+    (cond
+      (str/starts-with? attribute-name "aria-")        :stringify
+      (str/starts-with? attribute-name "data-")        :stringify
+      (contains? booleanish-attrs collapsed)           :stringify
+      (contains? overloaded-boolean-attrs collapsed)   :presence
+      (contains? boolean-attrs collapsed)              :presence
+      :else                                            :ordinary)))
+
 ;; ---- inline-style map serialisation (rf2-l6h6a) ---------------------------
 ;;
 ;; A hiccup `:style` whose value is a MAP must serialise to a CSS declaration
@@ -562,10 +641,16 @@
 
 (defn attr-string
   "Render an attribute map as ` k1=\"v1\" k2=\"v2\"` (leading space when
-  non-empty; empty string when the map is empty). Boolean `true` emits
-  the bare attribute name (`disabled`); `false` and `nil` omit the
-  attribute entirely. All other values stringify and are `escape-attr`-
-  escaped.
+  non-empty; empty string when the map is empty). A `nil` value omits the
+  attribute entirely. All non-boolean values stringify and are
+  `escape-attr`-escaped.
+
+  A BOOLEAN value is rendered by the attribute's class, not by the value
+  alone (`boolean-attr-class`, rf2-r9kf): `aria-*` / `data-*` / booleanish
+  names stringify BOTH `true` and `false` (`aria-expanded=\"false\"`); true
+  boolean and overloaded-boolean names keep presence semantics (`true` →
+  bare `disabled`, `false` → omitted); a boolean on any other attribute is
+  dropped rather than emitted as a bare name.
 
   Attribute KEYS are gated through `validate-attr-name!` (HTML5 grammar
   `[A-Za-z][A-Za-z0-9_:-]*`) — a key violating the grammar throws
@@ -592,8 +677,16 @@
   (let [rendered (keep (fn [[k v :as kv]]
                          (cond
                            (strip-prop? kv) nil
-                           (true? v)  (validate-attr-name! k)
-                           (false? v) nil
+                           ;; rf2-r9kf — a BOOLEAN value's rendering depends on
+                           ;; the attribute NAME, not on the value alone. See
+                           ;; `boolean-attr-class` and 004B §Booleans and their
+                           ;; neighbours.
+                           (boolean? v)
+                           (case (boolean-attr-class (name k))
+                             :stringify (str (validate-attr-name! k)
+                                             "=\"" (escape-attr v) "\"")
+                             :presence  (when (true? v) (validate-attr-name! k))
+                             :ordinary  nil)
                            (nil? v)   nil
                            :else
                            (let [rendered-val
