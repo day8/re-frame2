@@ -10,6 +10,14 @@
 
   Path vocabulary mirrors `get-in`: a vector of keys / indices.
 
+  ## Operating frame
+
+  Every read here is frame-targeted, so it resolves the operating frame
+  before it touches app-db — see `with-resolved-frame`. With two-plus
+  app frames and no pin the resolve yields nil and the tool REFUSES
+  with `:ambiguous-frame`; it does not read frame nil and report the
+  resulting blank as a missing path (rf2-q17a).
+
   ## Batch read — the plural `paths` arg
 
   The `paths` arg (a vector of path vectors) reads N app-db paths in
@@ -51,6 +59,53 @@
          "  (merge {:path " path-src " :frame " frame-edn "}"
          "         " elision-opts "))")
     value-sym))
+
+(def ^:private resolved-frame-sym
+  "Name of the let-binding `with-resolved-frame` puts the resolved
+  operating-frame id in. Both eval forms read app-db through it AND
+  hand it to the walker, so the value read and the elision handle
+  describe the same frame by construction."
+  "fid")
+
+(defn- with-resolved-frame
+  "Wrap `inner-src` — a get-path eval form — in the operating-frame
+  resolution every frame-targeted call owes the Tool-Pair contract:
+  explicit override -> session pin -> sole app frame -> nil.
+
+  The resolve runs browser-side, ONCE, before any app-db read. `nil`
+  means two-plus app frames are registered with no pin, so the tool
+  cannot know which frame the caller meant, and a tier-4 read must
+  REFUSE rather than read some other frame.
+
+  Refusing is the whole of this wrapper's point. Without it the form
+  called `(snapshot)` — `(rf/app-db-value (current-frame))`, i.e.
+  `(rf/app-db-value nil)`, i.e. nil — and `get-in` over nil answers
+  `:path-not-found` (singular) or `{:exists? false}` for every path
+  (batch). That is a confident falsehood about application state in
+  the one session shape where frame identity matters most: the agent
+  believes the slot is absent and goes off to ADD a path that was
+  already there (rf2-q17a).
+
+  `ambiguous-frame-error` is the SAME refusal envelope `read-sub` and
+  `sub-cache-info` already return — `:reason :ambiguous-frame` plus
+  `:available-frames` and a `:hint` naming the two recoveries that
+  already ship (pass `frame`, or pin one with `set-operating-frame`).
+  No new vocabulary and no new helper layer: the refusal rides the
+  existing `run-eval` `:ok? false` -> `wire/err-text` path out as an
+  `isError` envelope."
+  [frame inner-src]
+  (ef/emit
+    (ef/rt-let
+      [(symbol resolved-frame-sym)
+       (if frame
+         (ef/rt-call 'current-frame frame)
+         (ef/rt-call 'current-frame))]
+      (ef/rt-raw
+        (str "(if (nil? " resolved-frame-sym ") "
+             (ef/emit (ef/rt-call 'ambiguous-frame-error :get-path))
+             " "
+             inner-src
+             ")")))))
 
 (defn- single-path-form
   "Eval form for the singular `:path` read. Calls `snapshot` (full db for
@@ -167,12 +222,13 @@
         ;; The `:elision` echo below still reports the caller's
         ;; large-slot intent.
         walk?         (elision/walk-required? (not elision?) incl?)
-        snapshot-call (if frame
-                        (ef/rt-call 'snapshot frame)
-                        (ef/rt-call 'snapshot))
-        frame-edn     (if frame
-                        (pr-str frame)
-                        (ef/emit (ef/rt-call 'current-frame)))
+        ;; ONE resolution, one truth: both forms read app-db through
+        ;; the frame id `with-resolved-frame` binds, and hand that same
+        ;; id to the walker. The former pair — `(snapshot)` for the read
+        ;; and a SECOND, independent `(current-frame)` call for the
+        ;; walker — could disagree, and neither refused (rf2-q17a).
+        snapshot-call (ef/rt-call 'snapshot (ef/rt-raw resolved-frame-sym))
+        frame-edn     resolved-frame-sym
         run-eval
         ;; Shared eval-then-shrink tail: both branches run a server-side
         ;; form, strip the literal value(s) through the wire-pipeline
@@ -248,11 +304,19 @@
           (wire/err-text {:ok? false :reason :empty-paths
                           :hint "usage: get-path {paths '[[:cart :items] [:user :id]]' [frame :rf/default]}"}))
         (run-eval
-          (batch-paths-form snapshot-call paths walk? frame-edn elision-opts)
+          (with-resolved-frame
+            frame
+            (batch-paths-form snapshot-call paths walk? frame-edn elision-opts))
           :results
+          ;; Mirror the singular arm and attach `:results` / `:elision`
+          ;; only on a hit. An `:ambiguous-frame` refusal dressed with
+          ;; `:results nil` would read as "nothing there" — the exact
+          ;; false-absence this tool must stop telling.
           (fn [envelope' results]
-            (cond-> (assoc envelope' :results results :elision elision?)
-              frame (assoc :frame frame)))))
+            (let [ok? (:ok? envelope')]
+              (cond-> envelope'
+                ok?   (assoc :results results :elision elision?)
+                frame (assoc :frame frame))))))
 
       (nil? path)
       (js/Promise.resolve
@@ -265,7 +329,9 @@
       ;; `:value` slot is only re-attached on a hit.
       :else
       (run-eval
-        (single-path-form snapshot-call path walk? frame-edn elision-opts)
+        (with-resolved-frame
+          frame
+          (single-path-form snapshot-call path walk? frame-edn elision-opts))
         (fn [envelope] (when (:ok? envelope) (:value envelope)))
         (fn [envelope' value]
           (let [ok? (:ok? envelope')]

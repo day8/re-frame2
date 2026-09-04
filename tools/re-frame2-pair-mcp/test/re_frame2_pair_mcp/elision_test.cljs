@@ -362,10 +362,15 @@
   ([path frame elision?] (build-get-path-form path frame elision? false))
   ([path frame elision? include-sensitive?]
    (let [path-edn      (pr-str path)
-         snapshot-call (if frame
-                         (str "(re-frame2-pair.runtime/snapshot " (pr-str frame) ")")
-                         "(re-frame2-pair.runtime/snapshot)")
-         frame-edn     (if frame (pr-str frame) "(re-frame2-pair.runtime/current-frame)")
+         ;; Since rf2-q17a the frame is resolved ONCE into `fid` by the
+         ;; wrapper below; the read and the walker both address it, so
+         ;; there is no longer a `(current-frame)` call in the walker
+         ;; opts and no no-arg `(snapshot)` call at all.
+         snapshot-call "(re-frame2-pair.runtime/snapshot fid)"
+         frame-edn     "fid"
+         resolve-call  (if frame
+                         (str "(re-frame2-pair.runtime/current-frame " (pr-str frame) ")")
+                         "(re-frame2-pair.runtime/current-frame)")
          ;; Helper takes walker-aligned `include-large?`;
          ;; flip from the MCP-arg `elision?` polarity here, mirroring
          ;; the production call site in `tools/get_path.cljs`.
@@ -383,7 +388,10 @@
                          (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
                               "               (tree-seq coll? seq elided-v)))")
                          "0")]
-     (str "(let [db " snapshot-call
+     (str "(let [fid " resolve-call "]"
+          "  (if (nil? fid)"
+          "    (re-frame2-pair.runtime/ambiguous-frame-error :get-path)"
+          "    (let [db " snapshot-call
           "      path " path-edn
           "      missing #js {}"
           "      v (get-in db path missing)"
@@ -402,7 +410,7 @@
           "              (<= 0 (first rem) (dec (count cur))))"
           "         (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
           "         :else acc))}"
-          "    {:ok? true :exists? true :path path :value elided-v :elided-count n}))"))))
+          "      {:ok? true :exists? true :path path :value elided-v :elided-count n}))))"))))
 
 (deftest get-path-form-full-raw-opt-in-bypasses-walker
   ;; The raw value rides the wire ONLY on the full-raw
@@ -437,17 +445,24 @@
     ;; The walker's `:path` opt is the supplied path so the marker's
     ;; handle carries `[:rf.elision/at <path>]`.
     (is (re-find #":path path" form))
-    ;; Frame is explicit when supplied.
-    (is (re-find #":frame :rf/default" form))
+    ;; The walker addresses the RESOLVED id. An explicit frame reaches
+    ;; it through tier 1 of the one resolve (rf2-q17a), rather than
+    ;; being spliced in a second time as a literal.
+    (is (re-find #":frame fid" form))
+    (is (re-find #"current-frame :rf/default" form))
     ;; Markers actually fire (include-large? is false).
     (is (re-find #":rf\.size/include-large\? false" form))))
 
 (deftest get-path-form-defaults-to-current-frame
-  ;; No `:frame` arg = the walker uses
-  ;; `(re-frame2-pair.runtime/current-frame)` so the registry lookup
-  ;; hits the operating frame.
+  ;; No `:frame` arg = the form resolves the operating frame ONCE into
+  ;; `fid` and the walker addresses THAT, so the registry lookup and
+  ;; the value read can never name different frames (rf2-q17a). The
+  ;; walker no longer issues a `(current-frame)` call of its own.
   (let [form (build-get-path-form [:cart :items] nil true)]
-    (is (re-find #":frame \(re-frame2-pair\.runtime/current-frame\)" form))))
+    (is (re-find #"let \[fid \(re-frame2-pair\.runtime/current-frame\)\]" form))
+    (is (re-find #":frame fid" form))
+    (is (not (re-find #":frame \(re-frame2-pair\.runtime/current-frame\)" form))
+        "the walker addresses the resolved id, not a second resolve")))
 
 (deftest get-path-form-path-edn-quotes-correctly
   ;; The path is pr-str'd into the form. Mixed key types (keywords,
