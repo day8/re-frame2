@@ -233,6 +233,216 @@
           (is (= :next (:state snap))))
         (finally (stop!))))))
 
+;; ---- compatibility recovery on a SPAWNED ACTOR ---------------------------
+;;
+;; rf2-2dk0. The two reconciler checks above fire at handler-entry against
+;; ANY existing snapshot — including a spawned actor's. Recovery replaces the
+;; snapshot with a fresh initial derivative, which is right for authored
+;; state/data but must NOT discard the framework-owned identity envelope the
+;; spawn-fx stamped: root `:rf/machine-type` plus `:data`'s `:rf/self-id` /
+;; `:rf/parent-id` / `:rf/invoke-id` / `:rf/join-child`.
+;;
+;; `:rf/machine-type` is the ONLY thing the lazy resolver
+;; (`lifecycle-fx.resolver/spec-from-snapshot`) can resolve a spawned actor's
+;; handler from — a spawned actor has no per-instance registrar entry. Drop
+;; it and the actor's snapshot is still physically present in runtime-db but
+;; no longer addressable: the next dispatch falls through to a genuine
+;; `:rf.error/no-such-handler`. That contradicts Spec 005
+;; §Liveness is derived from runtime-db ("a spawned actor's liveness IS the
+;; presence of its snapshot ... nothing else") and §Reserved snapshot-internal
+;; keys §Persistence posture ("the only transient snapshot-root slot is
+;; `:rf/bootstrap-pending?`; all other slots ride the snapshot").
+
+(defn- capture-no-handler-traces
+  "Capture `:rf.error/no-such-handler` traces — the exact symptom of an
+  actor stranded by a recovery that dropped `:rf/machine-type`."
+  []
+  (let [captured (atom [])
+        cb-id    (gensym "snapshot-compat-nsh")]
+    (rf.trace/register-listener! cb-id
+                              (fn [ev]
+                                (when (= :rf.error/no-such-handler (:operation ev))
+                                  (swap! captured conj ev))))
+    {:captured captured
+     :stop!    #(rf.trace/unregister-listener! cb-id)}))
+
+(defn- bumping-child
+  "A child TYPE at `version` whose live state is `state`, starting at
+  `n`, incrementing `:n` on `:bump`."
+  [version state n]
+  (cond-> {:initial state
+           :data    {:n n}
+           :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
+           :states  {state {:on {:bump {:action :bump}}}}}
+    version (assoc :meta {:rf/snapshot-version version})))
+
+(defn- spawning-parent
+  "A parent that declaratively spawns `child-type` on entering `:working`,
+  and leaves `:working` (tearing the child down) on `:stop`."
+  [child-type]
+  {:initial :idle
+   :data    {}
+   :states  {:idle    {:on {:start :working}}
+             :working {:spawn {:machine-id child-type}
+                       :on    {:stop :idle}}}})
+
+(defn- spawned-actor-id
+  "The spawned child's instance address, read from the PARENT's own
+  `:data` under the spec'd `:rf/spawned` reverse map (keyed by the
+  `:spawn`-bearing state's absolute prefix-path) — no hardcoded
+  `<type>#<n>` spelling."
+  [parent-id invoke-id]
+  (get-in (:data (snapshot parent-id)) [:rf/spawned invoke-id]))
+
+(deftest spawned-actor-survives-version-mismatch-recovery
+  (testing "rf2-2dk0 — a version-mismatch reset on a SPAWNED actor keeps the
+            runtime identity envelope, so the actor stays addressable"
+    (let [{:keys [captured stop!]}                   (capture-error-traces)
+          {nsh :captured stop-nsh! :stop!}           (capture-no-handler-traces)]
+      (try
+        (rf/reg-machine :compat/sc-child  (bumping-child 1 :live 0))
+        (rf/reg-machine :compat/sc-parent (spawning-parent :compat/sc-child))
+        (rf/dispatch-sync [:compat/sc-parent [:start]])
+        (let [actor (spawned-actor-id :compat/sc-parent [:working])
+              before (snapshot actor)]
+          (is (some? actor) "the declarative :spawn allocated an actor id")
+          (is (= :compat/sc-child (:rf/machine-type before))
+              "spawn stamped the revertible TYPE reference")
+          (is (= actor (get-in before [:data :rf/self-id])))
+          (is (= :compat/sc-parent (get-in before [:data :rf/parent-id])))
+          (is (= [:working] (get-in before [:data :rf/invoke-id])))
+          (is (= 0 (get-in before [:data :n])))
+
+          ;; Hot-reload the TYPE with an incompatible version. `:live` is
+          ;; still a member of the new definition, so this isolates the
+          ;; version check from state-not-in-definition.
+          (rf/reg-machine :compat/sc-child (bumping-child 2 :live 100))
+
+          ;; First event: discovers the drift, resets, then runs.
+          (rf/dispatch-sync [actor [:bump]])
+          ;; Second event to the SAME actor: this is the one that used to
+          ;; fall through to :rf.error/no-such-handler.
+          (rf/dispatch-sync [actor [:bump]])
+
+          (let [after (snapshot actor)
+                mismatches (filter #(= :rf.error/machine-snapshot-version-mismatch
+                                       (:operation %))
+                                   @captured)]
+            (is (= 1 (count mismatches))
+                "exactly one version-mismatch recovery occurred")
+            (is (= :reset-to-initial (:recovery (first mismatches))))
+            (is (empty? @nsh)
+                "no :rf.error/no-such-handler — the recovered actor stayed addressable")
+            ;; Authored data DID reset to the v2 definition's initial, then
+            ;; both bumps ran: 100 → 101 → 102.
+            (is (= 102 (get-in after [:data :n]))
+                "recovery reset to the v2 initial and BOTH events were processed")
+            (is (= 2 (get-in after [:meta :rf/snapshot-version]))
+                "the recovered snapshot carries the new definition's version")
+            ;; The identity envelope survived.
+            (is (= :compat/sc-child (:rf/machine-type after))
+                ":rf/machine-type survives the reset (the resolver's only key)")
+            (is (= actor (get-in after [:data :rf/self-id]))
+                ":rf/self-id survives the reset")
+            (is (= :compat/sc-parent (get-in after [:data :rf/parent-id]))
+                ":rf/parent-id survives the reset")
+            (is (= [:working] (get-in after [:data :rf/invoke-id]))
+                ":rf/invoke-id survives the reset"))
+
+          ;; Lifecycle: the recovered child still tears down through its
+          ;; parent's declarative exit cascade.
+          (rf/dispatch-sync [:compat/sc-parent [:stop]])
+          (is (nil? (snapshot actor))
+              "the recovered child was destroyed by the parent's exit cascade"))
+        (finally (stop-nsh!) (stop!))))))
+
+(deftest spawned-actor-survives-state-not-in-definition-recovery
+  (testing "rf2-2dk0 — the state-not-in-definition branch is the second entry
+            path into the same recovery, and keeps the identity envelope too"
+    (let [{:keys [captured stop!]}         (capture-error-traces)
+          {nsh :captured stop-nsh! :stop!} (capture-no-handler-traces)]
+      (try
+        ;; No version on either side — this isolates the state check.
+        (rf/reg-machine :compat/sn-child  (bumping-child nil :old 0))
+        (rf/reg-machine :compat/sn-parent (spawning-parent :compat/sn-child))
+        (rf/dispatch-sync [:compat/sn-parent [:start]])
+        (let [actor (spawned-actor-id :compat/sn-parent [:working])]
+          (is (some? actor))
+          (is (= :old (:state (snapshot actor))))
+
+          ;; Hot-reload the TYPE, dropping the live state entirely.
+          (rf/reg-machine :compat/sn-child (bumping-child nil :ready 100))
+
+          (rf/dispatch-sync [actor [:bump]])
+          (rf/dispatch-sync [actor [:bump]])
+
+          (let [after (snapshot actor)
+                trips (filter #(= :rf.error/machine-state-not-in-definition
+                                  (:operation %))
+                              @captured)]
+            (is (= 1 (count trips))
+                "exactly one state-not-in-definition recovery occurred")
+            (is (empty? @nsh)
+                "no :rf.error/no-such-handler after the reset")
+            (is (= :ready (:state after)) "reset to the new definition's initial")
+            (is (= 102 (get-in after [:data :n]))
+                "BOTH events processed against the fresh definition")
+            (is (= :compat/sn-child (:rf/machine-type after))
+                ":rf/machine-type survives the state-not-in-definition reset")
+            (is (= actor (get-in after [:data :rf/self-id])))
+            (is (= :compat/sn-parent (get-in after [:data :rf/parent-id])))
+            (is (= [:working] (get-in after [:data :rf/invoke-id])))))
+        (finally (stop-nsh!) (stop!))))))
+
+(deftest spawn-all-child-keeps-join-membership-across-recovery
+  (testing "rf2-2dk0 — a :spawn-all child's private :rf/join-child
+            exact-attempt record survives compatibility recovery, so its
+            completion still folds into the join it belongs to"
+    (let [{:keys [captured stop!]}         (capture-error-traces)
+          {nsh :captured stop-nsh! :stop!} (capture-no-handler-traces)]
+      (try
+        (rf/reg-machine :compat/ja-child (bumping-child 1 :live 0))
+        (rf/reg-machine :compat/ja-parent
+          {:initial :hydrating
+           :data    {}
+           :states  {:hydrating {:spawn-all
+                                 {:children        [{:id :a :machine-id :compat/ja-child}]
+                                  :join            :all
+                                  :on-child-done   :ja/done
+                                  :on-child-error  :ja/failed
+                                  :on-all-complete [:go-done]
+                                  :on-any-failed   [:ja/cancel]}
+                                 :on {:go-done   :done
+                                      :ja/cancel :idle}}
+                     :done      {}
+                     :idle      {}}})
+        (rf/dispatch-sync [:compat/ja-parent [:rf.machine.spawn/spawned]])
+        (let [actor  (get-in (:data (snapshot :compat/ja-parent))
+                             [:rf/spawned [:hydrating] :a])
+              before (snapshot actor)]
+          (is (some? actor) "the :spawn-all allocated a child actor id")
+          (is (some? (get-in before [:data :rf/join-child]))
+              "the :spawn-all child carries its private join-membership record")
+          (let [join-before (get-in before [:data :rf/join-child])]
+            ;; Hot-reload the child TYPE incompatibly.
+            (rf/reg-machine :compat/ja-child (bumping-child 2 :live 100))
+            (rf/dispatch-sync [actor [:bump]])
+            (rf/dispatch-sync [actor [:bump]])
+            (let [after (snapshot actor)]
+              (is (empty? @nsh)
+                  "no :rf.error/no-such-handler — the join child stayed addressable")
+              (is (= 1 (count (filter #(= :rf.error/machine-snapshot-version-mismatch
+                                          (:operation %))
+                                      @captured)))
+                  "exactly one recovery occurred")
+              (is (= 102 (get-in after [:data :n])) "both events processed")
+              (is (= :compat/ja-child (:rf/machine-type after)))
+              (is (= join-before (get-in after [:data :rf/join-child]))
+                  ":rf/join-child survives the reset byte-identical — the
+                   exact-attempt coordinate still names the join attempt this
+                   instance belongs to"))))
+        (finally (stop-nsh!) (stop!))))))
+
 ;; ---- both-absent passes silently -----------------------------------------
 
 (deftest no-version-on-either-side-passes-silently

@@ -81,6 +81,68 @@
       (map? t)     t
       (keyword? t) (spec-from-registry t))))
 
+;; ---- the spawned-actor identity envelope ---------------------------------
+;;
+;; The canonical catalogue of the framework-owned slots that constitute a
+;; spawned actor's IDENTITY, as distinct from its authored state/data. Spawn
+;; stamps them (`lifecycle-fx.spawn/machine-type-ref` +
+;; `stamp-framework-data`); snapshot compatibility recovery
+;; (`lifecycle-fx.registration/rebuild-incompatible-snapshot`) carries them
+;; across. Both sides read this ONE catalogue so they cannot disagree about
+;; which values are durable actor identity (rf2-2dk0).
+;;
+;; Per Spec 005 §Reserved snapshot-internal keys §Persistence posture the only
+;; TRANSIENT snapshot-root slot is `:rf/bootstrap-pending?` — every other
+;; reserved slot rides the snapshot. `:rf/machine-type` in particular is what
+;; makes a spawned actor's liveness a pure function of runtime-db
+;; (§Liveness is derived from runtime-db): it is the ONLY key
+;; `spec-from-snapshot` can re-materialise an actor's handler from, since a
+;; spawned actor has no per-instance registrar entry. An actor stops being
+;; addressable by being DESTROYED — never by having its definition change
+;; underneath it.
+;;
+;; Deliberately NOT here: the transient runtime counters (`:rf/spawn-counter`,
+;; `:rf/after-epoch`, `:rf/after-epoch-by-region`) and the SPAWNING side's
+;; `:rf/spawned` map. Those are bookkeeping tied to the definition that
+;; produced them, and a compatibility reset means restarting the machine —
+;; they reset with the snapshot exactly as before.
+
+(def actor-identity-root-keys
+  "Framework-owned snapshot-ROOT slots that carry a spawned actor's identity.
+  Absent on singleton snapshots (which resolve through the registrar)."
+  [:rf/machine-type])
+
+(def actor-identity-data-keys
+  "Framework-owned `:data` slots that carry a spawned actor's identity and
+  lineage — its own address, its owner's address, the invocation path it was
+  spawned from, and (for a `:spawn-all` child) its private exact-attempt join
+  membership. Each is present only on the spawn flavour that stamps it."
+  [:rf/self-id :rf/parent-id :rf/invoke-id :rf/join-child])
+
+(defn carry-actor-identity
+  "Copy the spawned-actor identity envelope from `prev` onto `next`,
+  key by key, skipping any key `prev` does not carry.
+
+  `next` is a freshly-derived initial snapshot; `prev` is the snapshot being
+  replaced. A SINGLETON `prev` carries none of these keys, so this is exactly
+  a no-op there and the singleton reset semantics are untouched.
+
+  This preserves identity ONLY — authored `:state` / `:data` and the transient
+  runtime counters come from `next`, so a compatibility reset still means
+  'restart this machine', not 'patch it' (rf2-2dk0)."
+  [prev next]
+  (let [carry-root (fn [snap k]
+                     (if-some [v (get prev k)]
+                       (assoc snap k v)
+                       snap))
+        carry-data (fn [snap k]
+                     (if-some [v (get-in prev [:data k])]
+                       (assoc-in snap [:data k] v)
+                       snap))]
+    (as-> next snap
+      (reduce carry-root snap actor-identity-root-keys)
+      (reduce carry-data snap actor-identity-data-keys))))
+
 (defn spec-from-id-or-snapshot
   "Resolve a machine SPEC for `id` (a singleton's registered handler key,
   a spawned actor's instance address, or a spawning parent's id) preferring
