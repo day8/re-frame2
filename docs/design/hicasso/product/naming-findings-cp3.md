@@ -1,5 +1,35 @@
 # Naming findings — Checkpoint 3 fragment
 
+> **Currency, 2026-09-04 (`rf2-ekxx`). Every surface this fragment asks a naming question
+> about has been deleted, so nothing below is a live question for the sitting.** The
+> questions and their recommendations are kept as the record of what Checkpoint 3 met on
+> 2026-08-14; they are not withdrawn and not re-scored, because a recommendation that was
+> sound about a surface stays sound about that surface.
+>
+> **The event this fragment predates.** On 2026-08-29, `aa01f0e8a6` (`rf2-6c12m.31`, wave 2
+> of ruling `rf2-6c12m.3` Option A) shrank `re-frame.hicasso.native` from 1,116 lines to 82.
+> **The whole public surface that survives is `use-sub` and `use-frame`.** So C3-1's six
+> unrostered vars — `n/component`, `n/marker`, `n/prop-slots`, `n/props*`, `n/el` and
+> `n/declared-server` — are gone, and with them C3-1's *classify before the packet* question
+> and C3-2 entirely: there is no `n/declared-server` left to be surface or not, and the
+> sentence below saying it *is still public* is false at tip. The taught names the headline
+> lists as already rostered — `n/$` (row 7), `n/props` (row 8), `n/defcomponent` (row 9),
+> `n/memo`/`n/lazy` (row 29) and the `:server` policy option (row 21) — went in the same
+> commit; only row 10's `n/use-sub`/`n/use-frame` still names anything.
+>
+> **The witnesses too.** The eight `native_*` suites were deleted in that commit, so
+> `native_abi_dom_cljs_test.cljs`, `native_grammar_cljs_test.cljs` and
+> `native_ssr_dom_cljs_test.cljs`, cited below in the present tense, name no file at tip.
+> The C3-1 line numbers into `native.cljc` are likewise historical — the 2026-08-14 note
+> already says they are deliberately left as its own reading found them.
+>
+> **What a reader should carry forward.** Checkpoint 3 froze no name, and the reason it gave
+> is now overtaken by a stronger one: the Phase 3 exit it was conditioned on is not met, and
+> the tier it would have frozen no longer ships. [`checkpoint-3-native.md`](checkpoint-3-native.md)
+> — the evidence this page reads — carries its own currency banner recording the same event.
+> [`naming-packet.md`](naming-packet.md) does **not** yet, and its native rows still cite
+> these suites; that is filed as `rf2-pvmy` rather than repaired here.
+
 Every naming question Checkpoint 3 (`rf2-hic-038`) met, written here rather than into
 [`naming-ledger.md`](naming-ledger.md) so that concurrent checkpoints cannot collide in one table.
 **`rf2-hic-065` consolidates fragments into the ledger and publishes the packet**; nothing here is
