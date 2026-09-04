@@ -1457,16 +1457,17 @@
   [parts]
   (rf.story.result/run-result parts))
 
-(defn match-schema-expectations
-  "Per spec/017 §Schema rule — EXACT multiset match of declared
-  `:rf.assert/schema-error` atoms against the tape's projected schema
-  violations. Pure data → data. Returns `{:records [assertion-record …]
-  :consumed-selectors #{…} :unmatched [expectation …] :unconsumed
-  [violation …]}` (see `re-frame.story.result/match-schema-expectations`).
-  Exposed for tooling / MCP that wants to inspect the consumption pairing
-  directly."
-  [schema-expectations epoch-tape]
-  (rf.story.result/match-schema-expectations schema-expectations epoch-tape))
+;; `match-schema-expectations` LEFT THE FACADE (rf2-i6kh, facade sweep).
+;; Its canonical home is `re-frame.story.result/match-schema-expectations`,
+;; which is the only door spec/017 §Schema rule has ever named, and the door
+;; every caller in this repository already uses. The facade delegator was
+;; carried "for tooling / MCP that wants to inspect the consumption pairing
+;; directly" — an intent that never materialised: story-mcp consumes the five
+;; rf2-jy92cr leaf operations (`known-assertion-ids` / `assertion-record` /
+;; `assertion-records` / `aggregate-verdict` / `valid-variant-id?`), and this
+;; was not among them. Per spec/Conventions.md §Removing or demoting a facade
+;; export, fate (a): genuinely used internally → it becomes internal and
+;; leaves the facade. Require `re-frame.story.result` to reach it.
 
 (defn result-status
   "Per spec/017 §Run result — the unified verdict of a run-result:
