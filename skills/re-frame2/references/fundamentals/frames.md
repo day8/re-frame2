@@ -104,16 +104,24 @@ When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic 
 Per-test isolated frame (the shape tests and harnesses use):
 
 ```clojure
-(with-new-frame [f (rf/make-frame
-                 {:fx-overrides {:rf.http/managed :auth.login/test-canned-success}})]
+(rf/with-new-frame [f (rf/make-frame
+                        {:fx-overrides {:rf.http/managed :auth.login/test-canned-success}})]
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                        {:email "user@example.com"
                                         :password "correct-horse"}]]
                     {:frame f})
-  (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))))
+  ;; `:auth.login/state` derives from `[:rf/machine :auth.login/flow]`, and a
+  ;; machine snapshot is runtime-db state — so compute it from the whole
+  ;; frame-state, not from app-db alone.
+  (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))))
 ```
 
-Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination. Passing the returned value straight back in (`{:frame f}`, `(rf/app-db-value f)`) is the sanctioned harness shape: the frame is born in the test scope, dies with it (`with-new-frame` destroys it on block exit), and never enters the named frame registry. Reach for an `:id`-registered frame only when mounted code must address it by id.
+Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination. Passing the returned value straight back in (`{:frame f}`, `(rf/frame-state-value f)`) is the sanctioned harness shape: the frame is born in the test scope, dies with it (`rf/with-new-frame` destroys it on block exit), and never enters the named frame registry. Reach for an `:id`-registered frame only when mounted code must address it by id.
+
+Two spellings in that block are load-bearing, and both fail quietly if you “tidy” them:
+
+- **The macro is `rf/`-qualified, like every other public form here.** `with-new-frame` is a macro on `re-frame.core`; the namespace self-`:require-macros` its own macros, so a plain `(:require [re-frame.core :as rf])` is the whole import a CLJS consumer needs — but nothing is `:refer`-ed into *your* namespace, so a bare `(with-new-frame ...)` is an **undeclared var**, not a shorthand. It does not fail the way a typo usually does: ClojureScript reports it as a *warning*, the build still succeeds, and the emitted call takes the entire body as its arguments — so the block throws a `TypeError` at run time having asserted nothing at all. Write `rf/with-new-frame` unless you have explicitly `:refer`-ed it.
+- **Which reader you hand `compute-sub` is part of the assertion.** `rf/app-db-value` returns the **app-db partition only**, and it stays the right input when every sub in the graph is a `:db` sub. `:auth.login/state` is not that graph: it derives from `[:rf/machine :auth.login/flow]`, and machine snapshots are durable **runtime-db** state (see [§What a frame is](#what-a-frame-is)), so an app-db-only value leaves that input unsatisfied and the sub computes `nil` rather than `:authed`. A runtime-backed or mixed graph gets the coherent whole — `rf/frame-state-value`, which carries both partitions in one snapshot. Same rule, stated for the testing axis, in [`../cross-cutting/testing.md`](../cross-cutting/testing.md#machine-snapshots-and-tag-queries).
 
 And establishing the app frame at boot (the runtime infers no frame, so you register it explicitly and scope it at the root):
 

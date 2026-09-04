@@ -157,7 +157,37 @@ scoped to `skills/re-frame2-implementor` only):
      (it quotes the bare fn literal, as the repaired leaf does). Ordinary fn
      literals nested deeper in the body (a `reg-sub` handler, an event fn)
      never match, and `with-new-frame` is a different head token, out of
-     scope.
+     scope — Rule 9a is what covers it.
+
+  9. **The canonical per-test frame recipe (rf2-u429).** The
+     `references/fundamentals/frames.md` "Canonical mini-example" — the
+     block a programmer or a model copies into a consumer test suite —
+     carried TWO independent copy-oriented faults at once, and Rules 1-8
+     exited 0 over both. (9a) It called `(with-new-frame ...)`
+     UNQUALIFIED while every surrounding form used the `[re-frame.core
+     :as rf]` alias and nothing was `:refer`-ed. The macro lives on
+     `re-frame.core`, whose CLJS branch self-`:require-macros` it — so it
+     is reachable as `rf/with-new-frame` and NOT bare, in any ordinary
+     consumer namespace. That is the standing generic-consumer rule in
+     miniature: the bare spelling resolves only where somebody explicitly
+     referred it. It also fails far worse than a typo — ClojureScript
+     grades an undeclared Var as a WARNING, so the build exits 0, the
+     emitted call swallows the whole macro body into the undefined
+     function's argument list, and the block throws a TypeError at run
+     time having asserted nothing (the Rule 8 silent-skip class, reached
+     through the other frame macro). (9b) Its assertion computed
+     `:auth.login/state` from `(rf/app-db-value f)`. That sub derives
+     from `[:rf/machine :auth.login/flow]`, a `reg-runtime-sub` whose
+     source is RUNTIME-db, while `app-db-value` returns the app-db
+     partition alone — so even with the macro repaired the input is
+     unsatisfied and the sub computes `nil`, not `:authed`, with no error
+     and no warning. `frame-state-value` is the coherent whole a mixed
+     app/runtime graph needs. Rule 9 refuses both shapes inside CODE
+     FENCES only (a labelled "not this" in prose, and the affordance
+     table naming the bare macro, stay legal), leaves an app-db-only
+     `compute-sub` alone (it is the smaller correct form), and (9c)
+     additionally anchors the canonical block itself so the recipe cannot
+     be reworded out of existence unnoticed.
 
 WHAT THIS GUARD IS, AND IS NOT (read before trusting a green run):
     Rules 1-6 are *retrospective token patterns*. Each encodes one regression
@@ -1018,6 +1048,182 @@ def withframe_thunk_problems(text: str) -> list[tuple[int, str]]:
         problems.append((lineno, WITHFRAME_THUNK_MSG))
     return problems
 
+# --- Rule 9: the canonical per-test frame recipe (rf2-u429). Two independent
+#     copy-oriented faults in ONE fenced block, each of which a reader
+#     reproduces by copying rather than by reasoning.
+#
+#     9a - AN UNQUALIFIED FRAME-SCOPING MACRO INSIDE A FENCE. `with-new-frame`
+#          and `with-frame` are macros on `re-frame.core`. The namespace
+#          self-`:require-macros` its own macros, so `(:require [re-frame.core
+#          :as rf])` is the whole import a CLJS consumer needs - but that
+#          `:refer` lands in `re-frame.core`, NOT in the consumer's namespace,
+#          so the macro is reachable as `rf/with-new-frame` and NOT as a bare
+#          `with-new-frame`. This is the generic-consumer failure the skill's
+#          own standing rule exists to prevent: the bare spelling resolves only
+#          where somebody has explicitly `:refer`-ed it.
+#
+#          It does NOT fail the way a typo usually does, which is why a fence
+#          carrying it is worth a gate. ClojureScript grades an undeclared Var
+#          as a WARNING: the build exits 0, and the emitted call swallows the
+#          entire macro body into the undefined function's ARGUMENT LIST - so
+#          the block dies with a `TypeError` at run time having asserted
+#          nothing at all, and the binding vector's symbol never binds.
+#          (Measured on a minimal consumer namespace aliasing only `rf`:
+#          `rf/with-new-frame` compiled clean and ran 4/4 assertions; the bare
+#          spelling compiled with one warning, exit 0, then threw at run time.)
+#          Same silent-skip class as Rule 8's uninvoked thunk, reached through
+#          the OTHER frame macro - which Rule 8 explicitly leaves out of scope.
+#
+#          FENCED BLOCKS ONLY, and deliberately: a leaf legitimately quotes the
+#          bare spelling in prose as a labelled "not this" (frames.md does), and
+#          the affordance TABLE names the bare macro as a name rather than as
+#          code. A fence is what a reader copies. A block that establishes its
+#          own `:refer` is left alone - that is a lawful, if unusual, import.
+#
+#     9b - AN APP-DB-ONLY READER HANDED TO `compute-sub` FOR A RUNTIME-BACKED
+#          GRAPH. `app-db-value` returns the app-db partition ALONE. Machine
+#          snapshots are durable RUNTIME-db state, and the framework subs that
+#          expose them (`[:rf/machine ...]`, `[:rf.machine/has-tag? ...]`) are
+#          registered with `reg-runtime-sub`, so `compute-sub`'s partition
+#          selector finds nothing to satisfy that input and the sub computes
+#          `nil` - no error, no warning, just a wrong value under a green
+#          `assert`. The coherent whole is `frame-state-value`, which carries
+#          both partitions in one snapshot.
+#
+#          Bounded to a fence that ALREADY names a framework runtime-db sub, so
+#          the many legitimate app-db-only `compute-sub` examples elsewhere in
+#          the corpus (`(rf/compute-sub [:item-sum] {:items [10 20 30]})`) are
+#          untouched - that smaller form stays correct and stays taught.
+#
+#     9c - THE CANONICAL BLOCK ITSELF, as a bounded anchor. 9a and 9b refuse
+#          the two bad shapes; they cannot notice the recipe being reworded out
+#          of existence. The block under `## Canonical mini-example` is THE
+#          copy-oriented recipe for a per-test frame, so it is additionally
+#          required to state both correct spellings in place - the same
+#          "bounded authority" treatment Rule 6c gives the hooks blocks.
+
+FENCED_FRAME_MACRO_RE = re.compile(r"\((with-new-frame|with-frame)[\s\[]")
+# A block that establishes its own refer is lawfully using the bare spelling.
+FENCE_REFER_RE = re.compile(r":refer\b")
+
+UNQUALIFIED_FRAME_MACRO_MSG = (
+    "UNQUALIFIED-FRAME-MACRO: this fenced recipe calls `({name} ...)` "
+    "unqualified. `{name}` is a macro on `re-frame.core`, and the namespace's "
+    "self-`:require-macros` refers it into `re-frame.core` - NOT into the "
+    "consumer's namespace - so under the `[re-frame.core :as rf]` convention "
+    "every other form in these leaves uses, the bare symbol is an UNDECLARED "
+    "VAR in any ordinary consumer namespace. ClojureScript grades that as a "
+    "warning, not an error: the build exits 0, the emitted call swallows the "
+    "whole macro body into the undefined function's argument list, and the "
+    "block throws a TypeError at run time having asserted nothing - the Rule 8 "
+    "silent-skip class reached through the other frame macro. Spell it "
+    "`rf/{name}`. A labelled 'not this' mention in PROSE is legal and this rule "
+    "does not read it; a fence is what a reader copies."
+)
+
+COMPUTE_SUB_TOKEN_RE = re.compile(r"\bcompute-sub\b")
+APP_DB_VALUE_TOKEN_RE = re.compile(r"\bapp-db-value\b")
+# The framework subs whose source partition is runtime-db (reg-runtime-sub).
+RUNTIME_BACKED_SUB_RE = re.compile(r"\[:rf/machine\b|\[:rf\.machine/has-tag\?")
+# How far past `compute-sub` its db-position argument can still be.
+COMPUTE_SUB_ARG_WINDOW = 160
+
+COMPUTE_SUB_PARTITION_MSG = (
+    "COMPUTE-SUB-WRONG-PARTITION: this fenced recipe hands `app-db-value` to "
+    "`compute-sub` in a block whose subscription graph reads a framework "
+    "RUNTIME-db sub (`[:rf/machine ...]` / `[:rf.machine/has-tag? ...]`). "
+    "`app-db-value` returns the app-db partition ALONE, so that input is never "
+    "satisfied and the sub computes `nil` - silently, under whatever the "
+    "example asserts. Machine snapshots are durable runtime-db state. Pass the "
+    "coherent whole instead: `(rf/frame-state-value f)` carries both partitions "
+    "in one snapshot and resolves a mixed app/runtime graph in one call. This "
+    "rule is bounded to fences that already name a runtime-backed framework "
+    "sub - an app-db-only `compute-sub` (every input a `:db` sub) is the "
+    "smaller correct form and stays legal."
+)
+
+
+def unqualified_frame_macro_problems(text: str) -> list[tuple[int, str]]:
+    """Rule 9a - a bare `with-new-frame` / `with-frame` head inside a code
+    fence. Returns (lineno, message) tuples. Takes the whole file body so the
+    self-test can pass a fenced fixture directly; prose mentions never enter a
+    fenced block, so a labelled 'not this' stays legal."""
+    problems: list[tuple[int, str]] = []
+    for block_start, body in fenced_blocks(text):
+        if FENCE_REFER_RE.search(body):
+            continue
+        for m in FENCED_FRAME_MACRO_RE.finditer(body):
+            lineno = block_start + 1 + body.count("\n", 0, m.start())
+            problems.append(
+                (lineno, UNQUALIFIED_FRAME_MACRO_MSG.format(name=m.group(1)))
+            )
+    return problems
+
+
+def compute_sub_partition_problems(text: str) -> list[tuple[int, str]]:
+    """Rule 9b - `compute-sub` handed an `app-db-value` reader inside a fence
+    that names a runtime-db-backed framework sub. Returns (lineno, message)
+    tuples."""
+    problems: list[tuple[int, str]] = []
+    for block_start, body in fenced_blocks(text):
+        if not RUNTIME_BACKED_SUB_RE.search(body):
+            continue
+        for m in COMPUTE_SUB_TOKEN_RE.finditer(body):
+            window = body[m.end():m.end() + COMPUTE_SUB_ARG_WINDOW]
+            if APP_DB_VALUE_TOKEN_RE.search(window):
+                lineno = block_start + 1 + body.count("\n", 0, m.start())
+                problems.append((lineno, COMPUTE_SUB_PARTITION_MSG))
+    return problems
+
+
+# Rule 9c anchor - the leaf and the heading whose following fence is THE
+# canonical per-test frame recipe.
+CANONICAL_FRAME_LEAF = (
+    "skills", "re-frame2", "references", "fundamentals", "frames.md")
+CANONICAL_BLOCK_HEADING_RE = re.compile(
+    r"(?im)^#{2,3}\s+Canonical mini-example\s*$")
+# What that block must state IN PLACE, each the repair of one rf2-u429 fault.
+CANONICAL_BLOCK_REQUIRED = (
+    ("rf/with-new-frame",
+     "the frame macro alias-qualified (a bare `with-new-frame` is an "
+     "undeclared var in a consumer namespace - Rule 9a)"),
+    ("rf/frame-state-value",
+     "the coherent frame-state handed to `compute-sub` (the assertion's sub "
+     "reads a runtime-db-backed machine snapshot, which `app-db-value` cannot "
+     "see - Rule 9b)"),
+)
+
+
+def canonical_frame_block(text: str) -> tuple[int, str] | None:
+    """The first fenced block after the `## Canonical mini-example` heading:
+    (opening-fence-lineno, block-body), or None when the heading is absent."""
+    m = CANONICAL_BLOCK_HEADING_RE.search(text)
+    if m is None:
+        return None
+    heading_lineno = text.count("\n", 0, m.start()) + 1
+    for block_start, body in fenced_blocks(text):
+        if block_start > heading_lineno:
+            return block_start, body
+    return None
+
+
+def canonical_frame_block_problems(block: str) -> list[str]:
+    """Rule 9c - the bounded canonical block must state both correct spellings
+    in place. A correct paragraph elsewhere in the leaf does NOT cover it: this
+    block is what a programmer or a model copies."""
+    problems: list[str] = []
+    for token, why in CANONICAL_BLOCK_REQUIRED:
+        if token not in block:
+            problems.append(
+                "CANONICAL-FRAME-RECIPE-INCOMPLETE: the canonical per-test "
+                f"frame block no longer shows `{token}` - {why}. This block is "
+                "a bounded authority: it is the recipe copied verbatim into "
+                "consumer test suites, so restore the spelling here rather "
+                "than relying on the surrounding prose."
+            )
+    return problems
+
+
 
 # --- Rule 3: launcher points at BOTH canonical files, without regrowing the
 #     tree / locks sections. Operates on the whole authoring-prompt.md body
@@ -1159,6 +1365,16 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         # inline positive instruction); lineno computed from the match offset.
         for lineno, label in withframe_thunk_problems(body):
             problems.append(f"{rel}:{lineno}: {label}")
+        # Rules 9a & 9b - the canonical per-test frame recipe's two
+        # copy-oriented faults, scanned per FENCED BLOCK: a bare
+        # `with-new-frame` / `with-frame` head (an undeclared var in a
+        # consumer namespace), and an `app-db-value` reader handed to
+        # `compute-sub` for a runtime-db-backed graph. Prose mentions
+        # never enter a fence, so a labelled "not this" stays legal.
+        for lineno, label in unqualified_frame_macro_problems(body):
+            problems.append(f"{rel}:{lineno}: {label}")
+        for lineno, label in compute_sub_partition_problems(body):
+            problems.append(f"{rel}:{lineno}: {label}")
         # Rule 7 — the form-action fail-open shapes, per fenced block.
         for start_lineno, label in csrf_fence_problems(body):
             problems.append(f"{rel}:{start_lineno}: {label}")
@@ -1240,6 +1456,31 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         for start_lineno, label in csrf_fence_problems(_slurp(target)):
             problems.append(f"{rel}:{start_lineno}: {label}")
 
+    # Rule 9c - THE CANONICAL PER-TEST FRAME BLOCK, read in place. 9a and
+    # 9b refuse the two bad shapes; neither notices the recipe being
+    # reworded out of existence, which is what this anchor holds.
+    canonical_leaf = REPO_ROOT.joinpath(*CANONICAL_FRAME_LEAF)
+    rel = "/".join(CANONICAL_FRAME_LEAF)
+    if not canonical_leaf.is_file():
+        problems.append(
+            f"{rel}: SETUP: the canonical per-test frame leaf is missing "
+            "- Rule 9c's anchor has no file."
+        )
+    else:
+        found = canonical_frame_block(_slurp(canonical_leaf))
+        if found is None:
+            problems.append(
+                f"{rel}: CANONICAL-FRAME-BLOCK-ANCHOR-MISSING: no "
+                "'Canonical mini-example' heading with a code fence after "
+                "it. If the block legitimately moved or was renamed, "
+                "re-point CANONICAL_BLOCK_HEADING_RE in the same change - "
+                "don't leave the recipe unguarded."
+            )
+        else:
+            lineno, block = found
+            for text in canonical_frame_block_problems(block):
+                problems.append(f"{rel}:{lineno}: {text}")
+
     # Rule 3 — the launcher (authoring-prompt.md) is checked as a whole body,
     # not line-by-line, and lives under spec/ (out of the leaf scan above).
     if not AUTHORING_PROMPT.is_file():
@@ -1270,7 +1511,8 @@ def run(*, verbose: bool, ci: bool) -> int:
         print(
             "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
             "machine-handler-recipe + managed-http-recipe + uix-helix-hooks + "
-            "form-action-csrf + withframe-thunk guard: scanned "
+            "form-action-csrf + withframe-thunk + canonical-frame-recipe "
+            "guard: scanned "
             f"{len(files)} user-facing leaves ({lines_checked} lines), "
             f"{len(HOOKS_ANCHORED_BLOCKS)} bounded hooks-recipe blocks, "
             f"{len(CSRF_EXTRA_FILES)} spec-side CSRF authority file(s), plus "
@@ -1295,7 +1537,12 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "(leaves and spec page alike), no `with-frame` recipe parks a "
                 "fn literal in the macro's body-head position (the JVM thunk "
                 "\"function form\" — the macro would return it uninvoked and "
-                "every test under it would silently skip), and the launcher points at "
+                "every test under it would silently skip), no fenced recipe "
+                "calls a bare `with-new-frame` / `with-frame` (an undeclared "
+                "var in a consumer namespace) or hands `app-db-value` to "
+                "`compute-sub` for a runtime-db-backed graph, the canonical "
+                "per-test frame block still states `rf/with-new-frame` + "
+                "`rf/frame-state-value` in place, and the launcher points at "
                 "design.md + inputs.md without regrowing the tree / locks. "
                 "NOTE: this guard is a catalogue of known regressions, not a "
                 "skill/spec equivalence check — see the module docstring."
@@ -1322,7 +1569,13 @@ def run(*, verbose: bool, ci: bool) -> int:
         "off the field schema, pin frames with the `with-frame` macro BODY — "
         "never a fn-literal thunk in its body-head position (the macro splices "
         "on JVM and CLJS alike and would return the thunk uninvoked; a fixture "
-        "invokes `(test-fn)` inside the binding) — and keep the launcher "
+        "invokes `(test-fn)` inside the binding), alias-qualify the frame "
+        "macros in every code fence (`rf/with-new-frame`; the bare symbol is "
+        "an undeclared var in a consumer namespace, and CLJS grades that a "
+        "warning - green build, TypeError at run time, nothing asserted) and "
+        "compute a runtime-db-backed sub from `rf/frame-state-value`, never "
+        "`rf/app-db-value` (which is the app-db partition alone, so the sub "
+        "silently computes nil) - and keep the launcher "
         "pointing at the canonical design.md + inputs.md instead of re-holding "
         "the tree / locks."
     )
@@ -2097,6 +2350,172 @@ def _self_test() -> int:
         elif not withframe_thunk_problems(shipped.replace(old, new)):
             print("SELF-TEST FAIL (Z thunk mutation not caught): "
                   "skills/re-frame2/references/cross-cutting/testing.md")
+            failures += 1
+
+    # --- Rule 9a: an unqualified frame-scoping macro inside a fence.
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n"
+        "(with-new-frame [f (rf/make-frame {})]\n"
+        "  (rf/dispatch-sync [:go] {:frame f}))\n"
+        "```\n",
+        dirty=True, label="AA1 the exact shipped bare with-new-frame head",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n(with-frame :app/test\n  (rf/dispatch-sync [:go]))\n```\n",
+        dirty=True, label="AA2 bare with-frame head in a fence",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n"
+        "(rf/with-new-frame [f (rf/make-frame {})]\n"
+        "  (rf/dispatch-sync [:go] {:frame f}))\n"
+        "```\n",
+        dirty=False, label="AA3 alias-qualified head is the correct form",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "so a bare `(with-new-frame ...)` is an undeclared var, not a "
+        "shorthand. Write `rf/with-new-frame`.",
+        dirty=False, label="AA4 labelled 'not this' mention in PROSE",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "| Create + own + destroy a frame for a scope | `with-new-frame` |",
+        dirty=False, label="AA5 affordance table naming the macro, unfenced",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n"
+        "(ns app.test\n"
+        "  (:require [re-frame.core :as rf :refer [with-new-frame]]))\n"
+        "(with-new-frame [f (rf/make-frame {})]\n"
+        "  (rf/dispatch-sync [:go] {:frame f}))\n"
+        "```\n",
+        dirty=False, label="AA6 block establishing its own :refer is lawful",
+    )
+
+    # --- Rule 9b: an app-db-only reader for a runtime-db-backed graph.
+    expect(
+        compute_sub_partition_problems,
+        "```clojure\n"
+        "(rf/reg-sub :auth.login/state :<- [:rf/machine :auth.login/flow]\n"
+        "  (fn [snapshot _] (:state snapshot)))\n"
+        "(assert (= :authed (rf/compute-sub [:auth.login/state] "
+        "(rf/app-db-value f))))\n"
+        "```\n",
+        dirty=True, label="AB1 the exact shipped app-db-value machine assertion",
+    )
+    expect(
+        compute_sub_partition_problems,
+        "```clojure\n"
+        "(rf/reg-sub :auth.login/state :<- [:rf/machine :auth.login/flow]\n"
+        "  (fn [snapshot _] (:state snapshot)))\n"
+        "(assert (= :authed (rf/compute-sub [:auth.login/state] "
+        "(rf/frame-state-value f))))\n"
+        "```\n",
+        dirty=False, label="AB2 frame-state-value is the correct partition",
+    )
+    expect(
+        compute_sub_partition_problems,
+        "```clojure\n(is (= 60 (rf/compute-sub [:item-sum] "
+        "{:items [10 20 30]})))\n```\n",
+        dirty=False, label="AB3 app-db-only compute-sub stays legal",
+    )
+    expect(
+        compute_sub_partition_problems,
+        "```clojure\n"
+        "(is (= {:n 0} (rf/app-db-value f)))\n"
+        "(is (= :loading (:state @(rf/subscribe [:rf/machine :loader]))))\n"
+        "```\n",
+        dirty=False,
+        label="AB4 app-db-value read beside a machine sub, no compute-sub",
+    )
+    expect(
+        compute_sub_partition_problems,
+        "Read runtime-db with `(:rf.db/runtime (rf/frame-state-value id))` "
+        "(not `app-db-value`) — or through `[:rf/machine id]` with "
+        "`compute-sub`.",
+        dirty=False, label="AB5 correct prose naming both tokens, unfenced",
+    )
+
+    # --- Rule 9c: the bounded canonical block must state both spellings.
+    expect(
+        canonical_frame_block_problems,
+        "(rf/with-new-frame [f (rf/make-frame {})]\n"
+        "  (assert (= :authed (rf/compute-sub [:auth.login/state] "
+        "(rf/frame-state-value f)))))",
+        dirty=False, label="AC1 canonical block carrying both correct spellings",
+    )
+    expect(
+        canonical_frame_block_problems,
+        "(with-new-frame [f (rf/make-frame {})]\n"
+        "  (assert (= :authed (rf/compute-sub [:auth.login/state] "
+        "(rf/frame-state-value f)))))",
+        dirty=True, label="AC2 canonical block with the macro unqualified",
+    )
+    expect(
+        canonical_frame_block_problems,
+        "(rf/with-new-frame [f (rf/make-frame {})]\n"
+        "  (assert (= :authed (rf/compute-sub [:auth.login/state] "
+        "(rf/app-db-value f)))))",
+        dirty=True, label="AC3 canonical block back on rf/app-db-value",
+    )
+
+    # --- Rule 9 against the REAL corpus, with both reintroduction
+    #     mutations: the shipped frames leaf must be green, its canonical
+    #     block must still be locatable, and restoring EITHER exact bad
+    #     shape must be caught (rf2-u429 acceptance 4/5).
+    frames_leaf = REPO_ROOT.joinpath(*CANONICAL_FRAME_LEAF)
+    if not frames_leaf.is_file():
+        print("SELF-TEST FAIL (AD real frames leaf missing): "
+              + "/".join(CANONICAL_FRAME_LEAF))
+        failures += 1
+    else:
+        shipped = _slurp(frames_leaf)
+        if unqualified_frame_macro_problems(shipped):
+            print("SELF-TEST FAIL (AD shipped frames leaf flagged by 9a): "
+                  f"{unqualified_frame_macro_problems(shipped)}")
+            failures += 1
+        if compute_sub_partition_problems(shipped):
+            print("SELF-TEST FAIL (AD shipped frames leaf flagged by 9b): "
+                  f"{compute_sub_partition_problems(shipped)}")
+            failures += 1
+        found = canonical_frame_block(shipped)
+        if found is None:
+            print("SELF-TEST FAIL (AD canonical block anchor did not "
+                  "resolve): re-point CANONICAL_BLOCK_HEADING_RE")
+            failures += 1
+        elif canonical_frame_block_problems(found[1]):
+            print("SELF-TEST FAIL (AD shipped canonical block incomplete): "
+                  f"{canonical_frame_block_problems(found[1])}")
+            failures += 1
+        # Mutation 1 — the macro back to its unqualified spelling.
+        old = "(rf/with-new-frame [f (rf/make-frame"
+        new = "(with-new-frame [f (rf/make-frame"
+        if old not in shipped:
+            print("SELF-TEST FAIL (AD 9a mutation was a no-op): the shipped "
+                  "canonical block no longer carries the anchored "
+                  "rf/with-new-frame head — re-point the mutation anchor "
+                  "in the same change")
+            failures += 1
+        elif not unqualified_frame_macro_problems(shipped.replace(old, new)):
+            print("SELF-TEST FAIL (AD 9a mutation not caught): "
+                  + "/".join(CANONICAL_FRAME_LEAF))
+            failures += 1
+        # Mutation 2 — the assertion back to the app-db-only reader.
+        old = "(rf/compute-sub [:auth.login/state] (rf/frame-state-value f))"
+        new = "(rf/compute-sub [:auth.login/state] (rf/app-db-value f))"
+        if old not in shipped:
+            print("SELF-TEST FAIL (AD 9b mutation was a no-op): the shipped "
+                  "canonical block no longer carries the anchored "
+                  "frame-state-value assertion — re-point the mutation "
+                  "anchor in the same change")
+            failures += 1
+        elif not compute_sub_partition_problems(shipped.replace(old, new)):
+            print("SELF-TEST FAIL (AD 9b mutation not caught): "
+                  + "/".join(CANONICAL_FRAME_LEAF))
             failures += 1
 
     if failures:
