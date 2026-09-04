@@ -1,6 +1,12 @@
 (ns re-frame.schema-rollback-errors-stream-cljs-test
-  "rf2-xpd8 (PR1) — a rejected `app-db` candidate reports on the always-on
-  `:errors` stream, under the validator's own dev gate.
+  "rf2-xpd8 / rf2-vkn8 — a rejected CANDIDATE TRANSITION reports on the
+  always-on `:errors` stream, under the validator's own dev gate.
+
+  PR1 (rf2-xpd8) took the `:where :app-db` arm, which is everything above the
+  `PR2` banner. PR2 (rf2-vkn8) took the ruling's other three `:rollback? true`
+  producers — `:where :machine-data`, and the two `:rf.error/malformed-schema`
+  rejection sites — and they live below that banner, sharing this file's
+  fixtures and its pinning discipline so the four arms cannot drift apart.
 
   ## The measurement this suite reproduces
 
@@ -74,6 +80,14 @@
             ;; exit 0. The `schemas-present?` guard is the belt to this
             ;; require's braces, not a substitute for it.
             [re-frame.schemas]
+            ;; rf2-vkn8: the `:where :machine-data` arm below drives a real
+            ;; machine, and `reg-machine`'s macro expansion needs the machines
+            ;; artefact LOADED — its late-bind hooks (`:machines/machine-meta`,
+            ;; `:machines/validate-machine-data!`) are what the candidate
+            ;; walker resolves. Same braces-to-the-require's-belt reasoning as
+            ;; `re-frame.schemas` above: without it those deftests would
+            ;; register a machine nothing validates and pass vacuously.
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -209,6 +223,387 @@
 
 (defn- schemas-present? []
   (some? (rf.late-bind/get-fn :schemas/validate-app-schema!)))
+
+;; ---------------------------------------------------------------------------
+;; PR2 (rf2-vkn8) — the campaign's other three `:rollback? true` producers
+;; ---------------------------------------------------------------------------
+;;
+;; One ruling, four arms. PR1 above took `:where :app-db`; these three take the
+;; rest of what discards a whole candidate transition:
+;;
+;;   1. `:where :machine-data` at `:rollback? true` (`:phase :macrostep` /
+;;      `:bootstrap`) — a machine snapshot's `:data` violating its
+;;      `[:schemas :data]` schema.
+;;   2. `:rf.error/malformed-schema` per entry in `validate-app-schema!` — a
+;;      REGISTERED app-db schema whose FORM is broken, so the validator throws
+;;      and the candidate is rejected fail-closed.
+;;   3. `:rf.error/malformed-schema` from the router's wholesale
+;;      validator-machinery backstop.
+;;
+;; Leaving any of them trace-only would have been the worse half of an
+;; inconsistency rather than a smaller version of the same gap: to the
+;; developer these are one symptom — the app stopped updating — reached
+;; through the value, the schema form, or the validator itself, and only one
+;; of the three would have said so.
+;;
+;; The `:frame` slot in arm 1 is the re-verification this bead turned on, and
+;; it is asserted rather than assumed: `validate-machine-data!` RECEIVED a
+;; frame-id and discarded it (`_frame-id`), and the record without it can
+;; reach corpus listeners but never the frame's own `:observability :errors`
+;; sink — which is most of the point.
+
+(def ^:private machine-frame-id :vkn8/machine)
+(def ^:private machine-id       :vkn8.machine/counter)
+(def ^:private malformed-frame-id :vkn8/malformed)
+(def ^:private throw-frame-id     :vkn8/validator-throw)
+
+(def ^:private machine-planted-value
+  "Planted inside the machine's rejected `:data` so `pr-str` over the record
+  can be swept for it."
+  "rf2-vkn8-planted-machine-data-must-not-egress")
+
+(def ^:private machine-record-keys
+  "The CLOSED key set of the dev-gated `:where :machine-data` rejection
+  record. Pinned EQUAL, like PR1's: every member is a framework keyword
+  (`:error`, `:where`, `:rollback?`, `:recovery`, and `:phase` — a closed
+  lifecycle vocabulary) or a structural id (`:machine-id` / `:failing-id`,
+  both the machine's registered keyword, and `:frame`)."
+  #{:error :where :machine-id :failing-id :phase :frame
+    :rollback? :recovery :reason :time})
+
+(def ^:private malformed-record-keys
+  "The CLOSED key set of both `:rf.error/malformed-schema` rejection records.
+  The router's backstop carries the same set MINUS `:registered-path` — it has
+  no registration to name, because the throw was wholesale rather than
+  per-entry."
+  #{:error :where :registered-path :event-id :failing-id :frame
+    :rollback? :recovery :reason :time})
+
+(defn- machine-records [{:keys [errors]}]
+  (filterv #(and (= :rf.error/schema-validation-failure (:error %))
+                 (= :machine-data (:where %)))
+           errors))
+
+(defn- machine-traces [{:keys [traces]}]
+  (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
+                 (= :machine-data (:where (:tags %))))
+           traces))
+
+(defn- malformed-records [{:keys [errors]}]
+  (filterv #(= :rf.error/malformed-schema (:error %)) errors))
+
+(defn- runtime-db-value [frame]
+  (:rf.db/runtime (rf/frame-state-value frame)))
+
+(defn- machines-present? []
+  (some? (rf.late-bind/get-fn :machines/validate-machine-data!)))
+
+;; ===========================================================================
+;; Arm 1 — `:where :machine-data` at `:rollback? true`
+;; ===========================================================================
+
+(defn- register-machine-app! []
+  (rf/make-frame {:id machine-frame-id :doc "rf2-vkn8 machine rollback witness"})
+  (rf/reg-machine machine-id
+    {:initial :idle
+     :data    {:n 1}
+     :schemas {:data [:map [:n pos-int?] [:note {:optional true} :string]]}
+     :actions {:break (fn [_] {:data {:n 0 :note machine-planted-value}})
+               :bump  (fn [_] {:data {:n 2}})
+               ;; The escape-hatch fx validates the WOULD-BE-MERGED snapshot
+               ;; at `:phase :update-snapshot` with `:rollback? false` — a
+               ;; local skipped write, not a discarded transaction. It is the
+               ;; negative control: same boundary, same schema, same trace
+               ;; category, and it must fan NOTHING onto `:errors`.
+               :patch (fn [_]
+                        {:fx [[:rf.machine/update-snapshot
+                               {:rf/machine-id machine-id
+                                :rf/patch      {:data {:n 0}}}]]})}
+     :states  {:idle {:on {:break {:target :idle :action :break}
+                           :bump  {:target :idle :action :bump}
+                           :patch {:target :idle :action :patch}}}}})
+  nil)
+
+(defn- bootstrap-machine! []
+  ;; Settle the machine into runtime-db with its conforming initial `:data`,
+  ;; so the violation under test is the MACROSTEP's and not the bootstrap's.
+  (rf/dispatch-sync [machine-id [:noop]] {:frame machine-frame-id}))
+
+(deftest ^:requires-debug rejected-machine-data-candidate-reaches-the-errors-stream
+  (when (and rf.interop/debug-enabled? (schemas-present?) (machines-present?))
+    (register-machine-app!)
+    (bootstrap-machine!)
+    (let [before   (runtime-db-value machine-frame-id)
+          captured (capture #(rf/dispatch-sync [machine-id [:break]]
+                                               {:frame machine-frame-id}))
+          records  (machine-records captured)]
+
+      (testing "one record for the machine whose :data broke its schema"
+        (is (= 1 (count records))
+            (str "expected one :errors record for the rejected machine "
+                 "transition; got " (count records) " — " (pr-str records)))
+        (let [r (first records)]
+          (is (= :machine-data (:where r)))
+          (is (= machine-id (:machine-id r)))
+          (is (= machine-id (:failing-id r))
+              "the uniform error-emit alias names the machine, as the trace does")
+          (is (= :macrostep (:phase r))
+              "the lifecycle position an operator reads the blast radius off")
+          (is (true? (:rollback? r))
+              ":rollback? true — the WHOLE candidate frame transition was discarded")
+          (is (= :no-recovery (:recovery r)))))
+
+      (testing "the `:frame` slot — the re-verification this bead turned on.
+                `validate-machine-data!` received a frame-id and discarded it
+                (`_frame-id`); without threading it the record reaches corpus
+                listeners but never the frame's own `:observability :errors`
+                sink, which is most of the point."
+        (is (= machine-frame-id (:frame (first records)))
+            (str "the record must name the frame whose candidate transition "
+                 "was rejected; got " (pr-str (:frame (first records))))))
+
+      (testing "the key set is CLOSED and EQUAL — not merely a superset"
+        (let [r (first records)]
+          (is (= machine-record-keys (set (keys r)))
+              (str "record does not match the pinned key set; extra "
+                   (pr-str (into #{} (remove machine-record-keys) (keys r)))
+                   ", missing "
+                   (pr-str (into #{} (remove (set (keys r))) machine-record-keys))))))
+
+      (testing "no payload-bearing slot, by name AND by sweep. The machine's
+                `:data` is its working memory — the slot a machine's
+                `:sensitive` classification exists to protect."
+        (let [r (first records)]
+          (doseq [k payload-bearing-keys]
+            (is (not (contains? r k))
+                (str "the record carries the payload-bearing slot " k)))
+          (is (not (str/includes? (pr-str r) machine-planted-value))
+              (str "the planted `:data` value reached the always-on record: "
+                   (pr-str r)))
+          (is (str/includes? (:reason r) (pr-str machine-id))
+              "the reason names the machine, so a console line is actionable")
+          (is (str/includes? (:reason r) "rejected")
+              "and says what happened to the transaction")))
+
+      (testing "the DEV TRACE is unchanged — still one, still carrying the
+                offending `:data`. The frame was threaded for the RECORD
+                ALONE: nothing was added to the tags map `emit-failure!`
+                builds, so Xray, Story and the epoch recorder read a
+                byte-identical trace and `tools/xray/spec` needed no edit.
+
+                And the delivered trace was never frameless, which is worth
+                pinning because it is the half a reader gets wrong: the EMIT
+                SITE built no `:frame`, but `re-frame.trace/stamp-frame`
+                supplies one on the way out for any emit correlated to a run.
+                An always-on RECORD has no such bus — `dispatch-error-record!`
+                delivers the map the caller built, verbatim — which is exactly
+                why the frame had to be threaded down to the emit site rather
+                than left to be stamped."
+        (let [traces (machine-traces captured)]
+          (is (= 1 (count traces)))
+          (is (contains? (:tags (first traces)) :value))
+          (is (str/includes? (pr-str (:tags (first traces))) machine-planted-value)
+              "the trace is where the offending :data still lives")
+          (is (= machine-frame-id (:frame (:tags (first traces))))
+              "the trace's frame comes from the bus stamp, unchanged by this bead")))
+
+      (testing "the record precedes its trace — axis-1-then-axis-2 ordering"
+        (let [seqd    (:sequence captured)
+              rec-idx (first-index (fn [[kind v]]
+                                     (and (= :errors kind)
+                                          (= :machine-data (:where v))))
+                                   seqd)
+              trc-idx (first-index (fn [[kind v]]
+                                     (and (= :trace kind)
+                                          (= :rf.error/schema-validation-failure
+                                             (:operation v))
+                                          (= :machine-data (:where (:tags v)))))
+                                   seqd)]
+          (is (some? rec-idx) "premise: the always-on record was observed")
+          (is (some? trc-idx) "premise: the dev trace was observed")
+          (is (< rec-idx trc-idx))))
+
+      (testing "the transaction really was discarded"
+        (is (= before (runtime-db-value machine-frame-id))
+            "runtime-db keeps its pre-event value — the snapshot never installed")
+        (is (= :rolled-back
+               (:outcome (first (filter #(= machine-id (:event-id %))
+                                        (:events captured)))))
+            "the always-on :events record already carried the CONSEQUENCE")))))
+
+(deftest ^:requires-debug machine-data-negative-controls
+  (when (and rf.interop/debug-enabled? (schemas-present?) (machines-present?))
+    (register-machine-app!)
+    (bootstrap-machine!)
+
+    (testing "a CONFORMING macrostep fans nothing — the half that stops this
+              being a nag-diagnostic"
+      (let [captured (capture #(rf/dispatch-sync [machine-id [:bump]]
+                                                 {:frame machine-frame-id}))]
+        (is (empty? (machine-records captured)))))
+
+    (testing "an `:rf.machine/update-snapshot` violation is `:rollback? false`
+              — a local skipped write, not a discarded transaction — so it
+              stays trace-only. Same boundary, same schema, same trace
+              CATEGORY, and it must NOT reach the always-on stream: this is
+              the assertion that says the promotion is scoped to
+              `:rollback? true` rather than to `:where :machine-data`."
+      (let [captured (capture #(rf/dispatch-sync [machine-id [:patch]]
+                                                 {:frame machine-frame-id}))]
+        (is (seq (machine-traces captured))
+            "premise: the escape-hatch violation really did fire its trace")
+        (is (= #{:update-snapshot}
+               (set (map #(:phase (:tags %)) (machine-traces captured))))
+            "premise: and it is the :update-snapshot phase, the :rollback? false one")
+        (is (empty? (machine-records captured))
+            (str "a :rollback? false machine-data failure must fan NOTHING onto "
+                 ":errors; got " (pr-str (machine-records captured))))))))
+
+;; ===========================================================================
+;; Arm 2 — `:rf.error/malformed-schema`, per registered entry
+;; ===========================================================================
+
+(defn- register-malformed-app! []
+  (rf/make-frame {:id malformed-frame-id :doc "rf2-vkn8 malformed-schema witness"})
+  ;; A childless `[:vector]` registers cleanly — Malli validates schema FORMS
+  ;; lazily — and then makes the registered validator THROW on the first
+  ;; candidate validation.
+  (rf/with-frame malformed-frame-id
+    (rf/reg-app-schema [:broken] [:vector]))
+  (rf/reg-event :vkn8/malformed-write
+    {:doc "commits a :db so the candidate walker runs over the broken entry"}
+    (fn [_ _] {:db {:broken [1 2 3] :note planted-value}}))
+  nil)
+
+(deftest ^:requires-debug malformed-registered-schema-reaches-the-errors-stream
+  (when (and rf.interop/debug-enabled? (schemas-present?))
+    (register-malformed-app!)
+    (let [before   (rf/app-db-value malformed-frame-id)
+          captured (capture #(rf/dispatch-sync [:vkn8/malformed-write]
+                                               {:frame malformed-frame-id}))
+          records  (malformed-records captured)]
+
+      (testing "one record per malformed registration"
+        (is (= 1 (count records))
+            (str "expected one :rf.error/malformed-schema record; got "
+                 (count records) " — " (pr-str records)))
+        (let [r (first records)]
+          (is (= :app-db (:where r)))
+          (is (= [:broken] (:registered-path r))
+              "the record names the registration the developer must fix")
+          (is (= :vkn8/malformed-write (:event-id r)))
+          (is (= :vkn8/malformed-write (:failing-id r)))
+          (is (= malformed-frame-id (:frame r)))
+          (is (true? (:rollback? r))
+              "fail-CLOSED: the unvalidated candidate is rejected, not installed")
+          (is (= :no-recovery (:recovery r)))))
+
+      (testing "the key set is CLOSED and EQUAL"
+        (is (= malformed-record-keys (set (keys (first records))))
+            (str "extra "
+                 (pr-str (into #{} (remove malformed-record-keys)
+                               (keys (first records))))
+                 ", missing "
+                 (pr-str (into #{} (remove (set (keys (first records))))
+                               malformed-record-keys)))))
+
+      (testing "the `:reason` is a CONSTANT sentence, NOT the throwing
+                validator's message. That message is unbounded and
+                author-controlled — a user-supplied validator may say
+                anything, and Malli's own form errors `pr-str` the offending
+                schema — so an unbounded reason on a bounded record is the
+                defect shape this campaign exists to avoid."
+        (let [r      (first records)
+              traces (filterv #(= :rf.error/malformed-schema (:operation %))
+                              (:traces captured))]
+          (is (not (contains? r :schema))
+              "the malformed registration FORM stays on the dev trace")
+          (is (not (str/includes? (pr-str r) planted-value)))
+          (is (str/includes? (:reason r) "[:broken]")
+              "the reason names the registered path")
+          (is (seq traces) "premise: the dev trace fired too")
+          (is (contains? (:tags (first traces)) :schema)
+              "and the trace keeps the form the record omits")
+          (is (not= (:reason (:tags (first traces))) (:reason r))
+              "the two reasons are composed separately, on purpose")))
+
+      (testing "the candidate was rejected fail-closed"
+        (is (= before (rf/app-db-value malformed-frame-id))
+            "nothing installed — a validator that threw cannot prove conformance")))))
+
+(deftest ^:requires-debug a-well-formed-registration-is-silent
+  (when (and rf.interop/debug-enabled? (schemas-present?))
+    (rf/make-frame {:id :vkn8/well-formed :doc "rf2-vkn8 negative control"})
+    (rf/with-frame :vkn8/well-formed
+      (rf/reg-app-schema [:ok] [:vector :int]))
+    (rf/reg-event :vkn8/well-formed-write (fn [_ _] {:db {:ok [1 2]}}))
+    (testing "a well-formed registration over a conforming commit fans nothing"
+      (let [captured (capture #(rf/dispatch-sync [:vkn8/well-formed-write]
+                                                 {:frame :vkn8/well-formed}))]
+        (is (empty? (malformed-records captured)))
+        (is (empty? (rejection-records captured)))))))
+
+;; ===========================================================================
+;; Arm 3 — the router's wholesale validator-machinery backstop
+;; ===========================================================================
+
+(deftest ^:requires-debug validator-machinery-throw-reaches-the-errors-stream
+  (when (and rf.interop/debug-enabled? (schemas-present?))
+    (rf/make-frame {:id throw-frame-id :doc "rf2-vkn8 validator-throw witness"})
+    (rf/reg-event :vkn8/throw-write (fn [_ _] {:db {:whatever 1}}))
+    (let [real (rf.late-bind/get-fn :schemas/validate-app-schema!)]
+      (try
+        ;; Break the HOOK itself, not a registered schema: a per-entry throw is
+        ;; isolated inside `validate-app-schema!` (arm 2 above). Only a
+        ;; WHOLESALE machinery throw escapes to the router's catch, which is
+        ;; the arm under test. `set-fn!` invalidates the sticky resolution
+        ;; cache, so the swap takes effect on the next dispatch.
+        (rf.late-bind/set-fn! :schemas/validate-app-schema!
+                              (fn [& _] (throw (ex-info planted-value {}))))
+        (let [before   (rf/app-db-value throw-frame-id)
+              captured (capture #(rf/dispatch-sync [:vkn8/throw-write]
+                                                   {:frame throw-frame-id}))
+              records  (malformed-records captured)]
+
+          (testing "the backstop fans exactly one record"
+            (is (= 1 (count records))
+                (str "expected one :rf.error/malformed-schema record from the "
+                     "router backstop; got " (count records) " — "
+                     (pr-str records)))
+            (let [r (first records)]
+              (is (= :app-db (:where r)) "the partition arm that threw")
+              (is (= :vkn8/throw-write (:event-id r)))
+              (is (= :vkn8/throw-write (:failing-id r)))
+              (is (= throw-frame-id (:frame r)))
+              (is (true? (:rollback? r)))
+              (is (= :no-recovery (:recovery r)))))
+
+          (testing "the key set is CLOSED and EQUAL — the per-entry set MINUS
+                    `:registered-path`, because a wholesale throw names no
+                    registration"
+            (is (= (disj malformed-record-keys :registered-path)
+                   (set (keys (first records))))
+                (str "got " (pr-str (sort (keys (first records)))))))
+
+          (testing "the `:reason` is a CONSTANT sentence — never the throwing
+                    validator's message, which is unbounded and may embed the
+                    value it choked on. The dev trace keeps that message; the
+                    record does not."
+            (let [r      (first records)
+                  traces (filterv #(= :rf.error/malformed-schema (:operation %))
+                                  (:traces captured))]
+              (is (not (str/includes? (pr-str r) planted-value))
+                  (str "the throwing validator's message reached the always-on "
+                       "record: " (pr-str r)))
+              (is (seq traces) "premise: the dev trace fired")
+              (is (str/includes? (pr-str (:tags (first traces))) planted-value)
+                  "and it is the trace that still carries the message")))
+
+          (testing "the candidate was rejected fail-closed"
+            (is (= before (rf/app-db-value throw-frame-id))
+                "a throwing validator cannot prove conformance, so nothing installs")))
+        (finally
+          (rf.late-bind/set-fn! :schemas/validate-app-schema! real))))))
 
 ;; ===========================================================================
 ;; The 0-vs-N split, with its control
@@ -394,3 +789,47 @@
             "the candidate INSTALLS under the gate — the designed posture
              (Spec 010 §What elision means for `reg-app-schema`), and the
              reason there is nothing to report"))))))
+
+;; PR2's production gate (rf2-vkn8), JVM-only for the same load-bearing reason
+;; as the deftest above: `^:prod-gate` is a cognitect-test-runner VAR filter
+;; and shadow-cljs `:node-test` honours no var tags, so on CLJS this would run
+;; in an ordinary DEV build and correctly fail its own premise. The CLJS half
+;; of the claim is `scripts/check-elision.cjs`, which greps a real `:advanced`
+;; + `goog.DEBUG=false` bundle for all three of PR2's reason tails and proves
+;; them ABSENT — a stronger statement than "they did not fire", because it
+;; shows the literals are not in the artefact.
+#?(:clj
+   (deftest ^:prod-gate pr2-rejection-records-are-absent-under-the-production-gate
+     (testing "Under `-Dre-frame.debug=false` none of PR2's three producers
+            runs: `validate-machine-data!` returns true from inside its own
+            gate without walking a snapshot, `validate-app-schema!` never
+            reaches the per-entry malformed branch, and the router's backstop
+            emit is behind an explicit `debug-enabled?` check of its own —
+            which it needs, because `run-candidate-validation!` (unlike the
+            two validators) runs in EVERY build. So all three records must be
+            absent, and the candidates must INSTALL: that is the designed
+            posture, and it is what makes this a negative control rather than
+            a restatement."
+       (is (false? rf.interop/debug-enabled?)
+           "premise: this deftest is running under the real production gate")
+       (when (and (schemas-present?) (machines-present?))
+         (register-machine-app!)
+         (bootstrap-machine!)
+         (let [captured (capture #(rf/dispatch-sync [machine-id [:break]]
+                                                    {:frame machine-frame-id}))]
+           (is (empty? (machine-records captured))
+               (str "the dev-gated :machine-data record survived into the "
+                    "production posture: " (pr-str (machine-records captured))))
+           (is (empty? (machine-traces captured))
+               "and neither did its dev trace — both elide with the check")))
+       (when (schemas-present?)
+         (register-malformed-app!)
+         (let [captured (capture #(rf/dispatch-sync [:vkn8/malformed-write]
+                                                    {:frame malformed-frame-id}))]
+           (is (empty? (malformed-records captured))
+               (str "the dev-gated :rf.error/malformed-schema record survived: "
+                    (pr-str (malformed-records captured))))
+           (is (= {:broken [1 2 3] :note planted-value}
+                  (rf/app-db-value malformed-frame-id))
+               "the candidate INSTALLS under the gate — a malformed registration
+                is never consulted, so there is nothing to reject"))))))

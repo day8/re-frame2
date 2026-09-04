@@ -70,6 +70,29 @@ const DEV_ONLY_SENTINELS = [
   // the check rather than merely beside it.
   { source: 're-frame.schemas/validate-app-schema! (:errors rejection record)',
     sentinel: 'the candidate transition was rejected and nothing installed.' },
+  // re-frame.schemas — the rf2-vkn8 MALFORMED-SCHEMA candidate-rejection
+  // record's reason string. A registered app-db schema whose FORM is
+  // malformed makes the validator throw; `validate-app-schema!` isolates that
+  // per entry and REJECTS the candidate fail-closed, and rf2-vkn8 fans the
+  // same dev-gated `:errors` record for it that the value-failure arm above
+  // gets. Its tail is deliberately distinct from that arm's so this sentinel
+  // discriminates: it proves THIS call site elided, not merely that one of
+  // them did. Emitted from inside `validate-app-schema!`'s outermost
+  // `(if interop/debug-enabled? ...)` gate.
+  { source: 're-frame.schemas/validate-app-schema! (:errors malformed-schema record)',
+    sentinel: 'is malformed and could not be evaluated; the candidate transition was rejected fail-closed and nothing installed.' },
+  // re-frame.router — the rf2-vkn8 validator-THROW backstop record's reason
+  // string. `run-candidate-validation!` is NOT itself dev-gated (it runs in
+  // every build), so this record's emit carries an EXPLICIT
+  // `rf.interop/debug-enabled?` check; this sentinel is what proves that
+  // check folds under :advanced + goog.DEBUG=false rather than merely
+  // sitting in the source. Note the DEV TRACE beside it is unaffected —
+  // `rf.trace/emit-error!` gates internally, but it is a FN, so its argument
+  // strings are built at the call site and the trace's own reason literal
+  // survives; this record's does not, which is the difference the campaign
+  // is claiming.
+  { source: 're-frame.router/run-candidate-validation! (:errors throw-reject record)',
+    sentinel: ' boundary; the candidate transition was rejected fail-closed and nothing was installed.' },
   // re-frame.schemas — validate-event! reason string. Per rf2-dz71l
   // the distinctive per-surface slot-tail (" payload failed schema ")
   // is pinned at the call site to the centralised `reason-string`
@@ -90,6 +113,16 @@ const DEV_ONLY_SENTINELS = [
   // :where :machine-data " must elide under :advanced + goog.DEBUG=false.
   { source: 're-frame.machines.data-validation/emit-failure!',
     sentinel: ' :data failed schema at boundary :where :machine-data ' },
+  // re-frame.machines.data-validation — the rf2-vkn8 `:where :machine-data`
+  // candidate-REJECTION record's reason string. Distinct from the trace
+  // reason above: this sentence rides the always-on `:errors` stream (through
+  // the `:error-emit/dispatch-error-record` hook) so a rejected machine
+  // transaction is not silent in an untooled dev build. Emitted from inside
+  // `emit-failure!`, whose every caller sits behind a
+  // `(when interop/debug-enabled? ...)` gate, so the whole call and this
+  // literal must DCE with them.
+  { source: 're-frame.machines.data-validation/emit-failure! (:errors rejection record)',
+    sentinel: '; the candidate transition was rejected and no machine snapshot installed.' },
   // re-frame.registrar — handler-replaced trace op (only emitted from a
   // gated branch in registrar/register!).  Keywords survive :advanced
   // as string literals; this is a structural sentinel.

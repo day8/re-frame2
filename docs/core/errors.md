@@ -223,10 +223,18 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     Malli form is the separate `:rf.error/malformed-schema`, which fails closed and
     rolls the commit back.)
 
-    **In dev, a rollback is not quiet.** An `:app-db` rejection lands on the `:errors`
-    stream as well as the trace — one record per failing registration, carrying
-    `:rollback? true`, the `:registered-path` and a `:reason` naming the *type* it
-    found there. So an empty page with red `[re-frame2]
+    **In dev, a rollback is not quiet.** An `:app-db` or `:machine-data` rejection
+    lands on the `:errors` stream as well as the trace — one record per failing
+    registration, carrying `:rollback? true`, the `:registered-path` (or the
+    `:machine-id` and the `:phase`) and a `:reason` naming what went wrong. The
+    `:machine-data` one is the same fact about a machine: its `:data` broke its
+    `[:schemas :data]` schema at a macrostep, so the *whole* transaction was
+    discarded. So is a `:rf.error/malformed-schema` line — that one means the schema
+    *you registered* is itself broken (a childless `[:vector]`, an unknown op), which
+    Malli only discovers the first time it runs, so every commit fails closed until
+    you fix the registration. Only rollbacks report this way: a failure that skips one
+    fx, replaces a sub with `nil`, or skips a single machine write stays on the trace,
+    because nothing was discarded. So an empty page with red `[re-frame2]
     :rf.error/schema-validation-failure … got nil` lines in the console is a schema you
     registered non-nilable over a slot nothing has written yet: the transaction was
     rejected, so nothing installed, and the next dispatch will be rejected the same

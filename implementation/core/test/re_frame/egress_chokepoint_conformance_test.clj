@@ -241,6 +241,23 @@
       DCE'd dev trace in `re-frame.spec` ONLY, exactly as the depth-halt prose
       does — so this namespace's two records share one discipline.
 
+      rf2-vkn8 adds a THIRD, and it is the only DEV-GATED record in this
+      namespace: `run-candidate-validation!`'s `emit-throw-reject!` ships the
+      `:rf.error/malformed-schema` fail-closed backstop (a wholesale
+      validator-machinery throw rejects the whole candidate transition) behind
+      an explicit `rf.interop/debug-enabled?` check, so it reaches an off-box
+      shipper in no build at all. VETTED structural-only: `:error`, `:where`
+      (`:app-db` / `:machine-data` — the partition arm, a framework keyword),
+      `:event-id` / `:failing-id` (the dispatched event's registered keyword),
+      `:frame`, `:rollback? true`, `:recovery :no-recovery`, `:time`, and a
+      `:reason` composed HERE. That last is the load-bearing difference from
+      the trace beside it: the TRACE's reason interpolates the throwing
+      validator's own message, which is author-controlled and unbounded — a
+      user-supplied `set-schema-validator!` fn may say anything, the value it
+      choked on included — so the record names the boundary and nothing else.
+      No exception residual either: `ex` is used for the dev trace's message
+      and never rides the record.
+
   NOTE the census B5 site `re-frame.ssr.hydrate` is DELIBERATELY ABSENT: it
   lifts the untrusted `:payload-frame-id` out of the deserialised payload, so it
   is NOT structural-only — it ROUTES through `project-egress` (the B5 fix) and
@@ -346,7 +363,58 @@
      ;; `:schema` — all of them stay on the DCE'd dev trace, which this change
      ;; leaves byte-identical. No exception residual (a rejected candidate is a
      ;; validator verdict, not a throw).
-     re-frame.schemas.validate})
+     ;;
+     ;; rf2-vkn8 adds a SECOND record from the same namespace —
+     ;; `emit-malformed-schema-rejection-record!` ships the
+     ;; `:rf.error/malformed-schema` per-entry rejection (a registered app-db
+     ;; schema whose FORM is malformed, so the validator throws and the
+     ;; candidate is rejected fail-closed). Same closed shape, one slot
+     ;; different: `:registered-path` / `:event-id` / `:failing-id` / `:frame`
+     ;; / `:rollback? true` / `:recovery :no-recovery` / `:time`, and a
+     ;; `:reason` that is deliberately NOT the trace's. The trace's reason for
+     ;; this arm interpolates THE THROWING VALIDATOR'S MESSAGE — unbounded,
+     ;; author-controlled, and on Malli's own form errors a `pr-str` of the
+     ;; offending schema — so the record composes its own sentence from the
+     ;; registered path plus framework prose instead. `:schema` (the malformed
+     ;; registration form) is omitted with it. No value-bearing slot exists to
+     ;; omit on this arm in the first place: the validator THREW, so it never
+     ;; proved the slot's sensitivity, and the category was built fail-closed
+     ;; without the value for exactly that reason.
+     re-frame.schemas.validate
+
+     ;; rf2-vkn8 — `re-frame.machines.data-validation`'s
+     ;; `emit-machine-data-rejection-record!` ships the `:where :machine-data`,
+     ;; `:rollback? true` candidate rejection (a machine snapshot's `:data`
+     ;; violating its `[:schemas :data]` schema at the `:macrostep` /
+     ;; `:bootstrap` boundary discards the WHOLE candidate frame transition).
+     ;; Same campaign and the same posture as the `re-frame.schemas.validate`
+     ;; entry above: DEV-GATED — every caller sits inside a
+     ;; `(when rf.interop/debug-enabled? …)` gate, so it reaches an off-box
+     ;; shipper in no build at all, and the vetting below is a floor rather
+     ;; than the ceiling the SSR entries need.
+     ;;
+     ;; VETTED structural-only, and BUILT FROM a closed allow-list rather than
+     ;; filtered down from the dev trace's tags. Every slot is a framework
+     ;; keyword (`:error`, `:where :machine-data`, `:rollback? true`,
+     ;; `:recovery :no-recovery`, and `:phase`, a closed lifecycle vocabulary)
+     ;; or a structural id (`:machine-id` / `:failing-id`, both the machine's
+     ;; REGISTERED keyword; `:frame`), plus `:time` and `:reason`. The reason
+     ;; is composed HERE from the machine id and the phase alone — two
+     ;; keywords — so neither the failing `:data` map nor the schema form can
+     ;; reach it. The dev trace's own reason could have ridden (it interpolates
+     ;; the same two ids), but composing it at the record keeps this arm
+     ;; identical in discipline to its two siblings rather than relying on a
+     ;; property of a string built elsewhere.
+     ;;
+     ;; Deliberately OMITTED: `:value` and `:received` (the machine's `:data`
+     ;; map — its working memory, and the slot a machine's `:sensitive`
+     ;; classification exists to protect), `:explain` / `:explain-humanized`,
+     ;; and `:schema` (the registered form, unbounded under `pr-str`). All of
+     ;; them stay on the DCE'd dev trace, which this change leaves
+     ;; byte-identical — `tools/xray/spec` needed no edit for that reason. No
+     ;; exception residual (a rejected candidate is a validator verdict, not a
+     ;; throw).
+     re-frame.machines.data-validation})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests

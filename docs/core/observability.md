@@ -459,7 +459,11 @@ In *dev*, though, it is not quiet on either stream: the rejection also fans one
 structural-only `:rf.error/schema-validation-failure` record per failing registration
 onto `:errors`, carrying `:rollback? true` and the `:registered-path`, so the discarded
 transaction reaches a listener and your frame's `:observability :errors` sink rather than
-only the trace. That record is gated with the check, so it is absent from a release build
+only the trace. The other ways a candidate can be discarded report there too — a machine
+`:data` violation (`:where :machine-data`, naming the `:machine-id` and the `:phase`) and
+a `:rf.error/malformed-schema` rejection, which means the schema *you registered* is
+itself broken. What does not is anything that skipped one step rather than discarding the
+transaction, which is the same line `:rolled-back` itself is drawn on. That record is gated with the check, so it is absent from a release build
 for the same reason `:rolled-back` is.
 `:rejected` is the other way round, and it is the one that fires there. The boundary
 interceptor's check is ungated and so is its report: a refused payload settles

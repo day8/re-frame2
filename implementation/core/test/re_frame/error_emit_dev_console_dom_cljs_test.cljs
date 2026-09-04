@@ -66,6 +66,11 @@
             ;; `reg-app-schema` writes into a registry no validator consults
             ;; and the whole deftest passes vacuously.
             [re-frame.schemas]
+            ;; rf2-vkn8: the machine-data rollback arm below drives a real
+            ;; machine, so the machines artefact has to be LOADED — its
+            ;; late-bind hooks are what the candidate walker resolves, and
+            ;; without them the deftest would pass vacuously.
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -453,6 +458,135 @@
         (rf/unregister-listener! :errors :fu75/rollback-owner)))))
 
 ;; ===========================================================================
+;; THE OTHER THREE ROLLBACK ARMS — rf2-vkn8 (PR2)
+;; ===========================================================================
+;;
+;; One ruling, four `:rollback? true` producers. PR1 wired `:where :app-db`
+;; above and this fallback then fired for it FOR FREE — no second printer, no
+;; second gate. That is the claim these two deftests keep honest for the rest
+;; of the set: a machine transaction discarded by a `[:schemas :data]`
+;; violation, and a candidate rejected because a REGISTERED app-db schema is
+;; itself malformed, must reach the same console by the same route, and must
+;; go equally quiet the moment anything owns the `:errors` stream.
+
+(def ^:private vkn8-machine-id :fu75.rollback/machine)
+
+(defn- register-machine-rollback-app! []
+  (rf/make-frame {:id :fu75.machine/frame :doc "rf2-vkn8 console witness"})
+  (rf/reg-machine vkn8-machine-id
+    {:initial :idle
+     :data    {:n 1}
+     :schemas {:data [:map [:n pos-int?]]}
+     :actions {:break (fn [_] {:data {:n 0}})}
+     :states  {:idle {:on {:break {:target :idle :action :break}}}}}))
+
+(defn- register-malformed-rollback-app! []
+  (rf/make-frame {:id :fu75.malformed/frame :doc "rf2-vkn8 console witness"})
+  ;; A childless `[:vector]` registers cleanly (Malli validates schema FORMS
+  ;; lazily) and then makes the registered validator THROW on the first
+  ;; candidate validation.
+  (rf/with-frame :fu75.malformed/frame
+    (rf/reg-app-schema [:broken] [:vector]))
+  (rf/reg-event :fu75.malformed/write (fn [_ _] {:db {:broken [1]}})))
+
+(deftest unowned-machine-data-rollback-reaches-the-dev-console
+  (when (and (browser?)
+             (some? (rf.late-bind/get-fn :machines/validate-machine-data!)))
+    (register-machine-rollback-app!)
+    ;; Settle the machine with its conforming initial `:data` first, so the
+    ;; line under test comes from the MACROSTEP and not the bootstrap.
+    (rf/dispatch-sync [vkn8-machine-id [:noop]] {:frame :fu75.machine/frame})
+
+    (testing "an EMPTY registry — one console.error naming the machine whose
+              `:data` broke its schema and the lifecycle phase it broke at"
+      (let [{:keys [console report-error]}
+            (capture-console
+              #(rf/dispatch-sync [vkn8-machine-id [:break]]
+                                 {:frame :fu75.machine/frame}))
+            rollback (filterv (fn [args]
+                                (= :machine-data (:where (nth args 2 nil))))
+                              console)]
+        (is (= 1 (count rollback))
+            (str "one line for the rejected machine transition; got "
+                 (pr-str (mapv second console))))
+        (let [[prefix summary record] (first rollback)]
+          (is (= "[re-frame2]" prefix))
+          (is (re-find #"^:rf\.error/schema-validation-failure\b" summary)
+              (str "the summary names the category first; got " (pr-str summary)))
+          (is (re-find #":macrostep" summary)
+              (str "and the lifecycle phase, which is where the blast radius "
+                   "is read off; got " (pr-str summary)))
+          (is (= vkn8-machine-id (:machine-id record)))
+          (is (= :fu75.machine/frame (:frame record))
+              "the frame threaded by rf2-vkn8 — without it the record could
+               never reach this frame's :observability :errors sink")
+          (is (true? (:rollback? record)))
+          (is (nil? (:value record))
+              "the machine's `:data` stays on the dev trace"))
+        (is (zero? report-error)
+            "console.error, never reportError — a rejected candidate is a
+             framework verdict, not an unhandled exception")))
+
+    (testing "ANY listener owns the stream and the fallback goes quiet"
+      (rf.error-emit/clear-error-listeners!)
+      (let [seen (atom [])]
+        (rf/register-listener! :errors :fu75/machine-owner
+                               (fn [r] (swap! seen conj r)))
+        (let [{:keys [console]}
+              (capture-console
+                #(rf/dispatch-sync [vkn8-machine-id [:break]]
+                                   {:frame :fu75.machine/frame}))]
+          (is (= 1 (count (filter #(= :machine-data (:where %)) @seen)))
+              "the owner got the record")
+          (is (empty? console)
+              (str "and nothing printed; got " (pr-str console))))
+        (rf/unregister-listener! :errors :fu75/machine-owner)))))
+
+(deftest unowned-malformed-schema-rollback-reaches-the-dev-console
+  (when (and (browser?)
+             (some? (rf.late-bind/get-fn :schemas/validate-app-schema!)))
+    (register-malformed-rollback-app!)
+
+    (testing "an EMPTY registry — one console.error naming the registration
+              the developer has to fix"
+      (let [{:keys [console report-error]}
+            (capture-console
+              #(rf/dispatch-sync [:fu75.malformed/write]
+                                 {:frame :fu75.malformed/frame}))
+            rollback (filterv (fn [args]
+                                (= :rf.error/malformed-schema
+                                   (:error (nth args 2 nil))))
+                              console)]
+        (is (= 1 (count rollback))
+            (str "one line for the malformed registration; got "
+                 (pr-str (mapv second console))))
+        (let [[prefix summary record] (first rollback)]
+          (is (= "[re-frame2]" prefix))
+          (is (re-find #"^:rf\.error/malformed-schema\b" summary)
+              (str "the summary names the category first; got " (pr-str summary)))
+          (is (= [:broken] (:registered-path record)))
+          (is (= :fu75.malformed/frame (:frame record)))
+          (is (true? (:rollback? record)))
+          (is (nil? (:schema record))
+              "the malformed registration FORM stays on the dev trace — it
+               `pr-str`s unbounded"))
+        (is (zero? report-error))))
+
+    (testing "ANY listener owns the stream and the fallback goes quiet"
+      (rf.error-emit/clear-error-listeners!)
+      (let [seen (atom [])]
+        (rf/register-listener! :errors :fu75/malformed-owner
+                               (fn [r] (swap! seen conj r)))
+        (let [{:keys [console]}
+              (capture-console
+                #(rf/dispatch-sync [:fu75.malformed/write]
+                                   {:frame :fu75.malformed/frame}))]
+          (is (= 1 (count (filter #(= :rf.error/malformed-schema (:error %)) @seen))))
+          (is (empty? console)
+              (str "and nothing printed; got " (pr-str console))))
+        (rf/unregister-listener! :errors :fu75/malformed-owner)))))
+
+;; ===========================================================================
 ;; HOST BOUNDARY — Node-targeted CLJS stays listener-only
 ;; ===========================================================================
 
@@ -475,4 +609,47 @@
         (rf/register-listener! :errors :fu75/owner
                               (fn [record] (swap! seen conj record)))
         (rf/dispatch-sync [:fu75.console/throws])
-        (is (= [:rf.error/handler-exception] (mapv :error @seen)))))))
+        (is (= [:rf.error/handler-exception] (mapv :error @seen)))))
+
+    ;; rf2-vkn8: the same boundary for PR2's arms. The host rule is a property
+    ;; of the FALLBACK, not of a category, so a new producer must inherit it
+    ;; rather than acquire its own exemption — this is the half that would
+    ;; catch a second printer being added beside the seam.
+    (testing "the machine-data and malformed-schema rollbacks obey the same
+              host boundary: silent off a DOM host, and still delivered to an
+              attached listener"
+      (when (some? (rf.late-bind/get-fn :machines/validate-machine-data!))
+        (register-machine-rollback-app!)
+        (rf/dispatch-sync [vkn8-machine-id [:noop]] {:frame :fu75.machine/frame})
+        (rf.error-emit/clear-error-listeners!)
+        (let [{:keys [console report-error]}
+              (capture-console
+                #(rf/dispatch-sync [vkn8-machine-id [:break]]
+                                   {:frame :fu75.machine/frame}))]
+          (is (empty? console)
+              (str "no console output off a DOM host; got " (pr-str console)))
+          (is (zero? report-error)))
+        (let [seen (atom [])]
+          (rf/register-listener! :errors :fu75/machine-owner
+                                 (fn [r] (swap! seen conj r)))
+          (rf/dispatch-sync [vkn8-machine-id [:break]] {:frame :fu75.machine/frame})
+          (is (= 1 (count (filter #(= :machine-data (:where %)) @seen)))
+              "the always-on axis is unchanged off-browser")
+          (rf/unregister-listener! :errors :fu75/machine-owner)))
+
+      (when (some? (rf.late-bind/get-fn :schemas/validate-app-schema!))
+        (register-malformed-rollback-app!)
+        (rf.error-emit/clear-error-listeners!)
+        (let [{:keys [console report-error]}
+              (capture-console
+                #(rf/dispatch-sync [:fu75.malformed/write]
+                                   {:frame :fu75.malformed/frame}))]
+          (is (empty? console)
+              (str "no console output off a DOM host; got " (pr-str console)))
+          (is (zero? report-error)))
+        (let [seen (atom [])]
+          (rf/register-listener! :errors :fu75/malformed-owner
+                                 (fn [r] (swap! seen conj r)))
+          (rf/dispatch-sync [:fu75.malformed/write] {:frame :fu75.malformed/frame})
+          (is (= 1 (count (filter #(= :rf.error/malformed-schema (:error %)) @seen))))
+          (rf/unregister-listener! :errors :fu75/malformed-owner))))))
