@@ -140,7 +140,7 @@
 
   Per [`API.md`](../../spec/API.md) §SCXML import/export."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
+            [re-frame.error :as rf.error]
             ;; The SHARED grammar walker + injective id codec the three
             ;; emitters route through, so they address every node identically
             ;; (one escape codec, one source of truth). The SCXML DECODE side
@@ -849,7 +849,7 @@
   (let [machine-spec (g/desugar-grammar machine-spec)
         parallel?    (g/parallel-definition? machine-spec)]
     (when-not (g/valid-definition? machine-spec)
-      (error/throw-error!
+      (rf.error/throw-error!
         :scxml/invalid-spec
         'machines-viz/spec->scxml
         (if parallel?
@@ -1283,7 +1283,7 @@
                                           rs (rest remaining)]
                                      (cond
                                        (empty? rs)
-                                       (error/throw-error!
+                                       (rf.error/throw-error!
                                          :scxml/parse-error
                                          'machines-viz/scxml->spec
                                          (str "SCXML import: unclosed <" tag
@@ -1478,7 +1478,7 @@
   `:states`)."
   [scxml-string]
   (when-not (string? scxml-string)
-    (error/throw-error!
+    (rf.error/throw-error!
       :scxml/parse-error
       'machines-viz/scxml->spec
       "SCXML import: scxml->spec expects an SCXML string; pass the SCXML document as a string."
@@ -1488,7 +1488,7 @@
   (let [tokens (-> scxml-string strip-prolog lift-action-comments strip-comments tokenize vec)
         root-start (first (filter #(= "scxml" (:tag %)) tokens))]
     (when-not root-start
-      (error/throw-error!
+      (rf.error/throw-error!
         :scxml/parse-error
         'machines-viz/scxml->spec
         (str "SCXML import: no <scxml> root element found; wrap the document "
@@ -1503,7 +1503,7 @@
                 end-idx (loop [i 0 depth 1]
                           (cond
                             (>= i (count tail))
-                            (error/throw-error!
+                            (rf.error/throw-error!
                               :scxml/parse-error
                               'machines-viz/scxml->spec
                               (str "SCXML import: unclosed <scxml> root element; "
@@ -1536,7 +1536,7 @@
               end-idx (loop [i 0 depth 1]
                         (cond
                           (>= i (count tail))
-                          (error/throw-error!
+                          (rf.error/throw-error!
                             :scxml/parse-error
                             'machines-viz/scxml->spec
                             (str "SCXML import: unclosed <parallel> element; "
@@ -1589,7 +1589,7 @@
               states (into {}
                            (map parse-state-block top-state-blocks))]
           (when (empty? states)
-            (error/throw-error!
+            (rf.error/throw-error!
               :scxml/invalid-spec
               'machines-viz/scxml->spec
               (str "SCXML import: the document has no <state> or <final> "

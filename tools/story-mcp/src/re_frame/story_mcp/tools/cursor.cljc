@@ -59,8 +59,8 @@
        :limit 25
        :has-more? false
        :next-cursor nil}"
-  (:require [re-frame.mcp-base.cursor :as base-cursor]
-            [re-frame.story-mcp.tools.result :as result]))
+  (:require [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]))
 
 (def ^:const default-limit
   "Default page size for the Docs `list-*` tools. Sized to keep the
@@ -101,7 +101,7 @@
 (defn- payload-valid?
   "The story cursor payload shape: a versioned map carrying the
   natural-integer offset/total + the whole-set fingerprint. Passed to
-  the shared `base-cursor/decode-cursor` so the codec is shared while
+  the shared `rf.mcp-base.cursor/decode-cursor` so the codec is shared while
   the shape check stays story-specific.
 
   Wire-boundary range gate. `:offset` and `:total` MUST be
@@ -110,7 +110,7 @@
   cursor-stale envelope), and `:offset` MUST NOT exceed `:total` (an
   over-total offset would slice an empty window and silently skip the
   tail of the registry). A cursor failing this shape decodes to the
-  `::base-cursor/malformed` sentinel, which `page` already maps onto the
+  `::rf.mcp-base.cursor/malformed` sentinel, which `page` already maps onto the
   drop-and-restart cursor-stale recovery — so a tampered/edited cursor
   recovers through the contract rather than crashing or losing rows.
 
@@ -130,28 +130,28 @@
 (defn parse-limit-arg
   "Normalise the `:limit` MCP arg into an integer in `[1, max-limit]`,
   default `default-limit`. Thin wrapper over the shared
-  `base-cursor/parse-limit-arg` baking story-mcp's default + ceiling."
+  `rf.mcp-base.cursor/parse-limit-arg` baking story-mcp's default + ceiling."
   [raw]
-  (base-cursor/parse-limit-arg raw default-limit max-limit))
+  (rf.mcp-base.cursor/parse-limit-arg raw default-limit max-limit))
 
 (defn encode-cursor
   "Encode a cursor payload as a base64 string. Returns nil when there
   are no more entries (offset has reached total) — the absence-of-cursor
   IS the end-of-pagination signal. Delegates the codec to the shared
-  `base-cursor/encode-cursor`; owns only the story-specific
+  `rf.mcp-base.cursor/encode-cursor`; owns only the story-specific
   `{:v :offset :total :sig}` shape + the end-of-page guard."
   [{:keys [offset total sig]}]
   (when (and (integer? offset) (< offset total))
-    (base-cursor/encode-cursor {:v 1 :offset offset :total total :sig sig})))
+    (rf.mcp-base.cursor/encode-cursor {:v 1 :offset offset :total total :sig sig})))
 
 (defn decode-cursor
   "Decode a base64 cursor back to its `{:v :offset :total :sig}` payload.
-  Returns nil for an absent/blank cursor, `::base-cursor/malformed` for
+  Returns nil for an absent/blank cursor, `::rf.mcp-base.cursor/malformed` for
   one that doesn't decode to a valid story payload. The codec + size cap
-  + tagged-literal rejection are shared (`base-cursor/decode-cursor`);
+  + tagged-literal rejection are shared (`rf.mcp-base.cursor/decode-cursor`);
   the `payload-valid?` shape check is story-specific."
   [s]
-  (base-cursor/decode-cursor s payload-valid?))
+  (rf.mcp-base.cursor/decode-cursor s payload-valid?))
 
 (defn cursor-stale-result
   "Structured cursor-stale error result via the shared envelope builder.
@@ -165,8 +165,8 @@
   there is no recovery via wider window — the registry is the source
   of truth."
   [tool]
-  (base-cursor/cursor-stale-result
-    result/error-result
+  (rf.mcp-base.cursor/cursor-stale-result
+    rf.story-mcp.tools.result/error-result
     tool
     {:message (str "Cursor stale: the registry changed between pages. Drop the "
                    "cursor and restart `" tool "`.")
@@ -200,7 +200,7 @@
 
   Most callers don't touch this directly — they reach for the
   `paged-result` wrapper below, which folds the `[:ok …]` / `[:err …]`
-  branch + the `result/text-result` build into one call. `page` is
+  branch + the `rf.story-mcp.tools.result/text-result` build into one call. `page` is
   public for the rare caller that wants the raw slice."
   [entries ids arguments tool-name]
   (let [limit         (parse-limit-arg (:limit arguments))
@@ -209,7 +209,7 @@
         live-sig      (fingerprint ids)]
     (cond
       ;; Malformed or stale cursor — same recovery (drop + restart).
-      (base-cursor/malformed? cursor)
+      (rf.mcp-base.cursor/malformed? cursor)
       [:err (cursor-stale-result tool-name)]
 
       ;; Cursor present but the underlying set changed between mint
@@ -256,4 +256,4 @@
   (let [[res page-vec meta] (page entries ids arguments tool-name)]
     (if (= res :err)
       page-vec
-      (result/edn-result (merge (page->payload page-vec) meta)))))
+      (rf.story-mcp.tools.result/edn-result (merge (page->payload page-vec) meta)))))

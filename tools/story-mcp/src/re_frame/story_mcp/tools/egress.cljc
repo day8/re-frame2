@@ -127,11 +127,11 @@
   `:include-sensitive` opt-out. This keeps the SECOND place EP-0015 egress
   semantics could drift removed (EP-0015 best-practice review issue 2)."
   (:require [re-frame.core :as rf]
-            [re-frame.mcp-base.egress :as base-egress]
-            [re-frame.mcp-base.elision :as base-elision]
-            [re-frame.mcp-base.envelope :as base-envelope]
-            [re-frame.mcp-base.sensitive :as sensitive]
-            [re-frame.story-mcp.tools.result :as result]))
+            [re-frame.mcp-base.egress :as rf.mcp-base.egress]
+            [re-frame.mcp-base.elision :as rf.mcp-base.elision]
+            [re-frame.mcp-base.envelope :as rf.mcp-base.envelope]
+            [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]))
 
 ;; ---------------------------------------------------------------------------
 ;; Named `:rf.egress/*` profile adoption (EP-0015 §10).
@@ -163,7 +163,7 @@
   elides large + emits structural digests; `:rf.egress/local-raw` opts both
   back in."
   [include?]
-  (base-egress/profile-size-opts (base-egress/mcp-tool-profile include?)))
+  (rf.mcp-base.egress/profile-size-opts (rf.mcp-base.egress/mcp-tool-profile include?)))
 
 ;; ---------------------------------------------------------------------------
 ;; Path-based redaction
@@ -235,7 +235,7 @@
   (cond
     include?       [(vec (or records [])) 0]
     (nil? records) [[] 0]
-    :else          (sensitive/strip-sensitive records false)))
+    :else          (rf.mcp-base.sensitive/strip-sensitive records false)))
 
 ;; ---------------------------------------------------------------------------
 ;; Derived-tree path-based projection (EP-0025 fail-open)
@@ -334,7 +334,7 @@
        :frame     variant-id
        :tree      tree
        :source-db app-db}
-      {:rf.egress/profile (base-egress/mcp-tool-profile false)})))
+      {:rf.egress/profile (rf.mcp-base.egress/mcp-tool-profile false)})))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime and captured values
@@ -488,7 +488,7 @@
   Returns an integer >= 0; cheap on the common path (no markers => one
   walk producing zero)."
   [payload]
-  (base-elision/count-elided-markers payload))
+  (rf.mcp-base.elision/count-elided-markers payload))
 
 (defn with-indicators
   "Splice the cross-MCP indicator-field slots (`:dropped-sensitive`,
@@ -502,7 +502,7 @@
   `counts` map is `{:dropped <n> :elided <n>}`; a zero / nil count omits
   its slot, so a clean read returns the payload unchanged."
   [payload counts]
-  (base-envelope/with-indicators payload counts))
+  (rf.mcp-base.envelope/with-indicators payload counts))
 
 (defn result-with-indicators
   "Build the final `edn-result` for a live-state read, splicing on the
@@ -514,14 +514,14 @@
 
   This is the dual-coded epilogue the three live-state handlers shared
   verbatim — `preview-variant` / `run-variant` / `read-failures` each
-  closed with `(result/edn-result (with-indicators payload {:dropped d
+  closed with `(rf.story-mcp.tools.result/edn-result (with-indicators payload {:dropped d
   :elided (count-elided payload)}))`. Named once so each handler reads
   as 'return this payload with its egress indicators' rather than
   re-spelling the count-derive-and-splice dance. Counts omit their slot
   when zero (Conventions §Cross-MCP indicator-field vocabulary), so a
   clean read returns the bare payload."
   [payload dropped]
-  (result/edn-result
+  (rf.story-mcp.tools.result/edn-result
     (with-indicators payload
                      {:dropped dropped
                       :elided  (count-elided payload)})))

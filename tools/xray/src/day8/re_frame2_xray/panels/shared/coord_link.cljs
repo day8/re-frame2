@@ -36,7 +36,7 @@
 
   See `panels/shared/coord_chip.cljs` for the icon-only sibling and
   spec/021 §9.1.6.2 for the contract."
-  (:require [re-frame.router :as router]
+  (:require [re-frame.router :as rf.router]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]))
 
@@ -58,8 +58,8 @@
   `rf/dispatch` macro) — this fn's OWN definition site would otherwise be
   the captured call-site for every caller, which is not useful click-to-
   source info (the real click lives in the PANEL, not here)."
-  ([event-v] (router/dispatch! event-v {:frame defaults/default-frame-id}))
-  ([event-v opts] (router/dispatch! event-v (assoc opts :frame defaults/default-frame-id))))
+  ([event-v] (rf.router/dispatch! event-v {:frame defaults/default-frame-id}))
+  ([event-v opts] (rf.router/dispatch! event-v (assoc opts :frame defaults/default-frame-id))))
 
 (defn open-in-editor!
   "Dispatch `[:rf.xray/open-in-editor {:source-coord coord}]`, stopping

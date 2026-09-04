@@ -16,7 +16,7 @@
      universal.cljs`. The universal three-mode toggle gallery retired
      when the `[diff][full][full+diff]` toggle itself retired
      (FULL+DIFF is the single rendering). The grammar lock survives
-     elsewhere via `schemas/story-id?` plus the per-gallery cascade
+     elsewhere via `rf.story.schemas/story-id?` plus the per-gallery cascade
      in `each-gallery-register-all-drops-non-empty-inventory` below.
 
   This smoke locks both regressions at the framework + author level:
@@ -35,8 +35,8 @@
   suffix (`xray/test/` is on shadow's `:source-paths`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set]
-            [re-frame.story :as story]
-            [re-frame.story.schemas :as schemas]
+            [re-frame.story :as rf.story]
+            [re-frame.story.schemas :as rf.story.schemas]
             [day8.re-frame2-xray.focus :as focus]
             ;; rf2-nozqw — per-gallery register-all! drive. Each
             ;; namespace's bottom-of-file `(register-all!)` fires at
@@ -67,8 +67,8 @@
 ;; ---- fixture ----------------------------------------------------------
 
 (defn- reset-and-install [test-fn]
-  (story/clear-all!)
-  (story/install-canonical-vocabulary!)
+  (rf.story/clear-all!)
+  (rf.story/install-canonical-vocabulary!)
   (test-fn))
 
 (use-fixtures :each reset-and-install)
@@ -77,35 +77,35 @@
 
 (deftest cascade-a-state-axis-tags-validate-on-variant-registration
   (testing "the canonical install registers every :state/* tag (rf2-k1k87)"
-    (is (every? #(story/registered? :tag %) schemas/canonical-state-tags))
-    (is (= 5 (count schemas/canonical-state-tags))
+    (is (every? #(rf.story/registered? :tag %) rf.story.schemas/canonical-state-tags))
+    (is (= 5 (count rf.story.schemas/canonical-state-tags))
         "the axis ships five magnitude values"))
   (testing "registering a variant tagged with every :state/* value at once
             does NOT raise :rf.error/unknown-tag — the regression that
             bricked the panel-gallery"
-    (story/reg-story :story.cascade-a.smoke
+    (rf.story/reg-story :story.cascade-a.smoke
       {:doc       "rf2-k1k87 Cascade-A regression."
        :component :smoke/comp
        :tags      #{:dev}})
-    (doseq [state-tag schemas/canonical-state-tags]
+    (doseq [state-tag rf.story.schemas/canonical-state-tags]
       (let [vid (keyword "story.cascade-a.smoke" (name state-tag))]
-        (story/reg-variant vid
+        (rf.story/reg-variant vid
           {:doc    (str "Variant carrying " (pr-str state-tag))
            :setup []
            :tags   #{:dev state-tag}})
-        (is (story/registered? :variant vid)
+        (is (rf.story/registered? :variant vid)
             (str "variant for " (pr-str state-tag)
                  " registered without unknown-tag error")))))
   (testing "each :state/* tag carries the :state axis classifier
             so the sidebar tag-filter UI can group it (SB9 facet parity)"
-    (is (= schemas/canonical-state-tags (story/tags-by-axis :state)))))
+    (is (= rf.story.schemas/canonical-state-tags (rf.story/tags-by-axis :state)))))
 
 ;; ---- Cascade B regression — RETIRED 2026-05-29 (rf2-vv3m6) -----------
 ;;
 ;; The gallery_diff_mode_universal.cljs gallery retired alongside the
 ;; `[diff][full][full+diff]` mode toggle (FULL+DIFF is now the single
 ;; rendering). The story-id-shape regression it pinned is still covered
-;; generically by `schemas/story-id?` (used in the cascade A test above
+;; generically by `rf.story.schemas/story-id?` (used in the cascade A test above
 ;; via the `:state/*` axis path) plus the per-gallery register-all!
 ;; loop below (which would surface a malformed id by aborting the
 ;; offending gallery's registrations).
@@ -119,16 +119,16 @@
             shell rendered with zero variants. The smoke shape: drive
             registrations that mirror the gallery shape and confirm the
             registrar reports non-empty inventory."
-    (story/reg-story :story.smoke.parent
+    (rf.story/reg-story :story.smoke.parent
       {:doc       "Inventory smoke parent story."
        :component :smoke/comp
        :tags      #{:dev}})
-    (doseq [tag schemas/canonical-state-tags]
-      (story/reg-variant (keyword "story.smoke.parent" (name tag))
+    (doseq [tag rf.story.schemas/canonical-state-tags]
+      (rf.story/reg-variant (keyword "story.smoke.parent" (name tag))
         {:doc    (str "Variant carrying " (pr-str tag))
          :setup []
          :tags   #{:dev tag}}))
-    (let [variants (story/variants-of :story.smoke.parent)]
+    (let [variants (rf.story/variants-of :story.smoke.parent)]
       (is (seq variants) "registrar's variants-of reports non-empty")
       (is (= 5 (count variants))
           "every :state/* tag drove a variant — no :rf.error/unknown-tag aborts"))))
@@ -224,8 +224,8 @@
             variant tagged with it, halting the cascade and dropping
             story/variant counts."
     (doseq [[label register-all!] galleries]
-      (story/clear-all!)
-      (story/install-canonical-vocabulary!)
+      (rf.story/clear-all!)
+      (rf.story/install-canonical-vocabulary!)
       ;; The gallery's register-all! is allowed to throw — that is
       ;; itself an authoring bug. `is` records the throw as a failure
       ;; with the label so the panel-gallery maintainer can spot
@@ -244,9 +244,9 @@
       ;; exactly one story + N variants + one workspace; the smoke
       ;; pins the lower bound (NOT the exact count — a future
       ;; addition variant must not break the smoke).
-      (let [story-ids     (story/ids :story)
-            variant-ids   (story/ids :variant)
-            workspace-ids (story/ids :workspace)]
+      (let [story-ids     (rf.story/ids :story)
+            variant-ids   (rf.story/ids :variant)
+            workspace-ids (rf.story/ids :workspace)]
         (is (seq story-ids)
             (str label ": at least one story registered"))
         (is (seq variant-ids)

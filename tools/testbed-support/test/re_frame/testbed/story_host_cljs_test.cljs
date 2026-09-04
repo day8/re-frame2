@@ -14,8 +14,8 @@
   `:rf.story/project-root` option remains the consumer's to set, and the host
   must not disturb it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story.config :as story-config]
-            [re-frame.testbed.story-host :as host]))
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.testbed.story-host :as rf.testbed.story-host]))
 
 ;; A JS Set gives the fake window browser-like listener identity semantics.
 
@@ -53,19 +53,19 @@
 (defn- reset-host-handles!
   "Reset host state that intentionally survives reloads."
   []
-  (reset! @#'host/hash-listener* nil)
-  (reset! @#'host/root-view* nil))
+  (reset! @#'rf.testbed.story-host/hash-listener* nil)
+  (reset! @#'rf.testbed.story-host/root-view* nil))
 
 (use-fixtures :each
   {:before (fn []
              (reset-host-handles!)
              ;; The carve-out test below writes Story's global config.
-             (story-config/set-project-root! nil))
+             (rf.story.config/set-project-root! nil))
    :after  (fn []
              ;; Restore the Node baseline for subsequent namespaces.
              (clear-window!)
              (reset-host-handles!)
-             (story-config/set-project-root! nil))})
+             (rf.story.config/set-project-root! nil))})
 
 ;; Mount functions are stubbed, so this view is never rendered.
 (defn- dummy-view [] [:div "dummy"])
@@ -77,12 +77,12 @@
     (let [{:keys [window hashchange-count]} (make-fake-window "#/")
           switches (atom 0)]
       (install-window! window)
-      (with-redefs [host/mount-app!     (fn [] (swap! switches inc))
-                    host/mount-stories! (fn [] (swap! switches inc))]
-        (host/mount-with-hash-routing! dummy-view))
+      (with-redefs [rf.testbed.story-host/mount-app!     (fn [] (swap! switches inc))
+                    rf.testbed.story-host/mount-stories! (fn [] (swap! switches inc))]
+        (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
       (is (= 1 (hashchange-count))
           "exactly one hashchange listener active after a single run")
-      (is (some? @@#'host/hash-listener*)
+      (is (some? @@#'rf.testbed.story-host/hash-listener*)
           "the installed handle is recorded for later removal")
       (is (= 1 @switches)
           "the initial `on-hash-change!` ran the mount switch exactly once"))))
@@ -91,19 +91,19 @@
   (testing "a re-run with a fresh handler identity replaces the prior listener"
     (let [{:keys [window hashchange-count]} (make-fake-window "#/")]
       (install-window! window)
-      (with-redefs [host/mount-app!     (constantly nil)
-                    host/mount-stories! (constantly nil)]
+      (with-redefs [rf.testbed.story-host/mount-app!     (constantly nil)
+                    rf.testbed.story-host/mount-stories! (constantly nil)]
         ;; First install the current function identity.
-        (host/mount-with-hash-routing! dummy-view)
+        (rf.testbed.story-host/mount-with-hash-routing! dummy-view)
         (is (= 1 (hashchange-count)) "one listener after the first run")
-        (let [handle-1 @@#'host/hash-listener*]
+        (let [handle-1 @@#'rf.testbed.story-host/hash-listener*]
           ;; A fresh function identity simulates a recompile.
-          (with-redefs [host/on-hash-change! (fn [] nil)]
-            (host/mount-with-hash-routing! dummy-view))
+          (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] nil)]
+            (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
           (is (= 1 (hashchange-count))
               "STILL exactly one listener after the post-reload re-run — the
                prior listener was removed, not stacked")
-          (let [handle-2 @@#'host/hash-listener*]
+          (let [handle-2 @@#'rf.testbed.story-host/hash-listener*]
             (is (not (identical? handle-1 handle-2))
                 "the stored handle advanced to the new (recompiled) listener")))))))
 
@@ -118,13 +118,13 @@
           switches (atom 0)]
       (install-window! window)
       ;; First run installs the current handler.
-      (with-redefs [host/mount-app!     (fn [] (swap! switches inc))
-                    host/mount-stories! (fn [] (swap! switches inc))]
-        (host/mount-with-hash-routing! dummy-view))
+      (with-redefs [rf.testbed.story-host/mount-app!     (fn [] (swap! switches inc))
+                    rf.testbed.story-host/mount-stories! (fn [] (swap! switches inc))]
+        (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
       ;; Each subsequent run uses a new handler identity.
       (dotimes [_ 5]
-        (with-redefs [host/on-hash-change! (fn [] (swap! switches inc))]
-          (host/mount-with-hash-routing! dummy-view)))
+        (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] (swap! switches inc))]
+          (rf.testbed.story-host/mount-with-hash-routing! dummy-view)))
       (is (= 1 (hashchange-count))
           "six runs total → still exactly one active listener (no leak)")
       ;; A browser invokes every registered listener for one hash change.
@@ -147,12 +147,12 @@
             the retired `:source-subdir` path was the only thing that wrote it"
     (let [{:keys [window]} (make-fake-window "#/")]
       (install-window! window)
-      (is (nil? (story-config/get-project-root))
+      (is (nil? (rf.story.config/get-project-root))
           "fixture baseline: the slot starts unset")
-      (with-redefs [host/mount-app!     (constantly nil)
-                    host/mount-stories! (constantly nil)]
-        (host/mount-with-hash-routing! dummy-view))
-      (is (nil? (story-config/get-project-root))
+      (with-redefs [rf.testbed.story-host/mount-app!     (constantly nil)
+                    rf.testbed.story-host/mount-stories! (constantly nil)]
+        (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
+      (is (nil? (rf.story.config/get-project-root))
           "mounting configured no root — source-file resolution is the
            dev-server endpoint's job, not the host's"))))
 
@@ -162,9 +162,9 @@
             mount — the carve-out is genuinely reachable, not just undeleted"
     (let [{:keys [window]} (make-fake-window "#/")]
       (install-window! window)
-      (story-config/set-project-root! "/preset/by/consumer")
-      (with-redefs [host/mount-app!     (constantly nil)
-                    host/mount-stories! (constantly nil)]
-        (host/mount-with-hash-routing! dummy-view))
-      (is (= "/preset/by/consumer" (story-config/get-project-root))
+      (rf.story.config/set-project-root! "/preset/by/consumer")
+      (with-redefs [rf.testbed.story-host/mount-app!     (constantly nil)
+                    rf.testbed.story-host/mount-stories! (constantly nil)]
+        (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
+      (is (= "/preset/by/consumer" (rf.story.config/get-project-root))
           "the consumer-set root survived the mount untouched"))))

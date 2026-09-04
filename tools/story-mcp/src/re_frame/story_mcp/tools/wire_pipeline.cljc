@@ -58,7 +58,7 @@
   - `overflow-hints` is the local hint table — the per-tool next-step
     prose stays here because the surfaces are domain-specific.
 
-  Sized via `overflow/token-estimate` (the `(quot (count s) 4)` rule
+  Sized via `rf.mcp-base.overflow/token-estimate` (the `(quot (count s) 4)` rule
   aligned with Anthropic's character→token rule-of-thumb). The cap is
   cumulative across every `:text` slot in the response's `:content`
   vector (multi-part responses share one budget, mirroring re-frame2-pair-mcp).
@@ -72,13 +72,13 @@
   `true`. Pass `false` to skip dedup — useful for ad-hoc reads when the
   agent host hasn't been taught to call `re-frame.mcp-base.dedup/expand`. Lives
   on dedup-eligible tools' input schema via `schemas/with-dedup`."
-  (:require [re-frame.mcp-base.args :as args]
-            [re-frame.mcp-base.cap :as base-cap]
-            [re-frame.mcp-base.dedup :as base-dedup]
-            [re-frame.mcp-base.overflow :as overflow]
-            [re-frame.story-mcp.protocol :as proto]
-            [re-frame.story-mcp.tools.registry :as registry]
-            [re-frame.story-mcp.tools.result :as result]))
+  (:require [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.mcp-base.cap :as rf.mcp-base.cap]
+            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
+            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
+            [re-frame.story-mcp.protocol :as rf.story-mcp.protocol]
+            [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]))
 
 (def ^:private overflow-hints
   "Tool-specific next-step hints for the overflow marker. Generic
@@ -109,13 +109,13 @@
   it should. We surface the structured payload as one extra `pr-str`-ed
   string in the `wire-payload-strings` seq; `sum-payload-tokens` then transduces
   it alongside the `:content[*].text` strings under one budget."
-  (reify base-cap/ResultIO
+  (reify rf.mcp-base.cap/ResultIO
     (wire-payload-strings [_ result]
       (cond-> (mapv :text (:content result))
         (some? (:structuredContent result))
-        (conj (result/pr-edn (:structuredContent result)))))
+        (conj (rf.story-mcp.tools.result/pr-edn (:structuredContent result)))))
     (build-overflow-result [_ marker _original]
-      {:content          [{:type "text" :text (result/pr-edn marker)}]
+      {:content          [{:type "text" :text (rf.story-mcp.tools.result/pr-edn marker)}]
        :structuredContent marker})))
 
 (defn apply-dedup
@@ -139,7 +139,7 @@
 
   ## Why a fresh `pr-edn` rather than rebuild via `text-result`
 
-  `result/text-result` is the entry-point that handlers call before
+  `rf.story-mcp.tools.result/text-result` is the entry-point that handlers call before
   the wire-boundary transforms; rebuilding through it would re-stamp
   any sibling slots the handler set (e.g. `:isError`). Mutating only
   `:content[0].text` + `:structuredContent` preserves everything else
@@ -152,10 +152,10 @@
   (if (or (not enabled?) (nil? result))
     result
     (let [structured (:structuredContent result)]
-      (if (base-dedup/empty-payload? structured)
+      (if (rf.mcp-base.dedup/empty-payload? structured)
         result
-        (let [deduped (base-dedup/dedup-value structured true)
-              text    (result/pr-edn deduped)]
+        (let [deduped (rf.mcp-base.dedup/dedup-value structured true)
+              text    (rf.story-mcp.tools.result/pr-edn deduped)]
           (-> result
               (assoc :structuredContent deduped)
               (assoc-in [:content 0 :text] text)))))))
@@ -197,7 +197,7 @@
     diagnostic shape matches the global-unknown case."
   [tool-name t unknown]
   (let [allowed (tool-allowed-arg-keys t)]
-    (result/error-result
+    (rf.story-mcp.tools.result/error-result
      (str "Unknown argument" (when (> (count unknown) 1) "s")
           " for tool `" tool-name "`: " (pr-str unknown)
           ". Allowed: " (pr-str allowed)
@@ -256,7 +256,7 @@
 
 (defn- cap-error
   "Route a pre-dispatch error envelope through the SAME wire-boundary
-  token cap (`base-cap/apply-cap`) that bounds every normal tool
+  token cap (`rf.mcp-base.cap/apply-cap`) that bounds every normal tool
   response. Per `spec/Principles.md §Tight token budget`, EVERY MCP tool
   response is bounded, error results included — including the
   pre-dispatch rejection branches (`unknown-arg-error`, the
@@ -266,20 +266,20 @@
   them all back — violating the response-cap contract. Capping these
   envelopes closes that.
 
-  `cap` is the resolved per-call cap (the output of `base-cap/max-tokens`):
+  `cap` is the resolved per-call cap (the output of `rf.mcp-base.cap/max-tokens`):
   an integer ceiling, `nil` (caller disabled the cap with `:max-tokens 0`),
   OR — for the invalid-`:max-tokens` branch — a
   `{:rf.mcp/invalid-arg {...}}` REJECTION marker. A rejection marker is
   NOT a usable cap (feeding it to `apply-cap` would crash the gate), so we
-  fall back to the convention default (`overflow/default-max-tokens`) —
+  fall back to the convention default (`rf.mcp-base.overflow/default-max-tokens`) —
   the malformed cap can't be honoured, but the error envelope must still
   be bounded. A genuine `nil` (cap disabled) is preserved: a caller who
   explicitly opted out of the cap opted out for errors too."
   [tool-name cap err-result]
-  (let [effective-cap (if (base-cap/invalid-arg? cap)
-                        overflow/default-max-tokens
+  (let [effective-cap (if (rf.mcp-base.cap/invalid-arg? cap)
+                        rf.mcp-base.overflow/default-max-tokens
                         cap)]
-    (base-cap/apply-cap result-io err-result
+    (rf.mcp-base.cap/apply-cap result-io err-result
                         {:tool tool-name
                          :cap  effective-cap
                          :hint (get overflow-hints tool-name)})))
@@ -300,7 +300,7 @@
      `:structuredContent` slot is run through `re-frame.mcp-base.dedup` to
      collapse repeated subtrees, and the `:content[*].text` slot is
      re-stringified to match. Per `re-frame.mcp-base.dedup`.
-  3. `base-cap/apply-cap` — when the (post-dedup) response exceeds the
+  3. `rf.mcp-base.cap/apply-cap` — when the (post-dedup) response exceeds the
      per-call cap (`:max-tokens` arg, default
      `mcp-base.overflow/default-max-tokens`, `0` disables), the payload
      is replaced with a structured `{:rf.mcp/overflow ...}` marker. Per
@@ -320,15 +320,15 @@
   `:rf.mcp/dedup-table` would lose the friendly inspection shape for
   zero compression win."
   [tool-name arguments]
-  (when-let [t (registry/tool-by-name tool-name)]
+  (when-let [t (rf.story-mcp.tools.registry/tool-by-name tool-name)]
     (let [args    (or arguments {})
-          cap     (base-cap/max-tokens (get args :max-tokens))
+          cap     (rf.mcp-base.cap/max-tokens (get args :max-tokens))
           ;; RAW string keys the caller sent outside the top-level
           ;; allowlist, recorded as metadata by
           ;; `protocol/normalize-frame` (never interned, never a map
           ;; entry). A non-empty set means the agent typo'd a control
           ;; knob; we diagnose before dispatch rather than silently drop.
-          unknown (get (meta args) proto/unknown-arg-keys-meta)
+          unknown (get (meta args) rf.story-mcp.protocol/unknown-arg-keys-meta)
           ;; Keys that ARE in the global allowlist (so they survived
           ;; normalisation as keyword entries) but are NOT valid for THIS
           ;; tool (e.g. `:body` on `get-variant`). The global check above
@@ -336,7 +336,7 @@
           ;; this is the per-tool backstop.
           tool-invalid (tool-invalid-arg-keys t args)]
       (cond
-        (base-cap/invalid-arg? cap)
+        (rf.mcp-base.cap/invalid-arg? cap)
         ;; A negative `:max-tokens` resolves to a
         ;; `{:rf.mcp/invalid-arg {...}}` rejection rather than a negative
         ;; cap. Surface it as an `isError: true` tool-result so the agent
@@ -346,7 +346,7 @@
         ;; is never dispatched; the malformed cap never reaches the gate.
         ;; The rejection envelope rides the response cap too (via the
         ;; default cap, since the caller's cap was malformed).
-        (cap-error tool-name cap (result/error-result (result/pr-edn cap) cap))
+        (cap-error tool-name cap (rf.story-mcp.tools.result/error-result (rf.story-mcp.tools.result/pr-edn cap) cap))
 
         ;; An unknown top-level argument key is an agent-recoverable
         ;; diagnostic, not a silent drop. The handler is never
@@ -379,7 +379,7 @@
               ;; value is silently ignored.
               eligible? (true? (:dedup-eligible? t))
               dedup?    (and eligible?
-                             (args/parse-boolean (get args :dedup) true))
+                             (rf.mcp-base.args/parse-boolean (get args :dedup) true))
               result    (try
                           ((:handler t) args)
                           (catch Throwable e
@@ -393,17 +393,17 @@
                             ;; when it is needed (rf2-2z9u3). This is the
                             ;; GENERIC arm: it guards every handler, not
                             ;; just the two write surfaces.
-                            (result/error-result (str "Tool handler threw: " (ex-message e))
+                            (rf.story-mcp.tools.result/error-result (str "Tool handler threw: " (ex-message e))
                                             {:tool      tool-name
                                              :exception (.getName (class e))
-                                             :data      (result/wire-safe-ex-data (ex-data e))})))
+                                             :data      (rf.story-mcp.tools.result/wire-safe-ex-data (ex-data e))})))
               ;; Skip dedup on error envelopes (small bespoke payload; the
               ;; flat `:rf.error` shape is more useful unwrapped than under
               ;; a cache-of-one marker).
               deduped   (if (true? (:isError result))
                           result
                           (apply-dedup result dedup?))]
-          (base-cap/apply-cap result-io deduped
+          (rf.mcp-base.cap/apply-cap result-io deduped
                               {:tool tool-name
                                :cap  cap
                                :hint (get overflow-hints tool-name)}))))))

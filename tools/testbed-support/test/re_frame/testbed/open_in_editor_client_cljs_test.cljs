@@ -24,8 +24,8 @@
   `globalThis.fetch` stubbed to answer a chosen status. Nothing is launched
   and no dev server is required, which is what makes it runnable in CI."
   (:require [cljs.test :refer-macros [deftest is testing async]]
-            [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.source-coords.open-endpoint :as open-endpoint]))
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
+            [re-frame.source-coords.open-endpoint :as rf.source-coords.open-endpoint]))
 
 (def ^:private coord
   "The bead's reproduction coordinate: `src/app.cljs`, line 27, column 9."
@@ -35,7 +35,7 @@
   "What the coordinate-preserving fallback produces for `coord`. Derived from
   `editor-uri` rather than typed, so this suite cannot drift from the URI
   builder it is asserting reaches the OS."
-  (editor-uri/editor-uri :windsurf coord))
+  (rf.source-coords.editor-uri/editor-uri :windsurf coord))
 
 (def ^:private declining-statuses
   "Every non-2xx the server can answer with: 400 (`missing-file`,
@@ -68,7 +68,7 @@
   `globalThis.fetch` is replaced by a stub answering `status` — standing in
   for the dev-server's decision — and the fallback thunk is the one the Xray
   and Story open-seams pass: it resolves the coordinate through
-  `editor-uri/editor-uri` and hands the URI to a capturing navigator instead
+  `rf.source-coords.editor-uri/editor-uri` and hands the URI to a capturing navigator instead
   of `Location.assign`.
 
   Resolves to `{:requested <endpoint url> :navigated <uri-or-nil>
@@ -83,11 +83,11 @@
           (fn [url _opts]
             (reset! requested url)
             (js/Promise.resolve (->response status))))
-    (-> (open-endpoint/fetch-launcher!
-          (open-endpoint/build-url coord editor)
+    (-> (rf.source-coords.open-endpoint/fetch-launcher!
+          (rf.source-coords.open-endpoint/build-url coord editor)
           (fn []
             (swap! fallbacks inc)
-            (reset! navigated (editor-uri/editor-uri editor coord))))
+            (reset! navigated (rf.source-coords.editor-uri/editor-uri editor coord))))
         (.then (fn [_]
                  (restore!)
                  {:requested @requested
@@ -123,8 +123,8 @@
   (testing "the client asks for 27:9 explicitly — the coordinate is present
             in the request, so any later loss is the server's or the
             launcher's, not a malformed ask"
-    (let [url (open-endpoint/build-url coord :windsurf)]
-      (is (= (str open-endpoint/endpoint-path
+    (let [url (rf.source-coords.open-endpoint/build-url coord :windsurf)]
+      (is (= (str rf.source-coords.open-endpoint/endpoint-path
                   "?file=src%2Fapp.cljs&line=27&column=9&editor=windsurf")
              url)))))
 
@@ -133,13 +133,13 @@
             contract pinned below on `fetch-launcher!` is the contract the
             tool open-seams actually get"
     (let [seen (atom nil)
-          prev (open-endpoint/set-launcher!
+          prev (rf.source-coords.open-endpoint/set-launcher!
                  (fn [url _fallback!] (reset! seen url)))]
       (try
-        (open-endpoint/open-coord! coord :windsurf (fn [] nil))
-        (is (= (open-endpoint/build-url coord :windsurf) @seen))
+        (rf.source-coords.open-endpoint/open-coord! coord :windsurf (fn [] nil))
+        (is (= (rf.source-coords.open-endpoint/build-url coord :windsurf) @seen))
         (finally
-          (open-endpoint/set-launcher! prev))))))
+          (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
 ;; ---- what the client does with the server's answer -----------------------
 
@@ -217,18 +217,18 @@
   (testing "both preferences the audit names omit `editor=` entirely, so the
             server auto-detects — this is the request that could return a
             bare-file 200 before the repair"
-    (is (= (str open-endpoint/endpoint-path
+    (is (= (str rf.source-coords.open-endpoint/endpoint-path
                 "?file=src%2Fapp.cljs&line=27&column=9")
-           (open-endpoint/build-url coord nil))
+           (rf.source-coords.open-endpoint/build-url coord nil))
         "a nil preference sends the coordinate and no editor")
-    (is (= (str open-endpoint/endpoint-path
+    (is (= (str rf.source-coords.open-endpoint/endpoint-path
                 "?file=src%2Fapp.cljs&line=27&column=9")
-           (open-endpoint/build-url coord custom-editor))
+           (rf.source-coords.open-endpoint/build-url coord custom-editor))
         "a {:custom …} preference likewise — the template is the client's own
          business, so the server is told nothing about it")
-    (is (not (re-find #"editor=" (open-endpoint/build-url coord nil)))
+    (is (not (re-find #"editor=" (rf.source-coords.open-endpoint/build-url coord nil)))
         "control: `editor=` really is absent, not merely differently spelled")
-    (is (re-find #"editor=" (open-endpoint/build-url coord :windsurf))
+    (is (re-find #"editor=" (rf.source-coords.open-endpoint/build-url coord :windsurf))
         "control the other way: the same assertion FINDS `editor=` when a
          keyword preference is set, so its absence above is a real difference")))
 

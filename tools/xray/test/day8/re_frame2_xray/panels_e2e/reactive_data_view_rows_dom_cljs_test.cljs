@@ -87,8 +87,8 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.counter :as counter]))
 
@@ -100,7 +100,7 @@
 ;; and the counter fixture's frameless `[:counter/initialise]` boot
 ;; dispatch still resolves against the ambient scope.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.reagent/adapter}))
 
 (defn- browser?
   "True only under the real-DOM `:browser-test` build. The `:node-test`

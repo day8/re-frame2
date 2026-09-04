@@ -58,10 +58,10 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.diff.engine :as diff]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
@@ -168,7 +168,7 @@
   ;; tier — install (== preload's alias) + registry + mount idempotency
   ;; sentinels plus the trace-collector rings — over the Reagent adapter
   ;; this suite renders through.
-  (xray-test-support/make-xray-runtime-fixture {:adapter reagent-adapter/adapter}))
+  (xray-test-support/make-xray-runtime-fixture {:adapter rf.adapter.reagent/adapter}))
 
 (defn- setup! []
   (registry/register-xray-handlers!)
@@ -352,20 +352,20 @@
                         :fx [] :machine {:cascade rows
                                          :transition nil :guards []
                                          :lifecycle [] :timers []}}))]
-        (is (nil? (th/find-by-testid tree sp))
+        (is (nil? (rf.test-helpers/find-by-testid tree sp))
             "rf2-akvfe — the up/down structured-cascade block no longer renders")
         ;; rf2-2hj0h item 2 — the akvfe nested-pipeline RAIL is REMOVED; the
         ;; rows render as a flat numbered stack (the ordinal chips carry the
         ;; pipeline reading). The rows host + the orientation line remain.
-        (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
+        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
             "the nested-pipeline rail is removed (rf2-2hj0h)")
-        (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
             "the flat rows host still renders")
-        (is (some? (th/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
             "the EVENT HANDLER orientation line renders")
         ;; No-info-loss: the per-EMIT exit/entry action rows survive and carry
         ;; their action verbs (the cascade the removed block restated).
-        (is (some? (th/find-by-testid tree (str "rf-xray-epoch-machine-cascade-row-"
+        (is (some? (rf.test-helpers/find-by-testid tree (str "rf-xray-epoch-machine-cascade-row-"
                                                  (:step tx-row))))
             "the transition row survives in the pipeline")))))
 

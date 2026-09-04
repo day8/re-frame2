@@ -30,8 +30,8 @@
   use."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.view :as settings-view]
@@ -59,15 +59,15 @@
 ;; ---- hiccup helpers -----------------------------------------------------
 ;; The private expand-tree / find-by-testid / find-by-id / find-all-with-pred
 ;; copies were semantically identical to `re-frame.test-helpers`; tests call
-;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade). The
+;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade). The
 ;; unused find-by-id / find-all-with-pred were dropped. `hiccup-seq`
 ;; (depth-first nodes over the expanded tree) is not exposed by test-helpers,
-;; so it is kept as a thin wrapper over `th/expand-tree` for the option/
-;; string-leaf filters below. `props` aliases `th/attrs`.
+;; so it is kept as a thin wrapper over `rf.test-helpers/expand-tree` for the option/
+;; string-leaf filters below. `props` aliases `rf.test-helpers/attrs`.
 (defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree)))
+  (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
 
-(def ^:private props th/attrs)
+(def ^:private props rf.test-helpers/attrs)
 
 ;; -------------------------------------------------------------------------
 ;; (1) rf2-plajx — shell root landmark
@@ -80,7 +80,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view)
-            shell (th/find-by-testid tree "rf-xray-shell")
+            shell (rf.test-helpers/find-by-testid tree "rf-xray-shell")
             attrs (props shell)]
         (is (some? shell) "shell root mounts")
         (is (= "region" (:role attrs))
@@ -104,11 +104,11 @@
     (rf/with-frame :rf/xray
       (let [tree         (shell/shell-view)
             active-tab   :epoch ;; default (post rf2-5gl5r — supersedes :event)
-            tab-button   (th/find-by-testid tree (str "rf-xray-tab-" (name active-tab)))
+            tab-button   (rf.test-helpers/find-by-testid tree (str "rf-xray-tab-" (name active-tab)))
             tab-attrs    (props tab-button)
             expected-id  (str "rf-xray-tab-button-" (name active-tab))
             panel-id     (str "rf-xray-tabpanel-" (name active-tab))
-            panel        (th/find-by-testid tree (str "rf-xray-detail-panel-" (name active-tab)))
+            panel        (rf.test-helpers/find-by-testid tree (str "rf-xray-detail-panel-" (name active-tab)))
             panel-attrs  (props panel)]
         (is (= expected-id (:id tab-attrs))
             "tab button id matches the documented shape")
@@ -127,11 +127,11 @@
     (rf/with-frame :rf/xray
       (let [tree        (static-shell/surface)
             active-tab  :machines ;; the default Static tab
-            tab-button  (th/find-by-testid tree (str "rf-xray-static-tab-" (name active-tab)))
+            tab-button  (rf.test-helpers/find-by-testid tree (str "rf-xray-static-tab-" (name active-tab)))
             tab-attrs   (props tab-button)
             expected-id (str "rf-xray-static-tab-button-" (name active-tab))
             panel-id    (str "rf-xray-static-tabpanel-" (name active-tab))
-            panel       (th/find-by-testid tree (str "rf-xray-static-detail-panel-" (name active-tab)))
+            panel       (rf.test-helpers/find-by-testid tree (str "rf-xray-static-detail-panel-" (name active-tab)))
             panel-attrs (props panel)]
         (is (= expected-id (:id tab-attrs))
             "Static tab button id matches the documented shape")
@@ -153,7 +153,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
     (let [tree   (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
-          strip  (th/find-by-testid tree "rf-xray-settings-tab-strip")
+          strip  (rf.test-helpers/find-by-testid tree "rf-xray-settings-tab-strip")
           attrs  (props strip)]
       (is (= "tablist" (:role attrs))
           "Settings tab strip is a tablist")
@@ -173,7 +173,7 @@
           ;; WAI-ARIA tab contract.
           tab-ids  [:general :keybindings :buffer :diff]]
       (doseq [tid tab-ids]
-        (let [button (th/find-by-testid tree
+        (let [button (rf.test-helpers/find-by-testid tree
                        (str "rf-xray-settings-tab-" (name tid)))
               attrs  (props button)]
           (is (= "tab" (:role attrs))
@@ -188,8 +188,8 @@
               (str "tab " tid " carries aria-controls pointing at "
                    "its body tabpanel"))))
       ;; Default active tab is :general; selected reflects that.
-      (let [general (th/find-by-testid tree "rf-xray-settings-tab-general")
-            buffer  (th/find-by-testid tree "rf-xray-settings-tab-buffer")]
+      (let [general (rf.test-helpers/find-by-testid tree "rf-xray-settings-tab-general")
+            buffer  (rf.test-helpers/find-by-testid tree "rf-xray-settings-tab-buffer")]
         (is (= "true" (:aria-selected (props general)))
             "active tab (:general) carries aria-selected=\"true\"")
         (is (= "false" (:aria-selected (props buffer)))
@@ -203,7 +203,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
     (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
-          body  (th/find-by-testid tree "rf-xray-settings-body")
+          body  (rf.test-helpers/find-by-testid tree "rf-xray-settings-body")
           attrs (props body)]
       (is (= "tabpanel" (:role attrs))
           "body wrapper is a tabpanel")
@@ -225,7 +225,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
     (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
-          input (th/find-by-testid tree "rf-xray-settings-epoch-history-input")
+          input (rf.test-helpers/find-by-testid tree "rf-xray-settings-epoch-history-input")
           ;; The label sits in the same <div> field; find by html-for.
           label (some (fn [node]
                         (when (and (vector? node)
@@ -268,7 +268,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree   (frame-switcher/frame-switcher-view nil)
-            picker (th/find-by-testid tree "rf-xray-ribbon-frame-picker")]
+            picker (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")]
         (is (some? picker)
             "the <select> picker renders when ≥2 frames are present")
         (is (and (string? (:aria-label (props picker)))
@@ -309,7 +309,7 @@
       (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed :rf/default]))
     (rf/with-frame :rf/xray
       (let [tree      (shell/shell-view)
-            indicator (th/find-by-testid tree "rf-xray-redacted-indicator")
+            indicator (rf.test-helpers/find-by-testid tree "rf-xray-redacted-indicator")
             ;; the glyph is the first <span> child carrying aria-hidden
             glyph     (some (fn [node]
                               (when (and (vector? node)
@@ -334,7 +334,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree      (shell/shell-view)
-            event-tab (th/find-by-testid tree "rf-xray-tab-event")
+            event-tab (rf.test-helpers/find-by-testid tree "rf-xray-tab-event")
             glyph     (some (fn [node]
                               (when (and (vector? node)
                                          (= :span (first node))

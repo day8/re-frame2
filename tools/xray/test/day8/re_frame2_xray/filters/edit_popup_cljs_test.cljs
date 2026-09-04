@@ -11,8 +11,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.filters :as filters]
             [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.registry :as registry]
@@ -259,15 +259,15 @@
 
 ;; ---- hiccup helpers -----------------------------------------------------
 ;; The private expand-tree / find-by-testid copies were semantically identical
-;; to `re-frame.test-helpers`; tests call `th/find-by-testid` directly
+;; to `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid` directly
 ;; (rf2-vj80u8 — no Xray walker facade). `testids-with-prefix` (the SET of
-;; carried testids matching a prefix) is expressed over `th/find-by-testid-
+;; carried testids matching a prefix) is expressed over `rf.test-helpers/find-by-testid-
 ;; prefix`; `all-strings` / `placeholder-values` below are not exposed by
-;; test-helpers, so they walk `th/expand-tree` directly.
+;; test-helpers, so they walk `rf.test-helpers/expand-tree` directly.
 
 (defn- testids-with-prefix [tree prefix]
-  (into #{} (map (comp :data-testid th/attrs))
-        (th/find-by-testid-prefix tree prefix)))
+  (into #{} (map (comp :data-testid rf.test-helpers/attrs))
+        (rf.test-helpers/find-by-testid-prefix tree prefix)))
 
 (deftest backdrop-defaults-to-fixed-positioning
   (testing "with no :rf.xray/modal-positioning slot set, the edit
@@ -277,7 +277,7 @@
     (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
     (rf/with-frame :rf/xray
       (let [rendered (filters/Modal)
-            backdrop (th/find-by-testid rendered "rf-xray-edit-popup-backdrop")
+            backdrop (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-backdrop")
             style    (:style (second backdrop))]
         (is (some? backdrop))
         (is (= "fixed" (:position style)))
@@ -294,7 +294,7 @@
     (frame-dispatch [:rf.xray/set-modal-positioning :absolute])
     (rf/with-frame :rf/xray
       (let [rendered (filters/Modal)
-            backdrop (th/find-by-testid rendered "rf-xray-edit-popup-backdrop")
+            backdrop (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-backdrop")
             style    (:style (second backdrop))]
         (is (some? backdrop))
         (is (= "absolute" (:position style)))
@@ -322,15 +322,15 @@
     (rf/with-frame :rf/xray
       (let [rendered (filters/Modal)]
         ;; Kept surfaces.
-        (is (some? (th/find-by-testid rendered "rf-xray-edit-popup-mode-in"))
+        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-mode-in"))
             "Mode IN radio present")
-        (is (some? (th/find-by-testid rendered "rf-xray-edit-popup-mode-out"))
+        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-mode-out"))
             "Mode OUT radio present")
-        (is (some? (th/find-by-testid rendered "rf-xray-edit-popup-pattern"))
+        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-pattern"))
             "Pattern input present")
-        (is (some? (th/find-by-testid rendered "rf-xray-edit-popup-cancel"))
+        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-cancel"))
             "Cancel button present")
-        (is (some? (th/find-by-testid rendered "rf-xray-edit-popup-save"))
+        (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-save"))
             "Add filter / Apply button present")
         ;; Excised surface — no scope checkboxes of any key.
         (is (= #{} (testids-with-prefix rendered "rf-xray-edit-popup-scope-"))
@@ -347,14 +347,14 @@
 (defn- all-strings
   "Every string literal in the expanded hiccup tree."
   [tree]
-  (->> (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree))
+  (->> (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree))
        (filter string?)
        (into #{})))
 
 (defn- placeholder-values
   "Every `:placeholder` attribute value in the expanded tree."
   [tree]
-  (->> (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree))
+  (->> (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree))
        (keep (fn [node]
                (when (and (vector? node) (map? (second node)))
                  (:placeholder (second node)))))

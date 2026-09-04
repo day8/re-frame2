@@ -36,8 +36,8 @@
   `:rf.resource/load-more-skipped` (one is a genuine keyword-token prefix of
   the other)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.mcp-conformance.fixtures :as fx]
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
+            [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
 
 ;; ---------------------------------------------------------------------------
 ;; The closed EP-0021 infinite-feed trace vocabulary (the single source of
@@ -90,17 +90,17 @@
   pins use, so `:rf.resource/load-more` does not match inside
   `:rf.resource/load-more-skipped`."
   [kw text]
-  (boolean (re-find (fx/variant-regex (pr-str kw)) text)))
+  (boolean (re-find (rf.mcp-conformance.fixtures/variant-regex (pr-str kw)) text)))
 
 (defn- emit-text [rel-path]
-  (fx/strip-comments-and-strings (fx/read-source rel-path)))
+  (rf.mcp-conformance.fixtures/strip-comments-and-strings (rf.mcp-conformance.fixtures/read-source rel-path)))
 
 ;; ---------------------------------------------------------------------------
 ;; (1) the NORMATIVE catalogue carries every literal (Spec 009).
 ;; ---------------------------------------------------------------------------
 
 (deftest spec-009-catalogues-the-infinite-vocabulary
-  (let [doc (fx/read-source spec-009)]
+  (let [doc (rf.mcp-conformance.fixtures/read-source spec-009)]
     (testing "Spec 009 §Where trace emission lives names each of the four ops"
       (doseq [{:keys [op]} infinite-trace-ops]
         (is (literal-as-token? op doc)
@@ -141,8 +141,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest xray-surface-carries-the-infinite-ops
-  (let [spec024 (fx/read-source xray-024)
-        enum    (fx/read-source xray-enum)]
+  (let [spec024 (rf.mcp-conformance.fixtures/read-source xray-024)
+        enum    (rf.mcp-conformance.fixtures/read-source xray-enum)]
     (testing "the Xray Resources-panel spec (024) documents each op"
       (doseq [{:keys [op]} infinite-trace-ops]
         (is (literal-as-token? op spec024)
@@ -176,9 +176,9 @@
 
 (deftest no-near-miss-spelling-of-the-infinite-vocabulary
   (doseq [file tracked-files
-          :let [text (fx/read-source file)]
+          :let [text (rf.mcp-conformance.fixtures/read-source file)]
           kw   all-literals
-          near (pins/near-miss-variants kw)
+          near (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants kw)
           ;; a genuine canonical literal that is a PREFIX of `near` (the
           ;; `pluralised` / `predicate` variants of the shorter op) is NOT a
           ;; near-miss when the longer literal is itself canonical: e.g.
@@ -187,7 +187,7 @@
           ;; FULL near-miss string handles the prefix case, and we additionally
           ;; skip a `near` that IS exactly another canonical literal.
           :when (not (some #(= near (pr-str %)) all-literals))]
-    (is (not (re-find (fx/variant-regex near) text))
+    (is (not (re-find (rf.mcp-conformance.fixtures/variant-regex near) text))
         (str "near-miss spelling " (pr-str near) " of the canonical literal "
              (pr-str kw) " MUST NOT appear in " file
              " — a drifted spelling silently breaks agent pattern-matching."))))

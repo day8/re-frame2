@@ -18,8 +18,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.palette.recents :as recents]
             [day8.re-frame2-xray.registry :as registry]
@@ -501,13 +501,13 @@
 (defn- seed-sensitive-host! [db-fn]
   ;; Classify [:auth :password] sensitive + seed the secret INTO the host
   ;; frame (not Xray's). EP-0025: durable app-db classification rides the
-  ;; commit-plane classification effects — `elision/apply-classification-
+  ;; commit-plane classification effects — `rf.elision/apply-classification-
   ;; effects` writes a `:source :effect` declaration (index-free :rf/path) on
   ;; the host frame's elision registry, the SAME registry the off-box egress
   ;; walker consults (the same write a reg-event returning `:sensitive` makes).
   (rf/make-frame {:id host-frame})
-  (frame/swap-runtime-db! host-frame
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+  (rf.frame/swap-runtime-db! host-frame
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   (rf/with-frame host-frame
     (rf/reg-event :test/seed-host (fn [{:keys [db]} _] {:db (db-fn db)}))
     (rf/dispatch-sync [:test/seed-host])))
@@ -566,8 +566,8 @@
       ;; EP-0025: commit-plane :large classification (index-free :rf/path) on
       ;; the host frame's elision registry — the size sibling of the sensitive
       ;; seed above (`:source :effect`).
-      (frame/swap-runtime-db! host-frame
-        (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]})))
+      (rf.frame/swap-runtime-db! host-frame
+        (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
       (rf/with-frame host-frame
         (rf/reg-event :test/seed-blob
           (fn [{:keys [db]} _] {:db (assoc db :blob {:payload {:big "value"}})}))

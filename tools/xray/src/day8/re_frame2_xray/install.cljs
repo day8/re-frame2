@@ -11,11 +11,11 @@
   a no-op without `js/window`, and the preload owns the debug-build gate."
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Listener registration uses each stream's home namespace so
             ;; the dev-only tooling surface remains independently elidable.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.epoch :as epoch]
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.epoch :as rf.epoch]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -42,7 +42,7 @@
   it directly without `#'`-piercing into private vars."
   []
   (when (compare-and-set! trace-cb-registered? false true)
-    (trace-tooling/register-listener! :rf.xray/trace-collector
+    (rf.trace.tooling/register-listener! :rf.xray/trace-collector
                                       trace-collector/collect-trace!))
   nil)
 
@@ -64,13 +64,13 @@
   `epoch-cb-registered?` sentinel."
   []
   (when (compare-and-set! epoch-cb-registered? false true)
-    (epoch/register-epoch-listener! :rf.xray/epoch-collector
+    (rf.epoch/register-epoch-listener! :rf.xray/epoch-collector
       (fn [record]
         ;; Pre-mount no-op — see the docstring's §Pre-mount guard.
         ;; Resolved against the framework's frame registry (NOT a
         ;; Xray-side flag) so a teardown / re-register cycle stays
         ;; correctly tracked without our needing extra state.
-        (when (frame/frame defaults/default-frame-id)
+        (when (rf.frame/frame defaults/default-frame-id)
           ;; Wrap the dispatch in the Xray shell frame so the registry's
           ;; handler writes to Xray's app-db, not the host's. The cb's
           ;; record carries :frame — pass it as the dispatch arg so

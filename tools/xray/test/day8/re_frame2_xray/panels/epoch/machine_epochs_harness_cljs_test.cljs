@@ -43,7 +43,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.diff.engine :as diff]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
@@ -52,7 +52,7 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; The SHARED machine specs the deck mounts — the harness drives
             ;; the IDENTICAL values (single source of truth, rf2-g27vv).
             [machine-epochs.machines :as machines]))
@@ -67,7 +67,7 @@
   ;; tier — install (== preload's alias) + registry + mount idempotency
   ;; sentinels plus the trace-collector rings — over the Reagent adapter
   ;; this suite renders through.
-  (xray-test-support/make-xray-runtime-fixture {:adapter reagent-adapter/adapter}))
+  (xray-test-support/make-xray-runtime-fixture {:adapter rf.adapter.reagent/adapter}))
 
 (defn- setup!
   "Register the Xray handlers + trace collector, register every (non-throwing)

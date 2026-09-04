@@ -12,7 +12,7 @@
   `routing_helpers_cljs_test.cljc`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.routes.panel :as panel]
             [day8.re-frame2-xray.static.routes.simulate-nav :as simulate-nav]

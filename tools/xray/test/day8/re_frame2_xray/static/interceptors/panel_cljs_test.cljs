@@ -3,8 +3,8 @@
   (rf2-o5f5f.6)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.interceptors.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -21,7 +21,7 @@
 ;;
 ;; The private expand-tree / hiccup-seq / find-by-testid* copies this file
 ;; carried are semantically identical to `re-frame.test-helpers`; the tests
-;; below call `th/find-by-testid` / `th/find-by-testid-prefix` directly
+;; below call `rf.test-helpers/find-by-testid` / `rf.test-helpers/find-by-testid-prefix` directly
 ;; (rf2-vj80u8 — no Xray walker facade).
 
 (defn- setup-xray! []
@@ -202,7 +202,7 @@
     (rf/dispatch-sync
       [:rf.xray.static.interceptors/set-registry-override-for-test {}])
     (let [tree (panel/Panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-interceptors-empty"))))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty"))))))
 
 (deftest panel-renders-rows-from-override
   (setup-xray!)
@@ -211,7 +211,7 @@
       [:rf.xray.static.interceptors/set-registry-override-for-test
        sample-events-with-chains])
     (let [tree (panel/Panel)
-          rows (th/find-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
+          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
       (is (= 3 (count rows)) "three collapsed interceptor rows rendered"))))
 
 (deftest panel-renders-filtered-state-on-no-match
@@ -222,7 +222,7 @@
        sample-events-with-chains])
     (rf/dispatch-sync [:rf.xray.static.interceptors/set-query "no-such-id"])
     (let [tree (panel/Panel)]
-      (is (some? (th/find-by-testid tree "rf-xray-static-interceptors-empty-filtered"))))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty-filtered"))))))
 
 ;; -------------------------------------------------------------------------
 ;; (4) a11y list semantics (rf2-mq8wk)
@@ -236,8 +236,8 @@
         [:rf.xray.static.interceptors/set-registry-override-for-test
          sample-events-with-chains])
       (let [tree (panel/Panel)
-            list-node (th/find-by-testid tree "rf-xray-static-interceptors-list")
-            rows (th/find-by-testid-prefix
+            list-node (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-list")
+            rows (rf.test-helpers/find-by-testid-prefix
                    tree "rf-xray-static-interceptors-row-")]
         (is (= "list" (:role (second list-node))) "<ul> carries role=list")
         (is (seq rows) "rows rendered")

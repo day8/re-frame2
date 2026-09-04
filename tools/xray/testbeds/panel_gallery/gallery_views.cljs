@@ -38,7 +38,7 @@
   value (so the cause is the props channel). A mount carries no cause
   (the `(mounted)` label conveys the first render). The
   `render-cause` variant below pins all three states side-by-side."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.panel-views :as panel-views]))
 
 (defn register-gallery-view! []
@@ -216,16 +216,16 @@
 (defn register-all!
   "Register the Reactive tab Story surface. Idempotent."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-reactive
+  (rf.story/reg-tag :feature/xray-reactive
     {:axis :feature
      :doc  "Xray Reactive tab — sub-cascade + view-re-render
             visualisation per spec/021 §3 (rf2-wyvf2); per-view
             render-cause attribution (rf2-bhi3t)."})
 
-  (story/reg-story :story.xray.reactive
+  (rf.story/reg-story :story.xray.reactive
     {:doc        "Visual gallery of the Xray Reactive tab under
                  varying cascade magnitude + render-cause shape. Each
                  variant seeds the variant frame's :epoch-history
@@ -237,14 +237,14 @@
      :tags       #{:dev :feature/xray-reactive}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.reactive/empty
+  (rf.story/reg-variant :story.xray.reactive/empty
     {:doc        "No epochs in history. Panel renders the
                  no-cascade empty-state."
      :setup     [[:rf.xray/sync-epoch-history (empty-buffer)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.reactive/sparse
+  (rf.story/reg-variant :story.xray.reactive/sparse
     {:doc        "Single sub recomputed (changed) + single view
                  re-rendered caused by that sub. Pins the
                  resting-density render — the view node reads
@@ -253,7 +253,7 @@
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.reactive/dense
+  (rf.story/reg-variant :story.xray.reactive/dense
     {:doc        "Mid-load: 4 subs ran (2 changed) · 2 memo-hit skips ·
                  3 views re-rendered. The view nodes exercise the full
                  render-cause taxonomy (rf2-bhi3t) — two `← :sub-id`
@@ -263,7 +263,7 @@
      :substrates #{:reagent}})
 
   ;; ----- render-cause chips (rf2-bhi3t) ------------------------------
-  (story/reg-variant :story.xray.reactive/render-cause
+  (rf.story/reg-variant :story.xray.reactive/render-cause
     {:doc        "All three render-cause states side-by-side (rf2-bhi3t):
                  a MOUNT (no cause — the `(mounted)` label), a
                  SUBSCRIPTION-driven re-render (`← :route/current`), and
@@ -275,7 +275,7 @@
      :substrates #{:reagent}})
 
   ;; ----- teardown sections -------------------------------------------
-  (story/reg-variant :story.xray.reactive/teardown
+  (rf.story/reg-variant :story.xray.reactive/teardown
     {:doc        "Route change: one new view mounts while two views
                  unmount + two subs dispose. Exercises the UNMOUNTED
                  VIEWS + DESTROYED SUBSCRIPTIONS sections (spec/021
@@ -284,7 +284,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.reactive/silent
+  (rf.story/reg-variant :story.xray.reactive/silent
     {:doc        "Sparse case from spec/021 §3.2 — the epoch's db
                  change touched no subscribed paths. Panel shows
                  the 'no reactive cascade' empty body."
@@ -292,7 +292,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-workspace :Workspace.xray.reactive/all
+  (rf.story/reg-workspace :Workspace.xray.reactive/all
     {:doc      "All six Reactive tab variants in one auto-grid — empty /
                 sparse / dense / render-cause / teardown / silent. The
                 render-cause + dense variants pin the rf2-bhi3t per-view

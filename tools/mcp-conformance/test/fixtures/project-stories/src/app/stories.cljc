@@ -17,8 +17,8 @@
   Keep load-time printing off stdout: the story-mcp stdio loop owns stdout
   for JSON-RPC frames, so a stray `println` here would corrupt the wire."
   (:require [re-frame.core                 :as rf]
-            [re-frame.story                :as story]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.story                :as rf.story]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; The consuming project's own boot step, and a PRECONDITION of the execution
 ;; witness below rather than boilerplate. `story-mcp`'s server installs Story's
@@ -34,7 +34,7 @@
 ;; adapter, the script plays nothing, and the run still returns `:status
 ;; "pass"` over an empty app-db and zero assertions — the same success envelope
 ;; a genuine run returns (measured under rf2-3n3dk). `init!` is idempotent.
-(rf/init! plain-atom/adapter)
+(rf/init! rf.substrate.plain-atom/adapter)
 
 ;; The fixture project's own event — an ordinary `reg-event`, registered at
 ;; namespace load exactly like a consuming project's. Pure data → data: no
@@ -47,7 +47,7 @@
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:fixture-app/article :headline] "Seeded by app.stories/setup")}))
 
-(story/reg-story :story.fixture-app
+(rf.story/reg-story :story.fixture-app
   {:doc        "The fixture app's article card — the pre-authored project story the golden-path launch must expose on first connect."
    :component  :fixture-app.views/article-card
    :substrates #{:hicasso}
@@ -71,7 +71,7 @@
 ;; script never played, and it reads `:passed? false` with `:actual nil` if
 ;; the setup event never fired. Both halves are pure app-db work — no
 ;; renderer, no browser — so the headless JVM host runs it as-is.
-(story/reg-variant :story.fixture-app/default
+(rf.story/reg-variant :story.fixture-app/default
   {:doc    "Default article card. :setup seeds the headline the card renders and :script asserts it back — deterministic, renderer-free lifecycle work that gives the golden-path witness something execution-only to observe. :component and :substrates fold down from the parent story."
    :args   {:title "Hello from the fixture project"}
    :setup  [[:fixture-app/seed-article]]

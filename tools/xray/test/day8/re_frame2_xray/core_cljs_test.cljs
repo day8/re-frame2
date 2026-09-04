@@ -25,8 +25,8 @@
      without throwing for any input (CSS string / empty / nil)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.mount :as mount]
@@ -156,7 +156,7 @@
     ;; throwing and the registry's idempotency sentinel reports
     ;; installed.
     (core/init!)
-    (is (some? (registrar/handler :sub :rf.xray/target-frame))
+    (is (some? (rf.registrar/handler :sub :rf.xray/target-frame))
         "registry/register-xray-handlers! ran")
     ;; Second call: each sub-side-effect is defonce-guarded so the
     ;; combined effect is a no-op. We just assert no throw.

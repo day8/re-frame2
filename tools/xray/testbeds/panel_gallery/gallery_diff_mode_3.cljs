@@ -30,7 +30,7 @@
   workspace can interleave mode-3 with the broader edn-inspector
   Story set."
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             [panel-gallery.fixtures-diff-mode-3 :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -46,16 +46,16 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (panel-views/register!)
 
-  (story/reg-tag :feature/xray-diff-mode-3
+  (rf.story/reg-tag :feature/xray-diff-mode-3
     {:axis :feature
      :doc  "Xray edn-inspector mode-3 diff grammar (rf2-n2jig) —
             full data tree with inline diff annotations per the
             R1-R8 rules from the findings doc."})
 
-  (story/reg-story :story.xray.diff-mode-3
+  (rf.story/reg-story :story.xray.diff-mode-3
     {:doc        "Mode-3 grammar visual reference — full data tree
                   WITH inline diff annotations. One variant per
                   R-rule + scenario + theme/density case so Mike
@@ -66,7 +66,7 @@
 
   ;; -- Single-rule demonstrations (R1-R8) ---------------------------------
 
-  (story/reg-variant :story.xray.diff-mode-3/r1-modified-scalar
+  (rf.story/reg-variant :story.xray.diff-mode-3/r1-modified-scalar
     {:doc        "R1 — modified scalar. `{:counter 5} → {:counter 6}`.
                   Shows the value-side `~` glyph + `← was 5`
                   italic muted suffix."
@@ -75,7 +75,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r2-new-map-key
+  (rf.story/reg-variant :story.xray.diff-mode-3/r2-new-map-key
     {:doc        "R2 (refined rf2-zpeyv) — new map key.
                   `{:a 1} → {:a 1 :b 2}`. Slot-anchored chrome: the
                   green wash spans the WHOLE row (`:b` key cell +
@@ -87,7 +87,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r2-removed-map-key
+  (rf.story/reg-variant :story.xray.diff-mode-3/r2-removed-map-key
     {:doc        "R2 (refined rf2-zpeyv) — removed map key.
                   `{:a 1 :b 2} → {:a 1}`. Slot-anchored chrome: the
                   red wash spans the WHOLE row, and the strike-through
@@ -99,7 +99,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r3-collapsed-chip
+  (rf.story/reg-variant :story.xray.diff-mode-3/r3-collapsed-chip
     {:doc        "R3 (revised) — collapsed `[N∆]` chip. A nested
                   `:user` map with three modified leaves, collapsed
                   via `:default-expanded-depth 1`. Operator sees
@@ -110,7 +110,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r4-vertical-rail
+  (rf.story/reg-variant :story.xray.diff-mode-3/r4-vertical-rail
     {:doc        "R4 — single 2px vertical rail through a change-
                   bearing subtree, painted in the dominant-op hue.
                   Sub-tree carries one change at row 3 of 5; the
@@ -120,7 +120,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r5-wholly-new-subtree
+  (rf.story/reg-variant :story.xray.diff-mode-3/r5-wholly-new-subtree
     {:doc        "R5 (revised) — wholly-new subtree. `:flash` didn't
                   exist before; parent gets `+` glyph + green
                   triangle + green rail. Descendant gutter glyphs +
@@ -131,7 +131,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r5-wholly-removed-subtree
+  (rf.story/reg-variant :story.xray.diff-mode-3/r5-wholly-removed-subtree
     {:doc        "R5 (revised) — wholly-removed subtree. Inverse of
                   the new-subtree case; parent gets `−` glyph + red
                   triangle + red rail. Descendants paint red wash
@@ -141,7 +141,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r6-vector-insert
+  (rf.story/reg-variant :story.xray.diff-mode-3/r6-vector-insert
     {:doc        "R6 — vector insert with LCS shift. `[:a :b :c]` →
                   `[:a :NEW :b :c]`. After-index 1 carries `+`; after-
                   indices 2 and 3 paint `:same-shifted` + `(was 1)`
@@ -151,7 +151,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r6-vector-remove
+  (rf.story/reg-variant :story.xray.diff-mode-3/r6-vector-remove
     {:doc        "R6 — vector remove. Surviving elements carry
                   `(was N)` suffixes; the removed element lives on
                   the `:vector-removals` channel — the pure-diff
@@ -162,7 +162,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r6-vector-reorder
+  (rf.story/reg-variant :story.xray.diff-mode-3/r6-vector-reorder
     {:doc        "R6 — vector reorder. `[:a :b :c]` → `[:c :a :b]`.
                   Demonstrates LCS detection (vs. naive's `every
                   element modified`). Editscript transcript is one
@@ -172,7 +172,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r7-type-change
+  (rf.story/reg-variant :story.xray.diff-mode-3/r7-type-change
     {:doc        "R7 — type-change container. `{:flash \"hi\"}` →
                   `{:flash {:level :ok}}`. String-to-map flip
                   classifies as `:modified` (not `:children`); value
@@ -183,7 +183,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r8-was-redacted-now-visible
+  (rf.story/reg-variant :story.xray.diff-mode-3/r8-was-redacted-now-visible
     {:doc        "R8 — `was redacted, now visible`. Before-side
                   carries `:rf/redacted`; after-side carries a real
                   value. Row reads `:modified` + curated `← was
@@ -193,7 +193,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/r8-was-visible-now-redacted
+  (rf.story/reg-variant :story.xray.diff-mode-3/r8-was-visible-now-redacted
     {:doc        "R8 — `was visible, now redacted`. Inverse; after-
                   side carries `:rf/redacted`. Suffix reads `← now
                   redacted`; prior value is NOT printed (the
@@ -205,7 +205,7 @@
 
   ;; -- Combination + edge-case demonstrations -----------------------------
 
-  (story/reg-variant :story.xray.diff-mode-3/combo-all-ops-cascade
+  (rf.story/reg-variant :story.xray.diff-mode-3/combo-all-ops-cascade
     {:doc        "All-ops cascade — the §2 canonical example: counter
                   modified + user/name modified + flash added +
                   legacy-flag removed. The full grammar in one mount."
@@ -214,7 +214,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/combo-mixed-ops-subtree
+  (rf.story/reg-variant :story.xray.diff-mode-3/combo-mixed-ops-subtree
     {:doc        "Mixed-ops subtree — `:user` has BOTH `:added`,
                   `:removed`, and `:modified` descendants. The R5
                   wholly-added-collapse rule does NOT trigger;
@@ -224,7 +224,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/combo-deeply-nested-change
+  (rf.story/reg-variant :story.xray.diff-mode-3/combo-deeply-nested-change
     {:doc        "Deeply-nested change at depth 5+. Verifies
                   triangles + rails + chips don't pile up uselessly.
                   Single leaf change at the bottom produces a chain
@@ -234,7 +234,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/combo-long-vector-one-insert
+  (rf.story/reg-variant :story.xray.diff-mode-3/combo-long-vector-one-insert
     {:doc        "Long-vector-one-insert (LCS payoff demo). 12-
                   element vector with one element inserted at index
                   4. Under naive compare this would render as 8
@@ -245,7 +245,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/combo-empty-diff
+  (rf.story/reg-variant :story.xray.diff-mode-3/combo-empty-diff
     {:doc        "Empty diff (no changes). Mode-3 must render
                   correctly when before == after; no glyphs, no
                   chips, no rails, no washes."
@@ -254,7 +254,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/combo-massive-diff
+  (rf.story/reg-variant :story.xray.diff-mode-3/combo-massive-diff
     {:doc        "Massive diff — every key got new values. Verifies
                   the chrome doesn't melt into noise; the eye still
                   tracks the cascade because every row carries the
@@ -264,7 +264,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.diff-mode-3/combo-mode-toggle-three-up
+  (rf.story/reg-variant :story.xray.diff-mode-3/combo-mode-toggle-three-up
     {:doc        "Mode-toggle three-up — same diff rendered in all
                   three modes (the workspace renders three separate
                   cards via `:variants-grid` layout; this single
@@ -278,7 +278,7 @@
 
   ;; -- Theme + density variants -------------------------------------------
 
-  (story/reg-variant :story.xray.diff-mode-3/theme-narrow-panel
+  (rf.story/reg-variant :story.xray.diff-mode-3/theme-narrow-panel
     {:doc        "Narrow-panel rendering — chrome must stay readable
                   at L4-panel-on-laptop widths (320px). The `(was N)`
                   suffixes + `[N∆]` chips don't wrap awkwardly.
@@ -293,7 +293,7 @@
 
   ;; -- Workspace ---------------------------------------------------------
 
-  (story/reg-workspace :Workspace.xray.diff-mode-3/all
+  (rf.story/reg-workspace :Workspace.xray.diff-mode-3/all
     {:doc      "All mode-3 grammar variants in one auto-grid. Walk
                 top-to-bottom for the canonical sequence: R1 → R8
                 → combinations → edge cases → theme/density. Each

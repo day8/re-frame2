@@ -19,7 +19,7 @@
   current+diff`) reads the seeded `:epoch-history` + `:focus` (and any
   `:focused-slice-path`). Each variant therefore observes its own
   bespoke history in isolation; no two variants share state."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures-app-db :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -31,17 +31,17 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-app-db
+  (rf.story/reg-tag :feature/xray-app-db
     {:axis :feature
      :doc  "Xray App-db tab — changed slices, reserved-keys group,
             and the 'Show me when this changed' walker (per spec/018-
             Event-Spine §5.2). Pinned-watches strip dropped under
             rf2-e9tb0."})
 
-  (story/reg-story :story.xray.app-db
+  (rf.story/reg-story :story.xray.app-db
     {:doc        "Visual gallery of the Xray App-db tab under varying
                  app-db magnitude + payload shape. Each variant seeds
                  its frame's :epoch-history via
@@ -52,7 +52,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 1. tiny app-db ----------------------------------------------
-  (story/reg-variant :story.xray.app-db/tiny-app-db
+  (rf.story/reg-variant :story.xray.app-db/tiny-app-db
     {:doc        "Tiny three-key app-db. Panel renders the resting
                  minimal-state shape — counter + user + ui."
      :setup     [[:rf.xray/sync-epoch-history (fixtures/tiny-app-db-buffer)]]
@@ -60,7 +60,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 2. empty (no epochs) -----------------------------------------
-  (story/reg-variant :story.xray.app-db/empty
+  (rf.story/reg-variant :story.xray.app-db/empty
     {:doc        "No epochs in history. Panel renders the empty-state
                  + reserved scaffolding only (rf2-e9tb0 dropped the
                  pinned-watches strip)."
@@ -69,7 +69,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 3. large app-db ---------------------------------------------
-  (story/reg-variant :story.xray.app-db/large-app-db
+  (rf.story/reg-variant :story.xray.app-db/large-app-db
     {:doc        "Large multi-tier app-db (~500 leaf keys across
                  :auth, :catalog, :cart, :prefs, :session). Mutates a
                  handful of slices so the diff renders against a
@@ -79,7 +79,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4. sensitive paths ------------------------------------------
-  (story/reg-variant :story.xray.app-db/sensitive-paths
+  (rf.story/reg-variant :story.xray.app-db/sensitive-paths
     {:doc        "Epoch where multiple paths carry `:rf/redacted`
                  markers (across :auth, :user/profile, :billing).
                  Panel surfaces each marker verbatim per Spec 009
@@ -89,7 +89,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 5. :rf.size/large-elided sentinels --------------------------
-  (story/reg-variant :story.xray.app-db/large-sentinels
+  (rf.story/reg-variant :story.xray.app-db/large-sentinels
     {:doc        "Epoch where multiple slices carry `:rf.size/large-
                  elided` sentinels. Panel must render the marker shape
                  without trying to expand."
@@ -98,7 +98,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 6. watched-keys diff highlighting ---------------------------
-  (story/reg-variant :story.xray.app-db/watched-keys
+  (rf.story/reg-variant :story.xray.app-db/watched-keys
     {:doc        "Three epochs in series mutating `:counter`,
                  `:user/profile`, and `:cart`. Selecting any epoch +
                  focusing a path exercises the cross-epoch 'Show me
@@ -110,7 +110,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 7. single-key change ----------------------------------------
-  (story/reg-variant :story.xray.app-db/single-key-change
+  (rf.story/reg-variant :story.xray.app-db/single-key-change
     {:doc        "One epoch with a single top-level key mutation
                  (`:counter` from 5 → 6). Panel renders one changed-
                  slice card."
@@ -119,7 +119,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 8. five-key changes -----------------------------------------
-  (story/reg-variant :story.xray.app-db/five-key-changes
+  (rf.story/reg-variant :story.xray.app-db/five-key-changes
     {:doc        "One epoch mutating five top-level keys — scalar,
                  nested map, vector slice, added flash, removed
                  legacy flag. Mid-size diff fits one screen."
@@ -128,7 +128,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 9. nested deep ----------------------------------------------
-  (story/reg-variant :story.xray.app-db/nested-deep
+  (rf.story/reg-variant :story.xray.app-db/nested-deep
     {:doc        "Six-level-deep nested path (`[:tenant :acme
                  :department :eng :team :platform :project :xray
                  :status]`). Exercises the path-pr-str sort and the
@@ -138,7 +138,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 10. large flat (100 keys) -----------------------------------
-  (story/reg-variant :story.xray.app-db/large-flat
+  (rf.story/reg-variant :story.xray.app-db/large-flat
     {:doc        "One epoch mutating ~100 top-level keys at once.
                  Exercises the overflow / scroll behaviour of the
                  changed-slices stack under storm load."
@@ -147,7 +147,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 11. mixed ops (panel-specific axis) -------------------------
-  (story/reg-variant :story.xray.app-db/mixed-ops
+  (rf.story/reg-variant :story.xray.app-db/mixed-ops
     {:doc        "One epoch demonstrating every diff op (`:added` /
                  `:modified` / `:removed`) side-by-side. Surfaces the
                  op-colour ladder uniformly in a single card."
@@ -156,7 +156,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 12. reserved keys (panel-specific axis) ---------------------
-  (story/reg-variant :story.xray.app-db/reserved-keys
+  (rf.story/reg-variant :story.xray.app-db/reserved-keys
     {:doc        "Epoch mutating reserved runtime-db keys — paths under the
                  `:rf.db/runtime` partition's `:rf.runtime/*` roots covering
                  the routing current-route slice, machine snapshots, and the
@@ -168,7 +168,7 @@
      :substrates #{:reagent}})
 
   ;; ----- workspace ---------------------------------------------------
-  (story/reg-workspace :Workspace.xray.app-db/all
+  (rf.story/reg-workspace :Workspace.xray.app-db/all
     {:doc      "All twelve App-db tab variants in one auto-grid.
                 Scroll to see the panel's response across tiny /
                 empty / large / sensitive / large-sentinels /

@@ -31,8 +31,8 @@
   `canonical-markers` schema pins — it guards a wire-vocabulary contract
   rather than a marker shape."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.mcp-base.egress :as base-egress]
-            [re-frame.projection :as projection]))
+            [re-frame.mcp-base.egress :as rf.mcp-base.egress]
+            [re-frame.projection :as rf.projection]))
 
 (defn- framework-table
   "The framework's profile→`:rf.size/*` resolution as a plain map, built
@@ -42,12 +42,12 @@
   without re-deriving the private table)."
   []
   (into {}
-        (map (fn [p] [p (projection/profile-size-opts p)]))
-        projection/profiles))
+        (map (fn [p] [p (rf.projection/profile-size-opts p)]))
+        rf.projection/profiles))
 
 (deftest mcp-base-mirror-profile-names-match-framework
   (testing "the mcp-base egress mirror enumerates exactly the framework's six profiles"
-    (is (= projection/profiles base-egress/profiles)
+    (is (= rf.projection/profiles rf.mcp-base.egress/profiles)
         (str "mcp-base/egress.cljc `profiles` set has drifted from "
              "`re-frame.projection/profiles` — a profile was added / "
              "renamed in the framework without updating the cross-MCP "
@@ -55,7 +55,7 @@
 
 (deftest mcp-base-mirror-resolves-identically-to-framework
   (testing "every profile resolves to the SAME :rf.size/* floor in both tables"
-    (is (= (framework-table) base-egress/profile->size-opts)
+    (is (= (framework-table) rf.mcp-base.egress/profile->size-opts)
         (str "mcp-base/egress.cljc `profile->size-opts` has drifted from "
              "`re-frame.projection/profile-size-opts` — a profile's "
              ":rf.size/* floor differs between the framework (authoritative) "
@@ -66,7 +66,7 @@
 
 (deftest off-box-tool-floor-is-the-mcp-default
   (testing "off-box-tool — the MCP servers' default boundary — redacts sensitive, elides large, keeps structural digests"
-    (let [opts (base-egress/profile-size-opts :rf.egress/off-box-tool)]
+    (let [opts (rf.mcp-base.egress/profile-size-opts :rf.egress/off-box-tool)]
       (is (false? (:rf.size/include-sensitive? opts))
           "off-box-tool MUST redact sensitive (the off-box default)")
       (is (false? (:rf.size/include-large? opts))
@@ -78,7 +78,7 @@
 
 (deftest local-raw-floor-is-the-trusted-local-opt-in
   (testing "local-raw — the --allow-sensitive-reads opt-in boundary — passes sensitive AND large through"
-    (let [opts (base-egress/profile-size-opts :rf.egress/local-raw)]
+    (let [opts (rf.mcp-base.egress/profile-size-opts :rf.egress/local-raw)]
       (is (true? (:rf.size/include-sensitive? opts))
           "local-raw passes declared-sensitive slots through (operator opt-in)")
       (is (true? (:rf.size/include-large? opts))
@@ -86,5 +86,5 @@
 
 (deftest unknown-profile-resolves-nil
   (testing "an unknown profile resolves nil (closed enum — the caller never silently gets a permissive walk)"
-    (is (nil? (base-egress/profile-size-opts :rf.egress/not-a-profile)))
-    (is (nil? (base-egress/profile-size-opts nil)))))
+    (is (nil? (rf.mcp-base.egress/profile-size-opts :rf.egress/not-a-profile)))
+    (is (nil? (rf.mcp-base.egress/profile-size-opts nil)))))

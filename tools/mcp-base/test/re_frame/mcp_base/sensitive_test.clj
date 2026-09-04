@@ -5,21 +5,21 @@
   — these tests pin the contract."
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.mcp-base.sensitive :as sensitive]))
+            [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]))
 
 ;; ---------------------------------------------------------------------------
 ;; sensitive-event? — the boolean predicate.
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-event?-true-stamp-detected
-  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? true})))
+  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? true})))
 
 (deftest sensitive-event?-false-stamp-passes
-  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false}))))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false}))))
 
 (deftest sensitive-event?-absent-stamp-passes
   ;; Per spec/009: "Consumers treat absent as `false`."
-  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
 
 (deftest sensitive-event?-non-true-truthy-drops-fail-closed
   ;; Fail-closed: the literal `true` drops AND any
@@ -32,22 +32,22 @@
   ;; The expected contract-drift WARN is quieted by the central quiet
   ;; runner's stderr buffer — no local `*err*` sink needed;
   ;; it stays buffered on green and replays on red.
-  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
-  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
-  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
-  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]})))
+  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
+  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
+  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
+  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]})))
 
 (deftest sensitive-event?-non-map-input-passes
-  (is (not (sensitive/sensitive-event? nil)))
-  (is (not (sensitive/sensitive-event? [:sensitive? true])))
-  (is (not (sensitive/sensitive-event? "anything"))))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? nil)))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? [:sensitive? true])))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? "anything"))))
 
 (deftest sensitive-event?-explicit-false-passes
   ;; Fail-closed posture does NOT change the explicit-false
   ;; / nil path — those remain non-sensitive. Only truthy non-boolean
   ;; values get the fail-closed drop.
-  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false})))
-  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? nil}))))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false})))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? nil}))))
 
 (deftest strip-sensitive-fail-closed-drops-malformed-truthy
   ;; A transport bug that coerces `:sensitive? true` into
@@ -61,7 +61,7 @@
               {:id 2 :sensitive? "true"} ; malformed-truthy → drop
               {:id 3}
               {:id 4 :sensitive? :yes}]  ; malformed-truthy → drop
-        [kept dropped] (sensitive/strip-sensitive evts false)]
+        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
     (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
     (is (= 2 dropped))))
 
@@ -74,7 +74,7 @@
               {:id 2 :sensitive? true}
               {:id 3}
               {:id 4 :sensitive? true}]
-        [kept dropped] (sensitive/strip-sensitive evts false)]
+        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
     (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
     (is (= 2 dropped))))
 
@@ -82,18 +82,18 @@
   (let [evts [{:id 1 :sensitive? true}
               {:id 2 :sensitive? false}
               {:id 3 :sensitive? true}]
-        [kept dropped] (sensitive/strip-sensitive evts true)]
+        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts true)]
     (is (= evts kept))
     (is (zero? dropped))))
 
 (deftest strip-sensitive-empty-batch-zero-overhead
-  (let [[kept dropped] (sensitive/strip-sensitive [] false)]
+  (let [[kept dropped] (rf.mcp-base.sensitive/strip-sensitive [] false)]
     (is (= [] kept))
     (is (zero? dropped))))
 
 (deftest strip-sensitive-no-sensitive-events-zero-drop
   (let [evts [{:id 1} {:id 2 :sensitive? false} {:id 3}]
-        [kept dropped] (sensitive/strip-sensitive evts false)]
+        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
     (is (= evts kept))
     (is (zero? dropped))))
 
@@ -101,7 +101,7 @@
   (let [evts [{:id 1 :sensitive? true}
               {:id 2 :sensitive? true}
               {:id 3 :sensitive? true}]
-        [kept dropped] (sensitive/strip-sensitive evts false)]
+        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
     (is (= [] kept))
     (is (= 3 dropped))))
 
@@ -114,14 +114,14 @@
     (let [sensitive-batch [{:operation :rf.event/dispatched
                             :tags      {:rf.trace/event-id :auth/sign-in}
                             :sensitive? true}]
-          [kept dropped] (sensitive/strip-sensitive sensitive-batch false)]
+          [kept dropped] (rf.mcp-base.sensitive/strip-sensitive sensitive-batch false)]
       (is (= [] kept) "sensitive event must NOT reach the agent surface by default")
       (is (= 1 dropped))))
   (testing "include-sensitive? true is the documented opt-in"
     (let [sensitive-batch [{:operation :rf.event/dispatched
                             :tags      {:rf.trace/event-id :auth/sign-in}
                             :sensitive? true}]
-          [kept dropped] (sensitive/strip-sensitive sensitive-batch true)]
+          [kept dropped] (rf.mcp-base.sensitive/strip-sensitive sensitive-batch true)]
       (is (= sensitive-batch kept))
       (is (zero? dropped)))))
 
@@ -139,7 +139,7 @@
                :machines {}}
               :stories
               {:app-db {} :traces [{:id 10 :sensitive? true}]}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= 3 dropped))
     (is (= [{:id 1 :sensitive? false} {:id 3}]
            (get-in out [:rf/default :traces])))
@@ -161,7 +161,7 @@
                :sub-cache {:user/profile {:sensitive? true :data "x"}}
                :machines  {:auth {:state :idle}}
                :traces    [{:id 1}]}}
-        [out _] (sensitive/scrub-snapshot snap false)]
+        [out _] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= {:password "still-here" :sensitive? true}
            (get-in out [:rf/default :app-db]))
         "non-trace slices ride through raw — the CALLER's egress projector must project them")
@@ -184,7 +184,7 @@
         snap      {:rf/default
                    {:app-db   secret-db
                     :traces   [{:id 1 :sensitive? true} {:id 2}]}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     ;; The trace filter DID run (its job): the sensitive trace event is gone.
     (is (= 1 dropped) "sensitive trace event was dropped")
     (is (= [{:id 2}] (get-in out [:rf/default :traces])))
@@ -197,12 +197,12 @@
 (deftest scrub-snapshot-include-opt-in-passes-everything
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? true}
                                     {:id 2 :sensitive? true}]}}
-        [out dropped] (sensitive/scrub-snapshot snap true)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap true)]
     (is (= snap out))
     (is (zero? dropped))))
 
 (deftest scrub-snapshot-non-map-input-passes-through
-  (let [[out dropped] (sensitive/scrub-snapshot nil false)]
+  (let [[out dropped] (rf.mcp-base.sensitive/scrub-snapshot nil false)]
     (is (nil? out))
     (is (zero? dropped))))
 
@@ -220,7 +220,7 @@
               :flag        :rf.size/large-elided ;; keyword — survives
               :nilslot     nil            ;; nil — survives
               :listslot    [1 2 3]}       ;; vector (non-map) — survives
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= 1 dropped) "the one map frame's sensitive trace is still dropped")
     (is (= [{:id 2}] (get-in out [:rf/default :traces]))
         "map frame scrubbed")
@@ -240,7 +240,7 @@
   (let [snap {:rf/default {:app-db    {:user/name "ada"}
                            :sub-cache {:user/profile {:data "x"}}
                            :machines  {:auth {:state :idle}}}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (zero? dropped) "no trace / epoch slices ⇒ nothing dropped")
     (is (= snap out)
         "a frame with neither :traces nor :epochs is returned unchanged")))
@@ -253,7 +253,7 @@
   (let [snap {:rf/default {:epochs [{:event-id :foo}
                                     {:event-id :auth/sign-in :sensitive? true}
                                     {:event-id :bar}]}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= 1 dropped))
     (is (= [{:event-id :foo} {:event-id :bar}]
            (get-in out [:rf/default :epochs]))
@@ -274,7 +274,7 @@
                  :epochs (filter (constantly true)
                                  [{:event-id :foo}
                                   {:event-id :auth/sign-in :sensitive? true}])}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= 2 dropped))
     (is (= [{:id 1 :sensitive? false} {:id 3}]
            (get-in out [:rf/default :traces])))
@@ -291,7 +291,7 @@
                               n    (- (count items) (count kept))]
                           [kept n]))
         snap          {:rf/default {:traces [{:id 1} {:id 2} {:id 3} {:id 2}]}}
-        [out dropped] (sensitive/scrub-snapshot snap false strip-by-id-2)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false strip-by-id-2)]
     (is (= 2 dropped))
     (is (= [{:id 1} {:id 3}] (get-in out [:rf/default :traces])))))
 
@@ -312,7 +312,7 @@
   ;; A nil `:traces` / `:epochs` slice is not a batch; it
   ;; must survive as nil, not be coerced to `[]`.
   (let [snap {:rf/default {:traces nil :epochs nil}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (zero? dropped))
     (is (contains? (get out :rf/default) :traces))
     (is (nil? (get-in out [:rf/default :traces]))
@@ -323,7 +323,7 @@
 (deftest scrub-snapshot-scalar-slice-passes-through-unchanged
   ;; A scalar slice is not a batch.
   (let [snap {:rf/default {:traces 7 :epochs :marker}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (zero? dropped))
     (is (= 7 (get-in out [:rf/default :traces])))
     (is (= :marker (get-in out [:rf/default :epochs])))))
@@ -332,7 +332,7 @@
   ;; A string is `seqable?` but NOT a trace-event batch.
   ;; An unconditional `(vec "oops")` would produce `[\o \o \p \s]`.
   (let [snap {:rf/default {:traces "oops"}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (zero? dropped))
     (is (= "oops" (get-in out [:rf/default :traces]))
         "string slice survives verbatim (no char-vector mangle)")))
@@ -341,7 +341,7 @@
   ;; A single (non-sensitive) event MAP is not a batch; it
   ;; passes through byte-identical rather than becoming a vec of entries.
   (let [snap {:rf/default {:traces {:id 1 :op :something}}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (zero? dropped))
     (is (= {:id 1 :op :something} (get-in out [:rf/default :traces]))
         "non-sensitive single map survives verbatim (no entry-vec mangle)")))
@@ -353,7 +353,7 @@
   ;; report zero drops, and carry the secret across the boundary.
   ;; Fail-closed: drop + count.
   (let [snap {:rf/default {:traces {:id 1 :sensitive? true :payload "SECRET"}}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= 1 dropped) "the malformed sensitive single-map is counted as a drop")
     (is (= [] (get-in out [:rf/default :traces]))
         "the sensitive single-map is dropped (empty batch), not shipped raw")
@@ -365,7 +365,7 @@
   ;; The probe shape: nil `:traces` (passes through) + a malformed
   ;; sensitive single-map `:epochs` (dropped).
   (let [snap {:rf/default {:traces nil :epochs {:id 1 :sensitive? true}}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= 1 dropped))
     (is (nil? (get-in out [:rf/default :traces])) ":traces nil survives")
     (is (= [] (get-in out [:rf/default :epochs]))
@@ -376,7 +376,7 @@
   ;; (Companion to the lazy-seq test which pins the seq case.)
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? true} {:id 2}]
                            :epochs [{:event-id :a :sensitive? true} {:event-id :b}]}}
-        [out dropped] (sensitive/scrub-snapshot snap false)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= 2 dropped))
     (is (= [{:id 2}] (get-in out [:rf/default :traces])))
     (is (= [{:event-id :b}] (get-in out [:rf/default :epochs])))))
@@ -393,13 +393,13 @@
 ;; ---------------------------------------------------------------------------
 
 ;; The pair-mcp UNION strip-fn (mirrors tools/re-frame2-pair-mcp
-;; sensitive/strip-sensitive): base trace-event stamp OR the epoch-level
+;; rf.mcp-base.sensitive/strip-sensitive): base trace-event stamp OR the epoch-level
 ;; `:rf.epoch/sensitive?` rollup, classified via the shared fail-closed
 ;; `sensitive-stamp?`.
 (defn- union-strip [items _include?]
-  (let [drop? (fn [x] (or (sensitive/sensitive-event? x)
+  (let [drop? (fn [x] (or (rf.mcp-base.sensitive/sensitive-event? x)
                           (and (map? x)
-                               (sensitive/sensitive-stamp? (:rf.epoch/sensitive? x)))))
+                               (rf.mcp-base.sensitive/sensitive-stamp? (:rf.epoch/sensitive? x)))))
         kept  (filterv (complement drop?) items)]
     [kept (- (count items) (count kept))]))
 
@@ -414,7 +414,7 @@
   (let [snap {:rf/default {:epochs {:rf.epoch/sensitive? true
                                     :event-id :auth/sign-in
                                     :secret "TOKEN_LEAK"}}}
-        [out dropped] (sensitive/scrub-snapshot snap false union-strip)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false union-strip)]
     (is (= 1 dropped)
         "single-map slice sensitive by the union signal is counted as a drop")
     (is (= [] (get-in out [:rf/default :epochs]))
@@ -423,7 +423,7 @@
         "the secret never survives in the scrubbed output (fail-closed)"))
   ;; Symmetric :traces shape.
   (let [snap {:rf/default {:traces {:rf.epoch/sensitive? true :secret "TRACE_LEAK"}}}
-        [out dropped] (sensitive/scrub-snapshot snap false union-strip)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false union-strip)]
     (is (= 1 dropped))
     (is (= [] (get-in out [:rf/default :traces])))
     (is (not (clojure.string/includes? (pr-str out) "TRACE_LEAK")))))
@@ -434,7 +434,7 @@
   ;; `:rf.epoch/sensitive?` rollup) still passes through byte-identically.
   ;; The single-map branch must not over-drop benign single maps.
   (let [snap {:rf/default {:epochs {:event-id :ui/click :data 42}}}
-        [out dropped] (sensitive/scrub-snapshot snap false union-strip)]
+        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false union-strip)]
     (is (zero? dropped))
     (is (= {:event-id :ui/click :data 42} (get-in out [:rf/default :epochs]))
         "a single map the caller's strip-fn keeps survives verbatim")))
@@ -450,34 +450,34 @@
   ;; operator surfaces can see the contract drift. `malformed-count` /
   ;; `reset-malformed-count!` are public so this regression pin
   ;; can read the gate's activity.
-  (sensitive/reset-malformed-count!)
-  (is (zero? (sensitive/malformed-count))
+  (rf.mcp-base.sensitive/reset-malformed-count!)
+  (is (zero? (rf.mcp-base.sensitive/malformed-count))
       "precondition: counter starts at zero after reset")
   ;; Expected WARNs quieted by the central quiet-runner stderr buffer
   ;; — no local `*err*` sink needed.
-  (sensitive/sensitive-event? {:sensitive? "true"})
-  (sensitive/sensitive-event? {:sensitive? :yes})
-  (sensitive/sensitive-event? {:sensitive? 1})
-  (is (= 3 (sensitive/malformed-count))
+  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? "true"})
+  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? :yes})
+  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? 1})
+  (is (= 3 (rf.mcp-base.sensitive/malformed-count))
       "every fail-closed drop bumps the counter once")
   ;; Well-formed stamps don't bump the counter.
-  (sensitive/sensitive-event? {:sensitive? true})
-  (sensitive/sensitive-event? {:sensitive? false})
-  (sensitive/sensitive-event? {:sensitive? nil})
-  (sensitive/sensitive-event? {})
-  (is (= 3 (sensitive/malformed-count))
+  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? true})
+  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? false})
+  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? nil})
+  (rf.mcp-base.sensitive/sensitive-event? {})
+  (is (= 3 (rf.mcp-base.sensitive/malformed-count))
       "true / false / nil / absent stamps do NOT bump the counter")
-  (sensitive/reset-malformed-count!))
+  (rf.mcp-base.sensitive/reset-malformed-count!))
 
 (deftest reset-malformed-count!-zeroes-the-counter
   ;; Expected WARN quieted by the central quiet-runner stderr buffer
   ;; — no local `*err*` sink needed.
-  (sensitive/sensitive-event? {:sensitive? "true"})
-  (is (pos? (sensitive/malformed-count))
+  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? "true"})
+  (is (pos? (rf.mcp-base.sensitive/malformed-count))
       "precondition: a fail-closed drop has bumped the counter")
-  (is (zero? (sensitive/reset-malformed-count!))
+  (is (zero? (rf.mcp-base.sensitive/reset-malformed-count!))
       "reset returns the new value (zero)")
-  (is (zero? (sensitive/malformed-count))
+  (is (zero? (rf.mcp-base.sensitive/malformed-count))
       "reset zeroes the counter for the next test"))
 
 ;; ---------------------------------------------------------------------------
@@ -495,7 +495,7 @@
   ;; The contract-drift warning must carry a value-free type tag + a
   ;; fixed `:rf/redacted` sentinel — NEVER the raw stamp, which could
   ;; be a secret-bearing string / map / vector.
-  (sensitive/reset-malformed-count!)
+  (rf.mcp-base.sensitive/reset-malformed-count!)
   (doseq [[stamp leak-needle] [["sk_live_SECRET_TOKEN_abc123" "sk_live_SECRET_TOKEN_abc123"]
                                [:secret/api-key-VALUE          "api-key-VALUE"]
                                [{:api_key "AKIA_LEAK"
@@ -504,7 +504,7 @@
                                [42424242                        "42424242"]]]
     (let [sw   (java.io.StringWriter.)
           _    (binding [*err* sw]
-                 (sensitive/sensitive-event? {:operation :rf.event/dispatched
+                 (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched
                                               :sensitive? stamp}))
           text (str sw)]
       (is (not (.contains text leak-needle))
@@ -513,7 +513,7 @@
           (str "malformed warning must emit the :rf/redacted sentinel for " (pr-str stamp)))
       (is (.contains text "non-boolean truthy")
           "warning must still surface the fail-closed contract-drift reason")))
-  (sensitive/reset-malformed-count!))
+  (rf.mcp-base.sensitive/reset-malformed-count!))
 
 (deftest strip-sensitive-malformed-count-is-exactly-one-per-event
   ;; `sensitive-event?` is side-effecting on the malformed path
@@ -524,33 +524,33 @@
   ;; malformed event.
   ;; Expected WARNs quieted by the central quiet-runner stderr buffer
   ;; — no local `*err*` sink needed.
-  (sensitive/reset-malformed-count!)
+  (rf.mcp-base.sensitive/reset-malformed-count!)
   (let [evts          [{:id 1 :sensitive? false}
                        {:id 2 :sensitive? "true"} ; malformed → drop, bump 1
                        {:id 3}
                        {:id 4 :sensitive? :yes}    ; malformed → drop, bump 1
                        {:id 5 :sensitive? true}]   ; well-formed → drop, NO bump
-        [kept dropped] (sensitive/strip-sensitive evts false)]
+        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
     (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
     (is (= 3 dropped) "all three sensitive events drop")
-    (is (= 2 (sensitive/malformed-count))
+    (is (= 2 (rf.mcp-base.sensitive/malformed-count))
         "exactly one bump per MALFORMED event — not ~2× per scan"))
-  (sensitive/reset-malformed-count!))
+  (rf.mcp-base.sensitive/reset-malformed-count!))
 
 (deftest strip-sensitive-malformed-warning-emitted-once-per-event
   ;; One malformed event ⇒ exactly one warning line on stderr through
   ;; `strip-sensitive` (single-pass classification) — no double-log.
-  (sensitive/reset-malformed-count!)
+  (rf.mcp-base.sensitive/reset-malformed-count!)
   (let [sw (java.io.StringWriter.)]
     (binding [*err* sw]
-      (sensitive/strip-sensitive [{:id 1 :sensitive? "sk_live_ONCE"}] false))
+      (rf.mcp-base.sensitive/strip-sensitive [{:id 1 :sensitive? "sk_live_ONCE"}] false))
     (let [lines (->> (clojure.string/split-lines (str sw))
                      (filter #(.contains ^String % "non-boolean truthy")))]
       (is (= 1 (count lines))
           "exactly one contract-drift warning per malformed event (no double-log)")
       (is (not (.contains (str sw) "sk_live_ONCE"))
           "and that one warning still does not leak the raw value")))
-  (sensitive/reset-malformed-count!))
+  (rf.mcp-base.sensitive/reset-malformed-count!))
 
 (deftest scrub-snapshot-malformed-count-is-exactly-one-per-event
   ;; `scrub-snapshot` delegates each slice to
@@ -559,22 +559,22 @@
   ;; `:traces` slice bumps the counter exactly once.
   ;; Expected WARNs quieted by the central quiet-runner stderr buffer
   ;; — no local `*err*` sink needed.
-  (sensitive/reset-malformed-count!)
+  (rf.mcp-base.sensitive/reset-malformed-count!)
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? "true"}  ; malformed → 1 bump
                                     {:id 2}]
                            :epochs [{:event-id :auth :sensitive? :yes}]}} ; malformed → 1 bump
-        [_ dropped] (sensitive/scrub-snapshot snap false)]
+        [_ dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
     (is (= 2 dropped))
-    (is (= 2 (sensitive/malformed-count))
+    (is (= 2 (rf.mcp-base.sensitive/malformed-count))
         "scrub-snapshot bumps the counter exactly once per malformed event"))
-  (sensitive/reset-malformed-count!))
+  (rf.mcp-base.sensitive/reset-malformed-count!))
 
 (deftest strip-sensitive-no-drop-preserves-identity
   ;; The single-pass classifier keeps the fast-path identity guarantee
   ;; — when nothing drops, return the ORIGINAL vector (no fresh
   ;; allocation).
   (let [evts [{:id 1} {:id 2 :sensitive? false} {:id 3}]
-        [kept dropped] (sensitive/strip-sensitive evts false)]
+        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
     (is (identical? evts kept)
         "no-drop path must return the identical input vector (zero allocation)")
     (is (zero? dropped))))
@@ -596,7 +596,7 @@
                :epochs [{:event-id :foo}
                         {:event-id :auth/sign-in :sensitive? true}]
                :machines {}}}
-        two-arity   (sensitive/scrub-snapshot snap false)
-        three-arity (sensitive/scrub-snapshot snap false sensitive/strip-sensitive)]
+        two-arity   (rf.mcp-base.sensitive/scrub-snapshot snap false)
+        three-arity (rf.mcp-base.sensitive/scrub-snapshot snap false rf.mcp-base.sensitive/strip-sensitive)]
     (is (= two-arity three-arity)
         "2-arity MUST delegate to strip-sensitive — spec/009 §Privacy default")))

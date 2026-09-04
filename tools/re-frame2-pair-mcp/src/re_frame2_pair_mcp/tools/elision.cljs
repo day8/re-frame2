@@ -85,8 +85,8 @@
   TOP as the EP-0015 §10 explicit override (a caller that turns elision off
   overlays `:rf.size/include-large? true`, keeping large content even
   under off-box-tool's floor)."
-  (:require [re-frame.mcp-base.vocab :as base-vocab]
-            [re-frame.mcp-base.egress :as base-egress]))
+  (:require [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
+            [re-frame.mcp-base.egress :as rf.mcp-base.egress]))
 
 ;; ---------------------------------------------------------------------------
 ;; Named `:rf.egress/*` profile adoption (EP-0015 §10).
@@ -188,8 +188,8 @@
   ([include-large?]
    (elision-opts-edn include-large? false))
   ([include-large? include-sensitive?]
-   (let [profile (base-egress/mcp-tool-profile include-sensitive?)
-         floor   (base-egress/profile-size-opts profile)]
+   (let [profile (rf.mcp-base.egress/mcp-tool-profile include-sensitive?)
+         floor   (rf.mcp-base.egress/profile-size-opts profile)]
      ;; The `:elision` arg is the EP-0015 §10 explicit override: a caller
      ;; turning elision OFF overlays `:rf.size/include-large? true` on the
      ;; profile floor (the override wins). Sensitive inclusion stays the
@@ -197,7 +197,7 @@
      ;; decided it.
      (pr-str (cond-> floor
                include-large?
-               (assoc base-vocab/include-large-opt true))))))
+               (assoc rf.mcp-base.vocab/include-large-opt true))))))
 
 (defn elide-sub-value-src
   "CLJS source for a fn that walks ONE sub-cache entry's `:value` slot

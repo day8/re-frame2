@@ -58,8 +58,8 @@
   pre-mount seed in `mount.cljs`). The CLJC shape keeps them JVM-
   runnable so the JVM test corpus can drive every axis."
   (:require [clojure.string :as str]
-            [re-frame.trace :as trace]
-            [re-frame.trace.projection :as projection]))
+            [re-frame.trace :as rf.trace]
+            [re-frame.trace.projection :as rf.trace.projection]))
 
 ;; ---- predicates ---------------------------------------------------------
 
@@ -77,7 +77,7 @@
   Pure-data + JVM-runnable so the predicate is testable without a CLJS
   runtime."
   [event]
-  (= :rf/xray (trace/trace-event-frame event)))
+  (= :rf/xray (rf.trace/trace-event-frame event)))
 
 (defn xray-internal-event-id?
   "True when `event-id` is a keyword in the `rf.xray` namespace OR any
@@ -131,7 +131,7 @@
 
 (defn filtered-event-bundles
   "Group `buffer` (a flat trace-event vector) into event bundles via
-  `projection/group-by-event`, then strip every Xray-internal event
+  `rf.trace.projection/group-by-event`, then strip every Xray-internal event
   bundle (`xray-internal-event-bundle?`). The ONE home for the 'group +
   drop self-noise' pairing.
 
@@ -149,4 +149,4 @@
   Pure-data + JVM-runnable; matches the other self-noise predicates'
   shape so the JVM test corpus can drive it directly."
   [buffer]
-  (into [] (remove xray-internal-event-bundle?) (projection/group-by-event buffer)))
+  (into [] (remove xray-internal-event-bundle?) (rf.trace.projection/group-by-event buffer)))

@@ -37,11 +37,11 @@
             [day8.re-frame2-xray.panels.hicasso-reads :as reads]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (def ^:private app-frame ::causal-app)
 
@@ -61,8 +61,8 @@
 
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
-    {:adapter    uix-adapter/adapter
-     :post-reset (fn [] (collector/reset-runtime!))}))
+    {:adapter    rf.adapter.uix/adapter
+     :post-reset (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -106,8 +106,8 @@
 (defn- mount!
   "A real boundary, rendered and committed through the real commit seam."
   [body-fn]
-  (collector/render-body app-frame body-fn {})
-  (collector/commit-boundary! (collector/last-reads) (fn [])))
+  (rf.hicasso.impl.collector/render-body app-frame body-fn {})
+  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
 
 (defn- interact!
   "One real user interaction: a dispatch through the real router, which
@@ -149,7 +149,7 @@
 
 (deftest the-chain-is-seven-links-and-only-its-prefix-is-evidenced
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
         _       (interact!)
         s       (slice!)]
     (is (= 7 (:total s)))
@@ -189,7 +189,7 @@
   ;; with the join left implicit is exactly the adjacency-as-cause the
   ;; producer refuses one layer down.
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
         _       (interact!)
         s       (slice!)]
     (is (true? (:evidenced? (link s :subs-recomputed))))
@@ -214,7 +214,7 @@
 
 (deftest breaking-the-ring-stops-the-event-link-being-evidenced
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
         _       (interact!)
         before  (slice!)]
     (is (true? (:evidenced? (link before :event)))
@@ -223,7 +223,7 @@
 
     ;; SABOTAGE: release the ring. The dispatch happened; the seam that
     ;; carried it no longer holds it.
-    (trace-tooling/clear-trace-buffer! app-frame)
+    (rf.trace.tooling/clear-trace-buffer! app-frame)
     (let [after (slice!)
           l     (link after :event)]
       (is (false? (:evidenced? l)) "the link must stop being evidenced")
@@ -257,7 +257,7 @@
 
 (deftest an-untagged-recompute-is-UNKNOWN-and-never-an-empty-roster
   (setup!)
-  (let [release   (mount! (fn [_] (h/sub [:hcaus/left]) nil))
+  (let [release   (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
         _         (interact!)
         envelopes (evidence!)
         windows   (windows! envelopes)
@@ -290,7 +290,7 @@
 
 (deftest a-boundary-with-no-epoch-cannot-have-values-that-changed
   (setup!)
-  (let [reading (mount! (fn [_] (h/sub [:hcaus/left]) nil))
+  (let [reading (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
         silent  (mount! (fn [_] nil))
         _       (interact!)
         e       (evidence!)
@@ -333,7 +333,7 @@
   ;; assembled from it — and it would be the FORWARD edge, printed under
   ;; the reverse edge's name.
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
         _       (interact!)
         e       (evidence!)
         w       (windows! e)
@@ -365,7 +365,7 @@
 
 (deftest every-unevidenced-link-renders-a-distinguishable-loss-on-the-page
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
         _       (interact!)
         tree    (show! :causal)
         ids     (testids tree)]
@@ -387,7 +387,7 @@
       (is (string/includes? (text-of tree) "CANNOT be joined")))
 
     (testing "and a capped ring renders the cap chip instead"
-      (trace-tooling/clear-trace-buffer! app-frame)
+      (rf.trace.tooling/clear-trace-buffer! app-frame)
       (let [ids' (testids (show! :causal))]
         (is (contains? ids' "rf-xray-hicasso-causal-link-event-loss-cap"))
         (is (not (contains? ids' "rf-xray-hicasso-causal-link-event-loss-host-opaque"))
@@ -403,7 +403,7 @@
   ;; real ring — and the advice is still not `extract this to native`,
   ;; because nothing on this host measured lowering, React or layout.
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:hcaus/left]) (h/sub [:hcaus/right]) nil))
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) (rf.hicasso/sub [:hcaus/right]) nil))
         _       (interact!)
         _       (interact!)
         e       (evidence!)
@@ -437,7 +437,7 @@
   ;; drawn from a second turn could describe a boundary the ranking no
   ;; longer holds.
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
         _       (interact!)
         data    (rf/with-frame :rf/xray
                   (rf/clear-sub-cache! :rf/xray)

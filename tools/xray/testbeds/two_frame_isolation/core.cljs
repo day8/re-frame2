@@ -104,7 +104,7 @@
             ;; frame) and we do NOT reuse its `:standard-epochs/run-step`
             ;; event (that targets `:rf/default`).
             [standard-epochs.core :as se]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; The shared step-driver runner. We register a DISTINCT
             ;; run-step event per frame (each targeting that frame's
             ;; host-frame) so each mount's Step button drives ONLY its own
@@ -240,7 +240,7 @@
 ;; source coordinate against the live JVM source paths at request time, so a
 ;; repository testbed needs no root of its own.
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; Register the two frames. There is no routing in the standard-epochs
   ;; deck, so neither frame owns the URL — both are plain isolated
   ;; contexts. Each frame's `:initial-events` seed runs the standard-epochs

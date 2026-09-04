@@ -26,8 +26,8 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.diff.engine :as engine]
             [day8.re-frame2-xray.theme.tokens
@@ -37,7 +37,7 @@
 ;; test can fire `dispatch-sync` against the registered event handlers
 ;; end-to-end without leaking state between cases.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers -------------------------------------------------------------
 

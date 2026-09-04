@@ -26,15 +26,15 @@
   on."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.mcp-base.args :as args]
-            [re-frame.mcp-base.cap :as cap]
-            [re-frame.mcp-base.cursor :as cursor]
-            [re-frame.mcp-base.diff-encode :as de]
-            [re-frame.mcp-base.envelope :as envelope]
-            [re-frame.mcp-base.overflow :as overflow]
-            [re-frame.mcp-base.section-grouping :as sg]
-            [re-frame.mcp-base.sensitive :as sensitive]
-            [re-frame.mcp-base.vocab :as vocab]))
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.mcp-base.cap :as rf.mcp-base.cap]
+            [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
+            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
+            [re-frame.mcp-base.envelope :as rf.mcp-base.envelope]
+            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
+            [re-frame.mcp-base.section-grouping :as rf.mcp-base.section-grouping]
+            [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The .cljc library loads and the diff algorithm round-trips in CLJS.
@@ -46,17 +46,17 @@
   (testing "collect-patches / apply-patches round-trip"
     (let [a {:user {:name "ada" :age 30} :session :idle}
           b {:user {:name "ada" :age 31 :role :admin}}
-          p (de/collect-patches a b [])]
-      (is (= b (de/apply-patches a p)))))
+          p (rf.mcp-base.diff-encode/collect-patches a b [])]
+      (is (= b (rf.mcp-base.diff-encode/apply-patches a p)))))
   (testing "diff-encode-db-after emits the :rf.mcp/diff-from marker"
     (let [epoch   {:db-before {:a 1 :b 2} :db-after {:a 1 :b 3}}
-          encoded (de/diff-encode-db-after epoch)]
-      (is (= :db-before (get-in encoded [:db-after vocab/diff-from-key])))
-      (is (= epoch (de/decode-db-after encoded))
+          encoded (rf.mcp-base.diff-encode/diff-encode-db-after epoch)]
+      (is (= :db-before (get-in encoded [:db-after rf.mcp-base.vocab/diff-from-key])))
+      (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded))
           "encode then decode reconstructs the original epoch")))
   (testing "diff-encode-epochs :full mode passes through"
     (let [epochs [{:db-before {:a 1} :db-after {:a 2}}]]
-      (is (= epochs (de/diff-encode-epochs epochs :full))))))
+      (is (= epochs (rf.mcp-base.diff-encode/diff-encode-epochs epochs :full))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. The goog-define toggle rides its default `true` in dev/test builds.
@@ -67,7 +67,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest validate-patches?-goog-define-defaults-true
-  (is (true? de/validate-patches?)
+  (is (true? rf.mcp-base.diff-encode/validate-patches?)
       "dev/test CLJS build leaves the validation toggle at its goog-define default"))
 
 ;; ---------------------------------------------------------------------------
@@ -84,11 +84,11 @@
   ;; validate-patches! gate is a no-op; the malformed tuple falls
   ;; through `apply-patches`'s own `cond` (:else acc) without a throw.
   (testing "unknown op does not throw (soft-pass) and is dropped by the cond"
-    (is (= {} (de/apply-patches {} [[[:a] :replace 1]]))
+    (is (= {} (rf.mcp-base.diff-encode/apply-patches {} [[[:a] :replace 1]]))
         "no Malli ⇒ no validation throw; :replace falls through to :else acc"))
   (testing "well-formed patches still apply correctly"
-    (is (= {:a 1 :b 2} (de/apply-patches {:a 1} [[[:b] :assoc 2]])))
-    (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
+    (is (= {:a 1 :b 2} (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:b] :assoc 2]])))
+    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
 
 (deftest decode-db-after-soft-passes-malformed-sections-when-malli-absent
   ;; JVM `decode-db-after-rejects-malformed-sections` asserts this
@@ -102,7 +102,7 @@
                            :sections [{:section-path :not-a-vector ;; malformed
                                        :section-kind :renamed       ;; not in enum
                                        :patches      [[[:a] :assoc 2]]}]}}
-        decoded (de/decode-db-after epoch)]
+        decoded (rf.mcp-base.diff-encode/decode-db-after epoch)]
     (is (= {:a 2} (:db-after decoded))
         "no Malli ⇒ no section-validation throw; patches replay regardless")))
 
@@ -114,7 +114,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def map-io
-  (reify cap/ResultIO
+  (reify rf.mcp-base.cap/ResultIO
     (wire-payload-strings [_ result] (map :text (:content result)))
     (build-overflow-result [_ marker _original]
       {:content           [{:type "text" :text (pr-str marker)}]
@@ -122,22 +122,22 @@
 
 (deftest cap-two-stage-gate-runs-under-cljs
   (testing "primary token gate"
-    (is (true?  (cap/over-cap? 5001 6000 5000)))
-    (is (false? (cap/over-cap? 5000 6000 5000))))
+    (is (true?  (rf.mcp-base.cap/over-cap? 5001 6000 5000)))
+    (is (false? (rf.mcp-base.cap/over-cap? 5000 6000 5000))))
   (testing "secondary char gate trips in isolation"
-    (is (true?  (cap/over-cap? 50 801 100)) "chars > cap*8 trips even with tokens under cap")
-    (is (= 801  (cap/reported-count 50 801 100)) "char-gated ⇒ report chars")
-    (is (= 50   (cap/reported-count 50 700 100)) "token-gated ⇒ report tokens"))
+    (is (true?  (rf.mcp-base.cap/over-cap? 50 801 100)) "chars > cap*8 trips even with tokens under cap")
+    (is (= 801  (rf.mcp-base.cap/reported-count 50 801 100)) "char-gated ⇒ report chars")
+    (is (= 50   (rf.mcp-base.cap/reported-count 50 700 100)) "token-gated ⇒ report tokens"))
   (testing "apply-cap emits the overflow marker on a real over-budget payload"
     (let [r   {:content [{:type "text" :text (apply str (repeat 4000 "x"))}]}
-          out (cap/apply-cap map-io r {:tool "snapshot" :cap 500 :hint "narrow scope"})
-          body (get-in out [:structuredContent vocab/overflow-key])]
+          out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500 :hint "narrow scope"})
+          body (get-in out [:structuredContent rf.mcp-base.vocab/overflow-key])]
       (is (= :reached (:limit body)))
       (is (= 500 (:cap-tokens body)))
       (is (> (:token-count body) 500))))
   (testing "under-budget payload passes through untouched"
     (let [r   {:content [{:type "text" :text (pr-str {:small :payload})}]}
-          out (cap/apply-cap map-io r {:tool "snapshot" :cap overflow/default-max-tokens})]
+          out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap rf.mcp-base.overflow/default-max-tokens})]
       (is (identical? r out)))))
 
 ;; ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@
   of the `:structuredContent` JS object — the exact bytes the npm SDK
   serialises. This is the shape pair-mcp's `result-io` must adopt.
   Mirrors story-mcp's `structured-io` on the JS side."
-  (reify cap/ResultIO
+  (reify rf.mcp-base.cap/ResultIO
     (wire-payload-strings [_ result]
       (let [sc      (.-structuredContent ^js result)
             sc-text (when (some? sc) (js/JSON.stringify sc))]
@@ -185,7 +185,7 @@
   "Pair-shaped reify that IGNORES `:structuredContent`. Used only to
   demonstrate the undercount the contract forbids — the same payload
   passes the cap here while `structured-pair-io` trips it."
-  (reify cap/ResultIO
+  (reify rf.mcp-base.cap/ResultIO
     (wire-payload-strings [_ result]
       (js-text-slots (.-content ^js result)))
     (build-overflow-result [_ marker _original]
@@ -200,8 +200,8 @@
         result #js {:content          #js [#js {:type "text" :text "ok"}]
                     :structuredContent huge}
         cap    1000
-        out-honest (cap/apply-cap structured-pair-io result {:tool "snapshot" :cap cap})
-        out-under  (cap/apply-cap content-only-pair-io result {:tool "snapshot" :cap cap})
+        out-honest (rf.mcp-base.cap/apply-cap structured-pair-io result {:tool "snapshot" :cap cap})
+        out-under  (rf.mcp-base.cap/apply-cap content-only-pair-io result {:tool "snapshot" :cap cap})
         ;; the overflow REPLACEMENT carries the marker's pr-str in its
         ;; `:content[0].text` slot — `:rf.mcp/overflow` is the tell.
         honest-text (.-text ^js (aget (.-content ^js out-honest) 0))]
@@ -225,16 +225,16 @@
 
 (deftest parse-int-strict-cross-host-cljs
   (testing "trailing garbage falls back to default on CLJS too"
-    (is (= 50 (args/parse-positive-int "12abc" 50)) "was 12 on CLJS before the fix")
-    (is (= 50 (args/parse-positive-int "5xyz" 50)))
-    (is (= 50 (args/parse-positive-int "1.5" 50)))
-    (is (= 50 (args/parse-positive-int "1e3" 50))))
+    (is (= 50 (rf.mcp-base.args/parse-positive-int "12abc" 50)) "was 12 on CLJS before the fix")
+    (is (= 50 (rf.mcp-base.args/parse-positive-int "5xyz" 50)))
+    (is (= 50 (rf.mcp-base.args/parse-positive-int "1.5" 50)))
+    (is (= 50 (rf.mcp-base.args/parse-positive-int "1e3" 50))))
   (testing "clean and signed strings still parse"
-    (is (= 12 (args/parse-positive-int "12" 50)))
-    (is (= 12 (args/parse-positive-int "+12" 50)))
-    (is (= 1 (args/parse-positive-int "-5" 50)) "clamps to floor"))
+    (is (= 12 (rf.mcp-base.args/parse-positive-int "12" 50)))
+    (is (= 12 (rf.mcp-base.args/parse-positive-int "+12" 50)))
+    (is (= 1 (rf.mcp-base.args/parse-positive-int "-5" 50)) "clamps to floor"))
   (testing "out-of-safe-range digit string rejected (mirrors JVM long overflow)"
-    (is (= 50 (args/parse-positive-int "99999999999999999999999999" 50)))))
+    (is (= 50 (rf.mcp-base.args/parse-positive-int "99999999999999999999999999" 50)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5b. Cross-runtime finite/range guard on numeric arg coercion.
@@ -248,32 +248,32 @@
 
 (deftest parse-int-finite-range-guard-cljs
   (testing "out-of-domain numerics default (mirrors JVM)"
-    (is (= 50 (args/parse-positive-int js/Infinity 50)) "Infinity defaults")
-    (is (= 50 (args/parse-positive-int (- js/Infinity) 50)) "-Infinity defaults")
-    (is (= 50 (args/parse-positive-int js/NaN 50)) "NaN defaults (not a real floor)")
-    (is (= 50 (args/parse-positive-int 1e20 50)) "1e20 defaults (past safe-integer window)"))
+    (is (= 50 (rf.mcp-base.args/parse-positive-int js/Infinity 50)) "Infinity defaults")
+    (is (= 50 (rf.mcp-base.args/parse-positive-int (- js/Infinity) 50)) "-Infinity defaults")
+    (is (= 50 (rf.mcp-base.args/parse-positive-int js/NaN 50)) "NaN defaults (not a real floor)")
+    (is (= 50 (rf.mcp-base.args/parse-positive-int 1e20 50)) "1e20 defaults (past safe-integer window)"))
   (testing "in-domain numerics still parse"
-    (is (= 5 (args/parse-positive-int 5 50)))
-    (is (= 2 (args/parse-positive-int 2.9 50)) "in-range fractional floors")
-    (is (= 1 (args/parse-positive-int 0.5 50)) "sub-1 positive floors then clamps to floor 1")
-    (is (= 9007199254740991 (args/parse-positive-int 9007199254740991 50))
+    (is (= 5 (rf.mcp-base.args/parse-positive-int 5 50)))
+    (is (= 2 (rf.mcp-base.args/parse-positive-int 2.9 50)) "in-range fractional floors")
+    (is (= 1 (rf.mcp-base.args/parse-positive-int 0.5 50)) "sub-1 positive floors then clamps to floor 1")
+    (is (= 9007199254740991 (rf.mcp-base.args/parse-positive-int 9007199254740991 50))
         "safe-integer ceiling is in-domain"))
   (testing "string threshold aligns to the safe-integer window on both hosts"
-    (is (= 50 (args/parse-positive-int "9007199254740992" 50))
+    (is (= 50 (rf.mcp-base.args/parse-positive-int "9007199254740992" 50))
         "one past the ceiling defaults on CLJS AND JVM (JVM no longer parses it)")
-    (is (= 9007199254740991 (args/parse-positive-int "9007199254740991" 50))
+    (is (= 9007199254740991 (rf.mcp-base.args/parse-positive-int "9007199254740991" 50))
         "exactly the ceiling still parses on both hosts")))
 
 (deftest max-tokens-finite-range-guard-cljs
   ;; Non-finite and out-of-range `:max-tokens` rejects with an
   ;; {:rf.mcp/invalid-arg} marker on CLJS too, never a crash / real 0-cap.
   (doseq [raw [js/Infinity js/NaN 1e20 (- 1e20)]]
-    (let [out (cap/max-tokens raw)]
-      (is (cap/invalid-arg? out) "non-finite / out-of-range max-tokens rejects")
+    (let [out (rf.mcp-base.cap/max-tokens raw)]
+      (is (rf.mcp-base.cap/invalid-arg? out) "non-finite / out-of-range max-tokens rejects")
       (is (not (number? out)) "rejection is a marker, not a real cap")
       (is (some? out) "not nil — distinct from the disable sentinel")))
-  (is (cap/invalid-arg? (cap/max-tokens (- js/Infinity))) "-Infinity rejects (negative arm)")
-  (is (= 5000 (cap/max-tokens 5000)) "in-range cap passes through"))
+  (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens (- js/Infinity))) "-Infinity rejects (negative arm)")
+  (is (= 5000 (rf.mcp-base.cap/max-tokens 5000)) "in-range cap passes through"))
 
 ;; ---------------------------------------------------------------------------
 ;; 5c. Cursor rejects trailing forms on CLJS too. A cursor is
@@ -286,16 +286,16 @@
   (let [pair? (fn [m] (and (map? m) (some? (:after-id m))))]
     (testing "valid map + trailing form ⇒ ::malformed"
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor
-               (cursor/b64-encode "{:v 1 :after-id 1} #inst \"2024-01-01T00:00:00.000-00:00\"")
+             (rf.mcp-base.cursor/decode-cursor
+               (rf.mcp-base.cursor/b64-encode "{:v 1 :after-id 1} #inst \"2024-01-01T00:00:00.000-00:00\"")
                pair?)))
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor
-               (cursor/b64-encode "{:v 1 :after-id 1} {:junk 1}")
+             (rf.mcp-base.cursor/decode-cursor
+               (rf.mcp-base.cursor/b64-encode "{:v 1 :after-id 1} {:junk 1}")
                pair?)))
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor
-               (cursor/b64-encode "{:v 1 :after-id 1} 42")
+             (rf.mcp-base.cursor/decode-cursor
+               (rf.mcp-base.cursor/b64-encode "{:v 1 :after-id 1} 42")
                pair?))))
     ;; `]`-injection runs identically on cljs.reader. The
     ;; injected `]` closes the wrap-in-`[…]` early; the EOF-sentinel
@@ -303,20 +303,20 @@
     ;; with the appended sentinel.
     (testing "valid map + injected ] + trailing junk ⇒ ::malformed"
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor
-               (cursor/b64-encode "{:v 1 :after-id 1}] {:junk 1}")
+             (rf.mcp-base.cursor/decode-cursor
+               (rf.mcp-base.cursor/b64-encode "{:v 1 :after-id 1}] {:junk 1}")
                pair?)))
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor
-               (cursor/b64-encode "{:v 1 :after-id 1}] 42")
+             (rf.mcp-base.cursor/decode-cursor
+               (rf.mcp-base.cursor/b64-encode "{:v 1 :after-id 1}] 42")
                pair?)))
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor
-               (cursor/b64-encode "{:v 1 :after-id 1}]")
+             (rf.mcp-base.cursor/decode-cursor
+               (rf.mcp-base.cursor/b64-encode "{:v 1 :after-id 1}]")
                pair?))))
     (testing "a single clean cursor still round-trips"
       (is (= {:v 1 :after-id "ev-9"}
-             (cursor/decode-cursor (cursor/encode-cursor {:v 1 :after-id "ev-9"}) pair?))))))
+             (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor {:v 1 :after-id "ev-9"}) pair?))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5d. apply-patches nested :dissoc no-op + section-kind :db-before
@@ -325,12 +325,12 @@
 
 (deftest apply-patches-nested-dissoc-noop-cljs
   (testing "missing / scalar parent ⇒ no-op (no nil branches, no host throw)"
-    (is (= {} (de/apply-patches {} [[[:missing :leaf] :dissoc]])))
-    (is (= {:a {}} (de/apply-patches {:a {}} [[[:a :b :c] :dissoc]])))
-    (is (= {:a 1} (de/apply-patches {:a 1} [[[:a :b] :dissoc]]))))
+    (is (= {} (rf.mcp-base.diff-encode/apply-patches {} [[[:missing :leaf] :dissoc]])))
+    (is (= {:a {}} (rf.mcp-base.diff-encode/apply-patches {:a {}} [[[:a :b :c] :dissoc]])))
+    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :dissoc]]))))
   (testing "valid nested + root dissoc unchanged"
-    (is (= {:a {:c 2}} (de/apply-patches {:a {:b 1 :c 2}} [[[:a :b] :dissoc]])))
-    (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
+    (is (= {:a {:c 2}} (rf.mcp-base.diff-encode/apply-patches {:a {:b 1 :c 2}} [[[:a :b] :dissoc]])))
+    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
 
 (deftest apply-patches-nested-assoc-scalar-parent-structured-error-cljs
   ;; The `:assoc` peer of the dissoc guard, on CLJS.
@@ -343,7 +343,7 @@
   ;; failure on CLJS too, never the raw host (`#object[TypeError]`)
   ;; exception that `assoc-in` into a scalar would otherwise produce.
   (testing "scalar intermediate parent ⇒ structured :rf.error/bad-diff-replay (Malli absent)"
-    (let [e (try (de/apply-patches {:a 1} [[[:a :b] :assoc 2]]) nil
+    (let [e (try (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :assoc 2]]) nil
                  (catch :default ex ex))]
       (is (some? e) "must throw — the replay guard is not Malli-gated")
       (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))
@@ -351,18 +351,18 @@
       (is (= [:a :b] (:patch-path (ex-data e))))
       (is (= [:a] (:at (ex-data e))))))
   (testing "vector parent reached by a non-integer key ⇒ structured error"
-    (let [e (try (de/apply-patches {:a [1 2]} [[[:a :b] :assoc 9]]) nil
+    (let [e (try (rf.mcp-base.diff-encode/apply-patches {:a [1 2]} [[[:a :b] :assoc 9]]) nil
                  (catch :default ex ex))]
       (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))))
   (testing "MISSING / nil intermediate parent still auto-vivifies (create-if-absent grammar)"
-    (is (= {:a {:b 2}} (de/apply-patches {} [[[:a :b] :assoc 2]])))
-    (is (= {:a {:b 2}} (de/apply-patches {:a nil} [[[:a :b] :assoc 2]]))))
+    (is (= {:a {:b 2}} (rf.mcp-base.diff-encode/apply-patches {} [[[:a :b] :assoc 2]])))
+    (is (= {:a {:b 2}} (rf.mcp-base.diff-encode/apply-patches {:a nil} [[[:a :b] :assoc 2]]))))
   (testing "decode-db-after surfaces the same structured error via its own boundary"
     (let [epoch {:db-before {:a 1}
                  :db-after  {:rf.mcp/diff-from :db-before
                              :sections [{:section-path [:a] :section-kind :modified
                                          :patches [[[:a :b] :assoc 2]]}]}}
-          e     (try (de/decode-db-after epoch) nil
+          e     (try (rf.mcp-base.diff-encode/decode-db-after epoch) nil
                      (catch :default ex ex))]
       (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))
       (is (= 'mcp-base/decode-db-after (:where (ex-data e)))))))
@@ -370,12 +370,12 @@
 (deftest section-kind-db-before-classification-cljs
   (let [patches [[[:user :name]  :assoc "ada"]
                  [[:user :email] :assoc "x"]]]
-    (is (= :modified (:section-kind (first (sg/group-patches-into-sections patches))))
+    (is (= :modified (:section-kind (first (rf.mcp-base.section-grouping/group-patches-into-sections patches))))
         "no :db-before ⇒ conservative :modified")
-    (is (= :modified (:section-kind (first (sg/group-patches-into-sections
+    (is (= :modified (:section-kind (first (rf.mcp-base.section-grouping/group-patches-into-sections
                                              patches {:db-before {:user {:name "bob"}}}))))
         "existing container ⇒ :modified, not a false :added")
-    (is (= :added (:section-kind (first (sg/group-patches-into-sections
+    (is (= :added (:section-kind (first (rf.mcp-base.section-grouping/group-patches-into-sections
                                           patches {:db-before {}}))))
         "absent container + direct-child assocs ⇒ :added")))
 
@@ -389,21 +389,21 @@
 (deftest cursor-codec-round-trips-under-cljs
   (testing "encode then decode reproduces the payload"
     (let [payload {:v 1 :after-id "ev-42" :ms 1000}
-          token   (cursor/encode-cursor payload)
-          back    (cursor/decode-cursor token (fn [m] (and (map? m) (string? (:after-id m)))))]
+          token   (rf.mcp-base.cursor/encode-cursor payload)
+          back    (rf.mcp-base.cursor/decode-cursor token (fn [m] (and (map? m) (string? (:after-id m)))))]
       (is (string? token))
       (is (= payload back))))
   (testing "absent cursor decodes to nil"
-    (is (nil? (cursor/decode-cursor nil any?)))
-    (is (nil? (cursor/decode-cursor "" any?))))
+    (is (nil? (rf.mcp-base.cursor/decode-cursor nil any?)))
+    (is (nil? (rf.mcp-base.cursor/decode-cursor "" any?))))
   (testing "garbage / oversize / failing-payload predicate => ::malformed"
     (is (= :re-frame.mcp-base.cursor/malformed
-           (cursor/decode-cursor "!!!not-base64-edn!!!" any?)))
+           (rf.mcp-base.cursor/decode-cursor "!!!not-base64-edn!!!" any?)))
     (is (= :re-frame.mcp-base.cursor/malformed
-           (cursor/decode-cursor (apply str (repeat 2000 "a")) any?)))
-    (let [token (cursor/encode-cursor {:v 1 :after-id "x"})]
+           (rf.mcp-base.cursor/decode-cursor (apply str (repeat 2000 "a")) any?)))
+    (let [token (rf.mcp-base.cursor/encode-cursor {:v 1 :after-id "x"})]
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor token (fn [_] false))))))
+             (rf.mcp-base.cursor/decode-cursor token (fn [_] false))))))
   (testing "the size cap is CHARACTERS on CLJS too - the same ruler the JVM applies"
     ;; rf2-2rtt6.132 - this const was named `max-cursor-bytes` while its
     ;; guard was, and remains, `(> (count s) ...)`: UTF-16 CODE UNITS on
@@ -427,37 +427,37 @@
       ;; character cap lets them through. Both are `::malformed` anyway -
       ;; refused by `decode-canonical-b64` for a reason independent of the
       ;; cap. The unit is therefore unobservable and the relabel complete.
-      (is (<= (count dashes) cursor/max-cursor-chars))
-      (is (> (utf8-len dashes) cursor/max-cursor-chars))
-      (is (= :re-frame.mcp-base.cursor/malformed (cursor/decode-cursor dashes any?)))
-      (is (<= (count astral) cursor/max-cursor-chars))
-      (is (> (utf8-len astral) cursor/max-cursor-chars))
-      (is (= :re-frame.mcp-base.cursor/malformed (cursor/decode-cursor astral any?)))
+      (is (<= (count dashes) rf.mcp-base.cursor/max-cursor-chars))
+      (is (> (utf8-len dashes) rf.mcp-base.cursor/max-cursor-chars))
+      (is (= :re-frame.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor dashes any?)))
+      (is (<= (count astral) rf.mcp-base.cursor/max-cursor-chars))
+      (is (> (utf8-len astral) rf.mcp-base.cursor/max-cursor-chars))
+      (is (= :re-frame.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor astral any?)))
       ;; And the boundary itself, in characters, on this host.
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor (apply str (repeat (inc cursor/max-cursor-chars) "a")) any?))
+             (rf.mcp-base.cursor/decode-cursor (apply str (repeat (inc rf.mcp-base.cursor/max-cursor-chars) "a")) any?))
           "one CHARACTER over the cap => ::malformed, same 1,024 as the JVM")))
   (testing "tagged literals in the cursor are rejected"
-    (let [evil (cursor/b64-encode "#js {:a 1}")]
+    (let [evil (rf.mcp-base.cursor/b64-encode "#js {:a 1}")]
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor evil any?)))))
+             (rf.mcp-base.cursor/decode-cursor evil any?)))))
   (testing "built-in #inst / #uuid tags in a valid map are rejected on CLJS too"
     ;; `cljs.reader` resolves built-in `inst` / `uuid` from its tag-table
     ;; and BYPASSES `:default` — without the `:readers` override these
     ;; decode to a host `js/Date` / `cljs.core/UUID` and smuggle a host
     ;; object through the boundary inside an otherwise-valid map.
     (let [permissive? (fn [m] (and (map? m) (some? (:after-id m))))
-          pair-inst   (cursor/b64-encode
+          pair-inst   (rf.mcp-base.cursor/b64-encode
                         "{:v 1 :after-id 1 :junk #inst \"2024-01-01T00:00:00.000-00:00\"}")
-          pair-uuid   (cursor/b64-encode
+          pair-uuid   (rf.mcp-base.cursor/b64-encode
                         "{:v 1 :after-id 1 :junk #uuid \"00000000-0000-0000-0000-000000000000\"}")]
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor pair-inst permissive?)))
+             (rf.mcp-base.cursor/decode-cursor pair-inst permissive?)))
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor pair-uuid permissive?)))
+             (rf.mcp-base.cursor/decode-cursor pair-uuid permissive?)))
       ;; a clean cursor still survives the permissive predicate
       (is (= {:v 1 :after-id "ev-9"}
-             (cursor/decode-cursor (cursor/encode-cursor {:v 1 :after-id "ev-9"})
+             (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor {:v 1 :after-id "ev-9"})
                                    permissive?))))))
 
 ;; ---------------------------------------------------------------------------
@@ -482,40 +482,40 @@
   family a lexical grammar admits but the round-trip gate rejects.
   Verbatim mirror of the JVM `cursor_test` helper."
   [token]
-  (let [decoded (cursor/b64-decode token)
+  (let [decoded (rf.mcp-base.cursor/b64-decode token)
         i       (dec (count (re-find #"[^=]+" token)))
         orig    (nth token i)]
     (some (fn [c]
             (when (not= c orig)
               (let [cand (str (subs token 0 i) c (subs token (inc i)))]
-                (when (= decoded (cursor/b64-decode cand)) cand))))
+                (when (= decoded (rf.mcp-base.cursor/b64-decode cand)) cand))))
           b64-alphabet)))
 
 (deftest cursor-rejects-noncanonical-base64-aliases-cljs
   (let [payload   "{:v 1 :after-id \"e\"}"
-        canonical (cursor/b64-encode payload)
+        canonical (rf.mcp-base.cursor/b64-encode payload)
         pair?     (fn [m] (and (map? m) (some? (:after-id m))))]
     (testing "sanity: the canonical token still decodes to its payload map"
-      (is (= {:v 1 :after-id "e"} (cursor/decode-cursor canonical pair?))))
+      (is (= {:v 1 :after-id "e"} (rf.mcp-base.cursor/decode-cursor canonical pair?))))
     (testing "non-alphabet char INSERTED — js/Buffer would silently drop it — ⇒ ::malformed"
       (let [inserted (str (subs canonical 0 2) "!!" (subs canonical 2))]
         (is (not= inserted canonical))
         (is (= :re-frame.mcp-base.cursor/malformed
-               (cursor/decode-cursor inserted pair?)))))
+               (rf.mcp-base.cursor/decode-cursor inserted pair?)))))
     (testing "non-alphabet chars APPENDED ⇒ ::malformed"
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor (str canonical "!!!!") pair?))))
+             (rf.mcp-base.cursor/decode-cursor (str canonical "!!!!") pair?))))
     (testing "malformed / extra padding ⇒ ::malformed"
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor (str canonical "==") pair?))))
+             (rf.mcp-base.cursor/decode-cursor (str canonical "==") pair?))))
     (testing "noncanonical pad-bit spelling ⇒ ::malformed (same rejection as the JVM)"
       (let [alias (pad-bit-alias canonical)]
         (is (some? alias) "the canonical token has pad slack to alias")
         (is (not= alias canonical))
-        (is (= (cursor/b64-decode alias) (cursor/b64-decode canonical))
+        (is (= (rf.mcp-base.cursor/b64-decode alias) (rf.mcp-base.cursor/b64-decode canonical))
             "the alias decodes to the SAME bytes — a true logical alias")
         (is (= :re-frame.mcp-base.cursor/malformed
-               (cursor/decode-cursor alias pair?)))))))
+               (rf.mcp-base.cursor/decode-cursor alias pair?)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7. Shared with-indicators envelope helper under CLJS.
@@ -524,18 +524,18 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest with-indicators-omit-when-zero-cljs
-  (is (= {:trace [1]} (envelope/with-indicators {:trace [1]} {:dropped 0 :elided 0})))
+  (is (= {:trace [1]} (rf.mcp-base.envelope/with-indicators {:trace [1]} {:dropped 0 :elided 0})))
   (is (= {:trace [1] :dropped-sensitive 3}
-         (envelope/with-indicators {:trace [1]} {:dropped 3 :elided 0})))
+         (rf.mcp-base.envelope/with-indicators {:trace [1]} {:dropped 3 :elided 0})))
   (is (= {:trace [1] :elided-large 2}
-         (envelope/with-indicators {:trace [1]} {:dropped 0 :elided 2})))
+         (rf.mcp-base.envelope/with-indicators {:trace [1]} {:dropped 0 :elided 2})))
   (is (= {:trace [1] :dropped-sensitive 3 :elided-large 2}
-         (envelope/with-indicators {:trace [1]} {:dropped 3 :elided 2}))))
+         (rf.mcp-base.envelope/with-indicators {:trace [1]} {:dropped 3 :elided 2}))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7b. marker-text? requires a CLOSED single-key wrapper on CLJS too
 ;;     (rf2-j538f7.20). pair-mcp is a CLJS Node script and delegates
-;;     `wire/marker?` → `envelope/marker-text?`, then SKIPS both cache and cap
+;;     `wire/marker?` → `rf.mcp-base.envelope/marker-text?`, then SKIPS both cache and cap
 ;;     work for a marker-like result. A prefix-only recogniser let a
 ;;     reserved-key-shaped payload with an unexpected top-level sibling bypass
 ;;     the cap. The structural read (cursor's wrap-and-sentinel technique)
@@ -547,36 +547,36 @@
 
 (deftest marker-text?-requires-closed-single-key-wrapper-cljs
   (testing "canonical closed markers the real builders emit STILL take the fast path"
-    (is (true? (envelope/marker-text?
-                 (pr-str {vocab/overflow-key {:limit :reached :token-count 9000
+    (is (true? (rf.mcp-base.envelope/marker-text?
+                 (pr-str {rf.mcp-base.vocab/overflow-key {:limit :reached :token-count 9000
                                               :cap-tokens 5000 :tool "snapshot"}}))))
-    (is (true? (envelope/marker-text?
-                 (pr-str {vocab/cache-hit-key {:hash "abc" :tool "snapshot"}}))))
-    (is (true? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached :extra :ok}}"))
+    (is (true? (rf.mcp-base.envelope/marker-text?
+                 (pr-str {rf.mcp-base.vocab/cache-hit-key {:hash "abc" :tool "snapshot"}}))))
+    (is (true? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:limit :reached :extra :ok}}"))
         "additive body fields are allowed — only the OUTER wrapper must be closed"))
   (testing "RED-then-GREEN: an over-budget mixed wrapper with a top-level sibling is NOT a marker"
     (let [big (apply str (repeat 8000 "x"))]
-      (is (false? (envelope/marker-text?
-                    (pr-str (array-map vocab/overflow-key {:limit :reached}
+      (is (false? (rf.mcp-base.envelope/marker-text?
+                    (pr-str (array-map rf.mcp-base.vocab/overflow-key {:limit :reached}
                                        :unexpected big))))
           "an 8K sibling under an overflow-keyed wrapper must be capped on CLJS, not skipped")
-      (is (false? (envelope/marker-text?
-                    (pr-str (array-map vocab/cache-hit-key {:tool "x"}
+      (is (false? (rf.mcp-base.envelope/marker-text?
+                    (pr-str (array-map rf.mcp-base.vocab/cache-hit-key {:tool "x"}
                                        :unexpected big)))))))
   (testing "trailing form / injected ] / tagged literal / non-map body ⇒ NOT a marker"
-    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}} 42")))
-    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}}] {:junk 1}")))
+    (is (false? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}} 42")))
+    (is (false? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}}] {:junk 1}")))
     ;; cljs.reader resolves built-in #inst/#uuid from its tag-table and would
     ;; bypass :default without the :readers override — the marker read rejects
     ;; every tag identically to the cursor path.
-    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:at #inst \"2024-01-01T00:00:00.000-00:00\"}}")))
-    (is (false? (envelope/marker-text? "{:rf.mcp/overflow #js {:limit :reached}}")))
-    (is (false? (envelope/marker-text? "{:rf.mcp/overflow \"not a map body\"}")))
-    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}")) "truncated text"))
+    (is (false? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:at #inst \"2024-01-01T00:00:00.000-00:00\"}}")))
+    (is (false? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow #js {:limit :reached}}")))
+    (is (false? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow \"not a map body\"}")))
+    (is (false? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}")) "truncated text"))
   (testing "lookalike first key and ordinary payloads remain non-markers"
-    (is (false? (envelope/marker-text? "{:rf.mcp/overflowed {:limit :reached}}")))
-    (is (false? (envelope/marker-text? (pr-str {:trace [1 2 3]}))))
-    (is (false? (envelope/marker-text? nil)))))
+    (is (false? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflowed {:limit :reached}}")))
+    (is (false? (rf.mcp-base.envelope/marker-text? (pr-str {:trace [1 2 3]}))))
+    (is (false? (rf.mcp-base.envelope/marker-text? nil)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7c. marker-text? bounds the marker BODY size on CLJS too (rf2-vd1uyn).
@@ -590,20 +590,20 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest marker-text?-bounds-body-size-cljs
-  (let [over-budget (apply str (repeat (* 8 overflow/default-max-tokens) "x"))] ;; ~2× the default cap
-    (is (> (overflow/token-estimate over-budget) overflow/default-max-tokens)
+  (let [over-budget (apply str (repeat (* 8 rf.mcp-base.overflow/default-max-tokens) "x"))] ;; ~2× the default cap
+    (is (> (rf.mcp-base.overflow/token-estimate over-budget) rf.mcp-base.overflow/default-max-tokens)
         "precondition: the injected body estimates over the default cap")
     (testing "RED-then-GREEN: an over-budget single-key marker is NOT a marker on CLJS"
-      (is (false? (envelope/marker-text?
-                    (pr-str {vocab/overflow-key {:limit :reached :blob over-budget}})))
+      (is (false? (rf.mcp-base.envelope/marker-text?
+                    (pr-str {rf.mcp-base.vocab/overflow-key {:limit :reached :blob over-budget}})))
           "an over-default-cap overflow BODY must be capped on CLJS, not skipped")
-      (is (false? (envelope/marker-text?
-                    (pr-str {vocab/cache-hit-key {:tool "x" :blob over-budget}})))
+      (is (false? (rf.mcp-base.envelope/marker-text?
+                    (pr-str {rf.mcp-base.vocab/cache-hit-key {:tool "x" :blob over-budget}})))
           "the same hole for cache-hit on CLJS")))
   (testing "genuine tiny markers stay under the bound and STILL take the fast path"
-    (is (true? (envelope/marker-text?
-                 (pr-str {vocab/overflow-key {:limit :reached :token-count 9000 :cap-tokens 5000}}))))
-    (is (true? (envelope/marker-text? (pr-str {vocab/cache-hit-key {:hash "abc" :tool "snapshot"}}))))))
+    (is (true? (rf.mcp-base.envelope/marker-text?
+                 (pr-str {rf.mcp-base.vocab/overflow-key {:limit :reached :token-count 9000 :cap-tokens 5000}}))))
+    (is (true? (rf.mcp-base.envelope/marker-text? (pr-str {rf.mcp-base.vocab/cache-hit-key {:hash "abc" :tool "snapshot"}}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. `sensitive.cljc` CLJS reader-conditional arms.
@@ -632,7 +632,7 @@
 (defn- capture-console-warn
   "Run `thunk`, returning a vector of every `js/console.warn` call joined to a
   string. Directly saves + swaps + restores the REAL `js/console.warn` property
-  that `sensitive/log-malformed!` calls — so the assertion exercises the ACTUAL
+  that `rf.mcp-base.sensitive/log-malformed!` calls — so the assertion exercises the ACTUAL
   CLJS log-egress path, not a stand-in. (The test-quiet node runner also
   replaces `console.warn` to buffer expected warnings; we save + restore
   whatever is installed, so this composes with the runner.)"
@@ -652,7 +652,7 @@
   ;; `:rf/redacted` sentinel — NEVER the raw stamp, which on a serialisation bug
   ;; could be a secret-bearing string / keyword / map / vector / number. This
   ;; is the log-boundary egress guarantee on the CLJS runtime pair-mcp runs.
-  (sensitive/reset-malformed-count!)
+  (rf.mcp-base.sensitive/reset-malformed-count!)
   (doseq [[stamp leak-needle]
           [["sk_live_SECRET_TOKEN_abc123" "sk_live_SECRET_TOKEN_abc123"]
            [:secret/api-key-VALUE          "api-key-VALUE"]
@@ -661,7 +661,7 @@
            [["leaky-vector-ELEMENT"]       "leaky-vector-ELEMENT"]
            [42424242                        "42424242"]]]
     (let [warns (capture-console-warn
-                  #(sensitive/sensitive-event? {:operation :rf.event/dispatched
+                  #(rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched
                                                 :sensitive? stamp}))
           text  (str/join "\n" warns)]
       (is (= 1 (count warns))
@@ -673,7 +673,7 @@
           (str "malformed warning must emit the :rf/redacted sentinel for " (pr-str stamp)))
       (is (str/includes? text "non-boolean truthy")
           "warning must still surface the fail-closed contract-drift reason")))
-  (sensitive/reset-malformed-count!))
+  (rf.mcp-base.sensitive/reset-malformed-count!))
 
 (deftest sensitive-malformed-count-exactly-once-per-event-cljs
   ;; CLJS counterpart to JVM `strip-sensitive-malformed-count-is-exactly-one-
@@ -681,8 +681,8 @@
   ;; (bump + log); the single-pass classifier in `strip-sensitive` runs it
   ;; exactly once per event, so the `(atom 0)` malformed-counter is a faithful
   ;; per-event metric on the CLJS atom path too. A two-pass shape would bump ~2×.
-  (sensitive/reset-malformed-count!)
-  (is (zero? (sensitive/malformed-count))
+  (rf.mcp-base.sensitive/reset-malformed-count!)
+  (is (zero? (rf.mcp-base.sensitive/malformed-count))
       "precondition: counter starts at zero after reset")
   (capture-console-warn ; absorb the expected contract-drift warnings
     (fn []
@@ -691,23 +691,23 @@
                             {:id 3}
                             {:id 4 :sensitive? :yes}    ; malformed → drop, bump 1
                             {:id 5 :sensitive? true}]   ; well-formed → drop, NO bump
-            [kept dropped] (sensitive/strip-sensitive evts false)]
+            [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
         (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
         (is (= 3 dropped) "all three sensitive events drop")
-        (is (= 2 (sensitive/malformed-count))
+        (is (= 2 (rf.mcp-base.sensitive/malformed-count))
             "exactly one bump per MALFORMED event — single-pass, not ~2× per scan"))))
   ;; Well-formed stamps do NOT bump the counter.
   (capture-console-warn
     (fn []
-      (sensitive/sensitive-event? {:sensitive? true})
-      (sensitive/sensitive-event? {:sensitive? false})
-      (sensitive/sensitive-event? {:sensitive? nil})
-      (sensitive/sensitive-event? {})))
-  (is (= 2 (sensitive/malformed-count))
+      (rf.mcp-base.sensitive/sensitive-event? {:sensitive? true})
+      (rf.mcp-base.sensitive/sensitive-event? {:sensitive? false})
+      (rf.mcp-base.sensitive/sensitive-event? {:sensitive? nil})
+      (rf.mcp-base.sensitive/sensitive-event? {})))
+  (is (= 2 (rf.mcp-base.sensitive/malformed-count))
       "true / false / nil / absent stamps do NOT bump the counter")
-  (is (zero? (sensitive/reset-malformed-count!))
+  (is (zero? (rf.mcp-base.sensitive/reset-malformed-count!))
       "reset returns the new value (zero)")
-  (is (zero? (sensitive/malformed-count))
+  (is (zero? (rf.mcp-base.sensitive/malformed-count))
       "reset zeroes the counter for the next test"))
 
 (deftest sensitive-stamp-type-tag-branches-cljs
@@ -717,7 +717,7 @@
   ;; branch via the value-free `type=<tag>` token in the captured warning —
   ;; pinning that each truthy non-boolean shape maps to the right tag AND that
   ;; the value is redacted regardless of the branch taken.
-  (sensitive/reset-malformed-count!)
+  (rf.mcp-base.sensitive/reset-malformed-count!)
   (doseq [[stamp expected-tag] [["a-string"          "string"]
                                 [:a-keyword          "keyword"]
                                 ['a-symbol           "symbol"]
@@ -727,7 +727,7 @@
                                 [#{1 2}              "set"]
                                 [(map identity [1])  "seq"]]]
     (let [warns (capture-console-warn
-                  #(sensitive/sensitive-event? {:sensitive? stamp}))
+                  #(rf.mcp-base.sensitive/sensitive-event? {:sensitive? stamp}))
           text  (str/join "\n" warns)]
       (is (= 1 (count warns))
           (str "one warning fired for stamp " (pr-str stamp)))
@@ -737,4 +737,4 @@
       (is (str/includes? text "value=:rf/redacted")
           (str "the value stays redacted regardless of the type tag ("
                expected-tag ")"))))
-  (sensitive/reset-malformed-count!))
+  (rf.mcp-base.sensitive/reset-malformed-count!))

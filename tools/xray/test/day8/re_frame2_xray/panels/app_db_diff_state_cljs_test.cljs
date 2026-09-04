@@ -12,8 +12,8 @@
   testids, not the inner cljs-devtools markup (that engine is covered
   by `views.edn-widget.*` tests)."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [cljs.test :refer-macros [use-fixtures]]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-xray.panels.app-db-diff-state :as state]))
@@ -22,7 +22,7 @@
 ;; path (cljs-devtools). A plain-atom runtime keeps any reactive read in
 ;; that path resolvable across substrate adapters.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- hiccup-seq [tree]
   (tree-seq (some-fn vector? seq?) seq tree))

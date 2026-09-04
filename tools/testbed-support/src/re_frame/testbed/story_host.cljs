@@ -11,9 +11,9 @@
   source coordinate against the live JVM source paths at request time, so a
   repository testbed needs no project-root configuration at all. A host that
   wants one anyway — an external or non-shadow host relying on the client's
-  `editor://` URI fallback — calls `story/configure!` itself."
+  `editor://` URI fallback — calls `rf.story/configure!` itself."
   (:require [reagent.dom.client :as rdc]
-            [re-frame.story :as story]))
+            [re-frame.story :as rf.story]))
 
 ;; The live app and the Story shell each own their own React root on the
 ;; same node, one at a time. Each mount path tears down the other owner first.
@@ -40,13 +40,13 @@
     (reset! app-root nil)))
 
 (defn- mount-app! []
-  (story/unmount-shell!)
+  (rf.story/unmount-shell!)
   (ensure-app-root!)
   (rdc/render @app-root [@root-view*]))
 
 (defn- mount-stories! []
   (tear-down-app-root!)
-  (story/mount-shell! (app-node)))
+  (rf.story/mount-shell! (app-node)))
 
 (defn- on-hash-change! []
   (let [hash (or (.. js/window -location -hash) "")]

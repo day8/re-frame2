@@ -40,9 +40,9 @@
   for the same source of truth (no parallel re-export here)."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.mcp-base.args :as args]
-            [re-frame.mcp-base.vocab :as vocab]))
+            [re-frame.error :as rf.error]
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; ---- sentinels -----------------------------------------------------------
 
@@ -148,7 +148,7 @@
       ;; helpers; the 3-arg ex-info form preserves the original parser
       ;; throwable as the cause.
       (let [reason "re-frame2-story-mcp could not parse the incoming JSON frame; send a well-formed JSON-RPC frame."]
-        (throw (ex-info (error/human-message :rf.error/story-mcp-json-parse-failure reason)
+        (throw (ex-info (rf.error/human-message :rf.error/story-mcp-json-parse-failure reason)
                         {:rf.error/id :rf.error/story-mcp-json-parse-failure
                          :where    'story-mcp/parse-json
                          :recovery :send-a-well-formed-json-frame
@@ -213,7 +213,7 @@
   "Return `m` (a possibly-string-keyed map) with every key that the
   bounded `allowed` keyword-set recognises converted to its keyword
   form, and every other key DROPPED. No-intern: a string key is
-  resolved via `args/safe-keyword` against `allowed`, which routes
+  resolved via `rf.mcp-base.args/safe-keyword` against `allowed`, which routes
   through `find-keyword` on the JVM and never mints a fresh keyword for
   an unrecognised input. Non-map input passes through untouched."
   [m allowed]
@@ -221,7 +221,7 @@
     (persistent!
      (reduce-kv
       (fn [acc k v]
-        (if-let [kw (args/safe-keyword k allowed)]
+        (if-let [kw (rf.mcp-base.args/safe-keyword k allowed)]
           (assoc! acc kw v)
           acc))
       (transient {})
@@ -266,7 +266,7 @@
     m
     (let [renamed (rename-allowed-keys m arg-keys)
           unknown (into []
-                        (comp (remove #(some? (args/safe-keyword % arg-keys)))
+                        (comp (remove #(some? (rf.mcp-base.args/safe-keyword % arg-keys)))
                               (map #(if (keyword? %) (name %) (str %))))
                         (keys m))]
       (if (seq unknown)
@@ -281,7 +281,7 @@
   Only the finite JSON-RPC envelope keys (`envelope-keys`), the finite
   `params` keys (`params-keys`), and the bounded top-level
   argument-key allowlist (`arg-keys`) are converted to keywords — each
-  resolved through `find-keyword` (via `args/safe-keyword`) so an
+  resolved through `find-keyword` (via `rf.mcp-base.args/safe-keyword`) so an
   unrecognised wire string never mints a fresh JVM keyword. Keys outside
   these sets are dropped at their level; they neither intern nor reach a
   handler. Nested data-bearing VALUES (a `:cell-overrides` map, an
@@ -434,7 +434,7 @@
     (let [line (read-bounded-line reader max-frame-bytes)]
       (cond
         (nil? line)                   eof-sentinel
-        (= ::frame-too-large line)    (error/throw-error!
+        (= ::frame-too-large line)    (rf.error/throw-error!
                                         :rf.error/story-mcp-frame-too-large
                                         'story-mcp/read-frame
                                         (str "re-frame2-story-mcp frame exceeds the "
@@ -465,27 +465,27 @@
   "Build a parse-error response. `id` is `nil` because by definition we
   couldn't parse the request to extract one."
   []
-  (error-response nil vocab/code-parse-error "Parse error"))
+  (error-response nil rf.mcp-base.vocab/code-parse-error "Parse error"))
 
 (defn invalid-request
   "Build an invalid-request error for a syntactically-malformed envelope.
   `id` may be `nil` when the envelope failed shape-validation before
   the id could be extracted."
   [id details]
-  (error-response id vocab/code-invalid-request details))
+  (error-response id rf.mcp-base.vocab/code-invalid-request details))
 
 (defn method-not-found
   "Build a method-not-found error for `method`. Used by the dispatcher
   when `(:method message)` doesn't match a registered handler — and by
   `tools/call` when the named tool isn't in the registry."
   [id method]
-  (error-response id vocab/code-method-not-found
+  (error-response id rf.mcp-base.vocab/code-method-not-found
                   (str "Method not found: " method)))
 
 (defn invalid-params
   "Build an invalid-params error. `details` is human-readable."
   [id details]
-  (error-response id vocab/code-invalid-params
+  (error-response id rf.mcp-base.vocab/code-invalid-params
                   (str "Invalid params: " details)))
 
 (defn internal-error
@@ -496,4 +496,4 @@
   ([id details]
    (internal-error id details nil))
   ([id details data]
-   (error-response id vocab/code-internal-error details data)))
+   (error-response id rf.mcp-base.vocab/code-internal-error details data)))

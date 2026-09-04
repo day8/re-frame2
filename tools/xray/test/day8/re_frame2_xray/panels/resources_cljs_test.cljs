@@ -21,12 +21,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
             ;; CORE canonical-identity (not the resources artefact) — the routing
             ;; blocking slot is keyed on the CEDN-1 byte id (rf2-btdl1).
-            [re-frame.identity :as rf-identity]
-            [re-frame.registrar :as registrar]
+            [re-frame.identity :as rf.identity]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.palette.subs :as palette-subs]
@@ -150,7 +150,7 @@
                :rf.xray/resource-sub-reads
                :rf.xray/resource-routing-slice
                :rf.xray/resources-tab-data]]
-      (is (some? (registrar/handler :sub s)) (str s " sub registered"))))
+      (is (some? (rf.registrar/handler :sub s)) (str s " sub registered"))))
   (testing "rf2-e8330v — production registration installs NO -for-test ids
             nor *-override subs; install-test-overrides! installs them"
     (registry/register-xray-handlers!)
@@ -160,7 +160,7 @@
                :rf.xray/resource-work-ledger-override
                :rf.xray/resource-sub-reads-override
                :rf.xray/resource-routing-slice-override]]
-      (is (nil? (registrar/handler :sub s))
+      (is (nil? (rf.registrar/handler :sub s))
           (str s " override sub NOT installed by production registration")))
     (doseq [e [:rf.xray/set-registered-resources-override-for-test
                :rf.xray/set-registered-scope-resolvers-override-for-test
@@ -168,7 +168,7 @@
                :rf.xray/set-resource-work-ledger-override-for-test
                :rf.xray/set-resource-sub-reads-override-for-test
                :rf.xray/set-resource-routing-slice-override-for-test]]
-      (is (nil? (registrar/handler :event e))
+      (is (nil? (rf.registrar/handler :event e))
           (str e " NOT installed by production registration")))
     (xray-test-support/install-test-overrides!)
     (doseq [s [:rf.xray/registered-resources-override
@@ -177,14 +177,14 @@
                :rf.xray/resource-work-ledger-override
                :rf.xray/resource-sub-reads-override
                :rf.xray/resource-routing-slice-override]]
-      (is (some? (registrar/handler :sub s)) (str s " override sub registered by seam")))
+      (is (some? (rf.registrar/handler :sub s)) (str s " override sub registered by seam")))
     (doseq [e [:rf.xray/set-registered-resources-override-for-test
                :rf.xray/set-registered-scope-resolvers-override-for-test
                :rf.xray/set-resource-entries-override-for-test
                :rf.xray/set-resource-work-ledger-override-for-test
                :rf.xray/set-resource-sub-reads-override-for-test
                :rf.xray/set-resource-routing-slice-override-for-test]]
-      (is (some? (registrar/handler :event e)) (str e " event registered by seam")))))
+      (is (some? (rf.registrar/handler :event e)) (str e " event registered by seam")))))
 
 (deftest read-only-no-resource-events
   (testing "Spec 016 — the Xray registry surface carries NO :rf.resource/*
@@ -203,7 +203,7 @@
                :rf.xray/set-resource-work-ledger-override-for-test
                :rf.xray/set-resource-sub-reads-override-for-test
                :rf.xray/set-resource-routing-slice-override-for-test]]
-      (is (some? (registrar/handler :event e))
+      (is (some? (rf.registrar/handler :event e))
           (str e " is registered under the :rf.xray*/ prefix"))
       (is (= "rf.xray" (namespace e))
           (str e " lives under the Xray isolation prefix, not :rf.resource/*")))))
@@ -502,7 +502,7 @@
   `reg-route` macro is not on the xray test classpath); the graph reads the
   registry map decoupled via `(rf/registrations :route)`."
   []
-  (registrar/register! :route :route/article
+  (rf.registrar/register! :route :route/article
                        {:path "/articles/:slug"
                         :resources [{:resource :article/by-slug :blocking? true}]})
   (rf/dispatch-sync
@@ -510,7 +510,7 @@
      {:current {:route-id :route/article :nav-token "nav-1"}
       :resource-blocking
       {"nav-1" (let [k [session-scope :article/by-slug {:slug "welcome"}]]
-                 {(rf-identity/canonical-bytes k) k})}}]
+                 {(rf.identity/canonical-bytes k) k})}}]
     {:frame :rf/xray}))
 
 (deftest route-graph-shows-live-active-route
@@ -623,9 +623,9 @@
   ;; `[…entries <key-id> :resource/key 0]`, params at `[… :resource/key 2]`.
   ;; The on-box egress re-roots each slot to exactly these coordinates.
   (rf/make-frame {:id zix-observed-frame})
-  (frame/swap-runtime-db! zix-observed-frame
+  (rf.frame/swap-runtime-db! zix-observed-frame
     (fn [rt]
-      (elision/apply-classification-effects rt
+      (rf.elision/apply-classification-effects rt
         {:sensitive [[:rf.runtime/resources :entries zix-key-id :data]
                      [:rf.runtime/resources :entries zix-key-id :resource/key 0]
                      [:rf.runtime/resources :entries zix-key-id :resource/key 2]]}))))

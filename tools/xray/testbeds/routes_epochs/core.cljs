@@ -101,7 +101,7 @@
             ;; below throws `:rf.error/routing-artefact-missing`.
             [re-frame.routing]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; The shared step-driver runner. This deck supplies a `steps`
             ;; vector + registers `:routes-epochs/run-step` via
             ;; `runner/reg-runner!`; the runner drives the ONE-button series
@@ -457,7 +457,7 @@
 ;; source coordinate against the live JVM source paths at request time, so a
 ;; repository testbed needs no root of its own.
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; establish the host frame explicitly. URL ownership is an explicit
   ;; declaration, so opt the host frame in via `{:url-bound? true}`

@@ -3,7 +3,7 @@
   used by every tool's `:inputSchema`. Kept in its own ns so each
   category's descriptor list (`dev/descriptors`, `docs/descriptors`,
   …) can require these without circling through `registry`."
-  (:require [re-frame.story-mcp.tools.args :as targs]))
+  (:require [re-frame.story-mcp.tools.args :as rf.story-mcp.tools.args]))
 
 (def kw-or-string
   "Recurring fragment — accept either string-form keywords
@@ -153,7 +153,7 @@
 ;; `tools/list` on either tool, and so the two cannot drift by copy-paste.
 ;; The bounds + default text derive from the single shared source in
 ;; `tools.args` (`max-timeout-ms` / `default-timeout-ms`); the runtime
-;; resolver `targs/resolve-timeout-ms` reads the same constants, so the
+;; resolver `rf.story-mcp.tools.args/resolve-timeout-ms` reads the same constants, so the
 ;; advertised schema and the runtime policy stay in lockstep.
 ;; ---------------------------------------------------------------------------
 
@@ -165,10 +165,10 @@
   unrelated call. Caller values above the hard ceiling clamp DOWN rather
   than reject. Bounds + default mirror `tools.args/max-timeout-ms` /
   `default-timeout-ms` — the single source both this advertised schema and
-  the runtime resolver (`targs/resolve-timeout-ms`) read."
-  {:type "integer" :minimum 1 :maximum targs/max-timeout-ms
-   :description (str "JVM blocking timeout. Default " targs/default-timeout-ms
-                     "ms. Hard ceiling " targs/max-timeout-ms "ms — values "
+  the runtime resolver (`rf.story-mcp.tools.args/resolve-timeout-ms`) read."
+  {:type "integer" :minimum 1 :maximum rf.story-mcp.tools.args/max-timeout-ms
+   :description (str "JVM blocking timeout. Default " rf.story-mcp.tools.args/default-timeout-ms
+                     "ms. Hard ceiling " rf.story-mcp.tools.args/max-timeout-ms "ms — values "
                      "above clamp DOWN rather than reject; the MCP server's "
                      "request loop is single-threaded so an unbounded timeout "
                      "would park unrelated calls (rf2-g9fje).")})
@@ -178,7 +178,7 @@
   map. Applied to the two tools that block on the `story/run-variant`
   lifecycle (`run-variant`, `preview-variant`) so both advertise the same
   tunable, capped blocking ceiling. The runtime resolver
-  `targs/resolve-timeout-ms` reads the same shared constants, so the
+  `rf.story-mcp.tools.args/resolve-timeout-ms` reads the same shared constants, so the
   advertised schema and the runtime policy stay in lockstep."
   [props]
   (assoc props :timeout-ms timeout-ms-schema))

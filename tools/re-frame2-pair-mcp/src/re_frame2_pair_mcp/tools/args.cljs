@@ -21,7 +21,7 @@
   (:require [applied-science.js-interop :as j]
             [cljs.reader]
             [clojure.string :as str]
-            [re-frame.mcp-base.args :as base-args]))
+            [re-frame.mcp-base.args :as rf.mcp-base.args]))
 
 (def valid-slices
   #{:app-db :sub-cache :machines :epochs :traces})
@@ -97,7 +97,7 @@
   (let [default (get-in bool-args [k :default])
         raw     (when (and args (not (undefined? args)))
                   (j/get args (name k)))]
-    (base-args/parse-boolean raw default)))
+    (rf.mcp-base.args/parse-boolean raw default)))
 
 (defn ->frame-keyword
   "Coerce a frame-id string into a keyword. Accepts both bare names
@@ -113,7 +113,7 @@
    `fresh-keyword` on the JVM side doesn't apply here; the call is
    straight string-to-keyword coercion."
   [x]
-  (base-args/fresh-keyword x))
+  (rf.mcp-base.args/fresh-keyword x))
 
 (defn parse-fx-overrides
   "Coerce the `fx-overrides` MCP arg (a JSON object) into the CLJS map
@@ -175,10 +175,10 @@
           (fn [acc k v]
             (if (= :err (first acc))
               acc
-              (let [fx-key  (base-args/fresh-keyword k)
+              (let [fx-key  (rf.mcp-base.args/fresh-keyword k)
                     coerced (cond
                               (nil? v)     nil
-                              (and (string? v) (str/starts-with? v ":")) (base-args/fresh-keyword v)
+                              (and (string? v) (str/starts-with? v ":")) (rf.mcp-base.args/fresh-keyword v)
                               :else        ::reject)]
                 (cond
                   (= ::reject coerced)
@@ -237,7 +237,7 @@
         ::invalid))
 
     :else
-    (let [kw (base-args/fresh-keyword s)]
+    (let [kw (rf.mcp-base.args/fresh-keyword s)]
       (if (keyword? kw) kw ::invalid))))
 
 (defn parse-interceptor-overrides
@@ -462,7 +462,7 @@
 
   Delegates to `re-frame.mcp-base.args/parse-mode`."
   [raw]
-  (base-args/parse-mode raw :summary #{:summary :full}))
+  (rf.mcp-base.args/parse-mode raw :summary #{:summary :full}))
 
 (defn parse-epochs-mode
   "Normalise the `epochs-mode` MCP arg — the diff-encoded epoch slice
@@ -477,7 +477,7 @@
   surface consumers require directly, and this is purely wire-arg
   coercion."
   [raw]
-  (base-args/parse-mode raw :diff #{:diff :full}))
+  (rf.mcp-base.args/parse-mode raw :diff #{:diff :full}))
 
 (defn parse-modes-arg
   "Normalise the per-slice `modes` MCP arg into a `{<slice-keyword>
@@ -508,7 +508,7 @@
       (reduce-kv
         (fn [m k v]
           (let [k' (->frame-keyword k)
-                v' (base-args/parse-mode v ::unknown #{:summary :full})]
+                v' (rf.mcp-base.args/parse-mode v ::unknown #{:summary :full})]
             (if (and k'
                      (contains? valid-slices k')
                      (not= v' ::unknown))
@@ -632,7 +632,7 @@
   string. Fractional numbers and non-numeric junk are `::bad`.
 
   Cross-runtime safe-integer guard: the numeric core goes through
-  `base-args/coerce-finite-long`, which returns `nil` for `##NaN` /
+  `rf.mcp-base.args/coerce-finite-long`, which returns `nil` for `##NaN` /
   `##Inf` / `##-Inf` and for any finite magnitude outside the JS
   safe-integer window `[-(2^53−1), 2^53−1]`. A JS
   `Number.isInteger` value above that ceiling (e.g. `9007199254740993`,
@@ -650,14 +650,14 @@
   [raw]
   (cond
     (and (number? raw) (js/Number.isInteger raw))
-    (if-let [n (base-args/coerce-finite-long raw)] n ::bad)
+    (if-let [n (rf.mcp-base.args/coerce-finite-long raw)] n ::bad)
 
     (number? raw)
     ::bad
 
     (string? raw)
     (let [parsed (parse-long (str/trim raw))]
-      (if (and parsed (base-args/coerce-finite-long parsed)) parsed ::bad))
+      (if (and parsed (rf.mcp-base.args/coerce-finite-long parsed)) parsed ::bad))
 
     :else
     ::bad))

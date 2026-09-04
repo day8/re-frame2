@@ -35,12 +35,12 @@
 
   ## Scheme-rejection denylist (rf2-vwcsq, rf2-ox357n)
 
-  `editor-uri/editor-uri` rejects `javascript:` / `data:` / `vbscript:`
+  `rf.source-coords.editor-uri/editor-uri` rejects `javascript:` / `data:` / `vbscript:`
   for `{:custom ...}` templates at build time (per rf2-vwcsq) — the
   spec-mandated scheme-rejection list (Security.md / Tool-Pair.md
   §Editor URI scheme allowlist): everything other than the three
   known-bad schemes passes through. The click-time `open!` seam below
-  re-applies the same cheap denylist (`editor-uri/forbidden-scheme?`)
+  re-applies the same cheap denylist (`rf.source-coords.editor-uri/forbidden-scheme?`)
   because the `:rf.xray.fx/open-in-editor` reg-fx accepts a pre-resolved
   `{:uri ...}` arg that bypasses `editor-uri`'s build-time gating — the
   denylist must fire at every handoff. Per rf2-ox357n the prior positive
@@ -50,13 +50,13 @@
   `javascript:` / `data:` / `vbscript:` stay blocked everywhere."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
-            [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.source-coords.open-endpoint :as open-endpoint]))
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
+            [re-frame.source-coords.open-endpoint :as rf.source-coords.open-endpoint]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -81,7 +81,7 @@
 
 (defn- parse-file-line
   "Parse a `\"file:line\"` (or bare `\"file\"`) display string into the
-  structured source-coord map shape `editor-uri/editor-uri` expects.
+  structured source-coord map shape `rf.source-coords.editor-uri/editor-uri` expects.
 
   Three panel-side projection helpers (trace_helpers, issues_ribbon_
   helpers, mcp_server_helpers) flatten the structured coord to a
@@ -120,7 +120,7 @@
     - A bare display string `\"file:line\"` (defensive — no panel
       currently dispatches this directly, but the parser handles it).
 
-  Returns the map form; callers feed it to `editor-uri/editor-uri`
+  Returns the map form; callers feed it to `rf.source-coords.editor-uri/editor-uri`
   unchanged."
   [payload]
   (let [unwrapped (if (and (map? payload) (contains? payload :source-coord))
@@ -133,13 +133,13 @@
 
 (defn resolve-uri
   "Pure-data: source-coord → launchable URI string, or nil. Returns nil
-  when the coord lacks `:file` or when `editor-uri/editor-uri` returns
+  when the coord lacks `:file` or when `rf.source-coords.editor-uri/editor-uri` returns
   nil (a forbidden scheme per rf2-vwcsq — `javascript:` / `data:` /
   `vbscript:`). Per rf2-ox357n there is no positive allowlist: any
   non-dangerous scheme (built-in or unknown custom) passes through.
 
   Per rf2-5m5n2: threads the configured project-root through
-  `editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
+  `rf.source-coords.editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
   coord (the common case — macros capture the form-meta `:file` slot,
   typically classpath-relative) resolves to an absolute on-disk path
   the OS-side editor handler can find. The `:project-root` opt is
@@ -150,11 +150,11 @@
   — one source of truth for the URI shape across the data path and the
   side-effect path."
   [source-coord]
-  (when (editor-uri/has-source? source-coord)
+  (when (rf.source-coords.editor-uri/has-source? source-coord)
     (let [opts {:project-root (config/get-project-root)}]
       ;; `editor-uri` already denylist-gates the resolved URI inline at
       ;; build time (rf2-vwcsq), returning nil on a forbidden scheme.
-      (editor-uri/editor-uri (config/get-editor) source-coord opts))))
+      (rf.source-coords.editor-uri/editor-uri (config/get-editor) source-coord opts))))
 
 ;; ---- side-effect: open the editor ----------------------------------------
 ;;
@@ -198,7 +198,7 @@
   the OS handler chain. Returns nothing.
 
   Per rf2-vwcsq + rf2-ox357n: this fn re-applies the cheap scheme
-  denylist (`editor-uri/forbidden-scheme?`) before handing the URI off.
+  denylist (`rf.source-coords.editor-uri/forbidden-scheme?`) before handing the URI off.
   A URI built via `resolve-uri` was already denylist-gated at build
   time, but the `:rf.xray.fx/open-in-editor` reg-fx also accepts a pre-resolved
   `{:uri ...}` arg that bypasses build-time gating — so the denylist
@@ -224,7 +224,7 @@
   Public so the `:rf.xray.fx/open-in-editor` reg-fx (registered in `install!`) can
   share the exact same gate the in-DOM chip uses."
   [uri]
-  (when (and uri (not (editor-uri/forbidden-scheme? uri)))
+  (when (and uri (not (rf.source-coords.editor-uri/forbidden-scheme? uri)))
     (js/console.log "[rf.xray/open-in-editor] navigating to:" uri)
     (@navigator uri)
     nil))
@@ -252,7 +252,7 @@
   scheme denylist). When the coord cannot produce a usable URI either,
   the fallback is a harmless no-op. Returns nothing."
   [source-coord]
-  (open-endpoint/open-coord!
+  (rf.source-coords.open-endpoint/open-coord!
     source-coord
     (config/get-editor)
     (fn [] (open! (resolve-uri source-coord))))
@@ -302,7 +302,7 @@
   [source-coord]
   (if (config/editor-configured?)
     (open-coord! source-coord)
-    (if (frame/frame defaults/default-frame-id)
+    (if (rf.frame/frame defaults/default-frame-id)
       (rf/dispatch [:rf.xray/editor-hint-show] {:frame defaults/default-frame-id})
       ;; Standalone fallback — no shell frame to host the hint toast.
       (open-coord! source-coord)))
@@ -313,14 +313,14 @@
 (defn open-chip
   "Render an 'open' chip for a Xray source-coord. Reads the current
   editor preference from `config/get-editor`; builds the URI via
-  `editor-uri/editor-uri`; click routes through `chip-click!`, which
+  `rf.source-coords.editor-uri/editor-uri`; click routes through `chip-click!`, which
   applies the rf2-4s08ov configured/hint decision (rf2-r4q6y3): a
   configured editor navigates via `open!`, an unconfigured host with a
   live `:rf/xray` shell shows the editor-hint toast instead of silently
   no-oping, and a standalone host with no shell falls back to `open!`.
 
   Returns nil when the source-coord lacks a usable `:file` slot or when
-  `editor-uri/editor-uri` returns nil (a forbidden scheme rejected by
+  `rf.source-coords.editor-uri/editor-uri` returns nil (a forbidden scheme rejected by
   the `editor-uri`-side denylist per rf2-vwcsq). Per rf2-ox357n there is
   no positive allowlist — any non-dangerous scheme produces a chip. The
   UI hides the chip rather than rendering an unclickable affordance.
@@ -334,7 +334,7 @@
     (let [editor (config/get-editor)]
       [:a {:style       (:chip chip-styles)
            :href        uri
-           :title       (editor-uri/open-button-title source-coord)
+           :title       (rf.source-coords.editor-uri/open-button-title source-coord)
            :data-testid "xray-open-in-editor"
            :data-editor (cond
                           (map? editor) "custom"

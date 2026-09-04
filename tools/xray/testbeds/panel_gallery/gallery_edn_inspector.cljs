@@ -42,7 +42,7 @@
   idempotent under namespace reload) keeps the surface uniform
   across all eight gallery namespaces."
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             [panel-gallery.fixtures-edn-inspector :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -75,21 +75,21 @@
   under `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-edn-inspector
+  (rf.story/reg-tag :feature/xray-edn-inspector
     {:axis :feature
      :doc  "Xray edn-inspector widget — first-class CLJS-value
             renderer (`day8.re-frame2-xray.views.edn-inspector`)."})
 
-  (story/reg-tag :feature/opts
+  (rf.story/reg-tag :feature/opts
     {:axis :feature
      :doc  "Xray edn-inspector widget — :opts contract demos
             (zoomable, popup-affordance, card, header, site-id,
             shallow-depth)."})
 
-  (story/reg-story :story.xray.edn-inspector
+  (rf.story/reg-story :story.xray.edn-inspector
     {:doc        "THE GEM of this testbed — the edn-inspector widget,
                  the single CLJS-value renderer behind every Xray panel
                  (App-db, Trace payloads, Reactive sub values, Machine
@@ -105,7 +105,7 @@
      :substrates #{:reagent}})
 
   ;; ----- scalars ------------------------------------------------------
-  (story/reg-variant :story.xray.edn-inspector/scalar-mix
+  (rf.story/reg-variant :story.xray.edn-inspector/scalar-mix
     {:doc        "Every scalar kind the widget classifies — nil,
                  booleans, ints, floats, strings (with escape),
                  simple + qualified keywords, plain + qualified
@@ -115,27 +115,27 @@
      :substrates #{:reagent}})
 
   ;; ----- maps ---------------------------------------------------------
-  (story/reg-variant :story.xray.edn-inspector/map-small
+  (rf.story/reg-variant :story.xray.edn-inspector/map-small
     {:doc        "Three-key map. Inline-preview territory."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-small)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/map-medium
+  (rf.story/reg-variant :story.xray.edn-inspector/map-medium
     {:doc        "Twelve-key flat map. Wide enough to force
                  expansion past `:max-inline-width`."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-medium)]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/map-large
+  (rf.story/reg-variant :story.xray.edn-inspector/map-large
     {:doc        "Fifty-key flat map. Exercises the expanded-body
                  scroll behaviour."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-large)]]
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/map-nested
+  (rf.story/reg-variant :story.xray.edn-inspector/map-nested
     {:doc        "Six-level nested map. Exercises the depth ceiling
                  — deeper nodes render `▸ {…N keys}` summaries
                  (rf2-kbdk8)."
@@ -143,7 +143,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/map-large-elided
+  (rf.story/reg-variant :story.xray.edn-inspector/map-large-elided
     {:doc        "Single-key map carrying the `:rf.size/large-elided`
                  sentinel (Spec 015). Widget routes through the
                  sentinel chip renderer."
@@ -152,28 +152,28 @@
      :substrates #{:reagent}})
 
   ;; ----- containers ---------------------------------------------------
-  (story/reg-variant :story.xray.edn-inspector/vector-mixed
+  (rf.story/reg-variant :story.xray.edn-inspector/vector-mixed
     {:doc        "Vector of mixed-scalar elements + a nested map.
                  Pins the `[ ]` bracket pair colour."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/vector-mixed)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/list-of-events
+  (rf.story/reg-variant :story.xray.edn-inspector/list-of-events
     {:doc        "List of event vectors. Pins the `( )` bracket
                  pair colour."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/list-of-events)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/lazy-seq-fib
+  (rf.story/reg-variant :story.xray.edn-inspector/lazy-seq-fib
     {:doc        "Realised prefix of an infinite fib lazy-seq.
                  Widget walks a finite seq — no force-of-tail."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/lazy-seq-fib)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/set-of-tags
+  (rf.story/reg-variant :story.xray.edn-inspector/set-of-tags
     {:doc        "Eight-element keyword set. Pins the `#{ }`
                  bracket pair + unordered-iteration path."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/set-of-tags)]]
@@ -181,7 +181,7 @@
      :substrates #{:reagent}})
 
   ;; ----- record -------------------------------------------------------
-  (story/reg-variant :story.xray.edn-inspector/record-instance
+  (rf.story/reg-variant :story.xray.edn-inspector/record-instance
     {:doc        "Single `GalleryUser` defrecord. Header renders
                  `#…GalleryUser{…}`; slots lay out below."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/record-instance)]]
@@ -189,7 +189,7 @@
      :substrates #{:reagent}})
 
   ;; ----- uuid + inst (default IXrayEdnInspector formatters) -----------
-  (story/reg-variant :story.xray.edn-inspector/uuid
+  (rf.story/reg-variant :story.xray.edn-inspector/uuid
     {:doc        "Single random UUID. Default formatter (rf2-x16b1)
                  renders compact `#uuid \"…<last-8>\"` header with
                  full canonical form on hover + expand."
@@ -197,7 +197,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/insts
+  (rf.story/reg-variant :story.xray.edn-inspector/insts
     {:doc        "Five insts spanning the default formatter's
                  relative-time bucketing — just-now, mins ago,
                  hours ago, days ago, ISO fallback (>30d), future."
@@ -206,7 +206,7 @@
      :substrates #{:reagent}})
 
   ;; ----- diff mode ----------------------------------------------------
-  (story/reg-variant :story.xray.edn-inspector/diff-map-mixed-ops
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-map-mixed-ops
     {:doc        "Diff pair surfacing every op in one map:
                  `:added` (new `:flash`), `:modified` (`:counter`
                  bump + nested `:name` change), `:removed`
@@ -217,7 +217,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-vector-element-changes
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-vector-element-changes
     {:doc        "Diff on a vector — `:added` tail, `:modified`
                  middle element, `:same` head. Pair-walk respects
                  position."
@@ -225,7 +225,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-deep-children-changed
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-deep-children-changed
     {:doc        "Deep diff: change sits six levels down. Ancestor
                  chain force-expands; intermediate maps paint the
                  `◴` children-changed glyph in the gutter."
@@ -234,7 +234,7 @@
      :substrates #{:reagent}})
 
   ;; ----- opts demos ---------------------------------------------------
-  (story/reg-variant :story.xray.edn-inspector/opts-zoomable
+  (rf.story/reg-variant :story.xray.edn-inspector/opts-zoomable
     {:doc        "`:zoomable? true` (rf2-h71e0; gesture rf2-zl4rs) —
                  double-click a container (or press Enter while it is
                  focused) to re-root the inspector onto it. No glyph."
@@ -242,35 +242,35 @@
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/opts-popup-affordance
+  (rf.story/reg-variant :story.xray.edn-inspector/opts-popup-affordance
     {:doc        "`:popup-affordance? true` (rf2-l4625) — `↗` icon
                  button sits at the widget's top-right corner."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-popup-affordance)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/opts-card
+  (rf.story/reg-variant :story.xray.edn-inspector/opts-card
     {:doc        "`:card? true` (rf2-63ie5) — outer container picks
                  up inspector-card chrome (bg, border, radius)."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-card)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/opts-header
+  (rf.story/reg-variant :story.xray.edn-inspector/opts-header
     {:doc        "`:header \"…\"` (rf2-okq7p) — three-shade card
                  chrome with a string ribbon label."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/opts-header-hiccup
+  (rf.story/reg-variant :story.xray.edn-inspector/opts-header-hiccup
     {:doc        "`:header [:span …]` (rf2-okq7p) — composed
                  hiccup ribbon (label + code chip)."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header-hiccup)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/opts-site-id
+  (rf.story/reg-variant :story.xray.edn-inspector/opts-site-id
     {:doc        "`:site-id` (rf2-pvsxs) — stable site-id survives
                  a remount. Visually identical to the unkeyed
                  mount; the difference shows on remount cadence."
@@ -278,7 +278,7 @@
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/opts-shallow-depth
+  (rf.story/reg-variant :story.xray.edn-inspector/opts-shallow-depth
     {:doc        "`:default-expanded-depth 1` (rf2-kbdk8) — legacy
                  depth-driven behaviour. Depth ≥ 1 renders
                  `▸ {…N keys}` collapsed summaries."
@@ -286,7 +286,7 @@
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/opts-combined
+  (rf.story/reg-variant :story.xray.edn-inspector/opts-combined
     {:doc        "Composed opts — `:header` + `:popup-affordance?`
                  + `:zoomable?` together. Pins the affordance
                  layout when all three coexist."
@@ -302,7 +302,7 @@
   ;; deep redaction. Each variant pins ONE engine behaviour for
   ;; visual-regression isolation.
 
-  (story/reg-variant :story.xray.edn-inspector/diff-set-mixed
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-set-mixed
     {:doc        "Set diff with both add and remove ops: `#{:a :b
                  :c}` → `#{:a :b :d}`. Sets have no positional
                  identity — `:c` paints `−`, `:d` paints `+`, both
@@ -311,7 +311,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-boolean-toggle
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-boolean-toggle
     {:doc        "Simplest scalar diff — `{:enabled? true}` →
                  `{:enabled? false}`. Pins the `~` glyph + `←
                  was true` suffix for the boolean leaf
@@ -320,7 +320,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-vector-of-maps
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-vector-of-maps
     {:doc        "Vector-of-records — `[{:id 1 :count 5} {:id 2
                  :count 8}]` → `[{:id 1 :count 6} {:id 2 :count
                  8}]`. The canonical app-db rows-of-records shape;
@@ -330,7 +330,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-nil-vs-missing
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-nil-vs-missing
     {:doc        "`{:k nil}` vs `{}` distinction. Before carries
                  `:will-disappear 42` and `:explicit-nil nil`;
                  after replaces `:will-disappear` with `:newly-nil
@@ -342,7 +342,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-numeric-near-equal
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-numeric-near-equal
     {:doc        "Near-equal floats — `1.0` vs `1.0000001`.
                  Verifies the engine does NOT fold nearly-equal
                  floats into `:same`; the `:x` row paints `~` +
@@ -352,7 +352,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-redacted-context
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-redacted-context
     {:doc        "`:rf/redacted` sentinel three levels deep —
                  `{:session {:user {:password :rf/redacted}}}` →
                  `{:session {:user {:password \"hunter2\"}}}`.
@@ -373,7 +373,7 @@
   ;; the canonical map diffs). Each variant pins ONE engine
   ;; behaviour for visual-regression isolation.
 
-  (story/reg-variant :story.xray.edn-inspector/diff-set-add
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-set-add
     {:doc        "Pure-add set diff: `#{:a :b}` → `#{:a :b :c}`.
                  Distinct from `diff-set-mixed`'s add+remove pair —
                  only `:c` is new and nothing is removed, so the
@@ -383,7 +383,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-long-string-truncation
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-long-string-truncation
     {:doc        "Long-string mutation — `{:bio \"short\"}` →
                  `{:bio \"<>200-char essay>\"}`. Verifies the
                  widget's truncation chrome (ellipsis / hover-
@@ -397,7 +397,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  (story/reg-variant :story.xray.edn-inspector/diff-symbol-value
+  (rf.story/reg-variant :story.xray.edn-inspector/diff-symbol-value
     {:doc        "Symbol-value mutation — `{:fn-name 'old-handler}`
                  → `{:fn-name 'new-handler}`. Verifies the
                  inspector handles symbols correctly under diff
@@ -412,7 +412,7 @@
      :substrates #{:reagent}})
 
   ;; ----- workspace ----------------------------------------------------
-  (story/reg-workspace :Workspace.xray.edn-inspector/all
+  (rf.story/reg-workspace :Workspace.xray.edn-inspector/all
     {:doc      "All edn-inspector widget variants in one auto-grid.
                 Scroll to see the renderer's response across scalar
                 / map (small / medium / large / nested / sentinel)

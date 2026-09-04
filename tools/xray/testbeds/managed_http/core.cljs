@@ -70,26 +70,26 @@
   Nothing under `implementation/` requires this."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
-            [re-frame.trace :as trace]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.trace :as rf.trace]
             ;; Managed-HTTP ships in day8/re-frame2-http. Requiring at app
             ;; boot triggers its load-time fx registrations
             ;; (`:rf.http/managed` / `:rf.http/managed-abort`).
-            [re-frame.http.managed :as http-managed]
+            [re-frame.http.managed :as rf.http.managed]
             ;; The actor-in-flight INDEX-WRITE seam (`record-in-flight!`)
             ;; is not re-exported from re-frame.http.managed (only the
             ;; read-side snapshots + clear/abort are). The testbed reaches
             ;; the registry ns directly to seed the actor-in-flight index
             ;; for the concurrent-by-actor + outlives-teardown steps — the
             ;; same atom the real transport's run-attempt! records into.
-            [re-frame.http.registry :as http-registry]
+            [re-frame.http.registry :as rf.http.registry]
             ;; The canned-stub fx ids (`:rf.http/managed-canned-failure`)
             ;; register from re-frame.http.test-support. A testbed IS a
             ;; test affordance, so requiring it is correct.
             [re-frame.http.test-support]
             [re-frame.http :as rf.http]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [runner.core :as runner])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -172,7 +172,7 @@
 ;; reply but does NOT emit the category-attributed `:rf.http/<kind>`
 ;; error trace the live failure path emits. The Xray Trace / Epoch panels
 ;; render that trace, so this testbed-local wrapper replays the live
-;; path's `trace/emit-error!` before delegating to the canned stub — so
+;; path's `rf.trace/emit-error!` before delegating to the canned stub — so
 ;; the panels show the same `:operation :rf.http/<kind>` row a live
 ;; failure would.
 
@@ -187,13 +187,13 @@
     (let [kind (or (:kind args-map) :rf.http/transport)
           tags (or (:tags args-map) {})
           url  (get-in args-map [:request :url])]
-      (trace/emit-error! kind
+      (rf.trace/emit-error! kind
                          (assoc tags
                                 :kind       kind
                                 :request-id (:request-id args-map)
                                 :url        url
                                 :recovery   :no-recovery))
-      ((registrar/handler :fx :rf.http/managed-canned-failure)
+      ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
        frame-ctx args-map))))
 
 ;; ============================================================================
@@ -214,11 +214,11 @@
                :rf.http/managed-abort fx resolves it end-to-end."
    :platforms #{:client}}
   (fn fx-seed-in-flight [_frame-ctx {:keys [request-id]}]
-    (http-registry/record-in-flight!
+    (rf.http.registry/record-in-flight!
       request-id nil
       {:url      pending-url
        :abort-fn (fn [reason]
-                   (http-registry/clear-in-flight! request-id)
+                   (rf.http.registry/clear-in-flight! request-id)
                    ;; rf2-ibksxg — the canonical abort reply: :status :cancelled
                    ;; with the :rf.http/aborted map under :error.
                    (rf/dispatch [::reply {:status        :cancelled
@@ -302,7 +302,7 @@
                without spawning a real machine actor."
    :platforms #{:client}}
   (fn fx-issue-as-actor [_frame-ctx {:keys [actor-id request-id]}]
-    (http-registry/record-in-flight!
+    (rf.http.registry/record-in-flight!
       request-id actor-id
       {:abort-fn (fn [_reason] nil)
        :url      pending-url})
@@ -327,7 +327,7 @@
                actor destroy)."
    :platforms #{:client}}
   (fn fx-destroy-actor [_frame-ctx {:keys [actor-id]}]
-    (http-managed/abort-on-actor-destroy actor-id)
+    (rf.http.managed/abort-on-actor-destroy actor-id)
     nil))
 
 (rf/reg-event ::actor-teardown
@@ -347,7 +347,7 @@
                and actor-id keyed) so a fresh run starts clean."
    :platforms #{:client}}
   (fn fx-clear-registry [_frame-ctx _]
-    (http-managed/clear-all-in-flight!)
+    (rf.http.managed/clear-all-in-flight!)
     nil))
 
 (rf/reg-event ::reset
@@ -424,8 +424,8 @@
   concurrent-by-actor step only touches :log)."
   []
   (let [_log      @(subscribe [::log])
-        in-flight (http-managed/in-flight-snapshot)
-        per-actor (http-managed/actor-in-flight-snapshot)]
+        in-flight (rf.http.managed/in-flight-snapshot)
+        per-actor (rf.http.managed/actor-in-flight-snapshot)]
     [:div {:data-testid "managed-http-registry-strip"
            :style {:border "1px solid #d8d2ff" :border-radius "6px"
                    :padding "0.5em 0.75em" :margin "0.5em 0"
@@ -501,7 +501,7 @@
 ;; source coordinate against the live JVM source paths at request time, so a
 ;; repository testbed needs no root of its own.
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; establish the host frame explicitly, run the boot dispatch under its
   ;; scope, and wrap the render in a `frame-provider` (scope-only

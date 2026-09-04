@@ -55,7 +55,7 @@
       in main; the rich filter popup gallery lives in `gallery_filters`.
     - Settings popup (rf2-9poxq / rf2-ttnst) — its variants live in
       `gallery_settings`."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures :as fixtures]
             [panel-gallery.fixtures-app-db :as fixtures-app-db]
             [panel-gallery.fixtures-trace :as fixtures-trace]
@@ -103,15 +103,15 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-chrome
+  (rf.story/reg-tag :feature/xray-chrome
     {:axis :feature
      :doc  "Xray 4-layer chrome — ribbon + event-list + tab-bar +
             detail per spec/018 §2."})
 
-  (story/reg-story :story.xray.chrome
+  (rf.story/reg-story :story.xray.chrome
     {:doc        "Visual gallery of the full Xray 4-layer chrome. Each
                  variant mounts the shell in its OWN isolated frame
                  (the de-singletoned shell threads the Story per-variant
@@ -125,7 +125,7 @@
   ;; ----- 1. Epoch tab pre-selected (default) -------------------------
   ;; Post rf2-5gl5r the Epoch tab supersedes the retired Event/Handler
   ;; tab as the default landing (:order -1, leftmost).
-  (story/reg-variant :story.xray.chrome/tab-epoch
+  (rf.story/reg-variant :story.xray.chrome/tab-epoch
     {:doc        "Chrome with the Epoch tab pre-selected (default).
                  Trace buffer has six cascades; the event-list (L2)
                  surfaces them; the detail panel (L4) renders the
@@ -137,7 +137,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 2. App-db tab pre-selected ---------------------------------
-  (story/reg-variant :story.xray.chrome/tab-app-db
+  (rf.story/reg-variant :story.xray.chrome/tab-app-db
     {:doc        "Chrome with the App-db tab pre-selected. Trace
                  buffer has cascades; epoch-history has the five-key-
                  change buffer; the detail panel renders app-db-diff."
@@ -149,7 +149,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 3. Views tab pre-selected ----------------------------------
-  (story/reg-variant :story.xray.chrome/tab-views
+  (rf.story/reg-variant :story.xray.chrome/tab-views
     {:doc        "Chrome with the Views tab pre-selected. Detail
                  panel renders the Views panel against the seeded
                  epoch-history; the epoch lacks render rows so the
@@ -163,7 +163,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4. Trace tab pre-selected ----------------------------------
-  (story/reg-variant :story.xray.chrome/tab-trace
+  (rf.story/reg-variant :story.xray.chrome/tab-trace
     {:doc        "Chrome with the Trace tab pre-selected. Trace
                  buffer carries 10 events spanning every op-type;
                  the detail panel renders the raw-event feed."
@@ -174,7 +174,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 5. Machines tab pre-selected -------------------------------
-  (story/reg-variant :story.xray.chrome/tab-machines
+  (rf.story/reg-variant :story.xray.chrome/tab-machines
     {:doc        "Chrome with the Machines tab pre-selected. No
                  machine-registry overrides; the panel surfaces the
                  :no-machines empty-state — a real production state
@@ -193,7 +193,7 @@
   ;; — pinning the chrome's response under issue load (the L2 rows wash
   ;; pink; the Epoch panel surfaces the exception inline) rather than a
   ;; standalone Issues feed that no longer exists.
-  (story/reg-variant :story.xray.chrome/issue-load
+  (rf.story/reg-variant :story.xray.chrome/issue-load
     {:doc        "Chrome under issue load. Trace buffer carries an
                  issue mix (errors / warnings / info); the L2 event
                  rows wash pink (rf2-b8guz) and the Epoch panel
@@ -206,7 +206,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 7. Mode pill LIVE (default) --------------------------------
-  (story/reg-variant :story.xray.chrome/mode-live
+  (rf.story/reg-variant :story.xray.chrome/mode-live
     {:doc        "Mode pill in LIVE mode (default). Trace buffer has
                  cascades; spine auto-focuses on head; mode pill
                  renders as `● LIVE`."
@@ -217,7 +217,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 8. Mode pill LIVE (paused) ---------------------------------
-  (story/reg-variant :story.xray.chrome/mode-paused
+  (rf.story/reg-variant :story.xray.chrome/mode-paused
     {:doc        "Mode pill in LIVE (paused) mode. The spine's
                  `:paused?` flag is set; the LIVE buffer continues
                  collecting but auto-scrolling stops. Mode pill
@@ -230,7 +230,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 9. Ribbon empty (no filters) -------------------------------
-  (story/reg-variant :story.xray.chrome/ribbon-empty
+  (rf.story/reg-variant :story.xray.chrome/ribbon-empty
     {:doc        "Ribbon resting state — no IN / OUT filter pills.
                  Only the `[+]` add-pill is visible alongside the
                  nav cluster + frame picker + mode pill + right
@@ -243,7 +243,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 10. Ribbon with filters loaded -----------------------------
-  (story/reg-variant :story.xray.chrome/ribbon-filters-loaded
+  (rf.story/reg-variant :story.xray.chrome/ribbon-filters-loaded
     {:doc        "Ribbon with two IN pills (`:cart/*`, `:auth/*`) +
                  one OUT pill (`-:mouse-move`). Exercises the pill
                  visual contract per spec/018 §7 — IN pills tint
@@ -266,7 +266,7 @@
   ;; so the cells are fully isolated: every cell paints its own declared
   ;; state with no last-seed-wins bleed. Single-column so the four-layer
   ;; chrome has room to breathe.
-  (story/reg-workspace :Workspace.xray.chrome/all
+  (rf.story/reg-workspace :Workspace.xray.chrome/all
     {:doc      "All ten chrome variants in one auto-grid. Each cell
                 mounts the shell in its own isolated frame and paints
                 its declared state independently — driving one cell

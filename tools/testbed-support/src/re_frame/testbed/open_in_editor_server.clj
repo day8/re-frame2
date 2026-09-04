@@ -6,8 +6,8 @@
   a loopback Origin when one is present. This `.clj` namespace runs only in the
   shadow-cljs server and is never part of a browser bundle."
   (:require [clojure.string :as str]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.source-coords.editor-uri :as editor-uri])
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri])
   (:import [java.net URI]
            [java.io File InputStream InputStreamReader]
            [java.util.concurrent TimeUnit]))
@@ -97,10 +97,10 @@
   [path]
   (cond
     (or (nil? path) (str/blank? path)) nil
-    (editor-uri/absolute-path? path)   path
+    (rf.source-coords.editor-uri/absolute-path? path)   path
     :else
     ;; An unchanged result signals that the classpath lookup did not resolve.
-    (let [absolutised (#'source-coords/absolutise-file path)]
+    (let [absolutised (#'rf.source-coords/absolutise-file path)]
       (if (not= absolutised path)
         absolutised
         (or

@@ -78,7 +78,7 @@
      `rf/frame-provider` for `opts :frame` (default `:rf/xray`) so
      descendant subscribes and dispatches do not inherit the host's
      ambient React context accidentally.
-  4. Delegates to `substrate-adapter/render` with the wrapped tree +
+  4. Delegates to `rf.substrate.adapter/render` with the wrapped tree +
      the supplied mount-point. The substrate adapter is the host's
      (installed via `rf/init!`); the panels are substrate-agnostic
      pure hiccup.
@@ -144,7 +144,7 @@
   `tools/xray/spec/008-Embedding-Contract.md` for the full
   embedding contract."
   (:require [re-frame.core :as rf]
-            [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
@@ -209,7 +209,7 @@
   (let [frame (get opts :frame :rf/xray)
         tree  [rf/frame-provider {:frame frame}
                [panel-view]]]
-    (substrate-adapter/render tree mount-point nil)))
+    (rf.substrate.adapter/render tree mount-point nil)))
 
 ;; ---- per-panel mount fns ------------------------------------------------
 ;;
@@ -376,4 +376,4 @@
    (ensure-xray-handlers-installed!)
    (let [mode (get opts :mode :inline)
          tree [shell/shell-view {:mode mode}]]
-     (substrate-adapter/render tree mount-point nil))))
+     (rf.substrate.adapter/render tree mount-point nil))))

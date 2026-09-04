@@ -7,9 +7,9 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.testbed.open-in-editor-server :as oies])
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
+            [re-frame.testbed.open-in-editor-server :as rf.testbed.open-in-editor-server])
   (:import [java.net URL URLClassLoader]
            [java.io File]))
 
@@ -34,9 +34,9 @@
               prev     (.getContextClassLoader (Thread/currentThread))]
           (try
             (.setContextClassLoader (Thread/currentThread) cl)
-            (let [resolved (oies/resolve-file rel-path)]
+            (let [resolved (rf.testbed.open-in-editor-server/resolve-file rel-path)]
               (is (some? resolved) "the classpath resource resolved")
-              (is (= (#'source-coords/absolutise-file rel-path) resolved)
+              (is (= (#'rf.source-coords/absolutise-file rel-path) resolved)
                   "resolve-file returns core's absolutise-file result;
                    the classpath stage is delegated, not re-implemented")
               (is (.contains ^String resolved "+")
@@ -57,11 +57,11 @@
 (deftest resolve-file-passes-absolute-and-blank-through
   (testing "an already-absolute path is returned unchanged (incl. a + in it)"
     (is (= "/abs/re-frame2+wip/core.cljs"
-           (oies/resolve-file "/abs/re-frame2+wip/core.cljs"))))
+           (rf.testbed.open-in-editor-server/resolve-file "/abs/re-frame2+wip/core.cljs"))))
   (testing "nil / blank resolve to nil"
-    (is (nil? (oies/resolve-file nil)))
-    (is (nil? (oies/resolve-file "")))
-    (is (nil? (oies/resolve-file "   ")))))
+    (is (nil? (rf.testbed.open-in-editor-server/resolve-file nil)))
+    (is (nil? (rf.testbed.open-in-editor-server/resolve-file "")))
+    (is (nil? (rf.testbed.open-in-editor-server/resolve-file "   ")))))
 
 ;; Launch is stubbed while the method, Host, Origin, and CORS guards are tested.
 
@@ -69,7 +69,7 @@
   "Build a minimal endpoint request; nil host/origin values omit the header."
   [{:keys [method host origin file]
     :or   {method :post host "localhost:8031"}}]
-  {:uri            oies/endpoint-path
+  {:uri            rf.testbed.open-in-editor-server/endpoint-path
    :request-method method
    :query-string   (when file (str "file=" file "&line=10"))
    :headers        (cond-> {}
@@ -79,7 +79,7 @@
 (defmacro ^:private with-launch-spy
   "Record launch calls without opening an editor."
   [calls & body]
-  `(with-redefs [oies/launch! (fn [& args#]
+  `(with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& args#]
                                 (swap! ~calls conj (vec args#))
                                 {:ok true})]
      ~@body))
@@ -90,7 +90,7 @@
             reaches the launch path and answers 200"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :post
                            :host   "localhost:8031"
                            :origin "http://localhost:8042"
@@ -104,7 +104,7 @@
             loopback Host check alone"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :post
                            :host   "127.0.0.1:8031"
                            :origin nil
@@ -117,7 +117,7 @@
             reaches launch! — the drive-by vector the guard closes"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :post
                            :host   "localhost:8031"
                            :origin "https://evil.example"
@@ -132,7 +132,7 @@
             DNS-rebinding attempt) is rejected 403 before launch!"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :post
                            :host   "app.evil.example"
                            :origin nil
@@ -142,7 +142,7 @@
   (testing "a missing Host header is also rejected"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :post :host nil :origin nil
                            :file "/etc/passwd"}))]
           (is (= 403 (:status resp)))
@@ -153,7 +153,7 @@
             rejected 405 even from a loopback Host — it never launches"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :get
                            :host   "localhost:8031"
                            :origin nil
@@ -166,7 +166,7 @@
             and offers POST only (no GET) — never launches"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :options
                            :host   "localhost:8031"
                            :origin "http://localhost:8042"}))]
@@ -184,7 +184,7 @@
   (testing "an opaque Origin is rejected before launch"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :post
                            :host   "localhost:8031"
                            :origin "null"
@@ -200,7 +200,7 @@
   (testing "a remote preflight receives no usable CORS origin"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :options
                            :host   "localhost:8031"
                            :origin "https://evil.example"}))]
@@ -216,7 +216,7 @@
   (testing "a preflight without a validated loopback Origin is denied"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :options
                            :host   "app.evil.example"
                            :origin nil}))]
@@ -226,7 +226,7 @@
 
 (deftest guard-non-endpoint-path-falls-through
   (testing "a request for any other path still falls through (nil) untouched"
-    (is (nil? (oies/handle {:uri "/something/else"
+    (is (nil? (rf.testbed.open-in-editor-server/handle {:uri "/something/else"
                             :request-method :post
                             :headers {"host" "localhost:8031"}})))))
 
@@ -237,8 +237,8 @@
             answers a clean 400, not an uncaught IllegalArgumentException"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
-                     {:uri            oies/endpoint-path
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=%"
                       :headers        {"host" "localhost:8031"}})]
@@ -250,8 +250,8 @@
             a clean 400"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
-                     {:uri            oies/endpoint-path
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=abc%zz"
                       :headers        {"host" "localhost:8031"}})]
@@ -264,16 +264,16 @@
 (deftest parse-query-preserves-literal-plus
   (testing "a literal `+` is not form-decoded to a space"
     (is (= "C:/code/re-frame2+wip/core.cljs"
-           (get (#'oies/parse-query
+           (get (#'rf.testbed.open-in-editor-server/parse-query
                  "file=C:/code/re-frame2+wip/core.cljs&line=10")
                 "file"))
         "a literal + in the query value survives verbatim"))
   (testing "percent-escapes still decode with decodeURIComponent semantics"
-    (let [q (#'oies/parse-query "file=re-frame2%2Bwip%2Fa%20b.cljs")]
+    (let [q (#'rf.testbed.open-in-editor-server/parse-query "file=re-frame2%2Bwip%2Fa%20b.cljs")]
       (is (= "re-frame2+wip/a b.cljs" (get q "file"))
           "%2B decodes to a literal +, %2F to /, %20 to a space")))
   (testing "keys and multiple params round-trip; last value wins"
-    (let [q (#'oies/parse-query "file=a+b&line=10&file=c+d")]
+    (let [q (#'rf.testbed.open-in-editor-server/parse-query "file=a+b&line=10&file=c+d")]
       (is (= "c+d" (get q "file")) "last value wins, + preserved")
       (is (= "10" (get q "line"))))))
 
@@ -282,8 +282,8 @@
             with the `+` intact"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
-                     {:uri            oies/endpoint-path
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=deep/re-frame2+wip/core.cljs&line=7"
                       :headers        {"host" "localhost:8031"}})]
@@ -296,32 +296,32 @@
 
 (deftest loopback-host?-classifies-correctly
   (testing "loopback hosts (with/without port, IPv4, IPv6, case)"
-    (is (#'oies/loopback-host? "localhost"))
-    (is (#'oies/loopback-host? "localhost:8031"))
-    (is (#'oies/loopback-host? "LocalHost:8031"))
-    (is (#'oies/loopback-host? "127.0.0.1"))
-    (is (#'oies/loopback-host? "127.0.0.1:8042"))
-    (is (#'oies/loopback-host? "127.5.6.7"))
-    (is (#'oies/loopback-host? "::1"))
-    (is (#'oies/loopback-host? "[::1]:8080")))
+    (is (#'rf.testbed.open-in-editor-server/loopback-host? "localhost"))
+    (is (#'rf.testbed.open-in-editor-server/loopback-host? "localhost:8031"))
+    (is (#'rf.testbed.open-in-editor-server/loopback-host? "LocalHost:8031"))
+    (is (#'rf.testbed.open-in-editor-server/loopback-host? "127.0.0.1"))
+    (is (#'rf.testbed.open-in-editor-server/loopback-host? "127.0.0.1:8042"))
+    (is (#'rf.testbed.open-in-editor-server/loopback-host? "127.5.6.7"))
+    (is (#'rf.testbed.open-in-editor-server/loopback-host? "::1"))
+    (is (#'rf.testbed.open-in-editor-server/loopback-host? "[::1]:8080")))
   (testing "non-loopback hosts are rejected"
-    (is (not (#'oies/loopback-host? "evil.example")))
-    (is (not (#'oies/loopback-host? "app.evil.example:8031")))
-    (is (not (#'oies/loopback-host? "10.0.0.5")))
-    (is (not (#'oies/loopback-host? "0.0.0.0")))
+    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "evil.example")))
+    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "app.evil.example:8031")))
+    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "10.0.0.5")))
+    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "0.0.0.0")))
     ;; A textual 127 prefix is not an IPv4 loopback address.
-    (is (not (#'oies/loopback-host? "127malicious.example")))
-    (is (not (#'oies/loopback-host? nil)))
-    (is (not (#'oies/loopback-host? "")))))
+    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "127malicious.example")))
+    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? nil)))
+    (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "")))))
 
 (deftest origin-host-extracts-and-rejects-opaque
   (testing "the host is extracted from a serialized origin"
-    (is (= "localhost" (#'oies/origin-host "http://localhost:8042")))
-    (is (= "127.0.0.1" (#'oies/origin-host "http://127.0.0.1:8031"))))
+    (is (= "localhost" (#'rf.testbed.open-in-editor-server/origin-host "http://localhost:8042")))
+    (is (= "127.0.0.1" (#'rf.testbed.open-in-editor-server/origin-host "http://127.0.0.1:8031"))))
   (testing "the opaque `null` origin and blank/nil yield nil (never loopback)"
-    (is (nil? (#'oies/origin-host "null")))
-    (is (nil? (#'oies/origin-host nil)))
-    (is (nil? (#'oies/origin-host "")))))
+    (is (nil? (#'rf.testbed.open-in-editor-server/origin-host "null")))
+    (is (nil? (#'rf.testbed.open-in-editor-server/origin-host nil)))
+    (is (nil? (#'rf.testbed.open-in-editor-server/origin-host "")))))
 
 ;; File values and launch stderr may contain controls, so verify JSON round trips.
 
@@ -364,8 +364,8 @@
     (let [calls (atom [])
           file  "day8/re_frame2_xray/core.cljs\ninjected-line\ttabbed"]
       (with-launch-spy calls
-        (with-redefs [oies/resolve-file (constantly file)]
-          (let [resp (oies/handle
+        (with-redefs [rf.testbed.open-in-editor-server/resolve-file (constantly file)]
+          (let [resp (rf.testbed.open-in-editor-server/handle
                        (req {:method :post
                              :host   "localhost:8031"
                              :origin nil
@@ -383,10 +383,10 @@
             valid, round-tripping JSON"
     (let [calls (atom [])
           msg   (str "launch-editor: boom\r\nat frame " (char 0x01) "end")]
-      (with-redefs [oies/launch! (fn [& args#]
+      (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& args#]
                                    (swap! calls conj (vec args#))
                                    {:ok false :message msg})]
-        (let [resp (oies/handle
+        (let [resp (rf.testbed.open-in-editor-server/handle
                      (req {:method :post
                            :host   "localhost:8031"
                            :origin nil
@@ -396,7 +396,7 @@
           (is (= msg (json-body->file-value (:body resp) "\"error\":\"")))))))
   (testing "the plain ASCII fast path is unaffected — no spurious escaping"
     (is (= "\"plain/path.cljs\""
-           (str "\"" (#'oies/escape-json-string "plain/path.cljs") "\"")))))
+           (str "\"" (#'rf.testbed.open-in-editor-server/escape-json-string "plain/path.cljs") "\"")))))
 
 ;; launch-editor parses the first numeric suffix as a line, so column-only
 ;; coordinates must be encoded as `path:1:column`.
@@ -404,14 +404,14 @@
 (deftest build-file-spec-normalizes-column-only-to-line-1
   (testing "column with no line is normalized to line 1, NOT encoded as a
             bare `path:<column>` that launch-editor would misread as a line"
-    (is (= "/abs/core.cljs:1:7" (#'oies/build-file-spec "/abs/core.cljs" nil 7))
+    (is (= "/abs/core.cljs:1:7" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" nil 7))
         "column-only → line 1 + column, matching the editor:// URI fallback"))
   (testing "line with no column is unaffected (baseline — no phantom column)"
-    (is (= "/abs/core.cljs:3" (#'oies/build-file-spec "/abs/core.cljs" 3 nil))))
+    (is (= "/abs/core.cljs:3" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" 3 nil))))
   (testing "both line and column present"
-    (is (= "/abs/core.cljs:3:7" (#'oies/build-file-spec "/abs/core.cljs" 3 7))))
+    (is (= "/abs/core.cljs:3:7" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" 3 7))))
   (testing "neither present: bare path (no spurious `:1`)"
-    (is (= "/abs/core.cljs" (#'oies/build-file-spec "/abs/core.cljs" nil nil)))))
+    (is (= "/abs/core.cljs" (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" nil nil)))))
 
 (deftest launch-passes-column-without-line-through-to-file-spec
   (testing "end-to-end through the endpoint: a request with `column` and no
@@ -421,10 +421,10 @@
             the NORMALIZED `path:1:<column>` spec, not a bare `path:<column>`
             launch-editor would misread as a line jump"
     (let [calls (atom [])]
-      (with-redefs [oies/launch! (fn [& args] (swap! calls conj (vec args))
+      (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& args] (swap! calls conj (vec args))
                                    {:ok true})]
-        (let [resp (oies/handle
-                     {:uri            oies/endpoint-path
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=fake_ns/core.cljs&column=7"
                       :headers        {"host" "localhost:8031"}})]
@@ -433,7 +433,7 @@
           (let [[abs-path line column _cmd] (first @calls)]
             (is (nil? line) "no line param was sent")
             (is (= 7 column) "column parsed through, not dropped upstream")
-            (is (= (str abs-path ":1:7") (#'oies/build-file-spec abs-path line column))
+            (is (= (str abs-path ":1:7") (#'rf.testbed.open-in-editor-server/build-file-spec abs-path line column))
                 "build-file-spec normalizes column-only to line 1")))))))
 
 ;; launch-editor silently ignores missing files, so the JVM must reject them.
@@ -442,15 +442,15 @@
   (testing "an existing file is detected"
     (let [tmp (File/createTempFile "oies-exists" ".cljs")]
       (try
-        (is (true? (#'oies/file-exists? (.getAbsolutePath tmp)))
+        (is (true? (#'rf.testbed.open-in-editor-server/file-exists? (.getAbsolutePath tmp)))
             "a real on-disk file exists")
         (finally (.delete tmp)))))
   (testing "a nonexistent path, nil, and blank are all 'does not exist'"
-    (is (false? (#'oies/file-exists?
+    (is (false? (#'rf.testbed.open-in-editor-server/file-exists?
                   (str (System/getProperty "java.io.tmpdir")
                        "/oies-absent-" (System/nanoTime) ".cljs"))))
-    (is (false? (#'oies/file-exists? nil)))
-    (is (false? (#'oies/file-exists? "   ")))))
+    (is (false? (#'rf.testbed.open-in-editor-server/file-exists? nil)))
+    (is (false? (#'rf.testbed.open-in-editor-server/file-exists? "   ")))))
 
 (deftest launch-rejects-missing-file-before-spawning-node
   (testing "launch! on a path that does not exist short-circuits to a
@@ -460,11 +460,11 @@
     (let [missing (str (System/getProperty "java.io.tmpdir")
                        "/oies-launch-absent-" (System/nanoTime) ".cljs")]
       (is (= {:ok false :message "file-not-found"}
-             (oies/launch! missing 10 5 nil))
+             (rf.testbed.open-in-editor-server/launch! missing 10 5 nil))
           "missing file rejected before the node spawn")))
   (testing "a nil / blank abs-path is likewise file-not-found (never node)"
-    (is (= {:ok false :message "file-not-found"} (oies/launch! nil 1 1 nil)))
-    (is (= {:ok false :message "file-not-found"} (oies/launch! "   " 1 1 nil)))))
+    (is (= {:ok false :message "file-not-found"} (rf.testbed.open-in-editor-server/launch! nil 1 1 nil)))
+    (is (= {:ok false :message "file-not-found"} (rf.testbed.open-in-editor-server/launch! "   " 1 1 nil)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Real-subprocess pipe-drain regressions (rf2-j538f7.21).
@@ -556,9 +556,9 @@
     (let [f    (tmp-existing-file)
           shim (str "var b='x'.repeat(" one-mib-plus ");"
                     "process.stdout.write(b);process.exit(0);")]
-      (with-redefs [oies/launch-shim shim]
-        (binding [oies/*launch-timeout-ms* 8000]
-          (let [[res ms] (timed (oies/launch! (.getAbsolutePath f) nil nil nil))]
+      (with-redefs [rf.testbed.open-in-editor-server/launch-shim shim]
+        (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
+          (let [[res ms] (timed (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil))]
             (is (= {:ok true} res)
                 "a >1 MiB stdout flood + exit 0 is a prompt success, not a timeout")
             (is (< ms 8000)
@@ -574,9 +574,9 @@
       (testing "huge stderr + nonzero exit ⇒ bounded non-timeout diagnostic"
         (let [shim (str "var b='y'.repeat(" one-mib-plus ");"
                         "process.stderr.write(b);process.exit(7);")]
-          (with-redefs [oies/launch-shim shim]
-            (binding [oies/*launch-timeout-ms* 8000]
-              (let [[res ms] (timed (oies/launch! (.getAbsolutePath f) nil nil nil))]
+          (with-redefs [rf.testbed.open-in-editor-server/launch-shim shim]
+            (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
+              (let [[res ms] (timed (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil))]
                 (is (false? (:ok res)))
                 (is (not= "launch-editor timed out" (:message res))
                     "a drained stderr flood is a real failure, not the deadlock timeout")
@@ -584,10 +584,10 @@
                     "the retained diagnostic is bounded — no unbounded parent memory")
                 (is (< ms 8000) "returned within the budget"))))))
       (testing "small stderr control still round-trips verbatim"
-        (with-redefs [oies/launch-shim "process.stderr.write('controlled failure');process.exit(7);"]
-          (binding [oies/*launch-timeout-ms* 8000]
+        (with-redefs [rf.testbed.open-in-editor-server/launch-shim "process.stderr.write('controlled failure');process.exit(7);"]
+          (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
             (is (= {:ok false :message "controlled failure"}
-                   (oies/launch! (.getAbsolutePath f) nil nil nil)))))))))
+                   (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil)))))))))
 
 (deftest launch-genuine-timeout-honours-short-budget
   ;; Criterion 4 (a): a child that never exits yields the timeout message
@@ -596,9 +596,9 @@
   (if-not (node-available?)
     (skip-or-fail "node not on PATH")
     (let [f (tmp-existing-file)]
-      (with-redefs [oies/launch-shim "setInterval(function(){},1000);"] ;; never exits
-        (binding [oies/*launch-timeout-ms* 500]
-          (let [[res ms] (timed (oies/launch! (.getAbsolutePath f) nil nil nil))]
+      (with-redefs [rf.testbed.open-in-editor-server/launch-shim "setInterval(function(){},1000);"] ;; never exits
+        (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 500]
+          (let [[res ms] (timed (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil))]
             (is (= {:ok false :message "launch-editor timed out"} res)
                 "a non-exiting child times out")
             (is (< ms 5000)
@@ -618,7 +618,7 @@
           proc (.start pb)]
       (try
         (is (.isAlive proc) "the child started and is running")
-        (is (true? (#'oies/terminate! proc))
+        (is (true? (#'rf.testbed.open-in-editor-server/terminate! proc))
             "terminate! confirms the child is dead (force-destroy fallback used if needed)")
         (is (not (.isAlive proc)) "the child is no longer alive after cleanup")
         (finally
@@ -631,8 +631,8 @@
             short-circuits before node, so the client gets a non-2xx and
             falls back to the editor:// URI"
     (let [missing (str "oies_missing_" (System/nanoTime) "/nope.cljs")
-          resp    (oies/handle
-                    {:uri            oies/endpoint-path
+          resp    (rf.testbed.open-in-editor-server/handle
+                    {:uri            rf.testbed.open-in-editor-server/endpoint-path
                      :request-method :post
                      :query-string   (str "file=" missing "&line=10&column=3")
                      :headers        {"host" "localhost:8031"}})]
@@ -648,8 +648,8 @@
     (let [calls (atom [])]
       (with-launch-spy calls
         (testing "no `file` param in the query string"
-          (let [resp (oies/handle
-                       {:uri            oies/endpoint-path
+          (let [resp (rf.testbed.open-in-editor-server/handle
+                       {:uri            rf.testbed.open-in-editor-server/endpoint-path
                         :request-method :post
                         :query-string   "line=10&column=3"
                         :headers        {"host" "localhost:8031"}})]
@@ -657,16 +657,16 @@
             (is (re-find #"\"ok\":false" (:body resp)))
             (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
         (testing "an empty `file=` value"
-          (let [resp (oies/handle
-                       {:uri            oies/endpoint-path
+          (let [resp (rf.testbed.open-in-editor-server/handle
+                       {:uri            rf.testbed.open-in-editor-server/endpoint-path
                         :request-method :post
                         :query-string   "file=&line=10"
                         :headers        {"host" "localhost:8031"}})]
             (is (= 400 (:status resp)))
             (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
         (testing "no query string at all"
-          (let [resp (oies/handle
-                       {:uri            oies/endpoint-path
+          (let [resp (rf.testbed.open-in-editor-server/handle
+                       {:uri            rf.testbed.open-in-editor-server/endpoint-path
                         :request-method :post
                         :query-string   nil
                         :headers        {"host" "localhost:8031"}})]
@@ -679,23 +679,23 @@
 
 (deftest editor-hint-maps-keyword-to-launch-command
   (testing "a known editor keyword resolves to its launch command"
-    (is (= "code"          (oies/editor-hint "vscode")))
-    (is (= "code-insiders" (oies/editor-hint "vscode-insiders")))
-    (is (= "cursor"        (oies/editor-hint "cursor")))
-    (is (= "windsurf"      (oies/editor-hint "windsurf")))
-    (is (= "zed"           (oies/editor-hint "zed")))
-    (is (= "idea"          (oies/editor-hint "idea"))))
+    (is (= "code"          (rf.testbed.open-in-editor-server/editor-hint "vscode")))
+    (is (= "code-insiders" (rf.testbed.open-in-editor-server/editor-hint "vscode-insiders")))
+    (is (= "cursor"        (rf.testbed.open-in-editor-server/editor-hint "cursor")))
+    (is (= "windsurf"      (rf.testbed.open-in-editor-server/editor-hint "windsurf")))
+    (is (= "zed"           (rf.testbed.open-in-editor-server/editor-hint "zed")))
+    (is (= "idea"          (rf.testbed.open-in-editor-server/editor-hint "idea"))))
   (testing "the value is lower-cased and trimmed before lookup"
-    (is (= "code"   (oies/editor-hint "VSCode")))
-    (is (= "cursor" (oies/editor-hint "  Cursor  ")))
-    (is (= "idea"   (oies/editor-hint "IDEA"))))
+    (is (= "code"   (rf.testbed.open-in-editor-server/editor-hint "VSCode")))
+    (is (= "cursor" (rf.testbed.open-in-editor-server/editor-hint "  Cursor  ")))
+    (is (= "idea"   (rf.testbed.open-in-editor-server/editor-hint "IDEA"))))
   (testing "blank / unknown / non-string → nil (launch-editor auto-detects)"
-    (is (nil? (oies/editor-hint "")))
-    (is (nil? (oies/editor-hint "   ")))
-    (is (nil? (oies/editor-hint "custom")) "the {:custom …} shape is not in the map")
-    (is (nil? (oies/editor-hint "emacs")) "an editor with no mapping → auto-detect")
-    (is (nil? (oies/editor-hint nil)))
-    (is (nil? (oies/editor-hint 42)) "a non-string is rejected")))
+    (is (nil? (rf.testbed.open-in-editor-server/editor-hint "")))
+    (is (nil? (rf.testbed.open-in-editor-server/editor-hint "   ")))
+    (is (nil? (rf.testbed.open-in-editor-server/editor-hint "custom")) "the {:custom …} shape is not in the map")
+    (is (nil? (rf.testbed.open-in-editor-server/editor-hint "emacs")) "an editor with no mapping → auto-detect")
+    (is (nil? (rf.testbed.open-in-editor-server/editor-hint nil)))
+    (is (nil? (rf.testbed.open-in-editor-server/editor-hint 42)) "a non-string is rejected")))
 
 (deftest editor-command-by-keyword-is-the-launch-command-vocabulary
   (testing "the public map defines the supported launch-command vocabulary"
@@ -705,14 +705,14 @@
             "windsurf"        "windsurf"
             "zed"             "zed"
             "idea"            "idea"}
-           oies/editor-command-by-keyword))))
+           rf.testbed.open-in-editor-server/editor-command-by-keyword))))
 
 (deftest endpoint-passes-editor-hint-through-to-launch
   (testing "the editor query value reaches launch! as a command hint"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
-                     {:uri            oies/endpoint-path
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=fake_ns/core.cljs&line=3&editor=vscode"
                       :headers        {"host" "localhost:8031"}})]
@@ -725,8 +725,8 @@
   (testing "an unknown editor keyword → nil command hint (auto-detect)"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (oies/handle
-          {:uri            oies/endpoint-path
+        (rf.testbed.open-in-editor-server/handle
+          {:uri            rf.testbed.open-in-editor-server/endpoint-path
            :request-method :post
            :query-string   "file=fake_ns/core.cljs&editor=emacs"
            :headers        {"host" "localhost:8031"}})
@@ -735,8 +735,8 @@
   (testing "no `editor` param → nil command hint (baseline)"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (oies/handle
-          {:uri            oies/endpoint-path
+        (rf.testbed.open-in-editor-server/handle
+          {:uri            rf.testbed.open-in-editor-server/endpoint-path
            :request-method :post
            :query-string   "file=fake_ns/core.cljs"
            :headers        {"host" "localhost:8031"}})
@@ -760,27 +760,27 @@
 (deftest position-blind-commands-are-declared-not-guessed
   (testing "the position-blind set names exactly the vocabulary commands
             launch-editor has no get-args case for"
-    (is (= #{"windsurf"} oies/commands-without-position-support))
-    (is (every? (set (vals oies/editor-command-by-keyword))
-                oies/commands-without-position-support)
+    (is (= #{"windsurf"} rf.testbed.open-in-editor-server/commands-without-position-support))
+    (is (every? (set (vals rf.testbed.open-in-editor-server/editor-command-by-keyword))
+                rf.testbed.open-in-editor-server/commands-without-position-support)
         "every declared position-blind command is a command this endpoint can
          actually be asked for — the set cannot drift onto a phantom binary"))
   (testing "position-would-be-dropped? fires only for a coordinate-BEARING
             request to a position-blind command"
-    (is (true?  (oies/position-would-be-dropped? "windsurf" 27 9)))
-    (is (true?  (oies/position-would-be-dropped? "windsurf" 27 nil))
+    (is (true?  (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" 27 9)))
+    (is (true?  (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" 27 nil))
         "a line alone is a coordinate")
-    (is (true?  (oies/position-would-be-dropped? "windsurf" nil 9))
+    (is (true?  (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" nil 9))
         "a column alone is a coordinate (build-file-spec supplies line 1)")
-    (is (false? (oies/position-would-be-dropped? "windsurf" nil nil))
+    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" nil nil))
         "no coordinate → nothing to lose; the endpoint's classpath resolution
          is still worth having")
-    (is (false? (oies/position-would-be-dropped? "code" 27 9)))
-    (is (false? (oies/position-would-be-dropped? "cursor" 27 9)))
-    (is (false? (oies/position-would-be-dropped? "zed" 27 9)))
-    (is (false? (oies/position-would-be-dropped? "idea" 27 9)))
-    (is (false? (oies/position-would-be-dropped? "code-insiders" 27 9)))
-    (is (false? (oies/position-would-be-dropped? nil 27 9))
+    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "code" 27 9)))
+    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "cursor" 27 9)))
+    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "zed" 27 9)))
+    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "idea" 27 9)))
+    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "code-insiders" 27 9)))
+    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? nil 27 9))
         "this predicate answers for NAMED commands only. nil is auto-detect,
          whose binary launch-editor chooses from the running process list —
          so the capability question is asked of the dependency at launch time
@@ -795,8 +795,8 @@
             coordinate-bearing request"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
-                     {:uri            oies/endpoint-path
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=fake_ns/core.cljs&line=27&column=9&editor=windsurf"
                       :headers        {"host" "localhost:8031"}})]
@@ -815,8 +815,8 @@
             cannot do"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (oies/handle
-                     {:uri            oies/endpoint-path
+        (let [resp (rf.testbed.open-in-editor-server/handle
+                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
                       :request-method :post
                       :query-string   "file=fake_ns/core.cljs&editor=windsurf"
                       :headers        {"host" "localhost:8031"}})]
@@ -838,8 +838,8 @@
       (testing (str "editor=" editor)
         (let [calls (atom [])]
           (with-launch-spy calls
-            (let [resp (oies/handle
-                         {:uri            oies/endpoint-path
+            (let [resp (rf.testbed.open-in-editor-server/handle
+                         {:uri            rf.testbed.open-in-editor-server/endpoint-path
                           :request-method :post
                           :query-string   (str "file=fake_ns/core.cljs&line=27&column=9&editor=" editor)
                           :headers        {"host" "localhost:8031"}})]
@@ -863,12 +863,12 @@
 
 (deftest escape-json-string-escapes-backslash-and-doublequote
   (testing "backslashes and double-quotes are escaped"
-    (is (= "a\\\\b" (#'oies/escape-json-string "a\\b"))
+    (is (= "a\\\\b" (#'rf.testbed.open-in-editor-server/escape-json-string "a\\b"))
         "one backslash → two")
-    (is (= "say \\\"hi\\\"" (#'oies/escape-json-string "say \"hi\""))
+    (is (= "say \\\"hi\\\"" (#'rf.testbed.open-in-editor-server/escape-json-string "say \"hi\""))
         "double-quotes are escaped")
     (is (= "C:\\\\Users\\\\me\\\\core.cljs"
-           (#'oies/escape-json-string "C:\\Users\\me\\core.cljs"))
+           (#'rf.testbed.open-in-editor-server/escape-json-string "C:\\Users\\me\\core.cljs"))
         "a Windows abs-path's backslashes are all doubled")))
 
 (deftest json-resp-escapes-windows-backslash-path
@@ -876,8 +876,8 @@
     (let [calls (atom [])
           file  "C:\\Users\\me\\code\\re-frame2\\src\\a\"b.cljs"]
       (with-launch-spy calls
-        (with-redefs [oies/resolve-file (constantly file)]
-          (let [resp (oies/handle
+        (with-redefs [rf.testbed.open-in-editor-server/resolve-file (constantly file)]
+          (let [resp (rf.testbed.open-in-editor-server/handle
                        (req {:method :post
                              :host   "localhost:8031"
                              :origin nil
@@ -905,7 +905,7 @@
         (spit src-file ";; fixture\n")
         ;; resolve-file reads user.dir at request time.
         (System/setProperty "user.dir" (.getAbsolutePath tmp))
-        (let [resolved (oies/resolve-file rel-path)]
+        (let [resolved (rf.testbed.open-in-editor-server/resolve-file rel-path)]
           (is (some? resolved)
               "the off-classpath relative coord resolved via the cwd branch")
           (is (.isAbsolute (File. ^String resolved))
@@ -996,8 +996,8 @@
           (let [expected (io/file @repo-root root file)
                 calls    (atom [])]
             (with-launch-spy calls
-              (let [resp (oies/handle
-                           {:uri            oies/endpoint-path
+              (let [resp (rf.testbed.open-in-editor-server/handle
+                           {:uri            rf.testbed.open-in-editor-server/endpoint-path
                             :request-method :post
                             :query-string   (str "file=" file "&line=12&column=3")
                             :headers        {"host" "localhost:8042"}})]
@@ -1030,23 +1030,23 @@
             real roots earn their keep"
     (doseq [{:keys [tool file]} consumer-coords]
       ;; An unwired port never reaches this namespace at all.
-      (is (nil? (oies/handle {:uri            "/index.html"
+      (is (nil? (rf.testbed.open-in-editor-server/handle {:uri            "/index.html"
                               :request-method :post
                               :query-string   (str "file=" file)
                               :headers        {"host" "localhost:8042"}}))
           (str tool ": a request that is not the endpoint path is not
                handled here"))
-      (is (= 404 (:status (oies/handler {:uri            "/index.html"
+      (is (= 404 (:status (rf.testbed.open-in-editor-server/handler {:uri            "/index.html"
                                          :request-method :post
                                          :query-string   (str "file=" file)
                                          :headers        {"host" "localhost:8042"}})))
           (str tool ": the non-endpoint answer is a non-2xx, so the client
                falls back"))
       ;; …and the fallback's own input is still relative.
-      (is (not (editor-uri/absolute-path? file))
+      (is (not (rf.source-coords.editor-uri/absolute-path? file))
           (str tool " coordinate is relative — the URI fallback alone
                cannot reach the file"))
-      (is (= file (#'editor-uri/compose-path nil file))
+      (is (= file (#'rf.source-coords.editor-uri/compose-path nil file))
           (str tool " composes to itself with no project-root — the
                composition step the retired pipeline used to feed")))))
 
@@ -1151,15 +1151,15 @@
                   — and no more. This is the drift guard: a launch-editor
                   release that learns one of these makes it red, which is the
                   signal to drop the entry from the set"
-          (doseq [cmd oies/commands-without-position-support]
+          (doseq [cmd rf.testbed.open-in-editor-server/commands-without-position-support]
             (is (= "[\"F\"]" (get probe cmd))
                 (str cmd " is invoked with the bare file — the coordinate is
                      dropped inside the dependency"))))
 
         (testing "every OTHER command in the vocabulary carries the position,
                   so the decline is as narrow as the invariant allows"
-          (doseq [cmd (remove oies/commands-without-position-support
-                              (vals oies/editor-command-by-keyword))]
+          (doseq [cmd (remove rf.testbed.open-in-editor-server/commands-without-position-support
+                              (vals rf.testbed.open-in-editor-server/editor-command-by-keyword))]
             (let [argv (get probe cmd)]
               (is (some? argv) (str cmd " was probed"))
               (is (not= "[\"F\"]" argv)
@@ -1196,30 +1196,30 @@
           (fn []
             (testing "a position-blind command the endpoint never names — the
                       class auto-detect reaches"
-              (is (= {:ok false :message oies/position-unsupported-error}
-                     (oies/launch! f 27 9 "nonexistent-dir/Brackets"))))
+              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
+                     (rf.testbed.open-in-editor-server/launch! f 27 9 "nonexistent-dir/Brackets"))))
 
             (testing "windsurf reaches the same verdict here too, so the
                       handler's pre-spawn fast path is an optimisation and not
                       the only thing standing between it and a false 200"
-              (is (= {:ok false :message oies/position-unsupported-error}
-                     (oies/launch! f 27 9 "windsurf"))))
+              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
+                     (rf.testbed.open-in-editor-server/launch! f 27 9 "windsurf"))))
 
             (testing "POSITIVE CONTROL — a position-CARRYING command is passed
                       through to a real launch attempt. It still fails, because
                       the binary does not exist, but NOT as the decline: the
                       probe is discriminating, not refusing everything"
-              (let [{:keys [ok message]} (oies/launch! f 27 9 "nonexistent-dir/zed")]
+              (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f 27 9 "nonexistent-dir/zed")]
                 (is (false? ok) "the nonexistent binary could not be launched")
-                (is (not= oies/position-unsupported-error message)
+                (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
                     "…and it was a launch failure, not a capability refusal")))
 
             (testing "a coordinate-FREE launch is never refused: there is no
                       position to lose, so even a position-blind command
                       reaches the launcher"
-              (let [{:keys [ok message]} (oies/launch! f nil nil "nonexistent-dir/Brackets")]
+              (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f nil nil "nonexistent-dir/Brackets")]
                 (is (false? ok))
-                (is (not= oies/position-unsupported-error message)
+                (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
                     "the empty coordinate argv tokens read as absent")))
 
             ;; A COLUMN with no line is the coordinate shape every probe above
@@ -1233,8 +1233,8 @@
                       as a line-bearing launch. The argv line token is empty,
                       so this is precisely the request the old `if(line)` gate
                       waved through"
-              (is (= {:ok false :message oies/position-unsupported-error}
-                     (oies/launch! f nil 7 "nonexistent-dir/Brackets"))
+              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
+                     (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/Brackets"))
                   "a column alone is a coordinate the launcher can lose"))
 
             (testing "COLUMN-ONLY POSITIVE CONTROL — the same column-only
@@ -1242,9 +1242,9 @@
                       real launch attempt. It fails (the binary does not
                       exist) but NOT as the decline, so widening the gate did
                       not turn column-only into a blanket refusal"
-              (let [{:keys [ok message]} (oies/launch! f nil 7 "nonexistent-dir/zed")]
+              (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/zed")]
                 (is (false? ok) "the nonexistent binary could not be launched")
-                (is (not= oies/position-unsupported-error message)
+                (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
                     "…and it was a launch failure, not a capability refusal")))))))))
 
 (deftest endpoint-turns-a-launch-time-decline-into-the-same-422
@@ -1257,11 +1257,11 @@
 
             `launch!` is stubbed with the verdict the previous test proves the
             real shim returns; what is under test here is the mapping"
-    (with-redefs [oies/launch! (fn [& _]
+    (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& _]
                                  {:ok false
-                                  :message oies/position-unsupported-error})]
-      (let [resp (oies/handle
-                   {:uri            oies/endpoint-path
+                                  :message rf.testbed.open-in-editor-server/position-unsupported-error})]
+      (let [resp (rf.testbed.open-in-editor-server/handle
+                   {:uri            rf.testbed.open-in-editor-server/endpoint-path
                     :request-method :post
                     :query-string   "file=fake_ns/core.cljs&line=27&column=9"
                     :headers        {"host" "localhost:8031"}})]
@@ -1278,14 +1278,14 @@
             normalised 1:7 the endpoint would have handed the launcher, and
             the client's URI fallback is what carries it"
     (is (= "/abs/src/app.cljs:1:7"
-           (#'oies/build-file-spec "/abs/src/app.cljs" nil 7))
+           (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/src/app.cljs" nil 7))
         "column-only normalises to line 1 — a real coordinate, not an absent
          one, which is why the shim must probe for it")
-    (with-redefs [oies/launch! (fn [& _]
+    (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& _]
                                  {:ok false
-                                  :message oies/position-unsupported-error})]
-      (let [resp (oies/handle
-                   {:uri            oies/endpoint-path
+                                  :message rf.testbed.open-in-editor-server/position-unsupported-error})]
+      (let [resp (rf.testbed.open-in-editor-server/handle
+                   {:uri            rf.testbed.open-in-editor-server/endpoint-path
                     :request-method :post
                     :query-string   "file=fake_ns/core.cljs&column=7"
                     :headers        {"host" "localhost:8031"}})]

@@ -29,8 +29,8 @@
   consumer-side while the prefix-detection logic is shared."
   (:require [clojure.string :as str]
             #?(:clj [clojure.edn :as edn])
-            [re-frame.mcp-base.overflow :as overflow]
-            [re-frame.mcp-base.vocab :as vocab])
+            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab])
   #?(:cljs (:require [cljs.reader])))
 
 ;; ---------------------------------------------------------------------------
@@ -50,19 +50,19 @@
     :dropped — count of records classified as sensitive and dropped at
                the wire boundary (including fail-closed malformed
                stamps). Emitted
-               under `vocab/dropped-sensitive-key` when positive.
+               under `rf.mcp-base.vocab/dropped-sensitive-key` when positive.
     :elided  — count of leaves replaced with the
                `:rf.size/large-elided` marker (from
                `elision/count-elided-markers`). Emitted under
-               `vocab/elided-large-key` when positive.
+               `rf.mcp-base.vocab/elided-large-key` when positive.
 
   A zero / nil / absent count omits its slot entirely (the 'omit when
   zero' MUST). Returns `envelope` unchanged when both counts are
   zero — identity-preserving on the common path."
   [envelope {:keys [dropped elided]}]
   (cond-> envelope
-    (pos? (or dropped 0)) (assoc vocab/dropped-sensitive-key dropped)
-    (pos? (or elided  0)) (assoc vocab/elided-large-key      elided)))
+    (pos? (or dropped 0)) (assoc rf.mcp-base.vocab/dropped-sensitive-key dropped)
+    (pos? (or elided  0)) (assoc rf.mcp-base.vocab/elided-large-key      elided)))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-bounded marker detection.
@@ -120,7 +120,7 @@
   `*print-namespace-maps*`. A response whose leading token IS one of
   these keys (not merely starts-with — see `marker-text?`) is a
   boundary-step marker that a consumer can skip re-walking."
-  (into [] (mapcat marker-key-prefixes) [vocab/cache-hit-key vocab/overflow-key]))
+  (into [] (mapcat marker-key-prefixes) [rf.mcp-base.vocab/cache-hit-key rf.mcp-base.vocab/overflow-key]))
 
 ;; An EDN keyword/symbol constituent: alphanumerics plus the punctuation
 ;; a keyword name/namespace may legally contain (`* + ! - _ ' ? < > = .
@@ -182,7 +182,7 @@
   carry — the two the cache + cap boundary steps emit. A closed
   single-key map whose sole key is one of these (with a map body) is a
   marker; anything else is ordinary / malformed payload."
-  #{vocab/cache-hit-key vocab/overflow-key})
+  #{rf.mcp-base.vocab/cache-hit-key rf.mcp-base.vocab/overflow-key})
 
 (defn- reject-marker-tag!
   "Throw on any tagged literal encountered while reading marker text. A
@@ -258,7 +258,7 @@
 ;;
 ;; The invariant the skip actually relies on is "a marker is sub-cap BY
 ;; CONSTRUCTION". We enforce it DIRECTLY against the documented convention
-;; cap (`overflow/default-max-tokens`): a marker candidate whose rendered
+;; cap (`rf.mcp-base.overflow/default-max-tokens`): a marker candidate whose rendered
 ;; text estimates over the default cap is NOT sub-cap by construction, so it
 ;; is not a marker and falls through to normal cap enforcement. The two real
 ;; markers are tiny fixed-shape maps (a few hundred chars ≈ ~100 tokens), so
@@ -272,11 +272,11 @@
 (defn- marker-sized?
   "Is `text` small enough to be a genuine, sub-cap-by-construction marker —
   i.e. does its rendered-text token estimate stay within the documented
-  default cap (`overflow/default-max-tokens`)? A single-key reserved-`:rf.mcp/*`
+  default cap (`rf.mcp-base.overflow/default-max-tokens`)? A single-key reserved-`:rf.mcp/*`
   wrapper whose BODY pushes the rendered text over the default cap is NOT a
   marker (rf2-vd1uyn); it continues through cap enforcement like any payload."
   [text]
-  (<= (overflow/token-estimate text) overflow/default-max-tokens))
+  (<= (rf.mcp-base.overflow/token-estimate text) rf.mcp-base.overflow/default-max-tokens))
 
 (defn marker-text?
   "Is `text` (the rendered EDN text of a response's first content slot)

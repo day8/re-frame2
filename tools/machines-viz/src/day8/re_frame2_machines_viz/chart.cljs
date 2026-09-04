@@ -37,8 +37,8 @@
             ["elkjs/lib/elk.bundled.js" :as elkjs]
             [clojure.string :as str]
             [reagent.core :as r]
-            [re-frame.interop :as interop]
-            [re-frame.trace :as trace]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace :as rf.trace]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.layout-error :as layout-error]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
@@ -495,7 +495,7 @@
 ;;   1. A `:rf.error/machines-viz-elk-layout-failed` trace event lands on
 ;;      the bus so tools (Xray Issues panel, off-box monitors) that
 ;;      subscribe to `:rf.error/*` see the failure.
-;;   2. `js/console.error` (gated on `interop/debug-enabled?` so the path
+;;   2. `js/console.error` (gated on `rf.interop/debug-enabled?` so the path
 ;;      is elision-safe in production bundles) so an operator opening
 ;;      DevTools sees something immediately.
 ;;   3. The callback receives a result-map shape carrying `:layout-error`
@@ -517,11 +517,11 @@
   [error parsed direction layout-options machine-id]
   (let [summary (layout-error/input-summary parsed direction layout-options)
         err     (layout-error/error->data error)]
-    (trace/emit-error! :rf.error/machines-viz-elk-layout-failed
+    (rf.trace/emit-error! :rf.error/machines-viz-elk-layout-failed
                        {:elk-error     err
                         :machine-id    machine-id
                         :input-summary summary})
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (js/console.error "[machines-viz] ELK layout failed:" error
                         (pr-str (assoc summary :machine-id machine-id))))))
 
@@ -625,7 +625,7 @@
   panel indicator instead of silently rendering every node stacked at
   origin. The failure also fires a
   `:rf.error/machines-viz-elk-layout-failed` trace event + (in dev
-  builds, gated on `interop/debug-enabled?`) a `js/console.error`.
+  builds, gated on `rf.interop/debug-enabled?`) a `js/console.error`.
 
   The `:edge-points` half carries elk's routed bend-points so the chart
   routes edges AROUND nested containers instead of cutting across them.
@@ -769,7 +769,7 @@
     {:id :cancellation-cascade :spec <map>  :tick <opaque>}
 
   An unknown `:id` is ignored (a host data error, not a runtime
-  fallback); in dev builds (gated on `interop/debug-enabled?`) it emits
+  fallback); in dev builds (gated on `rf.interop/debug-enabled?`) it emits
   a `js/console.warn` so the misconfigured host is visible without
   failing the render."
   [{:keys [id tick] :as descriptor}]
@@ -800,7 +800,7 @@
 
     ;; Unknown :id — ignore gracefully (dev-only warn).
     (do
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (js/console.warn
           "[machines-viz] MachineChart ignoring :overlays descriptor with"
           "unknown :id" (pr-str id)

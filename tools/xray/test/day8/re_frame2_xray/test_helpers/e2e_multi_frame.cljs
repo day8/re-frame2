@@ -58,8 +58,8 @@
   fixture wraps around `use-fixtures :each`) handles frame disposal
   and registrar restoration."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.trace.projection :as projection]
+            [re-frame.frame :as rf.frame]
+            [re-frame.trace.projection :as rf.trace.projection]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
@@ -118,7 +118,7 @@
   ;; shapes. `mount.cljs/ensure-xray-frame!` does the same.
   (let [buffer     (trace-collector/buffer-for-test)
         cascades   (into [] (remove self-noise/xray-internal-event-bundle?)
-                         (projection/group-by-event buffer))
+                         (rf.trace.projection/group-by-event buffer))
         seed-frame (or (spine/focusable-head-frame-id cascades)
                        defaults/default-target-frame)]
     (rf/with-frame :rf/xray

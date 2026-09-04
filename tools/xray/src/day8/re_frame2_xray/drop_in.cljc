@@ -91,7 +91,7 @@
   The API is a single arity-1 `attach!` taking an options map. Future
   modes (binary trace decoders, transit-over-websocket, etc.) add
   keys here additively."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.interop :as rf.interop]
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
 ;; ---- internal counter for auto-`:id` ------------------------------------
@@ -137,7 +137,7 @@
   [event]
   (cond-> event
     (nil? (:id event))   (assoc :id   (next-id!))
-    (nil? (:time event)) (assoc :time (interop/now-ms))))
+    (nil? (:time event)) (assoc :time (rf.interop/now-ms))))
 
 (defn- valid-event?
   "Cheap shape predicate — `event` is a map. The buffer is best-effort:
@@ -172,10 +172,10 @@
 
   Returns nothing. No-op when `event` is not a map (see
   `valid-event?`) or when the build is production (the `collect-
-  trace!` body short-circuits on `interop/debug-enabled?` false).
+  trace!` body short-circuits on `rf.interop/debug-enabled?` false).
 
   CLJS-only side effect: the JVM target's `collect-trace!` short-
-  circuits on `interop/debug-enabled?` false, matching the production
+  circuits on `rf.interop/debug-enabled?` false, matching the production
   CLJS posture. The normalise-event arity remains JVM-runnable so the
   fill algebra is testable without a CLJS runtime."
   [event]
@@ -294,9 +294,9 @@
 (defn detach!
   "Undo the current attachment. Idempotent — a no-op when nothing is
   attached. Returns nothing. Production-elided via the same
-  `interop/debug-enabled?` gate Xray's other side-effects share."
+  `rf.interop/debug-enabled?` gate Xray's other side-effects share."
   []
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (when-let [{:keys [detach-fn]} @attached-state]
       (when (fn? detach-fn)
         (try
@@ -344,7 +344,7 @@
   event-shape contract the buffer expects."
   ([] (attach! {:mode :push}))
   ([{:keys [mode trace-source] :or {mode :push} :as _opts}]
-   (when interop/debug-enabled?
+   (when rf.interop/debug-enabled?
      ;; Single-source contract: replace any prior attachment so
      ;; tests that reconfigure mid-suite don't accumulate watches.
      (detach!)
@@ -386,11 +386,11 @@
   strict posture on unknown modes — one lifecycle contract across
   the surface, no implicit fallbacks.
 
-  Returns nothing. No-op in production (the `interop/debug-enabled?`
+  Returns nothing. No-op in production (the `rf.interop/debug-enabled?`
   gate short-circuits both `collect-from-host!` and this fn's
   attachment check, so production builds never observe the throw)."
   [event]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (when-not (attached?)
       (throw (ex-info ":rf.error/xray-emit-before-attach"
                       {:rf.error/id :rf.error/xray-emit-before-attach

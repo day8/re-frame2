@@ -67,8 +67,8 @@
   paths."
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
@@ -597,7 +597,7 @@
   ;; lands as soon as both gates are satisfied.
   (when (and (nil? @auto-open-watcher)
              (exists? js/window)
-             (some? (frame/frame :rf/xray)))
+             (some? (rf.frame/frame :rf/xray)))
     (when-let [reaction ((:subscribe (rf/capture-frame :rf/xray))
                          [:rf.xray/issues-ribbon])]
       (let [watch-fn (fn [_k _r _old new-val]
@@ -641,13 +641,13 @@
         ;; with no rendered consumer anywhere (panels.cljs §Issues), so
         ;; nothing but this call supplies one.
         ;;
-        ;; `interop/activate-derived-value!` is the substrate's own "put
+        ;; `rf.interop/activate-derived-value!` is the substrate's own "put
         ;; this derived value on your push path" op: a no-op on hosts that
         ;; are push-based from birth (the React-hook spine wires one watch
         ;; per source at construction) and on plain-atom, and idempotent on
         ;; an already-capturing reaction. It runs FIRST so the seed below
         ;; reads a settled node.
-        (interop/activate-derived-value! reaction)
+        (rf.interop/activate-derived-value! reaction)
         ;; Seed the baseline from the reaction's CURRENT value before
         ;; `add-watch` — the reaction may hold issues that predate this
         ;; install (e.g. re-install after a focus nav that already landed

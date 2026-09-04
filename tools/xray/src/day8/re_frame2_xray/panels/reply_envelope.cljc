@@ -78,7 +78,7 @@
             ;; CONTRACT reader xray already consumes (`self-noise`,
             ;; `trace-collector`, `runtime`); the no-tool-imports-core bundle
             ;; direction (core MUST NOT require tools) is unaffected.
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as rf.trace]))
 
 ;; ---------------------------------------------------------------------------
 ;; The closed vocabularies (MIRRORED from re-frame.reply — Managed-Effects
@@ -651,7 +651,7 @@
                  ;; no emit site produces it) and a top-level `:frame` on the
                  ;; raw event (raw events carry frame ONLY under `:tags`) — are
                  ;; gone.
-                 :frame        (or (:rf.frame/id tags) (trace/trace-event-frame ev))
+                 :frame        (or (:rf.frame/id tags) (rf.trace/trace-event-frame ev))
                  ;; rf2-waawic — tolerate the additive `:rf.reply/work-status`
                  ;; production key so machine / resource / mutation rows do not
                  ;; lose their work status.

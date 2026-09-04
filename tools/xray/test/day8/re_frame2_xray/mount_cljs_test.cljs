@@ -22,13 +22,13 @@
   2. **Lazy-mount affordance.** The mount cost (DOM node + substrate
      render) is paid once on first `open!`. Subsequent `open!`s flip
      the container's CSS display only — no re-render, no new DOM
-     node, no second `substrate-adapter/render` call. This is the
+     node, no second `rf.substrate.adapter/render` call. This is the
      spec/007-UX-IA.md §The default landing view <80ms toggle
      target: re-mounting would discard internal state and miss the
      budget.
 
   3. **Missing-adapter gate.** Per the source docstring `open!` is
-     gated on `(substrate-adapter/current-adapter)`. When no
+     gated on `(rf.substrate.adapter/current-adapter)`. When no
      adapter is installed — production-bundle accident, host that
      never called `rf/init!`, mid-`dispose-adapter!` race — the
      call returns nil silently. No DOM node, no state mutation, no
@@ -48,9 +48,9 @@
   lives in the Playwright lane (rf2-s2bhn)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
@@ -203,17 +203,17 @@
 
 ;; ---- substrate-render stub ----------------------------------------------
 ;;
-;; The fixture installs `plain-atom/adapter` — its `:render` slot
+;; The fixture installs `rf.substrate.plain-atom/adapter` — its `:render` slot
 ;; throws (per substrate/plain_atom.cljc line 39: render is not
 ;; supported on the JVM/headless adapter). Real `open!` calls
-;; `(substrate-adapter/render [shell/shell-view] node nil)`; we
+;; `(rf.substrate.adapter/render [shell/shell-view] node nil)`; we
 ;; intercept that delegation with `with-redefs` so the test never
 ;; spins a React tree. The stub records its arguments + returns a
 ;; sentinel unmount fn so `teardown!` has something to invoke and
 ;; the assertion can verify it was called exactly once.
 
 (defn- mk-render-stub
-  "Build a stub for `substrate-adapter/render`. Returns
+  "Build a stub for `rf.substrate.adapter/render`. Returns
   `{:render-fn ..., :calls (atom []), :unmount-calls (atom 0)}` so
   tests can assert call counts. The render-fn signature matches the
   contract: 3 args, returns an unmount fn."
@@ -232,7 +232,7 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
-;; `make-reset-runtime-fixture` installs `plain-atom/adapter` and snapshots
+;; `make-reset-runtime-fixture` installs `rf.substrate.plain-atom/adapter` and snapshots
 ;; the registrar — same pattern preload_cljs_test.cljs uses. The
 ;; per-test cleanup also resets the mount-state defonce so a failing
 ;; transition test doesn't poison neighbours via stale singleton state.
@@ -269,17 +269,17 @@
 
 (deftest first-open!-creates-dom-node-and-renders
   (testing "first open! creates a fresh <div id=\"rf-xray-root\"> under
-            document.body, delegates to substrate-adapter/render with
+            document.body, delegates to rf.substrate.adapter/render with
             the shell-view tree and the new node, and marks visible"
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (let [result (mount/open!)]
               (is (some? result) "open! returns the mount-state map")
               (is (map? result))
               (is (= 1 (count @calls))
-                  "substrate-adapter/render invoked exactly once")
+                  "rf.substrate.adapter/render invoked exactly once")
               (let [{:keys [tree node opts]} (first @calls)]
                 (is (vector? tree) "render received a hiccup vector")
                 (is (some? node) "render received the mount node")
@@ -304,7 +304,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (let [node (:node @@#'mount/mount-state)]
               (is (= "block" (.-display (.-style node)))
@@ -319,7 +319,7 @@
       (fn [doc]
         (set! (.-querySelector doc) (fn [_selector] nil))
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (let [prior-console (when (exists? js/console) js/console)]
               (set! js/console (js-obj "error" (fn [& _args] nil)))
               (try
@@ -367,8 +367,8 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render          render-fn
-                        substrate-adapter/current-adapter (fn [] :rf.adapter/uix)]
+          (with-redefs [rf.substrate.adapter/render          render-fn
+                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/uix)]
             (with-warn-counter*
               (fn [warns]
                 (let [result     (mount/open!)
@@ -383,7 +383,7 @@
                   (is (= 1 @warns) "exactly one console.warn")
                   (is (false? (mount/mounted?)) "nothing mounted")
                   (is (zero? (count @calls))
-                      "substrate-adapter/render never invoked"))))))))))
+                      "rf.substrate.adapter/render never invoked"))))))))))
 
 (deftest open-overlay!-on-react-element-substrate-refuses-cleanly
   (testing "open-overlay! refuses a React-element substrate host the same
@@ -391,8 +391,8 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render          render-fn
-                        substrate-adapter/current-adapter (fn [] :rf.adapter/ui)]
+          (with-redefs [rf.substrate.adapter/render          render-fn
+                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/ui)]
             (with-warn-counter*
               (fn [_warns]
                 (let [result (mount/open-overlay!)]
@@ -407,8 +407,8 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render          render-fn
-                        substrate-adapter/current-adapter (fn [] :rf.adapter/helix)]
+          (with-redefs [rf.substrate.adapter/render          render-fn
+                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/helix)]
             (with-warn-counter*
               (fn [_warns]
                 (let [result (mount/popout!)]
@@ -435,8 +435,8 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render          render-fn
-                        substrate-adapter/current-adapter (fn [] :rf.adapter/hicasso)]
+          (with-redefs [rf.substrate.adapter/render          render-fn
+                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/hicasso)]
             (with-warn-counter*
               (fn [warns]
                 (let [result     (mount/open!)
@@ -451,7 +451,7 @@
                   (is (= 1 @warns) "exactly one console.warn")
                   (is (false? (mount/mounted?)) "nothing mounted")
                   (is (zero? (count @calls))
-                      "substrate-adapter/render never invoked"))))))))))
+                      "rf.substrate.adapter/render never invoked"))))))))))
 
 (deftest open!-on-ratom-substrate-still-mounts
   (testing "the gate is a denylist of the element-shaped kinds only — a
@@ -460,13 +460,13 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render          render-fn
-                        substrate-adapter/current-adapter (fn [] :rf.adapter/reagent-slim)]
+          (with-redefs [rf.substrate.adapter/render          render-fn
+                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/reagent-slim)]
             (let [result (mount/open!)]
               (is (map? result) "open! returns the mount-state map")
               (is (true? (mount/mounted?)))
               (is (= 1 (count @calls))
-                  "substrate-adapter/render invoked exactly once"))))))))
+                  "rf.substrate.adapter/render invoked exactly once"))))))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Open — second call (already mounted; no re-render)
@@ -474,14 +474,14 @@
 
 (deftest second-open!-does-not-re-render
   (testing "calling open! when already mounted is a CSS-only show —
-            substrate-adapter/render is NOT invoked again, the
+            rf.substrate.adapter/render is NOT invoked again, the
             existing DOM node is reused, display flips back to block.
             This is the <80ms toggle target the spec calls out:
             re-rendering would discard internal shell state"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (let [first-state (mount/open!)
                   first-node  (:node first-state)]
               (is (= 1 (count @calls)) "first open! triggered one render")
@@ -510,7 +510,7 @@
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn calls unmount-calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (let [pre-close @@#'mount/mount-state]
               (is (some? pre-close))
@@ -546,7 +546,7 @@
           (set! (.-display (.-style host)) "flex"))
         (let [host (.-body doc)
               {:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (is (= "flex" (.-display (.-style host)))
                 "open! preserves the host's pre-Xray inline display")
@@ -567,7 +567,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (is (nil? (mount/close!))
                 "close! returns nil on clean state")
             (is (nil? @@#'mount/mount-state)
@@ -584,7 +584,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (mount/close!)
             (is (false? (mount/visible?)))
@@ -605,7 +605,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/toggle!)
             (is (= 1 (count @calls))
                 "first toggle! triggers a substrate render")
@@ -618,7 +618,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (is (true? (mount/visible?)))
             (mount/toggle!)
@@ -636,7 +636,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (mount/close!)
             (is (false? (mount/visible?)))
@@ -653,7 +653,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/toggle!)  ;; #1 open
             (is (true? (mount/visible?)))
             (mount/toggle!)  ;; #2 close
@@ -690,7 +690,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (is (true? (mount/visible?)) "precondition: shell visible")
             (rf/with-frame :rf/xray
@@ -704,7 +704,7 @@
                 "mount-state retained — close-shell hides, never tears down")
             (is (= 0 @unmount-calls)
                 "close-shell must NOT invoke the substrate unmount fn")
-            (is (true? (:close-requested? (frame/frame-app-db-value :rf/xray)))
+            (is (true? (:close-requested? (rf.frame/frame-app-db-value :rf/xray)))
                 "reactive :close-requested? flag set in lock-step")))))))
 
 (deftest close-shell-then-open!-reopens-the-shell
@@ -714,7 +714,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (rf/with-frame :rf/xray
               (rf/dispatch-sync [:rf.xray/close-shell]))
@@ -744,7 +744,7 @@
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)
               popout-calls (atom 0)]
-          (with-redefs [substrate-adapter/render render-fn
+          (with-redefs [rf.substrate.adapter/render render-fn
                         mount/popout! (fn [] (swap! popout-calls inc) nil)]
             ;; install-fx! is called by register-xray-handlers! in the
             ;; fixture, but redefine-after-register means the fx closure
@@ -769,7 +769,7 @@
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (is (= 1 (.-length (.-children (.-body doc)))))
             (let [pre-node (:node @@#'mount/mount-state)]
@@ -793,7 +793,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (let [first-node (:node @@#'mount/mount-state)]
               (mount/teardown!)
@@ -814,7 +814,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (is (nil? (mount/teardown!)))
             (is (nil? @@#'mount/mount-state))
             (is (= 0 @unmount-calls)
@@ -830,7 +830,7 @@
       (fn [doc]
         ;; Build a stub render that returns a throwing unmount.
         (let [calls (atom [])]
-          (with-redefs [substrate-adapter/render
+          (with-redefs [rf.substrate.adapter/render
                         (fn [tree node opts]
                           (swap! calls conj [tree node opts])
                           (fn throwing-unmount []
@@ -861,11 +861,11 @@
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             ;; Tear down the fixture's plain-atom install so
             ;; current-adapter returns nil.
-            (substrate-adapter/dispose-adapter!)
-            (is (nil? (substrate-adapter/current-adapter))
+            (rf.substrate.adapter/dispose-adapter!)
+            (is (nil? (rf.substrate.adapter/current-adapter))
                 "sanity — no adapter is currently installed")
             (is (nil? (mount/open!))
                 "open! returns nil when no adapter is installed")
@@ -888,7 +888,7 @@
         (config/set-auto-open! false)
         (let [{:keys [render-fn calls]} (mk-render-stub)
               console-calls (atom [])]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (let [prior-console (when (exists? js/console) js/console)]
               (set! js/console (js-obj "error" (fn [& args]
                                                   (swap! console-calls conj args)
@@ -921,8 +921,8 @@
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
-            (substrate-adapter/dispose-adapter!)
+          (with-redefs [rf.substrate.adapter/render render-fn]
+            (rf.substrate.adapter/dispose-adapter!)
             (is (nil? (mount/toggle!))
                 "toggle! returns nil rather than throwing")
             (is (nil? @@#'mount/mount-state))
@@ -939,11 +939,11 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
-            (substrate-adapter/dispose-adapter!)
+          (with-redefs [rf.substrate.adapter/render render-fn]
+            (rf.substrate.adapter/dispose-adapter!)
             (is (nil? (mount/open!)) "first open! is a no-op")
             ;; Re-install — same plain-atom adapter the fixture had.
-            (substrate-adapter/install-adapter! plain-atom/adapter)
+            (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
             (let [result (mount/open!)]
               (is (some? result) "second open! succeeds after install")
               (is (= 1 (count @calls))
@@ -962,7 +962,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (is (true? (mount/visible?)))
             ;; Forcibly mutate the singleton's :visible? slot — visible?
@@ -978,7 +978,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (is (false? (mount/mounted?)) "clean baseline")
             (mount/open!)
             (is (true? (mount/mounted?)) "mounted? true after open!")
@@ -1010,11 +1010,11 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
-            (is (nil? (frame/frame :rf/xray))
+          (with-redefs [rf.substrate.adapter/render render-fn]
+            (is (nil? (rf.frame/frame :rf/xray))
                 ":rf/xray is absent on the clean baseline")
             (mount/open!)
-            (is (some? (frame/frame :rf/xray))
+            (is (some? (rf.frame/frame :rf/xray))
                 ":rf/xray registered after open!")))))))
 
 (deftest first-open!-seeds-trace-buffer-mirror
@@ -1026,7 +1026,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             ;; Push two events into the trace-bus atom BEFORE the
             ;; first open!. The frame doesn't exist yet, so the
             ;; `mirror-into-xray!` guard skips the dispatch — atom
@@ -1096,7 +1096,7 @@
                              :trigger-event [:cart/add-item]
                              :event-id     :cart/add-item
                              :trace-events []}]]
-          (with-redefs [substrate-adapter/render render-fn
+          (with-redefs [rf.substrate.adapter/render render-fn
                         ;; Stub `rf/epoch-history` so the `:rf.xray/
                         ;; set-target-frame` event handler's
                         ;; `(rf/epoch-history target)` read returns the
@@ -1139,7 +1139,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn
+          (with-redefs [rf.substrate.adapter/render render-fn
                         rf/epoch-history (fn [_] [])]
             (mount/open!)
             (rf/with-frame :rf/xray
@@ -1162,7 +1162,7 @@
                              :db-before {} :db-after {:k 1}
                              :trigger-event [:cart/add] :event-id :cart/add
                              :trace-events []}]]
-          (with-redefs [substrate-adapter/render render-fn
+          (with-redefs [rf.substrate.adapter/render render-fn
                         rf/epoch-history (fn [frame-id]
                                            (case frame-id
                                              :cart-frame cart-records
@@ -1193,14 +1193,14 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
-            (let [first-frame (frame/frame :rf/xray)
-                  first-db    (frame/app-db-container :rf/xray)]
+            (let [first-frame (rf.frame/frame :rf/xray)
+                  first-db    (rf.frame/app-db-container :rf/xray)]
               (mount/close!)
               (mount/open!)
-              (let [second-frame (frame/frame :rf/xray)
-                    second-db   (frame/app-db-container :rf/xray)]
+              (let [second-frame (rf.frame/frame :rf/xray)
+                    second-db   (rf.frame/app-db-container :rf/xray)]
                 (is (some? first-frame))
                 (is (some? second-frame))
                 (is (identical? first-db second-db)
@@ -1229,7 +1229,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn
+          (with-redefs [rf.substrate.adapter/render render-fn
                         rf/epoch-history (fn [frame-id]
                                            (case frame-id
                                              :cart-frame [{:epoch-id :e-cart :frame :cart-frame
@@ -1274,7 +1274,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn
+          (with-redefs [rf.substrate.adapter/render render-fn
                         rf/epoch-history (fn [_] [])]
             (mount/open!)
             (rf/with-frame :rf/xray
@@ -1423,7 +1423,7 @@
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)
               {:keys [window closed?]}          (mk-stub-popout-window)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (seed-popout-state! {:window     window
                                  :unmount-fn (fn []
@@ -1451,7 +1451,7 @@
         (let [{:keys [render-fn]} (mk-render-stub)
               cycle! (fn []
                        (let [{:keys [window]} (mk-stub-popout-window)]
-                         (with-redefs [substrate-adapter/render render-fn]
+                         (with-redefs [rf.substrate.adapter/render render-fn]
                            (mount/open!)
                            (seed-popout-state! {:window window})
                            (mount/teardown!))))]
@@ -2110,7 +2110,7 @@
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (is (= 1 (count @calls)) "first open! rendered once")
             (let [inline-node (:node @@#'mount/mount-state)]
@@ -2155,7 +2155,7 @@
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open-overlay!)
             (is (= 1 (count @calls)) "first open-overlay! rendered once")
             (let [overlay-node (:node @@#'mount/mount-state)]
@@ -2192,7 +2192,7 @@
     (with-two-owner-document
       (fn [{:keys [body]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open-overlay!)
             (let [first-node (:node @@#'mount/mount-state)]
               (mount/open-overlay!)
@@ -2213,7 +2213,7 @@
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (let [first-node (:node @@#'mount/mount-state)]
               (mount/open!)
@@ -2239,7 +2239,7 @@
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn]} (mk-render-stub)
               prior-window        (when (exists? js/window) js/window)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             ;; Install the same browser API exports install.cljs wires,
             ;; pointing at the REAL mount fns so the bridge exercises the
             ;; production late-bind path.
@@ -2285,7 +2285,7 @@
     (with-two-owner-document
       (fn [{:keys [body]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)
             (mount/open-overlay!)               ; render #2 — realize overlay
             (let [overlay-node (:node @@#'mount/mount-state)]
@@ -2312,7 +2312,7 @@
     (with-two-owner-document
       (fn [{:keys [host body]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open-overlay!)
             (mount/open!)                       ; render #2 — realize inline
             (let [inline-node (:node @@#'mount/mount-state)]
@@ -2397,7 +2397,7 @@
         (let [{:keys [render-fn calls]} (mk-render-stub)
               prior-console (when (exists? js/console) js/console)]
           (set! js/console (js-obj "error" (fn [& _args] nil)))
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (try
               (mount/open-overlay!)
               (is (= 1 (count @calls)) "overlay mount rendered once")
@@ -2443,7 +2443,7 @@
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)                           ; render #1 — inline
             (mount/open-overlay!)                   ; render #2 — realize overlay
             (is (= 2 (count @calls)))
@@ -2490,7 +2490,7 @@
         (let [{:keys [render-fn calls]} (mk-render-stub)
               prior-console (when (exists? js/console) js/console)]
           (set! js/console (js-obj "error" (fn [& _args] nil)))
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (try
               (mount/open-overlay!)
               (let [overlay-node (:node @@#'mount/mount-state)
@@ -2536,7 +2536,7 @@
         (let [{:keys [render-fn calls]} (mk-render-stub)
               prior-console (when (exists? js/console) js/console)]
           (set! js/console (js-obj "error" (fn [& _args] nil)))
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (try
               (mount/open-overlay!)
               (mount/close!)                                ; hidden overlay
@@ -2569,7 +2569,7 @@
     (with-two-owner-document
       (fn [{:keys [host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (is (nil? @@#'mount/mount-state) "cold start")
             (mount/toggle!)
             (is (= 1 (count @calls)))
@@ -2586,7 +2586,7 @@
     (with-two-owner-document
       (fn [{:keys [host body]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
+          (with-redefs [rf.substrate.adapter/render render-fn]
             (mount/open!)                           ; inline
             (let [inline-node (:node @@#'mount/mount-state)]
               (is (= :inline (:mode (mount/status))))

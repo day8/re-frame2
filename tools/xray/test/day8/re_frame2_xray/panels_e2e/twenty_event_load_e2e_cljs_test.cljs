@@ -33,13 +33,13 @@
   covers the data invariants that broke in rf2-70tkv (panel frozen
   after head-event-bundle flip) and rf2-hwuki (`:frame` tag dropped)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.counter :as counter]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- dispatch-counter-20 []
   (dotimes [i 20]

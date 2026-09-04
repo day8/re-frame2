@@ -17,7 +17,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Boot the optional machines artefact's late-bind hooks so
             ;; `reg-machine*` resolves rather than throwing
             ;; `:rf.error/machines-artefact-missing`.
@@ -27,12 +27,12 @@
             ;; consults. Required so the redaction tests can register a
             ;; machine carrying a `:sensitive?` `[:schemas :data]` slot and
             ;; run a real transition trace through `project-trace-event`.
-            [re-frame.classification :as classification]
-            [re-frame.elision :as elision]
+            [re-frame.classification :as rf.classification]
+            [re-frame.elision :as rf.elision]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.registrar :as registrar]
-            [re-frame.test-helpers :as th]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]))
@@ -50,8 +50,8 @@
 ;; Thin aliases over re-frame.test-helpers so the local call sites read
 ;; identically to before.
 
-(def ^:private find-by-testid           th/find-by-testid)
-(def ^:private find-all-by-testid-prefix th/find-by-testid-prefix)
+(def ^:private find-by-testid           rf.test-helpers/find-by-testid)
+(def ^:private find-all-by-testid-prefix rf.test-helpers/find-by-testid-prefix)
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
@@ -86,44 +86,44 @@
 (deftest registry-installs-machine-inspector-handlers
   (testing "register-xray-handlers! installs the post-collapse handlers"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray/registered-machines)))
-    (is (some? (registrar/handler :sub :rf.xray/machine-snapshots)))
-    (is (some? (registrar/handler :sub :rf.xray/machine-definitions)))
-    (is (some? (registrar/handler :sub :rf.xray/selected-machine-id)))
-    (is (some? (registrar/handler :sub :rf.xray/machine-inspector-data)))
-    (is (some? (registrar/handler
+    (is (some? (rf.registrar/handler :sub :rf.xray/registered-machines)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/machine-snapshots)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/machine-definitions)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/selected-machine-id)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/machine-inspector-data)))
+    (is (some? (rf.registrar/handler
                  :sub :rf.xray/machine-transitions-for-focused-event)))
-    (is (some? (registrar/handler :sub :rf.xray/machine-scrubber-position)))
-    (is (some? (registrar/handler :event :rf.xray/select-machine-id)))
-    (is (some? (registrar/handler :event :rf.xray/clear-machine-selection)))
-    (is (some? (registrar/handler :event :rf.xray/machine-state-clicked)))
-    (is (some? (registrar/handler :event :rf.xray/machine-focus-prev)))
-    (is (some? (registrar/handler :event :rf.xray/machine-focus-next)))
-    (is (some? (registrar/handler :event :rf.xray/set-scrubber-position))))
+    (is (some? (rf.registrar/handler :sub :rf.xray/machine-scrubber-position)))
+    (is (some? (rf.registrar/handler :event :rf.xray/select-machine-id)))
+    (is (some? (rf.registrar/handler :event :rf.xray/clear-machine-selection)))
+    (is (some? (rf.registrar/handler :event :rf.xray/machine-state-clicked)))
+    (is (some? (rf.registrar/handler :event :rf.xray/machine-focus-prev)))
+    (is (some? (rf.registrar/handler :event :rf.xray/machine-focus-next)))
+    (is (some? (rf.registrar/handler :event :rf.xray/set-scrubber-position))))
   (testing "rf2-e8330v — production registration installs NO -for-test ids
             and no *-override subs; the test seam installs them"
     (registry/register-xray-handlers!)
-    (is (nil? (registrar/handler :sub :rf.xray/machine-definitions-override)))
-    (is (nil? (registrar/handler :sub :rf.xray/machine-snapshots-override)))
-    (is (nil? (registrar/handler
+    (is (nil? (rf.registrar/handler :sub :rf.xray/machine-definitions-override)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/machine-snapshots-override)))
+    (is (nil? (rf.registrar/handler
                 :event :rf.xray/set-registered-machines-override-for-test)))
-    (is (nil? (registrar/handler
+    (is (nil? (rf.registrar/handler
                 :event :rf.xray/set-machine-snapshots-override-for-test)))
-    (is (nil? (registrar/handler
+    (is (nil? (rf.registrar/handler
                 :event :rf.xray/set-machine-definitions-override-for-test)))
-    (is (nil? (registrar/handler :event :rf.xray/set-epoch-history-for-test)))
-    (is (nil? (registrar/handler :event :rf.xray/set-focus-epoch-id-for-test)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/set-epoch-history-for-test)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/set-focus-epoch-id-for-test)))
     (xray-test-support/install-test-overrides!)
-    (is (some? (registrar/handler :sub :rf.xray/machine-definitions-override)))
-    (is (some? (registrar/handler :sub :rf.xray/machine-snapshots-override)))
-    (is (some? (registrar/handler
+    (is (some? (rf.registrar/handler :sub :rf.xray/machine-definitions-override)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/machine-snapshots-override)))
+    (is (some? (rf.registrar/handler
                  :event :rf.xray/set-registered-machines-override-for-test)))
-    (is (some? (registrar/handler
+    (is (some? (rf.registrar/handler
                  :event :rf.xray/set-machine-snapshots-override-for-test)))
-    (is (some? (registrar/handler
+    (is (some? (rf.registrar/handler
                  :event :rf.xray/set-machine-definitions-override-for-test)))
-    (is (some? (registrar/handler :event :rf.xray/set-epoch-history-for-test)))
-    (is (some? (registrar/handler :event :rf.xray/set-focus-epoch-id-for-test)))))
+    (is (some? (rf.registrar/handler :event :rf.xray/set-epoch-history-for-test)))
+    (is (some? (rf.registrar/handler :event :rf.xray/set-focus-epoch-id-for-test)))))
 
 (deftest composite-defaults-to-empty-when-no-override
   (testing "with an empty machines override the composite returns the
@@ -815,7 +815,7 @@
   elision registry (the kept substrate the commit-plane `:sensitive` effect
   writes through)."
   [frame-id]
-  (elision/swap-elision-slot! frame-id
+  (rf.elision/swap-elision-slot! frame-id
     (fn [reg]
       (assoc-in reg [:sensitive-declarations
                      [:rf.runtime/machines :snapshots redaction-machine-id :data :token]]
@@ -859,7 +859,7 @@
             ;; :rf/redacted against the FRAME's declared snapshot path
             ;; (EP-0025). Epoch-capture sees THIS projected event, so the
             ;; panel's :trace-events are redacted.
-            egressed  (classification/project-trace-event raw-event)
+            egressed  (rf.classification/project-trace-event raw-event)
             egressed* (assoc egressed :id 1 :time 10)]
         ;; The egress projection redacted the token both sides — pinned
         ;; here so a regression in frame-owned redaction surfaces in the panel.
@@ -1012,7 +1012,7 @@
                    :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
       (focus-epoch! 3)
       (rf/dispatch-sync [:rf.xray/machine-focus-prev])
-      (let [xray-db (frame/frame-app-db-value :rf/xray)]
+      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
         (is (= 1 (get-in xray-db [:focus :epoch-id]))
             "focus stepped from epoch 3 → epoch 1, skipping epoch 2")))))
 
@@ -1049,7 +1049,7 @@
                    :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
       (focus-epoch! 1)
       (rf/dispatch-sync [:rf.xray/machine-focus-next])
-      (let [xray-db (frame/frame-app-db-value :rf/xray)]
+      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
         (is (= 3 (get-in xray-db [:focus :epoch-id]))
             "focus stepped from epoch 1 → epoch 3, skipping epoch 2")))))
 
@@ -1070,7 +1070,7 @@
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
       (rf/dispatch-sync [:rf.xray/machine-focus-prev])
-      (let [xray-db (frame/frame-app-db-value :rf/xray)]
+      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
         (is (= 1 (get-in xray-db [:focus :epoch-id]))
             "focus stays at epoch 1 — no prior match")))))
 
@@ -1113,7 +1113,7 @@
                    :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
       (focus-epoch! 3)
       (rf/dispatch-sync [:rf.xray/machine-focus-prev])
-      (let [xray-db (frame/frame-app-db-value :rf/xray)
+      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)
             focus   (:focus xray-db)]
         (is (= 1 (:epoch-id focus))
             "focus stepped to epoch 1 (the prior auth/login epoch)")
@@ -1159,15 +1159,15 @@
             registered — the whole share surface (share.cljs + the modal)
             went with the button"
     (setup-xray-frame!)
-    (is (nil? (registrar/handler :event :rf.xray/share-modal-open))
+    (is (nil? (rf.registrar/handler :event :rf.xray/share-modal-open))
         "share-modal-open event is unregistered")
-    (is (nil? (registrar/handler :event :rf.xray/share-modal-close))
+    (is (nil? (rf.registrar/handler :event :rf.xray/share-modal-close))
         "share-modal-close event is unregistered")
-    (is (nil? (registrar/handler :sub :rf.xray/share-modal-open?))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/share-modal-open?))
         "share-modal-open? sub is unregistered")
-    (is (nil? (registrar/handler :sub :rf.xray/share-url))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/share-url))
         "share-url sub is unregistered")
-    (is (nil? (registrar/handler :sub :rf.xray/cascade-export))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/cascade-export))
         "cascade-export sub (rode the same modal) is unregistered")))
 
 ;; ---- (6) events ---------------------------------------------------------
@@ -1214,8 +1214,8 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-machine-id :auth/login]))
-    (let [xray-db   (frame/frame-app-db-value :rf/xray)
-          default-db (frame/frame-app-db-value :rf/default)]
+    (let [xray-db   (rf.frame/frame-app-db-value :rf/xray)
+          default-db (rf.frame/frame-app-db-value :rf/default)]
       (is (= :auth/login (:selected-machine-id xray-db))
           "selection lands on Xray")
       (is (nil? (:selected-machine-id default-db))

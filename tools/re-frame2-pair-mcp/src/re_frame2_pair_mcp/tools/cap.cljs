@@ -36,7 +36,7 @@
   - **Per-call override**: every tool accepts a `max-tokens` arg —
     integer cap, `0` disables (escape hatch for callers that have
     already paginated). Default `5000`.
-  - **Pluggable strategy**: `base-cap/apply-cap` dispatches on a
+  - **Pluggable strategy**: `rf.mcp-base.cap/apply-cap` dispatches on a
     strategy keyword. Today only `:truncate-with-marker` is
     implemented — replace the payload with the overflow marker.
     Future strategies (path-slicing, lazy summary, diff encoding,
@@ -46,17 +46,17 @@
     did. The wire-cap is a property of the egress boundary, not of
     each tool's internals."
   (:require [applied-science.js-interop :as j]
-            [re-frame.mcp-base.cap :as base-cap]
-            [re-frame.mcp-base.overflow :as base-overflow]
+            [re-frame.mcp-base.cap :as rf.mcp-base.cap]
+            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 ;; `default-max-tokens` and the character→token approximation
-;; (`base-overflow/token-estimate`) come from `re-frame.mcp-base.overflow`
+;; (`rf.mcp-base.overflow/token-estimate`) come from `re-frame.mcp-base.overflow`
 ;; — both are cross-MCP conventions pinned once in the base.
 ;; `default-max-tokens` is re-exported here because production call sites
 ;; reference `cap/default-max-tokens`; production code calls
-;; `base-overflow/token-estimate` directly.
-(def default-max-tokens base-overflow/default-max-tokens)
+;; `rf.mcp-base.overflow/token-estimate` directly.
+(def default-max-tokens rf.mcp-base.overflow/default-max-tokens)
 
 (defn max-tokens-arg
   "Resolve the per-call cap from MCP args. Returns the integer cap in
@@ -64,11 +64,11 @@
   Defaults to `default-max-tokens` when absent or not a number.
 
   Reads the JS-side `\"max-tokens\"` slot off the args object, then
-  delegates the coercion to `base-cap/max-tokens` (the cross-MCP
+  delegates the coercion to `rf.mcp-base.cap/max-tokens` (the cross-MCP
   resolver)."
   [args]
   (let [raw (when args (j/get args "max-tokens"))]
-    (base-cap/max-tokens (when (and (not (undefined? raw)) (some? raw)) raw))))
+    (rf.mcp-base.cap/max-tokens (when (and (not (undefined? raw)) (some? raw)) raw))))
 
 (defn invalid-arg?
   "True when `max-tokens-arg` rejected the per-call `:max-tokens` arg
@@ -77,9 +77,9 @@
   `invoke` chokepoint tests this and short-circuits into an
   `isError: true` result via `wire/err-text` instead of threading the
   malformed cap into the wire-boundary pipeline. Delegates to
-  `base-cap/invalid-arg?` (the cross-MCP predicate)."
+  `rf.mcp-base.cap/invalid-arg?` (the cross-MCP predicate)."
   [x]
-  (base-cap/invalid-arg? x))
+  (rf.mcp-base.cap/invalid-arg? x))
 
 (def overflow-hints
   "Tool-specific next-step hints for the overflow marker. Generic
@@ -94,8 +94,8 @@
 
 ;; The fallback string lives in `re-frame.mcp-base.overflow` so the
 ;; cross-MCP marker presents identically. Production reads it via
-;; `base-overflow/overflow-hint-fallback` (or, more usually, lets
-;; `base-cap/apply-cap` apply the fallback when a tool has no specific
+;; `rf.mcp-base.overflow/overflow-hint-fallback` (or, more usually, lets
+;; `rf.mcp-base.cap/apply-cap` apply the fallback when a tool has no specific
 ;; hint).
 
 (def ^:private result-io
@@ -119,7 +119,7 @@
   under one budget. (story-mcp uses `pr-edn` because its structured slot
   is a CLJ map; pair-mcp's is a JS object, so `JSON.stringify` is the
   byte-faithful equivalent.)"
-  (reify base-cap/ResultIO
+  (reify rf.mcp-base.cap/ResultIO
     (wire-payload-strings [_ result]
       (let [content (j/get result :content)
             n       (if (array? content) (.-length content) 0)
@@ -152,22 +152,22 @@
   as the serialised tool-result body; the bounded JSON envelope keys
   are ignored.
 
-  Delegates to `base-cap/sum-payload-tokens` against re-frame2-pair-mcp's
+  Delegates to `rf.mcp-base.cap/sum-payload-tokens` against re-frame2-pair-mcp's
   JS-shape `result-io`, whose `wire-payload-strings` surfaces the structured
   slot as `js/JSON.stringify` of the JS object."
   [result-js]
-  (base-cap/sum-payload-tokens result-io result-js))
+  (rf.mcp-base.cap/sum-payload-tokens result-io result-js))
 
 (defn apply-cap
   "Wire-boundary cap enforcement. Returns either `result-js` unchanged
   (when under the cap or cap disabled) or a fresh result carrying the
   overflow marker.
 
-  Pluggable on `strategy` — see `base-cap/apply-cap`. Today only
+  Pluggable on `strategy` — see `rf.mcp-base.cap/apply-cap`. Today only
   `:truncate-with-marker` is wired; unknown strategies degrade safely.
 
   Adds re-frame2-pair-mcp's `overflow-hints` table lookup before delegating to
-  `base-cap/apply-cap`.
+  `rf.mcp-base.cap/apply-cap`.
 
   Short-circuits on a wire-bounded marker (`:rf.mcp/cache-hit`,
   `:rf.mcp/overflow`). Such envelopes are sub-cap by
@@ -194,7 +194,7 @@
               :or   {strategy :truncate-with-marker}}]
   (if (wire/marker? result-js)
     result-js
-    (base-cap/apply-cap result-io result-js
+    (rf.mcp-base.cap/apply-cap result-io result-js
                         {:tool     tool
                          :cap      cap
                          :hint     (get overflow-hints tool)

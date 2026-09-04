@@ -13,24 +13,24 @@
   `app-db-segment-inspector` leaf."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.app-db-diff-events :as events]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest leaf-install-registers-events-and-fxs
   (events/install!)
-  (is (some? (registrar/handler :event :rf.xray/focus-slice-path)))
-  (is (some? (registrar/handler :event :rf.xray/clear-slice-focus)))
-  (is (some? (registrar/handler :fx :rf.xray.fx/copy-to-clipboard)))
+  (is (some? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
+  (is (some? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))
+  (is (some? (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard)))
   ;; rf2-e9tb0 — pin events were dropped at this leaf.
-  (is (nil? (registrar/handler :event :rf.xray/pin-slice)))
-  (is (nil? (registrar/handler :event :rf.xray/unpin-slice)))
-  (is (nil? (registrar/handler :event :rf.xray/reorder-pinned-slices))))
+  (is (nil? (rf.registrar/handler :event :rf.xray/pin-slice)))
+  (is (nil? (rf.registrar/handler :event :rf.xray/unpin-slice)))
+  (is (nil? (rf.registrar/handler :event :rf.xray/reorder-pinned-slices))))
 
 (deftest focus-slice-path-dispatch-writes-xray-frame
   (events/install!)
@@ -38,4 +38,4 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]]))
   (is (= [:cart :items]
-         (:focused-slice-path (frame/frame-app-db-value :rf/xray)))))
+         (:focused-slice-path (rf.frame/frame-app-db-value :rf/xray)))))

@@ -27,14 +27,14 @@
 
   Pure-data unit tests; no DOM mount."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-inspector-protocol :as ddp
              :refer [IXrayEdnInspector]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers ------------------------------------------------------------
 

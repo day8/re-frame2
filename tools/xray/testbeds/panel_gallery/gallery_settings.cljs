@@ -22,7 +22,7 @@
   `:panel-gallery.chrome/seed!` event's `:after-seeds` lane to land
   writes on the shared `:rf/xray` frame. The parameterized shell retires
   that workaround.)"
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -53,10 +53,10 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-settings-popup
+  (rf.story/reg-tag :feature/xray-settings-popup
     {:axis :feature
      :doc  "Xray Settings popup modal — 4-tab strip (General /
             Keybindings / Buffer / Diff) per
@@ -68,7 +68,7 @@
             tab retired per rf2-wknb3 — full pill management lives in
             the ribbon + per-pill edit popup + mute manager."})
 
-  (story/reg-story :story.xray.settings-popup
+  (rf.story/reg-story :story.xray.settings-popup
     {:doc        "Visual gallery of the Xray Settings popup modal.
                  Each variant opens the popup pre-positioned on a
                  different tab with different pre-populated values, in
@@ -81,7 +81,7 @@
   ;; right-rail, auto-open-on-error OFF (the explicit-defaults
   ;; baseline). The variant pre-writes the slot values so the
   ;; render is deterministic.
-  (story/reg-variant :story.xray.settings-popup/general
+  (rf.story/reg-variant :story.xray.settings-popup/general
     {:doc        "Settings popup open on General tab. Text-size
                  slider seeded mid-range (14 px), panel-position
                  :right-rail (default), auto-open-on-error OFF
@@ -109,7 +109,7 @@
   ;; coverage under the chrome gallery.)
 
   ;; ----- 2. Keybindings tab — read-only chord catalogue (rf2-ttnst).
-  (story/reg-variant :story.xray.settings-popup/keybindings
+  (rf.story/reg-variant :story.xray.settings-popup/keybindings
     {:doc        "Settings popup open on Keybindings tab. v1 is
                  READ-ONLY — a chord catalogue mirroring spec/007-
                  UX-IA.md §Keyboard plus a master 'Handle keys?'
@@ -123,7 +123,7 @@
 
   ;; ----- 3. Buffer tab — cascades-retained knob + destructive Clear
   ;; (rf2-ttnst; rf2-pu9sb consolidation; rf2-5u03ig trim).
-  (story/reg-variant :story.xray.settings-popup/buffer
+  (rf.story/reg-variant :story.xray.settings-popup/buffer
     {:doc        "Settings popup open on Buffer tab. A single
                  `cascades-retained` numeric input (writes through to
                  `(rf/configure! {:trace-buffer {:events-retained N}})`
@@ -141,7 +141,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4. Diff tab — opt-in fn-ref-changes toggle (rf2-i39w2).
-  (story/reg-variant :story.xray.settings-popup/diff
+  (rf.story/reg-variant :story.xray.settings-popup/diff
     {:doc        "Settings popup open on Diff tab. The opt-in
                  :highlight-fn-ref-changes? toggle for the hiccup-diff
                  micro-engine (rf2-i39w2 Phase 3)."
@@ -160,7 +160,7 @@
   ;; `:variants-grid` — each cell mounts the shell in its own variant
   ;; frame (the de-singletoned shell threads the per-cell frame), so the
   ;; four popups render side-by-side with no shared-state bleed.
-  (story/reg-workspace :Workspace.xray.settings-popup/all
+  (rf.story/reg-workspace :Workspace.xray.settings-popup/all
     {:doc      "All Settings popup variants (General / Keybindings /
                 Buffer / Diff) in one grid, each in its own isolated
                 frame. The Theme tab retired per rf2-ou3pn — the

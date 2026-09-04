@@ -26,7 +26,7 @@
   with a populated `epoch-history`; this file pins the pure CLJS
   transforms and the round-trip property."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.mcp-base.diff-encode :as diff]
+            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]))
 
@@ -35,22 +35,22 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest collect-patches-equal-maps-no-patches
-  (is (= [] (diff/collect-patches {:a 1} {:a 1} []))))
+  (is (= [] (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 1} []))))
 
 (deftest collect-patches-added-key-emits-assoc
   (is (= [[[:b] :assoc 2]]
-         (diff/collect-patches {:a 1} {:a 1 :b 2} []))))
+         (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 1 :b 2} []))))
 
 (deftest collect-patches-removed-key-emits-dissoc
   (is (= [[[:b] :dissoc]]
-         (diff/collect-patches {:a 1 :b 2} {:a 1} []))))
+         (rf.mcp-base.diff-encode/collect-patches {:a 1 :b 2} {:a 1} []))))
 
 (deftest collect-patches-changed-leaf-emits-assoc
   (is (= [[[:a] :assoc 99]]
-         (diff/collect-patches {:a 1} {:a 99} []))))
+         (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 99} []))))
 
 (deftest collect-patches-nested-change-emits-deep-path
-  (let [patches (diff/collect-patches {:user {:auth {:token "abc"}}}
+  (let [patches (rf.mcp-base.diff-encode/collect-patches {:user {:auth {:token "abc"}}}
                                        {:user {:auth {:token "xyz"}}}
                                        [])]
     (is (= [[[:user :auth :token] :assoc "xyz"]] patches))))
@@ -58,7 +58,7 @@
 (deftest collect-patches-non-map-replacement-at-root
   ;; Root-level swap from one shape to another wholly different shape.
   (is (= [[[] :assoc :replaced]]
-         (diff/collect-patches {:a 1} :replaced []))))
+         (rf.mcp-base.diff-encode/collect-patches {:a 1} :replaced []))))
 
 (deftest collect-patches-same-length-vector-diffs-element-wise
   ;; Same-length vectors diff element-by-element under numeric index
@@ -68,38 +68,38 @@
   ;; for tables / cards / queues / logs.
   (is (= [[[:items 0] :assoc 3]
           [[:items 2] :assoc 1]]
-         (diff/collect-patches {:items [1 2 3]} {:items [3 2 1]} [])))
+         (rf.mcp-base.diff-encode/collect-patches {:items [1 2 3]} {:items [3 2 1]} [])))
   ;; A LENGTH change still falls back to a whole-vector :assoc.
   (is (= [[[:items] :assoc [1 2 3 4]]]
-         (diff/collect-patches {:items [1 2 3]} {:items [1 2 3 4]} []))))
+         (rf.mcp-base.diff-encode/collect-patches {:items [1 2 3]} {:items [1 2 3 4]} []))))
 
 ;; ---------------------------------------------------------------------------
 ;; apply-patches — the decoder.
 ;; ---------------------------------------------------------------------------
 
 (deftest apply-patches-empty-list-is-identity
-  (is (= {:a 1 :b 2} (diff/apply-patches {:a 1 :b 2} []))))
+  (is (= {:a 1 :b 2} (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} []))))
 
 (deftest apply-patches-assoc-adds-or-changes-value
   (is (= {:a 1 :b 99}
-         (diff/apply-patches {:a 1 :b 2} [[[:b] :assoc 99]]))))
+         (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :assoc 99]]))))
 
 (deftest apply-patches-dissoc-removes-key
   (is (= {:a 1}
-         (diff/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
+         (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
 
 (deftest apply-patches-root-assoc-replaces-value
   (is (= :other
-         (diff/apply-patches {:a 1} [[[] :assoc :other]]))))
+         (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[] :assoc :other]]))))
 
 (deftest apply-patches-deep-path-creates-or-updates
   (is (= {:a {:b {:c 99}}}
-         (diff/apply-patches {:a {:b {:c 1}}} [[[:a :b :c] :assoc 99]]))))
+         (rf.mcp-base.diff-encode/apply-patches {:a {:b {:c 1}}} [[[:a :b :c] :assoc 99]]))))
 
 (deftest apply-patches-applies-in-order
   ;; Two patches against the same parent: order matters.
   (is (= {:a 1 :b 2}
-         (diff/apply-patches {:a 1}
+         (rf.mcp-base.diff-encode/apply-patches {:a 1}
                               [[[:b] :assoc 99]
                                [[:b] :assoc 2]]))))
 
@@ -122,7 +122,7 @@
   ;; The wire shape is path-headed cluster sections, not a flat patch
   ;; list. The `:rf.mcp/diff-from` marker tags the source slot; the body
   ;; lives under `:sections`.
-  (let [enc (diff/diff-encode-db-after fixture-epoch)
+  (let [enc (rf.mcp-base.diff-encode/diff-encode-db-after fixture-epoch)
         da  (:db-after enc)]
     (is (= :db-before (:rf.mcp/diff-from da))
         "Diff marker carries the source-slot key")
@@ -134,7 +134,7 @@
         "every section carries :section-path + :section-kind + :patches")))
 
 (deftest diff-encode-db-after-leaves-db-before-untouched
-  (let [enc (diff/diff-encode-db-after fixture-epoch)]
+  (let [enc (rf.mcp-base.diff-encode/diff-encode-db-after fixture-epoch)]
     (is (= (:db-before fixture-epoch) (:db-before enc))
         ":db-before stays the canonical reference")))
 
@@ -142,19 +142,19 @@
   ;; Synthetic / pruned epoch without :db-before can't be diffed —
   ;; pass-through is the correct posture.
   (let [partial-epoch {:epoch-id :ep-x :db-after {:foo 1}}]
-    (is (= partial-epoch (diff/diff-encode-db-after partial-epoch)))))
+    (is (= partial-epoch (rf.mcp-base.diff-encode/diff-encode-db-after partial-epoch)))))
 
 (deftest diff-encode-db-after-non-map-passes-through
-  (is (= :not-an-epoch (diff/diff-encode-db-after :not-an-epoch)))
-  (is (= nil (diff/diff-encode-db-after nil))))
+  (is (= :not-an-epoch (rf.mcp-base.diff-encode/diff-encode-db-after :not-an-epoch)))
+  (is (= nil (rf.mcp-base.diff-encode/diff-encode-db-after nil))))
 
 ;; ---------------------------------------------------------------------------
 ;; Round-trip property: encode → decode → identity.
 ;; ---------------------------------------------------------------------------
 
 (deftest round-trip-single-key-change
-  (let [enc (diff/diff-encode-db-after fixture-epoch)
-        dec (diff/decode-db-after enc)]
+  (let [enc (rf.mcp-base.diff-encode/diff-encode-db-after fixture-epoch)
+        dec (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= fixture-epoch dec)
         "encode→decode round-trips the full epoch unchanged")))
 
@@ -162,8 +162,8 @@
   ;; Degenerate case: no change. Sections list is empty (empty patches →
   ;; empty sections); decoder returns :db-before unchanged.
   (let [epoch (assoc fixture-epoch :db-after (:db-before fixture-epoch))
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= epoch dec))
     (is (= [] (-> enc :db-after :sections)))))
 
@@ -174,8 +174,8 @@
   ;; MUST still reconstruct.
   (let [epoch {:db-before {:a 1 :b 2}
                :db-after  {:c 3 :d 4}}
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= epoch dec))))
 
 (deftest round-trip-deeply-nested-leaf-change
@@ -198,8 +198,8 @@
                                                   :refresh "def"}}}
                             :wide wide
                             :cart {:items (vec (range 200))}}}
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= epoch dec))
     ;; Efficiency check: encoded :db-after should be a small fraction
     ;; of the full db-after for a tiny change in a large tree.
@@ -213,8 +213,8 @@
 (deftest round-trip-map-key-removal
   (let [epoch {:db-before {:a 1 :b 2 :c 3}
                :db-after  {:a 1 :c 3}}
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)
         sections (-> enc :db-after :sections)]
     (is (= epoch dec))
     (is (= 1 (count sections)) "one removed key → one section")
@@ -232,14 +232,14 @@
   ;; granularity.
   (let [epoch {:db-before {:items [1 2 3]}
                :db-after  {:items [3 2 1]}}
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= epoch dec))))
 
 (deftest round-trip-empty-maps
   (let [epoch {:db-before {} :db-after {}}
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= epoch dec))
     (is (= [] (-> enc :db-after :sections)))))
 
@@ -247,8 +247,8 @@
   ;; A pathological app-db that's a scalar — rare but valid. The
   ;; encoder records the change as a root-level :assoc replacement.
   (let [epoch {:db-before 42 :db-after 99}
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= epoch dec))))
 
 (deftest round-trip-value-changed-to-nil
@@ -256,8 +256,8 @@
   ;; emits an :assoc with the nil value (distinguishable from a
   ;; :dissoc which removes the key entirely).
   (let [epoch {:db-before {:k :v} :db-after {:k nil}}
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= epoch dec))
     (is (contains? (:db-after dec) :k))
     (is (nil? (-> dec :db-after :k)))))
@@ -266,8 +266,8 @@
   ;; Two-axis change: one key removed, another added, deep in the tree.
   (let [epoch {:db-before {:user {:profile {:name "alice" :age 30}}}
                :db-after  {:user {:profile {:name "alice" :email "a@b"}}}}
-        enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
+        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
     (is (= epoch dec))))
 
 ;; ---------------------------------------------------------------------------
@@ -276,14 +276,14 @@
 
 (deftest diff-encode-epochs-diff-mode-encodes-every-record
   (let [epochs [fixture-epoch fixture-epoch fixture-epoch]
-        enc    (diff/diff-encode-epochs epochs :diff)]
+        enc    (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff)]
     (is (= 3 (count enc)))
     (doseq [e enc]
       (is (= :db-before (-> e :db-after :rf.mcp/diff-from))))))
 
 (deftest diff-encode-epochs-full-mode-pass-through
   (let [epochs [fixture-epoch fixture-epoch]
-        enc    (diff/diff-encode-epochs epochs :full)]
+        enc    (rf.mcp-base.diff-encode/diff-encode-epochs epochs :full)]
     (is (= epochs enc)
         ":full mode is a no-op — agent gets the legacy shape")))
 
@@ -293,17 +293,17 @@
   ;; doesn't break decode.
   (let [e1 {:db-before {:a 1} :db-after {:a 2}}
         e2 {:db-before {:b 9} :db-after {:b 9 :c 7}}
-        enc (diff/diff-encode-epochs [e1 e2] :diff)]
-    (is (= e1 (diff/decode-db-after (first enc))))
-    (is (= e2 (diff/decode-db-after (second enc))))
+        enc (rf.mcp-base.diff-encode/diff-encode-epochs [e1 e2] :diff)]
+    (is (= e1 (rf.mcp-base.diff-encode/decode-db-after (first enc))))
+    (is (= e2 (rf.mcp-base.diff-encode/decode-db-after (second enc))))
     ;; Reverse order — still decodable.
     (let [reversed (reverse enc)]
-      (is (= e2 (diff/decode-db-after (first reversed))))
-      (is (= e1 (diff/decode-db-after (second reversed)))))))
+      (is (= e2 (rf.mcp-base.diff-encode/decode-db-after (first reversed))))
+      (is (= e1 (rf.mcp-base.diff-encode/decode-db-after (second reversed)))))))
 
 (deftest diff-encode-epochs-empty-vector
-  (is (= [] (diff/diff-encode-epochs [] :diff)))
-  (is (= [] (diff/diff-encode-epochs [] :full))))
+  (is (= [] (rf.mcp-base.diff-encode/diff-encode-epochs [] :diff)))
+  (is (= [] (rf.mcp-base.diff-encode/diff-encode-epochs [] :full))))
 
 ;; ---------------------------------------------------------------------------
 ;; diff-encode-epochs-in-snapshot — the snapshot-tool integration.
@@ -389,7 +389,7 @@
                                          (keyword (str "k" i))
                                          (apply str (repeat 1024 \y)))}))
         full-size (count (pr-str epochs))
-        diff-encoded (diff/diff-encode-epochs epochs :diff)
+        diff-encoded (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff)
         diff-size (count (pr-str diff-encoded))]
     (testing "diff-encoded slice is much smaller than the full pair"
       ;; Full: 10 × ~2MB = ~20MB on the wire.
@@ -402,5 +402,5 @@
                ") should be << 60% of full (" full-size
                "). Ratio: " (/ diff-size full-size 1.0))))
     (testing "round-trip still reconstructs every epoch"
-      (let [decoded (mapv diff/decode-db-after diff-encoded)]
+      (let [decoded (mapv rf.mcp-base.diff-encode/decode-db-after diff-encoded)]
         (is (= epochs decoded))))))

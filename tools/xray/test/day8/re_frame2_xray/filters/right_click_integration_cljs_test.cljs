@@ -12,8 +12,8 @@
   re-renders without the matching row."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -33,7 +33,7 @@
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid copies were
 ;; semantically identical to `re-frame.test-helpers`; tests call
-;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 (defn- dispatch-trace-ev [id event-vec]
   {:id           id
@@ -71,7 +71,7 @@
                                         ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
           (let [tree (shell/shell-view)
-                row  (th/find-by-testid tree "rf-xray-event-row-7")
+                row  (rf.test-helpers/find-by-testid tree "rf-xray-event-row-7")
                 h    (:on-context-menu (second row))]
             (is (some? row) "row mounted")
             (is (fn? h) "row has on-context-menu handler")
@@ -128,14 +128,14 @@
   (rf/with-frame :rf/xray
     ;; Sanity — all three rows present pre-filter.
     (let [tree (shell/shell-view)]
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-1")))
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-2")))
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-3"))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2")))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))
     ;; Install the OUT pill via the canonical add-filter event.
     (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :mouse-move}])
     ;; Re-render and assert :mouse-move dropped.
     (let [tree (shell/shell-view)]
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-1")))
-      (is (nil? (th/find-by-testid tree "rf-xray-event-row-2"))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
+      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2"))
           "row 2 (:mouse-move) filtered out")
-      (is (some? (th/find-by-testid tree "rf-xray-event-row-3"))))))
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))))

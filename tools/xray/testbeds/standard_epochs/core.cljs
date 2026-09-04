@@ -108,7 +108,7 @@
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; The shared step-driver runner. This deck supplies a `steps`
             ;; vector + registers `:standard-epochs/run-step` via
             ;; `runner/reg-runner!`; the runner drives the ONE-button series
@@ -819,7 +819,7 @@
    [root host-frame "standard-epochs" :standard-epochs/run-step]])
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; Single, plain frame — no URL machinery, no history listener (there is
   ;; no routing here). The host frame is the one Xray reads. Mount the
   ;; standalone wrapper (header + the parameterised `root`) on the

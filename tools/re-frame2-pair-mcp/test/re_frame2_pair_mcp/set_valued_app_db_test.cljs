@@ -25,7 +25,7 @@
   nREPL runtime response so the test exercises the real client-side wire
   pipeline (`run-wire-pipeline`) that processes the runtime's reply."
   (:require [cljs.test :refer-macros [deftest is testing async]]
-            [re-frame.mcp-base.dedup :as base-dedup]
+            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
@@ -33,7 +33,7 @@
             [re-frame2-pair-mcp.tools.source-uri :as source-uri]
             [re-frame2-pair-mcp.tools.trace-window :as tw]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
-            [re-frame.mcp-base.diff-encode :as diff-encode]))
+            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]))
 
 ;; ---------------------------------------------------------------------------
 ;; Stub harness — `cljs-eval-value` scripted by form-keyword substring
@@ -103,7 +103,7 @@
   (testing "de-dupe-eq pools a repeated set and expand restores it exactly"
     (let [s #{:door/locked}
           payload (vec (repeat 5 {:tags s :mirror s}))
-          wrapped (base-dedup/dedup-value payload true)
+          wrapped (rf.mcp-base.dedup/dedup-value payload true)
           restored (tu/dedup-expand wrapped)]
       (is (= payload restored)))))
 
@@ -120,7 +120,7 @@
                                          {:kind :epoch-vector :incl? true
                                           :mode :diff :dedup? true})
           restored (tu/dedup-expand (:value out))
-          decoded  (mapv diff-encode/decode-db-after restored)]
+          decoded  (mapv rf.mcp-base.diff-encode/decode-db-after restored)]
       (is (= #{:door/locked :door/bolted}
              (get-in (:db-after (second decoded))
                      [:rf.db/runtime :rf.runtime/machines :snapshots :door :tags]))
@@ -210,7 +210,7 @@
                                  "no :isError — set-valued epochs didn't crash the pipeline")
                              (let [edn      (tu/extract-edn result)
                                    restored (tu/dedup-expand (:epochs edn))
-                                   decoded  (mapv diff-encode/decode-db-after restored)]
+                                   decoded  (mapv rf.mcp-base.diff-encode/decode-db-after restored)]
                                (is (true? (:ok? edn)))
                                (is (= 2 (:count edn)))
                                (is (= #{:door/locked :door/bolted}

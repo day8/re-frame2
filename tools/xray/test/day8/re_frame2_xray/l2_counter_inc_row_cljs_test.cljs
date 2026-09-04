@@ -37,7 +37,7 @@
   Pure-data, no runtime: feed both trace-stream shapes through the
   exact L2-row pipeline Xray uses —
 
-    `projection/group-by-event`
+    `rf.trace.projection/group-by-event`
       → `self-noise/xray-internal-event-bundle?` (the shared hard-filter)
       → `shell/l2-event-bundle-visible?` (the L2 visibility predicate)
 
@@ -49,7 +49,7 @@
 
   Verdict: DUP of rf2-avvwm — the post-fix epoch surfaces correctly."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.trace.projection :as projection]
+            [re-frame.trace.projection :as rf.trace.projection]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.self-noise :as self-noise]))
 
@@ -95,7 +95,7 @@
   `show-ungrouped?` defaults to false (the user-facing default)."
   ([events] (visible-l2-rows events false))
   ([events show-ungrouped?]
-   (->> (projection/group-by-event events)
+   (->> (rf.trace.projection/group-by-event events)
         (remove self-noise/xray-internal-event-bundle?)
         (filterv #(shell/l2-event-bundle-visible? % show-ungrouped?)))))
 
@@ -163,7 +163,7 @@
     (let [events (into [{:id 49 :op-type :rf.frame :operation :rf.frame/created
                          :tags {:frame frame-below}}] ; NO :dispatch-id (avvwm)
                        (counter-inc-trace-events))
-          all    (projection/group-by-event events)
+          all    (rf.trace.projection/group-by-event events)
           rows   (visible-l2-rows events)]
       (is (= 2 (count all))
           "two groups: the :ungrouped frame-lifecycle bucket + the cascade")

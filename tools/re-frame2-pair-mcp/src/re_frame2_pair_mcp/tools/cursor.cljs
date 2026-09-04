@@ -81,7 +81,7 @@
   back verbatim. The base64 + EDN-inside choice gives us room to evolve
   the cursor shape (add fields, switch keys) without a wire-protocol
   break."
-  (:require [re-frame.mcp-base.cursor :as base-cursor]
+  (:require [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def default-limit
@@ -107,7 +107,7 @@
   itself routes through `re-frame.mcp-base.args/parse-positive-int`
   for the shared string/number coercion."
   [raw]
-  (base-cursor/parse-limit-arg raw default-limit max-limit))
+  (rf.mcp-base.cursor/parse-limit-arg raw default-limit max-limit))
 
 (defn- valid-payload?
   "The pair's cursor-payload shape predicate. A well-formed cursor is a
@@ -124,7 +124,7 @@
   Delegates the codec to `re-frame.mcp-base.cursor/encode-cursor`."
   [payload]
   (when (valid-payload? payload)
-    (base-cursor/encode-cursor payload)))
+    (rf.mcp-base.cursor/encode-cursor payload)))
 
 (defn decode-cursor
   "Decode a base64 cursor back to its EDN payload. Returns nil if the
@@ -139,8 +139,8 @@
   to this ns's `::malformed` so existing call-sites
   (`(= cursor-in ::cursor/malformed)`) keep matching."
   [s]
-  (let [decoded (base-cursor/decode-cursor s valid-payload?)]
-    (if (base-cursor/malformed? decoded)
+  (let [decoded (rf.mcp-base.cursor/decode-cursor s valid-payload?)]
+    (if (rf.mcp-base.cursor/malformed? decoded)
       ::malformed
       decoded)))
 
@@ -156,7 +156,7 @@
   message + hint). The pair-specific `:requested-id` / `:head-id` slots
   ride the `:extra` map."
   [tool {:keys [requested-id head-id]}]
-  (base-cursor/cursor-stale-result
+  (rf.mcp-base.cursor/cursor-stale-result
     (fn [_message data-map] (wire/err-text data-map))
     tool
     {:hint  (str "Cursor's epoch-id is no longer in the runtime ring. "

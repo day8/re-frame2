@@ -21,8 +21,8 @@
             [re-frame2-pair-mcp.tools.cursor :as cursor]
             [re-frame2-pair-mcp.tools.trace-window :as tw]
             [re-frame2-pair-mcp.tools.watch-epochs :as we]
-            [re-frame.mcp-base.cursor :as base-cursor]
-            [re-frame.mcp-base.vocab :as base-vocab]))
+            [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 (def default-limit cursor/default-limit)
 
@@ -577,13 +577,13 @@
   the round-trip-equality gate rejects. Verbatim mirror of the mcp-base
   cursor suites' helper; here it feeds the HANDLER, not the codec unit."
   [token]
-  (let [decoded (base-cursor/b64-decode token)
+  (let [decoded (rf.mcp-base.cursor/b64-decode token)
         i       (dec (count (re-find #"[^=]+" token)))
         orig    (nth token i)]
     (some (fn [c]
             (when (not= c orig)
               (let [cand (str (subs token 0 i) c (subs token (inc i)))]
-                (when (= decoded (base-cursor/b64-decode cand)) cand))))
+                (when (= decoded (rf.mcp-base.cursor/b64-decode cand)) cand))))
           b64-alphabet)))
 
 (defn- assert-true-alias!
@@ -595,7 +595,7 @@
   [alias canonical]
   (is (some? alias) "the alias exists")
   (is (not= alias canonical) "the alias is a DIFFERENT wire string than canonical")
-  (is (= (base-cursor/b64-decode alias) (base-cursor/b64-decode canonical))
+  (is (= (rf.mcp-base.cursor/b64-decode alias) (rf.mcp-base.cursor/b64-decode canonical))
       "the alias decodes to the SAME bytes — a true logical alias, not garbage"))
 
 (defn- assert-cursor-stale-envelope!
@@ -607,7 +607,7 @@
   (is (tu/error? result) "the envelope is flagged :isError on the wire")
   (let [edn (tu/extract-edn result)]
     (is (false? (:ok? edn)) ":ok? is false")
-    (is (= base-vocab/cursor-stale-reason (:reason edn))
+    (is (= rf.mcp-base.vocab/cursor-stale-reason (:reason edn))
         ":reason is the cross-MCP :rf.mcp/cursor-stale")
     (is (= tool (:tool edn)) ":tool names the rejecting paginated tool")))
 
@@ -680,7 +680,7 @@
                              (let [edn (tu/extract-edn result)]
                                (is (not (tu/error? result))
                                    "the canonical cursor is NOT surfaced as an error")
-                               (is (not= base-vocab/cursor-stale-reason (:reason edn))
+                               (is (not= rf.mcp-base.vocab/cursor-stale-reason (:reason edn))
                                    "the canonical cursor is NOT rejected as cursor-stale")
                                (is (true? (:ok? edn))
                                    "the canonical cursor drives an ok page past the gate")

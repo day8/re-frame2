@@ -9,8 +9,8 @@
   Build-id resolution lives here too — `default-build-id` reads
   `SHADOW_CLJS_BUILD_ID` from `process.env`, falling back to `:app`."
   (:require [applied-science.js-interop :as j]
-            [re-frame.mcp-base.args :as base-args]
-            [re-frame.mcp-base.envelope :as base-envelope]))
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.mcp-base.envelope :as rf.mcp-base.envelope]))
 
 ;; ---------------------------------------------------------------------------
 ;; Config — build id.
@@ -233,7 +233,7 @@
   [1]: spec/Conventions.md#cross-mcp-indicator-field-vocabulary-suppression-counters
   [2]: spec/009-Instrumentation.md#size-elision-in-traces"
   [envelope counts]
-  (base-envelope/with-indicators envelope counts))
+  (rf.mcp-base.envelope/with-indicators envelope counts))
 
 (defn arg
   "Extract an MCP tool argument by name. Returns nil if absent."
@@ -318,7 +318,7 @@
   build-id cache tests."
   ([args] (arg-build nil args))
   ([conn args]
-   (->> (or (base-args/fresh-keyword (arg args :build))
+   (->> (or (rf.mcp-base.args/fresh-keyword (arg args :build))
             (conn-resolved-build-id conn)
             (default-build-id))
         (canonicalize-via-alias conn))))
@@ -331,7 +331,7 @@
   the INPUT to `probe/canonicalize-build!`, which the pipeline's first
   step runs to populate the alias. Returns a keyword."
   [conn args]
-  (or (base-args/fresh-keyword (arg args :build))
+  (or (rf.mcp-base.args/fresh-keyword (arg args :build))
       (conn-resolved-build-id conn)
       (default-build-id)))
 
@@ -351,7 +351,7 @@
 
   Returns the conn unchanged for threading convenience."
   [conn args]
-  (when-let [explicit (base-args/fresh-keyword (arg args :build))]
+  (when-let [explicit (rf.mcp-base.args/fresh-keyword (arg args :build))]
     (mark-resolved-build-id! conn explicit))
   conn)
 
@@ -412,4 +412,4 @@
   (let [content (when result-js (j/get result-js :content))
         item    (when (array? content) (aget content 0))
         text    (when item (j/get item :text))]
-    (base-envelope/marker-text? text)))
+    (rf.mcp-base.envelope/marker-text? text)))

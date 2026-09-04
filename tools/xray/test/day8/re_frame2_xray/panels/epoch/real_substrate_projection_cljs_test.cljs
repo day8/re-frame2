@@ -42,7 +42,7 @@
             ;; flows `:after` interceptor (which stamps the t1/t2
             ;; pending-`:db` trace pair) is wired into the router.
             [re-frame.flows]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]

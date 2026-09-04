@@ -60,10 +60,10 @@
   the `re-frame.core` facade, so the tool reads the owning namespaces directly,
   exactly as it does for the realm substrate."
   (:require [clojure.set :as set]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.image :as image]
-            [re-frame.image-assembly :as image-assembly]
-            [re-frame.trace :as trace]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.image :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.panels.image-view-helpers :as h]))
 
 ;; ===========================================================================
@@ -81,7 +81,7 @@
   image/frame browse always has a value. Pure-read."
   []
   (try
-    (let [reg (live-frame/image-view-frames)]
+    (let [reg (rf.live-frame/image-view-frames)]
       (if (map? reg) reg {}))
     (catch :default _ {})))
 
@@ -92,7 +92,7 @@
   any throw yields nil (unresolved). Pure-read."
   [generation kind id]
   (try
-    (image-assembly/resolve-descriptor generation kind id)
+    (rf.image-assembly/resolve-descriptor generation kind id)
     (catch :default _ nil)))
 
 (defn image-view-data
@@ -186,7 +186,7 @@
   Returns the normalized inert image value (`:rf.image/id` /
   `:rf.image/include-ns` / `:rf.image/exclude-ns` / …)."
   []
-  (image/image {:id        xray-image-id
+  (rf.image/image {:id        xray-image-id
                 :select-ns {:include [xray-source-glob]
                             :exclude xray-exclude-globs}}))
 
@@ -264,15 +264,15 @@
   in the single-arity form)."
   ([target-image]
    (try
-     (let [xray-gen   (image-assembly/assemble [(xray-image)])
-           target-gen (image-assembly/assemble [target-image])]
+     (let [xray-gen   (rf.image-assembly/assemble [(xray-image)])
+           target-gen (rf.image-assembly/assemble [target-image])]
        (empty? (set/intersection (application-resolver-keyset xray-gen)
                                  (application-resolver-keyset target-gen))))
      (catch :default _ false)))
   ([target-image pool]
    (try
-     (let [xray-gen   (image-assembly/assemble [(xray-image)] pool)
-           target-gen (image-assembly/assemble [target-image] pool)]
+     (let [xray-gen   (rf.image-assembly/assemble [(xray-image)] pool)
+           target-gen (rf.image-assembly/assemble [target-image] pool)]
        (empty? (set/intersection (application-resolver-keyset xray-gen)
                                  (application-resolver-keyset target-gen))))
      (catch :default _ false))))
@@ -285,7 +285,7 @@
   duplicate `:id` is now idempotent replacement (no fail-loud gate), so this is
   a benign skip-optimisation rather than a guard against a throw. Pure read."
   [frame-id]
-  (some? (live-frame/live-frame frame-id)))
+  (some? (rf.live-frame/live-frame frame-id)))
 
 (defn seat-xray-frame!
   "SEAT a running Xray frame in its OWN EP-0023 image-loaded frame — the TRUE
@@ -321,7 +321,7 @@
   frame-creation opts (`:images` / `:id` / `:initial-events` / …) and would reject
   the record-config `:rf.trace/frame-no-emit?` flag. That flag is frame-scoped
   trace state owned by `re-frame.trace`, keyed by frame-id independently of the
-  generation, so it is set DIRECTLY via `trace/set-frame-no-emit!` — the same
+  generation, so it is set DIRECTLY via `rf.trace/set-frame-no-emit!` — the same
   canonical seam the frame engine routes the flag through. Asserted on EVERY call
   (seat or re-seat) so a hot-reload never drops the gate that keeps Xray's own
   reactive substrate from flooding the trace ring it inspects.
@@ -346,11 +346,11 @@
          opts {:id frame-id :images [(xray-image)]}
          obj (when-not already?
                (if (= pool ::live)
-                 (live-frame/make-frame opts)
-                 (live-frame/make-frame opts pool)))]
+                 (rf.live-frame/make-frame opts)
+                 (rf.live-frame/make-frame opts pool)))]
      ;; Frame-scoped trace gate (rf2-2qaqh): mark the shell frame a tool /
      ;; inspector frame so its own `:rf.sub/run` / `:rf.view/render` reactivity
      ;; does NOT flood the shared trace ring it inspects. Independent of the
      ;; image generation, so set on both fresh seat and re-seat.
-     (trace/set-frame-no-emit! frame-id true)
+     (rf.trace/set-frame-no-emit! frame-id true)
      obj)))

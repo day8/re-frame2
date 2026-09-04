@@ -30,7 +30,7 @@
   dispatcher of a single uniform event id."
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.egress :as egress]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -142,7 +142,7 @@
 ;; ## Why the egress runs inside `(rf/with-frame tf …)`
 ;;
 ;; `egress-value` (→ `elide-wire-value`) resolves the frame-owned
-;; sensitive / large app-db declarations from `frame/current-frame` when no
+;; sensitive / large app-db declarations from `rf.frame/current-frame` when no
 ;; explicit `:frame` opt is passed. The snapshot reads the FOCUSED
 ;; frame's db (`tf`), which is NOT necessarily the frame the fx fires
 ;; in (the palette dispatches against `:rf/xray`). Pinning the current
@@ -176,7 +176,7 @@
           ;; whole-db snapshot IS the walked root, so root-keyed schema
           ;; declarations match directly. `with-frame tf` pins the
           ;; declaration lookup to the focused frame (see comment above).
-          payload (when (and (some? tf) (some? (frame/frame tf)))
+          payload (when (and (some? tf) (some? (rf.frame/frame tf)))
                     (rf/with-frame tf
                       (egress/egress-value (rf/app-db-value tf))))
           tag     (str "[rf2-xray] palette snapshot · frame "
@@ -237,7 +237,7 @@
   ;; fail-closed off-box safe-egress projection) and ships
   ;; the REDACTED/size-elided payload to the JS console + clipboard —
   ;; both off-box sinks. Late-bound through the framework's
-  ;; `frame/frame` registry so a nil-frame ctx is a silent no-op rather
+  ;; `rf.frame/frame` registry so a nil-frame ctx is a silent no-op rather
   ;; than a throw.
   (rf/reg-fx :rf.xray.palette.fx/snapshot-app-db
     (fn [_ctx {:keys [target-frame]}]

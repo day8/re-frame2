@@ -35,7 +35,7 @@
   slice). No variant pins focus: with no bus seeded there are no
   cascades, so the focus-resolver's head-fallback renders the HEAD
   epoch record (`(peek epoch-history)`)."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures-trace :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -47,15 +47,15 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-trace
+  (rf.story/reg-tag :feature/xray-trace
     {:axis :feature
      :doc  "Xray Trace tab — the focused-epoch domino-trail ribbon
             (per spec/018-Event-Spine §5.4 + rf2-td380)."})
 
-  (story/reg-story :story.xray.trace
+  (rf.story/reg-story :story.xray.trace
     {:doc        "Visual gallery of the Xray Trace tab (the FLAT
                  oldest-first op-row list, rf2-aqusw) under varying
                  epoch trace-event depth + shape. Each variant seeds
@@ -69,7 +69,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 1. empty trace (focused epoch carries no events) ------------
-  (story/reg-variant :story.xray.trace/empty-trace
+  (rf.story/reg-variant :story.xray.trace/empty-trace
     {:doc        "Focused epoch carries an empty :trace-events slice.
                  Panel renders the :no-events empty-state ('No
                  events.')."
@@ -78,7 +78,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 2. short trace (normal ten-row cascade) ---------------------
-  (story/reg-variant :story.xray.trace/short-trace
+  (rf.story/reg-variant :story.xray.trace/short-trace
     {:doc        "A normal cascade — the focused epoch's domino trail
                  is ten events spanning every canonical op-type. One
                  row per event, oldest-first, each carrying its STAGE
@@ -88,7 +88,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 3. medium trace (100 rows) ----------------------------------
-  (story/reg-variant :story.xray.trace/medium-trace
+  (rf.story/reg-variant :story.xray.trace/medium-trace
     {:doc        "Focused epoch with a 100-row domino trail spanning
                  all four op-types. The flat list renders every row
                  (no row cap, rf2-aqusw); exercises the panel under a
@@ -98,7 +98,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4. long trace (1000 rows) -----------------------------------
-  (story/reg-variant :story.xray.trace/long-trace
+  (rf.story/reg-variant :story.xray.trace/long-trace
     {:doc        "Focused epoch with a 1000-row trail — the flat list
                  renders the whole epoch's trace in fire order
                  (oldest-first); exercises the panel + the shared
@@ -108,7 +108,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 5. trace with errors ----------------------------------------
-  (story/reg-variant :story.xray.trace/trace-with-errors
+  (rf.story/reg-variant :story.xray.trace/trace-with-errors
     {:doc        "Focused epoch whose every row is an issue: two
                  errors, two warnings, one info. Errors / warnings
                  render inline at their chronological point; the row's
@@ -123,7 +123,7 @@
   ;; A multi-op history: a leading counter epoch precedes the focused
   ;; flow-cascade epoch (head), exercising a realistic ring while
   ;; head-fallback keeps the flow epoch in view.
-  (story/reg-variant :story.xray.trace/trace-with-flows
+  (rf.story/reg-variant :story.xray.trace/trace-with-flows
     {:doc        "Multi-op history. The focused (head) epoch is a
                  `:cart/add` cascade that triggers three
                  `:rf.flow/computed` recompute rows then a downstream
@@ -138,7 +138,7 @@
   ;; rf2-gkczt: chip-filtering was removed from the Trace panel — the
   ;; focused epoch IS the scope. This variant exercises a mixed-op-type
   ;; trail with no filter event.
-  (story/reg-variant :story.xray.trace/mixed-op-types
+  (rf.story/reg-variant :story.xray.trace/mixed-op-types
     {:doc        "Focused epoch whose trail mixes event + fx op-types.
                  The feed renders every row (no chip-filtering
                  post-rf2-gkczt)."
@@ -147,7 +147,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 8. redacted slot --------------------------------------------
-  (story/reg-variant :story.xray.trace/redacted
+  (rf.story/reg-variant :story.xray.trace/redacted
     {:doc        "Focused epoch whose dispatched event payload carries
                  `:rf/redacted` markers on `:password` + `:totp`. The
                  row's target/detail column renders the dispatched
@@ -159,7 +159,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 9. cross-frame ----------------------------------------------
-  (story/reg-variant :story.xray.trace/cross-frame
+  (rf.story/reg-variant :story.xray.trace/cross-frame
     {:doc        "Focused epoch whose trail spans three frames evenly.
                  The per-row frame projection surfaces the frame on
                  every event. Panel-specific axis."
@@ -168,7 +168,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 10. source-coord --------------------------------------------
-  (story/reg-variant :story.xray.trace/source-coord
+  (rf.story/reg-variant :story.xray.trace/source-coord
     {:doc        "Focused epoch whose every row carries a
                  `:source-coord` slot (file + line). The per-row `↗`
                  open-in-editor glyph rides the end of the
@@ -179,7 +179,7 @@
      :substrates #{:reagent}})
 
   ;; ----- workspace ---------------------------------------------------
-  (story/reg-workspace :Workspace.xray.trace/all
+  (rf.story/reg-workspace :Workspace.xray.trace/all
     {:doc      "All ten Trace tab variants (the FLAT oldest-first
                 op-row list, rf2-aqusw) in one auto-grid. Scroll to see
                 the panel's response across empty / short / medium /

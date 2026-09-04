@@ -18,10 +18,10 @@
   knob the default profile strips behind `--allow-sensitive-reads`.
   Projecting it as a flat `:input-keys` would make the manifest claim
   `:include-sensitive` is on the DEFAULT surface, which it is not
-  (closed-by-default). The generator passes `registry/gated-input-keys`
+  (closed-by-default). The generator passes `rf.story-mcp.tools.registry/gated-input-keys`
   (the config-independent set of keys the server gates off by default —
-  the SAME set `registry/strip-include-sensitive` removes at
-  `tools/list` time) to `dm/build-manifest`, so each row records the
+  the SAME set `rf.story-mcp.tools.registry/strip-include-sensitive` removes at
+  `tools/list` time) to `rf.mcp-base.descriptor-manifest/build-manifest`, so each row records the
   gated subset in `:gated-input-keys`. The committed manifest
   distinguishes the two deterministic profiles: the default surface is
   `:input-keys` minus `:gated-input-keys`; the gate-open surface is
@@ -48,8 +48,8 @@
     clojure -M:gen                  ; regenerate tool-descriptors.edn
     clojure -M:gen --check          ; drift-check (CI)"
   (:require [clojure.java.io :as io]
-            [re-frame.mcp-base.descriptor-manifest :as dm]
-            [re-frame.story-mcp.tools.registry :as registry]))
+            [re-frame.mcp-base.descriptor-manifest :as rf.mcp-base.descriptor-manifest]
+            [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]))
 
 (def ^:private server-id :story-mcp)
 
@@ -61,14 +61,14 @@
   (io/file (System/getProperty "user.dir") "tool-descriptors.edn"))
 
 (defn build []
-  (dm/build-manifest server-id registry/tool-registry registry/gated-input-keys))
+  (rf.mcp-base.descriptor-manifest/build-manifest server-id rf.story-mcp.tools.registry/tool-registry rf.story-mcp.tools.registry/gated-input-keys))
 
 (defn generate!
   "Regenerate tool-descriptors.edn from the live registry."
   []
   (let [manifest (build)
         f        (manifest-file)
-        edn      (dm/render-edn manifest)]
+        edn      (rf.mcp-base.descriptor-manifest/render-edn manifest)]
     (spit f edn)
     (println (format "Wrote %s (%d tools)."
                      (.getPath ^java.io.File f)
@@ -79,21 +79,21 @@
   "Regenerate in memory + compare to the committed file. Returns true
   when in sync, false (with a printed diff summary) when drifted. The
   drift report body (added / removed / changed / malformed) is formatted
-  by the shared `dm/drift-report-lines`; this fn owns only the file
+  by the shared `rf.mcp-base.descriptor-manifest/drift-report-lines`; this fn owns only the file
   lookup, the OK-path wording, its *err* channel, the two consumer
   wording strings, and the exit code (via `-main`)."
   []
   (let [manifest  (build)
-        edn       (dm/render-edn manifest)
+        edn       (rf.mcp-base.descriptor-manifest/render-edn manifest)
         f         (manifest-file)
         committed (when (.exists ^java.io.File f) (slurp f))
-        {:keys [ok?] :as result} (dm/check manifest edn committed)]
+        {:keys [ok?] :as result} (rf.mcp-base.descriptor-manifest/check manifest edn committed)]
     (if ok?
       (do (println (format "OK: tool-descriptors.edn in sync (%d tools)."
                            (-> manifest :meta :tool-count)))
           true)
       (do (binding [*out* *err*]
-            (doseq [line (dm/drift-report-lines
+            (doseq [line (rf.mcp-base.descriptor-manifest/drift-report-lines
                           result
                           {:regenerate-line   "Regenerate with: clojure -M:gen (from tools/story-mcp/)"
                            :missing-file-line "DRIFT: tool-descriptors.edn does not exist. Run: clojure -M:gen"})]

@@ -88,27 +88,27 @@
   (:require [clojure.java.io :as io]
             [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
-            [re-frame.mcp-base.dedup :as dd]
+            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [malli.core      :as m]
             [malli.error     :as me]
             ;; Canonical framework elision builder and classification effect.
             [re-frame.core   :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame  :as frame]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame  :as rf.frame]
             ;; Schema-validation failure is an independent elision emitter.
-            [re-frame.schemas :as schemas]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.mcp-base.diff-encode :as de]
-            [re-frame.mcp-base.overflow :as mcp-overflow]
-            [re-frame.mcp-conformance.fixtures :as fx]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
+            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
             ;; Shared wrapper contract data.
             [re-frame.mcp-conformance.wire-vocab.schemas
              :refer [Overflow Summary DedupTable DiffFromBody
                      ElisionMarker CacheHit DroppedSensitive ElidedLarge
                      canonical-markers]]
             ;; Shared source inventories and near-miss helpers.
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
+            [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
 
 ;; ---------------------------------------------------------------------------
 ;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
@@ -448,10 +448,10 @@
   (let [payload   [{:event-id :user/sign-in  :handler-id :auth}
                    {:event-id :user/sign-in  :handler-id :auth}
                    {:event-id :user/sign-out :handler-id :auth}]
-        cache     (dd/de-dupe-eq payload)
+        cache     (rf.mcp-base.dedup/de-dupe-eq payload)
         wrapped   {:rf.mcp/dedup-table cache}]
     (testing "the encoder emits a cache carrying the canonical cache-0 root"
-      (is (contains? cache (dd/make-cache-element 0))
+      (is (contains? cache (rf.mcp-base.dedup/make-cache-element 0))
           (str "de-dupe-eq MUST emit a de-dupe.cache/cache-0 root entry. "
                "If this fails the library's root convention changed and "
                "the Node decoder's ROOT_CACHE_ID is now wrong. Got keys: "
@@ -461,7 +461,7 @@
           (str "Live-emitted dedup-table failed DedupTable validation:\n"
                (me/humanize (m/explain DedupTable wrapped)))))
     (testing "the round-tripped value expands back to the original payload"
-      (is (= payload (dd/expand cache))
+      (is (= payload (rf.mcp-base.dedup/expand cache))
           "live de-dupe-eq → expand round-trips the payload"))
     (testing "JVM↔Node root agreement: the JSON string form of the root key matches the Node decoder's ROOT_CACHE_ID"
       ;; The cache keys are namespaced SYMBOLS (`de-dupe.cache/cache-N`).
@@ -496,7 +496,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest node-decoder-root-cache-id-literal-pinned
-  (let [src (fx/read-source "tools/mcp-conformance/lib/dedup-envelope.cjs")]
+  (let [src (rf.mcp-conformance.fixtures/read-source "tools/mcp-conformance/lib/dedup-envelope.cjs")]
     (is (str/includes? src
                        (str "ROOT_CACHE_ID = '" node-decoder-root-cache-id "'"))
         (str "The Node decoder MUST declare ROOT_CACHE_ID = '"
@@ -585,7 +585,7 @@
                   :db-after  {:cart {:items [{:sku "abc"} {:sku "xyz"}]}
                               :checkout {:state :review}}
                   :event     [:cart/add-item {:sku "xyz"}]}
-        encoded  (de/diff-encode-db-after epoch)
+        encoded  (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
         db-after (:db-after encoded)]
     (testing "the encoder writes the :rf.mcp/diff-from marker"
       (is (= :db-before (get db-after :rf.mcp/diff-from))
@@ -598,7 +598,7 @@
           (str "Live-emitted :db-after failed DiffFromBody validation:\n"
                (me/humanize (m/explain DiffFromBody db-after)))))
     (testing "the emitted marker decodes back to the original :db-after"
-      (is (= epoch (de/decode-db-after encoded))
+      (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded))
           "live encode → decode round-trips the epoch"))))
 
 (deftest diff-from-marker-absent-when-encoder-disabled
@@ -607,7 +607,7 @@
   ;; is genuinely tied to the encoder running — proving the live test
   ;; above isn't accidentally green because something else writes the key.
   (let [epoch  {:db-before {:a 1} :db-after {:a 2}}
-        passed (first (de/diff-encode-epochs [epoch] :full))]
+        passed (first (rf.mcp-base.diff-encode/diff-encode-epochs [epoch] :full))]
     (is (not (contains? (:db-after passed) :rf.mcp/diff-from))
         ":full mode must NOT carry the diff-from marker")
     (is (= {:a 2} (:db-after passed))
@@ -621,7 +621,7 @@
   ;; canonical Overflow schema — a live counterpart to the authored
   ;; overflow fixtures, catching a builder change that drifts the body
   ;; shape without touching the fixtures.
-  (let [marker (mcp-overflow/overflow-payload
+  (let [marker (rf.mcp-base.overflow/overflow-payload
                  {:tool "snapshot" :token-count 6250 :cap 5000
                   :hint "Narrow the scope."})]
     (is (= :rf.mcp/overflow (first (keys marker)))
@@ -659,19 +659,19 @@
   the EP-0025 commit-plane `:large` classification effect (`:source :effect`).
   `v` is the wire value walked under the `:rf/default` frame scope."
   [large v]
-  (reset! frame/frames {})
-  (rf/init! plain-atom/adapter)
+  (reset! rf.frame/frames {})
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.elision :reload)
-  (elision/clear-warning-cache!)
-  (elision/configure! {:rf.size/threshold-bytes 16384})
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
+  (rf.elision/clear-warning-cache!)
+  (rf.elision/configure! {:rf.size/threshold-bytes 16384})
+  (rf.frame/ensure-default-frame!)
+  (binding [rf.frame/*current-frame* :rf/default]
     ;; EP-0025: classify the `:large` paths via the commit-plane effect path —
     ;; the same registry write a `reg-event` returning `:large` performs (the
     ;; durable `:large {:app-db …}` frame annotation is removed).
-    (frame/swap-runtime-db! :rf/default
-      (fn [rt] (elision/apply-classification-effects rt {:large (mapv vec large)})))
-    (elision/elide-wire-value v)))
+    (rf.frame/swap-runtime-db! :rf/default
+      (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec large)})))
+    (rf.elision/elide-wire-value v)))
 
 (deftest elision-marker-emitted-live-by-canonical-walker
   ;; Drive the REAL walker over a frame-declared `:large` slot and assert
@@ -683,7 +683,7 @@
                  {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
         marker (get-in out [:user :uploaded-pdf])]
     (testing "the walker substitutes a :rf.size/large-elided marker at the declared slot"
-      (is (elision/marker? marker)
+      (is (rf.elision/marker? marker)
           (str "elide-wire-value MUST substitute a :rf.size/large-elided "
                "marker at a frame-declared :large slot. Got: " (pr-str marker))))
     (testing "the live-emitted marker validates against the canonical ElisionMarker schema"
@@ -734,7 +734,7 @@
 ;; `validate.cljc` ship a non-conformant marker (`:reason :schema`, outside
 ;; the post-EP-0015 [:frame :marks] enum, and the REQUIRED `:hint` slot
 ;; omitted) while its docstring falsely claimed `:rf/elision-marker`
-;; conformance. The fix delegates to the canonical `elision/->marker`; this
+;; conformance. The fix delegates to the canonical `rf.elision/->marker`; this
 ;; gate drives the REAL `validate-event!` emitter LIVE and validates the
 ;; emitted marker against the SAME canonical `ElisionMarker` schema, so a
 ;; future drift on the schemas-artefact path turns red here — symmetric to
@@ -746,12 +746,12 @@
   `:rf.error/schema-validation-failure` trace, and return the
   `:rf.size/large-elided` marker substituted into its `:value` slot."
   [blob]
-  (reset! frame/frames {})
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
+  (reset! rf.frame/frames {})
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf.frame/ensure-default-frame!)
   (let [traces (atom [])]
     (rf/register-listener! :trace ::sv (fn [ev] (swap! traces conj ev)))
-    (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
+    (rf.schemas/validate-event! :upload/save [:upload/save {:blob blob}]
                              {:schema [:cat [:= :upload/save]
                                        [:map [:blob {:large? true} :int]]]})
     (rf/unregister-listener! :trace ::sv)
@@ -767,7 +767,7 @@
   (let [blob   (apply str (repeat 200 "X"))
         marker (schema-validation-failure-marker blob)]
     (testing "validate-event! substitutes a :rf.size/large-elided marker on a :large? failure"
-      (is (elision/marker? marker)
+      (is (rf.elision/marker? marker)
           (str "validate-event! MUST substitute a :rf.size/large-elided "
                "marker for a :large?-flagged slot's failure. Got: "
                (pr-str marker))))
@@ -844,9 +844,9 @@
   (doseq [{:keys [key servers]} canonical-markers
           server                servers]
     (testing (str "marker " key " literal in " server " emit-sources")
-      (let [literal    (pins/marker-key->literal key)
-            emit-files (get pins/emit-source-files server)
-            doc-files  (get pins/doc-source-files server)]
+      (let [literal    (rf.mcp-conformance.wire-vocab.source-pins/marker-key->literal key)
+            emit-files (get rf.mcp-conformance.wire-vocab.source-pins/emit-source-files server)
+            doc-files  (get rf.mcp-conformance.wire-vocab.source-pins/doc-source-files server)]
         ;; A server with zero emit-sources AND zero doc-sources is a
         ;; gap — a missing catalogue entry the reviewer must add.
         (is (or (seq emit-files) (seq doc-files))
@@ -858,8 +858,8 @@
           ;; data after comment/string stripping.
           (seq emit-files)
           (is (some (fn [rel]
-                      (let [stripped (fx/strip-comments-and-strings
-                                       (fx/read-source rel))]
+                      (let [stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings
+                                       (rf.mcp-conformance.fixtures/read-source rel))]
                         (str/includes? stripped literal)))
                     emit-files)
               (str "Literal " literal
@@ -872,7 +872,7 @@
           ;; are the looser pin — raw `str/includes?`.
           :else
           (is (some (fn [rel]
-                      (str/includes? (fx/read-source rel) literal))
+                      (str/includes? (rf.mcp-conformance.fixtures/read-source rel) literal))
                     doc-files)
               (str "Literal " literal " missing from " server
                    " DOC-sources " doc-files
@@ -888,10 +888,10 @@
   (doseq [{:keys [key servers]} canonical-markers
           :when                 (contains? servers :re-frame2-pair-mcp)]
     (testing (str "marker " key " literal in re-frame2-pair-mcp doc-sources")
-      (let [literal   (pins/marker-key->literal key)
-            doc-files (get pins/doc-source-files :re-frame2-pair-mcp)]
+      (let [literal   (rf.mcp-conformance.wire-vocab.source-pins/marker-key->literal key)
+            doc-files (get rf.mcp-conformance.wire-vocab.source-pins/doc-source-files :re-frame2-pair-mcp)]
         (is (some (fn [rel]
-                    (str/includes? (fx/read-source rel) literal))
+                    (str/includes? (rf.mcp-conformance.fixtures/read-source rel) literal))
                   doc-files)
             (str "Literal " literal
                  " missing from re-frame2-pair-mcp doc-sources " doc-files
@@ -905,15 +905,15 @@
   ;; co-exists alongside the canonical — across BOTH emit-sources AND
   ;; doc-sources (drift in either is a vocabulary-drift bug).
   (doseq [{:keys [key]} canonical-markers
-          [server files] pins/all-source-files
-          variant       (pins/near-miss-variants key)
+          [server files] rf.mcp-conformance.wire-vocab.source-pins/all-source-files
+          variant       (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants key)
           rel           files]
     (testing (str server " — " rel " — near-miss " variant)
-      (is (not (str/includes? (fx/read-source rel) variant))
+      (is (not (str/includes? (rf.mcp-conformance.fixtures/read-source rel) variant))
           (str "Found near-miss variant " variant " for " key
                " in " server "/" rel
                " — this is a vocabulary-drift bug. The canonical "
-               "form is " (pins/marker-key->literal key))))))
+               "form is " (rf.mcp-conformance.wire-vocab.source-pins/marker-key->literal key))))))
 
 ;; ---------------------------------------------------------------------------
 ;; JS-vs-Malli `ReFrame2PairOverflowBody` cross-encoding sanity (rf2-0zqox).
@@ -1002,7 +1002,7 @@
   ;; Malli `ReFrame2PairOverflowBody` schema, the JS `assertOverflowBody`
   ;; function MUST carry a substring that asserts the same shape.
   ;; Missing fields trip this gate with the field name in the error.
-  (let [js-src (fx/read-source live-re-frame2-pair-overflow-js-rel)]
+  (let [js-src (rf.mcp-conformance.fixtures/read-source live-re-frame2-pair-overflow-js-rel)]
     (doseq [[field grep-pattern] re-frame2-pair-overflow-js-required-grep-markers]
       (testing (str "JS assertOverflowBody pins field " field)
         (is (str/includes? js-src grep-pattern)
@@ -1026,9 +1026,9 @@
 (deftest server-references-are-all-known
   (doseq [{:keys [key servers]} canonical-markers]
     (testing (str "marker " key " — :servers values")
-      (is (every? fx/known-servers servers)
+      (is (every? rf.mcp-conformance.fixtures/known-servers servers)
           (str "Unknown server in :servers for " key ": "
-               (remove fx/known-servers servers))))))
+               (remove rf.mcp-conformance.fixtures/known-servers servers))))))
 
 (deftest story-mcp-still-emits-zero-uncontracted-cross-mcp-markers
   ;; Self-documenting tripwire: the day story-mcp adopts a NEW
@@ -1053,15 +1053,15 @@
   ;; docstrings without inline-emitting either. Documentation is not
   ;; an emission — this tripwire fires only on bare-code occurrences
   ;; (rf2-xx42k).
-  (let [story-files       fx/story-mcp-source-files
+  (let [story-files       rf.mcp-conformance.fixtures/story-mcp-source-files
         uncontracted-keys (for [{:keys [key servers]} canonical-markers
                                 :when (not (contains? servers :story-mcp))]
                             key)]
     (doseq [key uncontracted-keys
             rel story-files]
       (testing (str "story-mcp source " rel " — " key " absence")
-        (let [stripped (fx/strip-comments-and-strings (fx/read-source rel))]
-          (is (not (str/includes? stripped (pins/marker-key->literal key)))
+        (let [stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings (rf.mcp-conformance.fixtures/read-source rel))]
+          (is (not (str/includes? stripped (rf.mcp-conformance.wire-vocab.source-pins/marker-key->literal key)))
               (str key " literal found in " rel
                    " (in code, after stripping comments/docstrings).\n"
                    "If story-mcp now emits this marker, update "
@@ -1072,7 +1072,7 @@
 ;; ---------------------------------------------------------------------------
 ;; story-mcp source inventory completeness (rf2-ribu5a).
 ;;
-;; `fx/story-mcp-tool-source-files` is the single inventory the generic
+;; `rf.mcp-conformance.fixtures/story-mcp-tool-source-files` is the single inventory the generic
 ;; near-miss / uncontracted-marker / slot-name sweeps grep. Before
 ;; rf2-ribu5a it was a HAND-MAINTAINED list that had silently fallen
 ;; behind the directory: it ran through `recorder.cljc` but omitted
@@ -1105,17 +1105,17 @@
   ;; a tool file added/removed on disk is reflected with zero list
   ;; maintenance. A divergence here means the derivation drifted from
   ;; the directory (it cannot, by construction — this pins that).
-  (let [dir            (io/file fx/repo-root fx/story-mcp-tools-dir)
+  (let [dir            (io/file rf.mcp-conformance.fixtures/repo-root rf.mcp-conformance.fixtures/story-mcp-tools-dir)
         fresh-listing  (->> (.listFiles dir)
                             (filter #(.isFile %))
                             (map #(.getName %))
                             (filter #(re-find #"\.cljc$" %))
-                            (map #(str fx/story-mcp-tools-dir "/" %))
+                            (map #(str rf.mcp-conformance.fixtures/story-mcp-tools-dir "/" %))
                             set)]
-    (is (= fresh-listing (set fx/story-mcp-tool-source-files))
+    (is (= fresh-listing (set rf.mcp-conformance.fixtures/story-mcp-tool-source-files))
         (str "story-mcp tool-source inventory diverged from the "
-             "filesystem listing of " fx/story-mcp-tools-dir
-             ". Derived: " (sort fx/story-mcp-tool-source-files)
+             "filesystem listing of " rf.mcp-conformance.fixtures/story-mcp-tools-dir
+             ". Derived: " (sort rf.mcp-conformance.fixtures/story-mcp-tool-source-files)
              "\nFresh: " (sort fresh-listing)))))
 
 (deftest story-mcp-inventory-includes-historically-omitted-tool-files
@@ -1126,7 +1126,7 @@
   ;; `:rf.mcp/dedup-table` marker rides through `wire_pipeline.cljc`
   ;; (itself in the filesystem-derived swept set). So only the surviving
   ;; historically-omitted file is pinned here.
-  (let [inventory (set fx/story-mcp-tool-source-files)]
+  (let [inventory (set rf.mcp-conformance.fixtures/story-mcp-tool-source-files)]
     (is (contains? inventory
                    "tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc")
         "cursor.cljc (routes :rf.mcp/cursor-stale) MUST be in the central inventory")))
@@ -1143,18 +1143,18 @@
   ;; the `:rf.mcp/dedup-table` literal as DATA lives only in
   ;; `mcp-base/vocab.cljc`.
   (let [wire-rel "tools/story-mcp/src/re_frame/story_mcp/tools/wire_pipeline.cljc"]
-    (is (some #{wire-rel} fx/story-mcp-source-files)
+    (is (some #{wire-rel} rf.mcp-conformance.fixtures/story-mcp-source-files)
         "wire_pipeline.cljc (emits :rf.mcp/dedup-table via base-dedup) must be in the swept source set")
     ;; Belt-and-braces: the emitter carries NO uncontracted canonical
     ;; marker as inline data today (mirrors the green state the generic
     ;; sweep asserts). If a future edit inline-emits one, BOTH this pin
     ;; and the generic sweep flip RED.
-    (let [stripped          (fx/strip-comments-and-strings (fx/read-source wire-rel))
+    (let [stripped          (rf.mcp-conformance.fixtures/strip-comments-and-strings (rf.mcp-conformance.fixtures/read-source wire-rel))
           uncontracted-keys (for [{:keys [key servers]} canonical-markers
                                   :when (not (contains? servers :story-mcp))]
                               key)]
       (doseq [key uncontracted-keys]
-        (is (not (str/includes? stripped (pins/marker-key->literal key)))
+        (is (not (str/includes? stripped (rf.mcp-conformance.wire-vocab.source-pins/marker-key->literal key)))
             (str key " (uncontracted for story-mcp) found as inline data in "
                  wire-rel " — would be a cross-MCP vocabulary leak."))))))
 
@@ -1313,7 +1313,7 @@
       (is (seq files)
           (str "No source files registered for " server " envelope emit sites."))
       (doseq [rel files]
-        (let [src (fx/read-source rel)]
+        (let [src (rf.mcp-conformance.fixtures/read-source rel)]
           (testing (str server " " rel " — :dropped-sensitive literal")
             (is (str/includes? src ":dropped-sensitive")
                 (str ":dropped-sensitive literal missing from " rel)))
@@ -1343,7 +1343,7 @@
   ;; not less. This pin follows the routing into that helper rather than
   ;; greping each tool body for the now-folded `with-indicators` literal.
   (let [egress-rel "tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"
-        egress-src (fx/read-source egress-rel)]
+        egress-src (rf.mcp-conformance.fixtures/read-source egress-rel)]
     (testing "egress.cljc defines the centralised with-indicators helper"
       (is (str/includes? egress-src "(defn with-indicators")
           (str "`with-indicators` helper missing from " egress-rel)))
@@ -1370,7 +1370,7 @@
   (doseq [rel ["tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
                "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"]]
     (testing (str rel " — routes payload through egress/result-with-indicators")
-      (is (str/includes? (fx/read-source rel) "egress/result-with-indicators")
+      (is (str/includes? (rf.mcp-conformance.fixtures/read-source rel) "egress/result-with-indicators")
           (str rel " does not route its payload through "
                "`egress/result-with-indicators` — the centralised egress "
                "epilogue (which threads through `egress/with-indicators`) is "

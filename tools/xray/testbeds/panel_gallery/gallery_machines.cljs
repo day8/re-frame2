@@ -37,7 +37,7 @@
   data`) via `:rf.xray.static.machines/sim-set-pending-event` +
   `-pending-data` so the side rail's compose box is populated mid-
   type but not yet stepped."
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures-machines :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
 
@@ -49,16 +49,16 @@
   `install-canonical-vocabulary!` resets so the namespace is
   reloadable."
   []
-  (story/install-canonical-vocabulary!)
+  (rf.story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
-  (story/reg-tag :feature/xray-machines
+  (rf.story/reg-tag :feature/xray-machines
     {:axis :feature
      :doc  "Xray Machines tab — Mode A (definition) / Mode B
             (instance) chart + transition-history ribbon + UC1 Sim
             sub-mode per spec/003 + spec/018 §5.5."})
 
-  (story/reg-story :story.xray.machines
+  (rf.story/reg-story :story.xray.machines
     {:doc        "Visual gallery of the Xray Machines tab under
                  varying registry shapes. Each variant seeds the
                  registered-machine + snapshot + definition override
@@ -70,7 +70,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 1. no machines registered ----------------------------------
-  (story/reg-variant :story.xray.machines/no-machines
+  (rf.story/reg-variant :story.xray.machines/no-machines
     {:doc        "No machines registered. Panel renders the
                  :no-machines empty-state copy."
      :setup     [[:rf.xray/set-registered-machines-override-for-test []]
@@ -81,7 +81,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 2. single machine, Mode A (definition view) ----------------
-  (story/reg-variant :story.xray.machines/single-mode-a
+  (rf.story/reg-variant :story.xray.machines/single-mode-a
     {:doc        "Single :loader machine registered with a populated
                  definition but NO live snapshot. The panel surfaces
                  the picker with the definition chart (Mode A) — the
@@ -96,7 +96,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 3. single machine, Mode B (instance) -----------------------
-  (story/reg-variant :story.xray.machines/single-mode-b
+  (rf.story/reg-variant :story.xray.machines/single-mode-b
     {:doc        "Single :loader machine registered WITH a live
                  snapshot (`:loaded` state, populated data). The
                  panel renders the chart in Mode B — current state
@@ -114,7 +114,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 4. multiple machines ---------------------------------------
-  (story/reg-variant :story.xray.machines/multi-machine
+  (rf.story/reg-variant :story.xray.machines/multi-machine
     {:doc        "Three machines registered (`:loader`, `:auth`,
                  `:checkout`) each with a populated snapshot +
                  definition. The picker offers all three; the
@@ -131,7 +131,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 5. many transitions -----------------------------------------
-  (story/reg-variant :story.xray.machines/many-transitions
+  (rf.story/reg-variant :story.xray.machines/many-transitions
     {:doc        "Single :loader machine with eighteen transitions
                  (mixed outer + microstep) in the trace buffer. Pins
                  the transition-history ribbon at scroll depth +
@@ -152,7 +152,7 @@
   ;; definition into Xray's app-db), then sim-step with the
   ;; `:start` event so the cloned snapshot advances :idle → :loading
   ;; mid-execution. The variant renders the side rail + amber tint.
-  (story/reg-variant :story.xray.machines/uc1-sim-mid-step
+  (rf.story/reg-variant :story.xray.machines/uc1-sim-mid-step
     {:doc        "Single :loader machine + UC1 Sim active mid-step:
                  sim-start clones the definition, sim-step fires
                  `[:start]` advancing the cloned snapshot :idle →
@@ -189,7 +189,7 @@
   ;; bypass-writing app-db. Deterministic because the variant `:setup`
   ;; vector is dispatched in order at boot, the same order the existing
   ;; `uc1-sim-mid-step` variant already relies on.
-  (story/reg-variant :story.xray.machines/uc1-sim-pending-input
+  (rf.story/reg-variant :story.xray.machines/uc1-sim-pending-input
     {:doc        "Single :loader machine + UC1 Sim active with the
                  side-rail controlled inputs populated mid-compose:
                  `:pending-event` is `[:start]` and `:pending-data` is
@@ -214,7 +214,7 @@
      :substrates #{:reagent}})
 
   ;; ----- workspace ---------------------------------------------------
-  (story/reg-workspace :Workspace.xray.machines/all
+  (rf.story/reg-workspace :Workspace.xray.machines/all
     {:doc      "All seven Machines tab variants in one auto-grid.
                 Scroll to see the panel's response across no-machines
                 / single Mode A / single Mode B / multi-machine /

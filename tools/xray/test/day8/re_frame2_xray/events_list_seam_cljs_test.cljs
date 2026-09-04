@@ -26,8 +26,8 @@
    10. The seam cursor is `row-resize` — the affordance hover signal."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
@@ -52,10 +52,10 @@
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid copies this file
 ;; carried were semantically identical to `re-frame.test-helpers`; tests call
-;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 ;; `all-testids` (every carried testid in pre-order, for the DOM-order seam
 ;; assertion) is not exposed by test-helpers, so it is expressed over
-;; `th/find-by-testid-prefix` with the empty-prefix (matches every string
+;; `rf.test-helpers/find-by-testid-prefix` with the empty-prefix (matches every string
 ;; testid, depth-first).
 
 (defn- all-testids
@@ -63,7 +63,7 @@
   in pre-order. Used to assert DOM-order — the seam must sit between
   `rf-xray-event-list` and `rf-xray-tab-bar`."
   [tree]
-  (map (comp :data-testid th/attrs) (th/find-by-testid-prefix tree "")))
+  (map (comp :data-testid rf.test-helpers/attrs) (rf.test-helpers/find-by-testid-prefix tree "")))
 
 ;; ---- SeamHandle component shape ----------------------------------------
 
@@ -134,7 +134,7 @@
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view {:mode :inline})
-            list  (th/find-by-testid tree "rf-xray-event-list")
+            list  (rf.test-helpers/find-by-testid tree "rf-xray-event-list")
             style (:style (second list))]
         (is (some? list) "event-list container present")
         (is (nil? (:resize style))
@@ -381,7 +381,7 @@
       (rf/dispatch-sync [:rf.xray/set-events-list-height-px 360]))
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view {:mode :inline})
-            list  (th/find-by-testid tree "rf-xray-event-list")
+            list  (rf.test-helpers/find-by-testid tree "rf-xray-event-list")
             style (:style (second list))]
         (is (= "360px" (:height style))
             "list :height updates to the persisted seam-handle value")))))

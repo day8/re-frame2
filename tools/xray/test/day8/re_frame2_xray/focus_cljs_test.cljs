@@ -19,7 +19,7 @@
   semantics (receives + focuses) — no second Xray runtime model."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]

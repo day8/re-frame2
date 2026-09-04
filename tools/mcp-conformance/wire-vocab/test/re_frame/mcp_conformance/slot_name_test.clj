@@ -71,7 +71,7 @@
   (:require [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
             [malli.core      :as m]
-            [re-frame.mcp-conformance.fixtures :as fx]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 ;; ---------------------------------------------------------------------------
 ;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`.
@@ -307,7 +307,7 @@
 ;; even when a server's wire-key still carries the trailing `?` —
 ;; exactly the bug pattern this gate guards against in
 ;; re-frame2-pair-mcp. The full-token regex
-;; (via `fx/variant-regex`, the same keyword-extender-aware pattern
+;; (via `rf.mcp-conformance.fixtures/variant-regex`, the same keyword-extender-aware pattern
 ;; the near-miss gate uses) pins the literal as a complete keyword:
 ;; matched only when not immediately followed by a keyword-extender
 ;; character. Adding `:include-sensitive?` to any wire-surface
@@ -325,14 +325,14 @@
           server                         servers]
     (testing (str "slot " slot " literal in " server " sources")
       (let [literal (slot-literal slot)
-            pat     (fx/variant-regex literal)
+            pat     (rf.mcp-conformance.fixtures/variant-regex literal)
             files   (get sources server)]
         (is (seq files)
             (str "No source files registered for server " server
                  " under slot " slot
                  " — extend `canonical-slots` :sources map."))
         (is (some (fn [rel]
-                    (re-find pat (fx/read-source rel)))
+                    (re-find pat (rf.mcp-conformance.fixtures/read-source rel)))
                   files)
             (str "Slot literal " literal " missing from " server
                  " sources: " files
@@ -361,15 +361,15 @@
          ;; tool-source inventory lives in `fixtures.clj`
          ;; so a new tool file added in one tripwire's list can't escape
          ;; the others.
-         :story-mcp fx/story-mcp-tool-source-files}]
+         :story-mcp rf.mcp-conformance.fixtures/story-mcp-tool-source-files}]
     (doseq [{:keys [slot]}     canonical-slots
             variant            (near-miss-variants slot)
             [server files]     impl-sources-by-server
             rel                files
             :when              (seq files)]
       (testing (str server " — " rel " — near-miss " variant " for " slot)
-        (let [src    (fx/read-source rel)
-              pat    (fx/variant-regex variant)]
+        (let [src    (rf.mcp-conformance.fixtures/read-source rel)
+              pat    (rf.mcp-conformance.fixtures/variant-regex variant)]
           (is (not (re-find pat src))
               (str "Found near-miss variant " variant " for slot " slot
                    " in " server "/" rel
@@ -397,15 +397,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest mcp-base-vocab-pins-the-canonical-slot-keywords
-  ;; Match against `fx/strip-comments-and-strings`-neutered source
+  ;; Match against `rf.mcp-conformance.fixtures/strip-comments-and-strings`-neutered source
   ;; (rf2-njudn8): each namespaced walker-opt keyword is named in a
   ;; docstring AS WELL AS being DEF'd, so a raw `str/includes?` stays
   ;; green when the real `(def ...)` constant is removed but its prose
   ;; mention survives — no teeth against a constant removal. Stripping
   ;; drops docstrings/comments to spaces, so only the genuine CODE
   ;; constant satisfies the pin.
-  (let [src      (fx/read-source mcp-base-vocab-source)
-        stripped (fx/strip-comments-and-strings src)]
+  (let [src      (rf.mcp-conformance.fixtures/read-source mcp-base-vocab-source)
+        stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings src)]
     (doseq [literal mcp-base-vocab-literals]
       (testing (str "mcp-base/vocab.cljc pins literal " literal " as a code constant")
         (is (str/includes? stripped literal)
@@ -424,9 +424,9 @@
 (deftest server-references-are-all-known
   (doseq [{:keys [slot servers]} canonical-slots]
     (testing (str "slot " slot " — :servers values")
-      (is (every? fx/known-servers servers)
+      (is (every? rf.mcp-conformance.fixtures/known-servers servers)
           (str "Unknown server in :servers for " slot ": "
-               (remove fx/known-servers servers))))))
+               (remove rf.mcp-conformance.fixtures/known-servers servers))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate 7 — slot uniqueness. No two `canonical-slots` rows share the

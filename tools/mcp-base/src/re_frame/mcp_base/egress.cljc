@@ -40,7 +40,7 @@
   Cross-platform: pure-data table; loads identically into JVM (story-mcp)
   and CLJS (re-frame2-pair-mcp). No transport, no runtime, no framework
   dep."
-  (:require [re-frame.mcp-base.vocab :as vocab]))
+  (:require [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 (def profiles
   "The closed six-member `:rf.egress/profile` vocabulary (EP-0015 §10).
@@ -66,34 +66,34 @@
   seeing content\" clause. `:rf.egress/local-raw` is the only profile
   that opts sensitive AND large back in (the trusted-local boundary)."
   {:rf.egress/off-box-observability
-   {vocab/include-sensitive-opt false
-    vocab/include-large-opt      false
-    vocab/include-digests-opt    false}
+   {rf.mcp-base.vocab/include-sensitive-opt false
+    rf.mcp-base.vocab/include-large-opt      false
+    rf.mcp-base.vocab/include-digests-opt    false}
 
    :rf.egress/off-box-tool
-   {vocab/include-sensitive-opt false
-    vocab/include-large-opt      false
-    vocab/include-digests-opt    true}
+   {rf.mcp-base.vocab/include-sensitive-opt false
+    rf.mcp-base.vocab/include-large-opt      false
+    rf.mcp-base.vocab/include-digests-opt    true}
 
    :rf.egress/local-redacted
-   {vocab/include-sensitive-opt false
-    vocab/include-large-opt      false
-    vocab/include-digests-opt    false}
+   {rf.mcp-base.vocab/include-sensitive-opt false
+    rf.mcp-base.vocab/include-large-opt      false
+    rf.mcp-base.vocab/include-digests-opt    false}
 
    :rf.egress/local-raw
-   {vocab/include-sensitive-opt true
-    vocab/include-large-opt      true
-    vocab/include-digests-opt    false}
+   {rf.mcp-base.vocab/include-sensitive-opt true
+    rf.mcp-base.vocab/include-large-opt      true
+    rf.mcp-base.vocab/include-digests-opt    false}
 
    :rf.egress/ssr-hydration
-   {vocab/include-sensitive-opt false
-    vocab/include-large-opt      false
-    vocab/include-digests-opt    false}
+   {rf.mcp-base.vocab/include-sensitive-opt false
+    rf.mcp-base.vocab/include-large-opt      false
+    rf.mcp-base.vocab/include-digests-opt    false}
 
    :rf.egress/public-error
-   {vocab/include-sensitive-opt false
-    vocab/include-large-opt      false
-    vocab/include-digests-opt    false}})
+   {rf.mcp-base.vocab/include-sensitive-opt false
+    rf.mcp-base.vocab/include-large-opt      false
+    rf.mcp-base.vocab/include-digests-opt    false}})
 
 (defn profile-size-opts
   "Return the `:rf.size/*` floor a profile resolves to, or `nil` for an

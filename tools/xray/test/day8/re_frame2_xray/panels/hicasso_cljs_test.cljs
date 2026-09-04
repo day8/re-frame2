@@ -4,7 +4,7 @@
   ## The tiny consumer app is real, and that is the point
 
   Every row below mounts actual boundaries through the actual commit seam
-  (`collector/render-body` then `collector/commit-boundary!` — the same
+  (`rf.hicasso.impl.collector/render-body` then `rf.hicasso.impl.collector/commit-boundary!` — the same
   `subscribe` closure React calls, which is why this is answerable in
   Node), then renders the panel's hiccup over the projection those
   boundaries produced. Nothing is stubbed between the runtime and the
@@ -42,14 +42,14 @@
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.evidence :as evidence]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.tool :as tool]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.evidence :as rf.hicasso.evidence]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.tool :as rf.hicasso.tool]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (def ^:private app-frame ::hicasso-tab-app)
 
@@ -59,9 +59,9 @@
 (rf/reg-event :htab/bump (fn [{:keys [db]} _] {:db (update db :left inc)}))
 
 ;; A DECLARED view, for the naming rows: `defview` stamps its `<ns>/<sym>`
-;; on the body and `codec/retained-body` hands that body back, so the
+;; on the body and `rf.hicasso.impl.codec/retained-body` hands that body back, so the
 ;; harness renders it through the same seam as an anonymous fn.
-(h/defview named-probe [_] (h/sub [:htab/left]) nil)
+(rf.hicasso/defview named-probe [_] (rf.hicasso/sub [:htab/left]) nil)
 
 (def ^:private named-probe-name "day8.re-frame2-xray.panels.hicasso-cljs-test/named-probe")
 
@@ -98,8 +98,8 @@
 
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
-    {:adapter    uix-adapter/adapter
-     :post-reset (fn [] (collector/reset-runtime!))}))
+    {:adapter    rf.adapter.uix/adapter
+     :post-reset (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -146,8 +146,8 @@
 (defn- mount!
   "A real boundary, rendered and committed. Answers React's cleanup."
   [body-fn]
-  (collector/render-body app-frame body-fn {})
-  (collector/commit-boundary! (collector/last-reads) (fn [])))
+  (rf.hicasso.impl.collector/render-body app-frame body-fn {})
+  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
 
 (defn- refresh!
   "Drop Xray's sub cache so `:rf.xray.hicasso/data` recomputes against the
@@ -264,7 +264,7 @@
   ;; off screen. The panel states that beside the rows rather than leaving
   ;; the reader to supply the word "visible".
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))
         tree    (show! :mounted)]
     (is (contains? (testids tree) "rf-xray-hicasso-mounted-visibility"))
     (is (string/includes? (text-of tree) "SUBSCRIPTION"))
@@ -293,10 +293,10 @@
   ;; stale stamp before (audit #7802), so the predecessor must mismatch on
   ;; the page like anything else this build was not taught. There is no
   ;; acceptance path for it.
-  (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
     (doseq [stamp [:re-frame.hicasso.evidence/v2
                    :re-frame.hicasso.evidence/v99]]
-      (let [other (assoc (tool/read-mounted-boundaries) :schema stamp)]
+      (let [other (assoc (rf.hicasso.tool/read-mounted-boundaries) :schema stamp)]
         (is (seq (:boundaries other))
             "NON-VACUITY: the envelope being refused really does carry rows")
         (with-redefs [reads/evidence (constantly {:mounted-boundaries other
@@ -316,9 +316,9 @@
 
 (deftest the-mounted-view-answers-which-boundaries-are-mounted
   (setup!)
-  (let [a (mount! (fn [_] (h/sub [:htab/left]) nil))
-        b (mount! (fn [_] (h/sub [:htab/left]) nil))
-        c (mount! (fn [_] (h/sub [:htab/left]) (h/sub [:htab/right]) nil))
+  (let [a (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))
+        b (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))
+        c (mount! (fn [_] (rf.hicasso/sub [:htab/left]) (rf.hicasso/sub [:htab/right]) nil))
         tree (show! :mounted)
         txt  (text-of tree)
         ids  (testids tree)]
@@ -338,7 +338,7 @@
 
 (deftest a-declared-view-is-named-on-the-page-with-its-source
   (setup!)
-  (let [release (mount! (codec/retained-body named-probe))
+  (let [release (mount! (rf.hicasso.impl.codec/retained-body named-probe))
         tree    (show! :mounted)
         txt     (text-of tree)
         ids     (testids tree)]
@@ -361,8 +361,8 @@
 
 (deftest the-reads-view-answers-which-boundaries-read-each-subscription
   (setup!)
-  (let [a (mount! (fn [_] (h/sub [:htab/left]) nil))
-        b (mount! (fn [_] (h/sub [:htab/left]) (h/sub [:htab/right]) nil))
+  (let [a (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))
+        b (mount! (fn [_] (rf.hicasso/sub [:htab/left]) (rf.hicasso/sub [:htab/right]) nil))
         tree (show! :attribution)
         txt  (text-of tree)
         ids  (testids tree)]
@@ -390,7 +390,7 @@
 
 (deftest the-intents-view-answers-what-was-dispatched
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
     (let [tree (show! :intents)
           txt  (text-of tree)
@@ -408,7 +408,7 @@
 
 (deftest the-why-view-answers-which-reads-changed-and-refuses-to-answer-why
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:htab/left]) (h/sub [:htab/right]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) (rf.hicasso/sub [:htab/right]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
     (let [tree (show! :explain)
           txt  (text-of tree)
@@ -463,7 +463,7 @@
   (let [empty-testid "rf-xray-hicasso-empty-mounted"]
     (is (contains? (testids (show! :mounted)) empty-testid)
         "the projection is computed and HELD while nothing is mounted")
-    (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))]
+    (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
       (is (contains? (testids (render-now)) empty-testid)
           "NON-VACUITY: a real mount alone leaves the held reaction stale,
            so the tick below is the only thing that can move this roster")
@@ -492,7 +492,7 @@
 
 (deftest the-loss-states-render-under-distinct-testids
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
 
     (testing "a live window renders the UNCORRELATED chip"
@@ -502,7 +502,7 @@
 
     (testing "an EMPTY window renders the CAP chip in the same place — a
               different testid, a different word, driven by a real change"
-      (trace-tooling/clear-trace-buffer! app-frame)
+      (rf.trace.tooling/clear-trace-buffer! app-frame)
       (let [tree (show! :explain)
             ids  (testids tree)
             txt  (text-of tree)]
@@ -534,7 +534,7 @@
   ;; Frame destruction is the forcing function: there the door PROMISES to
   ;; fail closed, so nothing derived from the query may render.
   (setup!)
-  (mount! (fn [_] (h/sub [:htab/left the-secret]) nil))
+  (mount! (fn [_] (rf.hicasso/sub [:htab/left the-secret]) nil))
   (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
 
   (testing "NON-VACUITY: with the frame alive the argument really is on the page"
@@ -565,29 +565,29 @@
 
 (deftest the-seam-reshapes-nothing
   (setup!)
-  (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
     (testing "the read seam answers the producer's own bytes"
-      (doseq [[door seam] [[tool/read-mounted-boundaries reads/mounted-boundaries]
-                           [tool/read-read-attribution   reads/read-attribution]
-                           [tool/read-intents            reads/intents]
-                           [tool/explain-render          reads/explain-render]]]
+      (doseq [[door seam] [[rf.hicasso.tool/read-mounted-boundaries reads/mounted-boundaries]
+                           [rf.hicasso.tool/read-read-attribution   reads/read-attribution]
+                           [rf.hicasso.tool/read-intents            reads/intents]
+                           [rf.hicasso.tool/explain-render          reads/explain-render]]]
         (is (= (pr-str (door)) (pr-str (seam)))
             "a seam that reshaped could not be byte-identical to its door")))
     (testing "and so does the subscription the VIEW derefs — the whole chain"
       (refresh!)
       (let [held (rf/with-frame :rf/xray
                    (:envelopes @(rf/subscribe [:rf.xray.hicasso/data])))]
-        (is (= (pr-str (tool/read-mounted-boundaries))
+        (is (= (pr-str (rf.hicasso.tool/read-mounted-boundaries))
                (pr-str (:mounted-boundaries held))))
-        (is (= (pr-str (tool/read-read-attribution))
+        (is (= (pr-str (rf.hicasso.tool/read-read-attribution))
                (pr-str (:read-attribution held))))))
     (release)))
 
 (deftest the-consumer-pin-tracks-the-producer-today-and-detects-a-bump
   (testing "the pin is a LITERAL, not the producer's var — but today they agree"
-    (is (= evidence/schema hh/consumed-evidence-schema)
+    (is (= rf.hicasso.evidence/schema hh/consumed-evidence-schema)
         (str "Xray's pin and the Hicasso producer's schema have diverged. That "
              "is the pin doing its job: teach this build the new shape, then "
              "bump the pin in the same change."))
-    (is (= evidence/producer hh/consumed-producer))))
+    (is (= rf.hicasso.evidence/producer hh/consumed-producer))))

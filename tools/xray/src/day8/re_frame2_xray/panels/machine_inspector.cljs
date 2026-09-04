@@ -54,7 +54,7 @@
             ;; the trace stream uses, so a `:sensitive?` / `:large?`
             ;; `[:schemas :data]` slot lands as `:rf/redacted` / the size
             ;; marker before any panel surface reads it — never raw.
-            [re-frame.classification :as classification]
+            [re-frame.classification :as rf.classification]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -186,7 +186,7 @@
   "Redact one live machine snapshot `{:state :data …}` for `machine-id`
   through the snapshot-egress chokepoint. Wraps the snapshot as a
   synthetic `:rf.machine/snapshot-updated` trace event — stamped with the
-  TARGET `frame-id` — and runs `classification/project-trace-event`, which calls
+  TARGET `frame-id` — and runs `rf.classification/project-trace-event`, which calls
   `project-machine-tags` to redact `:snapshot.data` against the frame's
   classified snapshot-path declarations in the per-frame elision registry.
   EP-0025: machine `:data` classification rides the projection-relative
@@ -203,7 +203,7 @@
                :tags      {:machine-id machine-id
                            :frame      frame-id
                            :snapshot   snapshot}}
-          out (try (classification/project-trace-event ev)
+          out (try (rf.classification/project-trace-event ev)
                    (catch :default _ ev))]
       (or (get-in out [:tags :snapshot]) snapshot))))
 

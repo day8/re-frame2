@@ -36,13 +36,13 @@
   invokes it OUTSIDE any `with-frame` binding — simulating the
   browser's click-fires-after-render reality. Click handlers use
   queued `rf/dispatch` (not `dispatch-sync`); the router drain is
-  async via `goog.async.nextTick`. Tests use `test-support/poll-until`
+  async via `goog.async.nextTick`. Tests use `rf.test-support/poll-until`
   to await the drain before asserting."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.popup :as popup]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -65,7 +65,7 @@
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid copies were
 ;; semantically identical to `re-frame.test-helpers`; tests call
-;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 ;; ---- click-time helpers ------------------------------------------------
 
@@ -88,7 +88,7 @@
   "Poll until `pred` of `:rf/xray`'s app-db returns truthy. Settles
   the async router drain that queued click-dispatches go through."
   [pred label]
-  (test-support/poll-until
+  (rf.test-support/poll-until
     #(pred (rf/app-db-value :rf/xray))
     {:label label :timeout-ms 1000}))
 
@@ -106,7 +106,7 @@
             `{:frame :rf/xray}` opt on the dispatch, the click would
             land on :rf/default and the modal would stay open."
     (let [rendered  (render-open-modal)
-          close-btn (th/find-by-testid rendered "rf-xray-settings-close")
+          close-btn (rf.test-helpers/find-by-testid rendered "rf-xray-settings-close")
           handler   (on-click close-btn)]
       (is (some? handler) "close button exposes an :on-click handler")
       (handler (fake-event)) ; outside any with-frame — same as a browser click
@@ -126,7 +126,7 @@
             :rf/xray frame-provider's render context still closes the
             modal."
     (let [rendered (render-open-modal)
-          backdrop (th/find-by-testid rendered "rf-xray-settings-backdrop")
+          backdrop (rf.test-helpers/find-by-testid rendered "rf-xray-settings-backdrop")
           handler  (on-click backdrop)]
       (is (some? handler) "backdrop exposes an :on-click handler")
       (handler (fake-event))
@@ -143,7 +143,7 @@
   (testing "rf2-smvvz — Esc keydown from OUTSIDE the :rf/xray frame-
             provider's render context still closes the modal."
     (let [rendered (render-open-modal)
-          dialog   (th/find-by-testid rendered "rf-xray-settings-dialog")
+          dialog   (rf.test-helpers/find-by-testid rendered "rf-xray-settings-dialog")
           handler  (on-key-down dialog)]
       (is (some? handler) "dialog exposes an :on-key-down handler")
       (handler (fake-key-event "Escape"))
@@ -168,7 +168,7 @@
             assertion is independent of which tab is clicked as long
             as it differs from the default :general)."
     (let [rendered (render-open-modal)
-          tab-node (th/find-by-testid rendered "rf-xray-settings-tab-buffer")
+          tab-node (rf.test-helpers/find-by-testid rendered "rf-xray-settings-tab-buffer")
           handler  (on-click tab-node)]
       (is (some? handler) "buffer tab exposes an :on-click handler")
       (handler (fake-event))

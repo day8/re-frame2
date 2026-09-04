@@ -26,10 +26,10 @@
   invoked by the preload under the same gate. See
   `spec/013-Trace-Consumer.md`."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.trace :as trace]
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.self-noise :as self-noise]))
@@ -81,7 +81,7 @@
 (defn frameless-events
   "Return the frameless secondary ring's current contents, oldest-first.
   Empty in production (the listener never receives events when
-  `interop/debug-enabled?` is false at compile time)."
+  `rf.interop/debug-enabled?` is false at compile time)."
   []
   @frameless-ring)
 
@@ -123,7 +123,7 @@
   prior divergent top-level `:frame` check is removed (raw events never
   carry a top-level `:frame`)."
   [event]
-  (and (nil? (trace/trace-event-frame event))
+  (and (nil? (rf.trace/trace-event-frame event))
        (nil? (get-in event [:tags :rf.trace/dispatch-id]))))
 
 ;; ---- task-coalesced mirror sync (D3=b ruling) --------------------------
@@ -205,9 +205,9 @@
   first paint reads `:rf.xray/event-bundles`)."
   []
   (let [tool-frames #{:rf/xray :rf/re-frame2-pair}
-        frame-ids   (remove tool-frames (frame/frame-ids))
+        frame-ids   (remove tool-frames (rf.frame/frame-ids))
         per-frame   (into [] (mapcat (fn [fid]
-                                       (trace-tooling/trace-buffer fid {:flat true})))
+                                       (rf.trace.tooling/trace-buffer fid {:flat true})))
                           frame-ids)
         frameless   (frameless-events)
         all         (into per-frame frameless)]
@@ -247,8 +247,8 @@
 
   Returns nothing."
   []
-  (when interop/debug-enabled?
-    (when (some? (frame/frame defaults/default-frame-id))
+  (when rf.interop/debug-enabled?
+    (when (some? (rf.frame/frame defaults/default-frame-id))
       (let [snapshot (snapshot-from-rings)]
         (rf/with-frame defaults/default-frame-id
           (rf/dispatch-sync [:rf.xray/sync-trace-buffer snapshot])))))
@@ -263,7 +263,7 @@
   saturation."
   []
   (when (compare-and-set! mirror-sync-scheduled? false true)
-    (interop/next-tick
+    (rf.interop/next-tick
       (fn []
         (reset! mirror-sync-scheduled? false)
         (refresh-trace-rings!)))))
@@ -292,11 +292,11 @@
        refreshes Xray's app-db's `:trace-buffer` slot.
 
   No-op in production (the framework's listener fan-out elides under
-  `interop/debug-enabled?` false; the entry point also short-circuits).
+  `rf.interop/debug-enabled?` false; the entry point also short-circuits).
 
   Per Spec 009 §Privacy + spec/013-Trace-Consumer.md."
   [event]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (cond
       ;; rf2-xs8vu — drop Xray's own machinery before anything else.
       ;; Self-emitted sub-reads / view-renders from Xray's own panels
@@ -309,7 +309,7 @@
       ;; bump the per-frame suppressed counter so the `[● REDACTED N]`
       ;; indicator surfaces. EP-0015 per-(tool,frame) reveal grain.
       (config/suppress-sensitive? event)
-      (config/note-suppressed! (trace/trace-event-frame event))
+      (config/note-suppressed! (rf.trace/trace-event-frame event))
 
       :else
       (do
@@ -336,7 +336,7 @@
 ;;
 ;; Three places hold trace data post-rf2-43koh:
 ;;   1. The framework's per-frame rings — clear via
-;;      `(trace-tooling/clear-trace-rings!)`.
+;;      `(rf.trace.tooling/clear-trace-rings!)`.
 ;;   2. The Xray secondary frameless ring — clear via
 ;;      `(clear-frameless-ring!)`.
 ;;   3. Xray's app-db `:trace-buffer` slot — clear via
@@ -353,13 +353,13 @@
   toggle-off-callback registered below, AND from the Settings popup's
   \"Clear buffer now\" affordance.
 
-  Production no-op (`interop/debug-enabled?` gates every mutation
+  Production no-op (`rf.interop/debug-enabled?` gates every mutation
   point inside the framework + Xray paths)."
   []
-  (when interop/debug-enabled?
-    (trace-tooling/clear-trace-rings!)
+  (when rf.interop/debug-enabled?
+    (rf.trace.tooling/clear-trace-rings!)
     (clear-frameless-ring!)
-    (when (some? (frame/frame defaults/default-frame-id))
+    (when (some? (rf.frame/frame defaults/default-frame-id))
       (rf/with-frame defaults/default-frame-id
         (rf/dispatch [:rf.xray/clear-trace-buffer])))
     (config/reset-suppressed-count!))
@@ -374,10 +374,10 @@
 ;; `:rf.egress/local-raw` and is now narrowed back — every event that was
 ;; retained between reveal and narrow is purged in one wholesale clear.
 ;;
-;; Gated on `interop/debug-enabled?` so production builds elide the
+;; Gated on `rf.interop/debug-enabled?` so production builds elide the
 ;; registration alongside the rest of the collector surface.
 
-(when interop/debug-enabled?
+(when rf.interop/debug-enabled?
   (config/register-toggle-off-callback! ::scrub-on-toggle-off retroactive-scrub!))
 
 ;; ---- test affordances --------------------------------------------------
@@ -424,11 +424,11 @@
 (defn reset-for-test!
   "Reset every piece of mutable state this ns owns — the frameless ring,
   the mirror-sync sentinel — AND every per-frame ring the framework
-  owns (via `trace-tooling/clear-trace-rings!`). Test fixtures call
+  owns (via `rf.trace.tooling/clear-trace-rings!`). Test fixtures call
   this between assertions so cross-test bleed (process-global atoms)
   doesn't pollute the surface."
   []
   (reset! frameless-ring [])
   (reset! mirror-sync-scheduled? false)
-  (trace-tooling/clear-trace-rings!)
+  (rf.trace.tooling/clear-trace-rings!)
   nil)

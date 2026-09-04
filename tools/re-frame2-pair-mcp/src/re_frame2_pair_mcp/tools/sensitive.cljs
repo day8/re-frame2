@@ -16,14 +16,14 @@
   Anthropic's tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$` rejects
   the predicate `?`. The arg is parsed by the shared
   `re-frame2-pair-mcp.tools.args/parse-bool-arg` table."
-  (:require [re-frame.mcp-base.sensitive :as base-sensitive]))
+  (:require [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]))
 
 (defn sensitive-event?
   "Delegates to `re-frame.mcp-base.sensitive/sensitive-event?`.
   The predicate is the conservative spec/009 stamp
   check: only the literal `true` value drops."
   [ev]
-  (base-sensitive/sensitive-event? ev))
+  (rf.mcp-base.sensitive/sensitive-event? ev))
 
 (defn sensitive-epoch?
   "Does this projected epoch record carry — or transitively contain — a
@@ -64,7 +64,7 @@
   all-false) vector returns nil immediately."
   [epoch]
   (and (map? epoch)
-       (or (base-sensitive/sensitive-stamp? (:rf.epoch/sensitive? epoch))
+       (or (rf.mcp-base.sensitive/sensitive-stamp? (:rf.epoch/sensitive? epoch))
            (boolean (some sensitive-event? (:trace-events epoch))))))
 
 (defn strip-sensitive
@@ -116,4 +116,4 @@
   helper's two-arity form, which defaults to the trace-event-only
   filter."
   [snapshot include?]
-  (base-sensitive/scrub-snapshot snapshot include? strip-sensitive))
+  (rf.mcp-base.sensitive/scrub-snapshot snapshot include? strip-sensitive))

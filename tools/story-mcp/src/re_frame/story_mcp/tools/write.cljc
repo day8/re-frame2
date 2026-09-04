@@ -1,19 +1,19 @@
 (ns re-frame.story-mcp.tools.write
   "Write-category tool handlers (dev-only and gated). Per
   spec/003-Write-Surface-Gating.md, CI runs leave the gate
-  off (`config/writes-allowed?` defaults false). Every handler here
+  off (`rf.story-mcp.config/writes-allowed?` defaults false). Every handler here
   short-circuits with a gate-denial error result when the flag is off.
 
   - `register-variant`   — register a variant programmatically.
   - `unregister-variant` — symmetric removal."
   (:require [clojure.edn :as edn]
-            [re-frame.error :as error]
-            [re-frame.mcp-base.args :as args]
-            [re-frame.story :as story]
-            [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.tools.args :as targs]
-            [re-frame.story-mcp.tools.result :as result]
-            [re-frame.story-mcp.tools.schemas :as s]))
+            [re-frame.error :as rf.error]
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.story :as rf.story]
+            [re-frame.story-mcp.config :as rf.story-mcp.config]
+            [re-frame.story-mcp.tools.args :as rf.story-mcp.tools.args]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
+            [re-frame.story-mcp.tools.schemas :as rf.story-mcp.tools.schemas]))
 
 (defn assert-writes-allowed
   "Returns nil when writes are allowed; an error-result otherwise. The
@@ -24,8 +24,8 @@
   string. Two callers today: `register-variant` and
   `unregister-variant`."
   [tool-name]
-  (when-not (config/writes-allowed?)
-    (result/error-result
+  (when-not (rf.story-mcp.config/writes-allowed?)
+    (rf.story-mcp.tools.result/error-result
       (str "Write surface disabled. Set `:rf.story-mcp/allow-writes?` "
            "(or `--allow-writes` CLI flag, or "
            "`-Drf.story-mcp.allow-writes=true` JVM property) to enable. "
@@ -165,7 +165,7 @@
         (let [parsed (edn/read-string
                        {:readers {}
                         :default (fn [tag _]
-                                   (error/throw-error!
+                                   (rf.error/throw-error!
                                      :rf.error/story-mcp-tagged-literal-rejected
                                      'story-mcp/parse-edn-body
                                      (str "tagged literals are not permitted in EDN "
@@ -272,8 +272,8 @@
     ;; Stamp `:origin :story-mcp` per spec/Cross-Cutting-Designs.md §5
     ;; — every write surface tags its writes so post-mortem queries
     ;; can identify which actor produced the registration.
-    (let [id (story/reg-variant* vk (assoc body-v :origin config/origin))]
-      (result/edn-result {:variant-id id :registered? true}))
+    (let [id (rf.story/reg-variant* vk (assoc body-v :origin rf.story-mcp.config/origin))]
+      (rf.story-mcp.tools.result/edn-result {:variant-id id :registered? true}))
     (catch Throwable e
       ;; `wire-safe-ex-data` swaps the registrar's raw Malli `:explain`
       ;; (live reified schema objects — not JSON-encodable) for the
@@ -283,9 +283,9 @@
       ;; It also renames the thrown `:rf.error/id` to the wire's bare
       ;; `:rf.error`; harvesting `:rf.error` here instead was reading a
       ;; key no throw sets, so the id slot never populated (rf2-2nbck).
-      (result/error-result (str "Registration failed: " (ex-message e))
+      (rf.story-mcp.tools.result/error-result (str "Registration failed: " (ex-message e))
                       (merge {:variant-id vk}
-                             (result/wire-safe-ex-data
+                             (rf.story-mcp.tools.result/wire-safe-ex-data
                                (select-keys (ex-data e) [:rf.error/id :explain])))))))
 
 (defn tool-register-variant
@@ -304,19 +304,19 @@
     coerce-body → reg-variant* + stamp :origin."
   [arguments]
   (or (assert-writes-allowed "register-variant")
-      (let [[vid err-vid]   (targs/required-arg arguments :variant-id)
-            [body err-body] (when-not err-vid (targs/required-arg arguments :body))]
+      (let [[vid err-vid]   (rf.story-mcp.tools.args/required-arg arguments :variant-id)
+            [body err-body] (when-not err-vid (rf.story-mcp.tools.args/required-arg arguments :body))]
         (or err-vid err-body
             (let [body-v (coerce-body body)]
               (case body-v
                 ::edn-error
-                (result/error-result ":body must be a map or a valid EDN string.")
+                (rf.story-mcp.tools.result/error-result ":body must be a map or a valid EDN string.")
 
                 ::not-a-map
-                (result/error-result (str ":body must be a map; got " (some-> body class .getName)))
+                (rf.story-mcp.tools.result/error-result (str ":body must be a map; got " (some-> body class .getName)))
 
                 ::too-wide
-                (result/error-result
+                (rf.story-mcp.tools.result/error-result
                   (str ":body carries too many keys (over " max-body-string-keys
                        "). A variant body has a handful of slots; reject "
                        "abusive wide objects before keywordising.")
@@ -332,12 +332,12 @@
                 ;; on the STRING shape via `fresh-keyword-checked` BEFORE
                 ;; interning, so an invalid id (which correctly returns an
                 ;; error) never permanently grows the JVM keyword table. The
-                ;; pre-intern shape check (`story/valid-variant-id?`, single-
+                ;; pre-intern shape check (`rf.story/valid-variant-id?`, single-
                 ;; sourced with the registrar's keyword-level `variant-id?`)
                 ;; fails closed with no intern.
-                (if-let [vk (args/fresh-keyword-checked vid story/valid-variant-id?)]
+                (if-let [vk (rf.mcp-base.args/fresh-keyword-checked vid rf.story/valid-variant-id?)]
                   (register-or-error vk body-v)
-                  (result/error-result
+                  (rf.story-mcp.tools.result/error-result
                     (str ":variant-id " (pr-str vid) " does not match the canonical "
                          "variant-id grammar :story.<path>/<name>.")
                     {:rf.error   :rf.error/variant-id-shape
@@ -357,10 +357,10 @@
   success, `isError: true` when the variant is not registered."
   [arguments]
   (or (assert-writes-allowed "unregister-variant")
-      (targs/with-variant-id arguments
+      (rf.story-mcp.tools.args/with-variant-id arguments
         (fn [vk]
-          (story/unregister! :variant vk)
-          (result/edn-result {:variant-id vk :unregistered? true})))))
+          (rf.story/unregister! :variant vk)
+          (rf.story-mcp.tools.result/edn-result {:variant-id vk :unregistered? true})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
@@ -378,8 +378,8 @@
                          "3. Gate closed: any args -> {:isError true :content [{:text \"Write surface disabled. Set :rf.story-mcp/allow-writes? ...\"}] :structuredContent {:gated true :tool \"register-variant\"}}.")
     :typicalTokens  100
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens
-                                {:variant-id s/kw-or-string
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens
+                                {:variant-id rf.story-mcp.tools.schemas/kw-or-string
                                  :body {:oneOf [{:type "object"}
                                                 {:type "string"
                                                  :description (str "EDN-encoded variant body. Parsed under the rf2-g9fje "
@@ -391,8 +391,8 @@
                                                                    "needed in the body shape.")}]}})
                   :required ["variant-id" "body"]
                   :additionalProperties false}
-    :outputSchema s/write-gated-output-schema
-    :annotations  s/destructive-write-annotations
+    :outputSchema rf.story-mcp.tools.schemas/write-gated-output-schema
+    :annotations  rf.story-mcp.tools.schemas/destructive-write-annotations
     :handler     tool-register-variant}
 
    {:name           "unregister-variant"
@@ -404,9 +404,9 @@
                          "3. Gate closed: any args -> {:isError true :content [{:text \"Write surface disabled...\"}] :structuredContent {:gated true :tool \"unregister-variant\"}}.")
     :typicalTokens  100
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens {:variant-id s/kw-or-string})
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens {:variant-id rf.story-mcp.tools.schemas/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/write-gated-output-schema
-    :annotations  s/destructive-write-annotations
+    :outputSchema rf.story-mcp.tools.schemas/write-gated-output-schema
+    :annotations  rf.story-mcp.tools.schemas/destructive-write-annotations
     :handler     tool-unregister-variant}])

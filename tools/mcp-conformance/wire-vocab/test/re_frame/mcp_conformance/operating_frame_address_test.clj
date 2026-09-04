@@ -59,7 +59,7 @@
             [clojure.test   :refer [deftest is testing]]
             [malli.core     :as m]
             [malli.error    :as me]
-            [re-frame.mcp-conformance.fixtures :as fx]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical schemas. The operating-frame envelope has a SUCCESS shape and a
@@ -374,7 +374,7 @@
   ;; REQUIRES `:frame`. Pin that the descriptor's inputSchema declares
   ;; `:frame` required (`:required ["frame"]`). A regression that made it
   ;; optional would re-open the pre-EP-0023 implicit-target ambiguity.
-  (let [src (fx/read-source set-operating-frame-descriptor-rel)]
+  (let [src (rf.mcp-conformance.fixtures/read-source set-operating-frame-descriptor-rel)]
     (is (str/includes? src "set-operating-frame")
         "the set-operating-frame descriptor must live in the descriptor data")
     (is (str/includes? src ":required [\"frame\"]")
@@ -391,7 +391,7 @@
   ;; specifically NOT a `:realm` / `:realm-id` property. A regression that
   ;; re-promoted the public realm pin trips here — the exact pre-q8whbb
   ;; shape EP-0023 collapsed.
-  (let [src (fx/read-source set-operating-frame-descriptor-rel)
+  (let [src (rf.mcp-conformance.fixtures/read-source set-operating-frame-descriptor-rel)
         ;; isolate the set-operating-frame descriptor block (def-to-def)
         block (-> src
                   (str/split #"\(def set-operating-frame")
@@ -422,9 +422,9 @@
   ;; home for "the public address is the frame id". A reorganisation that
   ;; dropped the model entirely should surface here. Mirrors
   ;; `result-key-literal-in-mcp-base-vocab-spec-doc-source`.
-  (let [descriptor (fx/read-source set-operating-frame-descriptor-rel)
+  (let [descriptor (rf.mcp-conformance.fixtures/read-source set-operating-frame-descriptor-rel)
         spec-rel   "tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md"
-        spec       (fx/read-source spec-rel)]
+        spec       (rf.mcp-conformance.fixtures/read-source spec-rel)]
     (testing "the descriptor prose teaches the EP-0023 frame-address model"
       (is (str/includes? descriptor "EP-0023")
           "set-operating-frame's descriptor must anchor the EP-0023 model")

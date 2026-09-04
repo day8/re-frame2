@@ -1,7 +1,7 @@
 (ns re-frame.story-mcp.wire-encodability-test
   "Every relayed `ex-data` must survive the JSON encoder (rf2-2z9u3).
 
-  These tests drive the REAL JSON-RPC boundary — `server/run-loop!` over
+  These tests drive the REAL JSON-RPC boundary — `rf.story-mcp.server/run-loop!` over
   in-memory reader/writer, real frames in, raw JSON lines out — and read
   the encoded response, not the handler's return value. That distinction
   is the whole point of the bead: the defect lived BETWEEN the handler
@@ -9,7 +9,7 @@
   `isError: true` result, then `protocol/write-frame!` hit the live
   `malli.core/Schema` objects riding the registrar's `:explain` slot,
   threw `Cannot JSON encode object of class:
-  malli.core$_and_schema$reify$…`, and `server/handle-frame!` turned that
+  malli.core$_and_schema$reify$…`, and `rf.story-mcp.server/handle-frame!` turned that
   into a protocol-level `-32603`. A unit test on the handler would have
   passed the whole time.
 
@@ -31,12 +31,12 @@
 
   Only the first is reachable through the shipped tool surface today: the
   generic arm catches throws the handlers already handle. Its tests seam
-  the one producer that path trusts — `story/variant->edn` — so the
+  the one producer that path trusts — `rf.story/variant->edn` — so the
   throw, the relay, the encoder and `handle-frame!` are all the real
   thing while the trigger is forced.
 
   (A third relay lived in `tools/recorder.cljc` `write-back!`, seamed
-  through `story/recording->script-body`. It left with `record-as-variant`
+  through `rf.story/recording->script-body`. It left with `record-as-variant`
   under rf2-5saz7; the leaf is deleted, so the roster above is two.)
 
   ## The second contract on this boundary: the message a consumer AI READS
@@ -65,28 +65,28 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.error]
             [re-frame.core :as rf]
-            [re-frame.story :as story]
-            [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.server :as server]
-            [re-frame.story-mcp.tools.result :as result]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.story :as rf.story]
+            [re-frame.story-mcp.config :as rf.story-mcp.config]
+            [re-frame.story-mcp.server :as rf.story-mcp.server]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; ---- fixture --------------------------------------------------------------
 
 (defn- reset-story-and-config [t]
-  (try (rf/init! plain-atom/adapter)
+  (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
-  (story/clear-all!)
-  (story/install-canonical-vocabulary!)
+  (rf.story/clear-all!)
+  (rf.story/install-canonical-vocabulary!)
   ;; Every test here exercises the write surface; the gate is default-off.
-  (config/set-allow-writes! true)
+  (rf.story-mcp.config/set-allow-writes! true)
   ;; Mirrors `tools-test`: keep the epoch ring out of the wire payload so any
   ;; JVM that puts `re-frame.epoch` on this suite's classpath — its capture
   ;; hooks install process-wide at ns-load — can't balloon a result past the
   ;; token cap.
   (rf/configure! {:epoch-history {:depth 0}})
   (t)
-  (config/set-allow-writes! false))
+  (rf.story-mcp.config/set-allow-writes! false))
 
 (use-fixtures :each reset-story-and-config)
 
@@ -108,10 +108,10 @@
   (let [in  (java.io.BufferedReader.
               (java.io.StringReader. (str (str/join "\n" frames) "\n")))
         out (java.io.StringWriter.)]
-    ;; `server/log!` writes the handler-threw line to stderr; keep the
+    ;; `rf.story-mcp.server/log!` writes the handler-threw line to stderr; keep the
     ;; suite quiet without hiding it from a failing assertion.
     (binding [*err* (java.io.StringWriter.)]
-      (server/run-loop! in out))
+      (rf.story-mcp.server/run-loop! in out))
     (rest (remove str/blank? (str/split-lines (str out))))))
 
 (defn- call-tool
@@ -168,7 +168,7 @@
             "the registrar's :rf.error/id populates the wire's :rf.error slot"))
 
       (testing "the variant is not registered"
-        (is (nil? (story/variant->edn :story.button/x)))))))
+        (is (nil? (rf.story/variant->edn :story.button/x)))))))
 
 (deftest register-variant-mutual-exclusion-violation-crosses-the-wire
   (testing "an `:and`-clause failure (not just an extra key) also encodes"
@@ -194,7 +194,7 @@
           "the success envelope carries no isError flag")
       (is (= {:variant-id "story.button/ok" :registered? true}
              (structured frame)))
-      (is (some? (story/variant->edn :story.button/ok))
+      (is (some? (rf.story/variant->edn :story.button/ok))
           "the variant really is registered"))))
 
 (deftest register-variant-non-explain-failure-is-unchanged
@@ -220,16 +220,16 @@
 
 (deftest handler-throw-carrying-explain-is-a-tool-error
   (testing "invoke-tool's belt-and-braces catch survives a malli-bearing throw"
-    (story/reg-variant* :story.button/probe {:doc "probe"})
+    (rf.story/reg-variant* :story.button/probe {:doc "probe"})
     ;; The generic catch relays the WHOLE ex-data under `:data`, so it
     ;; fails for any handler throw carrying a non-encodable slot — not
     ;; just the two write surfaces. Force one: a read handler that throws
     ;; the registrar's own shape-violation exception.
-    (let [thrown (try (story/reg-variant* :story.button/bad {:compnent :x})
+    (let [thrown (try (rf.story/reg-variant* :story.button/bad {:compnent :x})
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? (:explain (ex-data thrown)))
           "precondition: the registrar throw really does carry a live :explain")
-      (with-redefs [story/variant->edn (fn [_] (throw thrown))]
+      (with-redefs [rf.story/variant->edn (fn [_] (throw thrown))]
         (let [[line frame] (call-tool "get-variant"
                                       "{\"variant-id\":\"story.button/probe\"}")]
           (is (not (str/includes? line "Server fault"))
@@ -260,8 +260,8 @@
   "Drive the real `get-variant` boundary with `thrown` coming out of the
   one producer the read handler trusts, and return `[raw-line frame]`."
   [thrown]
-  (story/reg-variant* :story.button/probe {:doc "probe"})
-  (with-redefs [story/variant->edn (fn [_] (throw thrown))]
+  (rf.story/reg-variant* :story.button/probe {:doc "probe"})
+  (with-redefs [rf.story/variant->edn (fn [_] (throw thrown))]
     (call-tool "get-variant" "{\"variant-id\":\"story.button/probe\"}")))
 
 (deftest handler-throw-with-opaque-ex-data-outside-explain-is-a-tool-error
@@ -342,7 +342,7 @@
                                        :d (java.util.Date. 0)}]
                        ["nil"         nil]]]
       (is (string? (cheshire/generate-string
-                     (result/wire-safe-ex-data d)))
+                     (rf.story-mcp.tools.result/wire-safe-ex-data d)))
           (str "wire-safe-ex-data output must encode: " label)))))
 
 ;; ---- plan failures: the message contract, driven end to end ---------------
@@ -365,7 +365,7 @@
   `explain-variant` boundary for `target` and return the decoded frame."
   [bodies target]
   (doseq [[id body] bodies]
-    (story/reg-variant* id body))
+    (rf.story/reg-variant* id body))
   (second (call-tool "explain-variant"
                      (str "{\"variant-id\":\"" (subs (str target) 1) "\"}"))))
 
@@ -444,7 +444,7 @@
   ;; the same -32603 by another route.
   (testing "a humanizer that throws degrades to a bounded marker"
     (with-redefs [malli.error/humanize (fn [_] (throw (ex-info "humanize blew up" {})))]
-      (let [projected (result/wire-safe-ex-data {:explain {:schema :whatever}
+      (let [projected (rf.story-mcp.tools.result/wire-safe-ex-data {:explain {:schema :whatever}
                                                  :reason  "x"})]
         (is (= "clojure.lang.ExceptionInfo"
                (:rf.story-mcp/unencodable projected))

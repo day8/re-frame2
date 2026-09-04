@@ -34,8 +34,8 @@
     8. **Frame isolation** — every read targets `:rf/xray`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.routes.panel :as panel]
             [day8.re-frame2-xray.static.shell :as static-shell]
@@ -112,25 +112,25 @@
 (deftest registry-installs-static-routes-handlers
   (testing "register-xray-handlers! installs every Static Routes sub + event"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray.static.routes/query))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/query))
         ":rf.xray.static.routes/query sub registered")
-    (is (some? (registrar/handler :sub :rf.xray.static.routes/sim-url))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/sim-url))
         ":rf.xray.static.routes/sim-url sub registered")
-    (is (some? (registrar/handler :sub :rf.xray.static.routes/expanded))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/expanded))
         ":rf.xray.static.routes/expanded sub registered")
-    (is (some? (registrar/handler :sub :rf.xray.static.routes/sim-nav-open))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/sim-nav-open))
         ":rf.xray.static.routes/sim-nav-open sub registered")
-    (is (some? (registrar/handler :sub :rf.xray.static.routes/tab-data))
+    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/tab-data))
         "view-facing composite registered")
-    (is (some? (registrar/handler :event :rf.xray.static.routes/set-query))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/set-query))
         "set-query event registered")
-    (is (some? (registrar/handler :event :rf.xray.static.routes/set-sim-url))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/set-sim-url))
         "set-sim-url event registered")
-    (is (some? (registrar/handler :event :rf.xray.static.routes/toggle-row))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/toggle-row))
         "toggle-row event registered")
-    (is (some? (registrar/handler :event :rf.xray.static.routes/toggle-sim-nav))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/toggle-sim-nav))
         "toggle-sim-nav event registered")
-    (is (some? (registrar/handler :event :rf.xray.static.routes/jump-to-dynamic))
+    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/jump-to-dynamic))
         "jump-to-dynamic cross-link event registered")))
 
 ;; ---- (2) silent state ---------------------------------------------------

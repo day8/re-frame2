@@ -25,7 +25,7 @@
   (`:rf/default` by default) — this fixture registers the three named
   frames it needs as a side effect of `install!`."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]))
+            [re-frame.frame :as rf.frame]))
 
 (def frame-a   :counter/a)
 (def frame-b   :counter/b)

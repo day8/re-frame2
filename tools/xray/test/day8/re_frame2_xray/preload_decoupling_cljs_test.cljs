@@ -37,11 +37,11 @@
   non-configurable)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.install :as install]
@@ -63,8 +63,8 @@
   (install/reset-for-test!)
   (registry/reset-for-test!)
   (trace-collector/reset-for-test!)
-  (trace-tooling/clear-listeners!)
-  (epoch-state/reset-listeners!)
+  (rf.trace.tooling/clear-listeners!)
+  (rf.epoch.state/reset-listeners!)
   (config/reset-settings!)
   ;; teardown! resets mount + auto-open-state; detach! drops any keydown
   ;; listener left attached by a neighbouring test.
@@ -72,8 +72,8 @@
   (try (keybinding/detach!) (catch :default _ nil)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn clear-world!}))
 
 ;; ---- observability helpers ----------------------------------------------
@@ -86,7 +86,7 @@
   Mirrors `preload_cljs_test`'s observable-contract approach."
   []
   (trace-collector/reset-for-test!)
-  (trace/emit! :info :rf.test/registration-probe {:source :test})
+  (rf.trace/emit! :info :rf.test/registration-probe {:source :test})
   (let [delivered? (pos? (count (trace-collector/buffer-for-test)))]
     (trace-collector/reset-for-test!)
     delivered?))
@@ -95,7 +95,7 @@
   "True iff Xray's epoch collector is in the framework's epoch-listener
   map (the epoch state exposes a public listeners snapshot)."
   []
-  (contains? (epoch-state/listeners-snapshot) :rf.xray/epoch-collector))
+  (contains? (rf.epoch.state/listeners-snapshot) :rf.xray/epoch-collector))
 
 ;; ---- stub js/document + js/window ----------------------------------------
 ;;

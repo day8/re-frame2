@@ -10,7 +10,7 @@
   Generation is non-deterministic when the resolver is non-deterministic.
   Callers that need repeatable output can inject a deterministic resolver."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
+            [re-frame.error :as rf.error]
             ;; rf2-egupfk — the SHARED definition-shape validators + value-free
             ;; summary (`valid-definition?` / `parallel-definition?` /
             ;; `definition-summary`) + the EP-0029 desugar seam, so this emitter
@@ -174,7 +174,7 @@
 ;; chat / re-frame2-pair-mcp) which already has an LLM seam.
 
 (defn- default-resolver [_prompt]
-  (error/throw-error!
+  (rf.error/throw-error!
     :ai-generate/no-resolver
     'machines-viz/generate-machine
     (str "AI machine generation: generate-machine was called without a "
@@ -238,7 +238,7 @@
          full-prompt   (build-prompt user-prompt)
          response      (resolver-fn full-prompt)
          _             (when-not (string? response)
-                         (error/throw-error!
+                         (rf.error/throw-error!
                            :ai-generate/parse-failed
                            'machines-viz/generate-machine
                            (str "AI machine generation: the resolver must return "
@@ -251,7 +251,7 @@
          [stage spec-or-reason] (parse-edn stripped)]
      (cond
        (= :err stage)
-       (error/throw-error!
+       (rf.error/throw-error!
          :ai-generate/parse-failed
          'machines-viz/generate-machine
          (str "AI machine generation: could not parse the resolver output as "
@@ -270,7 +270,7 @@
        (let [[stage2 reason] (validate-definition (g/desugar-grammar spec-or-reason))]
          (if (= :ok stage2)
            spec-or-reason
-           (error/throw-error!
+           (rf.error/throw-error!
              :ai-generate/invalid-spec
              'machines-viz/generate-machine
              (str "AI machine generation: the resolver output parsed as EDN but "

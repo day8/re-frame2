@@ -88,7 +88,7 @@
   no Reagent / UIx references. Frame isolation comes from the
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
   (:require [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
@@ -246,7 +246,7 @@
 (defn- raf!
   "Schedule a callback at the next animation frame. `js/requestAnimationFrame`
   in CLJS; the test surface stubs it via `set!`. Falls back to
-  `interop/next-tick` when rAF is unavailable (jsdom under node-test
+  `rf.interop/next-tick` when rAF is unavailable (jsdom under node-test
   where `requestAnimationFrame` may be a no-op or absent — the test
   fixture pins `now-ms` via the override slot anyway, so the fallback
   doesn't drive any real animation, only keeps the dispatch ladder
@@ -254,7 +254,7 @@
   [f]
   (cond
     (exists? js/requestAnimationFrame) (js/requestAnimationFrame f)
-    :else                              (interop/next-tick f)))
+    :else                              (rf.interop/next-tick f)))
 
 (defn- tick-loop!
   "One iteration of the rAF tick loop. Reads the active-timers sub +

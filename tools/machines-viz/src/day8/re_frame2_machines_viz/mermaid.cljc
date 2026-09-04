@@ -11,7 +11,7 @@
   coeffect requirements, or parallel broadcast macrostep semantics; the
   generated header calls out the relevant omissions."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
+            [re-frame.error :as rf.error]
             ;; rf2-b2ygd2 — the SHARED grammar walker + injective id codec
             ;; the three emitters route through, so they address every node
             ;; identically (one escape codec, one source of truth).
@@ -979,7 +979,7 @@
    (let [definition (g/desugar-grammar definition)
          parallel?  (g/parallel-definition? definition)]
      (when-not (g/valid-definition? definition)
-       (error/throw-error!
+       (rf.error/throw-error!
          :mermaid/invalid-definition
          'machines-viz.mermaid/emit
          (if parallel?

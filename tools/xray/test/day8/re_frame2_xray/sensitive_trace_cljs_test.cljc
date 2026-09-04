@@ -26,8 +26,8 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
             [day8.re-frame2-xray.config :as config]
-            #?(:cljs [re-frame.frame :as frame])
-            #?(:cljs [re-frame.trace :as trace])
+            #?(:cljs [re-frame.frame :as rf.frame])
+            #?(:cljs [re-frame.trace :as rf.trace])
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -183,7 +183,7 @@
 ;; event above the ring split either way.
 ;;
 ;; The frame-bound path is the OTHER half of the matrix and lives in
-;; the §(7) tests below: a real `trace/emit!` populates the framework's
+;; the §(7) tests below: a real `rf.trace/emit!` populates the framework's
 ;; per-frame ring (which retains EVERY event with no `:sensitive?`
 ;; check), and the gate that matters there is the read-side scrub in
 ;; `snapshot-from-rings` (rf2-0ax6f). Keeping both halves here pins the
@@ -368,7 +368,7 @@
 ;; The §(4) tests drive FRAMELESS events through `collect-trace!` — that
 ;; path is gated by the listener-side `suppress-sensitive?` check before
 ;; the secondary ring. But a FRAME-BOUND sensitive event takes a
-;; different route: the framework's `trace/emit!` retains it in the
+;; different route: the framework's `rf.trace/emit!` retains it in the
 ;; per-frame cascade ring (`re-frame.trace.tooling/push-to-ring!`) with
 ;; NO `:sensitive?` check — `collect-trace!` only declines to *push*
 ;; it, it cannot un-retain it. `snapshot-from-rings` reads those rings
@@ -396,7 +396,7 @@
      `dispatch-id` keys the cascade slot; distinct ids = distinct
      cascades so the count assertions are unambiguous."
      [dispatch-id sensitive?]
-     (trace/emit! :rf.event :rf.event/run-end
+     (rf.trace/emit! :rf.event :rf.event/run-end
                   (cond-> {:frame host-frame
                            :rf.trace/dispatch-id dispatch-id
                            :rf.trace/event-id :user/login}
@@ -414,19 +414,19 @@
 
 #?(:cljs
    (defn- with-host-frame [test-fn]
-     ;; Register the host frame so `frame/frame-ids` (which
+     ;; Register the host frame so `rf.frame/frame-ids` (which
      ;; `snapshot-from-rings` walks) includes it, run the body, then
      ;; drop it so the next test starts clean. We `dissoc` from the
      ;; registry directly rather than `destroy-frame!` — this suite has
      ;; no installed substrate adapter, and destroy fires the dispatch /
      ;; teardown machinery a bare frame doesn't need. `reset-for-test!`
      ;; (in the outer fixture) already clears the per-frame rings.
-     ;; Deliberate ENGINE seat (frame/upsert-frame!) — this suite runs
+     ;; Deliberate ENGINE seat (rf.frame/upsert-frame!) — this suite runs
      ;; without a substrate adapter and manages the bare record directly;
      ;; the public rf/make-frame constructor is not the surface under test.
-     (frame/upsert-frame! host-frame {})
+     (rf.frame/upsert-frame! host-frame {})
      (try (test-fn)
-          (finally (swap! frame/frames dissoc host-frame)))))
+          (finally (swap! rf.frame/frames dissoc host-frame)))))
 
 #?(:cljs
    (deftest snapshot-suppresses-sensitive-frame-bound-event-by-default

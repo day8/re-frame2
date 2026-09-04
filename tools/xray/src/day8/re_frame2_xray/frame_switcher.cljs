@@ -74,12 +74,12 @@
   `hydrate!` runs at install time (preload) AND from
   `mount/ensure-xray-frame!` on first open. Re-entrant — the dispatch
   is a wholesale `(assoc db :focus (assoc focus :frame …))`. Guards
-  on `(frame/frame defaults/default-frame-id)` so the pre-mount call short-circuits
+  on `(rf.frame/frame defaults/default-frame-id)` so the pre-mount call short-circuits
   cleanly. Mirrors the `filters/hydrate!` shape so the two surfaces
   share an ergonomic pattern."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]
@@ -282,7 +282,7 @@
   Returns nil. No-op when localStorage has no stored selection."
   []
   (when-let [frame-id (load)]
-    (when (some? (frame/frame defaults/default-frame-id))
+    (when (some? (rf.frame/frame defaults/default-frame-id))
       (rf/with-frame defaults/default-frame-id
         ;; Dispatch the canonical event so any future side-effects
         ;; (analytics, instrumentation, undo-stack) all run through

@@ -44,7 +44,7 @@
   documented decision in spec/DESIGN-RATIONALE.md."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.mcp-base.args :as args]))
+            [re-frame.mcp-base.args :as rf.mcp-base.args]))
 
 ;; ---- MCP protocol version --------------------------------------------------
 
@@ -115,10 +115,10 @@
   "Set the write-surface gate. Idempotent. Returns the new value.
   Accepts booleans, nil, or string-form booleans (`\"true\"`/`\"1\"`/
   `\"yes\"`/`\"on\"`, case-insensitive) via the cross-MCP
-  `args/parse-boolean` parser — so the CLI flag, sysprop, and env-var
+  `rf.mcp-base.args/parse-boolean` parser — so the CLI flag, sysprop, and env-var
   surfaces share one coercion."
   [v]
-  (let [coerced (args/parse-boolean v false)]
+  (let [coerced (rf.mcp-base.args/parse-boolean v false)]
     (reset! allow-writes? coerced)
     coerced))
 
@@ -156,7 +156,7 @@
   "Set the sensitive-read gate. Idempotent. Returns the new value.
   Accepts the same string-form booleans as `set-allow-writes!`."
   [v]
-  (let [coerced (args/parse-boolean v false)]
+  (let [coerced (rf.mcp-base.args/parse-boolean v false)]
     (reset! allow-sensitive-reads? coerced)
     coerced))
 
@@ -187,8 +187,8 @@
   environment (env vars are read-only on the JVM)."
   [sysprop env]
   (cond
-    (some? sysprop) (args/parse-boolean sysprop false)
-    (some? env)     (args/parse-boolean env false)
+    (some? sysprop) (rf.mcp-base.args/parse-boolean sysprop false)
+    (some? env)     (rf.mcp-base.args/parse-boolean env false)
     :else           false))
 
 (defn read-boot-config
@@ -207,7 +207,7 @@
   - JVM sysprop `rf.story-mcp.allow-sensitive-reads` — same shape.
   - Env var `RF_STORY_MCP_ALLOW_SENSITIVE_READS` — same shape.
 
-  All sources are parsed via the cross-MCP `args/parse-boolean`
+  All sources are parsed via the cross-MCP `rf.mcp-base.args/parse-boolean`
   primitive so the truthy-string vocabulary
   (`true`/`1`/`yes`/`y`/`on`, case-insensitive — and the `false`/`0`/
   `no`/`n`/`off` complement) is the same one an agent learns once.

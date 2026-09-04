@@ -21,9 +21,9 @@
      re-frame reactive path."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch-api]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.frame :as frame]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus-resolver]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.spine :as spine]
@@ -746,7 +746,7 @@
             event-side walk"
     (setup-xray-frame!)
     (seed-mixed-cascades!)
-    (let [db        @(frame/app-db-container :rf/xray)
+    (let [db        @(rf.frame/app-db-container :rf/xray)
           cascades  (spine/db->event-bundles db)
           ids       (mapv :dispatch-id cascades)]
       (is (= [:c-host] ids)
@@ -762,7 +762,7 @@
             case the filter handles"
     (setup-xray-frame!)
     (seed-mixed-cascades!)
-    (let [db          @(frame/app-db-container :rf/xray)
+    (let [db          @(rf.frame/app-db-container :rf/xray)
           event-side  (spine/db->event-bundles db)
           reactive    (rf/with-frame :rf/xray
                         @(rf/subscribe [:rf.xray/event-bundles]))]
@@ -1611,7 +1611,7 @@
   spine's epoch-id ⇄ dispatch-id correlation resolves."
   [frame-id records]
   (doseq [{:keys [epoch-id dispatch-id]} records]
-    (epoch-state/record! {:frame       frame-id
+    (rf.epoch.state/record! {:frame       frame-id
                           :epoch-id    epoch-id
                           :dispatch-id dispatch-id})))
 
@@ -1627,7 +1627,7 @@
 (defn- mount-multi-frame-picker-untouched! []
   ;; Fresh framework rings — the runtime-reset fixture does NOT clear
   ;; the epoch histories, so wipe them so this test owns the slot state.
-  (epoch-api/clear-history!)
+  (rf.epoch/clear-history!)
   (setup-xray-frame!)
   ;; Populate BOTH frames' framework rings.
   (seed-framework-epoch-ring! :rf/default  [{:epoch-id :e1 :dispatch-id :c1}
@@ -1817,7 +1817,7 @@
 (defn- mount-multi-frame-picker-never-touched! []
   ;; Fresh framework rings — the runtime-reset fixture does NOT clear
   ;; the epoch histories, so wipe them so this test owns the slot state.
-  (epoch-api/clear-history!)
+  (rf.epoch/clear-history!)
   (setup-xray-frame!)
   (seed-framework-epoch-ring! :rf/default  [{:epoch-id :e1 :dispatch-id :c1}
                                             {:epoch-id :e2 :dispatch-id :c2}

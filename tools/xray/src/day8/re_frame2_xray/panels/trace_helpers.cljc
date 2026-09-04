@@ -62,7 +62,7 @@
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
             [day8.re-frame2-xray.theme.tokens :as tokens]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- area-badge classification (spec/023 §3 · §5) -----------------------
 ;;
@@ -730,7 +730,7 @@
   under `[:tags :frame]`; a top-level `:frame` belongs to derived /
   projection records, not the raw rows this projection consumes."
   [ev]
-  (trace/trace-event-frame ev))
+  (rf.trace/trace-event-frame ev))
 
 (defn origin-of
   "Project the dispatch-origin slot (`:tags :rf.event/origin`).

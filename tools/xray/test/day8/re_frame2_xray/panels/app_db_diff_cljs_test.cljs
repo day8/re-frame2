@@ -46,9 +46,9 @@
   to a DOM. Keeps the suite fast + host-portable on node-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
@@ -204,28 +204,28 @@
             Pinned-slices subs were removed under rf2-e9tb0 (clickable
             path segments replaced the pinned-watches strip)."
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray/target-frame-db)))
-    (is (some? (registrar/handler :sub :rf.xray/selected-epoch-record)))
-    (is (some? (registrar/handler :sub :rf.xray/focused-slice-path)))
-    (is (some? (registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/target-frame-db)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/selected-epoch-record)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
     ;; rf2-okvit — the current-state inspector's section-model sub.
-    (is (some? (registrar/handler :sub :rf.xray/app-db-state)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/app-db-state)))
     ;; rf2-yng0y — the atomic current-state + before-image sub the panel
     ;; pivots on (and the segment-inspector reads through, rf2-jmucu).
-    (is (some? (registrar/handler :sub :rf.xray/app-db-current+diff)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/app-db-current+diff)))
     ;; rf2-e9tb0 — segment-inspector subs registered alongside.
-    (is (some? (registrar/handler :sub :rf.xray/segment-inspector-open?)))
-    (is (some? (registrar/handler :sub :rf.xray/segment-inspector-path)))
-    (is (some? (registrar/handler :sub :rf.xray/segment-inspector-value)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/segment-inspector-open?)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/segment-inspector-path)))
+    (is (some? (rf.registrar/handler :sub :rf.xray/segment-inspector-value)))
     ;; rf2-p53m2 — the dead composite diff family was pruned (no
     ;; production view consumer); guard against re-introduction.
-    (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-diff)))
-    (is (nil? (registrar/handler :sub :rf.xray/app-db-diff)))
-    (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-redacted-modified-count)))
-    (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-flow-writes)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-diff)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/app-db-diff)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-redacted-modified-count)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-flow-writes)))
     ;; Pinned-slices subs are gone.
-    (is (nil? (registrar/handler :sub :rf.xray/pinned-slices-store)))
-    (is (nil? (registrar/handler :sub :rf.xray/pinned-slices)))))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/pinned-slices-store)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/pinned-slices)))))
 
 (deftest registry-installs-app-db-diff-events
   (testing "register-xray-handlers! installs the Phase 5 events.
@@ -233,23 +233,23 @@
             the segment-inspector open / close events landed in their
             place."
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :event :rf.xray/focus-slice-path)))
-    (is (some? (registrar/handler :event :rf.xray/clear-slice-focus)))
-    (is (some? (registrar/handler :event :rf.xray/copy-value-to-clipboard)))
-    (is (some? (registrar/handler :event :rf.xray/copy-path-to-clipboard)))
+    (is (some? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
+    (is (some? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))
+    (is (some? (rf.registrar/handler :event :rf.xray/copy-value-to-clipboard)))
+    (is (some? (rf.registrar/handler :event :rf.xray/copy-path-to-clipboard)))
     ;; rf2-e9tb0 — segment-inspector events registered.
-    (is (some? (registrar/handler :event :rf.xray/open-segment-inspector)))
-    (is (some? (registrar/handler :event :rf.xray/close-segment-inspector)))
+    (is (some? (rf.registrar/handler :event :rf.xray/open-segment-inspector)))
+    (is (some? (rf.registrar/handler :event :rf.xray/close-segment-inspector)))
     ;; Pin events are gone.
-    (is (nil? (registrar/handler :event :rf.xray/pin-slice)))
-    (is (nil? (registrar/handler :event :rf.xray/unpin-slice)))
-    (is (nil? (registrar/handler :event :rf.xray/reorder-pinned-slices)))))
+    (is (nil? (rf.registrar/handler :event :rf.xray/pin-slice)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/unpin-slice)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/reorder-pinned-slices)))))
 
 (deftest registry-installs-clipboard-fx
   (testing "register-xray-handlers! installs the :rf.xray.fx/copy-to-
             clipboard effect"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :fx :rf.xray.fx/copy-to-clipboard)))))
+    (is (some? (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard)))))
 
 ;; ---- (5) rf2-e9tb0 — segment-inspector events + state ------------------
 
@@ -265,7 +265,7 @@
       (rf/dispatch-sync [:rf.xray/open-segment-inspector
                          (list :cart :items 0 :price)])
       (is (= {:path [:cart :items 0 :price]}
-             (:segment-inspector (frame/frame-app-db-value :rf/xray)))))))
+             (:segment-inspector (rf.frame/frame-app-db-value :rf/xray)))))))
 
 (deftest close-segment-inspector-drops-slot
   (testing "rf2-e9tb0 — :rf.xray/close-segment-inspector dissocs the
@@ -274,9 +274,9 @@
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector [:cart]])
-      (is (some? (:segment-inspector (frame/frame-app-db-value :rf/xray))))
+      (is (some? (:segment-inspector (rf.frame/frame-app-db-value :rf/xray))))
       (rf/dispatch-sync [:rf.xray/close-segment-inspector])
-      (is (nil? (:segment-inspector (frame/frame-app-db-value :rf/xray)))))))
+      (is (nil? (:segment-inspector (rf.frame/frame-app-db-value :rf/xray)))))))
 
 (deftest segment-inspector-open?-tracks-slot-presence
   (testing "rf2-e9tb0 — :rf.xray/segment-inspector-open? is true iff
@@ -327,7 +327,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]]))
     (is (= [:cart :items]
-           (:focused-slice-path (frame/frame-app-db-value :rf/xray))))))
+           (:focused-slice-path (rf.frame/frame-app-db-value :rf/xray))))))
 
 (deftest clear-slice-focus-event-drops-focus
   (registry/register-xray-handlers!)
@@ -335,7 +335,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/focus-slice-path [:any]])
     (rf/dispatch-sync [:rf.xray/clear-slice-focus]))
-  (is (nil? (:focused-slice-path (frame/frame-app-db-value :rf/xray)))))
+  (is (nil? (:focused-slice-path (rf.frame/frame-app-db-value :rf/xray)))))
 
 (deftest show-me-when-this-changed-result-filters-history
   (testing ":rf.xray/show-me-when-this-changed-result walks
@@ -409,17 +409,17 @@
 (defn- seed-sensitive-schema! []
   ;; EP-0025: durable app-db
   ;; classification rides the commit-plane classification effects.
-  ;; `elision/apply-classification-effects` writes a `:source :effect`
+  ;; `rf.elision/apply-classification-effects` writes a `:source :effect`
   ;; declaration (index-free :rf/path) onto :rf/default's per-frame
   ;; sensitive-declarations so the wire walker substitutes :rf/redacted on
   ;; off-box egress (the same write a reg-event returning `:sensitive` makes).
   ;; Callers make-frame :rf/default before invoking.
-  (frame/swap-runtime-db! :rf/default
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]}))))
+  (rf.frame/swap-runtime-db! :rf/default
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]}))))
 
 (defn- seed-large-schema! []
-  (frame/swap-runtime-db! :rf/default
-    (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]}))))
+  (rf.frame/swap-runtime-db! :rf/default
+    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]}))))
 
 (defn- capture-copy!
   "rf2-h1vqa4: the capture rides the `:rf/xray` frame's `:fx-overrides`
@@ -700,7 +700,7 @@
                              {:cart {:items [{:id 7}]}})])
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]])
-      (let [xray-db (frame/frame-app-db-value :rf/xray)]
+      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
         (is (= [:cart :items]
                (:focused-slice-path xray-db)))))))
 

@@ -72,8 +72,8 @@
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [malli.error :as me]
-            [re-frame.mcp-conformance.fixtures :as fx]
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
+            [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
 
 ;; ---------------------------------------------------------------------------
 ;; The closed reply vocabularies — mirrored from re-frame.reply as literal
@@ -307,7 +307,7 @@
   (testing "each additive :rf.reply/* key appears as DATA (not a docstring /
             comment) in at least one production emit site — so a rename of the
             MCP-visible reply-envelope vocabulary trips this gate"
-    (let [stripped (map (comp fx/strip-comments-and-strings fx/read-source) emit-source-files)]
+    (let [stripped (map (comp rf.mcp-conformance.fixtures/strip-comments-and-strings rf.mcp-conformance.fixtures/read-source) emit-source-files)]
       (doseq [k reply-envelope-keys
               :let [literal (pr-str k)]]
         (is (some #(str/includes? % literal) stripped)
@@ -319,7 +319,7 @@
   (testing "the canonical reply work-identity is emitted as :rf.reply/work-id
             (rf2-o6c2jr — an MCP consumer joins reply rows by it; the bare
             :work/id duplicate was dropped from reply-envelope rows)"
-    (let [stripped (map (comp fx/strip-comments-and-strings fx/read-source) emit-source-files)]
+    (let [stripped (map (comp rf.mcp-conformance.fixtures/strip-comments-and-strings rf.mcp-conformance.fixtures/read-source) emit-source-files)]
       (is (some #(str/includes? % (pr-str :rf.reply/work-id)) stripped)
           ":rf.reply/work-id (the canonical reply join key) must be emitted as DATA"))))
 
@@ -332,11 +332,11 @@
   (testing "no near-miss spelling (snake_case, pluralised, predicate,
             ns-dots→underscores) of a :rf.reply/* key appears in any
             production emit site — a rename to a near-miss form must FAIL"
-    (let [sources (into {} (map (juxt identity fx/read-source)) emit-source-files)]
+    (let [sources (into {} (map (juxt identity rf.mcp-conformance.fixtures/read-source)) emit-source-files)]
       (doseq [k reply-envelope-keys
-              variant (pins/near-miss-variants k)
+              variant (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants k)
               [file text] sources]
-        (is (not (re-find (fx/variant-regex variant) text))
+        (is (not (re-find (rf.mcp-conformance.fixtures/variant-regex variant) text))
             (str "near-miss spelling " variant " of " (pr-str k)
                  " appears in " file " — a reply-envelope key rename to a "
                  "near-miss form slipped through"))))))

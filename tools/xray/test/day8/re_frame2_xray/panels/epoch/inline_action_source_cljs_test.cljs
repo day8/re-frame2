@@ -31,10 +31,10 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-helpers :as th]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.preload :as preload]
@@ -48,7 +48,7 @@
   ;; tier — install (== preload's alias) + registry + mount idempotency
   ;; sentinels plus the trace-collector rings — over the Reagent adapter
   ;; this suite renders through.
-  (xray-test-support/make-xray-runtime-fixture {:adapter reagent-adapter/adapter}))
+  (xray-test-support/make-xray-runtime-fixture {:adapter rf.adapter.reagent/adapter}))
 
 (defn- setup! []
   (registry/register-xray-handlers!)
@@ -80,7 +80,7 @@
     (setup!)
     ;; The transition map carries the inline action's source on the enclosing
     ;; node (the machine-side contract this test consumes).
-    (is (string? (get-in (machines/machine-meta :inline/sample)
+    (is (string? (get-in (rf.machines/machine-meta :inline/sample)
                          [:states :idle :on :go :source-code :action]))
         "the inline transition :action's :source-code is co-located on the
          enclosing transition map (rf2-se70xj machine-meta contract)")
@@ -101,10 +101,10 @@
           source-bodies (->> action-rows
                              (keep (fn [r]
                                      (some-> tree
-                                             (th/find-by-testid
+                                             (rf.test-helpers/find-by-testid
                                                (str "rf-xray-epoch-machine-cascade-source-body-"
                                                     (:step r)))
-                                             th/text-content)))
+                                             rf.test-helpers/text-content)))
                              (string/join "\n"))]
       (is (seq action-rows)
           "the macrostep produced at least one :action cascade row")

@@ -15,8 +15,8 @@
   \"test-only\" by location (rf2-ywkiss moved it out of the production
   `tools.dedup` namespace, which itself was removed as a pass-through
   facade over `re-frame.mcp-base.dedup`)."
-  (:require [re-frame.mcp-base.dedup :as base-dedup]
-            [re-frame.mcp-base.vocab :as base-vocab]))
+  (:require [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 (defn dedup-expand
   "Reverse `re-frame.mcp-base.dedup/dedup-value`. Given a value possibly
@@ -24,6 +24,6 @@
   structure via `re-frame.mcp-base.dedup/expand`. Idempotent on already-expanded
   values (returns the input unchanged when the wrapper isn't present)."
   [v]
-  (if (and (map? v) (contains? v base-vocab/dedup-table-key))
-    (base-dedup/expand (get v base-vocab/dedup-table-key))
+  (if (and (map? v) (contains? v rf.mcp-base.vocab/dedup-table-key))
+    (rf.mcp-base.dedup/expand (get v rf.mcp-base.vocab/dedup-table-key))
     v))

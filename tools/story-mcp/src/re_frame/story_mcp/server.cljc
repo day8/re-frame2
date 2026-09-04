@@ -78,11 +78,11 @@
   `protocol_test.clj`)."
   (:gen-class)
   (:require [clojure.string :as str]
-            [re-frame.story :as story]
-            [re-frame.story-mcp.config :as config]
-            [re-frame.story-mcp.protocol :as proto]
-            [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
-            [re-frame.story-mcp.tools.registry :as registry]))
+            [re-frame.story :as rf.story]
+            [re-frame.story-mcp.config :as rf.story-mcp.config]
+            [re-frame.story-mcp.protocol :as rf.story-mcp.protocol]
+            [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
+            [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]))
 
 ;; ---- logging --------------------------------------------------------------
 ;;
@@ -127,7 +127,7 @@
 (defn- handle-initialize
   "Build the `initialize` response and mark the session initialized.
   Unconditionally advertises the server's pinned protocol-version
-  (`config/protocol-version`) and ignores the client's requested
+  (`rf.story-mcp.config/protocol-version`) and ignores the client's requested
   `protocolVersion` entirely — `_params` is never read. This is
   spec-acceptable: per the MCP lifecycle version-negotiation rule the
   server replies with a version it supports and the client decides
@@ -141,11 +141,11 @@
   the flag."
   [state id _params]
   (swap! state assoc :initialized? true)
-  (proto/response id
-                  {:protocolVersion config/protocol-version
+  (rf.story-mcp.protocol/response id
+                  {:protocolVersion rf.story-mcp.config/protocol-version
                    :capabilities    {:tools {:listChanged false}}
-                   :serverInfo      {:name    config/server-name
-                                     :version (config/read-version)}
+                   :serverInfo      {:name    rf.story-mcp.config/server-name
+                                     :version (rf.story-mcp.config/read-version)}
                    :instructions    (str "Story MCP agent surface. Call `tools/list` for the registry, "
                                          "then `tools/call` with the named tool + arguments. "
                                          "See `get-story-instructions` for Story's authoring conventions.")}))
@@ -156,7 +156,7 @@
   "Return the tool registry descriptors. The bounded registry is small
   enough to return in one response."
   [id _params]
-  (proto/response id {:tools (registry/tool-descriptors)}))
+  (rf.story-mcp.protocol/response id {:tools (rf.story-mcp.tools.registry/tool-descriptors)}))
 
 ;; ---- tools/call -----------------------------------------------------------
 
@@ -179,10 +179,10 @@
         arguments (:arguments params)]
     (cond
       (not (string? tool-name))
-      (proto/invalid-params id "tools/call requires `name` (string)")
+      (rf.story-mcp.protocol/invalid-params id "tools/call requires `name` (string)")
 
       (not (or (nil? arguments) (map? arguments)))
-      (proto/invalid-params
+      (rf.story-mcp.protocol/invalid-params
         id (str "tools/call `arguments` must be an object (or omitted); got "
                 (cond (string? arguments)     "a string"
                       (sequential? arguments) "an array"
@@ -191,23 +191,23 @@
                       :else                   "a non-object scalar")))
 
       :else
-      (if-let [result (wire-pipeline/invoke-tool tool-name arguments)]
-        (proto/response id result)
-        (proto/method-not-found id (str "tools/call name=" tool-name))))))
+      (if-let [result (rf.story-mcp.tools.wire-pipeline/invoke-tool tool-name arguments)]
+        (rf.story-mcp.protocol/response id result)
+        (rf.story-mcp.protocol/method-not-found id (str "tools/call name=" tool-name))))))
 
 ;; ---- ping / shutdown ------------------------------------------------------
 
 (defn- handle-ping
   "Empty success result. Per MCP §Utilities/ping."
   [id _params]
-  (proto/response id {}))
+  (rf.story-mcp.protocol/response id {}))
 
 (defn- handle-shutdown
   "Some agent hosts send `shutdown` before closing stdin. The
   2025-06-18 spec relies on stream close instead, but we accept and
   respond so well-behaved clients don't see a timeout."
   [id _params]
-  (proto/response id {}))
+  (rf.story-mcp.protocol/response id {}))
 
 ;; ---- dispatcher -----------------------------------------------------------
 
@@ -235,18 +235,18 @@
    (dispatch (atom {:initialized? true}) message))
   ([state message]
    (cond
-     (not (proto/valid-envelope? message))
-     (proto/invalid-request (:id message) "Invalid JSON-RPC envelope")
+     (not (rf.story-mcp.protocol/valid-envelope? message))
+     (rf.story-mcp.protocol/invalid-request (:id message) "Invalid JSON-RPC envelope")
 
      ;; Notifications — no response. Per the spec a notification is a
      ;; request without an `id`. We accept the canonical handshake-
      ;; completion notification (`notifications/initialized`) and any
      ;; other notification silently — the absence of `:id` is the
-     ;; complete dispatch rule (`proto/notification?` is its single
+     ;; complete dispatch rule (`rf.story-mcp.protocol/notification?` is its single
      ;; home). No defensive arm needed in the method
      ;; `case` below. Notifications are accepted in EVERY lifecycle
      ;; posture (the gate below runs only on requests).
-     (proto/notification? message)
+     (rf.story-mcp.protocol/notification? message)
      nil
 
      ;; Pre-initialize gate. Before the handshake
@@ -256,7 +256,7 @@
      ;; to enumerate or invoke tools before initializing.
      (and (not (:initialized? @state))
           (not (contains? lifecycle-open-methods (:method message))))
-     (proto/invalid-request
+     (rf.story-mcp.protocol/invalid-request
        (:id message)
        (str "Method '" (:method message) "' is not allowed before the "
             "`initialize` handshake completes (MCP lifecycle). Send "
@@ -270,7 +270,7 @@
          "tools/call"                     (handle-tools-call id params)
          "ping"                           (handle-ping id params)
          "shutdown"                       (handle-shutdown id params)
-         (proto/method-not-found id method))))))
+         (rf.story-mcp.protocol/method-not-found id method))))))
 
 (defn- handle-frame!
   "Process one parsed frame: dispatch (against the session `state`),
@@ -281,12 +281,12 @@
   [state ^java.io.Writer writer message]
   (try
     (when-let [resp (dispatch state message)]
-      (proto/write-frame! writer resp))
+      (rf.story-mcp.protocol/write-frame! writer resp))
     (catch Throwable e
       (log! "handler threw:" (ex-message e))
       (try
-        (proto/write-frame! writer
-                            (proto/internal-error (:id message)
+        (rf.story-mcp.protocol/write-frame! writer
+                            (rf.story-mcp.protocol/internal-error (:id message)
                                                   (str "Server fault: " (ex-message e))
                                                   {:exception (.getName (class e))}))
         (catch Throwable e2
@@ -312,18 +312,18 @@
   (let [state (new-lifecycle-state)]
     (loop []
       (let [frame (try
-                    (proto/read-frame reader)
+                    (rf.story-mcp.protocol/read-frame reader)
                     (catch Throwable e
                       (log! "parse error:" (ex-message e))
                       (try
-                        (proto/write-frame! writer (proto/parse-error))
+                        (rf.story-mcp.protocol/write-frame! writer (rf.story-mcp.protocol/parse-error))
                         (catch Throwable e2
                           (log! "write of parse-error response failed:" (ex-message e2))))
                       ::recover))]
         (cond
-          ;; `proto/read-frame` returns `proto/eof-sentinel` when stdin
+          ;; `rf.story-mcp.protocol/read-frame` returns `rf.story-mcp.protocol/eof-sentinel` when stdin
           ;; closes. The loop exits.
-          (= proto/eof-sentinel frame) :eof
+          (= rf.story-mcp.protocol/eof-sentinel frame) :eof
           ;; Recovery from a parse-error: we already wrote the error
           ;; response; loop to the next frame.
           (= ::recover frame)          (recur)
@@ -371,17 +371,17 @@
   taking over stdin/stdout."
   ([] (boot! {}))
   ([cli-cfg]
-   (let [cfg (merge (config/read-boot-config) cli-cfg)]
-     (config/apply-config! cfg)
-     (story/install-canonical-vocabulary!)
-     (log! "booted; allow-writes?=" (config/writes-allowed?)
-           " protocol=" config/protocol-version
-           " server=" config/server-name)
+   (let [cfg (merge (rf.story-mcp.config/read-boot-config) cli-cfg)]
+     (rf.story-mcp.config/apply-config! cfg)
+     (rf.story/install-canonical-vocabulary!)
+     (log! "booted; allow-writes?=" (rf.story-mcp.config/writes-allowed?)
+           " protocol=" rf.story-mcp.config/protocol-version
+           " server=" rf.story-mcp.config/server-name)
      ;; One-line boot signal mirroring re-frame2-pair-mcp's
      ;; `eval-cljs:` line. Operators inspecting the launch stderr can
      ;; confirm the posture at a glance.
      (log! "Sensitive reads:"
-           (if (config/sensitive-reads-allowed?)
+           (if (rf.story-mcp.config/sensitive-reads-allowed?)
              "allowed (--allow-sensitive-reads)"
              "gated (default; pass --allow-sensitive-reads to opt in)"))
      cfg)))

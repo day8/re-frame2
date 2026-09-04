@@ -57,10 +57,10 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.local-render :as local-render]
             [day8.re-frame2-xray.panels.resources-helpers :as h]))
 
@@ -83,8 +83,8 @@
 (defn- install-policy! []
   ;; EP-0025: durable app-db classification rides the commit-plane
   ;; classification effects (`:source :effect`) — the frame annotation is removed.
-  (frame/swap-runtime-db! secure-frame
-    (fn [rt] (elision/apply-classification-effects rt
+  (rf.frame/swap-runtime-db! secure-frame
+    (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:secret]]
                 :large     [[:rows]]}))))
 
@@ -94,8 +94,8 @@
   (install-policy!))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      ;; OPT OUT of the default `:rf/default` ambient scope so the fail-closed
      ;; arm asserts a frameless walk redacts (a bound ambient frame would let
      ;; the frameless projection resolve to its empty-policy identity and ship

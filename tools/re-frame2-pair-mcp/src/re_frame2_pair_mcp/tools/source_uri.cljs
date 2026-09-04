@@ -67,8 +67,8 @@
   and no broken `:source-coord` maps inside dedup-table cells
   (dedup replaces equal subtrees with a single canonical instance,
   so each source-coord is visited once)."
-  (:require [re-frame.mcp-base.vocab :as base-vocab]
-            [re-frame.source-coords.editor-uri :as editor-uri]))
+  (:require [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]))
 
 ;; ---------------------------------------------------------------------------
 ;; The walker.
@@ -127,13 +127,13 @@
   (let [coord (:source-coord m)]
     (cond
       (coord-map? coord)
-      (if-let [uri (editor-uri/editor-uri editor coord)]
-        (assoc m base-vocab/source-uri-key uri)
+      (if-let [uri (rf.source-coords.editor-uri/editor-uri editor coord)]
+        (assoc m rf.mcp-base.vocab/source-uri-key uri)
         m)
 
       (flat-coord-carrier? m)
-      (if-let [uri (editor-uri/editor-uri editor m)]
-        (assoc m base-vocab/source-uri-key uri)
+      (if-let [uri (rf.source-coords.editor-uri/editor-uri editor m)]
+        (assoc m rf.mcp-base.vocab/source-uri-key uri)
         m)
 
       :else
@@ -144,7 +144,7 @@
   a `:source-coord` sub-map or is itself a flat-key source-coord
   carrier. Returns the decorated tree.
 
-  `editor` follows the `editor-uri/editor-uri` vocabulary — `:vscode`
+  `editor` follows the `rf.source-coords.editor-uri/editor-uri` vocabulary — `:vscode`
   / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <template>}`.
 
   Pure data → data. Idempotent: re-decoration replaces an existing

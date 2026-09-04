@@ -3,7 +3,7 @@
 
   Sibling to `machine_after_rings_cljs_test.cljs`. Lives in a SEPARATE ns
   so the `use-fixtures` map shape `cljs.test/async` requires does not
-  conflict with the fn-form `test-support/make-reset-runtime-fixture`
+  conflict with the fn-form `rf.test-support/make-reset-runtime-fixture`
   the existing after-rings tests use — mirrors the split
   `settings/popup_dispatch_routing_cljs_test.cljs` uses for the same
   reason.
@@ -33,13 +33,13 @@
   condition deterministically (no waiting on the real rAF/next-tick
   queue to invoke the callback itself). Its OWN `:rf.xray/timer-tick`
   dispatch is still the real async `rf/dispatch` (not `dispatch-sync`),
-  so the test awaits the router drain via `test-support/poll-until`
+  so the test awaits the router drain via `rf.test-support/poll-until`
   under `cljs.test/async`, matching this codebase's standard pattern for
   asserting on a queued (non-sync) dispatch."
   (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -110,16 +110,16 @@
       ;; frame (mirrors the overlay reg-view's `rf/current-frame-id`
       ;; capture at render time) into `tick-state`.
       (after-rings/kick-tick! :rf/xray))
-    (is (nil? (:rings/now-ms (frame/frame-app-db-value :rf/xray)))
+    (is (nil? (:rings/now-ms (rf.frame/frame-app-db-value :rf/xray)))
         "sanity: nothing has bumped now-ms yet")
     ;; Runs OUTSIDE `rf/with-frame` — the off-render condition the bug
     ;; hits.
     (#'day8.re-frame2-xray.panels.machine-after-rings/tick-loop!)
-    (-> (test-support/poll-until
-          #(pos? (or (:rings/now-ms (frame/frame-app-db-value :rf/xray)) 0))
+    (-> (rf.test-support/poll-until
+          #(pos? (or (:rings/now-ms (rf.frame/frame-app-db-value :rf/xray)) 0))
           {:label "tick-loop! dispatch drained onto :rf/xray"})
         (.then (fn [_]
-                 (is (pos? (:rings/now-ms (frame/frame-app-db-value :rf/xray)))
+                 (is (pos? (:rings/now-ms (rf.frame/frame-app-db-value :rf/xray)))
                      "the loop's :rf.xray/timer-tick dispatch landed on the
                       captured :rf/xray frame — now-ms was bumped, proving
                       the two internal reads did NOT hit
@@ -172,7 +172,7 @@
           "rf2-e64drj: unmounting AfterRingsOverlay stops the rAF loop within
            one frame even though the :after timer is still armed + the scrubber
            sits at :present (pre-fix the data-gated loop kept re-arming)")
-      (is (nil? (:rings/now-ms (frame/frame-app-db-value :rf/xray)))
+      (is (nil? (:rings/now-ms (rf.frame/frame-app-db-value :rf/xray)))
           "the unmounted iteration dispatched NO :rf.xray/timer-tick")
       ;; A remount (the overlay's next render) re-arms the loop.
       (rf/with-frame :rf/xray (after-rings/kick-tick! :rf/xray))

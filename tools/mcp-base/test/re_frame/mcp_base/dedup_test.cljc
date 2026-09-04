@@ -15,71 +15,71 @@
   Pins the byte-identical forward direction — the `empty-payload?`
   short-circuit, the `no-substitutions?` cache-shape guard, the
   cross-MCP wrap shape, the opt-out — and round-trip exactness via
-  `dedup/expand`, the inverse an agent-side Clojure consumer calls. The
+  `rf.mcp-base.dedup/expand`, the inverse an agent-side Clojure consumer calls. The
   codec itself was vendored from `day8/de-dupe` v0.3.0 under rf2-2ii52;
   this is the canonical suite that pins it."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.mcp-base.dedup :as dedup]
-            [re-frame.mcp-base.vocab :as vocab]))
+            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 (deftest empty-payload?-true-for-no-win-values
   (testing "nil, empty colls, and scalars yield no dedup win"
-    (is (true? (boolean (dedup/empty-payload? nil))))
-    (is (true? (boolean (dedup/empty-payload? []))))
-    (is (true? (boolean (dedup/empty-payload? {}))))
-    (is (true? (boolean (dedup/empty-payload? #{}))))
-    (is (true? (boolean (dedup/empty-payload? ""))))
-    (is (true? (boolean (dedup/empty-payload? 42))))
-    (is (true? (boolean (dedup/empty-payload? :a-keyword))))))
+    (is (true? (boolean (rf.mcp-base.dedup/empty-payload? nil))))
+    (is (true? (boolean (rf.mcp-base.dedup/empty-payload? []))))
+    (is (true? (boolean (rf.mcp-base.dedup/empty-payload? {}))))
+    (is (true? (boolean (rf.mcp-base.dedup/empty-payload? #{}))))
+    (is (true? (boolean (rf.mcp-base.dedup/empty-payload? ""))))
+    (is (true? (boolean (rf.mcp-base.dedup/empty-payload? 42))))
+    (is (true? (boolean (rf.mcp-base.dedup/empty-payload? :a-keyword))))))
 
 (deftest empty-payload?-false-for-non-empty-colls
-  (is (false? (boolean (dedup/empty-payload? [1 2 3]))))
-  (is (false? (boolean (dedup/empty-payload? {:a 1}))))
-  (is (false? (boolean (dedup/empty-payload? #{:x})))))
+  (is (false? (boolean (rf.mcp-base.dedup/empty-payload? [1 2 3]))))
+  (is (false? (boolean (rf.mcp-base.dedup/empty-payload? {:a 1}))))
+  (is (false? (boolean (rf.mcp-base.dedup/empty-payload? #{:x})))))
 
 (deftest dedup-value-disabled-returns-input-verbatim
   (let [v [{:a 1} {:a 1}]]
-    (is (identical? v (dedup/dedup-value v false))
+    (is (identical? v (rf.mcp-base.dedup/dedup-value v false))
         "enabled? false is a verbatim passthrough")))
 
 (deftest dedup-value-empty-payload-returns-input-verbatim
   ;; No dedup opportunity ⇒ skip the wrap (the one-entry cache would be
   ;; slightly LARGER than the input).
-  (is (= [] (dedup/dedup-value [] true)))
-  (is (= {} (dedup/dedup-value {} true)))
-  (is (nil? (dedup/dedup-value nil true)))
-  (is (= 42 (dedup/dedup-value 42 true))))
+  (is (= [] (rf.mcp-base.dedup/dedup-value [] true)))
+  (is (= {} (rf.mcp-base.dedup/dedup-value {} true)))
+  (is (nil? (rf.mcp-base.dedup/dedup-value nil true)))
+  (is (= 42 (rf.mcp-base.dedup/dedup-value 42 true))))
 
 (deftest no-substitutions?-detects-one-entry-root-only-cache
   ;; `de-dupe-eq` always emits `cache-0` for the root; every substituted
   ;; subtree adds a further `cache-N`. A one-entry cache therefore made
   ;; NO substitutions.
   (testing "a no-repeat non-empty collection ⇒ one-entry root-only cache"
-    (is (true? (boolean (dedup/no-substitutions? (dedup/de-dupe-eq {:a 1 :b 2})))))
-    (is (true? (boolean (dedup/no-substitutions? (dedup/de-dupe-eq [1 2 3])))))
-    (is (true? (boolean (dedup/no-substitutions? (dedup/de-dupe-eq {:a {:x 1} :b {:y 2}}))))))
+    (is (true? (boolean (rf.mcp-base.dedup/no-substitutions? (rf.mcp-base.dedup/de-dupe-eq {:a 1 :b 2})))))
+    (is (true? (boolean (rf.mcp-base.dedup/no-substitutions? (rf.mcp-base.dedup/de-dupe-eq [1 2 3])))))
+    (is (true? (boolean (rf.mcp-base.dedup/no-substitutions? (rf.mcp-base.dedup/de-dupe-eq {:a {:x 1} :b {:y 2}}))))))
   (testing "a repeated-subtree cache has >1 entry ⇒ substitutions happened"
-    (is (false? (boolean (dedup/no-substitutions? (dedup/de-dupe-eq [{:x 1} {:x 1}]))))))
+    (is (false? (boolean (rf.mcp-base.dedup/no-substitutions? (rf.mcp-base.dedup/de-dupe-eq [{:x 1} {:x 1}]))))))
   (testing "non-map / empty inputs are not a root-only cache"
-    (is (false? (boolean (dedup/no-substitutions? nil))))
-    (is (false? (boolean (dedup/no-substitutions? {}))))))
+    (is (false? (boolean (rf.mcp-base.dedup/no-substitutions? nil))))
+    (is (false? (boolean (rf.mcp-base.dedup/no-substitutions? {}))))))
 
 (deftest dedup-value-no-repeats-non-empty-returns-input-verbatim
   ;; A non-empty collection with no repeated subtrees produces only the
   ;; root cache entry; wrapping it would grow the wire value.
   (testing "a flat no-repeat map is returned identical, NOT wrapped"
     (let [v {:a 1 :b 2 :c 3}
-          out (dedup/dedup-value v true)]
+          out (rf.mcp-base.dedup/dedup-value v true)]
       (is (identical? v out)
           "no dedup opportunity ⇒ verbatim passthrough, not a dedup-table wrap")
-      (is (not (contains? out vocab/dedup-table-key)))))
+      (is (not (contains? out rf.mcp-base.vocab/dedup-table-key)))))
   (testing "a nested no-repeat structure is returned identical"
     (let [v {:user {:name "ada"} :session {:state :idle} :items [1 2 3]}]
-      (is (identical? v (dedup/dedup-value v true)))))
+      (is (identical? v (rf.mcp-base.dedup/dedup-value v true)))))
   (testing "a no-repeat vector is returned identical"
     (let [v [{:id 1} {:id 2} {:id 3}]]      ; all distinct ⇒ no substitution
-      (is (identical? v (dedup/dedup-value v true))))))
+      (is (identical? v (rf.mcp-base.dedup/dedup-value v true))))))
 
 (deftest dedup-value-repeated-subtree-still-wraps
   ;; The adversarial complement to the no-op skip: a payload that DOES
@@ -88,31 +88,31 @@
   ;; false and the wrap fires.
   (let [shared {:big [:repeated :subtree]}
         v      [shared shared shared]
-        out    (dedup/dedup-value v true)]
+        out    (rf.mcp-base.dedup/dedup-value v true)]
     (is (map? out))
-    (is (contains? out vocab/dedup-table-key)
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key)
         "a repeated subtree is a real dedup win — the wrap must fire")
-    (is (= v (dedup/expand (get out vocab/dedup-table-key)))
+    (is (= v (rf.mcp-base.dedup/expand (get out rf.mcp-base.vocab/dedup-table-key)))
         "and the wrap still round-trips")))
 
 (deftest dedup-value-wraps-in-cross-mcp-marker
   (let [shared {:repeated [:big :subtree :here]}
         v      {:a shared :b shared :c shared}
-        out    (dedup/dedup-value v true)]
+        out    (rf.mcp-base.dedup/dedup-value v true)]
     (testing "the wire shape is the cross-MCP dedup-table marker"
       (is (map? out))
-      (is (contains? out vocab/dedup-table-key))
-      (is (= #{vocab/dedup-table-key} (set (keys out)))
+      (is (contains? out rf.mcp-base.vocab/dedup-table-key))
+      (is (= #{rf.mcp-base.vocab/dedup-table-key} (set (keys out)))
           "exactly one top-level slot, the dedup-table marker"))))
 
 (deftest dedup-value-round-trips-exactly
-  ;; The agent host reconstructs by calling dedup/expand on the
+  ;; The agent host reconstructs by calling rf.mcp-base.dedup/expand on the
   ;; cache-map value — pin that the wrap is losslessly reversible.
   (let [shared {:repeated (vec (range 50))}
         v      {:a shared :b shared :c shared :scalars [1 2 3]}
-        out    (dedup/dedup-value v true)
-        cache  (get out vocab/dedup-table-key)]
-    (is (= v (dedup/expand cache))
+        out    (rf.mcp-base.dedup/dedup-value v true)
+        cache  (get out rf.mcp-base.vocab/dedup-table-key)]
+    (is (= v (rf.mcp-base.dedup/expand cache))
         "expand on the cache-map reconstructs the original structure")))
 
 (deftest dedup-value-uses-equality-not-identity
@@ -124,9 +124,9 @@
         b   {:k (vec (range 30))}            ; equal to a, distinct object
         _   (is (not (identical? a b)))
         v   {:left a :right b}
-        out (dedup/dedup-value v true)]
-    (is (contains? out vocab/dedup-table-key))
-    (is (= v (dedup/expand (get out vocab/dedup-table-key)))
+        out (rf.mcp-base.dedup/dedup-value v true)]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key))
+    (is (= v (rf.mcp-base.dedup/expand (get out rf.mcp-base.vocab/dedup-table-key)))
         "equality-shared subtrees round-trip through the wrap")))
 
 ;; ---------------------------------------------------------------------------
@@ -142,10 +142,10 @@
   ;; the wire-vocab DedupTable schema rejects a cache without it. Absorbing
   ;; the codec deliberately did NOT rename the namespace; this is the test
   ;; that makes renaming it a red build rather than a silent wire break.
-  (is (= "de-dupe.cache" dedup/cache-element-ns))
-  (is (= 'de-dupe.cache/cache-0 (dedup/make-cache-element 0)))
+  (is (= "de-dupe.cache" rf.mcp-base.dedup/cache-element-ns))
+  (is (= 'de-dupe.cache/cache-0 (rf.mcp-base.dedup/make-cache-element 0)))
   (let [shared {:big [:repeated :subtree]}
-        cache  (dedup/de-dupe-eq [shared shared])]
+        cache  (rf.mcp-base.dedup/de-dupe-eq [shared shared])]
     (is (contains? cache 'de-dupe.cache/cache-0)
         "every cache carries the cache-0 root the agent host expands from")
     (is (every? #(and (symbol? %) (= "de-dupe.cache" (namespace %)))
@@ -161,10 +161,10 @@
   ;; ids no matter what else has been encoded.
   (let [shared {:big [:repeated :subtree]}
         v      [shared shared]
-        first-cache (dedup/de-dupe-eq v)]
+        first-cache (rf.mcp-base.dedup/de-dupe-eq v)]
     (dotimes [_ 5]
-      (dedup/de-dupe-eq {:unrelated [{:x 1} {:x 1} {:y 2} {:y 2}]}))
-    (is (= first-cache (dedup/de-dupe-eq v))
+      (rf.mcp-base.dedup/de-dupe-eq {:unrelated [{:x 1} {:x 1} {:y 2} {:y 2}]}))
+    (is (= first-cache (rf.mcp-base.dedup/de-dupe-eq v))
         "an intervening encode cannot shift this one's cache-id allocation")
     (is (= #{'de-dupe.cache/cache-0 'de-dupe.cache/cache-1} (set (keys first-cache)))
         "ids start at cache-1 for every call, never continue a global run")))
@@ -179,7 +179,7 @@
                             (let [shared {:n n :body (vec (range 40))}]
                               {:a shared :b shared :c [shared shared]}))
                           (range 32))
-           results  (doall (pmap #(dedup/expand (dedup/de-dupe-eq %)) payloads))]
+           results  (doall (pmap #(rf.mcp-base.dedup/expand (rf.mcp-base.dedup/de-dupe-eq %)) payloads))]
        (is (= payloads results)
            "32 concurrent encodes each round-trip to their own payload"))))
 
@@ -203,12 +203,12 @@
                  :look-alike 'de-dupe.cache/cache-1
                  :a          shared
                  :b          shared}
-        out     (dedup/dedup-value payload true)
-        cache   (get out vocab/dedup-table-key)
-        back    (dedup/expand cache)]
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)
+        back    (rf.mcp-base.dedup/expand cache)]
     (testing "non-vacuity — the unrelated repeated subtree really did wrap"
       (is (map? out))
-      (is (contains? out vocab/dedup-table-key)
+      (is (contains? out rf.mcp-base.vocab/dedup-table-key)
           "without a real wrap the round-trip below proves nothing"))
     (testing "expand is the exact inverse"
       (is (= payload back)))
@@ -229,7 +229,7 @@
                  :look-alike 'de-dupe.cache/cache-1
                  :a          shared
                  :b          shared}
-        cache   (dedup/de-dupe-eq payload)
+        cache   (rf.mcp-base.dedup/de-dupe-eq payload)
         root    (get cache 'de-dupe.cache/cache-0)]
     (testing "a look-alike token carries one escape marker"
       (is (= 'de-dupe.cache/!cache-1 (:look-alike root))))
@@ -238,7 +238,7 @@
     (testing "the genuine reference names a real slot, and both occurrences share it"
       (let [ref (:a root)]
         (is (= 2 (count cache)) "root plus the one pooled subtree")
-        (is (= (dedup/make-cache-element 1) ref)
+        (is (= (rf.mcp-base.dedup/make-cache-element 1) ref)
             "the allocated id is cache-1 — the very spelling the payload literal carries")
         (is (= ref (:b root)) "both occurrences point at the one slot")
         (is (= shared (get cache ref)) "and that slot holds the shared subtree")))))
@@ -254,9 +254,9 @@
                  :other  'de-dupe.cache/!not-a-ref
                  :a      shared
                  :b      shared}
-        out     (dedup/dedup-value payload true)]
-    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
-    (is (= payload (dedup/expand (get out vocab/dedup-table-key))))))
+        out     (rf.mcp-base.dedup/dedup-value payload true)]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (= payload (rf.mcp-base.dedup/expand (get out rf.mcp-base.vocab/dedup-table-key))))))
 
 (deftest payload-strings-that-spell-a-reference-round-trip-as-strings
   ;; JSON erases the symbol/string distinction — Cheshire renders the symbol
@@ -268,9 +268,9 @@
                  :plain "de-dupe.cache/not-a-ref"
                  :a     shared
                  :b     shared}
-        out     (dedup/dedup-value payload true)
-        back    (dedup/expand (get out vocab/dedup-table-key))]
-    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        back    (rf.mcp-base.dedup/expand (get out rf.mcp-base.vocab/dedup-table-key))]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
     (is (= payload back))
     (is (string? (:s back)) "an escaped string comes back a string, not a symbol")
     (is (= "de-dupe.cache/cache-1" (:s back)))
@@ -302,11 +302,11 @@
                  :look-alike :de-dupe.cache/cache-1
                  :a          shared
                  :b          shared}
-        out     (dedup/dedup-value payload true)
-        cache   (get out vocab/dedup-table-key)
-        back    (dedup/expand cache)]
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)
+        back    (rf.mcp-base.dedup/expand cache)]
     (testing "non-vacuity — the unrelated repeated subtree really did wrap"
-      (is (contains? out vocab/dedup-table-key)))
+      (is (contains? out rf.mcp-base.vocab/dedup-table-key)))
     (testing "expand is the exact inverse, and TYPE-preserving"
       (is (= payload back))
       (is (keyword? (:look-alike back))
@@ -325,13 +325,13 @@
                  :literal    :de-dupe.cache/not-a-ref
                  :a          shared
                  :b          shared}
-        cache   (dedup/de-dupe-eq payload)
+        cache   (rf.mcp-base.dedup/de-dupe-eq payload)
         root    (get cache 'de-dupe.cache/cache-0)]
     (is (= :de-dupe.cache/!cache-1 (:look-alike root))
         "a look-alike keyword carries one escape marker, as a symbol would")
     (is (= :de-dupe.cache/not-a-ref (:literal root))
         "an ordinary keyword in the namespace already reads as data")
-    (is (= (dedup/make-cache-element 1) (:a root))
+    (is (= (rf.mcp-base.dedup/make-cache-element 1) (:a root))
         "and the genuine reference beside it is untouched")))
 
 (deftest colliding-payload-keywords-are-escaped-in-map-KEY-position-too
@@ -343,14 +343,14 @@
         payload {:de-dupe.cache/cache-1 "keyed"
                  :a                     shared
                  :b                     shared}
-        out     (dedup/dedup-value payload true)
-        cache   (get out vocab/dedup-table-key)
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)
         root    (get cache 'de-dupe.cache/cache-0)]
-    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
     (is (contains? root :de-dupe.cache/!cache-1)
         "the colliding KEY is escaped on the wire")
     (is (= "keyed" (get root :de-dupe.cache/!cache-1)))
-    (is (= payload (dedup/expand cache))
+    (is (= payload (rf.mcp-base.dedup/expand cache))
         "and the key comes back under its original spelling")))
 
 (deftest keyword-escaping-is-reversible-under-repetition
@@ -363,12 +363,12 @@
                  :other  :de-dupe.cache/!not-a-ref
                  :a      shared
                  :b      shared}
-        out     (dedup/dedup-value payload true)
-        cache   (get out vocab/dedup-table-key)]
-    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
     (is (= :de-dupe.cache/!!cache-1 (:once (get cache 'de-dupe.cache/cache-0)))
         "one marker added on the way out")
-    (is (= payload (dedup/expand cache))
+    (is (= payload (rf.mcp-base.dedup/expand cache))
         "and exactly one shed on the way back")))
 
 (deftest all-three-json-flattened-types-collide-and-all-three-are-escaped
@@ -382,15 +382,15 @@
                  :str "de-dupe.cache/cache-1"
                  :a   shared
                  :b   shared}
-        cache   (dedup/de-dupe-eq payload)
+        cache   (rf.mcp-base.dedup/de-dupe-eq payload)
         root    (get cache 'de-dupe.cache/cache-0)
-        back    (dedup/expand cache)]
+        back    (rf.mcp-base.dedup/expand cache)]
     (testing "every one of the three is escaped on the wire, in its own type"
       (is (= 'de-dupe.cache/!cache-1 (:sym root)))
       (is (= :de-dupe.cache/!cache-1 (:kw root)))
       (is (= "de-dupe.cache/!cache-1" (:str root))))
     (testing "the genuine reference is not escaped and still names a real slot"
-      (is (= (dedup/make-cache-element 1) (:a root)))
+      (is (= (rf.mcp-base.dedup/make-cache-element 1) (:a root)))
       (is (= shared (get cache (:a root)))))
     (testing "and all three come back distinct, as themselves"
       (is (= payload back))
@@ -407,19 +407,19 @@
   ;; the pooling still fires.
   (let [shared  {:tag 'de-dupe.cache/cache-1 :body (vec (range 20))}
         payload {:a shared :b shared :c [shared]}
-        out     (dedup/dedup-value payload true)
-        cache   (get out vocab/dedup-table-key)]
-    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
     (is (< 1 (count cache))
         "the pooling still fires on a subtree carrying a look-alike token")
-    (is (= payload (dedup/expand cache)))))
+    (is (= payload (rf.mcp-base.dedup/expand cache)))))
 
 (deftest a-reference-namespace-payload-alone-is-not-a-dedup-opportunity
   ;; The complement, and the reason the tests above force a wrap: a payload
   ;; whose only remarkable feature is a look-alike token has no repeated
   ;; subtree, so `dedup-value` returns it verbatim and nothing can alias it.
   (let [v {:literal 'de-dupe.cache/cache-1 :n 1}]
-    (is (identical? v (dedup/dedup-value v true))
+    (is (identical? v (rf.mcp-base.dedup/dedup-value v true))
         "no repeats ⇒ verbatim passthrough, escaping and all")))
 
 (deftest expand-round-trips-every-collection-kind
@@ -430,7 +430,7 @@
                 :seq   (map identity [shared shared])
                 :set   #{[:x shared]}
                 :nest  {:deep {:deeper [shared shared]}}}
-        out    (dedup/expand (dedup/de-dupe-eq v))]
+        out    (rf.mcp-base.dedup/expand (rf.mcp-base.dedup/de-dupe-eq v))]
     (is (= v out))
     (is (list? (:list out)) "a list rebuilds as a list")
     (is (set? (:set out))   "a set rebuilds as a set")))

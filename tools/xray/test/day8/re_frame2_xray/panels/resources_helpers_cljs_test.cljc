@@ -43,9 +43,9 @@
             ;; are keyed on the CEDN-1 byte `key-id` STRING (rf2-9e0tyq), with the
             ;; kind-preserving scoped-key VECTOR carried on the entry's
             ;; `:resource/key`. The fixtures below model that runtime shape via
-            ;; `state/key-id` rather than the dead vector-keyed shape.
-            [re-frame.resources.state :as state]
-            [re-frame.resources.work-ledger :as work-ledger]))
+            ;; `rf.resources.state/key-id` rather than the dead vector-keyed shape.
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -302,14 +302,14 @@
 
 (defn- byte-keyed
   "rf2-9e0tyq / rf2-hgy5kf — build the LIVE-shape `:entries` map: keyed on the
-  CEDN-1 byte `state/key-id` of each scoped-key VECTOR, with the
+  CEDN-1 byte `rf.resources.state/key-id` of each scoped-key VECTOR, with the
   kind-preserving vector stamped on the entry's `:resource/key` (exactly as
-  `state/empty-entry` / the runtime write it). Input is the author-friendly
+  `rf.resources.state/empty-entry` / the runtime write it). Input is the author-friendly
   `{<scoped-key-vector> <entry>}` map."
   [vector-keyed]
   (into {}
         (map (fn [[scoped-key entry]]
-               [(state/key-id scoped-key) (assoc entry :resource/key scoped-key)]))
+               [(rf.resources.state/key-id scoped-key) (assoc entry :resource/key scoped-key)]))
         vector-keyed))
 
 (def ^:private entries
@@ -354,12 +354,12 @@
 
 (defn- byte-keyed-ledger
   "rf2-9e0tyq / rf2-hgy5kf — build the LIVE-shape `:rf.runtime/work-ledger`
-  map: keyed on the CEDN-1 byte `work-ledger/work-id-id` of each record's
-  `:work/id` VECTOR (exactly as `work-ledger/put-record` writes it). Input is
+  map: keyed on the CEDN-1 byte `rf.resources.work-ledger/work-id-id` of each record's
+  `:work/id` VECTOR (exactly as `rf.resources.work-ledger/put-record` writes it). Input is
   the author-friendly seq of records (each carrying its own `:work/id`)."
   [records]
   (into {}
-        (map (fn [record] [(work-ledger/work-id-id (:work/id record)) record]))
+        (map (fn [record] [(rf.resources.work-ledger/work-id-id (:work/id record)) record]))
         records))
 
 (def ^:private ledger
@@ -558,7 +558,7 @@
   {:current {:route-id :route/article :nav-token m5-nav-token
              :params {:slug "welcome"} :path "/articles/welcome"}
    ;; rf2-btdl1 — the slot is the byte-keyed {<key-id> <scoped-key>} carrier.
-   :resource-blocking {m5-nav-token {(state/key-id m5-article-key) m5-article-key}}})
+   :resource-blocking {m5-nav-token {(rf.resources.state/key-id m5-article-key) m5-article-key}}})
 
 (deftest project-route-graph-live-test
   (let [;; a FRESH cached :article/by-slug entry (loaded, stale-at in future)
@@ -641,7 +641,7 @@
   route has settled). The current route must NOT be flagged blocked."
   {:current {:route-id :route/article :nav-token cduftx-current-token
              :params {:slug "now-article"} :path "/articles/now-article"}
-   :resource-blocking {cduftx-stale-token   {(state/key-id cduftx-stale-key) cduftx-stale-key}
+   :resource-blocking {cduftx-stale-token   {(rf.resources.state/key-id cduftx-stale-key) cduftx-stale-key}
                        cduftx-current-token {}}})
 
 (deftest project-route-graph-isolates-blocking-by-nav-token

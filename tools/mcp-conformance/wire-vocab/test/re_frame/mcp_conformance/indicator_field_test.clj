@@ -57,7 +57,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
-            [re-frame.mcp-conformance.fixtures :as fx]))
+            [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 ;; ---------------------------------------------------------------------------
 ;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
@@ -91,14 +91,14 @@
 (deftest every-tree-walking-tool-routes-through-the-helper
   (doseq [[tool rel] tree-walking-tool-sources]
     (testing (str "tool " tool " — wire/with-indicators call-site in " rel)
-      ;; Match against `fx/strip-comments-and-strings`-neutered source so a
+      ;; Match against `rf.mcp-conformance.fixtures/strip-comments-and-strings`-neutered source so a
       ;; docstring / comment MENTION of `wire/with-indicators` can't satisfy
       ;; the routing pin — only a real CODE reference counts (rf2-qyfy1m).
       ;; (The motivating case was the since-retired subscribe.cljs, which
       ;; named the helper in two docstrings — rf2-ahjbc; the hazard is
       ;; generic to any tool source and the strip stays.)
-      (let [src      (fx/read-source rel)
-            stripped (fx/strip-comments-and-strings src)]
+      (let [src      (rf.mcp-conformance.fixtures/read-source rel)
+            stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings src)]
         (is (str/includes? stripped "wire/with-indicators")
             (str "Tool " tool " at " rel
                  " does not route its envelope through `wire/with-indicators`. "
@@ -129,7 +129,7 @@
   "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs")
 
 (deftest pair-mcp-wire-re-exports-the-canonical-helper
-  (let [src (fx/read-source pair-mcp-reexport-rel)]
+  (let [src (rf.mcp-conformance.fixtures/read-source pair-mcp-reexport-rel)]
     (testing "pair-mcp wire.cljs re-exports `with-indicators`"
       (is (str/includes? src "(defn with-indicators")
           (str "`with-indicators` re-export missing from " pair-mcp-reexport-rel)))
@@ -172,7 +172,7 @@
   `tools/<server>/src/` walker — the inline-emit gate applies the
   same shape to any tree-walking MCP surface."
   [src-rel]
-  (let [src-root (io/file fx/repo-root src-rel)]
+  (let [src-root (io/file rf.mcp-conformance.fixtures/repo-root src-rel)]
     (when (.isDirectory src-root)
       (->> (file-seq src-root)
            (filter #(and (.isFile ^java.io.File %)
@@ -180,7 +180,7 @@
            (map (fn [^java.io.File f]
                   (-> (.getAbsolutePath f)
                       (str/replace "\\" "/")
-                      (str/replace (str/replace fx/repo-root "\\" "/") "")
+                      (str/replace (str/replace rf.mcp-conformance.fixtures/repo-root "\\" "/") "")
                       (subs 1))))                                ;; strip leading "/"
            sort))))
 
@@ -191,7 +191,7 @@
   (mcp-source-files "tools/re-frame2-pair-mcp/src"))
 
 (deftest no-inline-indicator-slot-emit-outside-the-helper
-  ;; The grep is applied AFTER `fx/strip-comments-and-strings` neuters
+  ;; The grep is applied AFTER `rf.mcp-conformance.fixtures/strip-comments-and-strings` neuters
   ;; docstring / comment / descriptor-string mentions — descriptor
   ;; descriptions ship the slot names as user-visible documentation
   ;; (e.g. `"Dropped count surfaces as `:dropped-sensitive` ..."` in
@@ -203,7 +203,7 @@
   ;; through. Same posture as the wire-vocab gate's source-text pin
   ;; (rf2-vj8y3).
   ;;
-  ;; The substring grep uses `fx/variant-regex` (rf2-qnmne) rather than
+  ;; The substring grep uses `rf.mcp-conformance.fixtures/variant-regex` (rf2-qnmne) rather than
   ;; raw `str/includes?` so a future legitimate extension like
   ;; `:dropped-sensitive-warning` or `:elided-large-summary` wouldn't
   ;; false-positive-trip the gate on the prefix match. Same pattern
@@ -216,9 +216,9 @@
             slot slot-literals
             :when (not (contains? inline-emit-whitelist rel))]
       (testing (str rel " — must not inline " slot)
-        (let [src      (fx/read-source rel)
-              stripped (fx/strip-comments-and-strings src)
-              pat      (fx/variant-regex slot)]
+        (let [src      (rf.mcp-conformance.fixtures/read-source rel)
+              stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings src)
+              pat      (rf.mcp-conformance.fixtures/variant-regex slot)]
           (is (not (re-find pat stripped))
               (str "Inline `" slot "` literal found in " rel
                    " (in code, AFTER stripping comments/docstrings/strings).\n"

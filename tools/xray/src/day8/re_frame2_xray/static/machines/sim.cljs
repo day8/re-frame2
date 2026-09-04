@@ -21,7 +21,7 @@
     - **Isolation**: sim **clones** the registered machine definition
       into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine
       <machine-id>]`; production registry is untouched. The runtime
-      calls `machines/machine-transition` — a pure fn — so the host
+      calls `rf.machines/machine-transition` — a pure fn — so the host
       frame's app-db is never touched.
     - **Static posture**: Sim does NOT read the live snapshot; the seed
       is the definition's declared `:initial` + `:data`. No live event
@@ -46,7 +46,7 @@
   on-chart path REUSES the existing engine end-to-end (no new
   transition logic): an edge click coerces the edge's fireable
   event-id and folds ONE `step-sim` through the same
-  `machines/machine-transition` call the step-button drives.
+  `rf.machines/machine-transition` call the step-button drives.
 
   ## What this ns owns
 
@@ -69,7 +69,7 @@
   wrapper that wires the helpers to the reactive substrate."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
-            [re-frame.machines :as machines]
+            [re-frame.machines :as rf.machines]
             [day8.re-frame2-xray.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-xray.static.machines.sim-helpers :as sim-h]
             [day8.re-frame2-xray.theme.tokens
@@ -77,7 +77,7 @@
 
 ;; ---- runtime hook -------------------------------------------------------
 ;;
-;; `machines/machine-transition` is the pure engine entry, owned by
+;; `rf.machines/machine-transition` is the pure engine entry, owned by
 ;; `re-frame.machines` (the front-porch shrink left no `rf/`
 ;; re-export); a host that hasn't loaded the machines artefact throws
 ;; at this call. The sim sub-mode only appears when there's at least
@@ -86,14 +86,14 @@
 ;; JVM test target can stub it.
 
 (defn- run-machine-transition
-  "Call `machines/machine-transition` against the cloned definition + sim
+  "Call `rf.machines/machine-transition` against the cloned definition + sim
   snapshot. Returns the Spec 005 §Level 1 map — `{:status :ok …}` /
   `{:status :error …}`. Wrapped in `try` so a host that hasn't loaded
   the machines artefact surfaces a friendly error instead of an
   uncaught throw."
   [definition snapshot event]
   (try
-    (machines/machine-transition definition snapshot event)
+    (rf.machines/machine-transition definition snapshot event)
     (catch :default e
       ;; Synthesise the `:status :error` shape so the step orchestrator
       ;; handles it uniformly.
@@ -684,7 +684,7 @@
     - **Click to send** — a click on an outgoing transition edge
       dispatches `:sim-chart-edge-clicked`, which coerces the edge's
       fireable event-id and folds ONE `step-sim` through the same
-      `machines/machine-transition` path the step-button uses. Guard
+      `rf.machines/machine-transition` path the step-button uses. Guard
       pass/fail surfaces exactly as it does for the button — a failed
       guard leaves the snapshot put + stamps `:last-error` (rendered in
       the side rail's error toast).

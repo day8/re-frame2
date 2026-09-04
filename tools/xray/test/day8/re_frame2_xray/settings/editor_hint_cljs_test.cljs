@@ -16,9 +16,9 @@
   fx feeds), mirroring `popup_dispatch_routing_cljs_test.cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-helpers :as th]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-helpers :as rf.test-helpers]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.editor-hint :as editor-hint]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -41,7 +41,7 @@
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid copies were
 ;; semantically identical to `re-frame.test-helpers`; tests call
-;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 ;; ---- events + sub -------------------------------------------------------
 
@@ -70,11 +70,11 @@
     (let [rendered (editor-hint/Toast)]
       (is (some? rendered)
           "Toast renders hiccup when editor-hint-open? is true")
-      (is (th/find-by-testid rendered "rf-xray-editor-hint-toast")
+      (is (rf.test-helpers/find-by-testid rendered "rf-xray-editor-hint-toast")
           "the toast root is present")
-      (is (th/find-by-testid rendered "rf-xray-editor-hint-open-settings")
+      (is (rf.test-helpers/find-by-testid rendered "rf-xray-editor-hint-open-settings")
           "the 'Open Settings' button is present")
-      (is (th/find-by-testid rendered "rf-xray-editor-hint-dismiss")
+      (is (rf.test-helpers/find-by-testid rendered "rf-xray-editor-hint-dismiss")
           "the dismiss ✕ button is present"))))
 
 ;; ---- open-settings wiring ----------------------------------------------
@@ -92,7 +92,7 @@
     ;; The :db dismiss is synchronous; the settings-open lands via the
     ;; async `:dispatch` fx, so poll the router drain before asserting.
     (async done
-      (-> (test-support/poll-until
+      (-> (rf.test-support/poll-until
             #(true? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
             {:label "settings popup opens after editor-hint-open-settings"
              :timeout-ms 1000})

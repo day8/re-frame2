@@ -9,13 +9,13 @@
   pair-mcp (`get-re-frame2-pair-instructions`) uses the same inline-
   `(str ...)` shape, kept aligned so AI pairs reading
   both servers see one answer to the onboarding-text question."
-  (:require [re-frame.story :as story]
-            [re-frame.story-mcp.tools.args :as targs]
-            [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
-            [re-frame.story-mcp.tools.egress :as egress]
-            [re-frame.story-mcp.tools.lifecycle :as lifecycle]
-            [re-frame.story-mcp.tools.result :as result]
-            [re-frame.story-mcp.tools.schemas :as s]))
+  (:require [re-frame.story :as rf.story]
+            [re-frame.story-mcp.tools.args :as rf.story-mcp.tools.args]
+            [re-frame.story-mcp.tools.cljs-resolve :as rf.story-mcp.tools.cljs-resolve]
+            [re-frame.story-mcp.tools.egress :as rf.story-mcp.tools.egress]
+            [re-frame.story-mcp.tools.lifecycle :as rf.story-mcp.tools.lifecycle]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
+            [re-frame.story-mcp.tools.schemas :as rf.story-mcp.tools.schemas]))
 
 (def story-instructions-text
   "The agent-onboarding text returned by `get-story-instructions`.
@@ -86,7 +86,7 @@
 
   Emits BOTH the `:content` text slot AND a matching
   `:structuredContent` map. The descriptor declares an
-  `:outputSchema` (`s/default-output-schema`); the official MCP SDK's
+  `:outputSchema` (`rf.story-mcp.tools.schemas/default-output-schema`); the official MCP SDK's
   high-level `callTool` REJECTS a tool that declares an output schema
   but returns no `:structuredContent` with JSON-RPC -32600. Mirroring
   re-frame2-pair-mcp's sibling `get-re-frame2-pair-instructions` (which
@@ -95,7 +95,7 @@
   the permissive `additionalProperties: true` envelope schema."
   [_args]
   (let [payload {:instructions story-instructions-text}]
-    (result/text-result story-instructions-text payload)))
+    (rf.story-mcp.tools.result/text-result story-instructions-text payload)))
 
 (defn tool-preview-variant
   "Dev: given a variant id, return the canvas state + share URL.
@@ -105,12 +105,12 @@
   owner (blocking `run-variant` deref + canonical exception
   normalization), and serialise the result map.
 
-  `preview-variant` runs the SAME `story/run-variant` lifecycle as
+  `preview-variant` runs the SAME `rf.story/run-variant` lifecycle as
   `run-variant`, so it speaks the SAME unified run-result vocabulary —
   it does NOT ship a third result dialect. It surfaces
   the unified `:status` verdict + the unified `:assertions` records (each
   with a derived `:status`) + `:checks`, and ADDS the preview-specific
-  slots: the `:share-url` from `story/variant-share-url`, so the agent
+  slots: the `:share-url` from `rf.story/variant-share-url`, so the agent
   can hand the cell to a human
   collaborator, plus `:effective-args`. `:lifecycle`
   here is the loader-lifecycle STATE (`:ready` / `:error`), not the run
@@ -118,7 +118,7 @@
 
   Blocking-timeout posture: because preview and `run-variant`
   block on the SAME lifecycle, they share the SAME `:timeout-ms` knob +
-  ceiling via `targs/resolve-timeout-ms` (default 10 s, hard ceiling
+  ceiling via `rf.story-mcp.tools.args/resolve-timeout-ms` (default 10 s, hard ceiling
   30 s, caller values clamp DOWN). The MCP request loop is single-threaded
   so an unbounded blocking deref would park unrelated calls; the shared
   helper means the two tools cannot drift by copy-paste, and an agent can
@@ -129,53 +129,53 @@
   filtered through `strip-sensitive`. Off-box defaults apply unless
   the caller passes `:include-sensitive true`."
   [arguments]
-  (targs/with-variant arguments
+  (rf.story-mcp.tools.args/with-variant arguments
     (fn [vk _body]
-      (or (targs/run-opts-shape-error arguments)
-          (targs/substrate-arg-error arguments "preview-variant")
+      (or (rf.story-mcp.tools.args/run-opts-shape-error arguments)
+          (rf.story-mcp.tools.args/substrate-arg-error arguments "preview-variant")
           ;; Same host PREREQUISITE `run-variant` applies, through the same
           ;; lifecycle owner so the two tools cannot drift: preview runs the
-          ;; SAME `story/run-variant` lifecycle, so with no adapter installed it
+          ;; SAME `rf.story/run-variant` lifecycle, so with no adapter installed it
           ;; would ship the same success-shaped non-run (rf2-c9t52).
-          (lifecycle/no-adapter-error "preview-variant")
-          (let [opts       (targs/read-run-opts vk arguments)
+          (rf.story-mcp.tools.lifecycle/no-adapter-error "preview-variant")
+          (let [opts       (rf.story-mcp.tools.args/read-run-opts vk arguments)
                 base-url   (or (:base-url arguments) "")
-                share-url  (story/variant-share-url vk base-url opts)
+                share-url  (rf.story/variant-share-url vk base-url opts)
                 ;; Blocking invocation + timeout + canonical exception
                 ;; normalization are owned by `tools.lifecycle` — the ONE
                 ;; execution owner `run-variant` shares (same tunable ceiling
-                ;; via `targs/resolve-timeout-ms`, default 10s / 30s hard cap).
-                ;; A throw / timeout is normalized through `story/run-result`
+                ;; via `rf.story-mcp.tools.args/resolve-timeout-ms`, default 10s / 30s hard cap).
+                ;; A throw / timeout is normalized through `rf.story/run-result`
                 ;; with `:lifecycle :error` stamped, so preview keeps the
                 ;; loader-state slot it reads AND speaks the SAME unified
                 ;; run-result vocabulary a settled run emits. The
                 ;; preview-specific projection / egress / wire shaping stays
                 ;; below.
-                outcome    (lifecycle/run-variant-blocking
-                             vk opts (targs/resolve-timeout-ms arguments))
-                incl?      (targs/include-sensitive? arguments)
+                outcome    (rf.story-mcp.tools.lifecycle/run-variant-blocking
+                             vk opts (rf.story-mcp.tools.args/resolve-timeout-ms arguments))
+                incl?      (rf.story-mcp.tools.args/include-sensitive? arguments)
                 raw-db     (:app-db outcome)
-                [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
+                [assertions dropped] (rf.story-mcp.tools.egress/scrub-assertions+count (:assertions outcome) incl?)
                 payload    {:variant-id   vk
                             :share-url    share-url
                             :status       (:status outcome)
                             :lifecycle    (:lifecycle outcome)
                             :elapsed-ms   (:elapsed-ms outcome)
-                            :app-db       (egress/elide-app-db raw-db vk incl?)
+                            :app-db       (rf.story-mcp.tools.egress/elide-app-db raw-db vk incl?)
                             :assertions   assertions
                             :checks       (vec (:checks outcome))
                             ;; Derived trees are PATH-projected through scrub-rendered:
                             ;; a value AT a classified path redacts, a re-keyed copy
                             ;; ships raw (EP-0025 fail-open). `run-variant` produces
                             ;; no rendered output — rendering is
-                            ;; `story/render-variant`'s (rf2-6r9j.13).
-                            :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
-                            :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
+                            ;; `rf.story/render-variant`'s (rf2-6r9j.13).
+                            :snapshot     (rf.story-mcp.tools.egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
+                            :effective-args (rf.story-mcp.tools.egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
             ;; Surface the MUST-level egress indicator counts:
             ;; how many sensitive assertion records were dropped + how many
             ;; over-threshold leaves were elided across the payload. Omitted
             ;; when zero (Conventions §Cross-MCP indicator-field vocabulary).
-            (egress/result-with-indicators payload dropped))))))
+            (rf.story-mcp.tools.egress/result-with-indicators payload dropped))))))
 
 (defn tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set
@@ -191,12 +191,12 @@
   a browser-local Story host whose registry actually answered.
 
   Availability is checked through the `cljs-resolve` host-capability
-  boundary; `cljs-resolve/registered-substrates` reads the reached
+  boundary; `rf.story-mcp.tools.cljs-resolve/registered-substrates` reads the reached
   provider's set."
   [_args]
-  (if (cljs-resolve/substrate-provider-available?)
-    (result/edn-result {:substrates (vec (cljs-resolve/registered-substrates))})
-    (result/capability-unavailable-result
+  (if (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)
+    (rf.story-mcp.tools.result/edn-result {:substrates (vec (rf.story-mcp.tools.cljs-resolve/registered-substrates))})
+    (rf.story-mcp.tools.result/capability-unavailable-result
       {:tool       "list-substrates"
        :capability "substrate-registry"
        :detail     "Substrate registration is CLJS-only (`register-substrate!`)."})))
@@ -215,14 +215,14 @@
                          "2. With budget override: {:max-tokens 0} -> same text, no cap. "
                          "3. Discovery (paired with list-substrates + list-tags): call this first, then list-* tools to enumerate the registry surface.")
     :typicalTokens  1500
-    :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
-    :outputSchema   s/default-output-schema
-    :annotations    s/read-only-annotations
+    :inputSchema    {:type "object" :properties (rf.story-mcp.tools.schemas/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   rf.story-mcp.tools.schemas/default-output-schema
+    :annotations    rf.story-mcp.tools.schemas/read-only-annotations
     :handler        tool-get-story-instructions}
 
    {:name           "preview-variant"
     :category       :dev
-    :description    (str "Given a variant id, return the canvas state (app-db, assertions, effective-args, elapsed) + a sharable URL. Runs the SAME `story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN) and the SAME host prerequisite: with no installed re-frame adapter it REFUSES up front (`isError true`, `:rf.error :rf.error/no-adapter-installed`) rather than settling a success-shaped non-run. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. Rendered output is NOT part of this result — `story/render-variant` owns rendering and returns it as `:rendered`. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a snapshot nested under `:db`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Given a variant id, return the canvas state (app-db, assertions, effective-args, elapsed) + a sharable URL. Runs the SAME `rf.story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN) and the SAME host prerequisite: with no installed re-frame adapter it REFUSES up front (`isError true`, `:rf.error :rf.error/no-adapter-installed`) rather than settling a success-shaped non-run. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a snapshot nested under `:db`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :effective-args {...}}. "
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
@@ -236,20 +236,20 @@
     ;; selective `:dedup` knob on `snapshot` (descriptors_data.cljs).
     :dedup-eligible? true
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens
-                                (s/with-dedup
-                                  (s/with-include-sensitive
-                                    (s/with-timeout-ms
-                                      {:variant-id s/kw-or-string
-                                       :substrate s/kw-or-string
-                                       :active-modes {:type "array" :items s/kw-or-string}
+                  :properties (rf.story-mcp.tools.schemas/with-max-tokens
+                                (rf.story-mcp.tools.schemas/with-dedup
+                                  (rf.story-mcp.tools.schemas/with-include-sensitive
+                                    (rf.story-mcp.tools.schemas/with-timeout-ms
+                                      {:variant-id rf.story-mcp.tools.schemas/kw-or-string
+                                       :substrate rf.story-mcp.tools.schemas/kw-or-string
+                                       :active-modes {:type "array" :items rf.story-mcp.tools.schemas/kw-or-string}
                                        :cell-overrides {:type "object"}
                                        :base-url {:type "string"
                                                   :description "Optional base URL for the share link (no default)."}}))))
                   :required ["variant-id"]
                   :additionalProperties false}
-    :outputSchema s/default-output-schema
-    ;; `preview-variant` invokes the same `story/run-variant`
+    :outputSchema rf.story-mcp.tools.schemas/default-output-schema
+    ;; `preview-variant` invokes the same `rf.story/run-variant`
     ;; pipeline as `run-variant`: it dispatches events into the variant's
     ;; frame, accumulates assertions, and mutates the runtime. So it carries
     ;; the destructive run annotations, not `read-only-annotations` — the
@@ -259,7 +259,7 @@
     ;; is the headline run/verdict call — both return the same unified
     ;; run-result `:status`) is real but doesn't change the destructive
     ;; nature of the underlying lifecycle run.
-    :annotations  s/run-variant-annotations
+    :annotations  rf.story-mcp.tools.schemas/run-variant-annotations
     :handler     tool-preview-variant}
 
    {:name           "list-substrates"
@@ -269,7 +269,7 @@
                          "1. JVM stdio server (no browser bridge): {} -> {:isError true :content [{:text \"Capability unavailable: `list-substrates` needs the substrate-registry provider...\"}] :structuredContent {:rf.error :rf.error/story-mcp-capability-unavailable :capability \"substrate-registry\" :tool \"list-substrates\" :recovery :read-from-a-browser-local-story-host}}. "
                          "2. Browser-local Story host with a reached registry: {} -> {:substrates [:reagent :uix]} (or {:substrates []} when the registry genuinely holds none).")
     :typicalTokens  100
-    :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
-    :outputSchema   s/default-output-schema
-    :annotations    s/read-only-annotations
+    :inputSchema    {:type "object" :properties (rf.story-mcp.tools.schemas/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   rf.story-mcp.tools.schemas/default-output-schema
+    :annotations    rf.story-mcp.tools.schemas/read-only-annotations
     :handler        tool-list-substrates}])

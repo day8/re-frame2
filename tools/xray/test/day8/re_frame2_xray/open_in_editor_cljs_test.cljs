@@ -22,8 +22,8 @@
     the host."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.source-coords.open-endpoint :as open-endpoint]
+            [re-frame.frame :as rf.frame]
+            [re-frame.source-coords.open-endpoint :as rf.source-coords.open-endpoint]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.registry :as registry]
@@ -72,7 +72,7 @@
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
                    (reset-editor!)
-                   (open-endpoint/set-launcher! always-fall-back!))}))
+                   (rf.source-coords.open-endpoint/set-launcher! always-fall-back!))}))
 
 (deftest open-chip-renders-anchor-with-href
   (testing "open-chip returns an <a> hiccup vector when source has :file"
@@ -493,10 +493,10 @@
             pollution."
     (setup!)
     (rf/with-frame :rf/xray
-      (let [pre-db (frame/frame-app-db-value :rf/xray)]
+      (let [pre-db (rf.frame/frame-app-db-value :rf/xray)]
         (rf/dispatch-sync [:rf.xray/open-in-editor
                            {:file "src/x.cljs" :line 1}])
-        (let [post-db (frame/frame-app-db-value :rf/xray)]
+        (let [post-db (rf.frame/frame-app-db-value :rf/xray)]
           (is (= pre-db post-db)
               "Xray's app-db is untouched by the click — no
                `:last-open-in-editor-coord` etc. (the prior stub
@@ -782,7 +782,7 @@
     (setup!)
     (unconfigure-editor!)
     (is (false? (config/editor-configured?)))
-    (is (some? (frame/frame :rf/xray)) "precondition: shell frame present")
+    (is (some? (rf.frame/frame :rf/xray)) "precondition: shell frame present")
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
         #(open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
@@ -826,8 +826,8 @@
     (setup!)
     (unconfigure-editor!)
     ;; Tear down the shell frame so there is no hint target.
-    (reset! frame/frames {})
-    (is (nil? (frame/frame :rf/xray)) "precondition: no shell frame")
+    (reset! rf.frame/frames {})
+    (is (nil? (rf.frame/frame :rf/xray)) "precondition: no shell frame")
     (is (false? (config/editor-configured?)))
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
@@ -849,17 +849,17 @@
 (deftest endpoint-url-carries-coord-and-editor-hint
   (testing "rf2-wn3bh — `build-url` projects (coord, editor) to the
             endpoint query: file (encoded), line, column, editor keyword"
-    (is (= (str open-endpoint/endpoint-path
+    (is (= (str rf.source-coords.open-endpoint/endpoint-path
                 "?file=panel_gallery%2Ffoo.cljs&line=42&column=7&editor=cursor")
-           (open-endpoint/build-url
+           (rf.source-coords.open-endpoint/build-url
              {:file "panel_gallery/foo.cljs" :line 42 :column 7}
              :cursor))
         "relative :file is sent verbatim (URL-encoded) for runtime
          resolution; the editor keyword rides as the launch hint")
-    (is (nil? (open-endpoint/build-url {:line 1} :vscode))
+    (is (nil? (rf.source-coords.open-endpoint/build-url {:line 1} :vscode))
         "no :file → no endpoint URL (the chip is hidden upstream)")
-    (is (= (str open-endpoint/endpoint-path "?file=src%2Fx.cljs")
-           (open-endpoint/build-url {:file "src/x.cljs"} {:custom "x://{path}"}))
+    (is (= (str rf.source-coords.open-endpoint/endpoint-path "?file=src%2Fx.cljs")
+           (rf.source-coords.open-endpoint/build-url {:file "src/x.cljs"} {:custom "x://{path}"}))
         "{:custom …} editor ships no hint (server auto-detects)")))
 
 (deftest open-coord-prefers-endpoint-when-it-succeeds
@@ -867,14 +867,14 @@
             server answered), the URI fallback does NOT fire"
     (let [fallback-calls (atom 0)
           ;; Stub launcher: 'endpoint succeeded' → never call fallback.
-          prev (open-endpoint/set-launcher! (fn [_url _fallback!] nil))]
+          prev (rf.source-coords.open-endpoint/set-launcher! (fn [_url _fallback!] nil))]
       (try
         (open-in-editor/open-coord! {:file "src/x.cljs" :line 1})
         ;; the fallback thunk would bump this; it must stay 0
         (is (zero? @fallback-calls)
             "endpoint preferred → no editor:// URI navigation")
         (finally
-          (open-endpoint/set-launcher! prev))))))
+          (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
 (deftest open-coord-falls-back-to-uri-when-no-endpoint
   (testing "rf2-wn3bh — when the endpoint launcher invokes the fallback
@@ -882,7 +882,7 @@
             navigator seam — the additive contract: B never removes the
             URI path"
     (setup!)                              ; configured :vscode
-    (let [prev (open-endpoint/set-launcher! always-fall-back!)
+    (let [prev (rf.source-coords.open-endpoint/set-launcher! always-fall-back!)
           [nav calls] (capturing-navigator)]
       (try
         (with-stub-navigator nav
@@ -890,4 +890,4 @@
         (is (= ["vscode://file/src/x.cljs:9:2"] @calls)
             "no dev server → URI fallback navigates exactly as before")
         (finally
-          (open-endpoint/set-launcher! prev))))))
+          (rf.source-coords.open-endpoint/set-launcher! prev))))))

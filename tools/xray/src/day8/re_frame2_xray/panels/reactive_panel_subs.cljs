@@ -127,7 +127,7 @@
   `install!` registers `:rf.xray/reactive-data` + the panel-local
   disclosure-toggle state slot. Idempotent."
   (:require [re-frame.core :as rf]
-            [re-frame.subs.tooling :as subs-tooling]
+            [re-frame.subs.tooling :as rf.subs.tooling]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- pure helpers (exposed for test) ------------------------------------
@@ -671,7 +671,7 @@
             ;; (registry-only); used to partition L1 / L2+ subs and
             ;; supply the inputs + code columns. Defensive try so a
             ;; topology read never crashes the panel.
-            topology (try (subs-tooling/sub-topology) (catch :default _ nil))
+            topology (try (rf.subs.tooling/sub-topology) (catch :default _ nil))
             proj     (project-record record topology)]
         (merge proj
                {:focus        focus
@@ -706,7 +706,7 @@
     :<- [:rf.xray/epoch-history]
     (fn [[focus history] _query]
       (let [record   (focused-epoch-record history (:epoch-id focus))
-            topology (try (subs-tooling/sub-topology) (catch :default _ nil))
+            topology (try (rf.subs.tooling/sub-topology) (catch :default _ nil))
             proj     (project-record record topology)]
         (merge proj
                {:focus             focus

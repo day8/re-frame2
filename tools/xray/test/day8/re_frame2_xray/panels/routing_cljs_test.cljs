@@ -49,8 +49,8 @@
     7. **Frame isolation** — every read targets `:rf/xray`'s frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.palette.subs :as palette-subs]
@@ -136,42 +136,42 @@
 (deftest registry-installs-routing-subs
   (testing "register-xray-handlers! installs the topology-plus-overlay subs"
     (registry/register-xray-handlers!)
-    (is (some? (registrar/handler :sub :rf.xray/registered-routes))
+    (is (some? (rf.registrar/handler :sub :rf.xray/registered-routes))
         ":rf.xray/registered-routes sub registered (shared with Static)")
-    (is (some? (registrar/handler :sub :rf.xray/current-route-slice))
+    (is (some? (rf.registrar/handler :sub :rf.xray/current-route-slice))
         ":rf.xray/current-route-slice sub registered")
-    (is (some? (registrar/handler :sub :rf.xray/routing-tab-data))
+    (is (some? (rf.registrar/handler :sub :rf.xray/routing-tab-data))
         "view-facing topology-plus-overlay composite sub registered"))
   (testing "rf2-e8330v — production registration installs NO -for-test ids
             nor *-override subs; install-test-overrides! installs them"
     (registry/register-xray-handlers!)
-    (is (nil? (registrar/handler :sub :rf.xray/registered-routes-override)))
-    (is (nil? (registrar/handler :sub :rf.xray/current-route-slice-override)))
-    (is (nil? (registrar/handler :event :rf.xray/set-registered-routes-override-for-test)))
-    (is (nil? (registrar/handler :event :rf.xray/set-current-route-slice-override-for-test)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/registered-routes-override)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/current-route-slice-override)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/set-registered-routes-override-for-test)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/set-current-route-slice-override-for-test)))
     (xray-test-support/install-test-overrides!)
-    (is (some? (registrar/handler :sub :rf.xray/registered-routes-override))
+    (is (some? (rf.registrar/handler :sub :rf.xray/registered-routes-override))
         "test-only override sub registered by seam")
-    (is (some? (registrar/handler :sub :rf.xray/current-route-slice-override))
+    (is (some? (rf.registrar/handler :sub :rf.xray/current-route-slice-override))
         "test-only override sub registered by seam")
-    (is (some? (registrar/handler :event :rf.xray/set-registered-routes-override-for-test))
+    (is (some? (rf.registrar/handler :event :rf.xray/set-registered-routes-override-for-test))
         "test-only override event registered by seam")
-    (is (some? (registrar/handler :event :rf.xray/set-current-route-slice-override-for-test))
+    (is (some? (rf.registrar/handler :event :rf.xray/set-current-route-slice-override-for-test))
         "test-only override event registered by seam"))
   (testing "rf2-o5f5f.3 — browse + search + Simulate-URL slots NO LONGER live
             under :rf.xray.routing/* (promoted to :rf.xray.static.routes/*)"
     (registry/register-xray-handlers!)
-    (is (nil? (registrar/handler :sub :rf.xray.routing/query))
+    (is (nil? (rf.registrar/handler :sub :rf.xray.routing/query))
         ":rf.xray.routing/query removed (moved to static.routes/query)")
-    (is (nil? (registrar/handler :sub :rf.xray.routing/sim-url))
+    (is (nil? (rf.registrar/handler :sub :rf.xray.routing/sim-url))
         ":rf.xray.routing/sim-url removed (moved to static.routes/sim-url)")
-    (is (nil? (registrar/handler :sub :rf.xray.routing/expanded))
+    (is (nil? (rf.registrar/handler :sub :rf.xray.routing/expanded))
         ":rf.xray.routing/expanded removed (moved to static.routes/expanded)")
-    (is (nil? (registrar/handler :event :rf.xray.routing/set-query))
+    (is (nil? (rf.registrar/handler :event :rf.xray.routing/set-query))
         ":rf.xray.routing/set-query removed (moved to static.routes/set-query)")
-    (is (nil? (registrar/handler :event :rf.xray.routing/set-sim-url))
+    (is (nil? (rf.registrar/handler :event :rf.xray.routing/set-sim-url))
         ":rf.xray.routing/set-sim-url removed (moved to static.routes/set-sim-url)")
-    (is (nil? (registrar/handler :event :rf.xray.routing/toggle-row))
+    (is (nil? (rf.registrar/handler :event :rf.xray.routing/toggle-row))
         ":rf.xray.routing/toggle-row removed (moved to static.routes/toggle-row)")))
 
 (deftest palette-includes-routing

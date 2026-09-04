@@ -25,12 +25,12 @@
   atom survives but is never read. CLJC so the JVM test corpus can
   cover the round-trip without a CLJS runtime."
   (:require [day8.re-frame2-xray.theme.tokens :as tokens]
-            [re-frame.privacy :as privacy]
-            [re-frame.projection :as projection]
-            [re-frame.source-coords.editor-uri :as editor-uri]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.projection :as rf.projection]
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
             #?@(:cljs [[cljs.reader]
                        [re-frame.core :as rf]
-                       [re-frame.frame :as frame]
+                       [re-frame.frame :as rf.frame]
                        [day8.re-frame2-xray.defaults :as defaults]])))
 
 ;; Forward declarations. The `editor preference` block (`get-editor`)
@@ -586,7 +586,7 @@
 ;; profile decides whether a `:sensitive?`-tagged event survives that
 ;; feed. The "is a `:sensitive?` event visible?" decision derives from
 ;; the profile's `:rf.size/include-sensitive?` resolution
-;; via the framework projection table (`projection/profile-size-opts`), the
+;; via the framework projection table (`rf.projection/profile-size-opts`), the
 ;; SAME table `project-egress` consumes — one source of truth, no
 ;; re-implemented redaction policy.
 ;;
@@ -622,7 +622,7 @@
   the framework's `re-frame.projection/profiles` so `configure!` validates
   `:rf.xray/egress-profile` against the ONE canonical enum (no forked
   copy)."
-  projection/profiles)
+  rf.projection/profiles)
 
 (defn known-egress-profile?
   "True iff `profile` is a member of the closed `:rf.egress/*` enum."
@@ -719,7 +719,7 @@
   Xray-relevant profile that does. An unknown / nil profile is fail-closed
   (does NOT reveal)."
   [profile]
-  (boolean (:rf.size/include-sensitive? (projection/profile-size-opts profile))))
+  (boolean (:rf.size/include-sensitive? (rf.projection/profile-size-opts profile))))
 
 (defn set-egress-profile!
   "Replace Xray's local-render `:rf.egress/*` profile (EP-0015).
@@ -751,7 +751,7 @@
   being a silent local flip. Narrowing (reveal → redact) RESTORES privacy
   and needs no audit op."
   [profile]
-  (let [next (if (contains? projection/profiles profile)
+  (let [next (if (contains? rf.projection/profiles profile)
                profile
                default-egress-profile)
         prev @egress-profile]
@@ -794,7 +794,7 @@
   against ONE framework primitive rather than reimplementing the
   five-token check. Per Spec 009 §Privacy."
   [ev]
-  (privacy/sensitive? ev))
+  (rf.privacy/sensitive? ev))
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by Xray's trace collector under
@@ -873,7 +873,7 @@
   (let [k (or frame-id :global)]
     (swap! suppressed-counters update k (fnil inc 0)))
   #?(:cljs
-     (when (frame/frame defaults/default-frame-id)
+     (when (rf.frame/frame defaults/default-frame-id)
        (rf/dispatch [:rf.xray/note-sensitive-suppressed frame-id]
                     {:frame defaults/default-frame-id})))
   nil)
@@ -902,14 +902,14 @@
   ([]
    (reset! suppressed-counters {})
    #?(:cljs
-      (when (frame/frame defaults/default-frame-id)
+      (when (rf.frame/frame defaults/default-frame-id)
         (rf/with-frame defaults/default-frame-id
           (rf/dispatch [:rf.xray/reset-suppressed-counters]))))
    nil)
   ([frame-id]
    (swap! suppressed-counters dissoc (or frame-id :global))
    #?(:cljs
-      (when (frame/frame defaults/default-frame-id)
+      (when (rf.frame/frame defaults/default-frame-id)
         (rf/with-frame defaults/default-frame-id
           (rf/dispatch [:rf.xray/reset-suppressed-counters frame-id]))))
    nil))
@@ -1810,5 +1810,5 @@
   configured project-root through the helper's 3-arg form. Returns a
   string URI, or nil when the source-coord has no `:file`."
   [source-coord]
-  (editor-uri/editor-uri (get-editor) source-coord
+  (rf.source-coords.editor-uri/editor-uri (get-editor) source-coord
                          {:project-root (get-project-root)}))

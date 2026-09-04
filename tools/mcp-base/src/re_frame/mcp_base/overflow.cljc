@@ -20,7 +20,7 @@
   approximation aligned with Anthropic's rule-of-thumb for English /
   EDN. Not exact; the goal is a bounded wire payload, not a precise
   meter."
-  (:require [re-frame.mcp-base.vocab :as vocab]))
+  (:require [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 (def ^:const default-max-tokens
   "The convention's documented cap. Sized for a typical 5K-token MCP
@@ -53,7 +53,7 @@
     :hint        - tool-specific next-step hint (optional;
                    `overflow-hint-fallback` if absent)"
   [{:keys [tool token-count cap hint]}]
-  {vocab/overflow-key {:limit       :reached
+  {rf.mcp-base.vocab/overflow-key {:limit       :reached
                        :token-count token-count
                        :cap-tokens  cap
                        :tool        tool

@@ -61,7 +61,7 @@
 
   The redaction ALGORITHM itself is OWNED by the bundle-isolated core tooling
   ns `re-frame.derivation.egress` (rf2-mm3y49) — `redact-graph-for-egress`
-  is a thin DELEGATE to `egress/project-graph`, so this call site and the
+  is a thin DELEGATE to `rf.derivation.egress/project-graph`, so this call site and the
   derivation-conformance suite share ONE implementation rather than drifting
   copies. This panel remains the named CALL SITE; the projection lives in
   core (built from `implementation/`-resident primitives only, so no
@@ -75,7 +75,7 @@
             ;; DELEGATES to it. Xray is a dev tool, so reaching an
             ;; implementation/ ns preserves the tools → implementation
             ;; dependency arrow (nothing in implementation/ requires Xray).
-            [re-frame.derivation.egress :as egress]))
+            [re-frame.derivation.egress :as rf.derivation.egress]))
 
 ;; ---------------------------------------------------------------------------
 ;; Superkind classification (the contract axis).
@@ -222,7 +222,7 @@
 ;; frame's elision policy. ONE source of truth: the list is owned by the
 ;; core egress algorithm ns (rf2-mm3y49) and aliased here for the on-box
 ;; summary path so the two never drift.
-(def value-bearing-node-keys egress/value-bearing-node-keys)
+(def value-bearing-node-keys rf.derivation.egress/value-bearing-node-keys)
 
 (defn summarize-node
   "Attach an ON-BOX `:summaries {<k> <summary>}` map to a node for any
@@ -256,7 +256,7 @@
 ;; CALL SITE the EP-0014 tail-2 ruling names — the wire boundary where a tool
 ;; ships the graph OFF the developer's box (an MCP surface streaming to a
 ;; remote agent, a serialized capture written to disk / posted to a service)
-;; — but the projection itself is `egress/project-graph`.
+;; — but the projection itself is `rf.derivation.egress/project-graph`.
 ;; ===========================================================================
 
 (def redact-graph-for-egress
@@ -271,7 +271,7 @@
   preservation (a redacted param is still an edge); and idempotence.
   `([graph frame-id] [graph frame-id opts])` — `opts` ride through to
   `elide-wire-value`; the `:frame` opt is set from `frame-id`."
-  egress/project-graph)
+  rf.derivation.egress/project-graph)
 ;; ---------------------------------------------------------------------------
 ;; Header summary (counts + family/role tallies for the panel header).
 ;; ---------------------------------------------------------------------------
