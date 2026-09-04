@@ -139,12 +139,48 @@
             (str "post-dispose: frame " (pr-str fid)
                  "'s sub-cache atom is empty"))))))
 
-(deftest dispose-adapter-walk-is-best-effort
-  (testing "rf2-sx77q G3: a throwing per-entry dispose does NOT abort the
-  rest of the walk. The best-effort tolerance is spine-shared but was
-  previously pinned ONLY on the Reagent adapter; this slim sibling closes
-  the gap so a future spine refactor that drops the per-entry try/catch
-  is caught at the slim surface too (slim claims drop-in Reagent parity)."
+;; ---- the poison entry has to be one the disposer actually CALLS ------------
+;;
+;; rf2-vy0a. Until this bead the poison entry here was a bare
+;; `(js-obj "not" "a reaction")`, and it never threw. The ratom family's
+;; claimed-generation disposer (`spine/make-ratom-dispose-dispatch`)
+;; dispatches `re-frame.disposable/IDisposable` → the substrate's
+;; `IDisposable` → `:else nil`; a bare `js-obj` satisfies NEITHER protocol,
+;; so the entry was SKIPPED in silence. Every assertion in the test passed
+;; and the per-entry failure path it was written for was never reached — the
+;; test proved visit-and-clear and nothing else.
+;;
+;; `throwing-cached-reaction` reifies reagent2's own `IDisposable` — whose
+;; methods are `dispose!` / `add-on-dispose!`, NOT `-dispose`, and that
+;; naming detail is the whole reason the bare object fell through — so the
+;; real disposal route lands in a body that throws a sentinel this test
+;; allocated. A sentinel rather than a message because "the FIRST failure
+;; specifically" is unprovable against an error the runtime minted.
+;;
+;; Mirrors `re-frame.dispose-adapter-sub-cache-walk-cljs-test`'s
+;; `throwing-cached-reaction`, which rf2-ss8x built for the stock-Reagent
+;; surface after finding the same vacuity there.
+
+(defn- throwing-cached-reaction
+  "A sub-cache-shaped `:reaction` whose disposal throws `sentinel` and
+  records the attempt in `attempts`. Implements reagent2's `IDisposable`
+  so the adapter's claimed-generation disposer dispatches into it exactly
+  as it would into a real Reaction."
+  [sentinel attempts]
+  (reify ratom/IDisposable
+    (dispose! [_]
+      (swap! attempts inc)
+      (throw sentinel))
+    (add-on-dispose! [_ _f] nil)))
+
+(deftest dispose-adapter-walk-drains-past-a-throwing-entry-then-rethrows
+  (testing "rf2-sx77q G3 + rf2-ss8x, made load-bearing by rf2-vy0a: a throwing
+  per-entry dispose does NOT abort the rest of the walk, and the failure is
+  rethrown to the caller once the drain is complete. The tolerance and the
+  rethrow are both spine-shared but were pinned ONLY on the Reagent adapter;
+  this slim sibling closes the gap so a future spine refactor that drops
+  either is caught at the slim surface too (slim claims drop-in Reagent
+  parity)."
     (rf/make-frame {:id :walk/a})
     (rf/make-frame {:id :walk/b})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
@@ -159,38 +195,43 @@
       (is (= 1 @r-b))
 
       ;; Inject a sentinel reaction into walk/a's sub-cache whose dispose
-      ;; path throws — mirrors a misbehaving downstream (e.g. an
-      ;; on-dispose hook raising). The walk must still drain the rest of
-      ;; walk/a's cache AND walk/b's cache.
-      (let [cache-a      (:sub-cache (frame/frame :walk/a))
-            poison-entry {:reaction (js-obj "not" "a reaction")}]
-        (swap! cache-a assoc [:poison] poison-entry)
+      ;; path throws — mirrors a misbehaving downstream (e.g. a user
+      ;; `:on-dispose` hook raising). The walk must still drain the rest of
+      ;; walk/a's cache AND walk/b's cache, and then surface this exact value.
+      (let [sentinel (ex-info "poison entry disposal" {::poison true})
+            attempts (atom 0)
+            cache-a  (:sub-cache (frame/frame :walk/a))]
+        (swap! cache-a assoc [:poison]
+               {:reaction (throwing-cached-reaction sentinel attempts)})
 
         (let [reactions-before [r-a r-b]
               disposed         (atom #{})]
           (doseq [r reactions-before]
             (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
 
-          ;; NOTE (rf2-ss8x): this `poison-entry` does not in fact throw. The
-          ;; ratom family's claimed-generation disposer dispatches
-          ;; `re-frame.disposable/IDisposable` → the substrate's `IDisposable`
-          ;; → `:else nil`, and a bare `js-obj` satisfies neither protocol, so
-          ;; it is SKIPPED rather than raising. What survives here is the
-          ;; visit-and-clear half; the per-entry failure path is pinned on the
-          ;; stock-Reagent surface (`re-frame.dispose-adapter-sub-cache-walk-
-          ;; cljs-test`) with a reaction that really does throw, and on this
-          ;; adapter by the throwing-root proof in
-          ;; `reagent-slim-dispose-drain-roots-cljs-test`.
-          (adapter/dispose-adapter!)
+          (let [thrown (try (adapter/dispose-adapter!)
+                            ::returned-normally
+                            (catch :default e e))]
+            ;; (1) THE POISON ACTUALLY FIRED. Without this the rest of the
+            ;; test is satisfied by an entry that was silently skipped —
+            ;; which is exactly what it was before rf2-vy0a.
+            (is (= 1 @attempts)
+                "the poison entry's disposer was CALLED, exactly once — not
+                 skipped by the dispatch's :else branch, and not retried")
 
-          (doseq [r reactions-before]
-            (is (contains? @disposed r)
-                "the walk reached and disposed the real Reaction past the poison entry"))
+            ;; (2) DRAIN EVERYTHING past it, in the same frame and a later one.
+            (doseq [r reactions-before]
+              (is (contains? @disposed r)
+                  "the walk reached and disposed the real Reaction past the poison entry"))
+            (is (= {} @(:sub-cache (frame/frame :walk/a)))
+                "walk/a's cache was still cleared despite the throw")
+            (is (= {} @(:sub-cache (frame/frame :walk/b)))
+                "walk/b's cache was still cleared after the throwing walk/a entry")
 
-          (is (= {} @(:sub-cache (frame/frame :walk/a)))
-              "walk/a's cache was still cleared despite the throw")
-          (is (= {} @(:sub-cache (frame/frame :walk/b)))
-              "walk/b's cache was still cleared after the throwing walk/a entry"))))))
+            ;; (3) RETHROW, and the IDENTICAL value rather than a wrapper.
+            (is (identical? sentinel thrown)
+                "rf/destroy-adapter! rethrew the poison entry's own error
+                 object, unwrapped, after the drain finished")))))))
 
 (deftest dispose-adapter-walk-tolerates-an-empty-frames-registry
   (testing "dispose-adapter! on an installed slim adapter with no live

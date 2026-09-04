@@ -12,7 +12,8 @@
     After (flush!) returns:
       - All currently-dirty components have re-rendered.
       - All Reactions whose dependencies changed have recomputed.
-      - All :after-render callbacks queued before flush! fired.
+      - All :after-render callbacks queued before flush! fired, each
+        having observed the COMMITTED DOM (rf2-cdoo).
 
   The user-facing `(reagent2.dom.client/flush-views!)` test primitive
   composes this synchronous drain with `react/act` (per §4.2). The
@@ -22,10 +23,11 @@
   Public surface (consumed by other ns'es in the artefact):
 
     queue-render!   ;; component → enqueue + schedule microtask
-    do-after-render ;; fn → run after the next render
+    do-after-render ;; fn → run after the next React COMMIT
     schedule        ;; force a microtask schedule (no-op if already scheduled)
     flush!          ;; synchronous drain (test primitive's worker)
     mark-rendered   ;; clear a component's dirty flag (called by render)
+    render-commit   ;; injected host commit boundary (rf2-cdoo, see below)
 
   Stage 4-A wired `reagent2.ratom/rea-schedule` as a `clojure.core/atom`
   hook. This ns installs a scheduler fn into that atom at load time so
@@ -69,6 +71,32 @@
   the React commit so the next dependency change re-enqueues."
   [^js c]
   (set! (.-cljsIsDirty c) false))
+
+;; ---------------------------------------------------------------------------
+;; Host commit boundary (rf2-cdoo)
+;;
+;; This ns must stay host-neutral: it is required by `reagent2.core` and by
+;; the component layer, and a Node / SSR consumer that never loads
+;; `reagent2.dom.client` must not be made to pull `react-dom` in. So the
+;; commit boundary is INJECTED rather than required, exactly as
+;; `reagent2.ratom/rea-schedule` injects the scheduler in the other
+;; direction — `reagent2.dom.client` installs `react-dom/flushSync` here at
+;; ns-load, and with nothing installed the queue keeps its bare drain.
+;;
+;; Why a boundary is needed at all: under React 19 `createRoot`, a bare
+;; `forceUpdate` issued from outside React's batching context is SCHEDULED,
+;; not committed — the DOM still holds the old value when the call returns.
+;; `flush-render!` already documents and relies on this; `flush-queues` below
+;; is where the ordinary microtask path needs it, so that a callback
+;; promised "after the next React commit" actually gets one.
+;; ---------------------------------------------------------------------------
+
+(defonce ^{:doc "Injected commit boundary: `(fn [drain] ...)` that runs
+  `drain` and guarantees React has COMMITTED the resulting work before it
+  returns. `reagent2.dom.client` installs `react-dom/flushSync`; nil (the
+  default, on a host with no DOM client loaded) means the bare drain."}
+  render-commit
+  (atom nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The render queue
@@ -142,7 +170,23 @@
     ;; further component renders into component-queue, which we then
     ;; pick up in flush-render below.
     (ratom/flush!)
-    (.flush-render this)
+    ;; rf2-cdoo — POST-COMMIT, not merely post-forceUpdate. `after-render`
+    ;; promises "after the next React commit", and a bare `forceUpdate`
+    ;; issued from this microtask is only SCHEDULED by React 19 (the same
+    ;; automatic-batching fact `reagent2.dom.client/flush-render!` already
+    ;; documents), so draining the callbacks straight after `flush-render`
+    ;; handed them the OLD DOM. When callbacks are waiting, the dirty pass
+    ;; therefore runs inside the host's commit boundary — supplied by
+    ;; `reagent2.dom.client` through `render-commit` so this ns stays
+    ;; host-neutral (no react-dom require; a Node/SSR consumer that never
+    ;; loads the DOM client keeps the bare drain).
+    ;;
+    ;; The gate is deliberate: a turn with NO pending callback keeps the
+    ;; ordinary concurrent path, so an ordinary reactive re-render is not
+    ;; forced to discrete priority just because the scheduler ran.
+    (if-some [commit (when (some? after-render-queue) @render-commit)]
+      (commit (fn [] (.flush-render this)))
+      (.flush-render this))
     (.flush-after-render this)))
 
 (defonce ^:private render-queue
@@ -170,11 +214,13 @@
 
 (defn do-after-render
   "Register `f` to run at the end of the next flush turn — i.e. after
-  every dirty component has re-rendered. The public ABI for
+  every dirty component has re-rendered AND React has COMMITTED that
+  render, so `f` observes the new DOM (rf2-cdoo). The public ABI for
   `reagent2.core/after-render`.
 
   Schedules a microtask drain so `f` fires even if no component is
-  dirty (matches stock Reagent semantics)."
+  dirty (matches stock Reagent semantics). With no component dirty there
+  is nothing to commit and `f` fires on the bare turn."
   [f]
   (.add-after-render render-queue f)
   (.schedule render-queue))
