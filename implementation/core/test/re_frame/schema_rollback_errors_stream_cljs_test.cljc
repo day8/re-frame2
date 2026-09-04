@@ -354,8 +354,22 @@
 ;; WITH the check rather than merely beside it
 ;; ===========================================================================
 
-(deftest ^:prod-gate rejection-record-is-absent-under-the-production-gate
-  (testing "Under `-Dre-frame.debug=false` the candidate validator does not
+;; JVM-ONLY, and the reader conditional is load-bearing rather than tidy.
+;; `^:prod-gate` is a cognitect-test-runner VAR filter, and only the JVM lanes
+;; pass `-e` / drop it: shadow-cljs `:node-test` runs every `deftest` it finds,
+;; tags and all. So on CLJS this deftest ran in an ordinary DEV build and its
+;; own premise assertion — `debug-enabled?` is false — failed, which is the
+;; RIGHT failure for a test that has no business running there. Measured: three
+;; failures in `npm run test:cljs`, none in either JVM lane.
+;;
+;; Nothing is lost by scoping it. The CLJS half of this claim is not a runtime
+;; assertion at all but `scripts/check-elision.cjs`, which greps a real
+;; `:advanced` + `goog.DEBUG=false` release bundle for this record's reason
+;; string and proves it ABSENT — a stronger statement than "it did not fire",
+;; because it shows the literal is not in the artefact.
+#?(:clj
+   (deftest ^:prod-gate rejection-record-is-absent-under-the-production-gate
+     (testing "Under `-Dre-frame.debug=false` the candidate validator does not
             run at all (Spec 010 §Production builds), so there is no rejection
             to report and the record must be absent with it. Runs ONLY in the
             `jvm-core-prod-gate` lane — the default `:test` alias excludes
@@ -379,4 +393,4 @@
                                             (:events captured)))))
             "the candidate INSTALLS under the gate — the designed posture
              (Spec 010 §What elision means for `reg-app-schema`), and the
-             reason there is nothing to report")))))
+             reason there is nothing to report"))))))
