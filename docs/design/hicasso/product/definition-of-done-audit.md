@@ -14,6 +14,19 @@
 > exists, and the ratified route to one runs through an operator act
 > (`rf2-kmqx3`) that has not happened.
 
+**[Amended 2026-09-05, `rf2-hic-064`, after the merged-PR audit of #9181. Both verdicts stand
+exactly as written; what is corrected is which reading of the ledger the sentence above is
+quoting.]** *"the correction ledger carries one unresolved `coverage` row"* is the **pre-audit
+snapshot** — the ledger as it stood at `09d4d84a80`, before this report's own PR appended the
+seven rows of [§6](#6-the-corrective-beads). **The merged state is 41 rows: 33 `closed`, one
+`resolved`, seven `open`.** Under the ledger's own rule — *unresolved means any status other than
+`closed`* — that is eight unresolved rows where the snapshot had one: seven of them
+correctness-or-coverage and therefore blocking (`rf2-s52w`, `rf2-nf8w`, `rf2-aunp`, `rf2-l67a`,
+`rf2-j77q`, `rf2-lexh`, `rf2-60jv`), and one `quality` (`rf2-87iu`) which does not block but must
+be dispositioned before `rf2-hic-064` signs. **The ledger conjunct fails either way**, and it
+fails harder on the merged count than on the snapshot the sentence quotes — no colour, threshold
+or verdict moves.
+
 Neither verdict is close. Nothing below widens a threshold to reach a green, and
 where a check the protocol orders could not be run, the row says so and says what
 would settle it rather than substituting a reconstruction.
@@ -29,6 +42,36 @@ would settle it rather than substituting a reconstruction.
 | Checkout | a linked worker worktree; `scripts/assert-worker-worktree.sh` captured exit **0** |
 | §13 text | taken verbatim from [`specification.md` §13](specification.md#13-definition-of-done), never from a summary |
 | Findings | seven corrective beads filed, [§6](#6-the-corrective-beads) |
+| Merge parent | `main`@`e04a026749`. PR #9181 carried this page and merged as `ff79cc1a2d` on 2026-09-04 |
+| What this page is scoped to | the `09d4d84a80` snapshot, and nothing wider. **No reading below was re-taken at the merge parent**, and the run figures in [§3](#3-correctness--what-was-run) are that snapshot's — see the neutrality check immediately below |
+
+**[Amended 2026-09-05, `rf2-hic-064`, after the merged-PR audit of #9181. No verdict, colour or
+threshold on this page moves.]** **The reviewed base is not the commit this page merged onto, and
+the gap was measured rather than assumed.** Between `09d4d84a80` and the merge parent
+`e04a026749` sit five commits — PR #9179 (`c488ab982b`, `rf2-xtqs`), PR #9180 (`e04a026749`,
+`rf2-7sx1`) and three tracker checkpoints — a **316-file** delta: 309 under `tools/story/`, three
+under `implementation/core/`, plus `spec/009-Instrumentation.md`, `spec/Spec-Schemas.md`,
+`scripts/require-alias-baseline.edn` and the tracker export.
+
+**The delta is conclusion-neutral, on three measurements and not on inspection of the commit
+subjects.** *(i)* **Path intersection is empty.** Of the eighteen repository paths this page
+cites, none appears in the 316. *(ii)* **Both tree-wide censuses re-read identically at the merge
+parent.** The donor `:require` census of [§2.12](#212-bullet-17--donor-independence) reads **six**
+forms across three files at `e04a026749` exactly as at `09d4d84a80` — all under
+`docs/design/freehand/`, none in any `.clj`, `.cljs` or `.cljc` source — and
+`spec/009-Instrumentation.md` carries the same **74** distinct `:rf.*/hicasso-*` ids at both, so
+[§4](#4-quality)'s three traced complaint ids each still resolve to a Spec 009 row. *(iii)* **The
+one `spec/009` edit in the delta is a single in-place row rewrite** of `:rf.error/frame-destroyed`
+— PR #9179 dropping the unproduced `:op :capture` realm — which is not one of the ids §4 traces
+and which adds and removes no row.
+
+**One figure is not neutral, and it is named rather than glossed.** The same PR deletes two
+`deftest` forms and three assertions under `implementation/core/test/`, so [§3](#3-correctness--what-was-run)'s
+node-lane counts — 11,172 tests and 55,747 assertions — are readings taken at `09d4d84a80` and do
+**not** reproduce at the merge parent. The captured exit **0** stands, and so does what
+[§3.2](#32-the-node-lane) draws from it: a green node lane is evidence about the suite and not
+about the matrix, which two removed core tests do not touch. **What changes is the status of the
+numbers, not the finding** — they are a dated reading, never a claim about the merge tip.
 
 The bullets are numbered 1–17 here in the order §13 states them. The numbering is
 this page's, for citation; §13 itself is an unnumbered list.
@@ -52,9 +95,16 @@ evidence. It has not, because there is none.**
 zero unresolved correctness/coverage rows in the correction ledger.** The second
 conjunct is cheaper to test, so it is tested first.
 
-[`correction-ledger.md`](correction-ledger.md) carries **34** rows. **33 read
-`closed`. One does not** — the `rf2-hic-038` §2 Correctness row carrying
+[`correction-ledger.md`](correction-ledger.md) carried **34** rows when this audit read it at
+`09d4d84a80`. **33 read `closed`. One did not** — the `rf2-hic-038` §2 Correctness row carrying
 `rf2-s52w`, severity `coverage`, status `resolved`.
+
+**[Amended 2026-09-05, `rf2-hic-064`, after the merged-PR audit of #9181.]** **34/1 above is the
+pre-audit snapshot and is kept as the reading this section was decided on.** This report's own PR
+then appended the seven `open` rows of [§6](#6-the-corrective-beads), so **the merged ledger is 41
+rows: 33 `closed`, one `resolved`, seven `open`** — counted at the merge commit `ff79cc1a2d` and
+re-counted at tip, 41 at both. The section's conclusion is untouched and is reinforced rather than qualified: one
+unresolved row already failed the conjunct, and there are now eight, seven of them blocking.
 
 The ledger's own rule decides what that means, and it is not ambiguous:
 
@@ -446,7 +496,21 @@ what it reads.
 
 ### 2.11 Bullet 16 — the pilots
 
-**Red, and it is the whole of the product verdict.**
+**Red, and it is an independent, pilot-specific blocker on the product verdict — sufficient on its
+own, and not the only red on the board.**
+
+**[Corrected 2026-09-05, `rf2-hic-064`, after the merged-PR audit of #9181. No bullet is
+re-scored; the table above is unchanged.]** The line formerly read *"Red, and it is the whole of
+the product verdict."* It overstated, and the page's own [bullet table](#2-completeness--the-seventeen-bullets)
+is what refutes it: bullets **4, 7, 8, 10 and 15** are red alongside 16, and **6 and 11** are not
+scoreable, so bullet 16 is neither the sole product failure nor the only thing standing between
+this programme and a green. What is true of it, and what the sentence was reaching for, is that it
+is the one red **no amount of worker time can clear** — its evidence runs through an operator act,
+which is why [§5](#5-the-two-states-stated-plainly) separates the two chains. Bullets 4, 7 and 15
+are carried by beads in [§6](#6-the-corrective-beads); bullets 8 and 10 are the budget rows
+[§2.7](#27-bullets-8-9-and-10--the-budgets) records as `UNPINNED`/`UNRESOLVED` and deliberately
+files no bead against, because an instrument rather than an edit is what they want. **Bullet 16
+alone takes no bead at all**, and that is the distinction the struck sentence was groping for.
 
 The apparatus is complete and good: two ratified briefs, a workspace procedure, a
 blank friction log built around the seven outcomes rather than a generic template,
@@ -519,8 +583,40 @@ on the same command line; the number quoted is the captured one.
 | `npm run test:hicasso-invariants` | **0** | reachability self-test OK, then OK; guide-sample self-test *"the rule fires"*, then 74 distinct verbs at 401 sites across 29 pages resolve |
 | `check_production_erasure.cjs --self-test` | **0** | *"self-test OK (5 sentinels, 3 positive controls)"* — the erasure positive control this bead's protocol names |
 | `scripts/check_doc_slugs.py` | **0** | baseline, then again over this page and the ledger rows |
-| `scripts/check_provenance_pins.py --changed-since origin/main` | **0** | 2 pages, 76 cited pins — 75 landed, 1 stranded and accompanied in scope, 0 findings |
+| `scripts/check_provenance_pins.py --changed-since origin/main` | **0** | 2 pages, 77 cited pins — 76 landed, **0 stranded, 1 unresolvable** and accompanied in scope, 0 findings |
 | `npm run test:cljs` (node lane) | **0** | 11,172 tests / 55,747 assertions, 0 failures, 0 errors |
+
+**[Corrected 2026-09-05, `rf2-hic-064`, after the merged-PR audit of #9181. The row is restated
+from the run that GATED THE MERGE, not from a fresh re-run.]** It formerly read *"2 pages, 76
+cited pins — 75 landed, 1 stranded and accompanied in scope, 0 findings"*. The gating run is
+GitHub Actions job `100987575720` — *Provenance pins*, workflow run `33861489787`,
+`conclusion: success` — taken on this PR's head `17a7a12b7ce9690fe4f551375b00215c7b5a8248`, which
+landed as `ff79cc1a2d`. It prints (line-wrapped here; the tool writes each on one line):
+
+```
+check_provenance_pins: 2 pages inspected, 77 cited pins — 76 landed, 0 stranded, 1 unresolvable,
+0 foreign; 1 accompanied in scope; 0 findings.
+  accompanied: docs/design/hicasso/product/correction-ledger.md:90  4d7453ac4e [UNRESOLVABLE]
+  — not a finding: 369d843ead on line 90 is in the same block and is an ancestor of origin/main
+```
+
+**Two counts were simply wrong**, one pin and one landed pin low against the run that gated the
+merge — a local reading quoted after the page had grown by a citation, which is the ordinary way a
+hand-copied figure goes stale between the last run and the push.
+
+**The class needs more care than "wrong", and the distinction is worth carrying**, because the
+gate separates the two deliberately and reports them in different columns. `STRANDED` is an object
+the checkout *has* and that is not an ancestor of the baseline; `UNRESOLVABLE` is a token
+`git rev-parse --verify` cannot resolve to a commit at all, which the gate refuses to file as
+stranded precisely so a shallow or fresh clone cannot manufacture findings out of objects it never
+fetched. **So the class of one token is a fact about the checkout, not only about the token.**
+`4d7453ac4e` is a worker-branch head the rebase-merge left reachable from no ref: CI's clone does
+not hold the object and reports `UNRESOLVABLE`, while a checkout that does hold it — this repair's
+does — resolves it and reports `STRANDED`. Both are the same pass by different doors, because the
+landed pin `369d843ead` in the same block is what absorbs it either way. **The row above now
+states CI's reading, which is the one that gated the merge.** Exit code, finding count, and what
+[§1](#1-the-green-definition-tested-first) and [§5](#5-the-two-states-stated-plainly) conclude are
+unchanged.
 
 ### 3.1 The sabotage control, and the proof it read this tree
 
