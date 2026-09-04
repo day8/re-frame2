@@ -18,7 +18,7 @@ The profile's choices (host, mechanisms, scope, capability claim) are load-beari
 
 ## 3. Implement in dependency order
 
-EP 001 (Registration) → 002 (Frames + events + effects + subs) → 006 (Reactive substrate) → views (the render binding — no numbered Spec; Implementor-Checklist §V1 + Spec 002 §frame-root) → 009 (Instrumentation) → 015 (Data Classification) are the foundation; acceptance gate 1 — the **required-foundation gate**, every fixture applicable to the three v1-required families (`:core/*` + `:identity/*` + `:data-classification/*`, tags derived from the corpus per [`conformance.md` §Capability tagging](conformance.md#capability-tagging)) — sits at the end of the cluster. 009 is in the foundation because `:core/trace` and `:core/error` fixtures exercise it; 015 follows immediately because it is **v1-required** ([`spec/015-Data-Classification.md`](https://day8.github.io/re-frame2/spec/015-Data-Classification/)) and overlays the 009 emission boundary — ship the gate without it and classified values leak through every observation surface. Optional EPs sit downstream, per the profile's claim.
+EP 001 (Registration) → 002 (Frames + events + effects + subs) → 006 (Reactive substrate) → views (the render binding — no numbered Spec; Implementor-Checklist §V1 + Spec 002 §frame-root) → 009 (Instrumentation) → 015 (Data Classification) → 013 (Flows) are the foundation; acceptance gate 1 — the **required-foundation gate**, every fixture applicable to the four v1-required families (`:core/*` + `:identity/*` + `:flow/*` + `:data-classification/*`, tags derived from the corpus per [`conformance.md` §Capability tagging](conformance.md#capability-tagging)) — sits at the end of the cluster. 009 is in the foundation because `:core/trace` and `:core/error` fixtures exercise it; 015 follows immediately because it is **v1-required** ([`spec/015-Data-Classification.md`](https://day8.github.io/re-frame2/spec/015-Data-Classification/)) and overlays the 009 emission boundary — ship the gate without it and classified values leak through every observation surface; 013 closes the cluster because it too is **v1-required** ([`spec/013-Flows.md`](https://day8.github.io/re-frame2/spec/013-Flows/)) and stands on all six steps before it. Optional EPs — the checklist's Q1–Q9 — sit downstream, per the profile's claim.
 
 ## 4. Substrate-agnostic phrasing in code and docs
 
@@ -35,6 +35,8 @@ Where the CLJS reference makes `compute-sub` and `machine-transition` pure-funct
 ## 7. Conformance corpus is the acceptance test
 
 [`spec/conformance/`](../../../spec/conformance) is the verification mechanism. Your port runs the fixtures whose capabilities are a subset of the claim; the score is `passed / claimed-applicable`. A fixture you cannot make pass without consulting outside sources is a **spec gap**, not an implementation gap — see rule 8.
+
+**The claim is not a dial for making the score look better.** The four v1-required families (`:core/*`, `:identity/*`, `:flow/*`, `:data-classification/*`) are always claimed, so `claimed-applicable` can never be shrunk by declining one — the harness refuses a `known-skipped` entry naming a required capability. `passed / claimed-applicable` is only an honest number while the denominator is the whole required surface plus whatever was genuinely claimed on top.
 
 ## 8. If you find a spec gap, draft a GitHub issue and ask before filing. Do not paper.
 
@@ -107,6 +109,7 @@ re-frame2 has **one** `:rf/path` algebra and **one** canonical-identity rule (CE
 
 - **Don't copy the reference impl line-by-line and translate.** Copy the contract, not the realisation.
 - **Don't skip the profile.** The mechanism choices (persistent data, concurrency) propagate through every line of Phase 2 code.
+- **Don't read "minimum port" as "fewer required surfaces".** Minimum scopes the *optional* claim (the checklist's Q1–Q9, all defaulted to no) and the size of each required API — never the set of v1-required capabilities. Flows is the trap here: Spec 013 asks for restraint in how much flow surface you build, which is not permission to build none.
 - **Don't ship without conformance.** Without the corpus passing, the port is "inspired by re-frame2", not a re-frame2 implementation. Bootstrap the harness seam first ([`phase-2-impl-order.md` §Step 0](phase-2-impl-order.md#step-0--bootstrap-the-feedback-seam)) and use the corpus as the test suite during development.
 - **Don't stringify for identity, and don't let a digest become the stored key.** Use the canonical EDN rule; a digest is a derived, recomputable projection.
 - **Don't let each subsystem grow its own path/identity logic** — that is the drift rule 11 exists to prevent.
