@@ -22,6 +22,57 @@ is a complete instruction, and the mayor records it.
 (§2) and are not up for re-decision. Everything else in §3 is this packet's judgement and
 is overturnable at no cost beyond the diff sweep.
 
+> **[Currency, 2026-09-05, `rf2-pvmy`. Three post-publication retirements reached this page's
+> Witness column. Every row below is left standing and none is re-scored.]** This packet was
+> written before the `rf2-6c12m` dead-weight sweep and reads throughout as though the surfaces
+> and instruments it cites still stand. Three separate events — none of them a naming decision
+> — are what a reader has to carry:
+>
+> - **The native tier, 2026-08-29 — `aa01f0e8a6` (`rf2-6c12m.31`, wave 2 of ruling
+>   `rf2-6c12m.3` Option A).** `re-frame.hicasso.native` was shrunk to 82 lines publishing
+>   `use-sub` and `use-frame` alone, and the eight `native_*` suites were deleted with it. That
+>   reaches **all of §3.2 Bucket B except row 10**: `n/$` (7), `n/props` (8), `n/defcomponent`
+>   (9), `n/memo`/`n/lazy` (29), `n/component` (43), `n/marker`/`n/tier-sentinel` (44),
+>   `n/el`/`n/props*`/`n/declared-server` (45 and C3-2) and `n/prop-slots` (46) name nothing at
+>   tip, and the four suites their Witness column cites —
+>   `native_surface_cljs_test.cljs` (5 citations), `native_grammar_cljs_test.cljs` (2),
+>   `native_abi_cljs_test.cljs` (1) and `native_hooks_cljs_test.cljs` (1) — resolve to no file.
+>   **Two of those rows cite a suite that still exists and is no longer their witness**, which
+>   a file-existence check would pass: `three_way_parity_cljs_test.cljs` (row 7) reads only
+>   `n/use-sub` today, and `lazy_boundary_dom_cljs_test.cljs` (rows 29 and 43) drives a raw
+>   `react/lazy` through `h/defhost` and names neither `n/memo` nor `n/lazy`. A live file is not
+>   a live witness. **Row 10 is the one row whose subject and witness both survive**: `n/use-sub`
+>   and `n/use-frame` are driven at tip by `hooks_island_cljs_test.cljs` and
+>   `hooks_island_dom_cljs_test.cljs`, and [`correction-ledger.md`](correction-ledger.md) names
+>   the second of those as the suite that took other native subjects ahead of the deletion.
+>
+> - **Facade and gate hygiene, 2026-08-29/30 — `rf2-6c12m.15` (PR #8779) and `bb3a92cd73`
+>   (`rf2-6c12m.8`, PR #8775).** The first removed `h/use-subs` from the door and from
+>   `impl.collector`, struck HS-41, and demoted `::h/navigate` to the implementation keyword
+>   `:re-frame.hicasso.impl.intent/navigate`, off the public marker table — so **rows 48 and 35
+>   describe surfaces that are gone**, each amended on its own row below. The second deleted
+>   `check_facade_inventory.py` alongside `check_naming_census.py`, so the gate this page cites
+>   six times — rows 6 and 47, §4.1, §4.2 twice and §7 — no longer exists. §7 already records
+>   that commit for the census gate; this note extends it to the inventory gate, which the §7
+>   amendment does not name.
+>
+> - **The census suites, 2026-08-29 — `1f98f63a58` (`rf2-6c12m.22`).** A *different* cut from
+>   the native one, earlier the same day and on its own reasoning: suites that measured the
+>   programme rather than the product were retired, their measurements kept on the pages that
+>   publish them. `readset_group_census_cljs_test.cljs` — row 48's witness, and the one retired
+>   citation on this page the native retirement does **not** explain — went in that commit, and
+>   its three measurements are preserved at
+>   [`readset-group-census.md`](readset-group-census.md).
+>
+> **What this note does and does not do.** It corrects the evidence a pending decision rests on,
+> not the decision. No row is deleted, no recommendation is re-scored, no disposition is
+> withdrawn and no replacement witness is invented where none exists: a recommendation that was
+> sound about a surface stays sound about that surface. The sitting `rf2-hic-065` has not been
+> held, so whether a keep-row whose subject no longer ships should be struck, and whether a
+> claim whose witness is retired may stand on argument, are rulings for that sitting and for
+> `rf2-2tt2`. Neither is taken here, and §1's counts below are the packet's own publication
+> reading, left as such.
+
 ## 1. Standing at publication
 
 | Measure | Count |
@@ -108,6 +159,12 @@ namespace, so its publicity bought nothing. The count is now pinned mechanically
 10 SURFACE + 4 INTERNAL by `native_surface_cljs_test.cljs`, and §4's independent
 source-side census agrees at 14.
 
+**[Amended 2026-09-05, `rf2-pvmy`.]** All three figures are historical and the pin is gone.
+`native_surface_cljs_test.cljs` was deleted with the tier on 2026-08-29 by `aa01f0e8a6`, so
+nothing is pinned mechanically at tip, and `re-frame.hicasso.native` publishes **two** names —
+`use-sub` and `use-frame` — not fourteen. The reconciliation is kept as the record of why 14
+and 15 were each right when written; it is not a reading of the tree today.
+
 ### 3.3 Bucket C — root lifecycle, error region, `as-element`
 
 | # | Current name | Candidate(s) | Recommendation — applied as default | Why (one line) | Witness | Override |
@@ -139,7 +196,7 @@ source-side census agrees at 14.
 | 32 | `forms/buffered-field` + its five props | keep | **keep as taught** | Reset unifies on `::h/revision`, which the controlled-input law already owns, so the field adds no second reset vocabulary | `forms_dom_cljs_test.cljs`; D016 | |
 | 33 | `:demand true` in `[:rf/resource …]` | keep | **keep as taught** | `:keep-previous?` is struck from the mint list — it is attested core-resources vocabulary, not a Hicasso mint | `typeahead/demand_dom_cljs_test.cljs` | |
 | 34 | owned-wins merge — no symbol minted | mint nothing; or a named helper | **mint nothing** | Verified across all 22 chapters that no page invents a symbol; this recipe is what stands in for the `:&` grammar row 2 removes | corpus sweep, ch02 and ch04 | |
-| 35 | `::h/navigate` reserved head | keep | **keep, and add it to the reserved-data list** | The brief's list omits it, so what this row owes is a reserved-vocabulary entry rather than a rename | `route_link_cljs_test.cljs` | |
+| 35 | `::h/navigate` reserved head | keep | **keep, and add it to the reserved-data list** | The brief's list omits it, so what this row owes is a reserved-vocabulary entry rather than a rename | `route_link_cljs_test.cljs` · **[Amended 2026-09-05, `rf2-pvmy`: the citation resolves two ways, and the head it names is demoted.]** Two tracked files carry that basename — `implementation/hicasso/test/re_frame/hicasso/route_link_cljs_test.cljs` and `implementation/routing/test/re_frame/route_link_cljs_test.cljs` — and this row means the **first**: it is Hicasso's route-link grammar suite and names the navigate head on four lines, where routing's is about `:route/link`'s click interception and names it on none. The head is no longer spelled `::h/navigate`: `rf2-6c12m.15` (PR #8779) demoted it to the implementation keyword `:re-frame.hicasso.impl.intent/navigate` and took it off the public marker table, and the suite now reads it through `intent/navigate-head?`. `::h/navigate` has zero occurrences under `implementation/` against a control of 30 files for `::h/revision`, so the zero is an absence and not a failed probe. **The recommendation is not re-scored** — whether a demoted head still owes a reserved-vocabulary entry is `rf2-hic-065`'s. | |
 | 36 | `:prefetch :intent` on `route-link` | keep | **keep as taught** | Routing's own `:rf.route/prefetch` event and its `:intent` value are attested, so only the link-side acceptance is new | the retired decline id stays tombstoned, never reused (`rf2-hic-021` law) | |
 | 37 | Xray evidence-envelope keyword spellings | keep | **keep as taught** | spec §10 pins this vocabulary in prose but not the keyword forms, and these are what a Tool-Pair consumer types against | `evidence_schema_cljs_test.cljs` | |
 | 38 | hydration-mismatch report `{:id :root :where :error}` | keep | **keep as taught** | `:rf.ssr/hydration-mismatch` is attested in re-frame.ssr; only the report-map keys are the mint | `identifier_prefix_ssr_dom_cljs_test.cljs` | |
@@ -205,6 +262,14 @@ two independent walks of the same door. `native_surface_cljs_test.cljs` pins
 expansion; this census reads the **source** and also reports 14. Neither agreement was
 arranged: the gate and the test were written before this census existed.
 
+**[Amended 2026-09-05, `rf2-pvmy`.]** Neither instrument survives, so this paragraph records a
+measurement rather than a standing check. `check_facade_inventory.py` was deleted on 2026-08-30
+by `bb3a92cd73` (`rf2-6c12m.8`, PR #8775), together with `check_naming_census.py` — the same
+commit §7's own amendment records for the census gate without naming this one — and
+`native_surface_cljs_test.cljs` on 2026-08-29 by `aa01f0e8a6`. **The agreement was real when
+taken and nothing here disturbs it**; what is gone is the ability to re-run either walk, which
+is what §7 preserves the method for.
+
 **What the census caught that no gate does.** `check_facade_inventory.py` reads one door by
 design, and says so — *"adding a second door here is a data change; deciding what its public
 roster IS is not, and is filed rather than guessed"*. So the 58 unrostered names outside
@@ -243,7 +308,7 @@ member is named verbatim below**, so grouping costs no completeness.
 | New row | Surface — every member named | Recommendation — applied as default | Why (one line) | Witness |
 |---|---|---|---|---|
 | 47 | `h/defview` — the primary authoring macro | **keep** | The one name every reader types first, and the ledger never carried it; there is no candidate because the whole corpus, the guide and HS-01 spell it this way | HS-01; `check_facade_inventory.py` attributes it BY NAME |
-| 48 | `h/use-subs` — the grouped read | **keep, classified SURFACE** | One fixed site takes the whole read-set, which is the control the ordinary path is measured against; it reached the door with no row anywhere until `rf2-2l8pw` minted HS-41 | HS-41; `readset_group_census_cljs_test.cljs` |
+| 48 | `h/use-subs` — the grouped read | **keep, classified SURFACE** | One fixed site takes the whole read-set, which is the control the ordinary path is measured against; it reached the door with no row anywhere until `rf2-2l8pw` minted HS-41 | HS-41; `readset_group_census_cljs_test.cljs` · **[Amended 2026-09-05, `rf2-pvmy`: the witness and the door are both gone, and for different reasons.]** The witness went on 2026-08-29 in `1f98f63a58` (`rf2-6c12m.22`), which retired the suites that measured the programme rather than the product — **not** the native retirement that reaches §3.2, and the distinction matters because that cut preserved what it measured: the three readings are at [`readset-group-census.md`](readset-group-census.md). The door went separately, under `rf2-6c12m.15` (PR #8779), which removed `h/use-subs` from the facade and from `impl.collector` and struck HS-41 — recorded in `facade_roster_ssr_dom_cljs_test.cljs`'s own docstring, and named in the slice example's `views.cljs` as the reason its two grouped-read bodies now read through `h/sub` like the rest. So this row's subject no longer exists. **It is left standing and unscored for `rf2-hic-065`**, which is the sitting that owns whether a row about a removed door is struck or kept as history. |
 | 49 | `re-frame.hicasso.forms` ids — `forms/drafts`, `forms/edit-id`, `forms/commit-id`, `forms/cancel-id` | **keep all four as shipped**, and record that they are ids rather than doors | Each is public *as an id and not as a door* — written into the field's own intents, so it is already visible in the rendered tree, in Xray and in a captured intent; a test that could not name it would be asserting on a literal | `forms.cljs` docstrings; `forms_cljs_test.cljs` |
 | 50 | `re-frame.hicasso.server` — `server/document`, `server/fresh-frame-id`, `server/payload-script`, `server/setup-events`, `server/render-twice` (`server/render` is row 22) | ~~keep all five as shipped~~ — **OVERRIDDEN (operator, 2026-08-15, `rf2-sc1dt`): keep `server/document`, `server/payload-script` and `server/render-twice`; `server/fresh-frame-id` and `server/setup-events` go PRIVATE.** Public surface is four names | The default kept all five as "the request pipeline `server/render` composes". The sitting split them on evidence instead: each survivor does something for an external host that `server/render`'s returns alone cannot — re-wrap a mutated payload against the pinned script id and the EDN-aware escaper, rebuild the envelope without re-spelling `escape-html`/`escape-attr`, run a determinism check whose `:differs-at` diagnoses a red run and which cannot move to a test kit without `react-dom/server`. The two going private have no such story, and `fresh-frame-id` structurally cannot: `server/render` mints its own id and forbids overriding it, so no public path consumes the return value. Zero test churn; the `hicasso.ssr` bundle sentinel is untouched. Implemented by `rf2-34sdz`; full ruling on ledger row 50 | `server_render_ssr_dom_cljs_test.cljs`; `ssr/entry.cljs` |
 | 51 | `re-frame.hicasso.tool` — `tool/read-mounted-boundaries`, `tool/read-read-attribution`, `tool/read-intents`, `tool/explain-render` | **keep all four as shipped** | They are the tool-tier reader door in full — *the four reads Xray and the AI pair consume, and the only door either of them has* — and the `read-*` prefix is what marks them as projections of state the runtime already retains rather than an accumulator | `tool.cljs` namespace docstring; `tool_reads_cljs_test.cljs` |
