@@ -140,6 +140,75 @@ debug without re-running under a debugger:
 | Xray 20-event/load gate | Explicit or pre-commit/pre-PR stress gate only. It is not default CI. It reuses the feature testbed and runs the row-specific 20-event/load checks. |
 | Production elision gate | Existing implementation production-elision probes plus any Xray-specific release probe proving preload, keybinding, pill, trace collector, and shell are absent under `goog.DEBUG=false`. |
 
+## What gates the testbed SOURCES (rf2-p0b0)
+
+The rows above say what gates Xray's *behaviour*. This section says what
+gates the testbed files themselves, because "nothing compiles this file"
+was filed as a defect (rf2-p0b0) and the answer turned out to be no.
+
+**Every testbed under `tools/xray/testbeds/` that declares a build is
+compiled on every PR that can affect it.** `npm run test:examples-compile`
+(`implementation/scripts/check-examples-compile.cjs`) DERIVES its build
+list from `implementation/shadow-cljs.edn` by scanning for `:examples/<name>`
+and `:testbeds/<name>` keys, so a newly-declared testbed build is swept
+with no roster to update. It runs as the `cljs-examples-compile` job in
+`.github/workflows/test.yml`, and unconditionally nightly in
+`.github/workflows/expensive-tests.yml`. `shadow-cljs compile` exits 0 even
+when a build emits warnings, so the gate parses the per-build warning count
+and fails on `> 0`.
+
+The classifier arms that job from **both** relevant directions
+(`.github/scripts/report-changed-surfaces.sh`): `tools/xray/testbeds/*`
+arms it, and so does `implementation/http/*` — i.e. both a change to a
+testbed and a change to a substrate contract a testbed consumes.
+
+Seven of the nine directories here declare a build (`edn_inspector`,
+`machine_epochs`, `managed_http`, `panel_gallery`, `routes_epochs`,
+`standard_epochs`, `two_frame_isolation`). The two that do not are not
+apps: `feature_matrix` is the scenario driver (`scenarios.cjs` + README)
+and `runner` is the shared queued-step library the decks require, so it is
+compiled transitively by every deck that requires it.
+
+**But a compile is a weak gate, and this is the point.** Measured under
+rf2-p0b0 on the `:examples/managed-http` build:
+
+| Tree state | Result |
+|---|---|
+| tip | exit 0, 555 files, **0 warnings** |
+| the exact pre-fix rf2-s4dp defect (parent of the fix commit) | exit 0, **0 warnings** |
+| `record-in-flight!` renamed to a non-existent var (control) | **2 warnings** → gate fails |
+
+So the compile gate is real and non-vacuous — it catches a renamed or
+re-aritied registry function — but it did **not** catch rf2-s4dp, and could
+not have. That defect was a missing `:frame` key in a map literal plus two
+legal alternate arities; none of those is a compile error or warning in
+ClojureScript. **Adding a compile gate was therefore never the remedy for
+the defect that prompted the question, because the compile gate already
+existed and was green.**
+
+**Runtime coverage is deliberately partial and centrally owned.** It is not
+delivered by a per-testbed `spec.cjs`: the framework testbeds' `spec.cjs`
+files were deliberately DELETED across four migration waves, their
+assertions moved to cheaper per-PR CLJS/JVM unit tests (85% of 124
+assertions — see `tools/story/spec/Migration-Audit.md`). What remains is
+one central driver, `tools/xray/testbeds/feature_matrix/scenarios.cjs`,
+whose `STAGED_SURFACES` list stages and drives a subset of builds. Of the
+seven testbed builds here, four are staged (`panel_gallery`,
+`routes_epochs`, `machine_epochs`, `two_frame_isolation`) and three are
+compile-only (`standard_epochs`, `edn_inspector`, `managed_http`) —
+though `standard_epochs`' ladder view is exercised transitively, because
+`two_frame_isolation` mounts it twice.
+
+**That residual gap is accepted, not overlooked.** Closing it means a
+browser build plus Playwright assertions per testbed, on a gate whose full
+tier already runs nightly rather than per-PR; the managed-HTTP *Xray
+rendering* surface is separately covered by the `managed http and effects
+rows` scenario over `testbeds/http-toggle`. A testbed is a driving surface
+for a human or a scenario, not a shipped artefact, and compile coverage is
+the floor its cost justifies. Add a `feature_matrix` scenario when a
+specific Xray behaviour needs pinning — not to give a testbed coverage for
+its own sake.
+
 ## Tier-2 deepening (rf2-5aw5v.9..14)
 
 Tier-1 (rf2-160di + rf2-gdqm1) promoted the per-panel rows above to
@@ -153,9 +222,9 @@ canonical surfaces:
 
 | Tier-2 bead | Surface | Spec | Home + status |
 |---|---|---|---|
-| `rf2-5aw5v.12` (L-12) | Embedding-contract Panel surface across every tab namespace; frame isolation; registry-key namespacing | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) | **Covered by Tier-1.** The current 4-layer chrome's L3 tab bar (one tab per registered `:dynamic` panel) + L4 detail-panel handoff is covered by `tools/xray/testbeds/parallel_frames/spec.cjs` (mount + tabs + isolation) and `tools/xray/testbeds/feature_matrix/scenarios.cjs §runShellFeatureSweep` (per-panel handoff sweep). |
+| `rf2-5aw5v.12` (L-12) | Embedding-contract Panel surface across every tab namespace; frame isolation; registry-key namespacing | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) | **Covered by Tier-1.** The current 4-layer chrome's L3 tab bar (one tab per registered `:dynamic` panel) + L4 detail-panel handoff is covered by `tools/xray/test/day8/re_frame2_xray/panels_e2e/parallel_frames_e2e_cljs_test.cljs` (mount + tabs + isolation) and `tools/xray/testbeds/feature_matrix/scenarios.cjs §runShellFeatureSweep` (per-panel handoff sweep). (This row named `tools/xray/testbeds/parallel_frames/spec.cjs` until rf2-p0b0; that file was DELETED under rf2-lcg1z — Wave 2 of the Story migration audit — and the row went on claiming cover from it. See `tools/story/spec/Migration-Audit.md` §B7.) |
 | `rf2-5aw5v.9` (L-9) | Pop-out / inline-host launch-mode duality; opener-close diagnostic | [`011-Launch-Modes.md`](./011-Launch-Modes.md) | **Covered.** `tools/xray/testbeds/feature_matrix/scenarios.cjs §runLaunchModesTwentyEventLoad` pins overlay + popout shared-runtime across 20 host dispatches. The opener-gone watchdog overlay is not specifically exercised post-rf2-qd5r6; file a follow-on if a regression surfaces. |
-| `rf2-5aw5v.14` (L-14) | Multi-frame isolation through the panel layer (rf2-tijr Option-C lock) | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §State isolation | **Rehomed.** `tools/xray/testbeds/parallel_frames/spec.cjs §5` exercises `:rf.xray/set-target-frame` + `:rf.xray/target-frame-db` against the canonical `:above` / `:below` frames; asserts target-frame round-trips, per-frame `:counter` projection, and Xray-side isolation (no `:counter` slot leak into `:rf/xray`'s app-db). |
+| `rf2-5aw5v.14` (L-14) | Multi-frame isolation through the panel layer (rf2-tijr Option-C lock) | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §State isolation | **Rehomed.** `tools/xray/test/day8/re_frame2_xray/panels_e2e/parallel_frames_e2e_cljs_test.cljs` (deftests `rf2-ulpp8-*` / `rf2-1p1j4-*`) exercises `:rf.xray/set-target-frame` + `:rf.xray/target-frame-db` against the canonical `:above` / `:below` frames; asserts target-frame round-trips, per-frame `:counter` projection, and Xray-side isolation (no `:counter` slot leak into `:rf/xray`'s app-db). |
 | `rf2-5aw5v.10` (L-10) | Shell auto-mount, missing-host diagnostic, settings reset, keybindings, config knobs, production elision probe | [`011-Launch-Modes.md`](./011-Launch-Modes.md) + [`015-Configuration.md`](./015-Configuration.md) | **Rehomed.** `tools/xray/test/day8/re_frame2_xray/panels_e2e/configure_multi_key_e2e_cljs_test.cljs` pins `configure!` multi-key + partial-update semantics plus `set-auto-open!(null)` / `set-layout-host-selector!(null)` reset round-trips. (This row named the Playwright original, `scenarios.cjs §runConfigurePartialUpdate`, for some time after the rf2-rviu8 CLJS port superseded it; the dead JS scenario was deleted and this row corrected under rf2-2rtt6.78, when the new repo-wide ESLint gate's `no-unused-vars` reported the function as unreferenced.) Inline auto-mount + `Ctrl+Shift+C` toggle + missing-host diagnostic are covered by `runShellFeatureSweep` + the production-elision gate. |
 | `rf2-5aw5v.11` (L-11) | 20-event/load stress invariant — caps + virtualisation + no duplicate dominoes | This file §20-event/load gate | **Covered.** The canonical heavyweight equivalent lives under `npm run test:xray-feature-gate`'s `runTwentyEventLoad` / `runTraceBudgetSaturation` / `runLaunchModesTwentyEventLoad` scenarios (the matrix's explicit pre-PR gate). |
 
