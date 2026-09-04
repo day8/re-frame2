@@ -60,6 +60,7 @@ const {
   finalizeConformance,
   makeShadowTreeReaper,
   ownedDescendants,
+  classifyRootRow,
 } = require(ORCH);
 
 // A fake shadow-cljs child: an EventEmitter with a `kill(sig)` that records
@@ -534,6 +535,147 @@ test('ownedDescendants reports an empty set when the root is already gone and le
   assert.deepEqual(ownedDescendants(table, 100, 4000), []);
 });
 
+// ---- the ROOT row is fenced too (rf2-kzbf audit of PR #9213) --------------
+//
+// The first fix fenced the DESCENDANTS on creation time and let the ROOT in on
+// its number alone, then handed that number to `taskkill /T /F`. The wrapper is
+// short-lived by construction, so its PID is exactly the kind Windows recycles
+// soonest: cleanup could tree-kill a stranger and everything below it. These
+// pin the root row to the same standard as every other row.
+
+test('ownedDescendants never claims a root row that PREDATES our spawn (rf2-kzbf audit, AC2)', () => {
+  // The audit's own deterministic probe. Pre-fix this returned [100, 200].
+  const table = [
+    { pid: 100, ppid: 1, createdMs: 1000 }, // wears our number, older than us
+    { pid: 200, ppid: 100, createdMs: 6000 },
+  ];
+  const owned = ownedDescendants(table, 100, 5000);
+  assert.ok(!owned.includes(100), 'a root row older than our spawn is NOT ours: ' + JSON.stringify(owned));
+  assert.ok(
+    !owned.includes(200),
+    'and its children are ITS children — sweeping them up is the same violation one level down',
+  );
+});
+
+test('ownedDescendants disowns the root once OUR handle has been reaped (rf2-kzbf audit, AC2)', () => {
+  // The scenario the audit narrates, which a creation FLOOR alone cannot see:
+  // the wrapper exits, Windows recycles the number to a process created AFTER
+  // our spawn, and our own JVM is orphaned under the old number.
+  const table = [
+    { pid: 100, ppid: 1, createdMs: 7000 },   // the stranger that took the number
+    { pid: 200, ppid: 100, createdMs: 5500 }, // OUR orphaned JVM, older than the stranger
+    { pid: 300, ppid: 100, createdMs: 7500 }, // the stranger's own child
+    { pid: 400, ppid: 200, createdMs: 5600 }, // and our JVM's own child
+  ];
+  const owned = ownedDescendants(table, 100, 5000, { rootExited: true });
+  assert.ok(!owned.includes(100), 'a reaped handle means the number is free — never ours to kill');
+  assert.ok(!owned.includes(300), "the stranger's own child must not be attributed to us");
+  assert.deepEqual(
+    owned.sort((a, b) => a - b),
+    [200, 400],
+    'while our orphan and ITS subtree are still discovered through the dead parent link',
+  );
+});
+
+test('classifyRootRow separates the four cases the kill decision turns on (rf2-kzbf audit)', () => {
+  const at = (createdMs) => [{ pid: 100, ppid: 1, createdMs }];
+  assert.equal(classifyRootRow([], 100, 5000), 'absent');
+  assert.equal(classifyRootRow(at(5000), 100, 5000), 'ours');
+  assert.equal(classifyRootRow(at(4999), 100, 5000), 'stranger');
+  assert.equal(classifyRootRow(at(9000), 100, 5000, { rootExited: true }), 'stranger');
+  // FAIL CLOSED: an undated row cannot be proven ours, so it is not ours.
+  assert.equal(classifyRootRow(at(0), 100, 5000), 'unprovable');
+  assert.equal(classifyRootRow([{ pid: 100, ppid: 1, createdMs: NaN }], 100, 5000), 'unprovable');
+});
+
+test('makeShadowTreeReaper never tree-kills a RECYCLED root pid (rf2-kzbf audit, AC2)', async () => {
+  // The end of the chain the audit measured: `owned` included the recycled
+  // root, so `treeKill(rootPid)` ran `taskkill /pid <stranger> /T /F`.
+  const killed = [];
+  const reap = makeShadowTreeReaper({
+    rootPid: 100,
+    spawnedAtMs: 5000,
+    platform: 'win32',
+    readTable: () => [
+      { pid: 100, ppid: 1, createdMs: 1000 },
+      { pid: 200, ppid: 100, createdMs: 6000 },
+    ],
+    treeKill: (pid) => killed.push(pid),
+    isAlive: () => false,
+    graceMs: 20,
+    pollMs: 5,
+    log: () => {},
+    logErr: () => {},
+  });
+  const out = await reap();
+  assert.deepEqual(killed, [], 'nothing may be killed through a number we cannot prove is ours');
+  assert.deepEqual(out.owned, []);
+  assert.equal(out.error, null, 'and a stranger wearing our number is not itself a teardown failure');
+});
+
+test('makeShadowTreeReaper still reaps OUR orphan after the wrapper exits (rf2-kzbf audit, AC1)', async () => {
+  // The fence must withdraw the authority to kill the NUMBER without losing
+  // the JVM the whole mechanism exists for.
+  const killed = [];
+  const dead = new Set();
+  const reap = makeShadowTreeReaper({
+    rootPid: 100,
+    spawnedAtMs: 5000,
+    rootExited: () => true,
+    platform: 'win32',
+    readTable: () => [
+      { pid: 100, ppid: 1, createdMs: 7000 },   // stranger
+      { pid: 200, ppid: 100, createdMs: 5500 }, // our orphaned JVM
+    ],
+    treeKill: (pid) => { killed.push(pid); dead.add(pid); },
+    isAlive: (pid) => !dead.has(pid),
+    graceMs: 200,
+    pollMs: 5,
+    log: () => {},
+    logErr: () => {},
+  });
+  const out = await reap();
+  assert.deepEqual(killed, [200], 'our orphan is reaped; the stranger holding our old number is not');
+  assert.deepEqual(out.owned, [200]);
+  assert.deepEqual(out.survivors, []);
+});
+
+test('an UNDATED root row fails CLOSED: not killed, and not graded clean (rf2-kzbf audit, AC3)', async () => {
+  const killed = [];
+  const reap = makeShadowTreeReaper({
+    rootPid: 100,
+    spawnedAtMs: 5000,
+    platform: 'win32',
+    readTable: () => [{ pid: 100, ppid: 1, createdMs: 0 }],
+    treeKill: (pid) => killed.push(pid),
+    isAlive: () => true,
+    graceMs: 20,
+    pollMs: 5,
+    log: () => {},
+    logErr: () => {},
+  });
+  const out = await reap();
+  assert.deepEqual(killed, [], 'a row we cannot date is not ours to kill');
+  assert.match(out.error, /cannot be proven ours/);
+
+  // ...and "we could not tell" must not certify the run.
+  const report = await makeCleanup({
+    getBrowser: () => null,
+    getShadow: () => null,
+    hasShadowExited: () => true,
+    reapShadowTree: reap,
+    log: () => {},
+    logErr: () => {},
+  })();
+  assert.equal(report.clean, false, 'an unprovable root must grade DIRTY');
+  let sentinel = null;
+  const code = finalizeConformance(report, {
+    emitPass: (l) => { sentinel = l; }, log: () => {}, logErr: () => {}, flush: () => {}, count: 0,
+  });
+  assert.equal(code, 2);
+  assert.equal(sentinel, null, 'and emit no pass sentinel');
+});
+
 // ---- the reaper's own outcome grading -------------------------------------
 
 test('makeShadowTreeReaper reports SURVIVORS when the kill removes nothing (rf2-kzbf)', async () => {
@@ -717,7 +859,8 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
       getShadow: () => shadow,
       hasShadowExited: () => shadowExited,
       reapShadowTree: makeShadowTreeReaper({
-        rootPid, spawnedAtMs, treeKill: () => {}, graceMs: 300, pollMs: 50,
+        rootPid, spawnedAtMs, rootExited: () => shadowExited,
+        treeKill: () => {}, graceMs: 300, pollMs: 50,
         log: () => {}, logErr: () => {},
       }),
       log: () => {}, logErr: () => {},
@@ -737,10 +880,22 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
       getBrowser: () => null,
       getShadow: () => shadow,
       hasShadowExited: () => shadowExited,
-      reapShadowTree: makeShadowTreeReaper({ rootPid, spawnedAtMs, log: () => {}, logErr: () => {} }),
+      // Wired exactly as `main()` wires it, so this real-process witness also
+      // exercises the recycled-root fence: the wrapper HAS exited here, so the
+      // reaper may not kill through its number and must reach the grandchild
+      // through the dead parent link instead (rf2-kzbf audit).
+      reapShadowTree: makeShadowTreeReaper({
+        rootPid, spawnedAtMs, rootExited: () => shadowExited,
+        log: () => {}, logErr: () => {},
+      }),
       log: () => {}, logErr: () => {},
     })();
     assert.equal(afterReport.clean, true, 'the reaped tree grades clean: ' + JSON.stringify(afterReport.issues));
+    assert.ok(
+      afterReport.shadow.tree.owned.includes(grandPid),
+      'the orphaned grandchild must still be DISCOVERED through the exited wrapper: ' +
+        JSON.stringify(afterReport.shadow.tree),
+    );
     assert.deepEqual(afterReport.shadow.tree.survivors, []);
     let stillAlive = true;
     try { process.kill(grandPid, 0); } catch (e) { stillAlive = e.code === 'EPERM'; }

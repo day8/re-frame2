@@ -198,6 +198,31 @@ function waitForChildExit(child, hasExited) {
 // subtree rooted at the exact PID this runner spawned — the same discipline
 // as `scripts/test-core-jvm-windows.ps1`'s `Stop-OurSubtree` — so unrelated
 // Node/JVM processes (peer workers, other MCP servers) are never targeted.
+//
+// AND THE SAME MISTAKE ONE LEVEL DOWN (the rf2-kzbf audit of PR #9213). "The
+// subtree rooted at the exact PID we spawned" is only as good as the claim
+// that the row wearing that number IS still ours. The first fix fenced the
+// DESCENDANTS on creation time but let the ROOT in on the number alone
+// (`if (byPid.has(rootPid)) owned.push(rootPid)`), then handed that number to
+// `taskkill /T /F`. The wrapper above is short-lived by construction — it
+// exits the moment it has launched the JVM — so its PID is exactly the kind
+// Windows recycles soonest, and cleanup would then tree-kill a STRANGER and
+// everything below it. That is the wrapper/resource confusion again, wearing
+// a PID instead of a handle: an identity check that inspects a name.
+//
+// So the root row is now classified rather than assumed (`classifyRootRow`),
+// on two pieces of evidence that catch the two ways the number can lie:
+//   * we OBSERVED our own child's `exit` — the handle was reaped, the number
+//     is free, and whatever wears it now is not ours (this is the case the
+//     creation floor alone cannot see, because a PID recycled AFTER our spawn
+//     is younger than our spawn floor); and
+//   * the row's creation time predates our spawn instant — it cannot be a
+//     process we started (this is the case the creation floor does see).
+// A row we cannot date at all is FAIL-CLOSED: not killed, and not graded
+// clean either. Orphan discovery is unaffected — Windows leaves the dead
+// wrapper's number in its children's `ParentProcessId`, so the walk still
+// starts at `rootPid` and still finds the JVM this whole mechanism exists
+// for; only the authority to KILL that number is withdrawn.
 
 // Is `pid` still alive? Signal 0 performs the permission/existence check
 // without delivering a signal. EPERM means the pid EXISTS but is not ours to
@@ -260,26 +285,76 @@ function readWindowsProcessTable({ runPs } = {}) {
   return rows;
 }
 
+// Classify the row (if any) currently wearing our root's PID. A PID is a
+// NUMBER, and a number is exactly what recycling forges — so the row is ours
+// only when independent evidence says so, and "we could not tell" is never
+// read as "ours" (that would tree-kill a stranger, which is the one thing
+// teardown must never do):
+//
+//   'absent'     — nothing wears that number now. Our wrapper is gone.
+//   'stranger'   — a row wears it that CANNOT be the process we spawned:
+//                  either we OBSERVED our own child's `exit` (the handle was
+//                  reaped, so whatever holds the number now is somebody
+//                  else's), or the row predates our spawn floor.
+//   'unprovable' — a row wears it but the OS reported no usable creation
+//                  time, so ownership cannot be established either way.
+//                  FAIL CLOSED: not ours to kill, and not a clean teardown
+//                  either (the caller grades it dirty).
+//   'ours'       — a row wears it, we have not seen our child exit, and it
+//                  was created at or after the instant we spawned.
+function classifyRootRow(table, rootPid, notBeforeMs, { rootExited = false } = {}) {
+  const row = table.find((r) => r.pid === rootPid);
+  if (!row) return 'absent';
+  if (rootExited) return 'stranger';
+  if (!Number.isFinite(row.createdMs) || row.createdMs <= 0) return 'unprovable';
+  if (row.createdMs < notBeforeMs) return 'stranger';
+  return 'ours';
+}
+
 // Breadth-first descendant closure of `rootPid` over `table`, EXCLUDING any
 // process created before `notBeforeMs` (a recycled PID wearing our root's
-// number). The root itself is included when still present.
-function ownedDescendants(table, rootPid, notBeforeMs) {
+// number). The ROOT ROW IS SUBJECT TO THE SAME FENCE (rf2-kzbf audit): it is
+// included only when `classifyRootRow` says 'ours'. Discovery of our own
+// ORPHANS is retained regardless — Windows leaves the dead wrapper's number
+// in its children's `ParentProcessId`, so the walk always starts from
+// `rootPid` even when no row of ours wears it any more.
+//
+// One extra bound applies in the 'stranger' case: the stranger's own children
+// must not be swept up with our orphans. A process of ours orphaned by our
+// dead wrapper necessarily PREDATES the stranger that inherited the number,
+// so a direct child of `rootPid` created at or after the stranger's own
+// creation is the STRANGER'S child, not ours.
+function ownedDescendants(table, rootPid, notBeforeMs, opts = {}) {
   const childrenOf = new Map();
   for (const row of table) {
     if (!childrenOf.has(row.ppid)) childrenOf.set(row.ppid, []);
     childrenOf.get(row.ppid).push(row);
   }
   const byPid = new Map(table.map((r) => [r.pid, r]));
+  const rootClass = classifyRootRow(table, rootPid, notBeforeMs, opts);
+  const rootRow = byPid.get(rootPid) || null;
+  const strangerCeilingMs =
+    rootClass === 'stranger' && rootRow && rootRow.createdMs > 0
+      ? rootRow.createdMs
+      : Infinity;
   const owned = [];
   const seen = new Set([rootPid]);
   const queue = [rootPid];
-  if (byPid.has(rootPid)) owned.push(rootPid);
+  if (rootClass === 'ours') owned.push(rootPid);
   while (queue.length > 0) {
     const current = queue.shift();
     for (const child of childrenOf.get(current) || []) {
       if (seen.has(child.pid)) continue;
       // A descendant created before we spawned our root is not ours.
       if (child.createdMs > 0 && child.createdMs < notBeforeMs) continue;
+      // Nor is a direct child the STRANGER fathered after taking the number.
+      if (
+        current === rootPid &&
+        child.createdMs > 0 &&
+        child.createdMs >= strangerCeilingMs
+      ) {
+        continue;
+      }
       seen.add(child.pid);
       owned.push(child.pid);
       queue.push(child.pid);
@@ -298,6 +373,10 @@ function ownedDescendants(table, rootPid, notBeforeMs) {
 function makeShadowTreeReaper({
   rootPid,
   spawnedAtMs,
+  // Has OUR child handle already emitted `exit`? A reaped handle means the
+  // number is free, so any row still wearing it belongs to somebody else.
+  // Read as a thunk because it flips while cleanup is running.
+  rootExited = () => false,
   platform = process.platform,
   readTable = readWindowsProcessTable,
   treeKill = defaultWindowsTreeKill,
@@ -326,8 +405,12 @@ function makeShadowTreeReaper({
   }
   return async function reapShadowTree() {
     let owned;
+    let rootClass;
     try {
-      owned = ownedDescendants(readTable(), rootPid, spawnedAtMs);
+      const table = readTable();
+      const opts = { rootExited: Boolean(rootExited()) };
+      rootClass = classifyRootRow(table, rootPid, spawnedAtMs, opts);
+      owned = ownedDescendants(table, rootPid, spawnedAtMs, opts);
     } catch (e) {
       return {
         supported: true,
@@ -336,19 +419,37 @@ function makeShadowTreeReaper({
         error: `could not enumerate the process table (${e && e.message})`,
       };
     }
+    // FAIL CLOSED on a root row we cannot date: it is not ours to kill, and
+    // "we could not tell" is not a proven teardown either (AC3).
+    const rootError =
+      rootClass === 'unprovable'
+        ? 'the process table reported no usable creation time for the row ' +
+          `wearing root pid ${rootPid} — refusing to tree-kill a PID that ` +
+          'cannot be proven ours'
+        : null;
+    if (rootClass === 'stranger') {
+      logFn(
+        `the row wearing root pid ${rootPid} is NOT the process we spawned ` +
+          '(recycled PID) — it will not be touched',
+      );
+    }
     if (owned.length === 0) {
-      logFn(`owned shadow tree (root pid ${rootPid}) is already empty`);
-      return { supported: true, owned: [], survivors: [], error: null };
+      if (!rootError) {
+        logFn(`owned shadow tree (root pid ${rootPid}) is already empty`);
+      }
+      return { supported: true, owned: [], survivors: [], error: rootError };
     }
     logFn(
       `owned shadow tree rooted at pid ${rootPid}: ${owned.join(', ')} — ` +
         'tree-killing OUR subtree only',
     );
-    let killError = null;
+    let killError = rootError;
     try {
-      // Kill the root's subtree first; then any orphan we attributed to the
-      // root but whose own parent link died with the wrapper.
-      treeKill(rootPid);
+      // Kill the root's subtree first — but ONLY when the row wearing that
+      // number is provably the process we spawned. Then any orphan we
+      // attributed to the root but whose own parent link died with the
+      // wrapper.
+      if (rootClass === 'ours') treeKill(rootPid);
       for (const pid of owned) {
         if (pid !== rootPid && isAlive(pid)) treeKill(pid);
       }
@@ -1326,9 +1427,13 @@ async function main() {
     getShadow: () => shadow,
     hasShadowExited: () => shadowExited,
     // The wrapper's `exit` is not the JVM's. Grade the subtree we spawned.
+    // `rootExited` is what keeps a RECYCLED root pid out of the kill set:
+    // once our own handle has been reaped, the number is free and whatever
+    // wears it now is somebody else's process (rf2-kzbf audit).
     reapShadowTree: makeShadowTreeReaper({
       rootPid: shadowRootPid,
       spawnedAtMs: shadowSpawnedAtMs,
+      rootExited: () => shadowExited,
     }),
   });
   // Expose the teardown to the module-scope hard watchdog
@@ -1719,13 +1824,15 @@ if (require.main === module) {
 // grading through `makeCleanup`, the dirty-report prose through
 // `finalizeConformance`. Exporting them would advertise a test seam that
 // invites coupling to the helper instead of the decision it serves.
-// `makeShadowTreeReaper` + `ownedDescendants` + `pidAlive` are exported for the
-// owned-tree regression harness (`runner-cleanup.test.cjs`, rf2-kzbf). The
-// factory is driven with injected `readTable`/`treeKill`/`isAlive` fakes so the
-// ownership walk, the recycled-PID guard and the survivor grading are pinned on
-// EVERY platform, and additionally against a REAL cross-spawn'd `cmd.exe`
-// wrapper whose grandchild outlives it on Windows — the exact shape that
-// previously certified a leaked JVM as a clean, GREEN, exit-0 run.
+// `makeShadowTreeReaper` + `ownedDescendants` + `classifyRootRow` + `pidAlive`
+// are exported for the owned-tree regression harness
+// (`runner-cleanup.test.cjs`, rf2-kzbf). The factory is driven with injected
+// `readTable`/`treeKill`/`isAlive` fakes so the ownership walk, the
+// recycled-PID guard (on the ROOT row as well as on descendants) and the
+// survivor grading are pinned on EVERY platform, and additionally against a
+// REAL cross-spawn'd `cmd.exe` wrapper whose grandchild outlives it on
+// Windows — the exact shape that previously certified a leaked JVM as a
+// clean, GREEN, exit-0 run.
 module.exports = {
   runTrusted,
   SETUP_COMMAND_TIMEOUT_MS,
@@ -1739,5 +1846,6 @@ module.exports = {
   wipeStalePortFileCandidate,
   makeShadowTreeReaper,
   ownedDescendants,
+  classifyRootRow,
   pidAlive,
 };
