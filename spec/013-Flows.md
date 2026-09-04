@@ -491,7 +491,21 @@ Three points bound the rule.
 
 Unknown flow ids and absent frames remain silent no-ops: with no flow to clear there is nothing to settle, and teardown stays idempotent. As with the fx route, **the observable contract is the boundary, not the transport** — no public settle event, function, or flag exists, `clear-flow`'s arities are unchanged, and the settle is one ordinary pass under the standard dirty check, not fixed-point iteration.
 
-This section governs `clear-flow` only. `reg-flow`'s direct path is outside its scope and is unchanged; do not read symmetry into it.
+This section governs `clear-flow` only. `reg-flow`'s direct path is outside its scope and is unchanged; do not read symmetry into it — the section immediately below states what that path does instead, and why the difference is deliberate.
+
+### Why a direct `reg-flow` does not settle
+
+> **NORMATIVE.** `reg-flow` called as a plain function OUTSIDE an event drain **registers the flow without evaluating it.** The flow's initial output — or, for a re-registration, its recomputed output — is materialised by the next drain, per [§Re-registration](#re-registration). A direct `reg-flow` **must not** settle.
+
+The asymmetry with the section above is deliberate, and is recorded here because it reads as an oversight and has been mistaken for one. The two operations differ in what they leave behind.
+
+`clear-flow` removes a value that is already in `app-db`, and what it leaves is **orphaned**: no live flow owns the slot. Settling is unconditionally safe, because the dependents it recomputes are flows that were already running against inputs that are already present.
+
+`reg-flow` adds a flow that has **never run**. Settling would force a *first evaluation* at a moment the caller did not choose. The direct form is documented for boot code, tests, and per-tenant setup — code that runs *before* `app-db` is seeded — so that evaluation would land on absent inputs. A `:derive` is specified as a pure function of its declared inputs ([§The registration shape](#the-registration-shape)); it is not required to be total on `nil`, and requiring it to be would be a breaking widening of the derive contract for every flow in every application. Registration is a **declaration**; evaluation is the drain's job, and that is what keeps registration order-independent with respect to seeding.
+
+The re-registration case is the same rule seen from the other side, and is the one most easily mistaken for the `clear-flow` defect: immediately after a cold re-registration the slot still holds the *previous* definition's value. That value is stale but **owned** — the flow is registered and the next drain refreshes it unconditionally, because [§Re-registration](#re-registration) resets the dirty check. `clear-flow`'s staleness had no owner at all, which is exactly the difference that made it *incoherent* rather than merely late.
+
+`:rf.fx/reg-flow` settles, and must, without contradicting any of this: it runs **inside** a drain, where `app-db` is by construction the application's live seeded state, so the hazard cannot arise. As with the clear boundary, what settles is determined by **when the call runs**, not by which operation it is — the same reasoning applied to a case whose facts differ, reaching the opposite answer.
 
 ## Re-registration
 
