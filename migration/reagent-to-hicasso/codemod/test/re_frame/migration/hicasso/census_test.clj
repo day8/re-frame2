@@ -39,7 +39,7 @@
             [clojure.test :refer [deftest is testing]]
             [re-frame.migration.hicasso.census :as census]
             [re-frame.migration.hicasso.codemod :as cm]
-            [re-frame.migration.hicasso.rewrite :as rw]))
+            [re-frame.migration.hicasso.rewrite :as rf.migration.hicasso.rewrite]))
 
 (defn- classes [src file] (mapv :class (:entries (census/scan src file))))
 
@@ -656,7 +656,7 @@
   (testing "the ratchet: a namespace cannot join `reagent-namespaces` without a
             sample here, so the next widening cannot reach main half-done the way
             #9132's did"
-    (is (= (set (keys recognised-namespace-calls)) rw/reagent-namespaces)
+    (is (= (set (keys recognised-namespace-calls)) rf.migration.hicasso.rewrite/reagent-namespaces)
         "a recognised namespace with no known-public-call sample, or a sample for
          a namespace the tool does not recognise"))
 
