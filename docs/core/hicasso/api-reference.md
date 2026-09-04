@@ -120,7 +120,7 @@ many roots as it likes, and no call here reaches a root the caller did not name.
 | --- | --- | --- |
 | `h/mount!` | `(h/mount! container config view)` | Ensures a frame, associates it with a DOM container and one root view, and answers the handle the other three take. |
 | `h/hydrate!` | `(h/hydrate! container config view)` | Adopts the container's existing server-rendered DOM instead of replacing it. Returns the same handle shape, and returns **before** adoption has finished. |
-| `h/render!` | `(h/render! handle view)` | Re-renders a mounted root in place, synchronously, and answers its handle. The hot-reload door: React reconciles the new tree against the one on the page. |
+| `h/render!` | `(h/render! handle view)` | Re-renders a mounted root in place, synchronously, and answers its handle. It renders into the same root rather than opening a second one, so React reconciles the new tree against the one on the page. The hot-reload door — though on a reload that reconcile still rebuilds the DOM, because a reloaded namespace redefines every view and a changed component type is a remount: [Hot reload](00-installation.md#hot-reload). |
 | `h/unmount!` | `(h/unmount! handle)` | Takes this root down and touches nothing else — no sibling root's state, and not the container, which React empties and leaves in the document. Idempotent. |
 
 `h/mount!`'s `config` carries three keys:

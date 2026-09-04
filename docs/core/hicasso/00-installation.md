@@ -394,6 +394,16 @@ The `^:dev/after-load` hook calls `h/render!` with the redefined view. The root,
 frame, app-db, and subscriptions survive, so changing the view does not reset
 the counter or leak registrations.
 
+**The DOM does not survive with them.** A reload re-evaluates the namespace, so
+every `h/defview` in it is a new component type, and `h/as-component`'s `def`
+mints a new one too. A changed type is a remount rather than an update by
+React's own rule, so the re-render rebuilds those nodes instead of updating
+them. State held in app-db comes back untouched; state the DOM itself owns does
+not, and focus and the caret are the two you notice — edit a form's markup while
+typing in that form and the draft survives in app-db while the cursor leaves the
+field. Nothing is wrong when that happens, and it is not a reason to reach for
+`defonce` on a view.
+
 Boot and re-render are two functions rather than one because shadow calls
 `:init-fn` **once**, when the module loads, and not again after a reload — a
 build whose only entry point is `:init-fn` logs `reloading code but no
