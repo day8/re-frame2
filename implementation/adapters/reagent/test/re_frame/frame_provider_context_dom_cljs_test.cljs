@@ -125,20 +125,16 @@
     (.createElement js/document "div")))
 
 (defn- get-act
-  "Return React's act() if available, else nil. React 18 ships act in
-  react-dom/test-utils; React 19 promotes it to the React namespace
-  proper. Either is fine for our purposes — both are sync-or-async-
-  promise compatible with the same call shape. Used by Scenario 7
-  (concurrent re-render flush) and the ENSURE StrictMode / hot-reload scenarios
-  (act drives React's effect double-invoke deterministically — `flushSync`
-  does NOT run the StrictMode passive-effect cleanup/re-setup synchronously,
-  so the StrictMode reuse-no-reseed contract only surfaces under act)."
+  "Return React's act() if available, else nil. React 19 — the adapter
+  floor — hosts act on the React namespace proper. Absent only from
+  React's production bundle, which omits act by design. Used by
+  Scenario 7 (concurrent re-render flush) and the ENSURE StrictMode /
+  hot-reload scenarios (act drives React's effect double-invoke
+  deterministically — `flushSync` does NOT run the StrictMode
+  passive-effect cleanup/re-setup synchronously, so the StrictMode
+  reuse-no-reseed contract only surfaces under act)."
   []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try
-        (let [test-utils (js/require "react-dom/test-utils")]
-          (.-act test-utils))
-        (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 ;; ---- deferred-teardown await (rf2-vp3m9) ----------------------------------
 ;;
@@ -980,9 +976,10 @@
 ;; reflects a post-dispatch app-db change after act flushes pending
 ;; renders, and the resolution chain still lands on the wrapped frame.
 ;;
-;; React's `act()` is exposed via `react-dom/test-utils` (React 18)
-;; and on `react` directly (React 19). The harness uses whichever is
-;; available; if neither is reachable the test SKIPS and files a bead
+;; React's `act()` is exposed on `react` directly at the React-19
+;; adapter floor. The harness reads it there and nowhere else; if it is
+;; unreachable — React's production bundle omits `act` by design — the
+;; test SKIPS and files a bead
 ;; (per the bead's "no new test infrastructure" rule). `get-act` lives
 ;; in the helpers section above (shared with the frame-root StrictMode
 ;; scenarios, which also need act() to drive React's effect double-invoke).

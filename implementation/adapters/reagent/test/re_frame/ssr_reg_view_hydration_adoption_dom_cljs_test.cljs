@@ -80,9 +80,7 @@
        (some? (.-createElement js/document))))
 
 (defn- get-act []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try (.-act (js/require "react-dom/test-utils"))
-           (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 ;; The values the CLIENT reg-view render stamps for `test-view-id` — read
 ;; off the SAME shared formatters the JVM emitter uses, so the GREEN server

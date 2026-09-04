@@ -263,9 +263,7 @@
   SYNCHRONOUSLY. Without it `hydrateRoot` returns before React has
   touched the DOM and every assertion races the scheduler."
   []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try (.-act (js/require "react-dom/test-utils"))
-           (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 (defn- hydrate-capturing!
   "Hydrate `container` against `tree` with REAL React and report
