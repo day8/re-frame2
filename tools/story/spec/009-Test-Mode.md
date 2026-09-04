@@ -459,7 +459,9 @@ clicking **Start** brings up the full controls + step list.
   ;   read from the per-step result record (or :event for not-yet-run)
 
 ;; CLJS local state — re-frame.story.ui.test-mode.stepper-state:
-(begin!              variant-id)       ; re-allocate the frame + prime the substrate
+(begin!              variant-id)       ; re-allocate the frame through the PRE-PLAY
+                                       ;   lifecycle (phases 0-2, no script) + prime
+                                       ;   the substrate — see §Start semantics
 (step!               variant-id)       ; run the next play STEP (any step type)
 (step-back!          variant-id)       ; restore the prior epoch + decrement cursor
 (rewind!             variant-id)       ; restore the pre-play epoch + reset cursor
@@ -468,6 +470,45 @@ clicking **Start** brings up the full controls + step list.
 (toggle-breakpoint!  variant-id index) ; toggle breakpoint at step index
 (end!                variant-id)       ; tear down (clear interval + substrate state)
 ```
+
+### Start semantics
+
+**Start prepares; it never plays.** Clicking Start runs the variant's
+PRE-PLAY lifecycle only — phases 0-2 (fresh-frame boundary, allocation,
+`:db-seed`, `:loaders`, `:setup`) through
+[`runtime/prepare-variant`](../src/re_frame/story/runtime.cljc) — and
+leaves EVERY script step pending. Cursor and app-db therefore agree at
+every position:
+
+| Cursor | Frame app-db                      | `play/stepper-state`                          |
+|--------|-----------------------------------|-----------------------------------------------|
+| 0      | the `:setup` state (pre-play)     | `:remaining` = the full script, `:ran` = `[]`  |
+| N      | the state after script steps 1..N | `:ran` = those N steps, in order               |
+
+Start MUST NOT run `run-variant` / `reset-variant`. Those compose the
+prepare half with phase 4, and a bare `:script` is auto-runnable by
+default (`play.runner/default-auto-run?`), so the whole script — and every
+effect it issues — executes BEFORE cursor 0 is published: the header reads
+"ready · N steps" over a POST-script app-db, the first Step re-runs step 1,
+and the epoch `begin!` seeds the stack with is the post-script one, so
+Rewind restores that instead of the specified initial state. That was
+rf2-k6y2, and it was deterministic rather than racy — `reset-variant`'s
+promise settles only once phase 4 has drained, so the loss was the WHOLE
+script every time, not a variable prefix.
+
+`reset-variant` keeps its full-run meaning for the `:test` pane's Re-run
+button, and the ordinary shell auto-run keeps owning phase 4 through
+`runtime/resume-run!` (see
+[`003-Render-Shell.md`](003-Render-Shell.md) §One run owner). Start
+additionally drops the one-run-owner attempt for the variant, so a
+generation that was prepared but not yet resumed cannot later run the
+script over the frame being stepped.
+
+A preparation failure — an unknown variant, a `:db-seed` that violates a
+registered schema, a throwing loader or `:setup` handler — REJECTS the
+promise `prepare-variant` returns, and `begin!` leaves the section in its
+inactive state rather than offering step controls over a frame that never
+reached `:ready`.
 
 ### Controls
 
@@ -495,8 +536,10 @@ threads the variant frame's epoch history (per
 `:epoch-id` (the head of `epoch-history`) and pushes it onto an
 `:epoch-stack`. Step-back POPS the stack and `epoch/restore-epoch!`s
 against the new head, then decrements the cursor. Rewind restores
-against the bottom-of-stack epoch (the pre-play state) and resets
-the cursor to 0. That epoch-restore alone rewinds the frame's
+against the bottom-of-stack epoch and resets the cursor to 0 — that
+bottom entry is the epoch Start's prepare-only lifecycle left behind,
+which is the pre-play state precisely BECAUSE Start ran no script step
+(§Start semantics above). That epoch-restore alone rewinds the frame's
 `[:rf.story/assertions]` slot (rf2-luzky — the assertions live in the
 frame's app-db, so a fresh forward run starts clean without a separate
 accumulator reset).
