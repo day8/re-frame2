@@ -284,7 +284,10 @@
 ;; actions fire). The transient runtime-internal slots
 ;; (`:rf/spawn-counter`, `:rf/after-epoch`, region-scoped epochs) reset
 ;; with the snapshot — restoring an incompatible snapshot means
-;; restarting the machine, not patching it.
+;; restarting the machine, not patching it. A SPAWNED actor's identity
+;; envelope (`:rf/machine-type` + its `:data` lineage) is carried across
+;; the reset, though: restarting an actor must not un-address it
+;; (rf2-2dk0; see `lifecycle-fx.resolver/carry-actor-identity`).
 ;;
 ;; The reconciler verifies the snapshot's state still exists in the (possibly
 ;; hot-reloaded) definition AND that the version stamps agree before driving
@@ -334,7 +337,9 @@
 (defn- rebuild-incompatible-snapshot
   "Emit the named `:rf.error/*` trace and return the freshly-derived
   initial snapshot (with `:rf/bootstrap-pending? true` so the new
-  initial state's `:entry` cascade fires on this same handler call).
+  initial state's `:entry` cascade fires on this same handler call),
+  carrying `existing-snap`'s spawned-actor identity envelope across so a
+  reset actor stays addressable (rf2-2dk0).
   `kind` is `:state-not-in-definition` or `:version-mismatch`."
   [kind machine-id frame-id machine existing-snap base-initial]
   (case kind
@@ -352,10 +357,28 @@
                         :version-current  (snapshot-version machine)
                         :frame            frame-id
                         :recovery         :reset-to-initial}))
-  ;; Per Spec 005 §Snapshot shape stability invariants the snapshot is
-  ;; replaced — there is no merge-with-old-data path. The reset stamps
-  ;; bootstrap-pending so `:entry` fires on this same handler call.
-  (assoc @base-initial :rf/bootstrap-pending? true))
+  ;; Per Spec 005 §Snapshot shape stability invariants the USER-FACING
+  ;; snapshot is replaced — there is no merge-with-old-data path. Authored
+  ;; `:state` / `:data` and the transient runtime counters all come from the
+  ;; fresh initial. The reset stamps bootstrap-pending so `:entry` fires on
+  ;; this same handler call.
+  ;;
+  ;; The framework-owned spawned-actor IDENTITY envelope is carried across,
+  ;; though (rf2-2dk0): resetting an actor's definition must not silently
+  ;; un-address the actor. `:rf/machine-type` is the only key the lazy
+  ;; resolver can re-materialise a spawned actor's handler from, so dropping
+  ;; it leaves a snapshot that is physically present in runtime-db yet
+  ;; rejects its next event as `:rf.error/no-such-handler` — a state Spec 005
+  ;; §Liveness is derived from runtime-db has no room for ("liveness IS the
+  ;; presence of its snapshot ... nothing else"), and one §Persistence
+  ;; posture forbids ("the only transient snapshot-root slot is
+  ;; `:rf/bootstrap-pending?`"). The lineage keys ride along for the same
+  ;; reason: the parent's exit cascade and the `:spawn-all` join fold address
+  ;; the child through them. A singleton snapshot carries none of these, so
+  ;; this is a no-op on the singleton path.
+  (rf.machines.lifecycle-fx.resolver/carry-actor-identity
+    existing-snap
+    (assoc @base-initial :rf/bootstrap-pending? true)))
 
 (defn- reconcile-snapshot
   "Apply the Spec 005 §Snapshot shape stability invariants 3 & 4 at
