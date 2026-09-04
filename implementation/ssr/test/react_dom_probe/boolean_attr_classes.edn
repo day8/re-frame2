@@ -1,0 +1,161 @@
+;; GENERATED FILE — do not hand-edit.
+;;
+;; react-dom boolean attribute-value evidence for rf2-r9kf. Every string
+;; below is react-dom's own output, measured by
+;; `react_dom_probe/boolean_attr_classes.cjs` against the installed
+;; package; nothing here restates a re-frame rule. The class is DERIVED
+;; from these bytes in `re_frame/ssr_boolean_attr_react_parity_test.clj`.
+;;
+;; Regenerate from `implementation/`:
+;;   node ssr/test/react_dom_probe/boolean_attr_classes.cjs \
+;;     > ssr/test/react_dom_probe/boolean_attr_classes.edn
+{:react-dom-version "19.2.0"
+ :generated-by "implementation/ssr/test/react_dom_probe/boolean_attr_classes.cjs"
+ :probe-elements ["div" "input" "option" "select" "video"]
+ :rows
+ [
+  {:attribute "allowFullScreen" :element "div"
+   :true-markup  "<div allowFullScreen=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "aria-expanded" :element "div"
+   :true-markup  "<div aria-expanded=\"true\"></div>"
+   :false-markup "<div aria-expanded=\"false\"></div>"}
+  {:attribute "aria-hidden" :element "div"
+   :true-markup  "<div aria-hidden=\"true\"></div>"
+   :false-markup "<div aria-hidden=\"false\"></div>"}
+  {:attribute "async" :element "div"
+   :true-markup  "<div async=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "autoFocus" :element "div"
+   :true-markup  "<div autofocus=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "autoPlay" :element "div"
+   :true-markup  "<div autoPlay=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "autoReverse" :element "div"
+   :true-markup  "<div autoReverse=\"true\"></div>"
+   :false-markup "<div autoReverse=\"false\"></div>"}
+  {:attribute "capture" :element "div"
+   :true-markup  "<div capture=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "checked" :element "input"
+   :true-markup  "<input checked=\"\"/>"
+   :false-markup "<input/>"}
+  {:attribute "children" :element "div"
+   :true-markup  "<div></div>"
+   :false-markup "<div></div>"}
+  {:attribute "contentEditable" :element "div"
+   :true-markup  "<div contentEditable=\"true\"></div>"
+   :false-markup "<div contentEditable=\"false\"></div>"}
+  {:attribute "controls" :element "div"
+   :true-markup  "<div controls=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "data-open" :element "div"
+   :true-markup  "<div data-open=\"true\"></div>"
+   :false-markup "<div data-open=\"false\"></div>"}
+  {:attribute "default" :element "div"
+   :true-markup  "<div default=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "defaultChecked" :element "div"
+   :true-markup  "<div></div>"
+   :false-markup "<div></div>"}
+  {:attribute "defaultValue" :element "div"
+   :true-markup  "<div></div>"
+   :false-markup "<div></div>"}
+  {:attribute "defer" :element "div"
+   :true-markup  "<div defer=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "disablePictureInPicture" :element "div"
+   :true-markup  "<div disablePictureInPicture=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "disableRemotePlayback" :element "div"
+   :true-markup  "<div disableRemotePlayback=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "disabled" :element "div"
+   :true-markup  "<div disabled=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "download" :element "div"
+   :true-markup  "<div download=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "draggable" :element "div"
+   :true-markup  "<div draggable=\"true\"></div>"
+   :false-markup "<div draggable=\"false\"></div>"}
+  {:attribute "externalResourcesRequired" :element "div"
+   :true-markup  "<div externalResourcesRequired=\"true\"></div>"
+   :false-markup "<div externalResourcesRequired=\"false\"></div>"}
+  {:attribute "focusable" :element "div"
+   :true-markup  "<div focusable=\"true\"></div>"
+   :false-markup "<div focusable=\"false\"></div>"}
+  {:attribute "formNoValidate" :element "div"
+   :true-markup  "<div formNoValidate=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "hidden" :element "div"
+   :true-markup  "<div hidden=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "inert" :element "div"
+   :true-markup  "<div inert=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "innerHTML" :element "div"
+   :true-markup  "<div></div>"
+   :false-markup "<div></div>"}
+  {:attribute "is" :element "div"
+   :true-markup  "<div></div>"
+   :false-markup "<div></div>"}
+  {:attribute "itemScope" :element "div"
+   :true-markup  "<div itemScope=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "loop" :element "div"
+   :true-markup  "<div loop=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "multiple" :element "div"
+   :true-markup  "<div multiple=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "muted" :element "div"
+   :true-markup  "<div muted=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "noModule" :element "div"
+   :true-markup  "<div noModule=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "noValidate" :element "div"
+   :true-markup  "<div noValidate=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "open" :element "div"
+   :true-markup  "<div open=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "playsInline" :element "div"
+   :true-markup  "<div playsInline=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "preserveAlpha" :element "div"
+   :true-markup  "<div preserveAlpha=\"true\"></div>"
+   :false-markup "<div preserveAlpha=\"false\"></div>"}
+  {:attribute "readOnly" :element "div"
+   :true-markup  "<div readOnly=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "required" :element "div"
+   :true-markup  "<div required=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "reversed" :element "div"
+   :true-markup  "<div reversed=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "scoped" :element "div"
+   :true-markup  "<div scoped=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "seamless" :element "div"
+   :true-markup  "<div seamless=\"\"></div>"
+   :false-markup "<div></div>"}
+  {:attribute "selected" :element "option"
+   :true-markup  "<option selected=\"\"></option>"
+   :false-markup "<option></option>"}
+  {:attribute "spellCheck" :element "div"
+   :true-markup  "<div spellCheck=\"true\"></div>"
+   :false-markup "<div spellCheck=\"false\"></div>"}
+  {:attribute "suppressContentEditableWarning" :element "div"
+   :true-markup  "<div></div>"
+   :false-markup "<div></div>"}
+  {:attribute "suppressHydrationWarning" :element "div"
+   :true-markup  "<div></div>"
+   :false-markup "<div></div>"}
+  {:attribute "value" :element "div"
+   :true-markup  "<div value=\"true\"></div>"
+   :false-markup "<div value=\"false\"></div>"}
+ ]}
