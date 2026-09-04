@@ -30,6 +30,11 @@
  *      the output dir over http-server on 127.0.0.1.
  *   4. Spawns `shadow-cljs watch <build>` so edits recompile live. A
  *      `--no-watch` flag runs a one-shot `compile` instead (CI-shaped).
+ *   5. In watch mode, WAITS for that first compile to actually publish the
+ *      bundle before printing the live URL (rf2-qwy3) — the freshly cleaned
+ *      output dir has no `main.js` until it lands, so announcing the page any
+ *      earlier advertises one that comes up blank. It says it is waiting
+ *      meanwhile, so a slow cold compile never looks like a hung tool.
  *
  * The shared staging + harness helpers do the hardened work (cross-platform
  * shell-free spawning, process-tree teardown, port pre-flight); this script
@@ -65,6 +70,13 @@ const {
   createHarnessCleanup,
   spawnHarnessProcess,
   startLocalHttpServer,
+  // The harness's generic "GET this path; resolve the 200 body, else null"
+  // primitive. It is NAMED for its first caller (the ownership-token fetch),
+  // but it is that one plain request and nothing more — so the first-build
+  // probe below reuses it verbatim rather than hand-rolling a second HTTP
+  // client inside the dev runner.
+  fetchToken: fetchServedBody,
+  sleep,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>; IMPL_ROOT is
@@ -112,6 +124,63 @@ function decideRunnerExit({ server = null, watch = null, interrupted = false } =
     return false; // code null + no signal => clean exit
   };
   return childFailed(server) || childFailed(watch) ? 1 : 0;
+}
+
+// The compiled entrypoint every example host page loads. Hardcoding the name is
+// safe rather than lucky: `check-examples-assets.cjs` MAKES a live
+// `<script src="main.js">` mandatory on every example page (all 34 standalone
+// hosts carry one), so "this run's build has produced something runnable" and
+// "main.js is being served" are the same fact.
+const BUILD_ENTRYPOINT = 'main.js';
+
+// Wait for the first watch build to actually land (rf2-qwy3).
+//
+// THE FACT THE BANNER CLAIMS. The clean-stage boundary above deletes the
+// previous bundle, and `shadow-cljs watch` is asynchronous, so between
+// http-server readiness and the first successful compile the staged root serves
+// its host page and `_shared/` assets while the `main.js` that page requires is
+// still ABSENT. Opening the URL in that window fetches a missing script and
+// leaves a blank, non-booted app — and because no bundle loaded, no shadow
+// client is present to turn the later compile into a live reload, so the
+// programmer must notice the compiler finished and reload by hand. Server
+// ownership and application-build readiness are DIFFERENT facts; the runner is
+// the layer that composes them.
+//
+// WHY AN HTTP POLL OF THE SERVER WE ALREADY OWN, and not a shadow-cljs signal:
+// shadow-cljs's `:browser` target does emit a per-build artefact of its own —
+// `manifest.edn`, written into `:output-dir` on a successful flush — but its
+// name is build-config-settable (`:build-options :manifest-name`), which the
+// runner does not read, and its presence proves a compile FLUSHED rather than
+// that the artefact the page requests is REACHABLE. Fetching the entrypoint
+// back over the loopback server we already own proves the advertised fact
+// directly, needs no shadow-cljs protocol and no parsing of its human log
+// output, and keeps first-build readiness composed HERE rather than generalised
+// into the shared harness (whose ownership-token handshake stays the authority
+// for "this server serves this run's root", and cannot prove build artefacts by
+// design).
+//
+// THE WAIT IS UNBOUNDED BY DESIGN. A cold JVM plus a first compile can take a
+// long while, and a compile error is fixable in place — shadow-cljs keeps
+// watching, its inherited stdio shows the error, and the URL goes live as soon
+// as a fixed source produces output — so the runner must never give up on a
+// HEALTHY watcher. The loop ends only when the entrypoint is served or
+// `isAborted()` goes true (the watch or the server died), which the caller
+// turns into a non-zero exit. Ctrl+C still tears the process tree down via the
+// installed signal handlers.
+//
+// Injectable (`fetchBody`, `isAborted`, `sleep`) so the delayed-artifact,
+// empty-artifact and watch-died-first cases are testable without shadow-cljs.
+async function waitForFirstBuild({ fetchBody, isAborted, sleep: sleepFn, pollMs = 250 }) {
+  for (;;) {
+    if (isAborted()) return { ok: false, reason: 'child-exited' };
+    const body = await fetchBody();
+    // A zero-length body is NOT readiness: a truncated or placeholder
+    // entrypoint boots nothing, and announcing it would restate the very lie
+    // this wait exists to remove.
+    if (typeof body === 'string' && body.length > 0) return { ok: true };
+    if (isAborted()) return { ok: false, reason: 'child-exited' };
+    await sleepFn(pollMs);
+  }
 }
 
 function parseArgs(argv) {
@@ -285,6 +354,39 @@ async function main() {
   });
   if (!ready) return 1;
 
+  // The server now provably owns the staged root — but in watch mode that root
+  // was cleaned moments ago and holds no `main.js` until this run's first
+  // compile lands. Say exactly that, and withhold the live/openable banner
+  // until the entrypoint is really being served (rf2-qwy3). `--no-watch`
+  // already compiled synchronously above, so its output is complete before the
+  // server ever started and it skips this wait unchanged.
+  if (watch) {
+    console.log(
+      `\nserve-example: ${entry.build} — server ready on http://127.0.0.1:${PORT}/,` +
+        ' waiting for the first shadow-cljs build.' +
+        `\n  Not openable yet: the page needs ${BUILD_ENTRYPOINT}, which the first` +
+        ' compile produces. The shadow-cljs output shows progress and any' +
+        ' compile error — fix the source and the URL goes live.\n',
+    );
+    const first = await waitForFirstBuild({
+      fetchBody: () =>
+        fetchServedBody(PORT, { host: '127.0.0.1', path: `/${BUILD_ENTRYPOINT}` }),
+      // The watch dying, or the server going down, ends the wait — never a
+      // timeout on a healthy-but-slow compile.
+      isAborted: () => watchDied || isDown(),
+      sleep,
+    });
+    if (!first.ok) {
+      console.error(
+        `\nserve-example: ${entry.build} — the first build never produced a served ` +
+          `${BUILD_ENTRYPOINT}, so the example was never runnable. No URL was ` +
+          'advertised. See the shadow-cljs output above for the compile error.',
+      );
+      await cleanup.cleanup().catch(() => {});
+      return 1;
+    }
+  }
+
   console.log(
     `\nserve-example: ${entry.build} is live at http://127.0.0.1:${PORT}/` +
       (watch ? '  (shadow-cljs watch running — edits recompile live)' : '  (one-shot compile)') +
@@ -331,4 +433,4 @@ async function cleanupAndExit(code) {
   process.exit(code == null ? 1 : code);
 }
 
-module.exports = { decideRunnerExit, parseArgs };
+module.exports = { decideRunnerExit, parseArgs, waitForFirstBuild, BUILD_ENTRYPOINT };

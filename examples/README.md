@@ -18,7 +18,7 @@ One command, from `implementation/` — the build-id is in each row below:
 npm run dev:example -- <build-id>
 ```
 
-It cleans that build's output directory, stages the example's own `index.html` and the shared `_shared/` assets beside the compiled bundle, starts a watch so your edits recompile live, serves the result on a free loopback port, and prints the URL to open. Add `--no-watch` for a one-shot compile-and-serve, or `--list` to see every runnable build-id.
+It cleans that build's output directory, stages the example's own `index.html` and the shared `_shared/` assets beside the compiled bundle, starts a watch so your edits recompile live, serves the result on a free loopback port, and prints the URL to open. The URL appears only once that first compile has produced the bundle the page loads — a cold first build can take a minute or more, so until then the runner says it is waiting instead of advertising a page that would come up blank. Add `--no-watch` for a one-shot compile-and-serve, or `--list` to see every runnable build-id.
 
 > **Advanced — the compiler on its own.** `shadow-cljs watch <build-id>` compiles the bundle to `implementation/out/examples/<name>/` and does nothing else: it stages no host page, copies no `_shared/` assets, and starts no server, so there is no URL to open and the example's own `index.html` cannot find its `main.js`. Reach for it when you want the compiler alone; use `npm run dev:example` when you want the running app.
 
