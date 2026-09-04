@@ -14,13 +14,56 @@ one.
 
 The applications are the ones [`rf2-hic-078`][apps] built and `main` carries:
 `examples/editor` and `examples/grid`. **No number on this page comes from the
-frozen bench prototypes** under `implementation/freehand/test/re_frame/bench/`,
-which are a different tree measuring different questions.
+frozen bench prototypes** that then stood under
+`implementation/freehand/test/re_frame/bench/` — a different tree measuring
+different questions, and one deleted whole on 2026-08-15 by `c951808b47`. The
+disclaimer is kept rather than dropped because it is what a reader needs in
+order to know where these numbers did *not* come from; what has changed is that
+the tree it excludes is no longer somewhere a reader could go and look.
 
 [apps]: ../../../../implementation/hicasso/test/re_frame/hicasso/examples/
-[census]: ../../../../implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs
 [contrast]: ../../../../implementation/hicasso/test/re_frame/hicasso/examples/grid/row_total_layer2_dom_cljs_test.cljs
 [kit]: ../../../../implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs
+
+## Currency, and the census suite this page was written against
+
+**Re-read 2026-09-04 against `main@bd61169475` (`rf2-lexh`). No figure below was
+re-measured and none moved; what this note records is the state of the artefacts
+the figures were taken from.**
+
+Every figure in §2–§5 and §7 was taken by the **per-keystroke census suite**,
+which stood at
+`implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs`
+and **is no longer in the tree**: it was retired on 2026-08-30 by `f5f40d1116`,
+*"retire the per-keystroke census suite; its counter moves into the grid layer-2
+contrast"* (`rf2-6c12m.8`). The retirement was deliberate and its reasoning is on
+the commit — the suite had been kept off an earlier deletion list only because
+`check_budget_ledger.py` reddened on a missing L6 witness, and that gate retired
+in the same PR.
+
+What survives, and what does not:
+
+- **The counter survives.** `with-counted-subs` and `total` — the census's own
+  subscription-recomputation instrument — moved into
+  [the layer-2 contrast][contrast] as private defns, which is where §4.1's
+  figures already came from. That file's own docstring names the census as their
+  origin and treats this page's published figures (111 at 10×10, 31 at 5×5) as a
+  cross-check on its layer-1 arm.
+- **The rows do not.** The other five instruments of §1.1, the pre-registered
+  predictions of §1.2, and the run table of §7 have no artefact in the tree that
+  re-takes them. **These figures are therefore no longer re-runnable from
+  `main`**, and nothing has replaced them for the editor at all.
+- **Nothing here re-scores anything.** The figures stand exactly as measured, on
+  the base §7 names. What would settle the gap is a bead that either re-takes the
+  census against the shipped applications or rules the per-keystroke path
+  witnessed by §4.1's contrast alone; neither has been ruled and this page does
+  not rule it.
+
+Citations of *the census* below therefore name a retired suite, and the three
+verbatim `cljs.test` traces in §7 quote its file and line numbers as they stood
+when those runs were taken. Both are left as written: a dated measurement record
+names the artefact that produced it, and rewriting the trace would make the run
+unreproducible on any tip.
 
 **Two findings up front, because they are the ones a reader should leave with.**
 A keystroke's *boundary* cost is flat in the size of the page, exactly as
@@ -57,7 +100,7 @@ Two of these deserve their definition stated rather than assumed.
 keystroke reaches the same code path a real one does only by writing through the
 element prototype's own `value` setter and then firing a real `input` event
 (`editor.flow-dom-cljs-test/type-into!` established this). That first write is
-the *user agent's*, not the runtime's, so [the census][census] performs it
+the *user agent's*, not the runtime's, so the census performed it
 through a setter captured **on first browser use, before the spy** — the spy
 forces the capture at its own top, ahead of replacing any descriptor. Both
 halves of that ordering are load-bearing. Capturing at namespace load instead
@@ -230,9 +273,14 @@ unchanged by this measurement, and its layer-1 arm re-reads §3's figures on the
 same tree to say so — for the reason
 `grid.scaling-dom-cljs-test`'s coarse shapes live there too: an application is
 evidence about the public door, and a spelling nobody has adopted does not belong
-in one. Both arms are measured in the same file on the census's own counter, made
-public rather than copied, so the contrast below is a subtraction between two
-readings taken together rather than between two instruments run in two places.
+in one. Both arms are measured in the same file on the census's own counter,
+which at the time of the measurement was made public in the census suite rather
+than copied — so the contrast below is a subtraction between two readings taken
+together rather than between two instruments run in two places. *(As at
+2026-09-04, the census suite is retired and that counter is a pair of private
+defns in the contrast file itself; the property the sentence is claiming — one
+counter, both arms, one file — survives the move unchanged, and no figure in this
+table was re-taken.)*
 
 | Subscription recomputations, one keystroke into `[3 4]` | 5×5 | 10×10 |
 |---|---:|---:|
@@ -372,7 +420,7 @@ and three of the seven records appear anyway.
 through it.** A `MutationRecord` for an attribute carries that attribute's value
 *before* the record and nothing else. There is no new-value field, and reading
 one back off the element answers what the attribute holds *now* rather than what
-that record wrote — which is why [the census's][census] raw trace shows its
+that record wrote — which is why the census's raw trace showed its
 `name` records as `nil -> nil`, both sides being the attribute as it finally
 stands. **No arrow the instrument prints is an observed transition, and this page
 does not present one as such.** What the observer does witness, exactly, is the
@@ -502,7 +550,9 @@ above.
 
 Every figure above was taken on `P-DEV-1`
 ([budgets §1](budgets.md#1-the-named-reference-profiles)) by the browser lane,
-`npm run test:browser`, from [the census suite][census] — **except §4.1's, which
+`npm run test:browser`, from the census suite (retired 2026-08-30 by
+`f5f40d1116`; see [Currency](#currency-and-the-census-suite-this-page-was-written-against))
+— **except §4.1's, which
 come from a different suite on the same lane and the same profile and carry
 [their own run table](#41-the-layer-2-contrast-measured)**. The runs numbered
 below are this section's; §4.1's are numbered separately and independently.
@@ -633,10 +683,17 @@ everything, and this one published a good deal.
   [§1's single-profile limitation](budgets.md#the-single-profile-limitation-accepted-explicitly)
   binds this page less tightly than it binds a distributional one.
 - **No new ledger rows.** The census's figures deserve rows in
-  [budgets §9](budgets.md#9-the-budget-line-reconciliation-ledger), and minting
-  them means editing `check_budget_ledger.py`'s pinned constants, which is
-  `rf2-hic-089`'s surface and not this bead's. `U1`'s entry in §9.2 has been
-  updated to point here; the rows are filed as follow-up work.
+  [budgets §9](budgets.md#9-the-budget-line-reconciliation-ledger). When this was
+  written, minting them meant editing `check_budget_ledger.py`'s pinned
+  constants, which was `rf2-hic-089`'s surface and not this bead's. **That route
+  no longer exists**: `check_budget_ledger.py` was deleted on 2026-08-30 by
+  `bb3a92cd73` (`rf2-6c12m.8`), together with `check_facade_inventory.py` and
+  `check_naming_census.py`, as part of shortening the invariants chain and the
+  spine — so there are no pinned constants left to edit and no gate that would
+  redden on a missing row. The rows are therefore not merely unfiled but
+  **unmintable in the form this bullet described**, and what would settle it is a
+  ruling on whether budget rows are still pinned by a gate at all. `U1`'s entry
+  in §9.2 was updated to point here.
 - **No remedy for §4's amplification, and no claim that it needs one.** The
   layer-2 contrast named at the end of §4 has now been measured — §4.1 — and
   measuring it is still not adopting it. The applications are unchanged, the
