@@ -2583,8 +2583,8 @@ jobs:
     name: JVM spec-resource (clojure -M:test)
     # The build-time reader for committed spec/ data
     # (day8/re-frame2-spec-resource) — the ONE resolver for shadow-cljs's
-    # recording classpath read, shared by the Freehand fixture loader and
-    # the api-manifest CLJS probe.
+    # recording classpath read, whose single consumer today is the
+    # api-manifest CLJS probe.
     #
     # Its suite is the deterministic control for the cold-load race that
     # reader exists to close: `requiring-resolve` resolves BEFORE it takes
