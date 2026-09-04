@@ -120,6 +120,85 @@
       #(rf.frame/event-continuation-live? owner-frame owner-token))
     (constantly true)))
 
+(defn- emit-machine-data-rejection-record!
+  "Fan ONE structural-only `:rf.error/schema-validation-failure` record onto
+  the always-on `:errors` stream for a REJECTED candidate frame transition —
+  the `:where :machine-data`, `:rollback? true` arm (RULED rf2-xpd8, extended
+  to this boundary by rf2-vkn8).
+
+  Sibling of `re-frame.schemas.validate/emit-app-db-rejection-record!`, and a
+  SIBLING rather than a shared seam on purpose: the union record is BUILT FROM
+  each boundary's own structural inputs, so there is no place for a `:where`
+  switch that a future arm could fall through by default.
+
+  ## Why a dev-only check reports on the always-on stream
+
+  A `:macrostep` / `:bootstrap` violation discards a WHOLE candidate frame
+  transition — app-db and runtime-db both keep their pre-event values and `:fx`
+  never walks. Before this, that refusal reached the DEV TRACE and nothing
+  else: no error listener, no frame `:observability :errors` sink, and (since
+  the rf2-fu75 unowned-error console fallback hangs off the `:errors` stream)
+  no console line either. So a machine whose `[:schemas :data]` schema rejects
+  every transition simply stopped transitioning, silently. Spec 009 §The
+  promotion criterion states the rule this instance obeys: failing leg 1 keeps
+  a category off the always-on OBLIGATION, not off the stream.
+
+  ## Production is untouched BY CONSTRUCTION
+
+  Every caller of `emit-failure!` sits inside a
+  `(when rf.interop/debug-enabled? …)` gate (`validate-machine-data!`,
+  `validate-spawn-data!`, `validate-update-snapshot-data!`,
+  `validate-completion-output!`), so `:advanced` + `goog.DEBUG=false` carries
+  neither this call nor the reason string's literals — `check-elision.cjs`
+  pins the reason's distinctive tail ABSENT from a release bundle, and the
+  `^:prod-gate` deftest pins zero records under `-Dre-frame.debug=false`.
+
+  ## The record is BUILT FROM structural inputs, never filtered from `tags`
+
+  The key set is CLOSED and every member is a framework keyword or a
+  structural identifier: the machine's registered id, the lifecycle `:phase`
+  (a closed framework vocabulary), and the frame id — which is what routes the
+  record to that frame's `:observability :errors` sink.
+
+  Deliberately OMITTED: `:value` / `:received` (the failing `:data` map),
+  `:explain` / `:explain-humanized`, and `:schema` (the registered form,
+  unbounded under `pr-str`). All of them stay on the dev trace, which is
+  BYTE-IDENTICAL to before this change — Xray, Story and the epoch recorder
+  read exactly what they read before, and `tools/xray/spec` needs no edit.
+
+  The `:reason` is composed from the machine id and the phase alone: a
+  registered keyword and a framework keyword, never the `:data` that failed
+  and never the schema form. It is what the rf2-fu75 console fallback prints
+  when nothing owns the `:errors` stream.
+
+  Reached through the `:error-emit/dispatch-error-record` late-bind hook — the
+  general non-event union-record chokepoint — never a static require, which
+  would close a load cycle from `machines` (which ships ABOVE core's require
+  graph) into core's error-emit namespace. A nil hook is a silent skip.
+
+  Returns nil."
+  [machine-id frame-id phase]
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn-cached
+                                      :error-emit/dispatch-error-record)]
+    (dispatch-error-record!
+      {:error      :rf.error/schema-validation-failure
+       :where      :machine-data
+       :machine-id machine-id
+       :failing-id machine-id
+       :phase      phase
+       :frame      frame-id
+       :rollback?  true
+       :recovery   :no-recovery
+       ;; The tail is ONE string literal on purpose: `str` compiles to a
+       ;; runtime concat, so a tail split across two literals would never
+       ;; appear contiguously in a compiled bundle and `check-elision.cjs`
+       ;; could not prove it absent.
+       :reason     (str "Machine " machine-id " :data failed its [:schemas :data] "
+                        "schema at phase " phase
+                        "; the candidate transition was rejected and no machine snapshot installed.")
+       :time       (rf.interop/now-ms)}))
+  nil)
+
 (defn- emit-failure!
   "Emit `:rf.error/schema-validation-failure` at a machine schema boundary
   (`:where :machine-data` or `:where :machine-output`). `where` names the
@@ -127,7 +206,10 @@
   `:update-snapshot` (machine-data) or `:completion` (machine-output) —
   surfaces the lifecycle position to operators; `value` is the failing value
   (the `:data` map / the completion-output payload); `reason` is the
-  one-sentence diagnostic.
+  one-sentence diagnostic. `frame-id` names the frame whose candidate
+  transition carried the failing snapshot — it does NOT ride the trace (which
+  stays byte-identical) and exists for the always-on rejection record below,
+  which routes to that frame's `:observability :errors` sink.
 
   The trace tag carries:
     :where           :machine-data / :machine-output
@@ -162,10 +244,10 @@
   registered (validation ran), and the schemas artefact owns the validator
   that ran it, so the hook is bound whenever a failure can fire; the
   `(or redact ...)` fallthrough is belt-and-braces."
-  ([machine-id where phase value schema explanation rollback? reason]
-   (emit-failure! machine-id where phase value schema explanation rollback?
-                  reason (constantly true)))
-  ([machine-id where phase value schema explanation rollback? reason continue?]
+  ([machine-id frame-id where phase value schema explanation rollback? reason]
+   (emit-failure! machine-id frame-id where phase value schema explanation
+                  rollback? reason (constantly true)))
+  ([machine-id frame-id where phase value schema explanation rollback? reason continue?]
    (let [explain-fn (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
          explanation (or explanation
                          (when (and (continue?) explain-fn)
@@ -192,6 +274,24 @@
                           (if (continue?) (throw e) nil)))
                       tags)]
      (when (continue?)
+       ;; rf2-vkn8: the always-on `:errors` record FIRST, then the dev trace —
+       ;; mirroring `emit-error-both!`'s axis-1-then-axis-2 ordering
+       ;; (error_emit.cljc), so the JVM SSR error-listener's last-write-wins
+       ;; buffer keeps the RICHER trace as its final input. Both emits sit
+       ;; under THIS `(continue?)` guard, which is the one AFTER the explainer
+       ;; callback — application code that could have destroyed the owning
+       ;; frame incarnation. So a stale incarnation emits nothing on either
+       ;; axis and the two can never disagree about whether this rejection
+       ;; happened.
+       ;;
+       ;; The record is promoted for the `:rollback? true` MACHINE-DATA arms
+       ;; only (`:phase :macrostep` / `:bootstrap` — a whole discarded event
+       ;; transaction). Both conditions are named rather than just `rollback?`:
+       ;; `:machine-output` is `:rollback? false` today, and keying on the
+       ;; boundary too is what stops a future promoted arm reaching the
+       ;; always-on axis by default.
+       (when (and rollback? (= :machine-data where))
+         (emit-machine-data-rejection-record! machine-id frame-id phase))
        (rf.trace/emit-error! :rf.error/schema-validation-failure tags)))))
 
 (defn validate-snapshot-data!
@@ -211,10 +311,22 @@
       installed; the spawn-fx caller skips the install on false).
     - `:phase :update-snapshot` → rollback? false (the escape-hatch fx
       validates the would-be-merged snapshot and skips the
-      `swap-runtime-db!` write on false; nothing was committed)."
+      `swap-runtime-db!` write on false; nothing was committed).
+
+  `frame-id` (the 6-arity) names the frame whose CANDIDATE transition carries
+  this snapshot. It never rides the trace — that stays byte-identical — and
+  exists so the `:rollback? true` arms' always-on rejection record (rf2-vkn8)
+  can route to that frame's `:observability :errors` sink. The candidate
+  walker (`validate-machine-data!`) passes the frame the ROUTER handed it,
+  which is the authoritative one; the shorter arities derive it from the
+  router's dequeue-time event-owner binding, which is the same frame on the
+  spawn / escape-hatch fx paths and nil for a direct call outside any event."
   ([machine-id snapshot schema phase]
    (validate-snapshot-data! machine-id snapshot schema phase (constantly true)))
   ([machine-id snapshot schema phase continue?]
+   (validate-snapshot-data! machine-id snapshot schema phase continue?
+                            (rf.frame/current-event-owner-frame-id)))
+  ([machine-id snapshot schema phase continue? frame-id]
    (if-let [validate-fn (rf.late-bind/get-fn-cached
                           :schemas/validate-with-registered-fn)]
      (let [data   (:data snapshot)
@@ -227,7 +339,7 @@
          result true
          :else
          (do
-           (emit-failure! machine-id :machine-data phase data schema nil
+           (emit-failure! machine-id frame-id :machine-data phase data schema nil
                           (not (contains? local-skip-phases phase))
                           (str "Machine " machine-id
                                " :data failed schema at boundary :where "
@@ -304,11 +416,19 @@
   ([runtime-db event-id frame-id]
    (validate-machine-data! runtime-db event-id frame-id
                            (owner-continuation frame-id)))
-  ([runtime-db _event-id _frame-id continue?]
-  ;; `event-id` and `frame-id` are accepted but unused at this boundary
-  ;; (the per-snapshot emit already names the machine); the arity matches
+  ([runtime-db _event-id frame-id continue?]
+  ;; `event-id` is accepted but unused at this boundary — the per-snapshot
+  ;; emit names the MACHINE, which is the failing id here; the arity matches
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
   ;; be invoked uniformly.
+  ;;
+  ;; `frame-id` WAS unused too, and rf2-vkn8 is what needed it: the always-on
+  ;; rejection record routes to the frame's `:observability :errors` sink by
+  ;; its `:frame` slot, so without threading the router's frame down to the
+  ;; emit the record could reach corpus listeners but never the frame that
+  ;; owns the rejected transition. It is threaded for the RECORD only — the
+  ;; trace tags are unchanged, so Xray, Story and the epoch recorder read a
+  ;; byte-identical trace.
   (if rf.interop/debug-enabled?
     ;; Per the validate-app-schema! pattern: validate EVERY snapshot (no
     ;; short-circuit) so each failing machine surfaces its
@@ -330,7 +450,8 @@
               schema-entry (resolve-data-schema machine-id snapshot continue?)
               result (if (and (continue?) schema-entry)
                        (validate-snapshot-data!
-                         machine-id snapshot (val schema-entry) :macrostep continue?)
+                         machine-id snapshot (val schema-entry) :macrostep
+                         continue? frame-id)
                        true)]
           (if (or (= :rf/stale-incarnation result)
                   (not (continue?)))
@@ -502,7 +623,8 @@
                   (not (continue?)) :rf/stale-incarnation
                   conforms?         true
                   :else
-                  (do (emit-failure! machine-id :machine-output :completion result
+                  (do (emit-failure! machine-id (rf.frame/current-event-owner-frame-id)
+                                     :machine-output :completion result
                                      schema nil false
                                      (str "Machine " machine-id
                                           " completion output (the :output-key payload) "

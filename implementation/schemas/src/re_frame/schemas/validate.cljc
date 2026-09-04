@@ -427,6 +427,69 @@
        :time            (interop/now-ms)}))
   nil)
 
+(defn- emit-malformed-schema-rejection-record!
+  "Fan ONE structural-only `:rf.error/malformed-schema` record onto the
+  always-on `:errors` stream for a candidate transition REJECTED because a
+  registered `app-db` schema is itself malformed (RULED rf2-xpd8, extended to
+  this arm by rf2-vkn8).
+
+  Sibling of `emit-app-db-rejection-record!` above, for the same reason it is
+  a sibling rather than a shared seam: the union record is BUILT FROM this
+  arm's own structural inputs, so no `:where` switch exists for a future arm
+  to fall through by default.
+
+  ## Why this arm belongs on the stream with the other one
+
+  It is the SAME consequence — `:rollback? true`, the whole candidate
+  discarded, nothing installed — reached through the schema FORM rather than
+  the value. Leaving it trace-only would have been the worse half of an
+  inconsistency: a developer whose non-nilable schema rejects every commit
+  would see red console lines, while one whose childless `[:vector]` rejects
+  every commit would see an app that silently stopped updating. Both are the
+  same programming error class, and both are dev-only, so both report from
+  inside `validate-app-schema!`'s own `debug-enabled?` gate.
+
+  ## The `:reason` is a CONSTANT sentence, and that is the point
+
+  The dev trace's reason for this arm interpolates the THROWING VALIDATOR'S
+  MESSAGE. That message is unbounded and author-controlled — a user-supplied
+  `set-schema-validator!` fn may say anything, and Malli's own form errors
+  `pr-str` the offending schema — so it cannot ride a record that fans out to
+  corpus listeners and a frame's `:observability :errors` sink. This sentence
+  is composed from the registered path alone (the literal vector the
+  application author wrote in their own `reg-app-schema` call) plus framework
+  prose. The validator's message stays on the DCE'd dev trace, which is
+  BYTE-IDENTICAL to before this change.
+
+  `:schema` (the malformed registration form), `:path`, and every
+  value-bearing slot are omitted for the reasons `emit-app-db-rejection-
+  record!` sets out — and note this arm never carried a value in the first
+  place: the validator threw, so it never proved the slot's sensitivity, and
+  omitting it is the fail-closed posture the category was built with.
+
+  Reached through the `:error-emit/dispatch-error-record` late-bind hook,
+  never a static require into core's error-emit namespace. A nil hook is a
+  silent skip. Returns nil."
+  [registered-path event-id frame-id]
+  (when-let [dispatch-error-record! (late-bind/get-fn-cached
+                                      :error-emit/dispatch-error-record)]
+    (dispatch-error-record!
+      {:error           :rf.error/malformed-schema
+       :where           :app-db
+       :registered-path registered-path
+       :event-id        event-id
+       :failing-id      event-id
+       :frame           frame-id
+       :rollback?       true
+       :recovery        :no-recovery
+       ;; ONE string literal for the tail — `str` compiles to a runtime
+       ;; concat, so a tail split across two literals could never be proven
+       ;; absent from a release bundle by `check-elision.cjs`.
+       :reason          (str "Registered app-db schema at path " registered-path
+                             " is malformed and could not be evaluated; the candidate transition was rejected fail-closed and nothing installed.")
+       :time            (interop/now-ms)}))
+  nil)
+
 (defn- emit-malformed-schema!
   "Single emit seam for `:rf.error/malformed-schema` traces.
 
@@ -778,6 +841,17 @@
                (let [validator-error (second validation-result)
                      reason          #?(:clj  (.getMessage ^Throwable validator-error)
                                         :cljs (ex-message validator-error))]
+                 ;; rf2-vkn8: the always-on `:errors` record FIRST, then the
+                 ;; dev trace — `emit-error-both!`'s axis-1-then-axis-2
+                 ;; ordering, so the JVM SSR listener's last-write-wins buffer
+                 ;; keeps the richer trace as its final input. Both sit inside
+                 ;; `validate-app-schema!`'s outermost `debug-enabled?` gate,
+                 ;; and neither is behind a `(continue?)` the other is not:
+                 ;; this branch runs no application callback between them (the
+                 ;; validator already threw), so they cannot disagree about
+                 ;; whether this rejection happened.
+                 (emit-malformed-schema-rejection-record!
+                   registered-path event-id frame-id)
                  (emit-malformed-schema!
                    (cond-> {:where           :app-db
                             :path            registered-path

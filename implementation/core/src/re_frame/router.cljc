@@ -1178,7 +1178,54 @@
         emit-throw-reject!
         ;; Surface a validator-machinery throw AND reject (fail closed).
         ;; DCE-gated inside `rf.trace/emit-error!`.
+        ;;
+        ;; rf2-vkn8: ALSO fan one structural-only record onto the always-on
+        ;; `:errors` stream, BEFORE the trace (`emit-error-both!`'s
+        ;; axis-1-then-axis-2 ordering, so the JVM SSR listener's
+        ;; last-write-wins buffer keeps the richer trace as its final input).
+        ;; This is the third `:rollback? true` producer the rf2-xpd8 ruling
+        ;; covers: a wholesale validator-machinery throw rejects the WHOLE
+        ;; candidate transition, and until now said so on the dev trace only —
+        ;; so an app whose registered validator was itself broken stopped
+        ;; committing with nothing on the stream it registered to hear about
+        ;; its own errors.
+        ;;
+        ;; The `rf.interop/debug-enabled?` gate is EXPLICIT here where the
+        ;; other two arms inherit one, and it is deliberate rather than
+        ;; belt-and-braces. `run-candidate-validation!` itself is NOT
+        ;; dev-gated — it runs in every build — while both validators it can
+        ;; reach return `true` from inside their own gate in production, so
+        ;; this catch is unreachable there anyway. Stating the gate is what
+        ;; makes that structural rather than incidental: it keeps the promise
+        ;; Spec 009 §The promotion criterion makes for this whole class (the
+        ;; record is present exactly when the check is and on no axis at all
+        ;; in a release build), and it lets `check-elision.cjs` PROVE the
+        ;; reason's tail absent from a `goog.DEBUG=false` bundle.
+        ;;
+        ;; The `:reason` is a CONSTANT sentence naming only the boundary, NOT
+        ;; the throwing validator's message. That message is unbounded and
+        ;; author-controlled — a user-supplied `set-schema-validator!` fn may
+        ;; say anything, including the value it choked on — and an unbounded
+        ;; reason on a bounded record is exactly the defect this campaign
+        ;; exists to avoid. It stays on the DCE'd dev trace below, which is
+        ;; byte-identical to before.
         (fn [where ex]
+          (when rf.interop/debug-enabled?
+            (rf.error-emit/dispatch-error-record!
+              {:error      :rf.error/malformed-schema
+               :where      where
+               :event-id   event-id
+               :failing-id event-id
+               :frame      frame
+               :rollback?  true
+               :recovery   :no-recovery
+               ;; ONE string literal for the tail — `str` compiles to a
+               ;; runtime concat, so a split tail could never be proven
+               ;; absent from a release bundle.
+               :reason     (str "A candidate-transition validator threw at the "
+                                where
+                                " boundary; the candidate transition was rejected fail-closed and nothing was installed.")
+               :time       (rf.interop/now-ms)}))
           (rf.trace/emit-error!
             :rf.error/malformed-schema
             (cond-> {:where     where

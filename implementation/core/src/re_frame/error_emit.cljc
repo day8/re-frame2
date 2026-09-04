@@ -426,10 +426,12 @@
   and dev-only checks that merely SKIP or SURFACE a value — stay
   trace-only and do NOT call this fn; that is correct, not a gap. The
   exception, ruled rf2-xpd8, is a dev-gated refusal that discards a WHOLE
-  candidate transition: `:rf.error/schema-validation-failure`
-  `:where :app-db` with `:rollback? true` fans a structural-only record
-  onto the `:errors` stream from inside its own `debug-enabled?` gate,
-  through [[dispatch-error-record!]] rather than this fn. A release build
+  candidate transition: `:rf.error/schema-validation-failure` at
+  `:where :app-db` and `:where :machine-data`, and
+  `:rf.error/malformed-schema` at both its rejection sites — every arm
+  carrying `:rollback? true`, and only those — fans a structural-only
+  record onto the `:errors` stream from inside its own `debug-enabled?`
+  gate, through [[dispatch-error-record!]] rather than this fn. A release build
   carries neither the check nor the record, so the always-on axis's
   production contract is unchanged — what is conditional is the PRODUCER.)
 
