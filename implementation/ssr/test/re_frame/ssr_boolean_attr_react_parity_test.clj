@@ -141,15 +141,20 @@
    {:react       :none      ; react-dom refuses a boolean `ismap` outright
     :re-frame    :presence
     :because
-    "004B §Booleans and their neighbours names `ismap` in the boolean set
-     explicitly (\"React 19 dropped the camel `isMap` prop\"), and the roster
-     follows the spec. Measured against the installed react-dom, that row is
-     wrong: a boolean `ismap` warns \"Received `true` for a non-boolean
-     attribute\" and emits NOTHING, so it never reaches this evidence fixture
-     at all. `ismap` IS a real HTML boolean attribute, so presence is the
-     HTML-correct rendering and this is not obviously a defect — what is
-     unsettled is whether the grammar tracks HTML or react-dom where the two
-     part. That is a 004B decision; it is recorded, not resolved here."}})
+    "004B §Booleans and their neighbours names `ismap` in the boolean set,
+     and the roster follows the spec. The spec's ORIGINAL justification for
+     the name was measured false (rf2-u6zw): it read \"the react-dom/server
+     19.2.0 boolean-attribute list ... includes `ismap` (React 19 dropped the
+     camel `isMap` prop)\", but react-dom 19.2.0 accepts no boolean `ismap` in
+     ANY spelling — the name is absent from its `possibleStandardNames`
+     altogether, a boolean warns \"Received `true` for a non-boolean
+     attribute\" and emits NOTHING, and so it can never reach this evidence
+     fixture. 004B has since RULED on the row rather than merely naming it:
+     `ismap` IS a real HTML boolean attribute on `<img>`, presence is the
+     HTML-correct rendering, and the grammar tracks HTML where the two part
+     on a genuine HTML boolean attribute. The expected class below is
+     therefore unchanged — what changed is that the divergence is now stated
+     in 004B with its reason instead of hiding inside a false provenance."}})
 
 (defn- expected-class
   "What `boolean-attr-class` must say for `attribute-name`: React's class,
@@ -225,7 +230,8 @@
     (is (not (contains? (set (map (comp collapse :attribute) (rows))) "ismap"))
         "react-dom accepts no boolean `ismap`, so no row can exist for it")
     (is (= :presence (rf.ssr.html-helpers/boolean-attr-class "ismap"))
-        "the roster follows 004B here; the divergence is recorded, not fixed")))
+        "the roster follows 004B here; since rf2-u6zw the divergence is ruled
+         and stated in 004B's own row, not merely recorded downstream")))
 
 (deftest every-roster-name-is-backed-by-react-evidence
   (testing "rf2-r9kf — the REVERSE direction. Agreeing with React about the
