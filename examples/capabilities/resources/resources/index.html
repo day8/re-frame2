@@ -2,6 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <!-- This example ships a two-segment route ("/articles/:slug"), and a page's
+       relative URLs resolve against the DOCUMENT url — which, under the default
+       history strategy, is the route. Without this, deep-linking or refreshing
+       on /articles/intro would resolve every asset below against /articles/, so
+       the page would lose its stylesheet and favicon — and, because main.js is
+       relative too, the app would never boot at all. One <base> fixes all of
+       them; see the Hicasso routing guide, "A route deeper than one segment
+       moves what relative URLs resolve against".
+       Under a sub-path deployment this becomes <base href="/my-app/">, with
+       rf.routing/with-base-path on the frame's :url-strategy so the two agree. -->
+  <base href="/">
   <title>re-frame2 example: resources</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#1A1814">
