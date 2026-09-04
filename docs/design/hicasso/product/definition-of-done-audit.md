@@ -54,8 +54,10 @@ under `implementation/core/`, plus `spec/009-Instrumentation.md`, `spec/Spec-Sch
 `scripts/require-alias-baseline.edn` and the tracker export.
 
 **The delta is conclusion-neutral, on three measurements and not on inspection of the commit
-subjects.** *(i)* **Path intersection is empty.** Of the eighteen repository paths this page
-cites, none appears in the 316. *(ii)* **Both tree-wide censuses re-read identically at the merge
+subjects.** *(i)* **Path intersection is empty.** The eighteen repository paths this page cited as
+published — the ones its readings are taken from — intersect the 316 in nothing. (This amendment
+names several of the changed paths itself, in the act of describing them; that is the amendment
+talking about the delta, not a finding reading it.) *(ii)* **Both tree-wide censuses re-read identically at the merge
 parent.** The donor `:require` census of [§2.12](#212-bullet-17--donor-independence) reads **six**
 forms across three files at `e04a026749` exactly as at `09d4d84a80` — all under
 `docs/design/freehand/`, none in any `.clj`, `.cljs` or `.cljc` source — and
