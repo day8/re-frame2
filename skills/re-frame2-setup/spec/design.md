@@ -75,6 +75,12 @@ The manual route writes `first-counter.md`'s files; the generator route runs `cl
 
 `references/first-counter.md`'s twelve files and `references/entry-namespace.md`'s three UIx files are generated regions rendered from `tools/template/` by `tests/first_counter_derivation.clj` (which loads the template's real `hooks.clj` for the substitution values and the file map, and re-does only deps-new's `{{key}}` copy). Two locks hold them to the template from different instruments: `setup_drift_test.clj` compares the leaves to the Babashka render; `emitted_test_run_test.clj` compares them to a real deps-new emission byte for byte. A template change that alters the emission reds both until the leaves are regenerated. There is no second template, no per-skill variant of any file, and no hand edit inside a generated region (rf2-rc0yh slice B, consuming rf2-zq34m's one-selector contract).
 
+### L14 — One project-identity derivation, and it is the generator's
+
+An author-supplied project name is **derived**, not renamed token by token. `SKILL.md` §Project identity states the one rule both routes use, and it is the generator template's own: normalise to `group/artefact` (an unqualified name is doubled, as deps-new doubles it); the namespace root is the whole coordinate with `/` → `.` and `_` → `-`; the source/test path is the whole coordinate with `.` → `/` and `-` → `_`; the npm name is the artefact segment lowercased and the project directory that segment verbatim; the `<h1>` / `<title>` / README heading is the coordinate verbatim. An artefact segment npm cannot take is refused **before the first file is written**, matching `->npm-name`, which throws before deps-new emits.
+
+The manual route is NOT folded into the generator, and that is deliberate: it is the default route, it needs nothing beyond the skill's `allowed-tools` grants, and cardinal rule 4 already falls back to it when the globally-installed `-Tnew` deps-new tool is absent. What is single-sourced is the *derivation*, not the file-writing — `tests/project_identity_test.clj` loads the template's real `hooks.clj` and executes the rule as SKILL.md words it, so the two cannot drift silently (rf2-sioc). Before that rule existed, the leaf said only to rename `acme` / `my-app` consistently, which is deterministic for the reference identity alone: a textual rename of `com.acme/my-cool-app` lands `src/com.acme/my_cool_app`, which does not back the namespace `shadow-cljs.edn`'s `:init-fn` names, and the scaffold dies at the terminating compile wearing an error that mentions neither the name nor the rename.
+
 ## 4. Audience and scope
 
 ### In scope
@@ -115,7 +121,8 @@ skills/re-frame2-setup/
 ├── tests/
 │   ├── first_counter_derivation.clj (renders the two generated regions from the template; Babashka)
 │   ├── setup_drift_test.clj       (structural drift guard incl. the derivation lock; Babashka)
-│   └── generator_route_test.clj   (generator-route command fixture; Babashka)
+│   ├── generator_route_test.clj   (generator-route command fixture; Babashka)
+│   └── project_identity_test.clj  (the identity rule, held to the template hook; Babashka)
 └── evals/
     └── evals.json                 (trigger-accuracy fixture + graded start-from-nothing / generator-route evals)
 ```
@@ -153,6 +160,7 @@ The skill's shipped scaffold is proven end to end and drift-guarded in re-frame2
 - **`setup-skill-leaves-are-the-template-emission-test`** (same file, ungated) — runs the real deps-new pipeline for `acme/my-app` on both substrates and asserts the leaves' generated blocks equal the emitted files byte for byte; its failure message names the regeneration command.
 - **`scripts/check_skill_setup_counter_drift.py`** — repo-level Python gate (`verify-skill-mcp-drift` CI job): counter-id vocabulary containment (first-counter.md ↔ entry-namespace.md ↔ template), the `:init-fn` hot-reload lifecycle wording, Spec 006 adapter-key vocabulary, one-canonical-source (first-counter.md is the sole copy-complete Reagent `core.cljs`), and the schemas single-require contract.
 - **`tests/setup_drift_test.clj`** — skill-local Babashka structural guard (`skills-structural` CI job): the derivation lock (the leaves equal `first_counter_derivation.clj`'s render, and carry no `{{…}}` / `<VERSION>` placeholder), the day-one-set locks (no schemas, Xray coord, devtools preload, `@xyflow/react` / `elkjs`, Xray host or CSP on the default route; the UIx route is the template's three-file swap and shares the other nine files), the build-discipline lockstep framing, the UIx template-pin parity, the publication-state coordinate branch, the zero-interview pin default + executor posture, the frame-root ENSURE boot on both substrates, the `^:dev/after-load` hook in the UIx entry ns, the leaf-size ceiling, and the public entry-ramp docs (docs-site page + skills index). Run locally with `bb tests/setup_drift_test.clj`.
+- **`tests/project_identity_test.clj`** — the L14 parity guard (`skills-structural` CI job): `load-file`s the template's real `hooks.clj` and compares `data-fn`'s `:namespace` / `:nested-dirs` / `:npm-name` against SKILL.md's identity rule *executed*, for the four inputs whose answers differ — the reference identity, a dotted qualified name, a bare (doubled) name and a mixed-case name — plus the npm-invalid artefact that must fail before emission. It also asserts SKILL.md states each derived string and that neither SKILL.md nor `first-counter.md` still offers a consistent token rename. Run locally with `bb tests/project_identity_test.clj`.
 - **`tests/generator_route_test.clj`** — resolves the `:local/root` out of the documented generator command exactly as `tools.deps` would, against a fresh target directory; the opt-in live arm (`RF2_SETUP_RUN_GENERATOR=1`) shells the real command.
 
 Broader real-regression coverage of the wiring lives in the substrate contract tests (`npm run test:cljs`) and the template's own tiers.
