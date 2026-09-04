@@ -123,8 +123,10 @@
 
 (deftest dispose-adapter-tolerates-throwing-root
   (testing "one root whose unmount throws does not strand the rest of
-            the drain — rf2-7v82h MUST 2 (per-root try/catch)"
+            the drain — rf2-7v82h MUST 2 (per-root try/catch) — and the
+            failure is then rethrown rather than discarded (rf2-ss8x)"
     (let [unmount-calls (atom [])
+          sentinel      (ex-info "boom" {:root :bad})
           bad-root      (make-fake-root :bad)
           good-root     (make-fake-root :good)
           roots         (atom [bad-root good-root])]
@@ -135,18 +137,25 @@
                     rdc/unmount     (fn [root]
                                       (swap! unmount-calls conj root)
                                       (when (identical? root bad-root)
-                                        (throw (ex-info "boom" {:root root})))
+                                        (throw sentinel))
                                       nil)]
         (let [render-fn (:render reagent-slim-adapter/adapter)]
           (render-fn [:div "bad"] #js {} nil)
           (render-fn [:div "good"] #js {} nil)
-          ;; Must not propagate the bad root's throw.
-          (is (nil? (adapter/dispose-adapter!))
-              "dispose-adapter! swallows the per-root throw and returns nil")
-          (is (some #(identical? bad-root %) @unmount-calls)
-              "the throwing root's unmount was attempted")
-          (is (some #(identical? good-root %) @unmount-calls)
-              "the good root was still drained despite the earlier throw"))))))
+          ;; The bad root's throw must not ABORT the drain — but it must
+          ;; still reach the caller once the drain is done. Both adapters
+          ;; share one spine drain, so this is the slim-side witness of the
+          ;; same Spec 006 rule.
+          (let [thrown (try (adapter/dispose-adapter!)
+                            ::returned-normally
+                            (catch :default e e))]
+            (is (some #(identical? bad-root %) @unmount-calls)
+                "the throwing root's unmount was attempted")
+            (is (some #(identical? good-root %) @unmount-calls)
+                "the good root was still drained despite the earlier throw")
+            (is (identical? sentinel thrown)
+                "dispose-adapter! rethrew the per-root failure unchanged after
+                the drain, instead of reporting a clean nil")))))))
 
 ;; ---- MUST 3: clear the hiccup-emitter -------------------------------------
 

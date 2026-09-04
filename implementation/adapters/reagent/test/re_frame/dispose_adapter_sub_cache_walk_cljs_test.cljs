@@ -21,10 +21,15 @@
        abort the rest of the walk (every other cached Reaction in the
        same cache + every cache in subsequent frames still gets
        disposed and cleared).
+    4. Best-effort is not silent (rf2-ss8x): once the drain has attempted
+       every Reaction and every root and ownership is finalized, the FIRST
+       captured failure is rethrown to the `rf/destroy-adapter!` caller,
+       unchanged, with any later failures attached as secondary evidence.
 
   ns ends in -cljs-test so shadow-cljs's `:node-test` build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.ratom :as ratom]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
@@ -141,8 +146,49 @@
             (str "post-dispose: frame " (pr-str fid)
                  "'s sub-cache atom is empty"))))))
 
-(deftest dispose-adapter-walk-is-best-effort
-  (testing "a throwing per-entry dispose does NOT abort the rest of the walk"
+;; ---- drain-then-rethrow (rf2-ss8x) ----------------------------------------
+;;
+;; Spec 006 §Adapter disposal lifecycle makes teardown failure THREE
+;; constraints at once, and they pull against each other: drain every
+;; Reaction and root even when one fails; do not swallow the failure; and
+;; when several fail, surface the FIRST one, because the later ones are
+;; usually its consequences. Before rf2-ss8x the shared spine drain got the
+;; first right and the second wrong — `(catch :default _ nil)` at each step —
+;; so `rf/destroy-adapter!` returned a clean nil over a teardown that had
+;; malfunctioned, and this file's own poison proof pinned that nil as
+;; correct.
+;;
+;; A throwing disposer needs a value the test can assert IDENTITY on, not
+;; just a message: "the first failure specifically" is unprovable against an
+;; error the runtime minted.
+;;
+;; It also has to be a value the disposer actually CALLS. The ratom family's
+;; claimed-generation disposer dispatches
+;; `re-frame.disposable/IDisposable` → the substrate's `IDisposable` →
+;; `:else nil`, so the bare `(js-obj "not" "a reaction")` this file used
+;; before rf2-ss8x fell through the `:else` and was skipped in silence — it
+;; proved the walk VISITED the entry and cleared the cache, but nothing ever
+;; threw, so the per-entry catch it was written to pin was never reached.
+;; `throwing-cached-reaction` reifies Reagent's own `IDisposable` (whose
+;; methods are `dispose!` / `add-on-dispose!`) so the real disposal route —
+;; `dispose!-dispatch` → `dispose-once!` → `ratom/dispose!` — lands in a body
+;; that throws a sentinel this test allocated.
+
+(defn- throwing-cached-reaction
+  "A sub-cache-shaped `:reaction` whose disposal throws `sentinel` and
+  records the attempt in `attempts`. Implements Reagent's `IDisposable`
+  so the adapter's claimed-generation disposer dispatches into it exactly
+  as it would into a real Reaction."
+  [sentinel attempts]
+  (reify ratom/IDisposable
+    (dispose! [_]
+      (swap! attempts inc)
+      (throw sentinel))
+    (add-on-dispose! [_ _f] nil)))
+
+(deftest dispose-adapter-drains-everything-then-rethrows-the-first-failure
+  (testing "a throwing per-entry dispose does NOT abort the rest of the walk,
+  AND the failure is rethrown to the caller once the drain is complete"
     (rf/make-frame {:id :walk/a})
     (rf/make-frame {:id :walk/b})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
@@ -156,36 +202,169 @@
       (is (= 1 @r-a))
       (is (= 1 @r-b))
 
-      ;; Inject a sentinel reaction into walk/a's sub-cache whose
-      ;; dispose path throws — mirrors a misbehaving downstream
-      ;; (e.g. an on-dispose hook raising). The walk must still drain
-      ;; the rest of walk/a's cache AND walk/b's cache.
-      (let [cache-a (:sub-cache (frame/frame :walk/a))
-            ;; A bare object with no IDispose impl — `interop/dispose!`
-            ;; routes through `:adapter/dispose!` (stock Reagent's
-            ;; `ratom/dispose!`) which assumes the IDisposable contract
-            ;; and throws on a plain map. The walk's per-entry try
-            ;; swallows the throw.
-            poison-entry {:reaction (js-obj "not" "a reaction")}]
-        (swap! cache-a assoc [:poison] poison-entry)
+      ;; Inject a poison entry into walk/a's sub-cache whose dispose throws
+      ;; — mirrors a misbehaving downstream (e.g. a user `:on-dispose` hook
+      ;; raising). The walk must still drain the rest of walk/a's cache AND
+      ;; walk/b's cache, and then surface this exact value.
+      (let [sentinel (ex-info "poison entry disposal" {::poison true})
+            attempts (atom 0)
+            cache-a  (:sub-cache (frame/frame :walk/a))]
+        (swap! cache-a assoc [:poison]
+               {:reaction (throwing-cached-reaction sentinel attempts)})
 
-        ;; Also snapshot the real reactions so we can verify they were
-        ;; reached.
         (let [reactions-before [r-a r-b]
               disposed         (atom #{})]
           (doseq [r reactions-before]
             (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
 
-          (adapter/dispose-adapter!)
+          (let [thrown (try (adapter/dispose-adapter!)
+                            ::returned-normally
+                            (catch :default e e))]
+            ;; (1) DRAIN EVERYTHING — the siblings past the poison entry,
+            ;; in the same frame and in a later one, were still disposed.
+            (doseq [r reactions-before]
+              (is (contains? @disposed r)
+                  "the walk reached and disposed the real Reaction past the poison entry"))
+            (is (= {} @(:sub-cache (frame/frame :walk/a)))
+                "walk/a's cache was still cleared despite the throw")
+            (is (= {} @(:sub-cache (frame/frame :walk/b)))
+                "walk/b's cache was still cleared after the throwing walk/a entry")
+            (is (= 1 @attempts)
+                "the poison entry was disposed exactly once — not retried")
 
-          (doseq [r reactions-before]
-            (is (contains? @disposed r)
-                "the walk reached and disposed the real Reaction past the poison entry"))
+            ;; (2) RETHROW — and (3) the IDENTICAL value, not a wrapper.
+            ;; This is the assertion the pre-rf2-ss8x drain fails: it
+            ;; returned nil here while every drain assertion above passed.
+            (is (identical? sentinel thrown)
+                "rf/destroy-adapter! rethrew the poison entry's own error object,
+                unwrapped, after the drain finished")
 
-          (is (= {} @(:sub-cache (frame/frame :walk/a)))
-              "walk/a's cache was still cleared despite the throw")
-          (is (= {} @(:sub-cache (frame/frame :walk/b)))
-              "walk/b's cache was still cleared after the throwing walk/a entry"))))))
+            ;; (4) Terminal lifecycle state despite the throw.
+            (is (nil? (adapter/current-adapter-spec))
+                "the install slot is cleared even though cleanup threw")
+            (is (true? (adapter/adapter-disposed?))
+                "the disposed breadcrumb is set even though cleanup threw")
+            (is (= :rf.error/adapter-disposed
+                   (try (adapter/make-state-container {})
+                        nil
+                        (catch :default e (:rf.error/id (ex-data e)))))
+                "public delegation reports :rf.error/adapter-disposed after a failed teardown")))))))
+
+(deftest dispose-adapter-rethrows-the-first-of-several-failures
+  (testing "with more than one cleanup failure the FIRST encountered value is
+  the thrown primary, and the later ones ride it as secondary evidence"
+    (rf/make-frame {:id :walk/multi})
+    (let [attempts (atom 0)
+          ;; Distinct sentinels so identity — not message, not order of
+          ;; assertion — decides which one became primary. Insertion order
+          ;; into the cache map is the traversal order the drain sees.
+          poisons  (mapv (fn [i] (ex-info (str "poison " i) {::poison i}))
+                         (range 3))
+          cache    (:sub-cache (frame/frame :walk/multi))]
+      (doseq [[i sentinel] (map-indexed vector poisons)]
+        (swap! cache assoc [:poison i]
+               {:reaction (throwing-cached-reaction sentinel attempts)}))
+
+      (let [thrown (try (adapter/dispose-adapter!)
+                        ::returned-normally
+                        (catch :default e e))
+            ;; Traversal order over a CLJS map is not a contract, so the
+            ;; primary is "whichever the drain met first", identified by
+            ;; membership rather than by index.
+            secondary (when (instance? js/Object thrown)
+                        (.-rfAdapterTeardownSecondaryErrors thrown))]
+        (is (= 3 @attempts)
+            "every poison entry was attempted — one failure did not abandon the rest")
+        (is (some #(identical? % thrown) poisons)
+            "the thrown value is one of the sentinels, unwrapped")
+        (is (some? secondary)
+            "later failures were attached to the primary as secondary evidence")
+        (is (= 2 (alength secondary))
+            "both later failures were retained")
+        (is (= (set (remove #(identical? % thrown) poisons))
+               (set (array-seq secondary)))
+            "the secondary evidence is exactly the failures that were not primary")
+        (is (= {} @cache)
+            "the sub-cache was still cleared")))))
+
+(deftest dispose-adapter-rethrows-a-falsey-primary-by-presence
+  (testing "a cleanup that throws nil is captured by PRESENCE, not truthiness —
+  a truthiness accumulator would silently drop it and report clean success"
+    (rf/make-frame {:id :walk/falsey})
+    (let [attempts (atom 0)
+          cache    (:sub-cache (frame/frame :walk/falsey))
+          outcome  (atom ::unset)]
+      (swap! cache assoc [:poison]
+             {:reaction (throwing-cached-reaction nil attempts)})
+      (try (adapter/dispose-adapter!)
+           (reset! outcome ::returned-normally)
+           (catch :default e (reset! outcome [::threw e])))
+      (is (= 1 @attempts) "the nil-throwing entry was attempted")
+      (is (= [::threw nil] @outcome)
+          "a thrown nil still reaches the caller as a throw, not as a clean return")
+      (is (= {} @cache) "the sub-cache was still cleared"))))
+
+(deftest dispose-adapter-drains-every-root-then-rethrows
+  (testing "one throwing root unmount does not strand its siblings, and the
+  identical failure reaches the caller only after every root was attempted"
+    ;; The active-roots cell is private to the spine closure, so the roots
+    ;; are registered the way production registers them — through the
+    ;; adapter's own `:render` slot — and observed through spies on
+    ;; `reagent.dom.client`. Both adapter ops resolve their rdc fn at CALL
+    ;; time precisely so `with-redefs` reaches them, which keeps this proof
+    ;; deterministic and DOM-free under :node-test.
+    (reset! frame/frames {})
+    (let [sentinel      (ex-info "root unmount" {::root true})
+          unmount-calls (atom [])
+          bad-root      #js {:rf-test-root-tag "bad"  :unmount (fn [] nil)}
+          good-root     #js {:rf-test-root-tag "good" :unmount (fn [] nil)}
+          pending       (atom [bad-root good-root])]
+      (with-redefs [rdc/create-root (fn
+                                      ([_]   (let [[r] @pending] (swap! pending rest) r))
+                                      ([_ _] (let [[r] @pending] (swap! pending rest) r)))
+                    rdc/render      (fn ([_ _] nil) ([_ _ _] nil) ([_ _ _ _] nil))
+                    rdc/unmount     (fn [root]
+                                      (swap! unmount-calls conj root)
+                                      (when (identical? root bad-root)
+                                        (throw sentinel))
+                                      nil)]
+        (let [render-fn (:render reagent-adapter/adapter)]
+          (render-fn [:div "bad"] #js {} nil)
+          (render-fn [:div "good"] #js {} nil)
+
+          (let [thrown (try (adapter/dispose-adapter!)
+                            ::returned-normally
+                            (catch :default e e))]
+            (is (some #(identical? bad-root %) @unmount-calls)
+                "the throwing root's unmount was attempted")
+            (is (some #(identical? good-root %) @unmount-calls)
+                "the healthy sibling was still drained despite the throw")
+            (is (= 2 (count @unmount-calls))
+                "each snapshot root was attempted exactly once — no retry of a consumed root")
+            (is (identical? sentinel thrown)
+                "the identical root-unmount failure reached the caller, after the drain")
+            (is (true? (adapter/adapter-disposed?))
+                "the disposed breadcrumb is set even though a root unmount threw")
+            (is (nil? (adapter/current-adapter-spec))
+                "active-root ownership released with the install slot despite the throw")))))))
+
+(deftest dispose-adapter-happy-teardown-still-returns-nil
+  (testing "a teardown with nothing failing is unchanged: nil return, and an
+  empty frames/roots registry stays no-op-safe"
+    (reset! frame/frames {})
+    (rf/make-frame {:id :walk/clean})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed] {:frame :walk/clean})
+    (is (= 1 @(rf/subscribe [:n] {:frame :walk/clean})))
+    (is (nil? (adapter/dispose-adapter!))
+        "a clean drain still returns nil — the rethrow is failure-only")
+    (is (true? (adapter/adapter-disposed?)))
+
+    ;; And a fresh generation installs over the disposed one.
+    (rf/init! reagent-adapter/adapter)
+    (is (= :rf.adapter/reagent (adapter/current-adapter))
+        "a fresh rf/init! installs a new generation after teardown")))
 
 (deftest claimed-generation-cleanup-keeps-public-delegation-terminal
   (testing "cleanup disposes through its claimed generation while every public

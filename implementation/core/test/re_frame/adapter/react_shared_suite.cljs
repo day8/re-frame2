@@ -299,8 +299,9 @@
         (is (= 1 @r-b))
         ;; Inject a poison entry into fid-a's sub-cache whose dispose
         ;; throws (a bare object with no IDisposable impl). The walk's
-        ;; per-entry try must swallow the throw and still drain the rest
-        ;; of fid-a AND fid-b.
+        ;; per-entry try must CAPTURE the throw and still drain the rest
+        ;; of fid-a AND fid-b — then rethrow it once the drain is done
+        ;; (rf2-ss8x; Spec 006 §Adapter disposal lifecycle).
         (let [cache-a      (:sub-cache (rf.frame/frame fid-a))
               poison-entry {:reaction (js-obj "not" "a reaction")}]
           (swap! cache-a assoc [:poison] poison-entry)
@@ -308,7 +309,13 @@
                 disposed  (atom #{})]
             (doseq [r reactions]
               (rf.disposable/-add-on-dispose r (fn [] (swap! disposed conj r))))
-            ((:dispose-adapter! adapter))
+            (let [thrown (try ((:dispose-adapter! adapter))
+                              ::returned-normally
+                              (catch :default e e))]
+              (is (not= ::returned-normally thrown)
+                  "the poison entry's cleanup failure reached the caller rather
+                  than being discarded — a silent nil here is what let
+                  rf/destroy-adapter! report success over a failed teardown"))
             (doseq [r reactions]
               (is (contains? @disposed r)
                   "the walk reached and disposed the real Reaction past the poison entry"))
