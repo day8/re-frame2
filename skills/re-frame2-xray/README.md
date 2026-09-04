@@ -12,7 +12,7 @@ Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction
 
 ## What Xray is
 
-An in-app true-inline devtools panel for re-frame2 applications, preloaded into dev builds via shadow-cljs `:preloads`. Xray consumes re-frame2's instrumentation surface (Spec 009 trace bus, Tool-Pair epoch history, the registrar query API) — it adds nothing the framework didn't already expose. Production builds elide the entire surface through the universal `interop/debug-enabled?` gate.
+An in-app true-inline devtools panel for re-frame2 applications, preloaded into dev builds via shadow-cljs `:preloads`. Xray consumes re-frame2's instrumentation surface (Spec 009 trace bus, Tool-Pair epoch history, the registrar query API) — it adds nothing the framework didn't already expose. The preload's `interop/debug-enabled?` gate is what keeps the surface out of production builds — it wraps the preload's boot block and nothing else. The programmatic `init!` path is not behind it, so a host that installs Xray from app code keeps the require out of its own release build.
 
 Xray is the human-facing panel; when the user asks an agent to inspect or change the running app — read-only included — that is [`re-frame2-pair`](../re-frame2-pair), the agent-facing runtime companion. The boundary is human panel vs agent runtime, not read vs write.
 

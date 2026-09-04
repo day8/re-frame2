@@ -99,8 +99,10 @@ Two distinct levers — pick the one that matches your intent:
   auto-open) is gone.
 
 - **Build-wide debug elision** — set `goog.DEBUG false`. This is the
-  canonical CLJS production flag; it gates *every* dev-only branch,
-  including Xray's. `re-frame.interop/debug-enabled?` is an alias of
+  canonical CLJS production flag; it eliminates every branch that is
+  *written* behind a `debug-enabled?` check — which inside Xray means the
+  preload's boot block and nothing else (§Production posture).
+  `re-frame.interop/debug-enabled?` is an alias of
   `goog.DEBUG` (`(def ^boolean debug-enabled? "@define {boolean}"
   ^boolean goog/DEBUG)`), so you closure-define `goog.DEBUG`, **not**
   `re-frame.interop/debug-enabled?` directly.
@@ -113,19 +115,35 @@ Two distinct levers — pick the one that matches your intent:
 
 ## Production posture
 
-The preload's foundation block is gated on `re-frame.interop/debug-
-enabled?`. Production builds compiled with `(set! goog.DEBUG false)`
-strip every side-effect — the trace collector registration, the
-epoch-cb registration, the keybinding listener, the mount call. CI
-verifies via `npm run test:elision`.
+**The preload's foundation block is the only `goog.DEBUG`-gated path in
+Xray.** It is wrapped in `(when rf.interop/debug-enabled? …)`, so a build
+compiled with `goog.DEBUG false` strips its side-effects — the trace
+collector registration, the epoch-cb registration, the browser-API
+exports, the keybinding listener, the auto-open call.
+
+**The programmatic `init!` path is not behind that gate**, and neither are
+the mount verbs. `init!` installs the foundation unconditionally, and
+`open!` gates only on a substrate adapter being present — which every app
+that called `rf/init!` has, production included. A host that installs Xray
+from app code owns its exclusion: see [`launch-programmatic.md` §Keeping
+the manual path out of
+production](launch-programmatic.md#keeping-the-manual-path-out-of-production).
+
+**`npm run test:elision` is not proof about Xray.** It compiles
+`re-frame.elision-probe` under `:advanced` twice (`goog.DEBUG` false and
+true) and greps for dev-only string sentinels drawn from `re-frame.*`
+namespaces. No Xray namespace is rooted or grepped, so a green run attests
+the *framework's* elision and says nothing about whether Xray reached a
+given bundle.
 
 **There is no in-build "Xray is enabled" warning banner.** A non-elided
 build gives no posture signal of its own — the tell that Xray shipped is
 simply that its surface is *there*: the panel mounts, the chrome renders,
 and `Ctrl+Shift+C` toggles it. So "would I notice Xray in production?"
-resolves to the elision gate above, not to a runtime warning: keep
-`npm run test:elision` in CI and the surface cannot reach a production
-build in the first place.
+resolves to the build posture above, not to a runtime warning — and since
+no gate in the repo greps a release bundle for Xray, the check that settles
+it is your own: grep your release output for `rf-xray-root` or `rf.xray`,
+both of which survive Closure as string literals.
 (`spec/007-UX-IA.md` §Production posture does describe a dismissable
 yellow banner for this case. Nothing in `tools/xray/src` implements it —
 it is normative-future, in the same class as the unwired keymap under

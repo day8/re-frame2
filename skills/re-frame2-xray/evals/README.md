@@ -40,8 +40,8 @@ when the eval shape changes in a way that breaks readers.
 
 ## Coverage
 
-32 evals, covering Xray's trigger surface and answer quality: 23 positives
-(skill should fire) and 9 negatives (skill should stay quiet). 19
+33 evals, covering Xray's trigger surface and answer quality: 24 positives
+(skill should fire) and 9 negatives (skill should stay quiet). 20
 positives carry the Layer-2 answer-quality `expectations[]`; they target the
 prompts whose answer drifts fastest as the Xray UI moves, plus the
 route-quality contract (one first surface in the first paragraph, no
@@ -53,7 +53,8 @@ only the focused family leaf):
 | 1 | `launch-default` | yes | True-inline (preload + `[data-rf-xray-host]`) is the canonical launch; overlay is NOT the default. |
 | 2 | `launch-popout` | yes | `(xray/popout!)` with call-parens; the visible `⛶` button is the canonical chrome path; no wired pop-out hotkey. |
 | 27 | `launch-popout-button` | yes | YES there is a visible `⛶` pop-out button — not programmatic-only, not an invented right-click path. |
-| 3 | `launch-programmatic` | yes | `init!` installs but does NOT open; a mount verb is still required; runs after `rf/init!`. |
+| 3 | `launch-programmatic` | yes | `init!` installs but does NOT open; a mount verb is still required; runs after `rf/init!`; the recipe is not presented as production-safe unguarded. |
+| 33 | `launch-production-safety` | yes | The manual `init!` + mount-verb path has NO `goog.DEBUG` gate — the preload's block is Xray's only one; `open!` gates on adapter presence, which production has; exclusion from the release build is the host's job (dev-only namespace / preload); `test:elision` is a framework-only probe and not proof of Xray's absence. |
 | 8 | `panel-route-machine-canvas` | yes | Full topology → Static Machines tab, not the event-driven Dynamic Machine tab; no standalone Machines-Canvas tab. |
 | 6 | `panel-route-state` | yes | Route quality: first paragraph → the Dynamic **app-db** tab (+ the L2 spine to find the changing epoch); first interaction (the inline `← was X` diff); no full-inventory dump. |
 | 7 | `panel-route-machine` | yes | Route quality: first surface → the Dynamic **Machine** tab (event-driven; blank without machine activity); Static Machines is the browse-cold *next* step, not the first surface; no inventory dump. |
@@ -74,7 +75,9 @@ only the focused family leaf):
 
 The Layer-2 set covers two contracts. The high-drift facts:
 launch-default, launch-overlay, launch-popout-button, launch-programmatic,
-config-init-vs-settings, chrome-rewind, chrome-palette, chrome-filters
+launch-production-safety (the production boundary of the manual facade —
+rf2-yk5i), config-init-vs-settings, chrome-rewind, chrome-palette,
+chrome-filters
 (the retired bulk Clear Filters vs per-pill `×` removal + the separate
 `🔇 N` mute-manager route), panel-route-machine-canvas,
 panel-route-schema, panel-route-hydration —
