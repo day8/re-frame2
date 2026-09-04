@@ -41,7 +41,7 @@
             [clojure.string :as str]
             [clojure.pprint :as pp]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.migration.hicasso.codemod :as cm]))
+            [re-frame.migration.hicasso.codemod :as rf.migration.hicasso.codemod]))
 
 (def ^:private corpus-root (io/file "test" "corpus"))
 
@@ -93,7 +93,7 @@
           rep-f    (io/file dir "expected-report.edn")
           src      (slurp in-f)
           path     (str "src/app/" (.getName ^java.io.File in-f))
-          result   (cm/rewrite-string src path)
+          result   (rf.migration.hicasso.codemod/rewrite-string src path)
           entries  (report-shape (:entries result))]
 
       (when regen?
@@ -111,11 +111,11 @@
             (str name* ": the fixer SAID something other than expected-report.edn")))
 
       (testing (str name* " — idempotence (§4.7): a second run is a no-op")
-        (let [again (cm/rewrite-string (:source result) path)]
+        (let [again (rf.migration.hicasso.codemod/rewrite-string (:source result) path)]
           (is (= (:source result) (:source again))
               (str name* ": running the fixer on its own output changed it, so some "
                    "output is still inside its own rewrite's input language"))))
 
       (testing (str name* " — determinism")
-        (is (= entries (report-shape (:entries (cm/rewrite-string src path))))
+        (is (= entries (report-shape (:entries (rf.migration.hicasso.codemod/rewrite-string src path))))
             (str name* ": two analyses of one input disagreed"))))))

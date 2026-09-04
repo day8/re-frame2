@@ -20,9 +20,9 @@
  {
   ".clj-kondo"                            0
   "bench"                                 701
-  "docs"                                  16
+  "docs"                                  0
   "examples"                              65
-  "implementation/adapters"               339
+  "implementation/adapters"               337
   "implementation/core"                   0
   "implementation/derivation-conformance" 0
   "implementation/epoch"                  196
@@ -41,8 +41,8 @@
   "implementation/ssr"                    399
   "implementation/ssr-ring"               129
   "implementation/test-quiet"             5
-  "migration"                             27
-  "skills"                                15
-  "testbeds"                              25
+  "migration"                             0
+  "skills"                                0
+  "testbeds"                              0
   "tools"                                 2294
  }}

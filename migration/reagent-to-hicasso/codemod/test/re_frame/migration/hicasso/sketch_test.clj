@@ -27,7 +27,7 @@
 
   1. the sketch READS — one form, no reader error;
   2. it is `(h/defhost <name> <component> …)` with a name `def` will take;
-  3. every contract it names is in [[dest/callback-contracts]], which
+  3. every contract it names is in [[rf.migration.hicasso.dest/callback-contracts]], which
      `shared-rule-test` holds equal to the door's own roster;
   4. and — the assertion that is not vacuous — FILLING the scaffold
      yields a `:callbacks` map of exactly this site's positions, each
@@ -38,9 +38,9 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.migration.hicasso.codemod :as cm]
-            [re-frame.migration.hicasso.dest :as dest]
-            [re-frame.migration.hicasso.report :as report]))
+            [re-frame.migration.hicasso.codemod :as rf.migration.hicasso.codemod]
+            [re-frame.migration.hicasso.dest :as rf.migration.hicasso.dest]
+            [re-frame.migration.hicasso.report :as rf.migration.hicasso.report]))
 
 ;; ---------------------------------------------------------------------------
 ;; The corpus, through the REAL report builder
@@ -56,12 +56,12 @@
 
 (defn- corpus-report
   "The artefact the CLI writes, over the whole corpus at once — so this
-  suite exercises `report/build` rather than a private helper, and sees
+  suite exercises `rf.migration.hicasso.report/build` rather than a private helper, and sees
   the sketches exactly as a migrator does."
   []
-  (let [results (mapv #(cm/scan-string (slurp %) (str "src/app/" (.getName ^java.io.File %)))
+  (let [results (mapv #(rf.migration.hicasso.codemod/scan-string (slurp %) (str "src/app/" (.getName ^java.io.File %)))
                       (corpus-inputs))]
-    (report/build {:entries          (vec (mapcat :entries results))
+    (rf.migration.hicasso.report/build {:entries          (vec (mapcat :entries results))
                    :suggestions      (vec (mapcat :suggestions results))
                    :files-scanned    (count results)
                    :files-changed    0
@@ -70,7 +70,7 @@
 
 (defn- components [] (get-in (corpus-report) [:suggestions :components]))
 
-(def ^:private contracts (set dest/callback-contracts))
+(def ^:private contracts (set rf.migration.hicasso.dest/callback-contracts))
 
 ;; ---------------------------------------------------------------------------
 ;; The pin is only worth something if it has something to read
@@ -122,12 +122,12 @@
             (is (contains? contracts contract)
                 (str "the sketch declares " (pr-str slot) " as " (pr-str contract)
                      ", which the door refuses; the contracts are "
-                     (str/join ", " (map pr-str dest/callback-contracts))))))
+                     (str/join ", " (map pr-str rf.migration.hicasso.dest/callback-contracts))))))
 
         (testing "declares no structural slot — `key` and `ref` are
                   refused at mint in every spelling"
           (doseq [slot (keys (:callbacks opts))]
-            (is (not (contains? #{"key" "ref"} (dest/canonical-slot slot)))
+            (is (not (contains? #{"key" "ref"} (rf.migration.hicasso.dest/canonical-slot slot)))
                 (str "the sketch declares the structural slot " (pr-str slot)))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@
 
 (deftest filling-the-scaffold-mints
   (doseq [{:keys [head defhost event-slots fn-slots]} (components)
-          contract dest/callback-contracts]
+          contract rf.migration.hicasso.dest/callback-contracts]
     (testing (str "the sketch for " head " filled with " contract)
       (let [slots (mapv edn/read-string (distinct (concat event-slots fn-slots)))
             opts  (nth (read-one (fill defhost contract)) 3)]

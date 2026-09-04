@@ -65,24 +65,24 @@
   rather than the macro-less `reg-machine*` variant."
   (:require [sci.core :as sci]
             [re-frame.core :as rf]
-            [re-frame.router :as router]
-            [re-frame.subs :as subs]
+            [re-frame.router :as rf.router]
+            [re-frame.subs :as rf.subs]
             ;; The frame api constructor behind `capture-frame` and the
             ;; `reg-view` injection — an owned implementation seam, off the
             ;; facade (rf2-93sxp). Bound under its own SCI namespace below so
             ;; the `reg-view` shim can name it exactly as the real expansion
             ;; does, without copying an internal alias into `re-frame.core`.
-            [re-frame.capture-frame :as capture-frame]
+            [re-frame.capture-frame :as rf.capture-frame]
             ;; Consumed (not re-exposed to cells) for page-owned registration
             ;; ownership + clear-on-disposal — see `disposePage` (rf2-u4pqs).
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.views]
             [re-frame.machines]
             ;; flows artefact (Spec 007): required for its late-bind hooks so
             ;; `rf/reg-flow` (a copy-ns'd core fn-alias) is live in cells —
             ;; same pattern as re-frame.machines above (rf2 guide page 7).
             [re-frame.flows]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [reagent2.core :as r]
             [reagent2.ratom :as ratom]
             [reagent2.dom.client :as rdc]))
@@ -113,16 +113,16 @@
 ;; (and the whole point of these wrappers is to inject the default `:frame`,
 ;; not to author a real application call site).
 (defn- playground-dispatch
-  ([event]      (router/dispatch! event {:frame app-frame}))
-  ([event opts] (router/dispatch! event (merge {:frame app-frame} opts))))
+  ([event]      (rf.router/dispatch! event {:frame app-frame}))
+  ([event opts] (rf.router/dispatch! event (merge {:frame app-frame} opts))))
 
 (defn- playground-dispatch-sync
-  ([event]      (router/dispatch-sync! event {:frame app-frame}))
-  ([event opts] (router/dispatch-sync! event (merge {:frame app-frame} opts))))
+  ([event]      (rf.router/dispatch-sync! event {:frame app-frame}))
+  ([event opts] (rf.router/dispatch-sync! event (merge {:frame app-frame} opts))))
 
 (defn- playground-subscribe
-  ([query-v]      (subs/subscribe query-v {:frame app-frame}))
-  ([query-v opts] (subs/subscribe query-v (merge {:frame app-frame} opts))))
+  ([query-v]      (rf.subs/subscribe query-v {:frame app-frame}))
+  ([query-v opts] (rf.subs/subscribe query-v (merge {:frame app-frame} opts))))
 
 (def rf-ns (sci/create-ns 're-frame.core nil))
 
@@ -213,7 +213,7 @@
 ;; above, so the facade a cell sees stays the real one.
 (def capture-frame-ns (sci/create-ns 're-frame.capture-frame nil))
 (def re-frame-capture-frame-namespace
-  {'make-capture-frame (sci/copy-var capture-frame/make-capture-frame capture-frame-ns)})
+  {'make-capture-frame (sci/copy-var rf.capture-frame/make-capture-frame capture-frame-ns)})
 
 (def r-ns (sci/create-ns 'reagent2.core nil))
 (def reagent2-core-namespace (sci/copy-ns reagent2.core r-ns))
@@ -255,7 +255,7 @@
 
 (defn- ensure-adapter! []
   (when-not @adapter-inited?
-    (rf/init! reagent-slim-adapter/adapter)
+    (rf/init! rf.adapter.reagent-slim/adapter)
     (reset! adapter-inited? true)))
 
 ;; EP-0002 (carried-frame invariant): `rf/init!` installs the adapter but the
@@ -302,7 +302,7 @@
 (defn- capture-registration-baseline! []
   (when (nil? @baseline-registrations)
     (reset! baseline-registrations
-            (into {} (map (fn [k] [k (registrar/ids k)])) registrar/kinds))))
+            (into {} (map (fn [k] [k (rf.registrar/ids k)])) rf.registrar/kinds))))
 
 (defn- ensure-init! []
   (ensure-adapter!)
@@ -429,7 +429,7 @@
        reuses another cell's registration (the rf2-io9mdr isolation break this
        step closes). We clear exactly the page-owned set — `current − baseline`,
        where `baseline` is the framework/bundle-init snapshot captured at
-       `ensure-init!` — via `registrar/unregister!`, so a later page's dispatch/
+       `ensure-init!` — via `rf.registrar/unregister!`, so a later page's dispatch/
        subscribe through a cleared page-only id raises the ordinary
        `:rf.error/no-such-handler` / `:rf.error/no-such-sub` instead of hitting a
        leaked handler.
@@ -463,11 +463,11 @@
   ;;    guarded so one failure can't strand the rest. No-op before any cell ran
   ;;    (baseline nil ⇒ nothing page-owned yet).
   (when-let [baseline @baseline-registrations]
-    (doseq [kind registrar/kinds]
+    (doseq [kind rf.registrar/kinds]
       (let [baseline-ids (get baseline kind #{})]
-        (doseq [id (registrar/ids kind)]
+        (doseq [id (rf.registrar/ids kind)]
           (when-not (contains? baseline-ids id)
-            (try (registrar/unregister! kind id) (catch :default _ nil)))))))
+            (try (rf.registrar/unregister! kind id) (catch :default _ nil)))))))
   nil)
 
 ;; ---------------------------------------------------------------------------

@@ -67,9 +67,9 @@
             ;; (production-DCE split). re-frame2-pair is dev-tier — loading the
             ;; tooling sibling here is bundle-isolation-safe (the
             ;; preload is dev-only).
-            [re-frame.subs.tooling :as subs-tooling]
-            [re-frame.schemas :as schemas]
-            [re-frame.machines :as machines]
+            [re-frame.subs.tooling :as rf.subs.tooling]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.machines :as rf.machines]
             ;; register-listener! / trace-buffer (and the rest of
             ;; the listener + ring-buffer surface) live in
             ;; re-frame.trace.tooling, not re-frame.trace. CLJS deliberately
@@ -77,7 +77,7 @@
             ;; bundles DCE the tooling sibling wholesale; this preload is
             ;; dev-only, so requiring the tooling ns directly here is
             ;; bundle-isolation-safe.
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; `flush-render!` (the SYNCHRONOUS render-commit contract fn,
             ;; Spec 006 §`flush-render!`) lives in
             ;; re-frame.substrate.adapter, not re-frame.core. It resolves
@@ -90,14 +90,14 @@
             ;; `:rf.view/unmounted` traces land in (and re-fan back to the
             ;; causing) epoch before we re-read it. Dev-tier preload, so the
             ;; direct require is bundle-isolation-safe.
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.interop :as interop]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.interop :as rf.interop]
             ;; `parse-source-coord` (the canonical inverse of
             ;; `format-source-coord`) is the source-coord contract owner's
             ;; parser for the `data-rf2-source-coord` DOM attribute. The pair
             ;; preload routes through this one canonical impl in core.
             ;; Dev-tier preload, so the direct require is bundle-isolation-safe.
-            [re-frame.source-coords :as source-coords]
+            [re-frame.source-coords :as rf.source-coords]
             ;; `re-frame.fx/*effect-sink*` (rf2-j538f7.39) is the framework's
             ;; dry-run EFFECT SINK — an internal, in-process dev-tool seam.
             ;; `dispatch-dry-run` binds it around a `dispatch-sync` so the
@@ -105,7 +105,7 @@
             ;; effect executor (`do-fx`), structurally unable to run any fx
             ;; body — no registrar enumeration. Dev-tier preload, so the direct
             ;; require into a non-facade core ns is bundle-isolation-safe.
-            [re-frame.fx :as fx]
+            [re-frame.fx :as rf.fx]
             [clojure.data :as data]
             [clojure.string :as str]
             ;; cljs.reader is load-bearing for the eval-cljs typed result
@@ -596,7 +596,7 @@
    Map of `path → schema`. (re-frame.schemas/app-schemas frame-id)"
   ([] (schemas (current-frame)))
   ([frame-id]
-   (schemas/app-schemas frame-id)))
+   (rf.schemas/app-schemas frame-id)))
 
 ;; ---------------------------------------------------------------------------
 ;; Registrar introspection
@@ -974,7 +974,7 @@
    subscription in the operating frame. CLJS-only; nil on JVM."
   ([] (sub-cache (current-frame)))
   ([frame-id]
-   (subs-tooling/sub-cache-snapshot frame-id)))
+   (rf.subs.tooling/sub-cache-snapshot frame-id)))
 
 (defn sub-cache-info
   "List the LIVE reactive subscriptions materialised in a frame's
@@ -982,7 +982,7 @@
    currently active?\".
 
    Reads the SAME source `snapshot`'s `:sub-cache` slice reads
-   (`subs-tooling/sub-cache-snapshot`, via the `sub-cache` fn above), so
+   (`rf.subs.tooling/sub-cache-snapshot`, via the `sub-cache` fn above), so
    the two never disagree. This is the live reactive cache: an entry
    appears the moment a view subscribes and DISAPPEARS when the last
    consumer disposes the reaction — so a disposed sub no longer shows
@@ -1025,7 +1025,7 @@
          frame-id (current-frame frame)]
      (if (nil? frame-id)
        (ambiguous-frame-error :sub-cache-info)
-       (let [cache (or (subs-tooling/sub-cache-snapshot frame-id) {})
+       (let [cache (or (rf.subs.tooling/sub-cache-snapshot frame-id) {})
              qvs   (sort-by pr-str (keys cache))]
          {:ok?   true
           :frame frame-id
@@ -1139,13 +1139,13 @@
 (defn machines-list
   "(rf.machines/machines) — all registered machine ids."
   []
-  (vec (machines/machines)))
+  (vec (rf.machines/machines)))
 
 (defn machine-describe
   "(rf.machines/machine-meta id) — registered spec map for one machine, or
    `{:ok? false :reason :not-a-machine}`."
   [machine-id]
-  (or (machines/machine-meta machine-id)
+  (or (rf.machines/machine-meta machine-id)
       {:ok? false :reason :not-a-machine :id machine-id}))
 
 (defn machine-state
@@ -1419,7 +1419,7 @@
    re-registration replaces the same listener id, and
    `last-trace-event-id` keeps working through it."
   []
-  (trace-tooling/register-listener! :re-frame2-pair on-trace-event))
+  (rf.trace.tooling/register-listener! :re-frame2-pair on-trace-event))
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a
@@ -1479,7 +1479,7 @@
         ;; so the tree walk reads them off the bundle slot rather
         ;; than re-deriving from raw trace events.
         bundles    (into []
-                         (mapcat #(trace-tooling/trace-buffer %))
+                         (mapcat #(rf.trace.tooling/trace-buffer %))
                          (rf/frame-ids))
         by-parent  (group-by :parent-dispatch-id bundles)
         node       (fn node [did]
@@ -1561,7 +1561,7 @@
 ;;                          framework's redact-fn before we read it)
 ;;
 ;; Production builds elide the entire epoch-record path under
-;; `interop/debug-enabled? false`; cascade-summary inherits that —
+;; `rf.interop/debug-enabled? false`; cascade-summary inherits that —
 ;; the projection is dev-only by construction. The :elision /
 ;; :sensitive-paths machinery upstream of us already ran by the time
 ;; we read :db-before / :db-after, so we never see raw sensitive values.
@@ -1830,7 +1830,7 @@
           :frame frame-id
           :hint (str "epoch-history is empty after dispatch. Either depth "
                      "is 0 (disabled), the frame is destroyed, or "
-                     "interop/debug-enabled? is false (production build).")}
+                     "rf.interop/debug-enabled? is false (production build).")}
 
          :else
          {:ok? false
@@ -2090,7 +2090,7 @@
          ;; Bind the sink for the whole synchronous dispatch-sync extent: the
          ;; drain, its fx walk, any machine exit-cascade / resource-release
          ;; walk all funnel through `do-fx`, which records-and-skips.
-         (binding [fx/*effect-sink* sink]
+         (binding [rf.fx/*effect-sink* sink]
            (rf/dispatch-sync event-v dispatch-opts))
          (let [after-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
            (cond
@@ -2101,7 +2101,7 @@
               :frame   frame-id
               :hint    (str "epoch-history empty after dry-run dispatch. "
                             "Either depth is 0 (disabled), the frame is "
-                            "destroyed, or interop/debug-enabled? is false "
+                            "destroyed, or rf.interop/debug-enabled? is false "
                             "(production build).")}
 
              (= before-id after-id)
@@ -2280,7 +2280,7 @@
           :epoch-id epoch-id
           :frame    frame-id
           :hint     (str "rf/replay-epoch! returned false — the epoch surface is elided "
-                         "(interop/debug-enabled? false) or day8/re-frame2-epoch is not loaded.")}
+                         "(rf.interop/debug-enabled? false) or day8/re-frame2-epoch is not loaded.")}
 
          (and (map? result) (:ok? result))
          (let [attached (attach-cascade (assoc result :replayed? true)
@@ -2366,7 +2366,7 @@
    the `?`-placeholder degradation, and the Tool-Pair opacity caveat
    (downstream callers MUST NOT depend on the parsed shape's stability
    across re-frame2 versions)."
-  source-coords/parse-source-coord)
+  rf.source-coords/parse-source-coord)
 
 (def ^:private parse-view-id
   "Parse re-frame2's `data-rf-view` attribute into the registry id keyword
@@ -2379,7 +2379,7 @@
    for the value format (Spec 006 §View tagging contract §Attribute value
    format) and the Tool-Pair opacity caveat (downstream callers MUST NOT depend
    on the parsed shape's stability across re-frame2 versions)."
-  source-coords/parse-view-id)
+  rf.source-coords/parse-view-id)
 
 (defn- parse-rc-src
   "Parse re-com's `data-rc-src` attribute into {:file :line :column}.
@@ -2871,7 +2871,7 @@
           ;; that the view consumes. Sorted by pr-str for stable output.
           subs-read  (when frame-id
                        (try
-                         (->> (or (subs-tooling/sub-cache-snapshot frame-id) {})
+                         (->> (or (rf.subs.tooling/sub-cache-snapshot frame-id) {})
                               keys
                               (sort-by pr-str)
                               vec)
@@ -3297,7 +3297,7 @@
         schedule (fn [f]
                    (if raf?
                      (js/requestAnimationFrame f)
-                     (interop/next-tick f)))]
+                     (rf.interop/next-tick f)))]
     (letfn [(step [_]
               (when (recording-sampler-tick! rid)
                 (let [h (schedule step)]
@@ -3564,7 +3564,7 @@
 ;;     immediately, misses them.
 ;;
 ;;   - The `:await-render` path flushes via
-;;     `interop/after-render` — the rAF-scheduled, post-commit /
+;;     `rf.interop/after-render` — the rAF-scheduled, post-commit /
 ;;     pre-paint hook. It is ASYNC (returns a Promise the server awaits
 ;;     through the mailbox), and on a backgrounded / unfocused tab the
 ;;     underlying React lane commit is rAF-throttled, so it can stall.
@@ -3574,7 +3574,7 @@
 ;;     substrates, `reagent.core/flush` for the ratom family. NOT
 ;;     rAF-scheduled, so it commits even headless / backgrounded and is
 ;;     fully SYNCHRONOUS — no Promise, no mailbox. ZERO substrate
-;;     hardcoding: `adapter/flush-render!` resolves the INSTALLED adapter
+;;     hardcoding: `rf.substrate.adapter/flush-render!` resolves the INSTALLED adapter
 ;;     and routes to its native impl (re-frame2 knows its own registered
 ;;     adapter).
 ;;
@@ -3610,7 +3610,7 @@
    Steps:
      1. `dispatch-sync` — run the cascade; the epoch records its db-diff,
         effects, sub-runs (`dispatch-and-collect` shape).
-     2. `(adapter/flush-render!)` — SYNCHRONOUSLY commit the installed
+     2. `(rf.substrate.adapter/flush-render!)` — SYNCHRONOUSLY commit the installed
         substrate's pending renders + unmounts (React `flushSync` /
         `reagent.core/flush`, resolved from the live adapter — no
         substrate name appears here). Their `:rf.view/render` /
@@ -3650,7 +3650,7 @@
        (let [;; Flush the INSTALLED adapter's pending renders synchronously.
              ;; Zero-arity form flushes already-pending work — the cascade
              ;; in step 1 invalidated the views; this commits them now.
-             _        (adapter/flush-render!)
+             _        (rf.substrate.adapter/flush-render!)
              ;; Re-read AFTER the flush: the post-settle render/unmount
              ;; back-fill (re-fanned to listeners) has updated the record.
              epoch    (epoch-by-id (:epoch-id result) (:frame result))]
@@ -3700,7 +3700,7 @@
   [frame-id slice]
   (case slice
     :app-db     (rf/app-db-value frame-id)
-    :sub-cache  (subs-tooling/sub-cache-snapshot frame-id)
+    :sub-cache  (rf.subs.tooling/sub-cache-snapshot frame-id)
     ;; The global machine-id list is registrar-level (not per-frame).
     ;; Per Spec 005 each frame holds its own machine
     ;; snapshots at [:rf.runtime/machines :snapshots machine-id] in the
@@ -3709,7 +3709,7 @@
     ;; `rf/app-db-value` — rf2-t3lftq API-shrink #3 retired the dedicated
     ;; `rf/runtime-db-value` reader), so the per-frame
     ;; slice returns {:ids [...] :state {machine-id snapshot}}.
-    :machines   (let [ids (vec (machines/machines))
+    :machines   (let [ids (vec (rf.machines/machines))
                       state (or (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
                                         [:rf.runtime/machines :snapshots])
                                 {})]
@@ -3720,7 +3720,7 @@
     ;; read shape (Tool-Pair
     ;; §Reading the per-frame trace ring + Tool-Pair §`watch-epochs` /
     ;; `trace-window` consumer shape).
-    :traces     (vec (trace-tooling/trace-buffer frame-id))
+    :traces     (vec (rf.trace.tooling/trace-buffer frame-id))
     nil))
 
 (defn- snapshot-frame
@@ -3791,7 +3791,7 @@
   "Probe `re-frame.interop/debug-enabled?`. False in production builds;
    trace and epoch surfaces elide entirely when this is false."
   []
-  (boolean interop/debug-enabled?))
+  (boolean rf.interop/debug-enabled?))
 
 (defn health
   "One-call summary of the runtime's view of the world. Used by
@@ -3998,4 +3998,4 @@
                                   (map (fn [fid] [fid (pure/top-keys (rf/app-db-value fid))]))
                                   app-fids)
        :registry            registry
-       :machines            (machines/machines)})))
+       :machines            (rf.machines/machines)})))

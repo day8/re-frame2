@@ -55,7 +55,7 @@
             ;; and `:fx-overrides` is the designed per-frame stub seam.
             [re-frame.http.managed]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ----------------------------------------------------------------------------
@@ -302,7 +302,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence.
   ;; `:rf/default` is this testbed's frame, registered explicitly; the
   ;; boot dispatch runs under it and the render is wrapped in a

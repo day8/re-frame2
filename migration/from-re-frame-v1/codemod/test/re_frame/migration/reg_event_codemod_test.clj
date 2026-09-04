@@ -30,18 +30,18 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [re-frame.migration.reg-event-codemod :as cm]))
+            [re-frame.migration.reg-event-codemod :as rf.migration.reg-event-codemod]))
 
 ;; ---------------------------------------------------------------------------
 ;; helpers
 ;; ---------------------------------------------------------------------------
 
 (defn- only-finding [s]
-  (let [fs (cm/scan-string s)]
+  (let [fs (rf.migration.reg-event-codemod/scan-string s)]
     (is (= 1 (count fs)) (str "expected exactly one finding in: " s))
     (first fs)))
 
-(defn- rewrite [s] (:source (cm/rewrite-string s)))
+(defn- rewrite [s] (:source (rf.migration.reg-event-codemod/rewrite-string s)))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event-fx — pure rename
@@ -50,7 +50,7 @@
 (deftest fx-renamed
   (testing "reg-event-fx is renamed to reg-event, body untouched"
     (let [src "(rf/reg-event-fx :todo/add\n  (fn [{:keys [db]} [_ text]]\n    {:db (assoc-in db [:todos text] true)}))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= 1 (count findings)))
       (is (= :reg-event-fx (:form (first findings))))
       (is (= :rename (:action (first findings))))
@@ -74,7 +74,7 @@
 (deftest db-simple-update
   (testing "simple reg-event-db -> reg-event with {:db BODY} and {:keys [db]}"
     (let [src "(rf/reg-event-db :counter/inc\n  (fn [db _] (update db :count inc)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :reg-event-db (:form (first findings))))
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "rf/reg-event "))
@@ -87,7 +87,7 @@
 (deftest db-thread-body
   (testing "a (-> db ...) thread body wraps faithfully (last stage is a safe builder)"
     (let [src "(rf/reg-event-db :form/clear\n  (fn [db [_ k]]\n    (-> db\n        (assoc-in [:form k :value] \"\")\n        (assoc-in [:form k :error] nil))))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))) "->-thread ending in assoc-in is a safe, non-nil builder")
       (is (str/includes? source "{:keys [db]}"))
       (is (str/includes? source "{:db (-> db"))
@@ -124,7 +124,7 @@
 (deftest db-path-interceptor-normalized
   (testing "the canonical metadata path chain lowers to the standard factory ref"
     (let [src "(rf/reg-event-db :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [db _] (update db :value inc)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
       ;; no executable rf/path call survives (v2 makes it a throwing stub)
@@ -136,7 +136,7 @@
 (deftest db-positional-path-vector-normalized
   (testing "the historical positional chain becomes the one metadata-map form"
     (let [src "(rf/reg-event-db :counter/inc\n  [(rf/path :counter)]\n  (fn [db _] (update db :value inc)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
       (is (not (str/includes? source "(rf/path")))
@@ -158,7 +158,7 @@
 (deftest db-metadata-plus-vector-merged
   (testing "the metadata-plus-vector shape merges into ONE metadata map, map entries first"
     (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a)]} [(rf/path :b)]\n  (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]] [:rf.interceptor/path [:b]]]}"))
       ;; exactly one :interceptors key survives — the positional vector is gone
@@ -184,7 +184,7 @@
 (deftest fx-with-path-chain-normalized
   (testing "reg-event-fx with a convertible chain is a :rewrite (not a bare :rename)"
     (let [src "(rf/reg-event-fx :x {:interceptors [(rf/path :a)]}\n  (fn [cofx _] {:db (:db cofx)}))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "rf/reg-event "))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]]]}"))
@@ -194,7 +194,7 @@
 (deftest already-canonical-ref-chain-kept-verbatim
   (testing "a chain that is already refs-only is preserved byte-for-byte"
     (let [src "(rf/reg-event-db :x {:interceptors [:my/ic [:rf.interceptor/path [:cart]]]}\n  (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))) "handler rewrite still applies")
       (is (str/includes? source "{:interceptors [:my/ic [:rf.interceptor/path [:cart]]]}")))))
 
@@ -209,7 +209,7 @@
 (deftest custom-inline-interceptor-flagged-db
   (testing "a custom interceptor var in the chain -> :flag :interceptors, unchanged"
     (let [src "(rf/reg-event-db :x {:interceptors [my-auth-interceptor]}\n  (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :reg-event-db (:form (first findings))))
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
@@ -219,7 +219,7 @@
 (deftest custom-inline-interceptor-flagged-fx
   (testing "a positional chain with a custom call (e.g. (rf/debug)) is NOT pure-renamed"
     (let [src "(rf/reg-event-fx :x [(rf/debug)]\n  (fn [c _] {:db (:db c)}))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
       (is (= src source)))))
@@ -227,7 +227,7 @@
 (deftest path-dynamic-arg-flagged
   (testing "(rf/path p) with a non-literal arg has no derivable path vector -> flag"
     (let [src "(rf/reg-event-db :x {:interceptors [(rf/path p)]} (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
       (is (= src source)))))
@@ -235,7 +235,7 @@
 (deftest mixed-chain-with-one-unresolved-entry-flags-whole-site
   (testing "a chain mixing a convertible path with an underivable entry is NOT half-converted"
     (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a) my-ic]}\n  (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
       (is (= src source)))))
@@ -243,7 +243,7 @@
 (deftest db-nil-capable-with-convertible-chain-still-gates-on-d7
   (testing "a convertible chain does not bypass the D7 nil gate; source unchanged"
     (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a)]}\n  (fn [db _] (when true db)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :nil-capable (:flag (first findings))))
       (is (= src source)))))
@@ -269,7 +269,7 @@
                    "(rf/reg-event-db :tenant/load\n"
                    "  {:interceptors [(app.interceptors/path :tenant)]}\n"
                    "  (fn [db _] (assoc db :loaded true)))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= 1 (count findings)))
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
@@ -284,7 +284,7 @@
                    "            [app.interceptors :as icpt]))\n"
                    "(rf/reg-event-db :x {:interceptors [(icpt/path :tenant)]}\n"
                    "  (fn [db _] (assoc db :k 1)))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
       (is (= src source)))))
@@ -292,7 +292,7 @@
 (deftest custom-dotted-path-flagged-in-ns-less-fragment
   (testing "even with no ns form, a DOTTED head namespace that is not re-frame.core flags"
     (let [src "(rf/reg-event-db :x {:interceptors [(app.interceptors/path :tenant)]} (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
       (is (= src source)))))
@@ -301,7 +301,7 @@
   (testing "an alias the ns form does not resolve is ambiguous -> conservative flag"
     (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
                    "(rf/reg-event-db :x {:interceptors [(xyz/path :a)]} (fn [db _] (assoc db :k 1)))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
       (is (= src source)))))
@@ -310,7 +310,7 @@
   (testing "a bare `path` under an ns form that does NOT refer it is a local fn -> flag"
     (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
                    "(rf/reg-event-db :x {:interceptors [(path :a)]} (fn [db _] (assoc db :k 1)))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
       (is (= src source)))))
@@ -321,7 +321,7 @@
                    "(rf/reg-event-db :counter/inc\n"
                    "  {:interceptors [(rf/path :counter)]}\n"
                    "  (fn [db _] (update db :value inc)))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
       (is (not (str/includes? source "(rf/path"))))))
@@ -334,7 +334,7 @@
                      "(reg-event-db :counter/inc\n"
                      "  {:interceptors [(path :counter)]}\n"
                      "  (fn [db _] (update db :value inc)))\n")
-            {:keys [source findings]} (cm/rewrite-string src)]
+            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
         (is (= :rewrite (:action (first findings))) (str "require " req))
         (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))))))
 
@@ -343,7 +343,7 @@
     (doseq [src [(str "(ns app.events (:require [re-frame.core]))\n"
                       "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))\n")
                  "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))"]]
-      (let [{:keys [source findings]} (cm/rewrite-string src)]
+      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
         (is (= :rewrite (:action (first findings))))
         (is (str/includes? source "[:rf.interceptor/path [:a]]"))))))
 
@@ -357,11 +357,11 @@
           standard (str "(ns app.events (:require [re-frame.core :as rf]))\n"
                         "(rf/reg-event-db :counter/inc {:interceptors [(rf/path :counter)]}\n"
                         "  (fn [db _] (update db :value inc)))\n")]
-      (is (= custom (:source (cm/rewrite-string custom))) "custom site untouched")
+      (is (= custom (:source (rf.migration.reg-event-codemod/rewrite-string custom))) "custom site untouched")
       (let [once  (rewrite standard)
             twice (rewrite once)]
         (is (= once twice))
-        (is (empty? (cm/scan-string once)) "normalized ns-ful output rescans clean")))))
+        (is (empty? (rf.migration.reg-event-codemod/scan-string once)) "normalized ns-ful output rescans clean")))))
 
 ;; ---------------------------------------------------------------------------
 ;; path-head resolution — LEXICAL SHADOWING at the call site (rf2-8odvg reopen)
@@ -382,7 +382,7 @@
                    "  (reg-event-db :counter/inc\n"
                    "    {:interceptors [(path :tenant)]}\n"
                    "    (fn [db _] (update db :value inc))))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= 1 (count findings)))
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
@@ -405,7 +405,7 @@
                      "  (reg-event-db :x\n"
                      "    {:interceptors [(path :tenant)]}\n"
                      "    (fn [db _] (assoc db :k 1)))" close "\n")
-            {:keys [source findings]} (cm/rewrite-string src)]
+            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
         (is (= :flag (:action (first findings))) (str label " must flag"))
         (is (= :interceptors (:flag (first findings))) (str label " flag kind"))
         (is (= src source) (str label " left unchanged"))))))
@@ -434,7 +434,7 @@
                        "     {:interceptors [(path :tenant)]}\n"
                        "     (fn [db _] (update db :value inc))))\n"
                        " app.interceptors/path)\n"))
-            {:keys [source findings]} (cm/rewrite-string src)]
+            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
         (is (= [:flag :interceptors]
                ((juxt :action :flag) (first findings)))
             (str label " must flag, not lower"))
@@ -458,7 +458,7 @@
                      "  (reg-event-db :x\n"
                      "    {:interceptors [(path :tenant)]}\n"
                      "    (fn [db _] (assoc db :k 1)))" close "\n")
-            {:keys [source findings]} (cm/rewrite-string src)]
+            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
         (is (= [:flag :interceptors]
                ((juxt :action :flag) (first findings)))
             (str label " must flag"))
@@ -479,7 +479,7 @@
                      "  (reg-event-db :x\n"
                      "    {:interceptors [(path :counter)]}\n"
                      "    (fn [db _] (assoc db :k 1)))" close "\n")
-            {:keys [source findings]} (cm/rewrite-string src)]
+            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
         (is (= :rewrite (:action (first findings))) (str label " must still rewrite"))
         (is (str/includes? source "[[:rf.interceptor/path [:counter]]]")
             (str label " must still lower the standard head"))))))
@@ -491,7 +491,7 @@
                    "  (rf/reg-event-db :counter/inc\n"
                    "    {:interceptors [(rf/path :counter)]}\n"
                    "    (fn [db _] (update db :value inc))))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
 
@@ -518,7 +518,7 @@
                    "  (rf/reg-event-db :counter/inc\n"
                    "    {:interceptors [(rf/path :counter)]}\n"
                    "    (fn [db _] (update db :value inc))))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
 
@@ -530,7 +530,7 @@
                    "(reg-event-db :counter/inc\n"
                    "  {:interceptors [(path :counter)]}\n"
                    "  (fn [db _] (update db :value inc)))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
 
@@ -560,7 +560,7 @@
 (deftest reg-event-rescan-recovers-metadata-inline
   (testing "an already-renamed reg-event with a preserved (rf/path ...) chain is repaired"
     (let [src "(rf/reg-event :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [{:keys [db]} _] {:db (update db :value inc)}))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= 1 (count findings)))
       (is (= :reg-event (:form (first findings))))
       (is (= :rewrite (:action (first findings))))
@@ -571,7 +571,7 @@
 (deftest reg-event-rescan-recovers-positional
   (testing "an already-renamed reg-event with a positional chain is repaired"
     (let [src "(rf/reg-event :x [(rf/path :a)] (fn [{:keys [db]} _] {:db db}))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :reg-event (:form (first findings))))
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]]]}")))))
@@ -579,7 +579,7 @@
 (deftest reg-event-rescan-flags-custom-inline
   (testing "an already-renamed reg-event with an underivable inline entry is flagged"
     (let [src "(rf/reg-event :x {:interceptors [my-ic]} (fn [{:keys [db]} _] {:db db}))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :reg-event (:form (first findings))))
       (is (= :flag (:action (first findings))))
       (is (= :interceptors (:flag (first findings))))
@@ -591,7 +591,7 @@
                    "(rf/reg-event :b {:interceptors [:my/ic]} (fn [{:keys [db]} _] {:db db}))\n"
                    "(rf/reg-event :c {:interceptors [[:rf.interceptor/path [:x]]]} (fn [{:keys [db]} _] {:db db}))\n"
                    "(rf/reg-event :d {:doc \"plain metadata\"} (fn [{:keys [db]} _] {:db db}))\n")
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (empty? findings))
       (is (= src source)))))
 
@@ -601,7 +601,7 @@
           once  (rewrite src)
           twice (rewrite once)]
       (is (= once twice))
-      (is (empty? (cm/scan-string once)) "normalized output yields no findings"))))
+      (is (empty? (rf.migration.reg-event-codemod/scan-string once)) "normalized output yields no findings"))))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event-db — renamed (non-`db`) first param  (rf2-xhfxcs.15)
@@ -615,7 +615,7 @@
 (deftest db-renamed-param-path-interceptor
   (testing "the bead example: path chain lowered + first param `c` -> {c :db}, body untouched"
     (let [src "(reg-event-db :inc {:interceptors [(rf/path :counter)]}\n  (fn [c _] (update c :n inc)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :reg-event-db (:form (first findings))))
       (is (= :rewrite (:action (first findings))) "renamed-db param is still a simple, faithful rewrite")
       (is (str/includes? source "(reg-event "))
@@ -658,7 +658,7 @@
     ;; references too. The faithful {c :db} rebind touches the BODY not at all, so
     ;; the inner shadowing is preserved exactly as written.
     (let [src "(rf/reg-event-db :shadow\n  (fn [c [_ k]]\n    (let [c (update c :depth inc)]\n      (assoc c :touched k))))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       ;; param rebinds the slice under `c`
       (is (str/includes? source "(fn [{c :db} [_ k]]"))
@@ -713,7 +713,7 @@
 (deftest db-underscore-referenced-param-binds-back
   (testing "the bead/H repro: `_state` referenced in the body rebinds {_state :db}, body intact"
     (let [src "(reg-event-db :y (fn [_state ev] (assoc _state :x 1)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :reg-event-db (:form (first findings))))
       (is (= :rewrite (:action (first findings))) "referenced `_`-param is still a faithful rewrite")
       (is (str/includes? source "(reg-event "))
@@ -760,7 +760,7 @@
     ;; inner let-binding. So the outer param is genuinely unused; {:keys [db]} is
     ;; correct, and the inner shadowing binding survives byte-for-byte.
     (let [src "(rf/reg-event-db :shadow\n  (fn [_state [_ k]]\n    (let [_state {:fresh k}]\n      (assoc _state :touched true))))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       ;; outer param: no free reference -> canonical {:keys [db]}
       (is (str/includes? source "(fn [{:keys [db]} [_ k]]"))
@@ -806,7 +806,7 @@
 (deftest ctx-flagged-never-rewritten
   (testing "reg-event-ctx is flagged for manual review and left unchanged"
     (let [src "(rf/reg-event-ctx :advanced/thing\n  (fn [ctx] (assoc ctx :rf/skip-handler? true)))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :reg-event-ctx (:form (first findings))))
       (is (= :flag (:action (first findings))))
       (is (= :ctx (:flag (first findings))))
@@ -820,7 +820,7 @@
 (deftest nil-capable-when
   (testing "a (when ...) body can yield nil -> FLAG :nil-capable, source unchanged"
     (let [src "(rf/reg-event-db :maybe/set\n  (fn [db [_ v]] (when v (assoc db :v v))))"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :reg-event-db (:form (first findings))))
       (is (= :flag (:action (first findings))))
       (is (= :nil-capable (:flag (first findings))))
@@ -891,7 +891,7 @@
 (deftest complex-var-handler
   (testing "a var/symbol handler (not a literal fn) -> FLAG :complex, unchanged"
     (let [src "(rf/reg-event-db :x/y my-handler-fn)"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :flag (:action (first findings))))
       (is (= :complex (:flag (first findings))))
       (is (= src source)))))
@@ -916,7 +916,7 @@
   (testing "detection works regardless of the namespace alias / fully-qualified ns"
     (doseq [head ["rf/reg-event-db" "re-frame.core/reg-event-db" "reg-event-db" "rf2/reg-event-db"]]
       (let [src (str "(" head " :id (fn [db _] (assoc db :x 1)))")
-            {:keys [source findings]} (cm/rewrite-string src)]
+            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
         (is (= 1 (count findings)) (str "one finding for head " head))
         (is (= :rewrite (:action (first findings))))
         ;; the alias/ns is preserved on the renamed symbol
@@ -932,7 +932,7 @@
 (deftest non-registrar-code-untouched
   (testing "code with no retired registrar is returned byte-for-byte"
     (let [src "(ns my.app)\n\n(defn foo [x] (inc x))\n\n(rf/reg-sub :s (fn [db _] (:s db)))\n;; a comment\n(rf/reg-fx :my/fx (fn [_] nil))\n"
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (empty? findings))
       (is (= src source)))))
 
@@ -959,7 +959,7 @@
                    "(rf/reg-event-fx :b (fn [c e] {:db (:db c)}))\n"           ; rename
                    "(rf/reg-event-ctx :c (fn [ctx] ctx))\n"                    ; flag ctx
                    "(rf/reg-event-db :d (fn [db _] (when true db)))\n")        ; flag nil
-          {:keys [source findings]} (cm/rewrite-string src)]
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= 4 (count findings)))
       (is (= [:rewrite :rename :flag :flag] (mapv :action findings)))
       (is (= [nil nil :ctx :nil-capable] (mapv :flag findings)))
@@ -976,16 +976,16 @@
     (let [tmp (java.io.File/createTempFile "regevent" ".cljc")]
       (try
         (spit tmp "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))\n")
-        (let [findings (cm/scan-file (.getPath tmp))]
+        (let [findings (rf.migration.reg-event-codemod/scan-file (.getPath tmp))]
           (is (= 1 (count findings)))
           (is (= (.getPath tmp) (str (:file (first findings))))))
         ;; dry run does NOT write
-        (let [{:keys [changed?]} (cm/rewrite-file! (.getPath tmp) {:write? false})
+        (let [{:keys [changed?]} (rf.migration.reg-event-codemod/rewrite-file! (.getPath tmp) {:write? false})
               after (slurp tmp)]
           (is changed?)
           (is (str/includes? after "reg-event-db") "dry run left the file unwritten"))
         ;; write does mutate the file
-        (let [{:keys [changed?]} (cm/rewrite-file! (.getPath tmp) {:write? true})
+        (let [{:keys [changed?]} (rf.migration.reg-event-codemod/rewrite-file! (.getPath tmp) {:write? true})
               after (slurp tmp)]
           (is changed?)
           (is (not (str/includes? after "reg-event-db")))
@@ -1001,7 +1001,7 @@
         (spit (io/file dir "a.cljs") "(rf/reg-event-db :a (fn [db _] (assoc db :x 1)))")
         (spit (io/file dir "b.clj")  "(rf/reg-event-fx :b (fn [c e] {:db (:db c)}))")
         (spit (io/file dir "c.txt")  "(rf/reg-event-db :ignored (fn [db _] db))") ; not a source ext
-        (let [findings (cm/scan-paths [(.getPath dir)])]
+        (let [findings (rf.migration.reg-event-codemod/scan-paths [(.getPath dir)])]
           (is (= 2 (count findings)) "only .cljs + .clj scanned, .txt ignored")
           (is (= #{:reg-event-db :reg-event-fx} (set (map :form findings)))))
         (finally

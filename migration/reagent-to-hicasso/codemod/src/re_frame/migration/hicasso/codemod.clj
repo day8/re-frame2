@@ -32,9 +32,9 @@
   one level down."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.migration.hicasso.census :as census]
-            [re-frame.migration.hicasso.report :as report]
-            [re-frame.migration.hicasso.rewrite :as rw]
+            [re-frame.migration.hicasso.census :as rf.migration.hicasso.census]
+            [re-frame.migration.hicasso.report :as rf.migration.hicasso.report]
+            [re-frame.migration.hicasso.rewrite :as rf.migration.hicasso.rewrite]
             [rewrite-clj.node :as n]
             [rewrite-clj.parser :as p]
             [rewrite-clj.zip :as z])
@@ -47,19 +47,19 @@
 (defn- adapt-def?
   "Is this node `(def Foo (r/adapt-react-class X))`?"
   [nd ctx]
-  (and (rw/list-node? nd)
-       (= 'def (rw/sexpr-safe (rw/element-at nd 0)))
-       (symbol? (rw/sexpr-safe (rw/element-at nd 1)))
-       (some-> (rw/element-at nd 2) (rw/bound-call? 'adapt-react-class ctx))))
+  (and (rf.migration.hicasso.rewrite/list-node? nd)
+       (= 'def (rf.migration.hicasso.rewrite/sexpr-safe (rf.migration.hicasso.rewrite/element-at nd 0)))
+       (symbol? (rf.migration.hicasso.rewrite/sexpr-safe (rf.migration.hicasso.rewrite/element-at nd 1)))
+       (some-> (rf.migration.hicasso.rewrite/element-at nd 2) (rf.migration.hicasso.rewrite/bound-call? 'adapt-react-class ctx))))
 
 (defn- hiccup-head-symbol
   "The head of `[Foo …]` when it is a bare symbol — a call site of a
   `def`ed adapted class, if that symbol names one."
   [nd]
   (when (= :vector (n/tag nd))
-    (let [h (rw/element-at nd 0)]
+    (let [h (rf.migration.hicasso.rewrite/element-at nd 0)]
       (when (and h (= :token (n/tag h)))
-        (let [s (rw/sexpr-safe h)] (when (symbol? s) s))))))
+        (let [s (rf.migration.hicasso.rewrite/sexpr-safe h)] (when (symbol? s) s))))))
 
 (defn- adapt-def-entry
   "`(def Foo (r/adapt-react-class X))` cannot be rewritten by a fixer:
@@ -99,7 +99,7 @@
   (loop [ks [], l loc]
     (let [p (z/up l)]
       (if (and p (= :meta (z/tag p)))
-        (recur (if-let [k (rw/meta-key-node (z/node p))] (conj ks k) ks) p)
+        (recur (if-let [k (rf.migration.hicasso.rewrite/meta-key-node (z/node p))] (conj ks k) ks) p)
         ks))))
 
 (defn analyse
@@ -126,23 +126,23 @@
        :suggestions suggests
        :sites      sites
        :left-alone quiet}
-      (if (rw/inert? (z/node loc))
-        (recur (rw/past-subtree loc) entries suggests defs calls sites quiet)
+      (if (rf.migration.hicasso.rewrite/inert? (z/node loc))
+        (recur (rf.migration.hicasso.rewrite/past-subtree loc) entries suggests defs calls sites quiet)
         (let [nd         (z/node loc)
               [line col] (z/position loc)
               form       (fn [] (let [s (z/string loc)]
                                   (if (> (count s) 200) (str (subs s 0 200) " …") s)))
-              kind       (rw/site-kind nd ctx)
+              kind       (rf.migration.hicasso.rewrite/site-kind nd ctx)
               calls      (if-let [s (hiccup-head-symbol nd)]
                            (update calls s (fnil conj []) line)
                            calls)
               defs       (if (adapt-def? nd ctx)
-                           (conj defs {:sym  (rw/sexpr-safe (rw/element-at nd 1))
+                           (conj defs {:sym  (rf.migration.hicasso.rewrite/sexpr-safe (rf.migration.hicasso.rewrite/element-at nd 1))
                                        :line line :col col :form (form) :file file})
                            defs)]
           (if-not kind
             (recur (z/next loc) entries suggests defs calls sites quiet)
-            (let [plan (rw/plan-site nd (assoc ctx :meta-keys (meta-keys-above loc)))
+            (let [plan (rf.migration.hicasso.rewrite/plan-site nd (assoc ctx :meta-keys (meta-keys-above loc)))
                   es   (mapv #(assoc % :file file :line line :col col
                                      :form (form) :head (:head plan))
                              (:entries plan))]
@@ -179,16 +179,16 @@
   produces."
   [nd ctx]
   (cond
-    (rw/inert? nd) nd
+    (rf.migration.hicasso.rewrite/inert? nd) nd
 
-    (rw/meta-node? nd)
-    (let [[metas inner] (rw/unwrap-metas nd)
-          plan   (rw/plan-site inner (assoc ctx :meta-keys (rw/meta-key-nodes metas)))
+    (rf.migration.hicasso.rewrite/meta-node? nd)
+    (let [[metas inner] (rf.migration.hicasso.rewrite/unwrap-metas nd)
+          plan   (rf.migration.hicasso.rewrite/plan-site inner (assoc ctx :meta-keys (rf.migration.hicasso.rewrite/meta-key-nodes metas)))
           inner' ((:edit plan) (rw-children inner ctx))]
-      (rw/rebuild-meta-chain nd inner' (boolean (:w1? plan))))
+      (rf.migration.hicasso.rewrite/rebuild-meta-chain nd inner' (boolean (:w1? plan))))
 
-    (rw/site-kind nd ctx)
-    (let [plan (rw/plan-site nd (assoc ctx :meta-keys []))]
+    (rf.migration.hicasso.rewrite/site-kind nd ctx)
+    (let [plan (rf.migration.hicasso.rewrite/plan-site nd (assoc ctx :meta-keys []))]
       ((:edit plan) (rw-children nd ctx)))
 
     :else (rw-children nd ctx)))
@@ -245,7 +245,7 @@
   node, which is `:cljc-site`)."
   [source file]
   (let [root (p/parse-string-all source)]
-    (assoc (rw/ns-context root)
+    (assoc (rf.migration.hicasso.rewrite/ns-context root)
            :file  (some-> file str)
            :cljc? (boolean (some-> file str (str/ends-with? ".cljc"))))))
 
@@ -290,7 +290,7 @@
             changed? (and rewrite? (not= orig (:source r)))]
         (when (and write? changed?) (spit f (:source r)))
         (assoc r :path path :changed? (boolean changed?)
-               :census (census/scan orig path)))
+               :census (rf.migration.hicasso.census/scan orig path)))
       (catch Exception e
         {:path path :changed? false :sites 0 :left-alone 0 :suggestions []
          ;; A file the reader cannot read is one refusal, not two: the
@@ -308,10 +308,10 @@
   [paths {:keys [rewrite? write?] :as opts}]
   (let [files   (expand-paths paths)
         results (mapv #(run-file % opts) files)]
-    (report/build
+    (rf.migration.hicasso.report/build
      {:entries          (vec (mapcat :entries results))
       :suggestions      (vec (mapcat :suggestions results))
-      :census           (census/build (mapv :census results))
+      :census           (rf.migration.hicasso.census/build (mapv :census results))
       :files-scanned    (count files)
       :files-changed    (count (filter :changed? results))
       :dry-run?         (and rewrite? (not write?))
@@ -384,12 +384,12 @@
       (let [report-p (or explicit (default-report-path paths))
             rep (run paths {:rewrite? (contains? flags "--rewrite")
                             :write?   (contains? flags "--write")})]
-        (report/print-lines (:entries rep))
-        (census/print-lines (:entries (:census rep)))
-        (report/write! rep report-p)
+        (rf.migration.hicasso.report/print-lines (:entries rep))
+        (rf.migration.hicasso.census/print-lines (:entries (:census rep)))
+        (rf.migration.hicasso.report/write! rep report-p)
         (println)
         (println (pr-str (:summary rep)))
-        (println (census/describe (:census rep)))
+        (println (rf.migration.hicasso.census/describe (:census rep)))
         ;; ABSOLUTE, and it says it WROTE. The old line printed the bare
         ;; relative name, which named the file without naming the directory
         ;; — so the one thing a reader needed from it was the one thing it

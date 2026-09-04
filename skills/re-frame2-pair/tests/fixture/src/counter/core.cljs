@@ -15,7 +15,7 @@
  on it (Tool-Pair §Source-mapping, Spec 006 §Source-coord annotation)."
  (:require [re-frame.core :as rf]
  [re-frame.views]
- [re-frame.adapter.reagent :as reagent-adapter])
+ [re-frame.adapter.reagent :as rf.adapter.reagent])
  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Events / subs ------------------------------------------------------------
@@ -65,7 +65,7 @@
 ;; The adapter owns the React root. `client-root` allocates an inert handle —
 ;; no DOM work at namespace load — and the first `render!` through it creates
 ;; the root every later render reuses.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 (defn ^:export run []
  ;; Source-coord DOM annotation is automatic in debug builds (mandatory per
@@ -79,10 +79,10 @@
  ;; `frame-provider`'s {:frame …} SCOPE-only shape (the frame already exists
  ;; from make-frame) so the reg-view-injected dispatch/subscribe resolve to it.
  ;; re-frame2-pair attaches over nREPL and operates this frame.
- (rf/init! reagent-adapter/adapter)
+ (rf/init! rf.adapter.reagent/adapter)
  (rf/make-frame {:id :rf/default})
  (rf/with-frame :rf/default
   (rf/dispatch-sync [:counter/initialise]))
- (reagent-adapter/render! app-root
+ (rf.adapter.reagent/render! app-root
   [rf/frame-provider {:frame :rf/default} [counter-app]]
   (js/document.getElementById "app")))

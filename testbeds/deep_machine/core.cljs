@@ -36,7 +36,7 @@
             [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; rf2-e8330v (xxo3zz F3) — this feature-gate testbed drives the
             ;; Xray Machine Inspector chart-render path via the test-only
             ;; epoch-history / focus-epoch-id seeding events. Production
@@ -389,7 +389,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   ;; rf2-e8330v — install the Xray test-only override seam so the
   ;; feature-gate scenario's synthetic-epoch injection (via
   ;; `:rf.xray/set-epoch-history-for-test` + `:rf.xray/set-focus-epoch-

@@ -151,7 +151,7 @@
   closes over is on the roster, and the shape it cannot name it does not
   count. A confident wrong number is worse than a stated silence."
   (:require [clojure.string :as str]
-            [re-frame.migration.hicasso.rewrite :as rw]
+            [re-frame.migration.hicasso.rewrite :as rf.migration.hicasso.rewrite]
             [rewrite-clj.node :as n]
             [rewrite-clj.parser :as p]
             [rewrite-clj.zip :as z]))
@@ -518,7 +518,7 @@
   roster key is then the ORIGINAL name, which is the only one the roster
   has a class and a recovery sentence for."
   [nd ctx roster]
-  (when-let [h (rw/head-symbol nd)]
+  (when-let [h (rf.migration.hicasso.rewrite/head-symbol nd)]
     (let [k (or (when-not (namespace h) (get (:renamed ctx) h))
                 (symbol (name h)))]
       (when (contains? roster k) k))))
@@ -569,14 +569,14 @@
   `(comment …)` body are none of it."
   [source file]
   (let [root        (p/parse-string-all source)
-        rctx        (rw/ns-context root rw/reagent-namespace?)
-        sctx        (rw/ns-context root rw/substrate-namespace?)
-        reagent?    (rw/names-reagent? root)
+        rctx        (rf.migration.hicasso.rewrite/ns-context root rf.migration.hicasso.rewrite/reagent-namespace?)
+        sctx        (rf.migration.hicasso.rewrite/ns-context root rf.migration.hicasso.rewrite/substrate-namespace?)
+        reagent?    (rf.migration.hicasso.rewrite/names-reagent? root)
         substrate?  (boolean (seq (into (:aliases sctx) (:referred sctx))))
         unresolved? (and reagent? (empty? (into (:aliases rctx) (:referred rctx))))
         excerpt     (fn [loc] (let [s (z/string loc)]
                                 (if (> (count s) 200) (str (subs s 0 200) " …") s)))
-        ns-node?    rw/ns-form?]
+        ns-node?    rf.migration.hicasso.rewrite/ns-form?]
     (loop [loc      (z/of-string source {:track-position? true})
            entries  []
            ns-said? false]
@@ -586,8 +586,8 @@
          :substrate?  substrate?
          :unresolved? unresolved?
          :recognised? (or reagent? substrate?)}
-        (if (rw/inert? (z/node loc))
-          (recur (rw/past-subtree loc) entries ns-said?)
+        (if (rf.migration.hicasso.rewrite/inert? (z/node loc))
+          (recur (rf.migration.hicasso.rewrite/past-subtree loc) entries ns-said?)
           (let [nd         (z/node loc)
                 rk         (roster-name nd rctx surface)
                 sk         (roster-name nd sctx substrate-surface)
@@ -608,7 +608,7 @@
 
                ;; Resolved: this really is Reagent's, through a symbol the
                ;; `ns` form binds.
-               (and rk (rw/bound-call? nd rk rctx))
+               (and rk (rf.migration.hicasso.rewrite/bound-call? nd rk rctx))
                (conj entries (entry (get surface rk) file line col (excerpt loc)
                                     {:api (str rk)}))
 
@@ -617,7 +617,7 @@
                ;; This is the arm the reported defect was missing — a
                ;; re-frame2 application on the Reagent adapter has every one
                ;; of its substrate calls here and none in the arm above.
-               (and sk (rw/bound-call? nd sk sctx))
+               (and sk (rf.migration.hicasso.rewrite/bound-call? nd sk sctx))
                (conj entries (entry (get substrate-surface sk) file line col (excerpt loc)
                                     {:api (str sk)}))
 
@@ -632,12 +632,12 @@
                ;; `rdc/render` that IS the finding. Reporting both makes the
                ;; real one harder to see, which is the only thing a census
                ;; owes anybody.
-               (and rk unresolved? (namespace (rw/head-symbol nd)))
+               (and rk unresolved? (namespace (rf.migration.hicasso.rewrite/head-symbol nd)))
                (conj entries (entry {:class   :unresolved-alias
                                      :verdict :runtime-blocker}
                                     file line col (excerpt loc)
                                     {:api    (str rk)
-                                     :symbol (str (rw/head-symbol nd))}))
+                                     :symbol (str (rf.migration.hicasso.rewrite/head-symbol nd))}))
 
                :else entries)
              (or ns-said? ns-here?))))))))

@@ -31,7 +31,7 @@
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pp]
             [clojure.string :as str]
-            [re-frame.migration.hicasso.dest :as dest]))
+            [re-frame.migration.hicasso.dest :as rf.migration.hicasso.dest]))
 
 (def ^:private class-order
   "Report ordering within one site. Blockers first, then the refusals that
@@ -104,11 +104,11 @@
     (if (and seg (re-matches simple-name seg)) seg "your-host")))
 
 (defn- contract-roster
-  "`\":event or :render\"` — generated from [[dest/callback-contracts]]
+  "`\":event or :render\"` — generated from [[rf.migration.hicasso.dest/callback-contracts]]
   rather than transcribed beside it, so the sentence the report prints and
   the roster the door enforces cannot drift apart in prose."
   []
-  (let [ss (mapv pr-str dest/callback-contracts)]
+  (let [ss (mapv pr-str rf.migration.hicasso.dest/callback-contracts)]
     (str (str/join ", " (pop ss)) " or " (peek ss))))
 
 (defn- defhost-sketch

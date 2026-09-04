@@ -40,7 +40,7 @@
   migrator a hand-port of a form that never runs. Pinned from
   [[an-inert-reagent-call-is-not-a-refusal-reason]] down."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.migration.hicasso.codemod :as cm]))
+            [re-frame.migration.hicasso.codemod :as rf.migration.hicasso.codemod]))
 
 (def ^:private hdr
   "(ns app.p\n  (:require [reagent.core :as r]))\n")
@@ -48,17 +48,17 @@
 (defn- classes
   "The report's entry classes for one source string."
   [body]
-  (mapv :class (:entries (cm/scan-string (str hdr body) "app/p.cljs"))))
+  (mapv :class (:entries (rf.migration.hicasso.codemod/scan-string (str hdr body) "app/p.cljs"))))
 
 (defn- sites
   "How many crossing sites the walk counted."
   [body]
-  (:sites (cm/scan-string (str hdr body) "app/p.cljs")))
+  (:sites (rf.migration.hicasso.codemod/scan-string (str hdr body) "app/p.cljs")))
 
 (defn- rewritten
   "The fixer's output for one source string."
   [body]
-  (:source (cm/rewrite-string (str hdr body) "app/p.cljs")))
+  (:source (rf.migration.hicasso.codemod/rewrite-string (str hdr body) "app/p.cljs")))
 
 ;; ---------------------------------------------------------------------------
 ;; Pass 1 — the report
@@ -182,7 +182,7 @@
   (testing "and the same for the CALL sites such an entry lists: a
             `[Foo …]` inside a comment is not a call site, so it must not
             appear in the line list the report tells a migrator to visit"
-    (let [entry (first (:entries (cm/scan-string
+    (let [entry (first (:entries (rf.migration.hicasso.codemod/scan-string
                                   (str hdr
                                        "(def Foo (r/adapt-react-class X))\n"
                                        "(comment [Foo {:a 1}])\n"
