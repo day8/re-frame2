@@ -53,7 +53,7 @@
   ;; finally-clause that fires the `:cancel` cascade when the view
   ;; unmounts, riding on Reagent's own `reagent.core/with-let`.
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Requiring re-frame.machines is what installs the machine
             ;; runtime: the :spawn-all init / spawn / destroy fx handlers
             ;; and the `:rf/machine` sub. worker.cljs and views.cljs pull
@@ -91,7 +91,7 @@
 ;; browser, and two co-loaded examples won't race to plant rival roots
 ;; on the shared `#app` element.
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The frame comes from the `frame-root {:id app-frame …}` at the
 ;; render root below. First mount creates the frame, applies its config,
@@ -108,7 +108,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
                       :initial-events [[:app/initialise]]}
        [views/root-view]]
@@ -117,5 +117,5 @@
 (defn run []
   ;; Install the Reagent adapter, then mount the provider that stands
   ;; the frame up (see above).
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

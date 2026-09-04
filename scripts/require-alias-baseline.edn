@@ -21,7 +21,7 @@
   ".clj-kondo"                            0
   "bench"                                 701
   "docs"                                  0
-  "examples"                              65
+  "examples"                              0
   "implementation/adapters"               337
   "implementation/core"                   0
   "implementation/derivation-conformance" 0

@@ -12,7 +12,7 @@
   (three attempts total). For that to play out, every request has to fail, which
   is exactly why we wire in the canned-FAILURE stub here."
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [state-machine-walkthrough.core]))
 
 ;; ============================================================================
@@ -112,7 +112,7 @@
 ;; examples co-required into one page would both race to `create-root` onto the
 ;; shared `#app`, and exactly one would win. See examples/TESTING.md, "Convention:
 ;; defer DOM mount to `run`".
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
@@ -137,7 +137,7 @@
   ;; which is a confusing afternoon you can skip by seeding up front.
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id              :rf/default
                       :doc             "State-machines walkthrough demo frame."
                       :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
@@ -148,5 +148,5 @@
 (defn run []
   ;; Tell re-frame2 which substrate to render through by handing init! the
   ;; Reagent adapter's spec map. One call, done.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

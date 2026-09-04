@@ -42,8 +42,8 @@
   over a real socket against the real sidecar launcher, by
   `re-frame.ssr.ring.login-host-crossing-test`
   (`implementation/ssr-ring/test/`, tagged `:crossing`)."
-  (:require [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.node :as node]
+  (:require [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             ;; The one render-state list, shared with `server.cljs`.
             [hicasso.login.policy :as policy]
             ;; The application, on the JVM: every `auth.login` schema, fx,
@@ -69,7 +69,7 @@
   default bind, and it accepts any absolute http(s) URL — a non-loopback
   sidecar is not refused. Render state can carry server-only values, so a
   remote one is the operator's network and transport to secure."
-  (or (System/getenv "LOGIN_HICASSO_SSR_NODE") node/default-endpoint))
+  (or (System/getenv "LOGIN_HICASSO_SSR_NODE") rf.ssr.ring.node/default-endpoint))
 
 (defn make-handler
   "Build the Ring handler against ONE sidecar. `handler` below is this
@@ -85,7 +85,7 @@
   frame exactly as the browser boot does and the two halves render the
   same page from the same events."
   [{:keys [endpoint build-id]}]
-  (ssr-ring/ssr-handler
+  (rf.ssr.ring/ssr-handler
     {:initial-events (:initial-events model/frame-config)
      ;; The demo HTTP stub, remapped for this frame exactly as the browser
      ;; mount remaps it. No request is issued during a server render, but
@@ -94,7 +94,7 @@
      ;; What the BROWSER may see: the form slice, and nothing else.
      :payload        [:auth]
      ;; No `:root-view` — only the default JVM-local renderer reads one.
-     :renderer       (node/renderer
+     :renderer       (rf.ssr.ring.node/renderer
                        {:endpoint     endpoint
                         :entry        policy/root-entry
                         :build-id     build-id

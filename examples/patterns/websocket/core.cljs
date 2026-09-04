@@ -59,7 +59,7 @@
    `re-frame.websocket-cljs-test`). The example tree is test-free, so
    `npm run test:adapter-smokes` does not build this example."
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [websocket.schema]
             [websocket.connection]
             [websocket.messages]
@@ -101,7 +101,7 @@
 ;; container. Building it in `run` keeps loading this namespace free of
 ;; DOM side effects.
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; One place owns the frame: the `frame-root` at the render root.
 ;; `run` installs the adapter, then renders `[frame-root {:id ...}
@@ -121,12 +121,12 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
                       :initial-events [[:ws.app/initialise]]}
        [views/root-view]]
       el)))
 
 (defn run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

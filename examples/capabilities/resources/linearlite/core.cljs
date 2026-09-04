@@ -65,7 +65,7 @@
    standalone."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             ;; Managed HTTP — the one transport every resource and mutation
             ;; lowers its read/write onto. Loading the ns registers the
             ;; `:rf.http/managed` fx. Guide:
@@ -83,7 +83,7 @@
             ;; `:resources` key — that's how the board route ensures the board on
             ;; entry.
             [re-frame.routing]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; THE DOMAIN — issues + statuses
@@ -371,7 +371,7 @@
         ;; sees {:kind :rf.http/http-5xx :status 503 :message …} — an honest
         ;; 503 through the documented closed failure taxonomy, exactly what
         ;; this demo backend promises.
-        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
           (rf/dispatch [:linearlite/set-fail-next-write false])
           (stub frame-ctx (assoc args-map
                                  :after-ms demo-reply-delay-ms
@@ -383,7 +383,7 @@
         (let [payload (if write?
                         (apply-write! method url body)
                         (strip-optimistic @demo-board))
-              stub    (registrar/handler :fx :rf.http/managed-canned-success)]
+              stub    (rf.registrar/handler :fx :rf.http/managed-canned-success)]
           (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))))
 
 ;; ============================================================================
@@ -615,7 +615,7 @@
 ;; metadata ensures it, kicked off by the first URL sync `:url-bound? true`
 ;; performs automatically when the frame is created.
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 (def app-frame :rf/default)
 
@@ -626,7 +626,7 @@
                      (js/document.getElementById "app"))]
     ;; Frame created and configured right here. First mount builds it under
     ;; `app-frame` and applies the config; hot reload reuses it.
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id           app-frame
                       :doc          "Linearlite optimistic-board demo frame."
                       :url-bound?   true
@@ -635,5 +635,5 @@
       el)))
 
 (defn run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

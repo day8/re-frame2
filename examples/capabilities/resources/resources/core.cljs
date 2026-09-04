@@ -45,7 +45,7 @@
    mutation invalidates reads by tag — lives in the
    [resources guide](../../../../docs/resources/concepts.md)."
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             ;; Managed HTTP is the transport a resource fetch rides on.
             ;; Requiring it registers the `:rf.http/managed` effect that every
             ;; ensure ultimately runs onto. See the managed-HTTP glossary entry:
@@ -70,7 +70,7 @@
             ;; asking's other half — without this require that call throws
             ;; `:rf.error/machines-artefact-missing` at ns load.
             [re-frame.machines]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; RESOURCES — named, cached server-state reads
@@ -164,7 +164,7 @@
    :platforms #{:client}}
   (fn fx-managed-resources-demo [frame-ctx args-map]
     (let [payload (demo-payload-for-url (-> args-map :request :url))
-          stub    (registrar/handler :fx :rf.http/managed-canned-success)]
+          stub    (rf.registrar/handler :fx :rf.http/managed-canned-success)]
       (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
 
 ;; ============================================================================
@@ -536,7 +536,7 @@
 ;; automatically. See the frame glossary entry:
 ;; ../../../../docs/core/glossary.md#frame
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The id this app's frame is created under. Despite the name, `:rf/default`
 ;; carries no special privilege — it's just an ordinary id. The URL ownership
@@ -555,7 +555,7 @@
     ;; override is frame-wide, which is fine here precisely because this example
     ;; never makes a request we'd actually want to reach the network — a blanket
     ;; override is the right grain.
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id           app-frame
                       :doc          "Resources demo frame."
                       :url-bound?   true
@@ -564,5 +564,5 @@
       el)))
 
 (defn run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

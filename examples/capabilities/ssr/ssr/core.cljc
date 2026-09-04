@@ -24,7 +24,7 @@
    - The hydration payload: the server's finished state, packed into the page
      for the client to adopt verbatim.
    - Hydration the app never has to write. The client boots through
-     `ssr/hydrate!`, which dispatches the reserved `:rf/hydrate` event;
+     `rf.ssr/hydrate!`, which dispatches the reserved `:rf/hydrate` event;
      re-frame2 owns the handler. `:rf/hydrate` *replaces* the client's
      frame-state rather than merging into it — on this question the server is
      the single source of truth.
@@ -65,7 +65,7 @@
             ;; The SSR machinery: the `:rf.server/*` server-only effects, the
             ;; framework-owned `:rf/hydrate` event, the default error
             ;; projector, and the render/hash hooks the calls below ride on.
-            [re-frame.ssr :as ssr]
+            [re-frame.ssr :as rf.ssr]
             ;; Server-side only: a `<script>`-body escaper that understands
             ;; EDN. `handle-request` drops the payload, `pr-str`'d, inside a
             ;; `<script type="application/edn">`. If some article body smuggled
@@ -73,13 +73,13 @@
             ;; early. The escaper rewrites `<` to its reader escape, but only
             ;; inside EDN string literals — so the payload still reads back
             ;; byte-for-byte on the client.
-            #?(:clj [re-frame.ssr.html-helpers :as html])
+            #?(:clj [re-frame.ssr.html-helpers :as rf.ssr.html-helpers])
             ;; Server-side only: the SSR artefact owns the hydration
             ;; pattern-protocol version as a compiled-in constant. The payload
             ;; sources `:rf/version` from it rather than pinning a literal, so a
             ;; future bump flows through without editing every producer.
-            #?(:clj [re-frame.ssr.payload-policy :as payload-policy])
-            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
+            #?(:clj [re-frame.ssr.payload-policy :as rf.ssr.payload-policy])
+            #?(:cljs [re-frame.adapter.reagent :as rf.adapter.reagent])
             ;; The client mount step — the payload-vs-client-only React-root
             ;; branch — factored into a registration-free helper so the browser
             ;; DOM-adoption regression can execute the EXACT branch this recipe
@@ -187,7 +187,7 @@
 ;;
 ;; This example has no machines and doesn't hydrate a route, so its runtime-db
 ;; slice is empty here — but the shape is the same one a richer app fills in.
-;; The client `run` at the bottom drives all of this through `ssr/hydrate!`; the
+;; The client `run` at the bottom drives all of this through `rf.ssr/hydrate!`; the
 ;; CLIENT ENTRY POINT section picks up the thread.
 
 ;; ============================================================================
@@ -276,7 +276,7 @@
 #?(:clj
    (defn handle-request [request]
      (let [fid (keyword "rf.frame" (str (gensym "f")))
-           _   (ssr/set-request! fid request)
+           _   (rf.ssr/set-request! fid request)
            ;; Schema first, frame second — order matters. `make-frame` runs its
            ;; `:initial-events` pipeline run synchronously, and that run includes
            ;; the `:articles` commit `:rf/server-init` sets in motion. If the
@@ -316,7 +316,7 @@
                  ;; own fixed `app-frame` (defined below). The two frames have
                  ;; nothing to say to each other by name. A `:rf/frame-id` in
                  ;; the payload isn't a "hydrate into this" instruction — it's
-                 ;; evidence. `ssr/hydrate!` checks any id it finds against the
+                 ;; evidence. `rf.ssr/hydrate!` checks any id it finds against the
                  ;; `:frame` you explicitly pass, and raises
                  ;; `:rf.error/hydration-frame-id-mismatch` if they disagree.
                  ;; Leaving it out is the no-argument-to-have-here shape, which
@@ -324,7 +324,7 @@
                  ;; both use. A deployment that *does* want to carry one stamps
                  ;; a stable id both sides agree on ahead of time — never a
                  ;; per-request gensym.
-                 payload  {:rf/version     payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
+                 payload  {:rf/version     rf.ssr.payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
                            :rf/app-db      final-db        ;; app-db partition
                            :rf/runtime-db  final-runtime   ;; serializable runtime-db projection
                            :rf/render-hash render-hash}]
@@ -345,7 +345,7 @@
                    ;; inside EDN string literals, so the client's
                    ;; `cljs.reader/read-string` still reads it back unchanged.
                    "<script id='__rf_payload' type='application/edn'>"
-                   (html/escape-edn-script-body (pr-str payload))
+                   (rf.ssr.html-helpers/escape-edn-script-body (pr-str payload))
                    "</script>"
                    "<script src='/main.js'></script>"
                    "</body></html>")}))
@@ -360,7 +360,7 @@
 ;; CLIENT ENTRY POINT
 ;; ============================================================================
 ;;
-;; On the client, the whole boot is a single call: `ssr/hydrate!`, the mirror
+;; On the client, the whole boot is a single call: `rf.ssr/hydrate!`, the mirror
 ;; image of the server render. It rolls three steps into one, and the order is
 ;; the point:
 ;;   1. READ    — pull the embedded `__rf_payload` `<script>` by its pinned id.
@@ -395,10 +395,10 @@
 ;; the DOM — so if several example namespaces get required together, none of them
 ;; can race the others to slap a root onto the shared `#app`. One root per
 ;; container, reused across hot reloads.
-#?(:cljs (defonce app-root (reagent-adapter/client-root)))
+#?(:cljs (defonce app-root (rf.adapter.reagent/client-root)))
 
 ;; The client's app-frame id. The app names its frame out loud and threads the
-;; very same id through two places: `ssr/hydrate!` (where the server's state
+;; very same id through two places: `rf.ssr/hydrate!` (where the server's state
 ;; gets seeded) and the root `frame-provider` (where every `dispatch` and
 ;; `subscribe` in the tree goes looking for its frame). It has to be a
 ;; `:client`-platform frame, because the `:rf/hydrate` handler fires
@@ -420,7 +420,7 @@
      (when-let [el (and (exists? js/document) (js/document.getElementById "app"))]
        ;; Render inside the app-frame's `frame-provider`, so every `dispatch` and
        ;; `subscribe` down in the view tree resolves to the frame we hydrated.
-       (reagent-adapter/render! app-root
+       (rf.adapter.reagent/render! app-root
          [rf/frame-provider {:frame app-frame}
           [(rf/view :app/root)]]
          el))))
@@ -433,7 +433,7 @@
      ;; adapter and stops there. Creating a frame is the app's job, next line.
      ;; (Each adapter namespace exports an `adapter` var; you require it and
      ;; hand the spec map straight in.)
-     (rf/init! reagent-adapter/adapter)
+     (rf/init! rf.adapter.reagent/adapter)
      ;; Stand up the client app-frame before we hydrate anything into it.
      ;; Re-registering an existing frame is a no-op, so hot-reload just shrugs
      ;; and carries on. `:platform :client` is what lets the hydrate
@@ -455,7 +455,7 @@
      ;; verifies STATE only — it never touches the DOM — and returns the payload
      ;; it applied, or nil on a plain client load.
      (let [el      (and (exists? js/document) (js/document.getElementById "app"))
-           payload (ssr/hydrate! {:frame          app-frame
+           payload (rf.ssr/hydrate! {:frame          app-frame
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
            tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
        (when el

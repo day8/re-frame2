@@ -20,13 +20,13 @@
    (docs/resources/glossary.md#reply-map)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; `registrar/handler` looks up the framework's canonical
+            ;; `rf.registrar/handler` looks up the framework's canonical
             ;; canned-success fx handler so the demo stub can DELEGATE to it
             ;; (with an `:after-ms` delay) instead of hand-rolling the latency
             ;; plumbing.
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             ;; The adapter `rf/init!` needs.
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Managed HTTP ships in its own artefact; this require
             ;; registers `:rf.http/managed` and family. Without it, every
             ;; child loader's fetch would raise :rf.error/no-such-fx.
@@ -108,7 +108,7 @@
   (fn fx-managed-boot-demo [frame-ctx args-map]
     (let [url            (-> args-map :request :url)
           payload        (demo-payload-for-url url)
-          canned-success (registrar/handler :fx :rf.http/managed-canned-success)]
+          canned-success (rf.registrar/handler :fx :rf.http/managed-canned-success)]
       ;; Delegate to the framework canned-success handler. Passing `frame-ctx`
       ;; straight through preserves the `:frame` stamp and the originating
       ;; `:event`, so the deferred reply is addressed to the loader that
@@ -126,7 +126,7 @@
 ;; it there rather than at ns-load so several example namespaces can share one
 ;; browser-test bundle without two of them racing `create-root` onto the same
 ;; `#app` element.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The app frame id. Every in-tree `dispatch`/`subscribe` resolves to this
 ;; frame, which the frame-root below stands up. An app always names its
@@ -147,7 +147,7 @@
     ;; - `:initial-events` fires `:boot/initialise` once on first mount to
     ;;   kick the boot off. A hot reload reuses the frame and leaves the boot
     ;;   alone, so you don't re-run it on every save.
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id             app-frame
                       :doc            "Boot example demo frame."
                       :fx-overrides   {:rf.http/managed :boot.demo/http-stub}
@@ -157,5 +157,5 @@
 
 (defn run []
   ;; Hand the adapter's spec map straight to `init!`.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

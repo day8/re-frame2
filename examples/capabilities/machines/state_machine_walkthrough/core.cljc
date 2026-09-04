@@ -32,7 +32,7 @@
             ;; pre-baked replies our stubs below delegate to.
             [re-frame.http.test-support]
             ;; ...and those stubs find the canned fxs through the registrar.
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as rf.registrar]))
 
 ;; ============================================================================
 ;; THE TRANSITION TABLE — guide §A machine at a glance
@@ -163,7 +163,7 @@
          user/token. Defers the heavy lifting to the framework-shipped
          `:rf.http/managed-canned-success` — we just supply the payload."}
   (fn [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+    (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
       (stub frame-ctx (assoc args-map :value {:user  {:id "test-user"}
                                               :token "test-token"})))))
 
@@ -172,7 +172,7 @@
          framework-shipped `:rf.http/managed-canned-failure` — we just supply
          the failure shape. This is the stub the lockout demo wires in."}
   (fn [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+    (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
       (stub frame-ctx (assoc args-map
                              :kind :rf.http/http-4xx
                              :tags {:message "bad creds" :status 401})))))

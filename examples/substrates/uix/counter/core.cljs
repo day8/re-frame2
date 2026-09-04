@@ -22,7 +22,7 @@
   (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core    :as rf]
-            [re-frame.adapter.uix :as uix-adapter]))
+            [re-frame.adapter.uix :as rf.adapter.uix]))
 
 ;; -- Events / subs -----------------------------------------------------------
 ;;
@@ -60,8 +60,8 @@
 ;; injection). See `docs/core/glossary.md#capture-frame`.
 
 (defui counter-buttons []
-  (let [count              (uix-adapter/use-subscribe [:counter/value])
-        {:keys [dispatch]} (uix-adapter/use-frame)]
+  (let [count              (rf.adapter.uix/use-subscribe [:counter/value])
+        {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/dec])} "-")
        ($ :span {:style #js {:margin "0 1em"} :data-testid "counter-value"} count)
@@ -106,7 +106,7 @@
     (when-not @react-root
       (reset! react-root (uix-dom/create-root el)))
     (uix-dom/render-root
-      ($ uix-adapter/frame-root {:id app-frame
+      ($ rf.adapter.uix/frame-root {:id app-frame
                                      :initial-events [[:counter/initialise]]}
          ($ counter-app))
       @react-root)))
@@ -116,5 +116,5 @@
   ;; once, for the whole process. Every adapter ns exports an `adapter` var;
   ;; require the ns and hand that var over. Call it once at startup and
   ;; forget about it. See `docs/core/glossary.md#init`.
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (mount!))

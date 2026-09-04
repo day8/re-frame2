@@ -26,7 +26,7 @@
             ;; hooks that make `rf/reg-app-schema` resolve. No var from it is
             ;; used directly — it just has to be on the page.
             [re-frame.schemas]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -189,7 +189,7 @@
 ;; example namespaces required together would both grab for the shared `#app`
 ;; element and race to `create-root` on it — and a race in your test harness is
 ;; precisely the bug you don't want. See examples/TESTING.md, "mount-isolation".
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The frame's whole life story fits in one place: the `frame-root {:id
 ;; app-frame …}` in `mount!` below. First mount creates the frame and runs its
@@ -214,7 +214,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
                       :initial-events [[:temp/initialise]]}
        [temperature-converter]]
@@ -226,5 +226,5 @@
   ;; pass that var. One call, at startup. Note it installs the adapter, not a
   ;; frame — the frame comes later, via the provider in `mount!`.
   ;; See `docs/core/glossary.md#init`.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

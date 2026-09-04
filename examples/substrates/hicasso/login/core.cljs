@@ -11,17 +11,17 @@
    entire.
 
    What changes here is the notation, and it changes more than on the UIx side:
-   Hicasso interprets Hiccup at runtime, so a view is an `h/defview` boundary
-   whose body reads subscriptions with `h/sub` and states its handlers as DATA.
-   `{:on-change [:auth.login/edit-field :email ::h/value]}` IS the handler —
-   there is no callback to write, and `::h/value` substitutes the event
+   Hicasso interprets Hiccup at runtime, so a view is an `rf.hicasso/defview` boundary
+   whose body reads subscriptions with `rf.hicasso/sub` and states its handlers as DATA.
+   `{:on-change [:auth.login/edit-field :email ::rf.hicasso/value]}` IS the handler —
+   there is no callback to write, and `::rf.hicasso/value` substitutes the event
    target's value at dispatch time. Reagent reaches for `reg-view` and an
    injected `dispatch`; UIx reaches for `defui` plus the `use-subscribe` hook.
    The subscription vectors and the event ids do not change one character
    across the three.
 
-   Two handlers here are `h/event` callbacks rather than intent vectors,
-   and both for a stated reason — see them below. `h/event` is Hicasso's one
+   Two handlers here are `rf.hicasso/event` callbacks rather than intent vectors,
+   and both for a stated reason — see them below. `rf.hicasso/event` is Hicasso's one
    callback form: at an `on-*` position a returned vector is dispatched and any
    other return is ignored.
 
@@ -39,19 +39,19 @@
             ;; boot below. It names no substrate — the Hicasso code lives only
             ;; here.
             [login.model :as model]
-            [re-frame.hicasso :as h]
-            ;; The client half of an SSR route: `ssr/hydrate!` installs the
+            [re-frame.hicasso :as rf.hicasso]
+            ;; The client half of an SSR route: `rf.ssr/hydrate!` installs the
             ;; server's app-db from `__rf_payload` BEFORE the first client
             ;; render. On a client-only load it finds no payload and is a
             ;; no-op, which is what lets ONE `run` serve both pages.
-            [re-frame.ssr :as ssr]
+            [re-frame.ssr :as rf.ssr]
             ;; Hicasso is a VIEW layer, not a substrate: it owns Hiccup
             ;; interpretation and the render boundary, while the reactive
             ;; container app-db lives in comes from an adapter. Hicasso ships
             ;; its own, in this namespace, so the choice costs no extra
             ;; coordinate (docs/core/hicasso/00-installation.md §Hicasso needs a
             ;; substrate adapter).
-            [re-frame.hicasso.substrate :as substrate]))
+            [re-frame.hicasso.substrate :as rf.hicasso.substrate]))
 
 ;; ============================================================================
 ;; THE SSR COORDINATES  (shared by the client boot and the server bundle)
@@ -79,11 +79,11 @@
   :rf/default)
 
 ;; ============================================================================
-;; VIEWS  (Hicasso — h/defview + h/sub + intents)
+;; VIEWS  (Hicasso — rf.hicasso/defview + rf.hicasso/sub + intents)
 ;; ============================================================================
 ;;
-;; `h/defview` mints a real React function component whose head is a legal
-;; hiccup tag: `[login-form]`. Inside the body `h/sub` reads a subscription
+;; `rf.hicasso/defview` mints a real React function component whose head is a legal
+;; hiccup tag: `[login-form]`. Inside the body `rf.hicasso/sub` reads a subscription
 ;; from the frame this root scoped — no deref, no hook, and legal inside a
 ;; `let`, a `when` or an inlined helper, because the edge is recorded where the
 ;; read happens.
@@ -93,14 +93,14 @@
 ;; event. There is no view-local state anywhere in this file — the draft is
 ;; app-db, which is the whole reason there is nothing here to keep in step.
 
-(h/defview login-form
+(rf.hicasso/defview login-form
   "The login form: email + password + submit + error display."
   [_]
-  (let [draft     (h/sub [:auth.login/draft])
-        busy?     (h/sub [:rf.machine/has-tag? :auth.login/flow :auth/busy])
-        err       (h/sub [:auth.login/error])
-        email-err (h/sub [:auth.login/field-error :email])
-        pw-err    (h/sub [:auth.login/field-error :password])]
+  (let [draft     (rf.hicasso/sub [:auth.login/draft])
+        busy?     (rf.hicasso/sub [:rf.machine/has-tag? :auth.login/flow :auth/busy])
+        err       (rf.hicasso/sub [:auth.login/error])
+        email-err (rf.hicasso/sub [:auth.login/field-error :email])
+        pw-err    (rf.hicasso/sub [:auth.login/field-error :password])]
     [:form.login-form
      {:data-testid "login-form"
       ;; CALLBACK 1 of 2. `:on-submit` is the one position Hicasso prevents by
@@ -110,28 +110,28 @@
       ;; guard is written where a condition belongs: in a callback that
       ;; prevents unconditionally and returns an event only when there is one
       ;; to send.
-      :on-submit   (h/event [e]
+      :on-submit   (rf.hicasso/event [e]
                      (.preventDefault e)
                      (when-not busy?
                        [:auth.login/submit-form]))}
      ;; The email is NOT a secret, so it rides the plain positional
      ;; `:auth.login/edit-field` — and the whole handler is the intent vector.
-     ;; `::h/value` is substituted with the event target's current value at
+     ;; `::rf.hicasso/value` is substituted with the event target's current value at
      ;; dispatch time.
      [:input {:type        "email"
               :placeholder "Email"
               :disabled    busy?
               :data-testid "login-email"
               :value       (:email draft)
-              :on-change   [:auth.login/edit-field :email ::h/value]}]
+              :on-change   [:auth.login/edit-field :email ::rf.hicasso/value]}]
      (when email-err [:p.error {:data-testid "login-email-error"} email-err])
      ;; CALLBACK 2 of 2. The password's keystrokes ride a MAP payload —
      ;; `[:auth.login/edit-password {:value …}]` — because its registration
      ;; declares `:sensitive [[:value]]` and redaction is path-based, so a
      ;; positional secret would ship raw to every trace
-     ;; (docs/core/how-to/keep-secrets-out-of-traces.md). `::h/value`
+     ;; (docs/core/how-to/keep-secrets-out-of-traces.md). `::rf.hicasso/value`
      ;; substitutes at the intent's TOP LEVEL only, by design, so building that
-     ;; map is exactly the case `h/event` exists for. Flattening the secret
+     ;; map is exactly the case `rf.hicasso/event` exists for. Flattening the secret
      ;; into a positional intent to save four characters would break the
      ;; classification.
      [:input {:type        "password"
@@ -139,7 +139,7 @@
               :disabled    busy?
               :data-testid "login-password"
               :value       (:password draft)
-              :on-change   (h/event [e]
+              :on-change   (rf.hicasso/event [e]
                              [:auth.login/edit-password
                               {:value (.. e -target -value)}])}]
      (when pw-err [:p.error {:data-testid "login-password-error"} pw-err])
@@ -151,7 +151,7 @@
 
 ;; The dead end. `:locked-out` is tagged `:auth/locked` and has no way out, so
 ;; the form is replaced rather than left on screen taking input and ignoring it.
-(h/defview locked-panel
+(rf.hicasso/defview locked-panel
   "Locked-account panel shown when the login flow reaches :locked-out."
   [_]
   [:div.locked {:data-testid "locked-panel"}
@@ -160,11 +160,11 @@
 
 ;; The top-level switch: two tag reads, three faces. Views ask the machine a
 ;; QUESTION (`:rf.machine/has-tag?`) rather than matching exact state names.
-(h/defview login-banner
+(rf.hicasso/defview login-banner
   "Picks what to show by login state: welcome / locked panel / the form."
   [_]
-  (let [authed? (h/sub [:rf.machine/has-tag? :auth.login/flow :auth/authenticated])
-        locked? (h/sub [:rf.machine/has-tag? :auth.login/flow :auth/locked])]
+  (let [authed? (rf.hicasso/sub [:rf.machine/has-tag? :auth.login/flow :auth/authenticated])
+        locked? (rf.hicasso/sub [:rf.machine/has-tag? :auth.login/flow :auth/locked])]
     [:div.banner {:data-testid "login-banner"}
      (cond
        authed? [:span "Welcome!"]
@@ -200,13 +200,13 @@
   (fn sub-auth-login-server-notice [db _]
     (:auth.login/server-notice db)))
 
-(h/defview server-notice
+(rf.hicasso/defview server-notice
   "The deployment notice, when there is one."
   [_]
-  (when-some [notice (h/sub [:auth.login/server-notice])]
+  (when-some [notice (rf.hicasso/sub [:auth.login/server-notice])]
     [:p.server-notice {:data-testid "login-server-notice"} notice]))
 
-(h/defview root-view
+(rf.hicasso/defview root-view
   "The example's root boundary."
   [_]
   [:div.app
@@ -234,14 +234,14 @@
 ;;      form slice before the first paint — skip that and the inputs read `nil`
 ;;      for their `:value` and React quietly demotes them to uncontrolled.
 ;;
-;;      Why here rather than inside the mount? Because `h/mount!`'s config
+;;      Why here rather than inside the mount? Because `rf.hicasso/mount!`'s config
 ;;      carries exactly three keys — `:frame`, `:initial-events` and
 ;;      `:identifier-prefix` — and `:fx-overrides` is not among them. That is
 ;;      the root door's shape, not an omission, and the example bends to it
-;;      rather than the other way around: no shim is added to `h/mount!` for
+;;      rather than the other way around: no shim is added to `rf.hicasso/mount!` for
 ;;      this file's convenience.
 ;;
-;;   3. `h/mount!` associates the DOM node, the frame and one root view.
+;;   3. `rf.hicasso/mount!` associates the DOM node, the frame and one root view.
 ;;      Mounting ENSURES its frame: it creates the frame when absent and JOINS
 ;;      the live one otherwise. Step 2 already created `:rf/default`, so this
 ;;      joins it untouched — no re-seed, no config refresh — which is why
@@ -257,17 +257,17 @@
   !root
   (atom nil))
 
-;; Shadow's cue to re-run this after each reload. `h/render!` reconciles the new
+;; Shadow's cue to re-run this after each reload. `rf.hicasso/render!` reconciles the new
 ;; tree against the DOM already on the page, so edited views meet their own
-;; nodes and the frame beneath them is untouched. Calling `h/mount!` again would
+;; nodes and the frame beneath them is untouched. Calling `rf.hicasso/mount!` again would
 ;; `createRoot` a second time and throw away every node, subscription and scrap
 ;; of component state.
 (defn ^:dev/after-load re-render! []
   (when-some [root @!root]
-    (h/render! root [root-view])))
+    (rf.hicasso/render! root [root-view])))
 
 ;; ONE boot, two pages. A client-only load has no `__rf_payload` in the
-;; document, so `ssr/hydrate!` is a no-op and the root MOUNTS — exactly the
+;; document, so `rf.ssr/hydrate!` is a no-op and the root MOUNTS — exactly the
 ;; three lines above. A server-rendered load has one, so the payload is
 ;; installed first and the root ADOPTS the markup already on the page
 ;; instead of throwing it away.
@@ -276,24 +276,24 @@
 ;; one bundle serves both, so `npm run dev:example -- examples/login-hicasso`
 ;; keeps working unchanged and the SSR route needs no second build.
 ;;
-;; No `:render-tree-fn` is passed to `ssr/hydrate!`. The render-tree hash is
+;; No `:render-tree-fn` is passed to `rf.ssr/hydrate!`. The render-tree hash is
 ;; hiccup-tier-only, and this is an adoption-tier root: Hicasso's server
 ;; render ships no `:rf/render-hash` and there is nothing to compare
 ;; against. Adoption is verified by React itself — a divergence surfaces as
 ;; a recoverable error on this root's own stream.
 
 (defn run []
-  (rf/init! substrate/adapter)
+  (rf/init! rf.hicasso.substrate/adapter)
   (rf/make-frame (merge {:id  frame-id
                          :doc "Login (Hicasso) demo frame."}
                         model/frame-config))
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById app-element-id))]
-    (let [payload (ssr/read-server-payload)
+    (let [payload (rf.ssr/read-server-payload)
           config  {:frame             frame-id
                    :identifier-prefix identifier-prefix}]
       (if (some? payload)
-        (do (ssr/hydrate! {:frame frame-id :payload payload})
-            (reset! !root (h/hydrate! el config [root-view])))
-        (reset! !root (h/mount! el config [root-view])))))
+        (do (rf.ssr/hydrate! {:frame frame-id :payload payload})
+            (reset! !root (rf.hicasso/hydrate! el config [root-view])))
+        (reset! !root (rf.hicasso/mount! el config [root-view])))))
   nil)

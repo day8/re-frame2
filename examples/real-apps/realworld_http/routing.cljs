@@ -22,10 +22,10 @@
             ;; Routing lives in its own artefact. Requiring it registers the
             ;; hooks and subs that make the `rf/reg-route` calls below resolve.
             ;; This one IS aliased — ROUTER WIRING below builds
-            ;; `url-strategy` off `routing/with-base-path` +
-            ;; `routing/history-url-strategy`. See the routing guide:
+            ;; `url-strategy` off `rf.routing/with-base-path` +
+            ;; `rf.routing/history-url-strategy`. See the routing guide:
             ;; ../../../docs/routing/index.md
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             ;; For `auth/restoring-session?` — the ONE definition of the
             ;; cold-boot window in which identity is not yet known, shared with
             ;; the `:auth/restoring-session?` sub so the denial handler below
@@ -251,5 +251,5 @@
 ;; base-path-aware popstate listener AND does the first-load URL→state sync
 ;; automatically, so this namespace needs no separate listener or install call.
 (def url-strategy
-  (routing/with-base-path routing/history-url-strategy "/realworld"))
+  (rf.routing/with-base-path rf.routing/history-url-strategy "/realworld"))
 

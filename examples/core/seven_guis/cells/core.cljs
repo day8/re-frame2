@@ -36,7 +36,7 @@
             ;; Pulled in for its side effect: loading it wires up the hooks that
             ;; make `rf/reg-app-schema` actually do something.
             [re-frame.schemas]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [clojure.set]
             [clojure.string :as str]))
 
@@ -480,7 +480,7 @@
 ;; load time. Loading a namespace must not touch the DOM — otherwise several
 ;; example namespaces sharing this page would all race to call `create-root` on
 ;; the same `#app` element. Once is plenty.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The frame's whole life happens in one place: the `frame-root` down in
 ;; `mount!`. First mount creates the frame, applies its config, and fires
@@ -503,7 +503,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
                       :initial-events [[:cells/initialise]]}
        [cells-grid]]
@@ -513,5 +513,5 @@
   ;; `init!` tells re-frame2 which reactive substrate to render through — here,
   ;; Reagent. Every adapter namespace exports an `adapter` var; you require the
   ;; namespace and hand that var straight in.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

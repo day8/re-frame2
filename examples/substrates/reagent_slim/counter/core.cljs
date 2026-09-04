@@ -23,7 +23,7 @@
   (:require [re-frame.core                      :as rf]
             ;; Monorepo-only spelling (see the ns docstring). Your app picks
             ;; slim by its deps coordinate, not by naming this namespace.
-            [re-frame.adapter.reagent-slim      :as reagent-slim-adapter]))
+            [re-frame.adapter.reagent-slim      :as rf.adapter.reagent-slim]))
 
 ;; -- Events / subs (the handler registry is app-global) ----------------------
 ;;
@@ -70,7 +70,7 @@
 ;; `create-root` on the shared `#app`. Same mount shape as
 ;; `examples/core/counter`.
 
-(defonce app-root (reagent-slim-adapter/client-root))
+(defonce app-root (rf.adapter.reagent-slim/client-root))
 
 ;; The app frame is born in exactly one place: the `frame-root {:id
 ;; app-frame …}` at the render root below. On first mount the provider
@@ -91,7 +91,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-slim-adapter/render! app-root
+    (rf.adapter.reagent-slim/render! app-root
       [rf/frame-root {:id app-frame
                       :initial-events [[:counter/initialise]]}
        [counter-app]]
@@ -117,7 +117,7 @@
   ([on-frame]
    ;; The slim adapter — this single line is the whole difference from
    ;; `examples/core/counter`. Same `rf/init!`, different adapter.
-   (rf/init! reagent-slim-adapter/adapter)
+   (rf/init! rf.adapter.reagent-slim/adapter)
    (when on-frame
      ;; Fixture-only seam. Run the hook in a throwaway frame (gone on exit)
      ;; so it never touches the app frame the provider creates below.

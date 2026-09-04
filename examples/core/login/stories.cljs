@@ -69,7 +69,7 @@
    Examples are test-free: these stories carry no `:script` / `:rf.assert/*`
    — they're a showcase, not a test surface."
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             ;; Source the example's registrations (the machine, schemas,
             ;; demo fx, subs, views). The variant bodies below reference
             ;; its event-ids + the `root-view` view-id as plain keywords;
@@ -150,7 +150,7 @@
   ;; reg-tag — one project tag, marking which variant is the "hero" shot.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-tag :login/canonical
+  (rf.story/reg-tag :login/canonical
     {:doc "Marks the variant that ships as the example's canonical
           screenshot — the `:success` welcome-banner state."})
 
@@ -160,7 +160,7 @@
   ;; variant, so each variant only has to describe what makes it different.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-story :story.login
+  (rf.story/reg-story :story.login
     {:doc        "The login form — every reachable state of the
                  `:auth.login/flow` machine, as runnable variants."
      :component  :login.core/root-view
@@ -180,7 +180,7 @@
   ;; of the defaults — no defaults map is duplicated in Story, no `:db-seed`.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-fragment :fragment.login/form-base
+  (rf.story/reg-fragment :fragment.login/form-base
     {:doc   "Seeds the login-form slice to its standard form-recipe defaults
             via the example's own `:auth.login/initialise-form` (the single
             source of those defaults — the same event the live app runs at
@@ -201,7 +201,7 @@
   ;; `:initial` cascade into seeding the snapshot. Without that nudge the
   ;; `[:rf.runtime/machines :snapshots :auth.login/flow]` slot sits nil until
   ;; the first real event, and there'd be nothing to render.
-  (story/reg-variant :story.login/empty
+  (rf.story/reg-variant :story.login/empty
     {:compose    [:fragment.login/form-base]
      :doc        "Fresh form, nothing typed, no submit clicked — the
                  `:idle` entry state a user lands on. Email + password
@@ -216,7 +216,7 @@
   ;; `:auth.login/edit-password`), which write into the app-db slice. The
   ;; machine stays `:idle`, and the inputs show the seeded draft as their
   ;; `:value`. No shortcuts.
-  (story/reg-variant :story.login/filled
+  (rf.story/reg-variant :story.login/filled
     {:compose    [:fragment.login/form-base]
      :doc        "Both fields filled in, nothing submitted yet — the form
                  mid-edit. The draft was typed into the app-db login-form slice
@@ -237,14 +237,14 @@
   ;; `:success` / `:failure` ever fires, so the canvas is stuck in `:submitting`
   ;; (`:auth/busy`) — inputs disabled, button reading "Signing in…". A
   ;; freeze-frame of the in-flight moment.
-  (story/reg-variant :story.login/submitting
+  (rf.story/reg-variant :story.login/submitting
     {:compose    [:fragment.login/form-base]
      :doc        "First submit; the HTTP request is in flight. Inputs
                  are disabled and the button reads 'Signing in…'. The
                  fx-stub records the `:rf.http/managed` request and
                  resolves nothing, so the canvas locks in `:submitting`."
      :setup      [[:login.story/submit good-creds]]
-     :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
+     :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
@@ -254,7 +254,7 @@
   ;; slice, `:submit-attempted?` latches, and nothing is dispatched — so the
   ;; machine never leaves `:idle` and the form shows what's wrong under each
   ;; input.
-  (story/reg-variant :story.login/invalid-credentials
+  (rf.story/reg-variant :story.login/invalid-credentials
     {:compose    [:fragment.login/form-base]
      :doc        "A bad draft (bad email + too-short password) is caught by
                  `submit-form`'s pre-submit `Credentials` validation: field
@@ -273,7 +273,7 @@
   ;; outcome by hand is the standard Story move for pinning a precise terminal
   ;; state without being at the mercy of timing. The flow settles at
   ;; `:error-shown`, error message and all.
-  (story/reg-variant :story.login/auth-error
+  (rf.story/reg-variant :story.login/auth-error
     {:compose    [:fragment.login/form-base]
      :doc        "Server rejected the credentials. The form is re-enabled and
                  the error message surfaces under the submit button
@@ -291,7 +291,7 @@
   ;; the `:lock-account` request (a real `:rf.http/managed` call). There's no
   ;; shortcut to "three strikes already used", so this variant simply walks
   ;; the path: submit → failure, four times over, until the limit is spent.
-  (story/reg-variant :story.login/locked-out
+  (rf.story/reg-variant :story.login/locked-out
     {:compose    [:fragment.login/form-base]
      :doc        "Too many failed attempts — the `:under-retry-limit`
                  guard fails on the fourth failure and the flow reaches
@@ -311,7 +311,7 @@
                   [:auth.login/flow [:auth.login/submit]]
                   [:auth.login/flow [:auth.login/failure
                                      (failure-reply 423 "Account locked.")]]]
-     :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
+     :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
@@ -320,7 +320,7 @@
   ;; real `:rf.http/managed` fx → canned reply → `:auth.login/success` →
   ;; `:authed`. Open this one, hit Ctrl+Shift+C, and watch the full chain march
   ;; across Xray's Epoch / Trace / Side Effects panels.
-  (story/reg-variant :story.login/success
+  (rf.story/reg-variant :story.login/success
     {:compose    [:fragment.login/form-base]
      :doc        "Server accepted the credentials. The form is replaced
                  by the 'Welcome!' banner (`:authed`). The full
@@ -341,7 +341,7 @@
   ;; editing this workspace.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-workspace :Workspace.login/all-states
+  (rf.story/reg-workspace :Workspace.login/all-states
     {:doc      "Every login state, side by side in narrative order:
                empty → filled → submitting → invalid → auth-error →
                locked-out → success."
@@ -356,7 +356,7 @@
      :columns  3
      :tags     #{:docs}})
 
-  (story/reg-workspace :Workspace.login/auto-grid
+  (rf.story/reg-workspace :Workspace.login/auto-grid
     {:doc     "Auto-enumerated grid — pulls every variant off
               :story.login. New variants appear here without touching
               this workspace."

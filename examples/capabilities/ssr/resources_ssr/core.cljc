@@ -32,7 +32,7 @@
    This drives the real server path, not a stand-in. It blocks on the
    preloaded page resource before rendering (`await-resource-loaded!`,
    server entry point below) and ships only the allowed runtime-db
-   projection (`payload-policy/project-runtime-db`) under `:rf/runtime-db` —
+   projection (`rf.ssr.payload-policy/project-runtime-db`) under `:rf/runtime-db` —
    never the full cache. The `:rf/app-db` slice goes through the same
    fail-closed allowlist (`apply-policy`) the production Ring host uses. The
    static `index.html` next to this file carries a pre-baked payload so the
@@ -67,19 +67,19 @@
             [re-frame.resources]
             ;; SSR: render-to-string, the `:rf/hydrate` event, and the
             ;; per-request server effects.
-            [re-frame.ssr :as ssr]
+            [re-frame.ssr :as rf.ssr]
             ;; The payload assembly the production Ring host uses, so this
             ;; example builds the wire payload the same way the real thing does:
             ;; the fail-closed app-db allowlist (`apply-policy`) and the
             ;; runtime-db projection (`project-runtime-db`) that ships only the
             ;; allowed resource `:entries` under `:rf/runtime-db` (sensitive
             ;; data redacted; indexes rebuilt on install). Server-side only.
-            #?(:clj [re-frame.ssr.payload-policy :as payload-policy])
+            #?(:clj [re-frame.ssr.payload-policy :as rf.ssr.payload-policy])
             ;; The EDN-aware escaper for the payload `<script>` body. A server
             ;; string that happens to contain `</script>` would otherwise close
             ;; the envelope early — so we escape it. Server-side only.
-            #?(:clj [re-frame.ssr.html-helpers :as html])
-            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
+            #?(:clj [re-frame.ssr.html-helpers :as rf.ssr.html-helpers])
+            #?(:cljs [re-frame.adapter.reagent :as rf.adapter.reagent])))
 
 ;; ============================================================================
 ;; RESOURCE
@@ -188,7 +188,7 @@
 ;; DIRECT RESOURCE-PRELOAD POLL (route-free — no `reg-route` in this example)
 ;; ============================================================================
 ;;
-;; The framework's `ssr/drain-blocking-resources!` is ROUTE-blocking-keyed:
+;; The framework's `rf.ssr/drain-blocking-resources!` is ROUTE-blocking-keyed:
 ;; it drains only the resources a `reg-route` on-route-entry plan enqueued
 ;; for the CURRENT nav-token (`[:rf.runtime/routing :resource-blocking
 ;; <nav-token>]`, written by the routing artefact). This page has no route
@@ -255,8 +255,8 @@
 ;;      the render never catches the page mid-fetch with a `:loading`
 ;;      skeleton frozen into the HTML. See the DIRECT RESOURCE-PRELOAD POLL
 ;;      section above for why this page polls directly instead of calling
-;;      `ssr/drain-blocking-resources!`.
-;;   2. `payload-policy/project-runtime-db` boils the runtime-db down to just
+;;      `rf.ssr/drain-blocking-resources!`.
+;;   2. `rf.ssr.payload-policy/project-runtime-db` boils the runtime-db down to just
 ;;      what's safe to serialize: the durable `:rf.runtime/resources`
 ;;      `:entries`, with `:sensitive?` values redacted, `:large?` values
 ;;      omitted, and the reverse indexes dropped (the client rebuilds those
@@ -269,7 +269,7 @@
 #?(:clj
    (defn handle-request [request]
      (let [fid (keyword "rf.frame" (str (gensym "f")))
-           _   (ssr/set-request! fid request)
+           _   (rf.ssr/set-request! fid request)
            f   (rf/make-frame {:id fid :doc       "resources-ssr per-request frame"
                                :platform  :server
                                :initial-events [[:rf/server-init]]})]
@@ -314,17 +314,17 @@
                  ;; thing fail-closed won't let you get away with.
                  ;; See docs/ssr/concepts.md#payload--the-fail-closed-allowlist.
                  policy-opts   {:payload :rf.ssr.payload/whole-app-db}
-                 payload       (payload-policy/build-payload
+                 payload       (rf.ssr.payload-policy/build-payload
                                  f
-                                 (payload-policy/apply-policy final-db policy-opts)
+                                 (rf.ssr.payload-policy/apply-policy final-db policy-opts)
                                  render-hash
                                  (assoc policy-opts
-                                        :runtime-db (payload-policy/project-runtime-db
+                                        :runtime-db (rf.ssr.payload-policy/project-runtime-db
                                                       final-runtime)))
                  ;; Drop the payload's `:rf/frame-id`. `build-payload` stamps it
                  ;; with this per-request gensym frame (`f`), but the client
                  ;; hydrates a fixed app-frame (`:rf/default`, below). When a
-                 ;; `:rf/frame-id` *is* present, `ssr/hydrate!` checks it against
+                 ;; `:rf/frame-id` *is* present, `rf.ssr/hydrate!` checks it against
                  ;; the client's `:frame` and raises
                  ;; `:rf.error/hydration-frame-id-mismatch` if they disagree — so
                  ;; the frame-id is a sanity check, not a hydration target. Our
@@ -345,7 +345,7 @@
                    ;; that happens to contain `</script>` can't slam the
                    ;; envelope shut from the inside.
                    "<script id='__rf_payload' type='application/edn'>"
-                   (html/escape-edn-script-body (pr-str payload))
+                   (rf.ssr.html-helpers/escape-edn-script-body (pr-str payload))
                    "</script><script src='/main.js'></script>"
                    "</body></html>")}))
          (finally
@@ -355,7 +355,7 @@
 ;; CLIENT ENTRY POINT
 ;; ============================================================================
 ;;
-;; The browser's side of the handoff. `ssr/hydrate!` reads the payload,
+;; The browser's side of the handoff. `rf.ssr/hydrate!` reads the payload,
 ;; dispatch-syncs `[:rf/hydrate payload]` to install the resource projection
 ;; into the frame's `:rf.runtime/resources` slice, then verifies the render
 ;; hash to confirm client and server agree on what the page should look like.
@@ -364,10 +364,10 @@
 ;; for. A stale entry quietly refetches in the background, per its policy.
 ;; See docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
 
-#?(:cljs (defonce app-root (reagent-adapter/client-root)))
+#?(:cljs (defonce app-root (rf.adapter.reagent/client-root)))
 
 ;; The client's one app-frame. The app names its hydration target out loud and
-;; threads the same id through two places: `ssr/hydrate!` (where the server
+;; threads the same id through two places: `rf.ssr/hydrate!` (where the server
 ;; state lands) and the root `frame-provider` (where in-tree dispatch/subscribe
 ;; go looking for their frame). One id, both ends — that's what makes them meet.
 ;; It has to be a `:client`-platform frame, or the `:rf.ssr/check-*`
@@ -386,20 +386,20 @@
 #?(:cljs
    (defn ^:dev/after-load render! []
      (when-let [el (and (exists? js/document) (js/document.getElementById "app"))]
-       (reagent-adapter/render! app-root
+       (rf.adapter.reagent/render! app-root
          [rf/frame-provider {:frame app-frame}
           [(rf/view :app/root)]]
          el))))
 
 #?(:cljs
    (defn run []
-     (rf/init! reagent-adapter/adapter)
+     (rf/init! rf.adapter.reagent/adapter)
      (rf/make-frame {:id app-frame :doc "resources-ssr client app-frame" :platform :client})
      ;; READ, HYDRATE, VERIFY against the app-frame. `hydrate!` seeds STATE only
      ;; — it never touches the DOM — and hands back the payload it applied, or
      ;; nil on a plain client load with no server render to adopt.
      (let [el      (and (exists? js/document) (js/document.getElementById "app"))
-           payload (ssr/hydrate! {:frame          app-frame
+           payload (rf.ssr/hydrate! {:frame          app-frame
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
            tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
        (when el
@@ -410,4 +410,4 @@
          ;; adapter mounts a fresh root; a fresh entry serves from cache, a
          ;; stale or absent one refetches per its policy. Either way the root
          ;; is created exactly once, here, and `render!` above reuses it.
-         (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)})))))
+         (rf.adapter.reagent/render! app-root tree el {:hydrate? (some? payload)})))))

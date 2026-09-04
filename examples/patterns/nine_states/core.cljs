@@ -74,7 +74,7 @@
    codebase would spread it across schema / events / subs / views /
    machines files."
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             ;; Schemas ship as their own artefact, day8/re-frame2-schemas.
             ;; Requiring this ns wires up the hooks the `rf/reg-app-schema`
             ;; call below leans on.
@@ -91,7 +91,7 @@
             ;; (`:rf.http/managed-canned-success` / `-failure`). Our little
             ;; per-app demo stub below just delegates to these.
             [re-frame.http.test-support]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; CONSTANTS
@@ -218,14 +218,14 @@
     (let [url (-> args-map :request :url str)]
       (cond
         (= url "/api/todos/fail")
-        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
           (stub frame-ctx (assoc args-map
                                  :kind :rf.http/transport
                                  :tags {:message "Network unreachable."})))
 
         :else
         (let [todo-count (or (-> args-map :request :query :n) 0)
-              stub (registrar/handler :fx :rf.http/managed-canned-success)]
+              stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
           (stub frame-ctx (assoc args-map :value (generate-todos todo-count))))))))
 
 ;; ============================================================================
@@ -818,7 +818,7 @@
 ;; has zero DOM side effects, and the namespaces coexist in one build
 ;; without a fuss.
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
@@ -838,7 +838,7 @@
   ;; attached to.
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id             :rf/default
                       :doc            "Nine-states demo frame."
                       :fx-overrides   {:rf.http/managed :nine-states.http/managed-demo}
@@ -849,5 +849,5 @@
 (defn run []
   ;; Tell the runtime which substrate to render through. Just the adapter —
   ;; no frame yet.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

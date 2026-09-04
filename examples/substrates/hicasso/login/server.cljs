@@ -49,9 +49,9 @@
   which the contract calls \"a sentence someone wrote\" and refuses along
   with every other value."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.server :as server]
-            [re-frame.hicasso.substrate :as substrate]
-            [re-frame.ssr.render-state :as render-state]
+            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.hicasso.substrate :as rf.hicasso.substrate]
+            [re-frame.ssr.render-state :as rf.ssr.render-state]
             ;; The views, the SSR coordinates and every `auth.login`
             ;; registration (the model rides in through this one require).
             [hicasso.login.core :as views]
@@ -94,7 +94,7 @@
 (defn- allowlist
   "The EDN text of each key in one slot of `policy/render-state-policy` —
   the spelling the protocol's key grammar admits (`:foo`, `:foo/bar`), and
-  the same spelling `render-state/serialize` puts on the wire."
+  the same spelling `rf.ssr.render-state/serialize` puts on the wire."
   [slot]
   (into-array (map pr-str (get policy/render-state-policy slot))))
 
@@ -110,7 +110,7 @@
   shared by every request in this isolate, which is the one thing a
   per-request renderer must not do."
   []
-  (rf/init! substrate/adapter)
+  (rf/init! rf.hicasso.substrate/adapter)
   js/undefined)
 
 (defn- render!
@@ -122,10 +122,10 @@
   reads them back under the bundled SAFE EDN reader, and `render-body`
   installs both partitions into a fresh per-request frame in one write."
   [^js call emit]
-  (let [partitions (render-state/deserialize
+  (let [partitions (rf.ssr.render-state/deserialize
                      {:rf/app-db     (js->clj (.-state call))
                       :rf/runtime-db (js->clj (.-runtime call))})]
-    (emit (server/render-body
+    (emit (rf.hicasso.server/render-body
             {:hiccup            [views/root-view]
              :render-state      partitions
              :identifier-prefix views/identifier-prefix

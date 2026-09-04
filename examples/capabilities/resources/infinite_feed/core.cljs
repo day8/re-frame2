@@ -59,7 +59,7 @@
    exactly as they would over a live network. A small reply delay gives the
    load-more spinner a moment on screen before each page lands."
   (:require [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             ;; Managed HTTP — the built-in transport resources fetch over.
             ;; Loading it registers the `:rf.http/managed` fx that every page
             ;; fetch runs on. See docs/resources/glossary.md#managed-http.
@@ -78,7 +78,7 @@
             ;; declare its resources. On entry a route ensures page 0 of an
             ;; infinite feed — just the first page, not the whole pile.
             [re-frame.routing]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
 ;; THE INFINITE RESOURCE — one growing feed, its pages held as the value
@@ -204,7 +204,7 @@
   (fn fx-managed-feed-demo [frame-ctx args-map]
     (let [cursor  (get-in args-map [:request :params :cursor])
           payload (demo-page-for-cursor cursor)
-          stub    (registrar/handler :fx :rf.http/managed-canned-success)]
+          stub    (rf.registrar/handler :fx :rf.http/managed-canned-success)]
       (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
 
 ;; ============================================================================
@@ -355,7 +355,7 @@
 ;; frame carries no `:initial-events`.
 ;; See docs/core/glossary.md#frame-root.
 
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 (def app-frame :rf/default)
 
@@ -367,7 +367,7 @@
     ;; The provider creates the app frame (config and all) on first mount and
     ;; reuses it on hot reload. Route entry ensures page 0, so there's no need
     ;; for `:initial-events`.
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id           app-frame
                       :doc          "Infinite-feed demo frame."
                       :url-bound?   true
@@ -376,5 +376,5 @@
       el)))
 
 (defn run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))
