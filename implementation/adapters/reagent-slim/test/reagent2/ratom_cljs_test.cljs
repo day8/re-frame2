@@ -482,3 +482,41 @@
   (testing "the Reaction's value is printed recursively too"
     (is (= "#object[reagent2.ratom.Reaction {:val [:p 1]}]"
            (pr-str (ratom/make-reaction (fn [] [:p 1])))))))
+
+;; ---------------------------------------------------------------------------
+;; pr-atom's *ratom-context* guard (rf2-3hqm)
+;;
+;; Printing must not make the printer depend on what it printed. A ratom's
+;; own deref happens at the `-pr-writer` call site, building `{:val ...}`
+;; before `pr-atom` is entered — that one is deliberately left visible, since
+;; a Reaction's `-deref` branches on `*ratom-context*` and reading it under a
+;; nil context would force a `flush!` and an on-demand recompute.
+;;
+;; What `pr-atom`'s guard is for is the derefs that happen DURING the print:
+;; `pr-writer` recurses into the value, and a nested ratom's `-pr-writer`
+;; derefs it. Those must not be captured.
+;; ---------------------------------------------------------------------------
+
+(deftest pr-atom-does-not-capture-nested-derefs
+  (testing "printing a ratom-in-a-ratom captures the outer, never the inner"
+    (let [inner (ratom/atom 7)
+          outer (ratom/atom {:inner inner})
+          r     (ratom/make-reaction (fn [] (pr-str outer)) :auto-run true)]
+      @r
+      (let [watched (set (.-watching r))]
+        (is (contains? watched outer)
+            "the printed ratom itself is deref'd at the call site")
+        (is (not (contains? watched inner))
+            "the nested ratom is deref'd inside pr-writer, under the guard"))))
+
+  (testing "so changing the nested ratom does not re-run the printer"
+    (let [inner (ratom/atom 7)
+          outer (ratom/atom {:inner inner})
+          runs  (volatile! 0)
+          r     (ratom/make-reaction (fn [] (vswap! runs inc) (pr-str outer))
+                                     :auto-run true)]
+      @r
+      (is (= 1 @runs))
+      (reset! inner 8)
+      (is (= 1 @runs)
+          "a spurious dependency on the nested ratom would recompute here"))))
