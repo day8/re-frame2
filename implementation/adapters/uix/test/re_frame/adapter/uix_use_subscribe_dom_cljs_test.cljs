@@ -656,11 +656,7 @@
        (some? (.-createElement js/document))))
 
 (defn- get-act []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try
-        (let [test-utils (js/require "react-dom/test-utils")]
-          (.-act test-utils))
-        (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 (deftest frame-provider-trailing-children-propagate-frame
   (testing "UIx — ($ frame-provider {:frame :f} c1 c2) trailing children propagate :frame + render (rf2-7kii2)"

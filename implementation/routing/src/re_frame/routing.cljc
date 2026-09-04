@@ -569,19 +569,10 @@
 (rf.late-bind/set-fn! :routing/link-model rf.routing.link/link-model)
 #?(:cljs (rf.late-bind/set-fn! :routing/activate-link! rf.routing.link/activate-link!))
 
-;; EP-0037 R3 — the substrate-neutral prefetch seam a view artefact's own
-;; route-link consumes so it wires `:prefetch
-;; :intent` through routing's law without reimplementing it. `prefetch-payload`
-;; is PURE and published on BOTH hosts (a descriptor computes the payload at
-;; render, JVM shell included, though only the CLJS anchor binds the intent
-;; handlers); `prefetch-on-intent!` is the CLJS-only intent-dispatch op (SSR has
-;; no DOM intent to intercept). Per Spec 012 §Route-plan prefetch.
-(rf.late-bind/set-fn! :routing/prefetch-payload rf.routing.link/prefetch-payload)
-#?(:cljs (rf.late-bind/set-fn! :routing/prefetch-on-intent! rf.routing.link/prefetch-on-intent!))
-;; The closed intent-position class itself (rf2-7g4qn) — DATA, not an op, so the
-;; hook is a thunk over `rf.routing.link/prefetch-intent-keys`. Published on BOTH hosts
-;; because a descriptor strips the positions it owns on the JVM too (the SSR
-;; shell must not emit a routing control key as an attribute), and a descriptor
-;; that wrote its own copy of the class would silently drift from the one
-;; `rf/route-link` installs.
-(rf.late-bind/set-fn! :routing/prefetch-intent-keys (constantly rf.routing.link/prefetch-intent-keys))
+;; NOTE — there is deliberately no late-bind seam for `:prefetch :intent`
+;; (rf2-6r9j.15). `rf/route-link` reaches `rf.routing.link/prefetch-payload`,
+;; `prefetch-on-intent!` and `prefetch-intent-keys` by direct call, and no view
+;; artefact consumes them through the hook table, so publishing them only
+;; promised reachability that did not exist. Per Spec 012 §Route-plan prefetch
+;; the law still lives in `re-frame.routing.link`; a view artefact that needs
+;; it should land a real reader first and publish only the keys it reads.

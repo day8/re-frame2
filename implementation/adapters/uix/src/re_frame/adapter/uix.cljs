@@ -174,8 +174,8 @@
   "Flush pending UIx renders synchronously. Wraps React's act() —
   intended for test code only. Calls (act f); with no arg, calls (act
   (fn [] nil)) to flush pending effects. Returns nil. Resolves React's
-  act() across React 18 (in `react-dom/test-utils`) and React 19 (on
-  the React namespace directly).
+  act() from the React namespace directly (React 19 is the adapter
+  floor); a production React bundle omits act, where this is a no-op.
   It publishes a render phase, so do not call it from inside a
   `dispatch-sync` handler (rf2-0c23j)."
   (:flush-views! spine-fns))

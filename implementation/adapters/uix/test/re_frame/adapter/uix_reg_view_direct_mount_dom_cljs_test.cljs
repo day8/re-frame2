@@ -77,11 +77,7 @@
        (some? (.-createElement js/document))))
 
 (defn- get-act []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try
-        (let [test-utils (js/require "react-dom/test-utils")]
-          (.-act test-utils))
-        (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 (defn- with-browser-act
   "Skip under :node-test (no DOM) and when act() is unreachable; otherwise

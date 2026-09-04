@@ -22,8 +22,8 @@
       `dom-element?`, `inject-source-coord-attr`, `warn-non-dom-root!`,
       `clear-warned-non-dom-roots!`, `wrap-view`) parameterised on the
       substrate-name string for the warning text.
-    * `flush-views!` with a correct `react-dom/test-utils` fallback
-      (subsumes rf2-jk7hr).
+    * `flush-views!` resolving `act` from the React namespace (React 19
+      is the adapter floor; subsumes rf2-jk7hr).
     * A factory `make-react-spine` that produces the per-substrate
       hook-based surfaces (`use-current-frame`, `use-subscribe`,
       `frame-provider`, `register-context-provider`) given the
@@ -1715,22 +1715,18 @@
 ;; ---- render flush for tests ----------------------------------------------
 ;;
 ;; `flush-views!` wraps React's `act()` so test code can drive a
-;; subscribe → re-render cycle synchronously. React 18 ships `act` in
-;; `react-dom/test-utils`; React 19 promotes it onto the React namespace
-;; proper. Probe both — without the fallback, users on React 18.x get a
-;; silent no-op (subsumes rf2-jk7hr).
+;; subscribe → re-render cycle synchronously. React 19 — the adapter floor —
+;; hosts `act` on the React namespace proper, so that is the one supported
+;; source (subsumes rf2-jk7hr). The lookup stays a PROBE rather than a
+;; direct call because React's PRODUCTION bundle omits `act` by design:
+;; the nil branch is documented safe degradation, not a compatibility path.
 
 (defn- resolve-act-fn
-  "Return React's act() if available, else nil. React 19 hosts act on
-  the React namespace directly; React 18 hosts it on react-dom/test-utils.
-  Mirrors the Reagent test harness's act-fn in
-  `adapters/reagent/test/re_frame/frame_provider_context_cljs_test.cljs`."
+  "Return React's act() if available, else nil. React 19 — the adapter
+  floor — hosts act on the React namespace directly. Absent only from
+  React's production bundle, which omits act by design."
   []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try
-        (let [tu (js/require "react-dom/test-utils")]
-          (.-act tu))
-        (catch :default _ nil))))
+  (when (exists? (.-act React)) (.-act React)))
 
 (defn flush-views!
   "Flush pending substrate renders synchronously. Wraps React's act() —
