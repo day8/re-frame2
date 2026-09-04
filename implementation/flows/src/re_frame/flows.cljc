@@ -372,6 +372,42 @@
   ([frame-id db runtime-db {:keys [exact-owner-token]}]
    (run-flows-on-db* frame-id db runtime-db exact-owner-token true)))
 
+;; ---- out-of-drain lifecycle settle ---------------------------------------
+
+(defn- settle-frame-flows!
+  "Recompute `frame-id`'s remaining flows against its LIVE app-db and install
+  the result, fenced to `owner-token`'s incarnation.
+
+  The out-of-drain half of the Spec 013 §Sequencing boundary. In a drain the
+  router runs `run-flows-on-db` over the pending `:db`; a direct
+  `clear-flow` has no pending db, so it runs the SAME pass over the committed
+  one. This adds no evaluation semantics of its own — same topological sort,
+  same dirty check, same failure taxonomy — it only supplies the db and writes
+  the result back.
+
+  The candidate is computed BEFORE anything is written, so the three
+  non-results all leave app-db exactly as the vacation left it: a lost
+  incarnation (`stale-incarnation`), a pass that changed nothing (dirty check
+  clean throughout — the common case, and it must not manufacture a write),
+  and a `:derive` throw, which propagates the ordinary
+  `:rf.error/flow-eval-exception` to the direct caller with no partial output
+  installed. `run-flows-on-db` restores the dirty-check cache and pending
+  vacations on that throw, so the next drain re-attempts normally.
+
+  `registry/clear-flow` calls this through the seam it publishes; the
+  `:require` runs the other way."
+  [frame-id owner-token]
+  (when-let [db (frame/frame-app-db-value frame-id)]
+    (let [runtime-db (frame/frame-runtime-db-value frame-id)
+          settled    (run-flows-on-db frame-id db runtime-db
+                                      {:exact-owner-token owner-token})]
+      (when-not (or (= stale-incarnation settled)
+                    (identical? settled db))
+        (frame/swap-frame-db-exact! frame-id owner-token (constantly settled)))))
+  nil)
+
+(registry/set-settle-fn! settle-frame-flows!)
+
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
 ;; Core cannot statically require this optional artefact. Keep each publication
