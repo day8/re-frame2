@@ -2,8 +2,10 @@
 
 Worked recipes, each one a whole thing you can copy into an application and then
 edit. Every recipe here is the shape a landed witness in
-`implementation/hicasso/test/re_frame/hicasso/examples/` already runs, reduced to
-the parts a reader needs.
+`implementation/hicasso/test/re_frame/hicasso/` already runs, reduced to the
+parts a reader needs. Most of those witnesses are the example applications under
+`examples/`; a few — the parameterised control, the server render — are contract
+tests sitting beside that directory rather than inside it.
 
 A recipe answers *how do I build this*. It is deliberately thin on *why it works
 that way*, because the chapters own that and repeating them here would give you
