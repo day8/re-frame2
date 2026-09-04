@@ -122,6 +122,96 @@
                        (fn [] (rf/reg-app-schema [:count] [:int {:min 0}])))]
       (is (empty? violations) "live value 5 satisfies [:int {:min 0}]"))))
 
+;; ===========================================================================
+;; rf2-4thn — a REGISTERED nil token is a PRESENT declaration
+;; ===========================================================================
+;;
+;; Spec 010 §The `:schema` value is opaque + the rf2-6eh5h law pinned by
+;; `re-frame.schemas-presence-test`: only an ABSENT declaration means "no
+;; schema"; a PRESENT falsey token is handed verbatim to the configured
+;; validator. The hot-reload change detector used to read only
+;; `[frame-id path :schema]` and gate on `(some? prior-schema)`, so a real
+;; registry entry carrying a nil token was indistinguishable from no entry at
+;; all — re-registering that path with a schema the live value violates
+;; emitted nothing, and the schema-evolution diagnostic that exists precisely
+;; to explain state predating the edited schema went silent.
+;;
+;; The validator below is a legitimate custom validator under Spec 010: the
+;; schema value is opaque to re-frame and the validator owns its own token
+;; vocabulary — `nil` among them. `nil` REJECTS here (rather than accepting)
+;; so the two suppression controls below are non-vacuous against an
+;; over-broad fix: were the presence gate always true, or the changed-schema
+;; comparison dropped, each control would emit.
+
+(defn- nil-token-validator!
+  "Install a custom validator whose opaque token vocabulary includes `nil`:
+  `nil` rejects every value, `:needs-int` accepts only integers, any other
+  token accepts."
+  []
+  (schemas/set-schema-validator!
+    (fn [schema value]
+      (cond
+        (nil? schema)         false
+        (= :needs-int schema) (int? value)
+        :else                 true))))
+
+(deftest violation-fires-when-the-prior-registered-schema-token-is-nil
+  (testing "rf2-4thn — re-registering a path whose PRIOR registered token was
+            nil emits the violation. Registration presence is the presence of
+            the registry ENTRY, not the truthiness of the token it stores."
+    (nil-token-validator!)
+    (rf/reg-app-schema [:count] nil)
+    (set-app-db! {:count :bad})
+    (let [violations (capture :rf.schema/violation
+                       (fn [] (rf/reg-app-schema [:count] :needs-int)))]
+      (is (= 1 (count violations))
+          "exactly one violation trace — the nil token was a real prior
+           registration, so the schema CHANGED")
+      (let [{:keys [op-type recovery tags] :as ev} (first violations)]
+        (is (= :warning op-type) "op-type is :warning per Spec 009 catalogue")
+        (is (= [:count] (:path tags)))
+        (is (contains? tags :pre-reload-schema)
+            (str ":pre-reload-schema is STAMPED even though the token is nil;"
+                 " envelope=" (pr-str ev)))
+        (is (nil? (:pre-reload-schema tags))
+            "and it carries the EXACT prior token, verbatim")
+        (is (= :needs-int (:post-reload-schema tags)))
+        (is (= :bad (:mismatching-value tags))
+            "the new token is a bare keyword — provably flag-free and not
+             opaque — so the live value is not redacted")
+        (is (= :rf/default (:frame tags)))
+        (is (= :logged-and-skipped recovery))))))
+
+(deftest violation-suppressed-on-first-registration-of-a-nil-token
+  (testing "rf2-4thn — ABSENCE is still distinguished from a present-nil
+            entry: the FIRST registration of a path never emits, even when
+            the token is nil and the live value fails it"
+    (nil-token-validator!)
+    (set-app-db! {:count :bad})
+    (let [violations (capture :rf.schema/violation
+                       (fn [] (rf/reg-app-schema [:count] nil)))]
+      (is (empty? violations)
+          "no prior registry entry — nothing changed, nothing to flag"))))
+
+(deftest violation-suppressed-when-a-nil-token-is-re-registered-unchanged
+  (testing "rf2-4thn — a nil -> nil re-eval stays silent: the entry is
+            present, but the schema did not CHANGE"
+    (nil-token-validator!)
+    (rf/reg-app-schema [:count] nil)
+    (set-app-db! {:count :bad})
+    (let [violations (capture :rf.schema/violation
+                       (fn [] (rf/reg-app-schema [:count] nil)))]
+      (is (empty? violations)
+          "identical token re-eval is a silent swap!, exactly as for a
+           truthy token"))))
+
+;; CONFIRM-BY-REVERT (rf2-4thn): restoring the `(some? prior-schema)` gate in
+;; `maybe-emit-schema-violation!` (in place of the `prior-registered?`
+;; presence bit captured at the call site) makes
+;; `violation-fires-when-the-prior-registered-schema-token-is-nil` fail — the
+;; capture goes to 0 violations — while both suppression controls above and
+;; every truthy-token case stay green. That is the branch these three reach.
+
 (deftest violation-redacts-mismatching-value-when-new-schema-sensitive
   (testing "rf2-ee38b.6 — when the NEW schema declares the slot
             sensitive, :mismatching-value is redacted to :rf/redacted so
