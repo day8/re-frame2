@@ -123,6 +123,23 @@
   ;; keep independent slots.
   (atom {}))
 
+(defn- remove-from-actor-index!
+  "Drop `handle` from its own actor-index slot BY IDENTITY. Both halves of the
+  slot key — the frame and the actor-id — are read off the handle itself, so
+  the caller never has to carry them (rf2-o8ek)."
+  [handle]
+  (when-let [actor-id (:actor-id handle)]
+    (let [k (scoped-key (:frame handle) actor-id)]
+      (swap! actor-in-flight
+             (fn [actor-index]
+               (let [actor-handles     (get actor-index k [])
+                     remaining-handles (vec (remove #(identical? % handle)
+                                                    actor-handles))]
+                 (if (seq remaining-handles)
+                   (assoc actor-index k remaining-handles)
+                   (dissoc actor-index k)))))))
+  nil)
+
 (defn record-in-flight!
   "Record a request handle. `handle` is the abort-handle map (carries
   `:abort-fn`, `:url`, plus the framework stamps `:request-id` and
@@ -140,7 +157,37 @@
   sleeping-backoff handle) and becomes part of the index key, so no signature
   change was needed here. A handle with no `:frame` keys under `nil`, which is
   a coherent scope of its own: unstamped handles share one namespace exactly as
-  they did before frames entered the key."
+  they did before frames entered the key.
+
+  PUBLICATION IS TWO SWAPS OVER TWO ATOMS, and the trailing reconcile is what
+  makes them behave as one (rf2-o8ek audit). An actor-originated request
+  carrying BOTH ids is published to `in-flight` first and `actor-in-flight`
+  second, so there is a MIDPOINT at which the handle is already resolvable by
+  request-id but has no actor-index slot yet. A cleanup reaching it there —
+  on the JVM, another thread firing the just-published `:abort-fn`, which is
+  exactly the pre-publication window the transport's `@handle-cell` /
+  `@handle-holder` forward references exist for — drops the request slot and
+  then tries to drop an actor slot THAT DOES NOT EXIST YET. Publication then
+  resumes and conj's the already-aborted handle into `actor-in-flight`: a
+  GHOST, surviving in the actor index (and in `in-flight-by-actor`
+  introspection) until a later actor or frame teardown sweeps it.
+
+  Cleanup cannot fix this from its side — it cannot remove a slot the future
+  has not written. So publication observes it instead, using the same
+  IDENTITY law every other path here is built on: once both swaps are done,
+  if this handle is no longer the one `in-flight` holds under its key, a
+  cleanup (or a supersession) overtook publication, and the handle is retracted
+  from the actor index by identity. Idempotent — `remove-from-actor-index!`
+  no-ops on a slot that never gained the handle — and it cannot touch a
+  successor, because both the request-index check and the actor-index removal
+  match on `identical?` against THIS handle.
+
+  Residual, deliberately not closed here (rf2-ni74): the other door is blind
+  at that same midpoint — an `abort-on-actor-destroy` arriving between the two
+  swaps finds no actor slot and fires nothing, so the handle survives its
+  actor's destroy. That is a MISSED abort rather than an incoherent index, it
+  is swept by the later frame-destroy/epoch paths, and closing it needs
+  genuine cross-atom atomicity rather than a reconcile."
   [request-id actor-id handle]
   (let [frame-id       (:frame handle)
         stamped-handle (cond-> handle
@@ -151,24 +198,13 @@
     (when actor-id
       (swap! actor-in-flight update (scoped-key frame-id actor-id)
              (fnil conj []) stamped-handle))
+    ;; Only a handle carrying BOTH ids spans two swaps, so only it has a
+    ;; midpoint to reconcile.
+    (when (and request-id actor-id)
+      (when-not (identical? (get @in-flight (scoped-key frame-id request-id))
+                            stamped-handle)
+        (remove-from-actor-index! stamped-handle)))
     stamped-handle))
-
-(defn- remove-from-actor-index!
-  "Drop `handle` from its own actor-index slot BY IDENTITY. Both halves of the
-  slot key — the frame and the actor-id — are read off the handle itself, so
-  the caller never has to carry them (rf2-o8ek)."
-  [handle]
-  (when-let [actor-id (:actor-id handle)]
-    (let [k (scoped-key (:frame handle) actor-id)]
-      (swap! actor-in-flight
-             (fn [actor-index]
-               (let [actor-handles     (get actor-index k [])
-                     remaining-handles (vec (remove #(identical? % handle)
-                                                    actor-handles))]
-                 (if (seq remaining-handles)
-                   (assoc actor-index k remaining-handles)
-                   (dissoc actor-index k)))))))
-  nil)
 
 (defn clear-in-flight-in-frame!
   "Clear `frame-id`'s handle for `request-id` from both indexes — the
