@@ -2083,13 +2083,18 @@
 ;; ===========================================================================
 ;; default-html-shell — :html-attrs / :body-attrs honoured (rf2-h2ujj).
 ;;
-;; Per Spec 011 §Head/meta (line 478, line 516): the head model carries
-;; `:html-attrs` / `:body-attrs` bags; the host shell stamps them on the
-;; opening `<html>` / `<body>` tags. Serialisation goes through the
-;; shared `re-frame.ssr.html-helpers/attr-string` helper — boolean `true`
-;; → bare attribute name, `false` / `nil` → omitted, all other values
-;; `escape-attr`-escaped (`&` and `"` only, since the bag is emitted
-;; inside double-quoted attribute values).
+;; Per Spec 011 §Head/meta: the head model carries `:html-attrs` /
+;; `:body-attrs` bags; the host shell stamps them on the opening
+;; `<html>` / `<body>` tags. Serialisation goes through the shared
+;; `re-frame.ssr.html-helpers/attr-string` helper — the SAME function the
+;; hiccup element emitter uses — so the bags obey one rule with it and
+;; there is no separate shell contract (rf2-r9kf). `nil` omits the
+;; attribute; every other value is `escape-attr`-escaped (`&` and `"`
+;; only, since the bag is emitted inside double-quoted attribute values);
+;; and a BOOLEAN is rendered by its attribute's CLASS per Spec 004B
+;; §Booleans and their neighbours — `aria-*` / `data-*` / booleanish
+;; names stringify `true` AND `false`, while true boolean attributes keep
+;; presence semantics (`true` → bare name, `false` → omitted).
 ;; ===========================================================================
 
 (defn- register-attrs-app! [head-model]
@@ -2158,18 +2163,25 @@
           ":html-attrs :data-theme reaches <html>"))))
 
 (deftest default-shell-attr-string-handles-booleans-and-nil
-  (testing "attr-string serialisation contract — boolean true → bare
-            attribute name, boolean false / nil → omitted, other values
-            → escape-attr-escaped (`&` and `\"`). Mixed valid + invalid
-            values in one bag exercise every branch."
+  (testing "attr-string serialisation contract on the shell bags — `nil` →
+            omitted, other values → escape-attr-escaped (`&` and `\"`), and a
+            boolean by its attribute's CLASS rather than by the value alone
+            (Spec 004B §Booleans and their neighbours, rf2-r9kf): a `data-*`
+            boolean stringifies BOTH true and false, while a true boolean
+            attribute keeps presence semantics. The shell shares one
+            serialiser with the hiccup element emitter, so it shares one
+            rule: `false` is a VALUE, and `nil` is the spelling that omits.
+            Mixed valid + invalid values in one bag exercise every branch."
     (register-attrs-app! {:html-attrs {:lang        "en"
-                                       :data-flag   true     ; bare
-                                       :data-off    false    ; omitted
+                                       :data-flag   true     ; → "true"
+                                       :data-off    false    ; → "false"
                                        :data-nil    nil      ; omitted
                                        :data-quote  "a \"b\" c"  ; escaped
                                        :data-amp    "x & y"}      ; escaped
-                          :body-attrs {:class       "ok"
-                                       :data-hidden false}})
+                          :body-attrs {:class          "ok"
+                                       :data-collapsed false  ; → "false"
+                                       :hidden         false  ; omitted
+                                       :inert          true}})
 
     (let [handler  (ssr-ring/ssr-handler
                      {:initial-events [[:init/seed-attrs-route]]
@@ -2178,18 +2190,27 @@
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
-      (is (str/includes? body "data-flag")
-          "boolean true → bare attribute name on <html>")
-      (is (not (str/includes? body "data-off"))
-          "boolean false → attribute omitted entirely from <html>")
+      (is (str/includes? body "data-flag=\"true\"")
+          "data-* boolean true stringifies on <html> — never a bare marker")
+      (is (str/includes? body "data-off=\"false\"")
+          "data-* boolean false STRINGIFIES on <html>. Absent and =\"false\"
+           are different states to a CSS attribute selector and to a reader,
+           so the authored false is emitted, not dropped")
       (is (not (str/includes? body "data-nil"))
-          "nil → attribute omitted entirely from <html>")
+          "nil → attribute omitted entirely from <html> — nil, not false,
+           is the spelling that omits")
       (is (str/includes? body "data-quote=\"a &quot;b&quot; c\"")
           "\" escaped to &quot; in attribute values")
       (is (str/includes? body "data-amp=\"x &amp; y\"")
           "& escaped to &amp; in attribute values")
-      (is (str/includes? body "<body class=\"ok\">")
-          "<body> opens with :class only — :data-hidden false omitted"))))
+      (is (not (str/includes? body "hidden=\"false\""))
+          ":hidden false is a TRUE boolean attribute → omitted, never
+           hidden=\"false\" (which a browser reads as truthy and would hide
+           the document). This is the class distinction, on the shell")
+      (is (str/includes? body "<body class=\"ok\" data-collapsed=\"false\" inert>")
+          "<body> opens with all three classes at once and nothing else:
+           :class verbatim, :data-collapsed false stringified, :hidden false
+           omitted, :inert true a bare presence attribute"))))
 
 ;; ===========================================================================
 ;; ssr-middleware — match? predicate
