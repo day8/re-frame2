@@ -333,8 +333,29 @@ boundary the core clears only the claimed generation. Cleanup failure therefore 
 leave a half-live adapter seated, and stale finalization can never clear a replacement
 generation. On failure the adapter attempts all remaining cleanup, preserves and
 rethrows the first failure, and attaches or reports later failures as secondary
-diagnostic evidence. A fresh adapter may install after destruction returns or throws;
-that install clears the disposed breadcrumb.
+diagnostic evidence.
+
+Those are three constraints that pull against one another, and an adapter satisfies
+none of them by ordinary control flow. Propagating the first throw where it happens
+abandons every later resource; catching each throw and discarding it — the shape every
+React-shaped adapter shipped before rf2-ss8x — buys the drain by making a malfunctioning
+teardown indistinguishable from a clean one, so a test fixture, a hot-reload cycle or a
+programmer sees `nil` and continues past a listener or host resource that never released.
+The conformant shape is capture: attempt every step under its own boundary, keep the
+**first** thrown value by PRESENCE (`nil` and `false` are legal CLJS throws, so a
+truthiness test reintroduces the silent hole), finalize ownership, and only then rethrow
+the kept value. Which of "attaches" or "reports" an adapter picks is its own choice; the
+three React-shaped adapters (Reagent, reagent-slim, UIx) share one drain and take the
+attachment arm, hanging the later failures off the rethrown primary as
+`rfAdapterTeardownSecondaryErrors` — the same convention a failed-first-mount rollback
+uses for `rfUiRollbackCleanupError` ([§Failed-first-mount rollback is one teardown
+transaction](#failed-first-mount-rollback-is-one-teardown-transaction)). Attachment never
+wraps or replaces: the primary reaches the caller with its identity and stack untouched,
+so a `catch` that matched it before still matches. A primary that cannot carry the
+attachment (a thrown `nil`/`false`/string/number) is still rethrown intact and simply
+carries no secondary evidence — the evidence is the cheaper thing to lose. A fresh adapter
+may install after destruction returns or throws; that install clears the disposed
+breadcrumb.
 
 For a substrate that owns its own root registry, host resources include **every public
 Root** in that registry, not only Roots created by the generic React spine. Disposal fences new public Root creation across the complete

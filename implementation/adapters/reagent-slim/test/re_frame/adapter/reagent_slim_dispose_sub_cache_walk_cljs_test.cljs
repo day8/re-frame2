@@ -171,6 +171,16 @@
           (doseq [r reactions-before]
             (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
 
+          ;; NOTE (rf2-ss8x): this `poison-entry` does not in fact throw. The
+          ;; ratom family's claimed-generation disposer dispatches
+          ;; `re-frame.disposable/IDisposable` → the substrate's `IDisposable`
+          ;; → `:else nil`, and a bare `js-obj` satisfies neither protocol, so
+          ;; it is SKIPPED rather than raising. What survives here is the
+          ;; visit-and-clear half; the per-entry failure path is pinned on the
+          ;; stock-Reagent surface (`re-frame.dispose-adapter-sub-cache-walk-
+          ;; cljs-test`) with a reaction that really does throw, and on this
+          ;; adapter by the throwing-root proof in
+          ;; `reagent-slim-dispose-drain-roots-cljs-test`.
           (adapter/dispose-adapter!)
 
           (doseq [r reactions-before]

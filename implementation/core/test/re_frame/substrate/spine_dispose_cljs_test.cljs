@@ -51,29 +51,51 @@
       (is (empty? @active-roots-cell)
           "active-roots cell drained to empty after dispose"))))
 
-(deftest dispose-swallows-per-root-unmount-throws
-  (testing "one misbehaving root's unmount throw does not strand the rest of the drain"
+(deftest dispose-drains-every-root-then-rethrows-the-unmount-throw
+  (testing "one misbehaving root's unmount throw does not strand the rest of
+  the drain, and the identical failure is rethrown once the drain finished
+  (rf2-ss8x — Spec 006 §Adapter disposal lifecycle: attempt all remaining
+  cleanup, then preserve and rethrow the first failure)"
     (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
           warn-cache        (rf.substrate.spine/make-warn-once-cache)
           emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
+          driver-root-cell  (atom nil)
+          set-tick-ref      (atom :stale-setter)
           dispose-fn        (rf.substrate.spine/make-dispose-adapter!
-                              {:active-roots-cell active-roots-cell
-                               :warn-cache        warn-cache
-                               :emitter-cell      emitter-cell})
+                              {:active-roots-cell             active-roots-cell
+                               :warn-cache                    warn-cache
+                               :emitter-cell                  emitter-cell
+                               :after-render-driver-root-cell driver-root-cell
+                               :after-render-set-tick-ref     set-tick-ref})
           good-1            (fake-root)
           good-2            (fake-root)
-          bad               #js {:unmount #(throw (js/Error. "boom"))}]
-      ;; Insertion order is not preserved in a set; the swallowed-throw
+          sentinel          (js/Error. "boom")
+          bad               #js {:unmount #(throw sentinel)}]
+      ;; Insertion order is not preserved in a set; the drain-everything
       ;; guarantee is that BOTH good roots' unmount fires regardless of
       ;; the bad one's traversal position.
       (swap! active-roots-cell conj (:root good-1) bad (:root good-2))
-      (dispose-fn)
-      (is (= 1 @(:unmount-count good-1))
-          "good-1 still unmounted despite a sibling unmount throw")
-      (is (= 1 @(:unmount-count good-2))
-          "good-2 still unmounted despite a sibling unmount throw")
-      (is (empty? @active-roots-cell)
-          "active-roots cell drained even when an unmount threw"))))
+      (reset! warn-cache #{:some-stale-warn-key})
+      (let [thrown (try (dispose-fn)
+                        ::returned-normally
+                        (catch :default e e))]
+        (is (= 1 @(:unmount-count good-1))
+            "good-1 still unmounted despite a sibling unmount throw")
+        (is (= 1 @(:unmount-count good-2))
+            "good-2 still unmounted despite a sibling unmount throw")
+        (is (empty? @active-roots-cell)
+            "active-roots cell drained even when an unmount threw")
+        (is (identical? sentinel thrown)
+            "the identical unmount failure was rethrown after the drain — a
+            swallowed throw here is what let rf/destroy-adapter! report success
+            over a failed teardown")
+        ;; The React-hook spine's extra teardown runs in a `finally`, so the
+        ;; rethrow cannot strand the warn cache or the after-render driver
+        ;; root — trading MUST (2)'s leak for MUST (2)'s report.
+        (is (empty? @warn-cache)
+            "warn-once cache still cleared past the rethrow")
+        (is (nil? @set-tick-ref)
+            "the after-render set-tick slot still cleared past the rethrow")))))
 
 (deftest dispose-clears-warn-cache-and-emitter
   (testing "dispose-adapter! also empties the warn-once cache and the hiccup-emitter cell"
