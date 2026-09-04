@@ -262,6 +262,8 @@ Two tags reward a closer look. `:path` is the **failing leaf** — the registere
 
 In **Xray**, these don't pile up in a footnote: the four runtime boundaries (`:event` / `:app-db` / `:fx-args` / `:sub-return`) attach to the matching DISPATCH / HANDLER / FX / SUBSCRIPTIONS step of the event row, and an `:app-db` rollback mutes every downstream step with a "run rolled back" banner so you read the blast radius at a glance. [Debug with Xray](../../xray/index.md) walks the panel.
 
+**You don't need a trace tap to notice a rollback.** An `:app-db` rejection also lands on the always-on `:errors` stream in a dev build — one record per failing registration, carrying `:where :app-db`, `:rollback? true`, the `:registered-path`, and a `:reason` naming the registered path and the *type* it found there ("got nil"). So it reaches any `:errors` listener you have, your frame's `:observability :errors` sink, and — while nothing owns that stream — the console, as a red `[re-frame2] :rf.error/schema-validation-failure …` line per broken declaration. That is enough to tell you *which* declarations the candidate broke and that the transaction was discarded; open the trace or Xray for the leaf `:path`, the offending `:value` and the `:explain`. None of it survives a production build, because the check doesn't.
+
 One quiet consequence is worth saying plainly: the schema *is* the slice's description, and the runtime would catch any lie. A schema can't drift from reality, because the moment it does, a dispatch fails.
 
 !!! warning "Gotcha — editing a schema mid-session can flag a value no handler wrote"
