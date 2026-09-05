@@ -38,9 +38,34 @@
 // and it checks the frames rather than the HTTP response, because HTTP
 // dropping a field is a fact about HTTP and not a guarantee about this.
 
-const { CODE, Refusal, validateRequest, completeFrame } = require('./protocol.cjs');
+const {
+  CODE,
+  Refusal,
+  RENDER_THREW_REFUSAL,
+  validateRequest,
+  completeFrame,
+} = require('./protocol.cjs');
 const { Pool } = require('./pool.cjs');
 const { PROTOCOL_VERSION } = require('./protocol.cjs');
+
+/**
+ * The operator's copy of a render that rejected with something this
+ * package's own contract does not describe.
+ *
+ * A fault reaching this is a fault in the SIDECAR rather than in the
+ * application — every receiver between here and the module builds a
+ * `Refusal`, so anything else got past all of them — and it is the one
+ * class of failure nothing upstream will have logged. Without this the
+ * wording handed to the caller would again be the only copy in existence,
+ * which is the trade `isolate.cjs`'s `reportIsolateFault` exists to refuse.
+ */
+function reportUncontractedFault(err) {
+  const trace = err && err.stack ? err.stack : String(err);
+  process.stderr.write(
+    `[rf.ssr-node] a render rejected with something other than a Refusal — this is a fault in ` +
+      `the sidecar, not in the application: ${trace}\n`,
+  );
+}
 
 class Service {
   constructor(pool, limits) {
@@ -104,8 +129,40 @@ class Service {
           renderResult = result;
         },
         (error) => {
-          renderFailure =
-            error instanceof Refusal ? error : new Refusal(CODE.RENDER_THREW, String(error), {});
+          if (error instanceof Refusal) {
+            renderFailure = error;
+            return;
+          }
+          // THE LAST RECEIVER, and it states the same law as the other
+          // three (rf2-2hmg). This arm used to put `String(error)` on the
+          // public refusal, on the reading that it was unreachable and
+          // would carry only this package's own text if it were not.
+          // Neither half survived being measured.
+          //
+          // It is reached by an ORDINARY IN-PROCESS CALL. `validatePartition`
+          // returns the caller's own partition object rather than a copy, so
+          // the object the validator inspects and the object `postMessage`
+          // structured-clones are one object read twice — and anything with
+          // an accessor on it (a getter, a Proxy, a lazily-materialised row
+          // out of a serializer) can be a string on the first read and
+          // unclonable on the second. `postMessage` then throws
+          // `DataCloneError` synchronously inside `render()`'s executor,
+          // which never passed through a receiver that could have made it a
+          // `Refusal`.
+          //
+          // And the text is the CALLER'S, not ours: a `DataCloneError` names
+          // the value it choked on, so the caller's own value was
+          // interpolated into a message published on the widest surface this
+          // package has — the egress this file's header says does not exist.
+          //
+          // THE ARM ITSELF IS NOT THE DEFECT AND IS NOT REMOVED. It is what
+          // guarantees `renderFrames` throws nothing but a `Refusal`, which
+          // is the property every transport is written against; deleting it
+          // would let a raw `Error` reach `statusFor` with no code at all.
+          // Only the wording was ever wrong, and the contract already owns
+          // the wording.
+          reportUncontractedFault(error);
+          renderFailure = new Refusal(CODE.RENDER_THREW, RENDER_THREW_REFUSAL, {});
         },
       )
       .then(() => {
