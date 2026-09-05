@@ -8,7 +8,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. The :action and :justification columns are the facade-audit axes (spec/Conventions.md §Facade policy fields 4 and 3) — also curated, and present on :facade? true rows ONLY, which is why most rows carry neither. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 544,
+ :var-count 540,
  :tier-vocab
  [:front-porch
   :advanced
@@ -557,10 +557,6 @@
   {:namespace "re-frame.test-support", :var "assert-path-equals", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "make-reset-runtime-fixture", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "poll-until", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-support", :var "reinstate-app-namespaces!", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-support", :var "reinstate-app-registration!", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "restore-registrar!", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-support", :var "sequester-app-namespaces!", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-support", :var "sequester-app-registration!", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "snapshot-registrar", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "with-trace-recorder!", :tier :testing, :kind :macro, :owner "008", :status "v1", :facade? false, :runtime-verified? true}]}

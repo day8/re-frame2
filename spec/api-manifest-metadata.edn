@@ -1535,14 +1535,6 @@
   ["re-frame.test-support" "snapshot-registrar"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "restore-registrar!"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "with-trace-recorder!"]      {:tier :testing :owner "008" :status "v1"}
-  ;; Bundle co-load hygiene (one CLJS node bundle / one JVM test process):
-  ;; sequester a co-loaded example app's registration rows at test-ns load and
-  ;; reinstate them per test through registrar/register! (registrar + source
-  ;; store in lockstep — image-loaded frames resolve through the store).
-  ["re-frame.test-support" "sequester-app-registration!"] {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-support" "reinstate-app-registration!"] {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-support" "sequester-app-namespaces!"]   {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-support" "reinstate-app-namespaces!"]   {:tier :testing :owner "008" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.test-helpers — view-tree assertion helpers (tier: testing).
