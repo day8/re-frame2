@@ -137,16 +137,6 @@
 (def scope-resolver-meta    rf.resources.scope-registry/scope-resolver-meta)
 (def scope-resolver-ids     rf.resources.scope-registry/scope-resolver-ids)
 
-;; Focus / reconnect revalidation host-listener install (Spec 016
-;; §Stale and GC scheduling). An app calls `install-revalidation-listeners!` for each
-;; frame that wants window-focus / network-reconnect active-stale
-;; revalidation; the listeners dispatch `:rf.resource/window-focused` /
-;; `:rf.resource/network-reconnected` at that frame and are cancelled on
-;; frame destroy via the single `:resources/on-frame-destroyed!` hook.
-;; These are CLJS-only host listeners; the JVM arm is a no-op.
-(def install-revalidation-listeners! rf.resources.revalidate-listeners/install-revalidation-listeners!)
-(def remove-revalidation-listeners!  rf.resources.revalidate-listeners/remove-revalidation-listeners!)
-
 (defn resources
   "Return resource introspection for a frame target (Spec 016
   §Introspection). Returns `{:resource-ids [...] :entries {…}}` — the
@@ -680,6 +670,31 @@
 
 (rf.late-bind/set-fn! :resources/on-frame-destroyed! release-resources-host-caches!)
 
+;; Revalidation is a FRAME PROPERTY, like URL ownership (rf2-kuky.33,
+;; following routing's `:url-bound?` fold — rf2-g8pbwg, API-shrink #6). The
+;; frame's `:revalidate-on` config key — a set drawn from the closed enum
+;; `#{:focus :reconnect}` — is honoured by the frame (re-)registration
+;; lifecycle: this hook fires at the END of BOTH `upsert-frame!` branches,
+;; AFTER the container is live and `:initial-events` ran, so the listeners a
+;; frame declares are installed without the app sequencing anything. There is
+;; no install/remove fn. Re-registration RECONCILES (replace-don't-stack, and a
+;; re-registration that drops the key relinquishes the listeners); destroy
+;; removes through the composed `:resources/on-frame-destroyed!` hook above.
+;; Per Spec 016 §Stale and GC scheduling.
+(defn- on-frame-registered!
+  "The `:resources/on-frame-registered!` lifecycle body: reconcile the
+  (re-)registered frame's host focus/reconnect listeners against its
+  COMMITTED `:revalidate-on` config value. Reads the frame's own metadata
+  rather than a passed config, so it always sees what the registry actually
+  holds. Returns nil."
+  [frame-id]
+  (rf.resources.revalidate-listeners/reconcile-listeners!
+    frame-id
+    (:revalidate-on (rf.frame/frame-meta frame-id)))
+  nil)
+
+(rf.late-bind/set-fn! :resources/on-frame-registered! on-frame-registered!)
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;; `re-frame.core` MUST NOT `:require [re-frame.resources]` — the artefact
 ;; is optional. Public-API re-exports are published through the late-bind
@@ -702,11 +717,6 @@
    :resources/resource-meta  resource-meta
    :resources/resource-state resource-state
    :resources/resources      resources
-   ;; Focus/reconnect revalidation host-listener install surface (CLJS-only host
-   ;; listeners; JVM no-op). Published so re-frame.core
-   ;; can reach it without a static :require.
-   :resources/install-revalidation-listeners! install-revalidation-listeners!
-   :resources/remove-revalidation-listeners!  remove-revalidation-listeners!
    ;; Mutation registration + introspection, published through the same
    ;; late-bind table so `re-frame.core`'s `reg-mutation` / `clear-mutation`
    ;; / `mutation-meta` / `mutation-state` / `mutations` wrappers reach the

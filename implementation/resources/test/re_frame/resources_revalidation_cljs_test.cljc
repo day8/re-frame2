@@ -19,11 +19,17 @@
        another cause; a late reply from a superseded generation is suppressed
        exactly as for any refetch; the refetch is background (prior data kept,
        status `:fetching`);
-    4. FRAME-DESTROY TEARDOWN — the host focus/online listeners live in a
-       module-level side table keyed by frame-id, cancelled on frame destroy
-       via the single `:resources/on-frame-destroyed!` hook (composed with the
-       work-ledger + timer + generation host-cache release — not a second
-       teardown path)."
+    4. THE FRAME LIFECYCLE OWNS THE LISTENERS (rf2-kuky.33) — revalidation is
+       a frame PROPERTY, the `:revalidate-on` config key (a set drawn from
+       the closed enum `#{:focus :reconnect}`), not an imperative pair the
+       app sequences by hand. (Re-)registration installs exactly the declared
+       subset through `:resources/on-frame-registered!`, replace-don't-stack;
+       a re-registration that drops the key relinquishes; frame destroy
+       cancels through the single `:resources/on-frame-destroyed!` hook
+       (composed with the work-ledger + timer + generation host-cache release
+       — not a second teardown path). The host handles live in a module-level
+       side table keyed by frame-id. Declaring the key while the resources
+       artefact is absent fails loud at registration with zero residue."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -342,7 +348,15 @@
           "only the active + stale entry is selected"))))
 
 ;; ===========================================================================
-;; 5. Frame-destroy cancels the focus/reconnect listeners (single hook)
+;; 5. The FRAME LIFECYCLE owns the listeners (rf2-kuky.33)
+;;
+;;    Revalidation is a frame PROPERTY — the `:revalidate-on` config key, a
+;;    set drawn from the closed enum `#{:focus :reconnect}` — not an
+;;    imperative pair the app sequences by hand. (Re-)registration reconciles
+;;    the host listeners through `:resources/on-frame-registered!` and frame
+;;    destroy removes them through `:resources/on-frame-destroyed!`. These
+;;    cases are platform-neutral (side-table bookkeeping + the registration
+;;    preflight); the actual DOM wiring is §6, under the stub.
 ;; ===========================================================================
 
 (deftest frame-destroy-cancels-revalidation-listeners
@@ -362,22 +376,74 @@
       (is (not (contains? @rf.resources.revalidate-listeners/listener-table fa))
           "frame A's listener slot dropped on destroy"))))
 
-(deftest remove-revalidation-listeners-is-idempotent
-  (testing "Spec 016 — remove for a frame with no installed listeners is a
-            harmless no-op (idempotent + JVM-safe)"
-    (rf.resources.revalidate-listeners/remove-revalidation-listeners! :rv/no-such-frame)
+(deftest empty-reconcile-is-idempotent-and-is-the-removal-path
+  (testing "rf2-kuky.33 — removal is the EMPTY reconcile, not a second code
+            path: reconciling a frame that has no listeners installed is a
+            harmless no-op for both nil and #{} (idempotent + JVM-safe)"
+    (rf.resources.revalidate-listeners/reconcile-listeners! :rv/no-such-frame nil)
+    (is (not (contains? @rf.resources.revalidate-listeners/listener-table :rv/no-such-frame)))
+    (rf.resources.revalidate-listeners/reconcile-listeners! :rv/no-such-frame #{})
     (is (not (contains? @rf.resources.revalidate-listeners/listener-table :rv/no-such-frame)))))
 
+(deftest revalidation-triggers-is-the-closed-enum
+  (testing "rf2-kuky.33 — `:revalidate-on` draws from a CLOSED two-member
+            enum; :focus is ONE setting (window focus AND document
+            visibilitychange-to-visible), :reconnect is window online"
+    (is (= #{:focus :reconnect} rf.resources.revalidate-listeners/revalidation-triggers))))
+
+(deftest revalidate-on-config-is-inert-without-a-dom
+  (testing "rf2-kuky.33 — a `:revalidate-on` frame registers cleanly on a
+            host with no DOM (JVM / SSR): the lifecycle hook runs, no
+            listener-table entry is recorded, and nothing throws"
+    (let [fa :rv/no-dom]
+      (rf/make-frame {:id fa :doc "no-DOM :revalidate-on frame"
+                      :revalidate-on #{:focus :reconnect}})
+      (is (= #{:focus :reconnect} (:revalidate-on (rf.frame/frame-meta fa)))
+          "the key rides the frame config verbatim")
+      #?(:clj
+         (is (not (contains? @rf.resources.revalidate-listeners/listener-table fa))
+             "the JVM arm installs nothing"))
+      (rf.frame/destroy-frame! fa))))
+
+(deftest revalidate-on-without-the-resources-artefact-fails-loud
+  (testing "rf2-kuky.33 — a frame config declaring :revalidate-on while the
+            resources artefact is absent fails LOUD at registration with
+            :rf.error/resources-artefact-missing and ZERO residue (the mirror
+            of the :url-strategy-without-routing rule); the check is the
+            presence of the :resources/on-frame-registered! hook"
+    (let [original (rf.late-bind/get-fn :resources/on-frame-registered!)]
+      (try
+        (rf.late-bind/set-fn! :resources/on-frame-registered! nil)
+        (let [thrown (try (rf/make-frame {:id :rv/no-artefact :revalidate-on #{:focus}})
+                          nil
+                          (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))
+              data   (ex-data thrown)]
+          (is (some? thrown) "registration throws when the artefact is absent")
+          (is (= :rf.error/resources-artefact-missing (:rf.error/id data))
+              "ex-data carries the canonical :rf.error/id discriminator")
+          (is (= 'rf/make-frame (:where data))
+              "ex-data names the user-facing surface")
+          (is (= :rv/no-artefact (:frame-id data))
+              "ex-data carries the offending frame id")
+          (is (nil? (rf.frame/frame-meta :rv/no-artefact))
+              "ZERO residue — no frame was registered"))
+        (finally
+          (rf.late-bind/set-fn! :resources/on-frame-registered! original))))))
+
 ;; ===========================================================================
-;; 6. Host event-target wiring (rf2-pxe0c7) — CLJS/DOM-stub only
+;; 6. Host event-target wiring (rf2-pxe0c7) + `:revalidate-on` reconciliation
+;;    (rf2-kuky.33) — CLJS/DOM-stub only
 ;;
 ;;    `visibilitychange` is a `document` event (it never fires on `window`),
 ;;    and the handler reads `document.visibilityState`. These stub-DOM tests
 ;;    pin the ACTUAL host wiring: visibilitychange is attached to `document`
 ;;    (NOT window), a visible→tab-return dispatches :rf.resource/window-
-;;    focused, a hidden transition does NOT, and remove / frame-destroy
-;;    detaches the listener from `document`. (The node test runtime has no
-;;    DOM; we install a capturing stub on `js/globalThis`, mirroring
+;;    focused, a hidden transition does NOT, and a key-drop re-registration /
+;;    frame-destroy detaches the listener from `document`. They also pin the
+;;    SUBSET contract — `#{:focus}` wires focus + visibilitychange and NOT
+;;    online, `#{:reconnect}` the converse — and that repeated registration
+;;    with the same key never stacks. (The node test runtime has no DOM; we
+;;    install a capturing stub on `js/globalThis`, mirroring
 ;;    routing_history_cljs_test.)
 ;; ===========================================================================
 
@@ -419,7 +485,22 @@
        (and (exists? js/window)
             (identical? js/window js/globalThis)))
 
-     (def ^:dynamic *dom-state* nil)))
+     (def ^:dynamic *dom-state* nil)
+
+     (defn- listener-count
+       "How many listeners the stub currently records for `target-key`
+       (`:window` / `:document`) and event `type`. The count — not mere
+       presence — is what proves reconciliation REPLACES rather than stacks."
+       [state target-key type]
+       (count (get-in @state [target-key :listeners type] [])))
+
+     (defn- wiring
+       "The stub's current wiring as a map of the three host listeners to
+       their counts, so a whole subset assertion reads as one value."
+       [state]
+       {:focus      (listener-count state :window "focus")
+        :visibility (listener-count state :document "visibilitychange")
+        :online     (listener-count state :window "online")})))
 
 #?(:cljs
    (deftest visibilitychange-attaches-to-document-not-window
@@ -433,7 +514,8 @@
                    prior      (rf.late-bind/get-fn :router/dispatch!)]
                (rf.late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatched conj [ev opts])))
                (try
-                 (rf.resources.revalidate-listeners/install-revalidation-listeners! :rv/dom)
+                 (rf/make-frame {:id :rv/dom :doc "DOM-stub revalidation frame"
+                                 :revalidate-on #{:focus :reconnect}})
                  (testing "rf2-pxe0c7 — visibilitychange is attached to DOCUMENT, not window"
                    (is (seq (get-in @state [:document :listeners "visibilitychange"]))
                        "document carries the visibilitychange listener")
@@ -456,13 +538,13 @@
                    (set! (.-visibilityState (:document-obj @state)) "hidden")
                    (.dispatchEvent (:document-obj @state) #js {:type "visibilitychange"})
                    (is (empty? @dispatched) "hidden visibilitychange dispatched nothing"))
-                 (testing "rf2-pxe0c7 — remove detaches the visibilitychange listener from document"
-                   (rf.resources.revalidate-listeners/remove-revalidation-listeners! :rv/dom)
-                   (is (empty? (get-in @state [:document :listeners "visibilitychange"]))
-                       "document visibilitychange listener detached on remove")
-                   (is (empty? (get-in @state [:window :listeners "focus"]))
-                       "window focus listener detached on remove")
-                   ;; a post-remove visible visibilitychange dispatches nothing
+                 (testing "rf2-kuky.33 — a re-registration that DROPS
+                           :revalidate-on relinquishes the listeners (the
+                           :url-bound? false relinquish rule)"
+                   (rf/make-frame {:id :rv/dom :doc "DOM-stub revalidation frame"})
+                   (is (= {:focus 0 :visibility 0 :online 0} (wiring state))
+                       "every host listener detached when the key was dropped")
+                   ;; a post-relinquish visible visibilitychange dispatches nothing
                    (reset! dispatched [])
                    (set! (.-visibilityState (:document-obj @state)) "visible")
                    (.dispatchEvent (:document-obj @state) #js {:type "visibilitychange"})
@@ -481,8 +563,8 @@
          (binding [*dom-state* state]
            (try
              (let [fa :rv/dom-destroy]
-               (rf/make-frame {:id fa :doc "DOM-stub frame-destroy detach frame"})
-               (rf.resources.revalidate-listeners/install-revalidation-listeners! fa)
+               (rf/make-frame {:id fa :doc "DOM-stub frame-destroy detach frame"
+                               :revalidate-on #{:focus}})
                (is (seq (get-in @state [:document :listeners "visibilitychange"]))
                    "document visibilitychange attached for the frame")
                (testing "rf2-pxe0c7 — frame destroy detaches the document
@@ -492,5 +574,87 @@
                      "document visibilitychange detached on frame destroy")
                  (is (not (contains? @rf.resources.revalidate-listeners/listener-table fa))
                      "side-table slot dropped on frame destroy")))
+             (finally
+               (uninstall-dom-stub!))))))))
+
+#?(:cljs
+   (deftest revalidate-on-installs-exactly-the-declared-subset
+     (when-not real-browser?
+       (let [state (install-dom-stub!)]
+         (binding [*dom-state* state]
+           (try
+             (testing "rf2-kuky.33 — #{:focus} wires window focus AND document
+                       visibilitychange (ONE setting), and NOT window online"
+               (rf/make-frame {:id :rv/focus-only :doc "focus-only frame"
+                               :revalidate-on #{:focus}})
+               (is (= {:focus 1 :visibility 1 :online 0} (wiring state)))
+               (rf.frame/destroy-frame! :rv/focus-only))
+             (testing "rf2-kuky.33 — #{:reconnect} wires window online only"
+               (rf/make-frame {:id :rv/reconnect-only :doc "reconnect-only frame"
+                               :revalidate-on #{:reconnect}})
+               (is (= {:focus 0 :visibility 0 :online 1} (wiring state)))
+               (rf.frame/destroy-frame! :rv/reconnect-only))
+             (testing "rf2-kuky.33 — an ABSENT key installs nothing"
+               (rf/make-frame {:id :rv/no-key :doc "no revalidation frame"})
+               (is (= {:focus 0 :visibility 0 :online 0} (wiring state)))
+               (rf.frame/destroy-frame! :rv/no-key))
+             (testing "rf2-kuky.33 — an explicit EMPTY set is a legitimate
+                       \"none\" and installs nothing"
+               (rf/make-frame {:id :rv/empty-set :doc "explicit-none frame"
+                               :revalidate-on #{}})
+               (is (= {:focus 0 :visibility 0 :online 0} (wiring state)))
+               (rf.frame/destroy-frame! :rv/empty-set))
+             (finally
+               (uninstall-dom-stub!))))))))
+
+#?(:cljs
+   (deftest repeated-registration-does-not-stack-listeners
+     (when-not real-browser?
+       (let [state (install-dom-stub!)]
+         (binding [*dom-state* state]
+           (try
+             (testing "rf2-kuky.33 — N re-registrations with the SAME
+                       :revalidate-on leave the listener counts constant
+                       (replace-don't-stack; an ordinary repeated frame-root
+                       render causes no churn)"
+               (dotimes [_ 4]
+                 (rf/make-frame {:id :rv/churn :doc "churn-free frame"
+                                 :revalidate-on #{:focus :reconnect}}))
+               (is (= {:focus 1 :visibility 1 :online 1} (wiring state))
+                   "four registrations, one listener each"))
+             (testing "rf2-kuky.33 — a re-registration that CHANGES the subset
+                       reconciles rather than accumulating"
+               (rf/make-frame {:id :rv/churn :doc "churn-free frame"
+                               :revalidate-on #{:reconnect}})
+               (is (= {:focus 0 :visibility 0 :online 1} (wiring state))
+                   "the focus half was detached, online kept at one")
+               (rf.frame/destroy-frame! :rv/churn))
+             (finally
+               (uninstall-dom-stub!))))))))
+
+#?(:cljs
+   (deftest two-frames-own-their-listeners-independently
+     (when-not real-browser?
+       (let [state (install-dom-stub!)]
+         (binding [*dom-state* state]
+           (try
+             (testing "rf2-kuky.33 — two frames each own their own listeners"
+               (rf/make-frame {:id :rv/two-a :doc "frame A" :revalidate-on #{:focus}})
+               (rf/make-frame {:id :rv/two-b :doc "frame B" :revalidate-on #{:reconnect}})
+               (is (= {:focus 1 :visibility 1 :online 1} (wiring state))
+                   "A's focus pair and B's online listener coexist")
+               (testing "destroying ONE frame leaves the other's listeners alone"
+                 (rf.frame/destroy-frame! :rv/two-a)
+                 (is (= {:focus 0 :visibility 0 :online 1} (wiring state))
+                     "only A's listeners were detached")))
+             (testing "rf2-kuky.33 — destroy-and-recreate under the SAME id
+                       installs fresh listeners"
+               (rf.frame/destroy-frame! :rv/two-b)
+               (is (= {:focus 0 :visibility 0 :online 0} (wiring state)))
+               (rf/make-frame {:id :rv/two-b :doc "frame B reborn"
+                               :revalidate-on #{:focus :reconnect}})
+               (is (= {:focus 1 :visibility 1 :online 1} (wiring state))
+                   "the recreated frame is wired from scratch")
+               (rf.frame/destroy-frame! :rv/two-b))
              (finally
                (uninstall-dom-stub!))))))))

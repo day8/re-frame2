@@ -292,8 +292,9 @@
 ;; only blur the cache-leak boundary this whole example is here to show.
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
-;; Frame-created listeners here (`install-revalidation-listeners!`) are
-;; teardown-then-reinstall idempotent, so re-running on reload never stacks them.
+;; The frame's declarative `:url-bound?` / `:revalidate-on` host listeners are
+;; reconciled by the frame lifecycle on every re-registration, so re-running on
+;; reload never stacks them.
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
@@ -313,11 +314,18 @@
     ;; went looking for it. The session token seeded by `:auth/initialise` is
     ;; already in app-db by then, so the bearer-auth interceptor decorates
     ;; those reads on the way out.
+    ;;
+    ;; `:revalidate-on #{:focus :reconnect}` is the same idea one key over:
+    ;; when the tab comes back or the network reconnects, refetch the reads
+    ;; that are both active and stale. The frame lifecycle installs those host
+    ;; listeners after creation and removes them on destroy — there is nothing
+    ;; to sequence, and you never dispatch the host signals by hand.
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id              app-frame
                       :doc             "RealWorld-on-resources demo frame."
                       :url-bound?      true
                       :url-strategy    routing/url-strategy
+                      :revalidate-on   #{:focus :reconnect}
                       :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
                       :initial-events  [[:auth/classify-token]
                                             [:auth/initialise]
@@ -325,16 +333,10 @@
        [root-view]]
       el)
     ;; The frame is now live and session-seeded (and, per the note above, has
-    ;; already synced its first route). The next two calls install ongoing
-    ;; listeners, each doing an initial sync against that frame — so they have
-    ;; to run AFTER the render that created it, never before.
-    ;;
-    ;; Focus/reconnect revalidation: when the tab comes back or the network
-    ;; reconnects, refetch the reads that are both active and stale. Idempotent,
-    ;; and you never dispatch the host signals by hand.
-    (rf/install-revalidation-listeners! app-frame)
-    ;; The conformance surface — NOT a re-frame2 pattern; see install-conduit-debug!
-    ;; above. The external RealWorld suite may read it.
+    ;; already synced its first route and installed its revalidation
+    ;; listeners). The conformance surface — NOT a re-frame2 pattern; see
+    ;; install-conduit-debug! above. The external RealWorld suite may read it,
+    ;; and it does need the frame to exist, so it runs after the render.
     (install-conduit-debug! app-frame)))
 
 (defn run []

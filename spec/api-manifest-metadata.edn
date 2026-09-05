@@ -1026,14 +1026,12 @@
   ["re-frame.core" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                              :action :keep
                                              :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The pure scope-resolution helper an app calls in the logout coeffect-db idiom, in the same file as the resolver it registered."}
-  ;; Focus/reconnect revalidation listener seam (spec/016 §Stale and GC
-  ;; scheduling); CLJS-only host-listener install/remove fns.
-  ["re-frame.core" "install-revalidation-listeners!"] {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                                      :action :keep
-                                                      :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. RECORDED UNCERTAINTY (naming, not placement): install-* / remove-* is not in the closed roster of the Conventions Lifecycle-verb law, which offers attach! / detach! for a listener add-remove pair. The law says a surface fitting no roster verb is evidence the roster is short -- so this is filed against the law rather than renamed here."}
-  ["re-frame.core" "remove-revalidation-listeners!"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                                      :action :keep
-                                                      :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. RECORDED UNCERTAINTY (naming, not placement): see the install-revalidation-listeners! row -- the pair is one question."}
+  ;; Focus/reconnect revalidation carries NO facade row: it is the
+  ;; `:revalidate-on` frame-config key, owned by the frame lifecycle
+  ;; (rf2-kuky.33, following routing's `:url-bound?` fold). The retired
+  ;; install-/remove-revalidation-listeners! pair is gone; the Lifecycle-verb
+  ;; uncertainty those two rows recorded against rf2-uimu is dissolved rather
+  ;; than answered -- there is no verb because there is no fn.
   ;; Clearing registrations (spec/API.md §Clearing registrations).
   ["re-frame.core" "clear-event"]         {:tier :advanced :owner "002" :status "v1 (preserved)"
                                           :action :keep
@@ -1840,11 +1838,6 @@
   ["re-frame.resources" "reg-resource-scope"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "clear-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ;; (a) Facade-mirrored — focus / reconnect revalidation host listeners (Spec
-  ;; 016 §Stale and GC scheduling). CLJS-only host listeners; the JVM arm is a
-  ;; no-op, so the var exists on both hosts and `ns-publics` sees it here.
-  ["re-frame.resources" "install-revalidation-listeners!"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "remove-revalidation-listeners!"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (b) Registry-enumerate accessors, owned-ns surface only.
   ["re-frame.resources" "resource-ids"]         {:tier :tooling :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "mutation-ids"]         {:tier :tooling :owner "016" :status "v1 (optional capability)"}

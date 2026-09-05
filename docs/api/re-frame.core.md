@@ -1403,6 +1403,8 @@ Routes are data; the current route lives in runtime-db (read via the `:rf/route`
 
 There is no `install-url-listener!` / `remove-url-listener!` (or `install-history-listener!` / `remove-history-listener!`) on this facade. The browser URL-change listener is wired automatically by the `:url-bound?` frame lifecycle: creation installs it, destroy removes it. See [re-frame.routing.md § Browser URL listener](re-frame.routing.md).
 
+Its resources twin reads the same way: there is no `install-revalidation-listeners!` / `remove-revalidation-listeners!` on this facade either. Focus/reconnect revalidation is the frame's `:revalidate-on #{:focus :reconnect}` config key, and the frame lifecycle installs, reconciles and removes those host listeners. See [re-frame.resources.md § Revalidation is a frame property](re-frame.resources.md#revalidation-is-a-frame-property).
+
 ### Flows → [re-frame.flows.md](re-frame.flows.md)
 
 A flow is derived state: declared inputs (frame-state paths), a pure `:derive`, and an `app-db` `:output-path` the runtime recomputes on input change. The runtime-registration fx (`[:rf.fx/reg-flow …]` / `[:rf.fx/clear-flow …]`) and `clear-flow` live in the flows doc.
@@ -1627,18 +1629,6 @@ Resources are an optional capability (cached server-state reads plus mutations) 
   (mutations {:frame …})
   ```
 - Tool/test lane: mutation introspection for a frame — the registered ids plus, with `:frame`, the live per-frame instance table. Full contract in [re-frame.resources.md](re-frame.resources.md).
-
-#### `install-revalidation-listeners!`
-
-- **Kind**: function (CLJS-only)
-- **Signature**: `(install-revalidation-listeners! frame-id) → nil`
-- Wire three host `window` listeners for `frame-id` — `focus`/`visibilitychange`→`[:rf.resource/window-focused]` and `online`→`[:rf.resource/network-reconnected]`. Idempotent (hot-reload safe). Full contract in [re-frame.resources.md](re-frame.resources.md).
-
-#### `remove-revalidation-listeners!`
-
-- **Kind**: function (CLJS-only)
-- **Signature**: `(remove-revalidation-listeners! frame-id) → nil`
-- Tear down the revalidation listeners installed by `install-revalidation-listeners!` (a no-op when none is installed). Full contract in [re-frame.resources.md](re-frame.resources.md).
 
 ## See also
 

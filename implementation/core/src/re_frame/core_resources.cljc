@@ -72,32 +72,6 @@
   ([]     :delegate)
   ([opts] :delegate))
 
-(defwrapper install-revalidation-listeners!
-  "Per Spec 016 §Deferred slices (focus/reconnect revalidation). Install
-  host `window` focus / network-reconnect listeners that drive active-stale
-  revalidation for `frame-id`. On window focus / tab return the listener
-  dispatches `[:rf.resource/window-focused]` at the frame; on network
-  reconnect it dispatches `[:rf.resource/network-reconnected]`. The event
-  handlers scan the frame's ACTIVE-OWNER stale entries and refetch them in
-  the background (cause `:focus` / `:reconnect` — a cause, never an owner;
-  generation + stale-suppression protect late replies). Fresh entries and
-  owner-free entries are left alone. Idempotent (re-install replaces the
-  frame's listeners — hot-reload safe). CLJS-only (the JVM arm is a no-op —
-  no DOM under SSR / JVM). Cancelled on frame destroy. Late-bound via
-  `:resources/install-revalidation-listeners!`."
-  {:hook :resources/install-revalidation-listeners! :artefact resources-artefact :on-absent :throw
-   :ex-data {:frame-id frame-id}}
-  ([frame-id] :delegate))
-
-(defwrapper remove-revalidation-listeners!
-  "Per Spec 016 §Deferred slices. Tear down the `window` focus / online
-  revalidation listeners installed by `install-revalidation-listeners!` for
-  `frame-id`. No-op when none is installed (and on the JVM). CLJS-only.
-  Late-bound via `:resources/remove-revalidation-listeners!`."
-  {:hook :resources/remove-revalidation-listeners! :artefact resources-artefact :on-absent :throw
-   :ex-data {:frame-id frame-id}}
-  ([frame-id] :delegate))
-
 ;; ---- Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate) --
 
 (defwrapper reg-mutation

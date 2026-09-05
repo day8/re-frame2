@@ -1009,6 +1009,16 @@
   `(rf/make-frame {:id :todo/left :images [todo-image] :fx-overrides {...}})`
   configures the frame in one call.
 
+  Two record-config keys are owned by OPTIONAL artefacts and honoured by the
+  frame LIFECYCLE, so the host listeners they name need no imperative call:
+  `:url-bound? true` (routing — the browser URL-change listener; rf2-g8pbwg)
+  and `:revalidate-on` (resources — a SET drawn from the closed enum
+  `#{:focus :reconnect}` naming the host signals that revalidate the frame's
+  active-stale reads; rf2-kuky.33). Creation installs, re-registration
+  reconciles, destroy removes. Declaring either while its artefact is absent
+  fails LOUD at registration (`:rf.error/routing-artefact-missing` /
+  `:rf.error/resources-artefact-missing`) rather than silently never firing.
+
   Returns the frame VALUE — the live lifecycle token (its representation is not
   an app-facing data contract). The frame is fully runnable: the routing
   operations `dispatch` / `subscribe` / `app-db-value` / `frame-provider` all
@@ -1574,22 +1584,6 @@
   table. Per Spec 016 §Introspection. Implementation ships in
   `day8/re-frame2-resources`."}
   resources       rf.core-resources/resources)
-
-(def ^{:doc "Install host `window` focus / network-reconnect listeners that
-  drive active-stale revalidation for `frame-id` — on window focus / tab
-  return and network reconnect the listener dispatches
-  `[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]` at
-  the frame, whose handlers refetch the frame's active-owner STALE entries in
-  the background (cause `:focus` / `:reconnect`). Idempotent (hot-reload
-  safe). CLJS-only (JVM no-op). Cancelled on frame destroy. Per Spec 016
-  §Deferred slices. Implementation ships in `day8/re-frame2-resources`."}
-  install-revalidation-listeners! rf.core-resources/install-revalidation-listeners!)
-
-(def ^{:doc "Tear down the `window` focus / online revalidation listeners
-  installed by `install-revalidation-listeners!` for `frame-id`. No-op when
-  none is installed (and on the JVM). CLJS-only. Per Spec 016 §Deferred
-  slices. Implementation ships in `day8/re-frame2-resources`."}
-  remove-revalidation-listeners! rf.core-resources/remove-revalidation-listeners!)
 
 ;; Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate).
 ;; `reg-mutation` is a macro (above, for source-coord capture) + a CLJS

@@ -555,8 +555,9 @@
      ;; Host-side scheduling: the stale / GC / poll timer side-table and the
      ;; window-focus / network-reconnect listeners. Both are installed and
      ;; torn down by the façade and by frame lifecycle; the app-facing controls
-     ;; are the policy keys on a resource spec and the two
-     ;; `install-` / `remove-revalidation-listeners!` façade rows.
+     ;; are the policy keys on a resource spec and the `:revalidate-on`
+     ;; frame-config key (rf2-kuky.33 — no façade fn, the frame lifecycle
+     ;; owns the listeners).
      re-frame.resources.revalidate-listeners
      re-frame.resources.timers
      ;; The two LATE-BOUND cross-artefact integrations. Resources never

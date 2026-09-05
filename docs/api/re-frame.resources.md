@@ -13,7 +13,7 @@ Scope in this slice is HTTP-only:
 
 - Read-resource MVP.
 - **Mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart) — see [Mutation events](#mutation-events-map-payloads).
-- Focus/reconnect active-stale revalidation (`:rf.resource/window-focused` / `:rf.resource/network-reconnected`, plus the `install-revalidation-listeners!` / `remove-revalidation-listeners!` host-listener fns) — see [Revalidation listeners](#revalidation-listeners).
+- Focus/reconnect active-stale revalidation (`:rf.resource/window-focused` / `:rf.resource/network-reconnected`, declared by the frame's `:revalidate-on` config key) — see [Revalidation is a frame property](#revalidation-is-a-frame-property).
 - Active-owner polling (`:poll-interval-ms`) — see [Polling](#polling).
 - GraphQL is deferred to a later slice — see [Guide ch.27 §What's deferred](../resources/concepts.md).
 
@@ -305,41 +305,25 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
 ;; => [:realworld/session]
 ```
 
-## Revalidation listeners
+## Revalidation is a frame property
 
-Active-stale revalidation is expressed as **resource events** (see [`[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]`](#rfresourcewindow-focused--rfresourcenetwork-reconnected)) — never subscription-driven fetching. On window focus, tab-return, or network reconnect, the runtime rescans the frame's active-owner **stale** entries and refetches them by policy. A stale entry with no active owner is left alone: revalidation creates no liveness. The host-listener install/remove fns below wire and tear down the `window` listeners that dispatch those events.
+Active-stale revalidation is expressed as **resource events** (see [`[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]`](#rfresourcewindow-focused--rfresourcenetwork-reconnected)) — never subscription-driven fetching. On window focus, tab-return, or network reconnect, the runtime rescans the frame's active-owner **stale** entries and refetches them by policy. A stale entry with no active owner is left alone: revalidation creates no liveness.
 
-### `install-revalidation-listeners!`
-
-- **Kind**: function (post-v1 lib)
-- **Signature**:
-  ```clojure
-  (install-revalidation-listeners! frame-id)   ;; → nil
-  ```
-- **Description**: Wires three host listeners for `frame-id`, each dispatched at `frame-id`:
-  - `focus` (on `window`) and `visibilitychange`-to-visible (on `document`, its only valid event target) → `[:rf.resource/window-focused]`.
-  - `online` (on `window`) → `[:rf.resource/network-reconnected]`.
-
-  Installation is idempotent: re-installing replaces, never stacks, so it is hot-reload safe. It is CLJS-only; the JVM/SSR arm is a no-op. Listeners are recorded in a host side table and cancelled on frame destroy via the single `:resources/on-frame-destroyed!` hook.
+Which host signals reach a frame is declared **on the frame**, exactly as URL ownership is:
 
 ```clojure
-;; at boot, after the frame is live: wire focus / visibility / online revalidation
-(rf/install-revalidation-listeners! :rf/default)
+(rf/make-frame {:id :app :url-bound? true :revalidate-on #{:focus :reconnect}})
+
+[rf/frame-root {:id app-frame :url-bound? true :revalidate-on #{:focus :reconnect}}
+ [root-view]]
 ```
 
-### `remove-revalidation-listeners!`
-
-- **Kind**: function (post-v1 lib)
-- **Signature**:
-  ```clojure
-  (remove-revalidation-listeners! frame-id)   ;; → nil
-  ```
-- **Description**: Tears down the listeners [`install-revalidation-listeners!`](#install-revalidation-listeners) wired for `frame-id` — useful for test isolation, and for single-page hosts that rotate which frame owns revalidation. A no-op when none is installed. Frame destroy already tears them down via the `:resources/on-frame-destroyed!` hook, so this is for the cases where the frame outlives its revalidation ownership.
-
-```clojure
-;; tear them down (test isolation, or when another frame takes over revalidation)
-(rf/remove-revalidation-listeners! :rf/default)
-```
+- **`:revalidate-on`** is an optional frame-config key: a **set** drawn from the closed enum `#{:focus :reconnect}`.
+  - `:focus` wires `focus` (on `window`) **and** `visibilitychange`-to-visible (on `document`, its only valid event target) → `[:rf.resource/window-focused]`. It is one setting, not two.
+  - `:reconnect` wires `online` (on `window`) → `[:rf.resource/network-reconnected]`.
+- An **absent** key, or an explicit `#{}`, installs nothing. The empty set is a legitimate "none".
+- **The frame lifecycle owns them.** Creation installs the declared subset once the frame is live; a deliberate re-registration reconciles (replace-don't-stack, so repeated `frame-root` renders cause no churn, and dropping the key relinquishes the listeners); frame destroy cancels them via the single `:resources/on-frame-destroyed!` hook. **There is no `install-revalidation-listeners!` / `remove-revalidation-listeners!`** — the imperative pair, and the ordering rule it required, are gone.
+- CLJS-only host listeners; the JVM/SSR arm installs nothing and nothing throws. Declaring `:revalidate-on` without `day8/re-frame2-resources` on the classpath fails loud at registration with `:rf.error/resources-artefact-missing`.
 
 ## Polling
 
@@ -694,10 +678,10 @@ Resource events take a **map payload**, not a positional argument vector. The re
 #### `[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]`
 
 - **Kind**: event (no payload)
-- **Description**: Scan the frame's active-owner stale entries and refetch them by policy. The refetch carries cause `:focus` (window-focused) or `:reconnect` (network-reconnected). It never carries an owner — it creates no liveness. Generation + stale-suppression protect any late reply. The host listeners ([Revalidation listeners](#revalidation-listeners)) dispatch these; user code MUST NOT dispatch them directly.
+- **Description**: Scan the frame's active-owner stale entries and refetch them by policy. The refetch carries cause `:focus` (window-focused) or `:reconnect` (network-reconnected). It never carries an owner — it creates no liveness. Generation + stale-suppression protect any late reply. The frame's `:revalidate-on` host listeners ([Revalidation is a frame property](#revalidation-is-a-frame-property)) dispatch these; user code MUST NOT dispatch them directly.
 
 ```clojure
-;; no payload — dispatched by the host listeners (see Revalidation listeners);
+;; no payload — dispatched by the frame's :revalidate-on host listeners;
 ;; user code MUST NOT dispatch these directly
 [:rf.resource/window-focused]
 [:rf.resource/network-reconnected]
