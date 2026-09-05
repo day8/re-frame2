@@ -147,7 +147,9 @@ gates the testbed files themselves, because "nothing compiles this file"
 was filed as a defect (rf2-p0b0) and the answer turned out to be no.
 
 **Every testbed under `tools/xray/testbeds/` that declares a build is
-compiled on every PR that can affect it.** `npm run test:examples-compile`
+compiled by the `examples_compile` sweep — on any PR touching that
+surface's enumerated paths, and unconditionally nightly.**
+`npm run test:examples-compile`
 (`implementation/scripts/check-examples-compile.cjs`) DERIVES its build
 list from `implementation/shadow-cljs.edn` by scanning for `:examples/<name>`
 and `:testbeds/<name>` keys, so a newly-declared testbed build is swept
@@ -161,6 +163,20 @@ The classifier arms that job from **both** relevant directions
 (`.github/scripts/report-changed-surfaces.sh`): `tools/xray/testbeds/*`
 arms it, and so does `implementation/http/*` — i.e. both a change to a
 testbed and a change to a substrate contract a testbed consumes.
+
+**But that surface is an ENUMERATION, not "anything that can affect the
+build", and the gap is deliberate.** `implementation/core/*` is NOT on it:
+its classifier arm sets `implementation_jvm`, `cljs_node_test`,
+`adapter_diagnostic`, `cljs_browser`, `cljs_prod`, `bundle_isolation` and
+`tools_jvm` — but never `examples_compile`. Every testbed build here
+`:require`s `re-frame.core`, so a core-only PR *can* affect these compiles
+with this lane skipped. `.github/workflows/test.yml` states the trade at
+the `cljs-examples-compile` job: core-only changes "keep their focused PR
+gates and rely on the unconditional nightly example compile; they no
+longer queue this perennial long-tail job on every PR" — the sweep is
+~10 minutes and core is the most-touched surface in the repo. So the
+per-PR guarantee is bounded by the enumerated surfaces, and the nightly
+covers the remainder.
 
 Seven of the nine directories here declare a build (`edn_inspector`,
 `machine_epochs`, `managed_http`, `panel_gallery`, `routes_epochs`,
