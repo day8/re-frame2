@@ -334,3 +334,160 @@
                "the full run resolved a result rather than rejecting")
            (is (seq (filter (comp false? :passed?) (:assertions result)))
                "carrying the captured failure"))))))
+
+;; ---- (6) a REDACTED prepare failure settles honestly ---------------------
+;;
+;; Section (5) branches on the assertion records `capture-phase-errors`
+;; projects onto `[:rf.story/assertions]`. Those records are the DISPLAY
+;; path, and the display path runs THROUGH the privacy egress filter: the
+;; capture listener's first `cond` branch drops a `:sensitive?` trace event
+;; and only bumps the suppressed counter (Spec 009 §Privacy + EP-0015,
+;; `:rf.egress/local-redacted` is the default profile).
+;;
+;; So a setup/loader handler whose failure is CLASSIFIED SENSITIVE produced
+;; no assertion at all, and a readiness check reading assertions saw an
+;; empty accumulator — indistinguishable from a clean preparation. Start
+;; resolved and published a cursor-0 stepper over a frame whose `:setup`
+;; never ran (the rf2-k6y2 post-merge audit of PR #9252).
+;;
+;; The redaction is CORRECT and stays. What was wrong is reading the
+;; ABSENCE of an assertion as evidence of success, so readiness now rests on
+;; a privacy-safe fact the egress filter cannot erase — the operation
+;; keyword of a suppressed pipeline exception, recorded at the same capture
+;; boundary that drops the event.
+;;
+;; The classification is REAL, not injected: the variant declares
+;; `:sensitive {:app-db [[:auth :password]]}`, the throwing handler is
+;; path-scoped at `[:auth]`, and the router's own overlap calculation
+;; (`re-frame.privacy/collect-redaction-paths` → `:schema-sensitive?` →
+;; the handler scope's `:sensitive?` stamp) marks every trace event the
+;; handler emits. No synthetic trace event is fed to a listener.
+
+(def ^:private sensitive-path [:auth :password])
+
+#?(:clj
+   (defn- reg-sensitive-thrower!
+     "Register an event whose interceptor chain focuses app-db at `[:auth]`
+     — a PREFIX of the variant's declared sensitive path — and throws. The
+     path overlap is what makes the router stamp the handler scope
+     `:sensitive?`, so the pipeline-exception trace event the throw emits is
+     the one Story's egress filter drops."
+     [event-id]
+     (rf/reg-event event-id
+       {:interceptors [[:rf.interceptor/path [:auth]]]}
+       (fn [_ _] (throw (ex-info "sensitive handler blew up"
+                                 {:password "hunter2"}))))))
+
+#?(:clj
+   (defn- failure-records [vid]
+     (filterv (comp false? :passed?) (rf.story.runtime/read-assertions vid))))
+
+#?(:clj
+   (deftest start-refuses-a-redacted-setup-failure
+     (testing "a `:setup` handler that throws under a SENSITIVE path
+               classification emits a pipeline exception the privacy egress
+               filter suppresses, so NO assertion is recorded — yet the
+               preparation still failed. Start must take the rejection
+               branch on evidence the filter cannot erase (rf2-k6y2 audit
+               of PR #9252)"
+       (let [vid :story.stepper/sensitive-setup-throws]
+         (reg-sensitive-thrower! :probe/sensitive-setup-throws)
+         (rf.story/reg-variant vid
+           {:sensitive {:app-db [sensitive-path]}
+            :setup     [[:probe/sensitive-setup-throws]]
+            :script    [[:dispatch-sync [:probe/inc-and-effect]]]})
+         (let [branch (begin-outcome vid)]
+           (is (empty? (failure-records vid))
+               "PRECONDITION — the display path really is empty: the
+                sensitive exception was redacted away, so a readiness check
+                reading assertions has nothing to refuse on. Without this
+                the test would be re-running section (5)'s ordinary case")
+           (is (pos? (rf.story.config/suppressed-count vid))
+               "PRECONDITION — and the egress filter is the reason it is
+                empty, not a handler that failed to throw")
+           (is (= :catch branch)
+               "the redacted preparation failure rejects rather than
+                resolving nil")
+           (is (nil? (slot vid))
+               "so Start never primed the substrate")
+           (is (zero? @ext-effect-count)
+               "and issued no script effect"))))))
+
+#?(:clj
+   (deftest start-refuses-a-redacted-loader-failure
+     (testing "the same for a throwing `:loaders` handler under a sensitive
+               classification — phase 1 drops the event at the same gate"
+       (let [vid :story.stepper/sensitive-loader-throws]
+         (reg-sensitive-thrower! :probe/sensitive-loader-throws)
+         (rf.story/reg-variant vid
+           {:sensitive {:app-db [sensitive-path]}
+            :loaders   [[:probe/sensitive-loader-throws]]
+            :setup     [[:counter/initialise 0]]
+            :script    [[:dispatch-sync [:probe/inc-and-effect]]]})
+         (let [branch (begin-outcome vid)]
+           (is (empty? (failure-records vid))
+               "PRECONDITION — no assertion survived the egress filter")
+           (is (= :catch branch)
+               "the redacted loader failure rejects")
+           (is (nil? (slot vid))
+               "so Start never primed the substrate")
+           (is (zero? @ext-effect-count)
+               "and issued no script effect"))))))
+
+#?(:clj
+   (deftest start-runs-a-healthy-sensitive-variant
+     (testing "THE CONTROL THAT KEEPS THE REFUSAL HONEST. A variant that
+               declares a sensitive path and emits suppressed sensitive
+               events but whose preparation SUCCEEDS must still reach
+               `begin-stepper!`. Readiness keys on a suppressed PIPELINE
+               EXCEPTION, never on suppression itself — a debugger that
+               refused every privacy-classified variant would take the tool
+               away exactly where it is most wanted"
+       (let [vid :story.stepper/sensitive-healthy]
+         (rf/reg-event :probe/sensitive-seed
+           {:interceptors [[:rf.interceptor/path [:auth]]]}
+           (fn [_ _] {:db {:password "hunter2"}}))
+         (rf.story/reg-variant vid
+           {:sensitive {:app-db [sensitive-path]}
+            :setup     [[:probe/sensitive-seed]
+                        [:counter/initialise 0]]
+            :script    [[:dispatch-sync [:probe/inc-and-effect]]]})
+         (let [branch (begin-outcome vid)]
+           (is (pos? (rf.story.config/suppressed-count vid))
+               "PRECONDITION — this variant DID have sensitive events
+                suppressed, so it exercises the same gate as the two
+                refusals above")
+           (is (= :then branch)
+               "a healthy sensitive preparation still resolves")
+           (is (some? (slot vid))
+               "and Start primed the stepper")
+           (is (= 0 (count-of vid))
+               "over the :setup state, with the script still pending"))))))
+
+#?(:clj
+   (deftest a-redacted-refusal-reveals-nothing
+     (testing "the refusal carries the FACT of the failure and no more: the
+               rejection's data names the suppressed operation (a framework
+               keyword) and never the exception message, its `ex-data`, or
+               the failing event. Redaction is not weakened to make the
+               debugger honest"
+       (let [vid :story.stepper/sensitive-setup-throws-payload]
+         (reg-sensitive-thrower! :probe/sensitive-setup-throws)
+         (rf.story/reg-variant vid
+           {:sensitive {:app-db [sensitive-path]}
+            :setup     [[:probe/sensitive-setup-throws]]
+            :script    [[:dispatch-sync [:probe/inc-and-effect]]]})
+         (let [err (atom nil)]
+           (-> (rf.story.runtime/prepare-variant vid)
+               (rf.story.async/catch* (fn [e] (reset! err e) nil))
+               (rf.story.async/deref-blocking 2000))
+           (is (some? @err) "the preparation rejected")
+           (let [payload (pr-str (ex-data @err))]
+             (is (not (re-find #"hunter2" payload))
+                 "the sensitive `ex-data` value is absent from the rejection")
+             (is (not (re-find #"sensitive handler blew up" payload))
+                 "so is the exception message")
+             (is (re-find #"rf\.error/handler-exception" payload)
+                 "while the framework operation keyword — which carries no
+                  author data — IS reported, so the operator learns WHAT
+                  class of failure the filter hid")))))))
