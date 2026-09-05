@@ -1137,6 +1137,47 @@
         (is (= 3 (get-in s [:data :attempts])) "the third failure records count 3")
         (is (= "bad creds" (get-in s [:data :error])) "the terminal error is retained")))
 
+    (testing "pure :error-shown exits — BOTH ways out clear the stale error and keep the retry count (rf2-hcj0)"
+      ;; rf2-283u gave :error-shown an `:exit :clear-error` so the message a
+      ;; failure left behind cannot outlive the state that owns it. `:exit`
+      ;; runs on EVERY way out, so the invariant is one line in the table but
+      ;; TWO edges in behaviour — and only the behaviour is pinned here, never
+      ;; the table shape: an `:action` hung off each edge would satisfy these
+      ;; assertions too, and should.
+      ;;
+      ;; Each edge is asserted on its own, from the same hand-built failed
+      ;; snapshot, so neither can stand in for the other: dropping the clear
+      ;; from one edge alone leaves that edge's `:error` at "bad creds" while
+      ;; the other stays green.
+      (let [failed {:state :error-shown :data {:attempts 1 :error "bad creds"}}]
+
+        (testing "Dismiss → :idle"
+          (let [{s :snapshot} (rf.machines/machine-transition
+                                login-flow failed [:walkthrough.login/dismiss])]
+            (is (= :idle (:state s)) "Dismiss returns to :idle")
+            (is (nil? (get-in s [:data :error]))
+                "the stale failure is cleared on the way out, so the view's error row goes false")
+            ;; {:data {:error nil}} MERGES, so the retry counter survives —
+            ;; a Dismiss must not hand the user a fresh three attempts.
+            (is (= 1 (get-in s [:data :attempts]))
+                ":attempts is preserved across the clear")))
+
+        (testing "Submit → :submitting (direct retry, no Dismiss in between)"
+          (let [{s :snapshot fx :fx} (rf.machines/machine-transition
+                                       login-flow failed
+                                       [:walkthrough.login/submit
+                                        {:email "a@b.com" :password "secret"}])]
+            (is (= :submitting (:state s)) "a direct retry re-enters :submitting")
+            ;; Slot order is :exit → transition :action → target :entry, so the
+            ;; stale message is gone BEFORE :issue-request fires: a fresh
+            ;; request never rides alongside the previous failure.
+            (is (nil? (get-in s [:data :error]))
+                "the retry clears the stale failure rather than displaying it beside the new request")
+            (is (= 1 (get-in s [:data :attempts]))
+                ":attempts is preserved, so the lockout guard goes on counting")
+            (is (= [:rf.http/managed] (mapv first fx))
+                "entering :submitting still issues exactly one :rf.http/managed request")))))
+
     (testing "drain happy path — full drain lands the app-db at :authed via the canned-success stub"
       ;; Full drain: registers the machine, dispatches into it, asserts the
       ;; app-db landed at :authed. Uses the `:fx-overrides` seam to swap
