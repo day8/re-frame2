@@ -39,7 +39,17 @@
   falsehoods at once: `:count 0` (\"nothing matched\") and, because a
   cursor id cannot be found in an empty history, `:id-aged-out? true`
   (\"your cursor fell out of the ring\") — a live cursor declared dead
-  (rf2-yo4s)."
+  (rf2-yo4s).
+
+  The resolved id then rides BACK out of the eval and into
+  `:next-cursor`, so a cursor owns the frame it is iterating from page
+  1 — not from page 2, which is all a cursor built out of the caller's
+  ARGUMENTS could manage. Page 1 normally names no frame, so that
+  cursor stored nil and page 2 re-resolved against whatever the session
+  said by then. That reached the SAME dead-cursor falsehood by a second
+  route, and one the frame refusal cannot cover, because the new frame
+  resolves perfectly well — it is simply not the ring the agent was
+  reading (rf2-yo4s)."
   (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.frame-resolve :as fr]
@@ -147,6 +157,10 @@
                             " :next-id next-id"
                             " :history-count history-count"
                             " :since-count since-count"
+                            ;; The id this poll was actually read
+                            ;; against, so `:next-cursor` can own it —
+                            ;; see `read-frame` below.
+                            " " fr/resolved-frame-entry
                             " :remaining (max 0 (- (count matches) (count page)))}"))))
             ;; Resolve once, refuse at nil, THEN poll. The sticky frame
             ;; is the tier-1 override, so a cursor's frame outranks the
@@ -165,7 +179,17 @@
               ;; wrong frame.
               (wire/err-text v)
               (let [v          (if (map? v) v {})
-                    aged-out?  (:id-aged-out? v)]
+                    aged-out?  (:id-aged-out? v)
+                    ;; The frame this poll was READ against, not the one
+                    ;; it was asked for — the two differ on page 1,
+                    ;; where the caller names no frame and the id comes
+                    ;; from the session pin or the sole app frame.
+                    ;; Stamping the asked-for nil into `:next-cursor`
+                    ;; let a later pin change move the ring under the
+                    ;; agent, and then the poll declared the live cursor
+                    ;; aged out — the very falsehood this tool's frame
+                    ;; refusal exists to stop (rf2-yo4s).
+                    read-frame (or (fr/resolved-frame v) sticky-frame)]
                 (if (and aged-out? (some? effective-after))
                   (cursor/cursor-stale-result "watch-epochs"
                                               {:requested-id (or (:requested-id v) effective-after)
@@ -185,7 +209,12 @@
                                            :after-id next-id
                                            :ms       nil
                                            :until-ms nil
-                                           :frame    sticky-frame
+                                           ;; The cursor OWNS its frame
+                                           ;; from page 1 onward, so a
+                                           ;; pin changed mid-pagination
+                                           ;; cannot move the ring under
+                                           ;; the agent.
+                                           :frame    read-frame
                                            ;; Carry the sticky
                                            ;; predicate so page 2+ keeps
                                            ;; filtering. nil when no pred was
@@ -213,7 +242,9 @@
                                (zero? since-count)
                                (pos? history-count))
                           {:reason            :no-events-since-id
-                           :frame             sticky-frame
+                           ;; The frame the count came from — the
+                           ;; resolved one, never the asked-for nil.
+                           :frame             read-frame
                            :epochs-in-history history-count
                            :requested-id      effective-after
                            :hint              (str "Per-frame history holds "
@@ -226,7 +257,9 @@
                           (and (zero? count)
                                (pos? since-count))
                           {:reason            :pred-excludes-history
-                           :frame             sticky-frame
+                           ;; The frame the count came from — the
+                           ;; resolved one, never the asked-for nil.
+                           :frame             read-frame
                            :epochs-in-history history-count
                            :epochs-since-id   since-count
                            :hint              (str since-count
