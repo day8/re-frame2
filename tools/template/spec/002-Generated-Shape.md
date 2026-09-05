@@ -72,10 +72,10 @@ what a save re-runs:
    is created once, then rendered into on every later call rather than
    a second root going over a live DOM node. Reagent puts an
    adapter-owned `client-root` handle in that cell and lets the first
-   `reagent-adapter/render!` create the underlying Root; UIx puts the
+   `rf.adapter.reagent/render!` create the underlying Root; UIx puts the
    `uix.dom/create-root` Root there itself.
 2. **The frame is created by the view, and reused.** `rf/frame-root`
-   (or `uix-adapter/frame-root`) creates `:rf/default` the first time,
+   (or `rf.adapter.uix/frame-root`) creates `:rf/default` the first time,
    running `:initial-events [[:counter/initialise]]` synchronously so
    the first render sees the seeded app-db, and reuses the live frame
    without re-seeding on every later render. A reload never touches
@@ -87,7 +87,7 @@ what a save re-runs:
 `template_emission_test.clj` pins these facts on the emitted
 `core.cljs`: exactly one `^:dev/after-load` hook, its body renders,
 `init` calls it, exactly one root allocation
-(`reagent-adapter/client-root` or `uix-dom/create-root`), a `defonce`
+(`rf.adapter.reagent/client-root` or `uix-dom/create-root`), a `defonce`
 cell holding it, and the
 `:initial-events` seed. The behavioural tier then proves the page a
 newcomer opens actually mounts and moves the counter 0 → 1 in Chromium.

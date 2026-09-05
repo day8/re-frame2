@@ -57,7 +57,7 @@ Per Mike's standing memory rule "Findings is local-only" — never commit `ai/` 
 
 ### L9 — Single-import contract from day one
 
-The scaffold imports `re-frame.core` as `rf` and `re-frame.adapter.reagent` as `reagent-adapter`. No private-namespace requires; no `re-frame.db` style reach-ins. The contract the author starts with is the contract the main `re-frame2` skill enforces from there on.
+The scaffold imports `re-frame.core` as `rf` and `re-frame.adapter.reagent` as `rf.adapter.reagent`. No private-namespace requires; no `re-frame.db` style reach-ins. The contract the author starts with is the contract the main `re-frame2` skill enforces from there on.
 
 ### L10 — Clean hand-off on exit; cross-skill routing is single-sourced in `skills/README.md`
 

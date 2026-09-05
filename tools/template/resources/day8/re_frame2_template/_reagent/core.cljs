@@ -1,7 +1,7 @@
 (ns {{namespace}}.core
   "Entry point: installs the Reagent adapter and mounts the app."
   (:require [re-frame.core            :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Requiring these installs their registrations.
             [{{namespace}}.events]
             [{{namespace}}.subs]
@@ -12,7 +12,7 @@
 ;; it. React must not get a second `create-root` for a live DOM node, and a
 ;; hot reload has to render into the root that already owns #app — the
 ;; handle keeps both true, and allocating it touches no DOM.
-(defonce ^:private app-root (reagent-adapter/client-root))
+(defonce ^:private app-root (rf.adapter.reagent/client-root))
 
 (def app-frame :rf/default)
 
@@ -25,7 +25,7 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id             app-frame
                       :initial-events [[:counter/initialise]]}
        [views/counter-app]]
@@ -35,5 +35,5 @@
 ;; loads. `init!` installs the adapter; it does not create a frame — the
 ;; `frame-root` element in `mount!` does.
 (defn ^:export init []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))

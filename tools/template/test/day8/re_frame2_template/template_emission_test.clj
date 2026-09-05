@@ -293,8 +293,8 @@
 ;; root is created exactly once and retained across reloads. These are the
 ;; facts pinned here, on the emitted `core.cljs` itself. On Reagent the
 ;; retained root is the adapter-owned client root (rf2-k5r9t): one
-;; `reagent-adapter/client-root` allocation, rendered through with
-;; `reagent-adapter/render!`; UIx holds a `uix-dom` root itself.
+;; `rf.adapter.reagent/client-root` allocation, rendered through with
+;; `rf.adapter.reagent/render!`; UIx holds a `uix-dom` root itself.
 
 (defn- hook-body
   "The source text of the `^:dev/after-load <hook>` form: from its metadata
@@ -311,7 +311,7 @@
             renders, an init that delegates to it, and exactly one retained
             React root (rf2-r0kk7)"
     (doseq [[substrate renders create-root]
-            [[:reagent "reagent-adapter/render!" "reagent-adapter/client-root"]
+            [[:reagent "rf.adapter.reagent/render!" "rf.adapter.reagent/client-root"]
              [:uix     "uix-dom/render-root"     "uix-dom/create-root"]]]
       (let [tmp (tmp-dir "rf2-emission-after-load-")]
         (try
