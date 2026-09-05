@@ -53,7 +53,14 @@
    identity `reply-for-current-profile?` (profile.cljs) gates every banner,
    list and follow settle against, so a late reply for a profile the reader has
    left can't overwrite the current one's data, status, error, timestamp or
-   machine presentation. Same law as `:slug`, different route param."
+   machine presentation. Same law as `:slug`, different route param.
+
+   `:follow-pending?` is the follow/unfollow latch. Only `:profile` carries it
+   — it is the one slice with a mutation of its own — and the toggle is
+   serialised on it: while it is set both handlers refuse a second intent and
+   the button disables itself, so a rapid Follow→Unfollow can never leave two
+   settles for the SAME profile racing, which the username correlation cannot
+   tell apart. See SERIALISING THE TOGGLE in profile.cljs."
   [:map
    [:status         [:enum :idle :loading :fetching :loaded :error]]
    [:data           {:default nil} :any]
@@ -63,6 +70,7 @@
    [:articles-count {:optional true} :int]
    [:slug           {:optional true} [:maybe :string]]
    [:username       {:optional true} [:maybe :string]]
+   [:follow-pending? {:optional true} :boolean]
    [:stale-after-ms {:optional true} [:maybe :int]]])
 
 (def AuthSlice
