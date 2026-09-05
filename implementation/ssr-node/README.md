@@ -372,7 +372,7 @@ rather than presenting a well-formed shorter page.
 | `:rf.ssr-node/build-identity-mismatch` | caller's `buildId` ≠ the bundle's |
 | `:rf.ssr-node/render-timeout` | deadline expired; the isolate was terminated |
 | `:rf.ssr-node/render-threw` | the render module threw, emitted nothing, or returned a value |
-| `:rf.ssr-node/isolate-lost` | the worker died mid-render, or an exception escaped the render call |
+| `:rf.ssr-node/isolate-lost` | the worker died mid-render, an exception escaped the render call, or the pool could not replace a terminated isolate |
 | `:rf.ssr-node/service-saturated` | no isolate free within the admission budget |
 | `:rf.ssr-node/service-closed` | the service is shutting down |
 | `:rf.ssr-node/malformed-render-module` | the bundle failed validation at boot |
@@ -518,6 +518,38 @@ filesystem. It goes to the same stderr, and on this path that is not
 merely the better channel but the only one — the worker never caught
 anything, so nothing inside it ever saw the fault. `test/egress.test.cjs`
 §5 is the witness, driving one Error down both routes as a matched pair.
+
+A **replacement isolate that will not boot** states the same law from a
+third place, and it is the one where the law nearly got away. A boot
+refusal is allowed to carry the module's own message, its stack and the
+module path, on the stated ground that boot fails before the service
+listens — so its reader is the operator standing at a process that would
+not start. That is true when the pool starts. It is false when the pool
+*replaces*: a replacement boots while the service is live, and the failure
+is delivered to whoever is queued waiting for capacity. Every boot refusal
+therefore stops at that boundary. A waiter is told
+`:rf.ssr-node/isolate-lost` with this contract's wording and a `detail` of
+`poolSize`, and the module's message, the module path and any `code` the
+module put on its boot error stay off the wire — the last of these
+mattering for the reason a module-set `code` always does, since the boot
+receiver builds its refusal without consulting the family. The failure
+itself goes to the sidecar's stderr **unconditionally**, which is a
+strengthening and not a trade: the old handler's only statement was the
+loop over waiters, so a replacement that failed with nobody queued told no
+one at all and the pool quietly shrank by an isolate.
+
+The last receiver is one no application can reach on purpose: a render that
+rejects with something that is **not a `Refusal` at all**. It is a fault in
+this package rather than in the application — every receiver between the
+module and the caller builds a refusal, so anything else got past all of
+them — and it is reachable, by an in-process caller whose request carries
+an accessor. Validation reads a partition value and the structured clone
+reads it again, so a getter or a Proxy can be a string the first time and
+unclonable the second, and the resulting `DataCloneError` names the value
+it choked on. A caller's own value on a public refusal is the same egress
+as any other, so this arm carries the contract's `render-threw` wording and
+sends the real fault to the operator. `test/egress.test.cjs` §6 and §7 are
+the witnesses.
 
 The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is a
 per-request `gensym` frame made with no initial events,
@@ -751,10 +783,21 @@ and nothing else.
 
 The suite drives the service against reference render modules under
 `test/fixtures/` — well-behaved, mutating, sloppy-mode, hanging, throwing
-(inside the call and escaping it), chunking, byte-hostile, leaky and
-null-returning — because every guarantee here is a
+(inside the call and escaping it), chunking, byte-hostile, leaky,
+null-returning and boot-flaky — because every guarantee here is a
 property of the service, and a fixture that misbehaves on purpose is the
 only way to see a guard fire.
+
+The boot-flaky one is the odd member and its oddity is the point: it boots
+the first time and refuses the next, which is the only way to reach a
+REPLACEMENT boot. Every other boot-failure fixture fails on its first boot,
+where the service never comes up and the reader of the refusal is the
+operator — so none of them can reach the receiver where that same refusal
+goes to a caller instead. Isolates share no module state, so the switch is
+an environment flag: a worker thread inherits a copy of `process.env` taken
+when it is constructed, which makes a flag set after the pool is up
+invisible to the isolates already running and visible to every replacement
+spawned afterwards.
 
 A fixture reports what it observed by rendering it, as a base64
 attribute on markup it was emitting anyway, and the witnesses read it back
@@ -781,6 +824,20 @@ the ESCAPING one's scheduled callback intercepted before it fires and shown
 really throwing that sentinel —
 before its zero is believed; and the absence scan is shown finding a
 planted reference before its zero is believed.
+
+The replacement-boot rows need two controls rather than one, and the second
+is the kind that is easy not to write. The first is the ordinary one: the
+flaky fixture is shown really refusing to boot, carrying its sentinel and
+its spoofed `code`. The second is about the SCENARIO rather than the
+fixture — every claim in that section is about what a *waiting* caller
+receives, so a run in which nobody happened to be queued, or in which the
+pool never tried to replace anything, would be green about a path it never
+took. Both facts are read off the service's own counters (`waiting`, and
+`replacements` rising to 1) before any refusal is inspected. The
+uncontracted-rejection rows carry the same shape of control, and there it
+is a fact about the tree rather than about the fix: the partition value is
+asserted to have been read *twice*, because nothing but the structured
+clone reads it a second time.
 
 One of those controls is worth reading twice, because it guards against a
 row going quiet rather than against a row going wrong. The status-spoof
