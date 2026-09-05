@@ -5,9 +5,17 @@
    the duration, and a Reset button. Time itself is the interesting part.
 
    The trick: time advances the same way everything else does — through a
-   dispatched event. A periodic `:timer/tick` nudges elapsed-ms forward, so
+   dispatched event. A periodic `:timer/tick` moves elapsed-ms forward, so
    the clock lives *inside* the update loop rather than off to the side
    mutating state behind the framework's back. No special path for time.
+
+   And the sharp edge that gives away a real clock from a toy one: a tick
+   asks *what time is it?* rather than assuming it knows. `:dispatch-later`
+   promises to fire **not before** the delay you asked for — never exactly
+   on it. Counting callbacks (\"another tick fired, so add 100ms\") builds a
+   clock that runs slow the moment the browser is busy, and browsers get
+   busy constantly. So each tick reads the recorded time off its own event
+   and advances by the interval that *actually* passed.
 
    The rules are simple:
      - The bar fills from 0 to 100% over the duration.
@@ -16,7 +24,9 @@
      - Reset puts elapsed back to zero.
 
    What it shows off:
-   - `:dispatch-later` to schedule the next tick
+   - `:dispatch-later` to schedule the next sample
+   - `:rf.cofx/requires [:rf/time-ms]` — the recorded clock reading, arriving
+     as data, so the handler stays pure and the run stays replayable
    - One source of truth: elapsed time is just a number in app-db
    - Subscriptions layered to derive the progress percentage
    - A controlled slider that dispatches on every drag
@@ -29,23 +39,33 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 (def tick-ms
-  "Wall-clock delay, in milliseconds, between one tick and the next. 100ms is
-   smooth enough to look continuous without flooding the loop with events."
+  "How often we *sample* the clock, in milliseconds — the delay we ask
+   `:dispatch-later` for between one tick and the next. 100ms is smooth enough
+   to look continuous without flooding the loop with events.
+
+   Read this as a sampling cadence, never as a unit of elapsed time. It sets
+   how often the display refreshes; it says nothing about how much time has
+   gone by. `:dispatch-later` guarantees only *not before* this delay, so a
+   busy main thread, a background tab, or ordinary browser throttling can hold
+   any one callback back for seconds. `:timer/tick` therefore measures the
+   real interval instead of adding this number."
   100)
 
 ;; ============================================================================
 ;; SCHEMA
 ;; ============================================================================
 
-;; Four app-db values determine the timer: elapsed time, target duration, an
-;; active flag, and a generation token. Scheduled callbacks remain runtime-owned;
-;; app-db stores no timer handle. The runtime checks this slice on every commit.
+;; Five app-db values determine the timer: elapsed time, target duration, an
+;; active flag, a generation token, and the clock reading the last sample was
+;; taken at. Scheduled callbacks remain runtime-owned; app-db stores no timer
+;; handle. The runtime checks this slice on every commit.
 (def TimerState
   [:map
-   [:elapsed-ms :int]                  ;; milliseconds counted since the last reset
+   [:elapsed-ms :int]                  ;; milliseconds measured since the last reset
    [:duration-ms :int]                 ;; where the slider is parked
    [:tick-active? :boolean]            ;; is a tick chain currently running?
-   [:tick-gen :int]])                  ;; generation token — the trick for retiring stale ticks (see below)
+   [:tick-gen :int]                    ;; generation token — the trick for retiring stale ticks (see below)
+   [:sampled-at-ms :int]])             ;; recorded clock reading of the last accepted sample — the anchor we measure from
 
 ;; A schema belongs to a frame, so we need a frame in scope to register it.
 ;; `with-frame` names one. We use `:rf/default` — the same id the render root's
@@ -77,27 +97,56 @@
 ;;     stopped and the user drags the duration up, one fresh tick under the new
 ;;     generation gets it moving again — no Reset needed. That's the on-the-fly
 ;;     slider behaviour the 7GUIs task asks for.
+;;
+;; The second idea below is how we know what time it is. Every handler that
+;; needs the clock declares `:rf.cofx/requires [:rf/time-ms]` and reads
+;; `time-ms` flat out of its first argument. No handler calls `Date.now` —
+;; the reading was taken when the event entered the pipeline and recorded onto
+;; it, so the handler stays a pure function of its inputs and replaying the run
+;; next week reproduces it exactly. Coeffects: docs/core/coeffects.md.
+;;
+;; Elapsed time is then measured, not counted. `:sampled-at-ms` holds the
+;; reading the last accepted sample was taken at; each tick advances elapsed by
+;; the interval since then and re-anchors. A callback that arrives 3 seconds
+;; late therefore contributes 3 seconds, not 100ms, and the timer finishes on
+;; time whatever the browser was doing in between.
 
 (rf/reg-event :timer/initialise
-  {:doc "Set up the timer slice from nothing and kick off the first tick."}
-  (fn handler-timer-initialise [{:keys [db]} _]
-    {:db (assoc db :timer {:elapsed-ms   0
-                           :duration-ms  10000
-                           :tick-active? true
-                           :tick-gen     0})
+  {:doc "Set up the timer slice from nothing and kick off the first tick."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn handler-timer-initialise [{:keys [db rf/time-ms]} _]
+    {:db (assoc db :timer {:elapsed-ms    0
+                           :duration-ms   10000
+                           :tick-active?  true
+                           :tick-gen      0
+                           ;; Time starts here — the anchor the first tick measures from.
+                           :sampled-at-ms time-ms})
      :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick 0]}]]}))
 
 (rf/reg-event :timer/tick
-  {:doc "Nudge elapsed forward by one tick and, if there's still road ahead,
-         schedule the next one. A tick carrying a stale generation is ignored."}
-  (fn handler-timer-tick [{:keys [db]} [_ gen]]
-    (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen]} (:timer db)]
+  {:doc "Take a sample: advance elapsed by the time that has actually gone by
+         since the previous sample, re-anchor, and — if there's still road
+         ahead — schedule the next one. A tick carrying a stale generation is
+         ignored."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn handler-timer-tick [{:keys [db rf/time-ms]} [_ gen]]
+    (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen sampled-at-ms]} (:timer db)]
       (if (not= gen tick-gen)
         ;; This tick belongs to a retired generation; ignore it.
         {}
-        (let [next-elapsed (min (+ elapsed-ms tick-ms) duration-ms)
+        (let [;; The whole point: how long has it *really* been? Usually about
+              ;; tick-ms, but a throttled or blocked callback can be far later,
+              ;; and that extra time is real time the user waited. The `max 0`
+              ;; is for the rare wall-clock step backwards (an NTP correction):
+              ;; a clock that jumps back must not rewind the timer.
+              observed     (max 0 (- time-ms sampled-at-ms))
+              next-elapsed (min (+ elapsed-ms observed) duration-ms)
               done?        (>= next-elapsed duration-ms)]
-          (cond-> {:db (assoc-in db [:timer :elapsed-ms] next-elapsed)}
+          (cond-> {:db (-> db
+                           (assoc-in [:timer :elapsed-ms] next-elapsed)
+                           ;; Re-anchor, so the next sample measures from here
+                           ;; and no interval is double-counted or dropped.
+                           (assoc-in [:timer :sampled-at-ms] time-ms))}
             ;; Keep the chain alive only while there's room left and we haven't been stopped.
             (and tick-active? (not done?))
             (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick gen]}]])))))))
@@ -109,8 +158,9 @@
          duration leaves room to keep going, we revive it with one fresh tick
          under a bumped generation — see the EVENTS note above for why that bump
          matters."
+   :rf.cofx/requires [:rf/time-ms]
    :schema [:cat [:= :timer/set-duration] :int]}
-  (fn handler-timer-set-duration [{:keys [db]} [_ ms]]
+  (fn handler-timer-set-duration [{:keys [db rf/time-ms]} [_ ms]]
     (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen]} (:timer db)
           ;; The chain stops scheduling itself the moment elapsed catches duration.
           was-stopped? (>= elapsed-ms duration-ms)
@@ -119,19 +169,34 @@
           rearm?       (and was-stopped? tick-active? (> ms elapsed-ms))
           next-gen     (if rearm? (inc tick-gen) tick-gen)
           db'          (cond-> (assoc-in db [:timer :duration-ms] ms)
-                         rearm? (assoc-in [:timer :tick-gen] next-gen))]
+                         rearm? (-> (assoc-in [:timer :tick-gen] next-gen)
+                                    ;; Re-anchor at the drag. The timer sat
+                                    ;; finished for however long the user took
+                                    ;; to reach for the slider, and that is not
+                                    ;; time the run should be billed for — the
+                                    ;; first resumed tick counts from here.
+                                    (assoc-in [:timer :sampled-at-ms] time-ms)))]
+      ;; When we're NOT re-arming we deliberately leave the anchor alone: a live
+      ;; chain owns it, and moving it here would discard the interval since its
+      ;; last sample.
       (cond-> {:db db'}
         rearm? (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick next-gen]}]])))))
 
 (rf/reg-event :timer/reset
-  {:doc "Reset was clicked. Zero elapsed, retire whatever tick is in flight by
-         bumping :tick-gen, and start a clean chain under the new generation."}
-  (fn handler-timer-reset [{:keys [db]} _]
+  {:doc "Reset was clicked. Zero elapsed, re-anchor the clock to now, retire
+         whatever tick is in flight by bumping :tick-gen, and start a clean
+         chain under the new generation."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn handler-timer-reset [{:keys [db rf/time-ms]} _]
     (let [next-gen (inc (get-in db [:timer :tick-gen]))]
       {:db (-> db
-               (assoc-in [:timer :elapsed-ms]   0)
-               (assoc-in [:timer :tick-active?] true)
-               (assoc-in [:timer :tick-gen]     next-gen))
+               (assoc-in [:timer :elapsed-ms]    0)
+               (assoc-in [:timer :tick-active?]  true)
+               (assoc-in [:timer :tick-gen]      next-gen)
+               ;; Zeroing elapsed without moving the anchor would hand the very
+               ;; next tick the whole interval since the last sample — the
+               ;; display would jump straight off zero.
+               (assoc-in [:timer :sampled-at-ms] time-ms))
        :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick next-gen]}]]})))
 
 ;; ============================================================================
