@@ -82,7 +82,7 @@
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.server :as server]
             [re-frame.hicasso.test.server :as ts]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.constants :as ssr-constants]
             [re-frame.test-support :as test-support]
@@ -483,10 +483,10 @@
   (testing "with the host-wide marker at CLJS's own `:client` default, a
             render's initial event runs the SERVER arm of a platform pair
             and not the client arm"
-    (let [restore (interop/active-platform)]
+    (let [restore (rf.interop/active-platform)]
       (try
         (rf/init-platform :client)
-        (is (= :client (interop/active-platform))
+        (is (= :client (rf.interop/active-platform))
             "PREMISE: the host marker is `:client`, so the frame's own tag is
              the only thing that can select the server arm below — without
              this line a green row could mean the host was `:server` all
