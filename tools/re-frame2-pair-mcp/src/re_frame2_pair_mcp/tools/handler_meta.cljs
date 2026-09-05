@@ -64,8 +64,9 @@
   a registrar kind; their metadata lives in the schemas
   artefact's per-frame side-table, surfaced via `rf/app-schemas` /
   `rf/app-schema-meta-at`. The fourteen registrar kinds map directly to
-  `rf/handler-meta`; `machine` routes
-  through the dedicated `rf.machines/machine-meta` surface (Spec 005 §Querying machines —
+  `rf/handler-meta`; `machine` routes through the runtime preload's
+  `re-frame2-pair.runtime/machine-describe` door, which wraps
+  `rf.machines/machine-meta` (Spec 005 §Querying machines —
   machines are registered as `:event` handlers carrying
   `:rf/machine? true` with their spec in the `:rf/machine` slot, and
   `machine-meta` unwraps that slot).
@@ -85,8 +86,26 @@
   `error-projector` / `resource` / `mutation` / `resource-scope`) the
   list comes from
   `re-frame2-pair.runtime/registrar-list`. For `machine` the list
-  comes from `re-frame.core/machines` — every event handler flagged
-  `:rf/machine? true`.
+  comes from `re-frame2-pair.runtime/machines-list` — every event
+  handler flagged `:rf/machine? true`.
+
+  ## Every read is a call on the runtime preload — no framework var here
+
+  Both tools name ONLY `re-frame2-pair.runtime/…` fns in the forms they
+  ship. That is the whole of the coupling, and it is deliberate: the
+  preload is the single place a framework var is spelled, so a rename or
+  a relocation on the framework side is one edit THERE and invisible
+  here. The rule was learned the expensive way (rf2-kuky.29) — the two
+  `:machine` forms were once hand-built strings naming a `machines` and
+  a `machine-meta` var on the FACADE, which the facade does not define
+  and never did: the machine query surface lives on `re-frame.machines`,
+  per spec/API.md's front-porch boundary, and both reads therefore
+  returned an eval error against every running app. Nothing in this
+  build could see it: the coupling is a STRING, so there is no
+  `:require`, no compiler error and no classpath scan that reaches it.
+  The runtime-door tests in `handler_meta_test.cljs` are the witness
+  that closes that hole — they read the preload's own source and assert
+  every symbol these forms emit is published there.
 
   ## Why not `eval-cljs`?
 
@@ -109,7 +128,8 @@
 ;; The MCP arg comes in as a JS string ("event", "sub", …). We coerce
 ;; to the runtime keyword the registrar uses. `machine` is the one
 ;; logical kind that doesn't map 1:1 to a registrar kind — it routes
-;; through `rf.machines/machine-meta` instead.
+;; through the preload's `machine-describe` / `machines-list` door
+;; instead.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private registrar-kinds
@@ -145,9 +165,10 @@
   App-db schemas are intentionally absent — they are NOT
   a registrar kind; their metadata lives in the schemas artefact's
   per-frame side-table. `machine` is intentionally absent here too —
-  it routes through `rf.machines/machine-meta` (which inspects `:event`-kind
-  metadata for the `:rf/machine?` flag) — but is in `supported-kinds`
-  below."
+  it routes through the preload's `machine-describe` / `machines-list`
+  (which wrap `rf.machines/machine-meta` / `rf.machines/machines`, the
+  derived views over `:event`-kind metadata carrying the `:rf/machine?`
+  flag) — but is in `supported-kinds` below."
   #{:event :sub :fx :cofx :interceptor :view :frame :route :flow :head
     :error-projector :resource :mutation :resource-scope})
 
@@ -215,10 +236,9 @@
 ;;
 ;; Eval-form composition: for the fourteen registrar kinds we route through
 ;; `re-frame2-pair.runtime/registrar-describe` (already published; carries
-;; the `:not-registered` envelope on miss). For `:machine` we wrap
-;; `re-frame.core/machine-meta` directly — the runtime ns has no
-;; machine-aware wrapper, so the wrapping lives on the tool's caller
-;; side rather than in the runtime preload.
+;; the `:not-registered` envelope on miss). `:machine` routes through the
+;; preload's `machine-describe` the same way — one `rt-call`, one
+;; round-trip, no framework var spelled here.
 ;; ---------------------------------------------------------------------------
 
 (defn- registrar-form
@@ -242,25 +262,31 @@
     (ef/emit (ef/rt-call 'registrar-describe kind id))))
 
 (defn- machine-form
-  "Build the eval form that wraps `re-frame.core/machine-meta` with the
-  same envelope shape `registrar-describe` returns — either the meta
-  map or a structured `:not-registered` map. Keeps the tool's response
-  shape uniform across kinds.
+  "Build the eval form for a `:machine` drill — `machine-describe` on the
+  runtime preload, which reads `rf.machines/machine-meta` and runs the
+  same `strip-fns` walk `registrar-describe` does, so a spec's fn-valued
+  `:guards` / `:actions` (Spec 005) arrive as the readable `:rf/fn`
+  sentinel instead of tripping the wire codec's `:unserializable` path.
 
-  `dissoc :handler-fn` for the same reason `registrar-describe`
-  drops it — a raw Function ref is unreadable on the EDN wire and would
-  make the tool envelope misreport :unexpected-shape. The machine
-  surface doesn't always carry one, but the dissoc is idempotent and
-  cheap and keeps the response shape EDN-clean by construction across
-  both kinds.
-
-  The composed form is one expression so the eval is a single
-  round-trip — composition is the same idiom every other tool uses."
+  One `rt-call`, exactly like every other kind: a single expression, a
+  single round-trip, and no framework var named on this side of the
+  wire."
   [id]
-  (let [id-edn (pr-str id)]
-    (str "(if-let [m (re-frame.core/machine-meta " id-edn ")]"
-         "  (dissoc m :handler-fn)"
-         "  {:ok? false :reason :not-registered :kind :machine :id " id-edn "})")))
+  (ef/emit (ef/rt-call 'machine-describe id)))
+
+(defn- uniform-miss
+  "Normalise the runtime's machine-door miss reason to the tool's.
+
+  `machine-describe` reports a miss as `:not-a-machine` — its own
+  vocabulary, the one `ops.md` documents and other preload consumers
+  read. Every registrar kind reports `:not-registered`, and the tool
+  speaks ONE miss vocabulary across kinds so an agent can branch on
+  `:reason` without knowing which door answered. The rename happens
+  here, at the tool boundary, rather than in the preload: the preload is
+  shared, this uniformity is not."
+  [m]
+  (cond-> m
+    (= :not-a-machine (:reason m)) (assoc :reason :not-registered)))
 
 (defn handler-meta-tool [conn args]
   (let [build-id   (wire/arg-build conn args)
@@ -332,7 +358,10 @@
                       ;;   - hit (map with no :reason): merge :ok? true
                       ;;     + the requested kind/id.
                       ;;   - miss (`{:ok? false :reason :not-registered}`):
-                      ;;     pass through, stamped with kind/id.
+                      ;;     pass through, stamped with kind/id — via
+                      ;;     `uniform-miss`, which renames the machine
+                      ;;     door's `:not-a-machine` to the one miss
+                      ;;     vocabulary the tool speaks.
                       ;;   - genuine non-map (should not happen against a
                       ;;     healthy runtime): surface :unexpected-shape.
                       (stamp-frame
@@ -350,7 +379,7 @@
                              :kind kind :id id-val :value meta-map})
 
                           (false? (:ok? meta-map))
-                          (assoc meta-map :kind kind :id id-val)
+                          (-> meta-map uniform-miss (assoc :kind kind :id id-val))
 
                           :else
                           (assoc meta-map :ok? true :kind kind :id id-val)))))
@@ -372,9 +401,9 @@
   "Build the eval form returning the sorted id vector for a kind.
 
   DEFAULT (`frame` nil): the fourteen registrar kinds route through
-  `re-frame2-pair.runtime/registrar-list`; `:machine` wraps
-  `re-frame.core/machines` (Spec 005 §Querying machines — every event handler
-  with `:rf/machine? true`).
+  `re-frame2-pair.runtime/registrar-list`; `:machine` through
+  `re-frame2-pair.runtime/machines-list`, which sorts the same way (Spec
+  005 §Querying machines — every event handler with `:rf/machine? true`).
 
   EXPLICIT FRAME (`frame` set): route through
   `re-frame2-pair.runtime/frame-registrar-list`, which enumerates only the
@@ -383,7 +412,7 @@
   reaching here when a frame is supplied (machines are not in the resolver)."
   [frame kind]
   (cond
-    (= :machine kind) "(vec (sort (re-frame.core/machines)))"
+    (= :machine kind) (ef/emit (ef/rt-call 'machines-list))
     (some? frame)     (ef/emit (ef/rt-call 'frame-registrar-list frame kind))
     :else             (ef/emit (ef/rt-call 'registrar-list kind))))
 

@@ -3227,10 +3227,22 @@ consequences. `registrar-describe`'s `strip-fns` (rf2-f8s9g6) replaces
 the nested handler fns (`:request` / `:tags` / `:invalidates` /
 `:populates` / `:resolve`) with the readable `:rf/fn` sentinel so the
 meta is EDN-clean on the wire. The `:machine`
-kind routes through `(re-frame.core/machine-meta id)` instead —
-machines are registered as `:event` handlers carrying `:rf/machine?
-true` (Spec 005 §Querying machines), and `machine-meta` unwraps that
-slot to surface the spec.
+kind routes through `(re-frame2-pair.runtime/machine-describe id)`
+instead — machines are registered as `:event` handlers carrying
+`:rf/machine? true` (Spec 005 §Querying machines), and that door wraps
+`re-frame.machines/machine-meta`, which unwraps the `:rf/machine` slot
+to surface the spec. It runs the same `strip-fns` walk, so a machine's
+fn-valued `:guards` / `:actions` arrive as `:rf/fn` sentinels rather
+than tripping the `:unserializable` path. The door reports a miss as
+`:not-a-machine`; the tool renames it to `:not-registered` so the miss
+envelope is the same across every kind.
+
+**No form this tool ships names a framework var.** Every kind, machine
+included, is one `(re-frame2-pair.runtime/…)` call — the preload is the
+single place a framework symbol is spelled, so a framework rename is one
+edit there. That is enforced rather than merely intended: the
+`runtime-door` tests read the preload's own source and assert every
+symbol these forms emit is a public top-level `defn` in it.
 
 **Returns** on a hit:
 
@@ -3320,8 +3332,10 @@ map via `(re-frame2-pair.runtime/registrar-list kind)` —
 `list-handlers {kind "resource-scope"}` enumerates a resources app's
 named scope resolvers, `list-handlers {kind "interceptor"}` the ids
 registered via `reg-interceptor`. The
-`:machine` kind wraps `(re-frame.core/machines)` — every event
-handler flagged `:rf/machine? true` (Spec 005 §Querying machines).
+`:machine` kind lifts its ids from
+`(re-frame2-pair.runtime/machines-list)` — every event handler flagged
+`:rf/machine? true` (Spec 005 §Querying machines), sorted by the door
+so the vector is stable across kinds.
 
 **Returns**:
 

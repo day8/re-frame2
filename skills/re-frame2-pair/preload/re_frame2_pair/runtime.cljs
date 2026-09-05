@@ -1137,16 +1137,32 @@
 ;; ---------------------------------------------------------------------------
 
 (defn machines-list
-  "(rf.machines/machines) — all registered machine ids."
+  "(rf.machines/machines) — all registered machine ids, SORTED.
+
+   The sort is the contract, not a courtesy: `registrar-list` sorts, the
+   MCP `list-handlers` tool documents one stable id vector across every
+   kind, and machines are the one kind whose ids arrive in registration
+   order. Sorting here keeps the two branches of that tool agreeing."
   []
-  (vec (rf.machines/machines)))
+  (-> (rf.machines/machines) sort vec))
 
 (defn machine-describe
   "(rf.machines/machine-meta id) — registered spec map for one machine, or
-   `{:ok? false :reason :not-a-machine}`."
+   `{:ok? false :reason :not-a-machine}`.
+
+   `strip-fns` for the reason `registrar-describe` runs it: a machine spec
+   carries FN VALUES nested under `:guards` and `:actions` (Spec 005), and
+   `pr-str` of a Function emits `#object[Function …]` — unreadable EDN that
+   trips the MCP wire codec's `:unserializable` path and costs the caller
+   the whole spec. The walk replaces each with the readable `:rf/fn`
+   sentinel, so the inspectable structure (which guards and actions a
+   machine declares, its `:initial` / `:states` / `:data`) survives the
+   wire. `dissoc :handler-fn` first for the top-level slot, exactly as
+   `registrar-describe` does."
   [machine-id]
-  (or (rf.machines/machine-meta machine-id)
-      {:ok? false :reason :not-a-machine :id machine-id}))
+  (if-let [spec (rf.machines/machine-meta machine-id)]
+    (-> spec (dissoc :handler-fn) strip-fns)
+    {:ok? false :reason :not-a-machine :id machine-id}))
 
 (defn machine-state
   "Snapshot of one machine in the operating frame. Per Spec 005,
