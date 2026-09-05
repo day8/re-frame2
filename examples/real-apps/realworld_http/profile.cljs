@@ -39,6 +39,14 @@
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
+(defn banner-slice
+  "The banner's own slice: the standard shape plus `:follow-pending?`, the
+   one-at-a-time latch the follow/unfollow toggle serialises on (see
+   SERIALISING THE TOGGLE, below the loads). Only this slice carries it — the
+   two list slices have no mutation of their own to serialise."
+  []
+  (assoc (request-slice) :follow-pending? false))
+
 ;; Which profile are we on? It's in the URL. The route lives in runtime-db, and
 ;; `username-from-db` digs the :username param out of it (handlers receive
 ;; runtime-db via the `:rf.db/runtime` coeffect).
@@ -219,7 +227,7 @@
 (rf/reg-event :profile/initialise
   (fn [{:keys [db]} _]
     {:db (-> db
-             (assoc :profile (request-slice))
+             (assoc :profile (banner-slice))
              (assoc :profile.articles (assoc (request-slice) :data []))
              (assoc :profile.favorites (assoc (request-slice) :data [])))
      :fx [[:dispatch [:ui/profile [:reset]]]]}))
@@ -244,7 +252,11 @@
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
           refresh? (reply-for-current-profile? db :profile username)
-          slice    (if refresh? (:profile db) (request-slice))]
+          ;; A refresh keeps the slice — including a follow still in flight,
+          ;; whose settle is still coming and still correlated. A new identity
+          ;; builds a fresh banner slice, which is also how the toggle's latch
+          ;; is released on navigation: it goes with the slice it belonged to.
+          slice    (if refresh? (:profile db) (banner-slice))]
       {:db (assoc db :profile
                   (-> slice
                       (assoc :username username
@@ -426,21 +438,61 @@
 ;; in this app. It WOULD make a rapid Follow→Unfollow supersede its
 ;; predecessor, but supersede aborts the request as well as suppressing the
 ;; reply, and abort-mid-write is a decision a POST deserves to have made about
-;; it on purpose. The gate below already covers the race this file is about,
-;; and the last click's own settle is authoritative regardless.
+;; it on purpose: an aborted request is no proof the server declined to perform
+;; the write.
+;;
+;; SERIALISING THE TOGGLE
+;;
+;; Declining supersession leaves a second race, and the correlation gate above
+;; does NOT cover it — both replies are for the SAME profile, so both pass.
+;; Starting unfollowed: Follow flips `:following` true and issues the POST; the
+;; button now reads "Unfollow", so a second click issues the DELETE. Let the
+;; DELETE settle first and the older POST settle last, and `:profile/followed`
+;; re-seeds the whole banner from the STALE reply — the page ends up showing
+;; followed when the reader's last intent was to unfollow. Rollback ordering
+;; inverts the same way. Arrival order is not intent order, and nothing in a
+;; username-keyed gate can tell these two apart.
+;;
+;; So the toggle is SERIALISED rather than superseded. `:follow-pending?` on
+;; the banner slice latches while a mutation is in flight; both handlers refuse
+;; a second intent while it is set; the button disables itself on it; and every
+;; correlated settle — success or rollback — clears it. One mutation per
+;; profile at a time means there is never a pair to reorder. That is the
+;; smallest policy honest about both facts above: abort is not proof, and
+;; arrival order is not intent order.
+;;
+;; The alternative — keep rapid replacement, carry a generation, and reconcile
+;; against server truth — buys a responsiveness this page has no need for, and
+;; costs a reconciliation it would then have to get right. Not worth it here.
+;; Navigating away needs no handling of its own: a new username rebuilds the
+;; banner slice and the latch goes with it.
 
 (rf/reg-event :profile/follow
   {:doc "Mark the profile followed right away, then reconcile when the reply
          lands. Auth-gated (same reasoning as
          favorites.cljs/:article/toggle-favorite): following needs a session,
          so a logged-out click heads to login instead of flipping `:following`
-         optimistically only to walk it back after the backend 401s."
+         optimistically only to walk it back after the backend 401s.
+
+         Refuses outright while a follow/unfollow is already in flight — see
+         SERIALISING THE TOGGLE above."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
-    (if (nil? (get-in db [:auth :user]))
+    (cond
+      (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
+
+      ;; One mutation per profile at a time. The button is disabled while this
+      ;; is set, so this is the belt to the view's braces — a refused click,
+      ;; not a queued one.
+      (get-in db [:profile :follow-pending?])
+      {}
+
+      :else
       (let [username (get-in db [:profile :username])]
-        {:db (assoc-in db [:profile :data :following] true)
+        {:db (-> db
+                 (assoc-in [:profile :data :following] true)
+                 (assoc-in [:profile :follow-pending?] true))
          :fx [[:rf.http/managed
                (rh/request {:method     :post
                             :path       (str "/profiles/" username "/follow")
@@ -452,20 +504,31 @@
   {:doc "The follow POST's `:on-success`, carrying the username the flip was
          issued on. This is the write that most needs the gate: it re-seeds the
          whole banner map, so a late reply for a profile the reader has left
-         would put that profile's name, bio and avatar under the current URL."}
+         would put that profile's name, bio and avatar under the current URL.
+         Releases the toggle's latch, so the button comes back."}
   (fn [{:keys [db]} [_ username {:keys [value]}]]
     (when (reply-for-current-profile? db :profile username)
-      {:db (assoc-in db [:profile :data] (:profile value))})))
+      {:db (-> db
+               (assoc-in [:profile :data] (:profile value))
+               (assoc-in [:profile :follow-pending?] false))})))
 
 (rf/reg-event :profile/unfollow
   {:doc "Clear the followed flag right away, then reconcile on the reply.
-         Auth-gated, same as `:profile/follow` above."
+         Auth-gated and serialised, same as `:profile/follow` above."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
-    (if (nil? (get-in db [:auth :user]))
+    (cond
+      (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
+
+      (get-in db [:profile :follow-pending?])
+      {}
+
+      :else
       (let [username (get-in db [:profile :username])]
-        {:db (assoc-in db [:profile :data :following] false)
+        {:db (-> db
+                 (assoc-in [:profile :data :following] false)
+                 (assoc-in [:profile :follow-pending?] true))
          :fx [[:rf.http/managed
                (rh/request {:method     :delete
                             :path       (str "/profiles/" username "/follow")
@@ -474,20 +537,25 @@
                             :on-failure [:profile/follow-rollback username true]})]]}))))
 
 (rf/reg-event :profile/unfollowed
-  {:doc "The unfollow DELETE's `:on-success`, correlated exactly as
-         `:profile/followed` is."}
+  {:doc "The unfollow DELETE's `:on-success`, correlated and latch-releasing
+         exactly as `:profile/followed` is."}
   (fn [{:keys [db]} [_ username {:keys [value]}]]
     (when (reply-for-current-profile? db :profile username)
-      {:db (assoc-in db [:profile :data] (:profile value))})))
+      {:db (-> db
+               (assoc-in [:profile :data] (:profile value))
+               (assoc-in [:profile :follow-pending?] false))})))
 
 (rf/reg-event :profile/follow-rollback
   {:doc "The shared `:on-failure` for both, correlated the same way. Refusing a
          stale rollback strands nothing: the optimistic flip it would undo went
          with the slice when `:profile/load` reset it for the new username, and
-         returning to that profile re-reads the true flag from the server."}
+         returning to that profile re-reads the true flag from the server. The
+         latch went with that slice too, so there is nothing left latched."}
   (fn [{:keys [db]} [_ username previous-value _failure-payload]]
     (when (reply-for-current-profile? db :profile username)
-      {:db (assoc-in db [:profile :data :following] previous-value)})))
+      {:db (-> db
+               (assoc-in [:profile :data :following] previous-value)
+               (assoc-in [:profile :follow-pending?] false))})))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -496,6 +564,14 @@
 (rf/reg-sub :profile/slice   (fn [db _] (:profile db)))
 (rf/reg-sub :profile/data    :<- [:profile/slice] (fn [s _] (:data s)))
 (rf/reg-sub :profile/error   :<- [:profile/slice] (fn [s _] (:error s)))
+
+(rf/reg-sub :profile/follow-pending?
+  {:doc "Is a follow/unfollow mutation in flight for the profile on screen? The
+         toggle is serialised on this (see SERIALISING THE TOGGLE), so the
+         button reads it to disable itself while a reply is outstanding —
+         ask, don't tell."}
+  :<- [:profile/slice]
+  (fn sub-profile-follow-pending? [s _] (boolean (:follow-pending? s))))
 
 ;; The read-time half of THE CORRELATION GATE. The gate on the settles keeps a
 ;; stale reply from LANDING in a slice; this keeps an already-landed list from
@@ -634,6 +710,7 @@
           profile-loaded []
   (let [profile      @(subscribe [:profile/data])
         own?         @(subscribe [:profile/own-profile?])
+        follow-busy? @(subscribe [:profile/follow-pending?])
         on-favs?     @(rf/subscribe [:rf.machine/has-tag? :ui/profile :tab/favorites])
         articles*    @(subscribe [:profile/current-articles])
         current-page @(subscribe [:profile/current-page])
@@ -652,6 +729,11 @@
             [:i.ion-gear-a] " Edit Profile Settings"]
            [:button.btn.btn-sm.btn-outline-secondary.action-btn
             {:type "button"
+             ;; Disabled while a follow/unfollow is in flight — the toggle is
+             ;; serialised, and the button says so rather than accepting a
+             ;; click the handler would only refuse. The handler refuses it
+             ;; anyway; a view is an affordance, not a guarantee.
+             :disabled follow-busy?
              :on-click #(dispatch [(if (:following profile)
                                      :profile/unfollow
                                      :profile/follow)])}
