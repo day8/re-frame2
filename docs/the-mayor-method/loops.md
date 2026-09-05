@@ -229,7 +229,14 @@ them**. The count alone gives opposite verdicts for the same number:
 * nine changed lines that are all cache steps add no job and rename no check. The
   matrix is intact; merge.
 * four changed lines that add a job name with its own condition **are** a new
-  required check. Update the branch and re-check.
+  required check — *but only where your changes run that workflow at all*. A job added
+  to a workflow that nothing but a schedule or a manual button starts appears in no
+  change's rollup, so the check set is intact and the merge should proceed. Unqualified
+  this bullet fails **closed**, blocking a merge that should have gone; it is a
+  qualification to the bullet rather than a case of its own because the bullet is what a
+  skimming reader acts on. The diff that gave you the count also names the files it came
+  from — read which events run each, keep only the keys in workflows your changes run,
+  and where any survive, update the branch and re-check.
 
 A display-name rename is a third case and reads like the second: the check set is
 identical, the count is unchanged, only a label moved. That is intact — but you only
