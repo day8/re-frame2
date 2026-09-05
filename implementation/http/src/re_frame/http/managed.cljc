@@ -218,10 +218,11 @@
 ;;                                  :frame <id>? :doc ... :tags ... }
 ;;   :rf.fx/clear-http-interceptor {:id <kw> :frame <id>?}
 ;;
-;; Both fxs are dev+prod (`:platforms #{:client :server}`). Authors can
-;; register interceptors via an event-handler at boot, which is a clean
-;; alternative to the fn-call shape for codebases that prefer to drive
-;; bootstrap through the dispatch surface.
+;; Both fxs are dev+prod (`:platforms #{:client :server}`). The
+;; framework-wide rule for when a registrar carries an fx form, and what
+;; shape its args take, is Conventions §When a registrar has an fx form.
+;; This pair's map args and its lack of a shipped handler-time consumer
+;; are recorded there as an open disposition, not justified here.
 
 (rf.fx/reg-fx :rf.fx/reg-http-interceptor
            {:doc "Spec 014 §Middleware — register an

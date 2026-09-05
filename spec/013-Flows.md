@@ -444,7 +444,7 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
     {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
 ```
 
-**Frame routing.** Both fx run inside the standard `:fx` walk and receive the `{:frame frame-id}` cofx from the dispatching frame. They thread the frame through to `reg-flow` / `clear-flow` as the `:frame` metadata key — there is no explicit `:frame` to set in the fx args. A flow registered via `:rf.fx/reg-flow` from an event dispatched on frame `:left` is registered against `:left`; the same fx invoked from a `:right` dispatch routes to `:right`. This makes fx-driven flow lifecycle (wizard step in / out, feature gating) automatically frame-correct without ceremony.
+**Frame routing.** Both fx run inside the standard `:fx` walk and receive the `{:frame frame-id}` cofx from the dispatching frame. They thread the frame through to `reg-flow` / `clear-flow` as the `:frame` metadata key — there is no explicit `:frame` to set in the fx args. A flow registered via `:rf.fx/reg-flow` from an event dispatched on frame `:left` is registered against `:left`; the same fx invoked from a `:right` dispatch routes to `:right`. This makes fx-driven flow lifecycle (wizard step in / out, feature gating) automatically frame-correct without ceremony. That frame-scoping, together with a shipped handler-time consumer and args that are `reg-flow` / `clear-flow`'s own positional arguments verbatim, is why this pair has an fx form at all — the framework-wide rule is [Conventions §When a registrar has an fx form](Conventions.md#when-a-registrar-has-an-fx-form).
 
 ### Sequencing — settling on the dispatching frame
 
