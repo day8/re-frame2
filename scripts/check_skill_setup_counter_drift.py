@@ -72,7 +72,7 @@ Two further checks keep the sole-canonical-source contract (rf2-qzrkek):
 
   * CANONICAL-SOURCE. The copy-complete Reagent `core.cljs` (a fenced
     `clojure` block that requires `re-frame.adapter.reagent` and mounts via
-    the adapter's client root, `reagent-adapter/render!`) must exist in
+    the adapter's client root, a `/render!` call) must exist in
     EXACTLY ONE place — first-counter.md — and
     NOT in entry-namespace.md, which now explains the boot lifecycle keyed to
     it (retaining the UIx/Helix substrate deltas) instead of duplicating a
@@ -237,7 +237,9 @@ ADAPTER_KEY_DRIFT = re.compile(r"(?<![:`\w-])`state-container`")
 
 # CANONICAL-SOURCE (rf2-qzrkek). A copy-complete Reagent `core.cljs` is a fenced
 # ```clojure block that both requires `re-frame.adapter.reagent` AND mounts
-# via the adapter's client root, `reagent-adapter/render!` (rf2-k5r9t). It
+# via the adapter's client root with a `/render!` call (rf2-k5r9t) — the
+# NAMESPACE is matched, never the require-alias, which is the caller's
+# choice and has moved once already (rf2-qtmt). It
 # must live in EXACTLY ONE place — first-counter.md — so the setup skill has a
 # single copy-complete entry source. entry-namespace.md explains the boot
 # lifecycle keyed to it (retaining the UIx/Helix substrate deltas, which mount
@@ -419,14 +421,25 @@ def find_adapter_key_drift(name: str, text: str) -> list[str]:
 
 def _reagent_core_blocks(text: str) -> list[str]:
     """Fenced `clojure` blocks that are a copy-complete Reagent core.cljs —
-    they require `re-frame.adapter.reagent` AND mount via the adapter's
-    client root, `reagent-adapter/render!` (rf2-k5r9t; the entry ns no
+    they require `re-frame.adapter.reagent` AND mount through the adapter's
+    client root with a `/render!` call (rf2-k5r9t; the entry ns no
     longer touches `reagent.dom.client` itself). UIx/Helix snippets
-    (uix-dom / react-dom) never match."""
+    (uix-dom / react-dom) never match: their `render-root` is not
+    `/render!`, and they require a different adapter namespace.
+
+    THE REQUIRE-ALIAS IS DELIBERATELY NOT PART OF THE MATCH (rf2-qtmt).
+    This pinned the literal `reagent-adapter/render!` until the scaffold
+    moved to the canonical `rf.adapter.reagent` dialect, at which point the
+    detector matched NOTHING — and that fails OPEN on the second clause
+    below, because a duplicate in entry-namespace.md is invisible to a
+    detector that sees no blocks at all. Only the first clause is loud
+    about it. The NAMESPACE is the stable fact; the alias is the caller's
+    choice, and this file has no business knowing which one was picked.
+    """
     return [
         block
         for block in FENCED_CLOJURE.findall(text)
-        if "re-frame.adapter.reagent" in block and "reagent-adapter/render!" in block
+        if "re-frame.adapter.reagent" in block and "/render!" in block
     ]
 
 
@@ -442,7 +455,7 @@ def find_canonical_source_drift(
         problems.append(
             "CANONICAL-SOURCE: first-counter.md must carry EXACTLY ONE "
             "copy-complete Reagent core.cljs fenced block (requires "
-            "`re-frame.adapter.reagent` and mounts via `reagent-adapter/render!`) — the sole "
+            "`re-frame.adapter.reagent` and mounts via a `/render!` call) — the sole "
             f"copy-complete setup entry source; found {len(fc_blocks)}. An "
             "anchor moved or a duplicate crept in; the emitted-scaffold "
             "compile also extracts this one block."
@@ -451,7 +464,7 @@ def find_canonical_source_drift(
         problems.append(
             f"CANONICAL-SOURCE: entry-namespace.md carries {len(en_blocks)} "
             "copy-complete Reagent core.cljs fenced block(s) "
-            "(`re-frame.adapter.reagent` + `reagent-adapter/render!`). The sole copy-complete "
+            "(`re-frame.adapter.reagent` + `/render!`). The sole copy-complete "
             "core.cljs must live ONLY in first-counter.md; entry-namespace.md "
             "explains the boot lifecycle keyed to it — retain the UIx/Helix "
             "substrate deltas, but do not duplicate the Reagent skeleton "
@@ -574,7 +587,7 @@ def _self_test() -> int:
     good_template_subs = "(rf/reg-sub\n  :counter/value (fn [db _] (:counter/value db)))\n"
     good_entry = (
         "($ :button {:on-click #(dispatch [:counter/increment])} \"+1\")\n"
-        "(uix-adapter/use-subscribe [:counter/value])\n"
+        "(rf.adapter.uix/use-subscribe [:counter/value])\n"
     )
 
     # Case A — clean: snippet ids are a subset of both the leaf and the template.
@@ -743,13 +756,14 @@ def _self_test() -> int:
 
     # Case H — CANONICAL-SOURCE clean: the copy-complete Reagent core.cljs
     # lives ONLY in first-counter.md; entry-namespace.md's UIx snippet mounts
-    # via uix-dom (not reagent-adapter/render!), so it is not a Reagent core block.
+    # via uix-dom (its `render-root` is not `/render!`), so it is not a
+    # Reagent core block.
     good_fc_block = (
         "```clojure\n"
         "(ns your-app.core\n"
-        "  (:require [re-frame.adapter.reagent :as reagent-adapter]))\n"
+        "  (:require [re-frame.adapter.reagent :as rf.adapter.reagent]))\n"
         "(defn ^:export init []\n"
-        "  (reagent-adapter/render! app-root [counter-app] el))\n"
+        "  (rf.adapter.reagent/render! app-root [counter-app] el))\n"
         "```\n"
     )
     good_en_no_reagent = (
