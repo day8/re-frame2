@@ -152,8 +152,13 @@
   (testing "rf2-tdjv7p — a capture pinned to incarnation A, after A is destroyed
             and a same-id successor B reseats, MUST NOT subscribe into B (reading
             B's app-db, caching a reaction in B's sub-cache). It recover-but-
-            emits :rf.error/frame-destroyed and returns nil — the async-safe
-            sibling of the throwing synchronous (frame)-bundle subscribe fence."
+            emits :rf.error/frame-destroyed and returns nil rather than
+            throwing — these ops fire from host cleanup, where a throw would
+            break the host teardown. Recover-but-emit is this category's ONLY
+            behaviour: the retired re-frame.ui (frame) bundle was a second,
+            THROWING surface for it until it went with that artefact on
+            2026-08-16 (rf2-0yp7w), and nothing replaced it (Spec 009 §Error
+            contract, the :rf.error/frame-destroyed row)."
     (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
     (rf/reg-sub :fh/value (fn [db _] (:value db)))
     ;; Incarnation A of :fh/sub-stale, seeded with :A-value.

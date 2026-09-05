@@ -371,8 +371,11 @@
       SEPARATE registries), so it pivots on the exact operation realm the
       record already carries in `op` (rf2-xgkgx / rf2-a2x2w — the `:op` realm
       attribution the record carries, RATIFIED PUBLIC wherever the realm is
-      known: the frame-bundle stale-op seam, the `capture-frame` pre-check
-      seam, and the router's late captured-op fences all stamp it — see
+      known: core's `capture-frame` stale-op pre-check seam and the router's
+      late captured-op fences stamp it, and the subs SUBSCRIBE emitter stamps
+      it unconditionally (rf2-alk8a). The retired `re-frame.ui` `(frame)`
+      bundle's stale-op seam was a further stamping site until it went with
+      that artefact on 2026-08-16 (rf2-0yp7w), and nothing replaced it — see
       `router/emit-frame-destroyed!` and Spec 009 §Error contract):
         - `:dispatch` / `:dispatch-sync` → the failing op is a DISPATCH, so
           the coord lives under `[:event id]`.
@@ -484,9 +487,9 @@
   The trailing `route-frame?` (default true) gates ONLY the EP-0015
   frame-owned observability sink route below — the corpus-wide listener
   fan-out (axis 1's off-box source of truth) ALWAYS fires regardless.
-  A caller passes false for a KNOWN-DEAD-incarnation `(frame)`-bundle
-  emission: the captured bare frame id
-  no longer names the incarnation the failure belongs to, so resolving it to a
+  A caller passes false for a KNOWN-DEAD-incarnation emission (the two live
+  ones are named below): the captured bare frame id no longer names the
+  incarnation the failure belongs to, so resolving it to a
   live same-id SUCCESSOR would deliver a dead incarnation's failure into the
   successor's own `:observability :errors` sink. This is the event-centric
   mirror of the union-path `route-frame?` seam rf2-vxgfnd.118 added for the
@@ -602,9 +605,12 @@
              ;; app-db-walks `:event` and the same coincidental integer path
              ;; redacts identity here. Late-bound to avoid a require cycle.
              ;; `route-frame?` false (rf2-bf0io) SUPPRESSES ONLY this route for a
-             ;; known-dead-incarnation UI-bundle emission, so a dead incarnation's
-             ;; bare id can never resolve to a same-id successor's error sink; the
-             ;; corpus fan-out above still fired.
+             ;; known-dead-incarnation emission — core's router / subs
+             ;; frame-destroyed emitters since rf2-qjfrw, the retired
+             ;; `re-frame.ui` `(frame)` bundle before it went with that artefact
+             ;; (rf2-0yp7w) — so a dead incarnation's bare id can never resolve
+             ;; to a same-id successor's error sink; the corpus fan-out above
+             ;; still fired.
              (when (and route-frame? (rf.trace/continuation-live?))
                (when-let [route-error! (rf.late-bind/get-fn-cached
                                          :observability/route-error)]
@@ -678,9 +684,12 @@
 
   The trailing `route-frame?` (default true — rf2-bf0io) threads straight into
   [[dispatch-on-error!]]'s frame-owned sink route gate: false suppresses ONLY
-  that route (the corpus record + the axis-2 dev trace still fire), for the UI
-  dead-incarnation `(frame)`-bundle emit that must not deliver a dead
-  incarnation's failure into a same-id successor's sink."
+  that route (the corpus record + the axis-2 dev trace still fire), for a
+  known-dead-incarnation emit that must not deliver a dead incarnation's
+  failure into a same-id successor's sink. rf2-bf0io cut the gate for the
+  retired `re-frame.ui` `(frame)` bundle; rf2-qjfrw carried it into core's
+  `capture-frame` primitive, and the live callers are
+  `router/emit-frame-destroyed!` and `subs/emit-frame-destroyed-recovery!`."
   ([category event event-id frame exception elapsed-ms time trace-tags]
    (emit-error-both! category event event-id frame exception elapsed-ms time
                      trace-tags nil true))
