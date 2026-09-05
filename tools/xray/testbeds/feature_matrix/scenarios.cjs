@@ -4,6 +4,7 @@ const {
   expectTextEquals,
   expectVisible,
   navigate,
+  waitForStableValue,
   waitForValue,
 } = require('../../../../examples/scripts/spec-helpers.cjs');
 const {
@@ -474,6 +475,303 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
   return record;
 }
 
+/*
+ * rf2-61i5 — read the pop-out document's spine + palette DOM, plus the
+ * OPENER's mount state, in one cross-realm snapshot.
+ *
+ * `window.open('', 'rf-xray-popout')` re-acquires the already-open window
+ * by name rather than opening a second one. `document` inside the callback
+ * is still the OPENER's, so the two `opener*` fields read the opener while
+ * everything else reads the pop-out — which is the whole point of the
+ * probe: one read, both realms, no ambiguity about which document a value
+ * came from.
+ *
+ * `focusedIndex` is the index of the single `aria-pressed="true"` row
+ * within the rendered L2 row order. `shell.cljs`'s event list renders the
+ * event-bundle vector in order and `spine/step-event-bundle` walks that
+ * same vector by ±1, so "one spine step" is exactly "the focused row moved
+ * to its immediate neighbour in this array". `focusedCount` is reported
+ * separately so a zero-or-many focus state fails loudly instead of
+ * degrading into a silent `-1`.
+ */
+async function readPopoutKeyboardState(page) {
+  return page.evaluate(() => {
+    const win = window.open('', 'rf-xray-popout');
+    const doc = win && win.document;
+    if (!doc) return { ok: false, reason: 'pop-out document unreachable' };
+    const shell = doc.querySelector('[data-testid="rf-xray-shell"]');
+    if (!shell) return { ok: false, reason: 'pop-out shell not rendered' };
+    const rows = Array.from(doc.querySelectorAll('[data-testid^="rf-xray-event-row-"]'));
+    const focused = rows.filter((row) => row.getAttribute('aria-pressed') === 'true');
+    const openerRoot = document.getElementById('rf-xray-root');
+    return {
+      ok: true,
+      rows: rows.map((row) => row.getAttribute('data-testid')),
+      focusedCount: focused.length,
+      focusedIndex: focused.length === 1 ? rows.indexOf(focused[0]) : -1,
+      focusedTestId: focused.length === 1 ? focused[0].getAttribute('data-testid') : null,
+      paletteOpen: Boolean(doc.querySelector('[data-testid="rf-xray-palette-dialog"]')),
+      // The OPENER's mount state — what a pop-out keystroke must never move.
+      // `[data-testid="rf-xray-shell"]` under the opener's `document`
+      // cannot match the pop-out's shell: they are different documents.
+      openerRootMode: openerRoot ? openerRoot.getAttribute('data-rf-xray-mode') : null,
+      openerShells: document.querySelectorAll('[data-testid="rf-xray-shell"]').length,
+    };
+  });
+}
+
+function openerMountOf(snapshot) {
+  return JSON.stringify({
+    rootMode: snapshot.openerRootMode,
+    shells: snapshot.openerShells,
+  });
+}
+
+/*
+ * Dispatch one synthetic keydown INSIDE the pop-out document and report
+ * whether Xray consumed it.
+ *
+ * The event is constructed from the POP-OUT realm's `KeyboardEvent`, or
+ * the capture listener there would receive a foreign-realm object. It is
+ * dispatched on the pop-out shell (bubbling + cancelable), so a
+ * capture-phase listener on the pop-out DOCUMENT sees it on the way down —
+ * which is precisely the listener rf2-61i5 installs, and precisely the one
+ * an opener-only listener could never be.
+ */
+async function sendPopoutKey(page, init) {
+  const sent = await page.evaluate((keyInit) => {
+    const win = window.open('', 'rf-xray-popout');
+    const doc = win && win.document;
+    const shell = doc && doc.querySelector('[data-testid="rf-xray-shell"]');
+    if (!shell) return { ok: false, reason: 'pop-out shell not rendered' };
+    const Ctor = win.KeyboardEvent || window.KeyboardEvent;
+    const ev = new Ctor('keydown', Object.assign(
+      { bubbles: true, cancelable: true, composed: true }, keyInit));
+    shell.dispatchEvent(ev);
+    return { ok: true, defaultPrevented: ev.defaultPrevented };
+  }, init);
+  if (!sent.ok) {
+    failWithDetails('Could not send a key into the pop-out document (rf2-61i5)', {
+      key: init,
+      observed: sent,
+    });
+  }
+  return sent;
+}
+
+/*
+ * rf2-61i5 — the pop-out document's OWN keyboard, end to end.
+ *
+ * DOM key events do not cross realms, so a keydown made in the pop-out
+ * window can only be seen by a listener installed on the POP-OUT
+ * document. Sending a key into that document is therefore the one probe
+ * that distinguishes "Xray has a keyboard here" from "Xray has a keyboard
+ * in the opener" — the boundary the older pop-out coverage (root/shell
+ * presence, shared cascade rendering) never crossed, because it sent no
+ * key at all.
+ *
+ * EVERY assertion downstream of a key is POLLED, never read in the same
+ * `page.evaluate` callback that sent it. The keys drive re-frame
+ * dispatches; `router` drains the queue on a next-tick and the shell
+ * re-renders only once the subscription changes, so a same-callback read
+ * can only ever observe the PRE-key DOM. That read passes vacuously
+ * whenever the pre-key DOM already resembles the post-key one — an open
+ * palette staying open across a toggle being the sharp case — which is the
+ * defect the merged-PR audit of #9263 found in the first version of this
+ * probe.
+ *
+ * The two positive assertions match the acceptance rf2-61i5 names: a spine
+ * step key moves focus by EXACTLY ONE row on the shared `:rf/xray` frame,
+ * and Cmd/Ctrl+K opens the palette in the pop-out WITHOUT moving the
+ * opener's mount state. `Ctrl+Shift+C` is asserted inert here, per the same
+ * bead's non-goal.
+ *
+ * NOT asserted, deliberately: that the opener's palette stays closed. The
+ * palette's open state lives on `:rf/xray`, which BOTH windows render
+ * (tools/xray/spec/011-Launch-Modes.md §The pop-out has its own keyboard),
+ * so it appears wherever a shell is on screen. The contract is about the
+ * opener's MOUNT state, not about where the palette paints.
+ */
+async function assertPopoutKeyboard(page, state) {
+  // (0) STAGE a step-able spine. The scenario cleared the trace bus and
+  //     dispatched a single host event, and one event has nowhere to step
+  //     to — `focus-step-reducer` clamps at the edge and returns `db`
+  //     unchanged, so a probe run against it would assert nothing. Two
+  //     more host dispatches give the walk room in both directions.
+  await clickHostButtonByLabel(page, '+');
+  await clickHostButtonByLabel(page, '+');
+
+  const staged = await waitForValue(
+    () => readPopoutKeyboardState(page),
+    (s) => s.ok && s.rows.length >= 3 && s.focusedCount === 1,
+    {
+      timeoutMs: 15000,
+      description: 'pop-out L2 spine carrying >=3 rows with exactly one focused row',
+    },
+  );
+
+  // (1) STAGE a CLOSED palette. Nothing in this scenario opens it, but a
+  //     probe that merely assumes the starting state is the probe the
+  //     audit rejected: assert it, and if a previous run left one open,
+  //     close it through the same chord and wait for that to land.
+  let opening = staged;
+  if (opening.paletteOpen) {
+    await sendPopoutKey(page, { key: 'k', code: 'KeyK', ctrlKey: true });
+    opening = await waitForValue(
+      () => readPopoutKeyboardState(page),
+      (s) => s.ok && !s.paletteOpen && s.focusedCount === 1,
+      { timeoutMs: 5000, description: 'pop-out palette closed before the probe starts' },
+    );
+  }
+
+  // (2) STAGE a PINNED focus. In LIVE mode the spine tracks head, so the
+  //     focused row moves whenever the host dispatches. One `j` steps back
+  //     off head, which flips the spine to RETRO and pins focus — after
+  //     which the measured step below is a step from a KNOWN row rather
+  //     than from whatever head happened to be at keypress time.
+  const pin = await sendPopoutKey(page, { key: 'j', code: 'KeyJ' });
+  if (!pin.defaultPrevented) {
+    failWithDetails(
+      'Pop-out document has no Xray keydown listener: a spine step key was not consumed there (rf2-61i5)',
+      { observed: { staged, pin } });
+  }
+  const before = await waitForValue(
+    () => readPopoutKeyboardState(page),
+    (s) => s.ok && s.focusedCount === 1 && s.focusedIndex >= 1
+      && s.focusedTestId !== opening.focusedTestId,
+    {
+      timeoutMs: 5000,
+      description: `pop-out spine to pin off head (was ${opening.focusedTestId}) with a row still to its left`,
+    },
+  );
+
+  // (3) MEASURE one spine step. `j` is prev, and the L2 list renders the
+  //     event-bundle vector in order, so the focused row must land on its
+  //     immediate PREDECESSOR — one row, in the documented direction.
+  //     Rows only ever append, so an index captured in `before.rows`
+  //     still names the same row afterwards even if the host dispatched
+  //     again in between.
+  const step = await sendPopoutKey(page, { key: 'j', code: 'KeyJ' });
+  if (!step.defaultPrevented) {
+    failWithDetails(
+      'A pop-out spine step key was not consumed by the pop-out listener (rf2-61i5)',
+      { observed: { before, step } });
+  }
+  const expectedTestId = before.rows[before.focusedIndex - 1];
+  const afterStep = await waitForValue(
+    () => readPopoutKeyboardState(page),
+    (s) => s.ok && s.focusedCount === 1 && s.focusedTestId !== before.focusedTestId,
+    {
+      timeoutMs: 5000,
+      description: `pop-out spine focus to move off ${before.focusedTestId} after j`,
+    },
+  );
+  if (afterStep.focusedTestId !== expectedTestId) {
+    failWithDetails(
+      '`j` in the pop-out did not step the spine focus exactly one row back (rf2-61i5)',
+      { observed: { before, afterStep, expectedTestId } });
+  }
+  if (afterStep.paletteOpen) {
+    failWithDetails(
+      'A bare spine key opened the command palette in the pop-out (rf2-61i5)',
+      { observed: afterStep });
+  }
+
+  // (4) MEASURE the palette chord. Cmd/Ctrl+K must open the palette in the
+  //     pop-out, must NOT be read as the bare `k` spine key, and must not
+  //     move the opener's mount state.
+  const paletteOpen = await sendPopoutKey(page, { key: 'k', code: 'KeyK', ctrlKey: true });
+  if (!paletteOpen.defaultPrevented) {
+    failWithDetails(
+      'Cmd/Ctrl+K was not consumed in the pop-out document (rf2-61i5)',
+      { observed: { afterStep, paletteOpen } });
+  }
+  const afterPalette = await waitForValue(
+    () => readPopoutKeyboardState(page),
+    (s) => s.ok && s.paletteOpen,
+    {
+      timeoutMs: 5000,
+      description: 'command palette open in the POP-OUT document after Cmd/Ctrl+K',
+    },
+  );
+  if (afterPalette.focusedTestId !== afterStep.focusedTestId) {
+    failWithDetails(
+      'Cmd/Ctrl+K in the pop-out also stepped the spine — the chord was read as the bare `k` key (rf2-61i5)',
+      { observed: { afterStep, afterPalette } });
+  }
+
+  // (5) CLOSE it again through the same chord. A one-way observation
+  //     cannot tell an opened palette from one that was already open;
+  //     the round trip can, and it leaves the pop-out clean for whatever
+  //     runs next.
+  const paletteClose = await sendPopoutKey(page, { key: 'k', code: 'KeyK', ctrlKey: true });
+  const afterClose = await waitForValue(
+    () => readPopoutKeyboardState(page),
+    (s) => s.ok && !s.paletteOpen,
+    {
+      timeoutMs: 5000,
+      description: 'command palette closed again in the POP-OUT document after a second Cmd/Ctrl+K',
+    },
+  );
+
+  // (6) The OPENER's mount state is unmoved by every one of those keys.
+  //     `mount/toggle!` / `open!` mutate the DOM synchronously inside the
+  //     handler — before the palette dispatch is even queued — so a read
+  //     taken after the palette has been observed is strictly after any
+  //     mount change those keys could have caused.
+  const baseline = openerMountOf(before);
+  for (const [when, snapshot] of [
+    ['after the j spine step', afterStep],
+    ['after Cmd/Ctrl+K opened the palette', afterPalette],
+    ['after Cmd/Ctrl+K closed it again', afterClose],
+  ]) {
+    if (openerMountOf(snapshot) !== baseline) {
+      failWithDetails(
+        `Keys pressed in the pop-out moved the OPENER's shell mount state ${when} (rf2-61i5)`,
+        { observed: { baseline, when, snapshot } });
+    }
+  }
+
+  // (7) Ctrl+Shift+C stays OPENER-owned. In the pop-out it is left
+  //     entirely alone — not dispatched and not `preventDefault`ed — so it
+  //     falls through to the browser like any unbound key, and the
+  //     opener's in-app shell must not flip. `toggle!` is a synchronous
+  //     DOM mutation with no dispatch in the path, so settling the opener
+  //     mount over consecutive reads is a sound negative observation.
+  const shellChord = await sendPopoutKey(page, {
+    key: 'C', code: 'KeyC', ctrlKey: true, shiftKey: true,
+  });
+  if (shellChord.defaultPrevented) {
+    failWithDetails(
+      'Ctrl+Shift+C was consumed in the pop-out — the opener-owned shell chord must fall through there (rf2-61i5)',
+      { observed: shellChord });
+  }
+  const settledOpenerMount = await waitForStableValue(
+    async () => openerMountOf(await readPopoutKeyboardState(page)),
+    { intervalMs: 100, samples: 3, timeoutMs: 3000 },
+  );
+  if (settledOpenerMount !== baseline) {
+    failWithDetails(
+      "Ctrl+Shift+C pressed in the pop-out toggled the OPENER's in-app shell (rf2-61i5)",
+      { observed: { baseline, settledOpenerMount } });
+  }
+
+  state.popoutKeyboard = {
+    rowsAtStart: staged.rows.length,
+    pinnedFrom: opening.focusedTestId,
+    steppedFrom: before.focusedTestId,
+    steppedTo: afterStep.focusedTestId,
+    expectedTestId,
+    paletteOpenedInPopout: afterPalette.paletteOpen,
+    paletteClosedAgain: !afterClose.paletteOpen,
+    paletteChordConsumed: paletteOpen.defaultPrevented,
+    paletteCloseChordConsumed: paletteClose.defaultPrevented,
+    shellChordFellThrough: !shellChord.defaultPrevented,
+    openerMount: baseline,
+  };
+  return state.popoutKeyboard;
+}
+
 async function assertDefaultInlineLaunchModes(page, state) {
   const countBefore = await waitForValue(
     () => readHostCounter(page),
@@ -581,89 +879,10 @@ async function assertDefaultInlineLaunchModes(page, state) {
     }
   });
 
-  // rf2-61i5 — the pop-out document's OWN keyboard.
-  //
-  // DOM key events do not cross realms, so a keydown made in the pop-out
-  // window can only be seen by a listener installed on the POP-OUT
-  // document. Dispatching into that document is therefore the one probe
-  // that distinguishes "Xray has a keyboard here" from "Xray has a
-  // keyboard in the opener" — the boundary the pre-existing pop-out
-  // coverage (root/shell presence, shared cascade rendering) never
-  // crossed, because it sent no key at all.
-  //
-  // The two assertions match the acceptance the bead names: a spine step
-  // key moves focus on the shared :rf/xray frame, and Cmd/Ctrl+K opens the
-  // palette in the pop-out WITHOUT disturbing the opener's inline shell.
-  const popoutKeyboard = await page.evaluate(() => {
-    const win = window.open('', 'rf-xray-popout');
-    const doc = win && win.document;
-    if (!doc) return { ok: false, reason: 'pop-out document unreachable' };
-
-    const shell = doc.querySelector('[data-testid="rf-xray-shell"]');
-    if (!shell) return { ok: false, reason: 'pop-out shell not rendered' };
-
-    // The opener's inline shell, whose mount state must not move.
-    const openerRootMode = () => {
-      const root = document.getElementById('rf-xray-root');
-      return root ? root.getAttribute('data-rf-xray-mode') : null;
-    };
-    const openerShellCount = () =>
-      document.querySelectorAll('[data-testid="rf-xray-shell"]').length;
-
-    const before = { rootMode: openerRootMode(), shells: openerShellCount() };
-
-    // KeyboardEvent must be constructed from the POP-OUT realm, or the
-    // capture listener there receives a foreign-realm object.
-    const send = (init) => {
-      const Ctor = win.KeyboardEvent || window.KeyboardEvent;
-      const ev = new Ctor('keydown', Object.assign(
-        { bubbles: true, cancelable: true, composed: true }, init));
-      shell.dispatchEvent(ev);
-      return ev.defaultPrevented;
-    };
-
-    // (a) a spine STEP key — j / k walk the event feed.
-    const stepPrevented = send({ key: 'j', code: 'KeyJ' });
-
-    // (b) the palette chord.
-    const palettePrevented = send({ key: 'k', code: 'KeyK', ctrlKey: true });
-
-    const after = { rootMode: openerRootMode(), shells: openerShellCount() };
-
-    return {
-      ok: true,
-      stepPrevented,
-      palettePrevented,
-      paletteInPopout: Boolean(doc.querySelector('[data-testid="rf-xray-palette-dialog"]')),
-      openerBefore: before,
-      openerAfter: after,
-    };
-  });
-
-  if (!popoutKeyboard.ok) {
-    failWithDetails('Pop-out keyboard probe could not run', { observed: popoutKeyboard });
-  }
-  if (!popoutKeyboard.stepPrevented) {
-    failWithDetails(
-      'Pop-out document has no Xray keydown listener: a spine step key was not consumed there (rf2-61i5)',
-      { observed: popoutKeyboard });
-  }
-  if (!popoutKeyboard.palettePrevented) {
-    failWithDetails(
-      'Cmd/Ctrl+K was not consumed in the pop-out document (rf2-61i5)',
-      { observed: popoutKeyboard });
-  }
-  if (!popoutKeyboard.paletteInPopout) {
-    failWithDetails(
-      'Cmd/Ctrl+K in the pop-out did not open the palette in that window (rf2-61i5)',
-      { observed: popoutKeyboard });
-  }
-  if (popoutKeyboard.openerBefore.rootMode !== popoutKeyboard.openerAfter.rootMode
-      || popoutKeyboard.openerBefore.shells !== popoutKeyboard.openerAfter.shells) {
-    failWithDetails(
-      "Keys pressed in the pop-out moved the OPENER's shell mount state (rf2-61i5)",
-      { observed: popoutKeyboard });
-  }
+  // rf2-61i5 — the pop-out document's OWN keyboard. Every key is sent into
+  // the pop-out realm and every consequence is POLLED for, because the
+  // consequences are re-frame dispatches and dispatch is asynchronous.
+  const popoutKeyboard = await assertPopoutKeyboard(page, state);
 
   state.launchModes = {
     inlineDefault: {
@@ -3546,6 +3765,17 @@ const SCENARIOS = [
   {
     name: 'source coordinates and launch-mode availability',
     url: '/counter/',
+    // PR-smoke tier (rf2-61i5). This scenario carries the ONLY browser
+    // proof that the pop-out document has its own keyboard listener —
+    // DOM key events do not cross realms, so no unit test and no
+    // opener-side scenario can stand in for it. Left nightly-only, the
+    // regression class it guards is absent from exactly the runs a merge
+    // decision reads, which is how the first version of the probe merged
+    // green without ever having been executed. It rides `/counter/`,
+    // already staged for the smoke tier by the shell-sweep and palette
+    // scenarios, so promotion costs one scenario's runtime and no extra
+    // compile.
+    smoke: true,
     panels: ['trace'],
     coveredRows: [
       'Open in Editor / Source Coordinates',
