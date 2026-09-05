@@ -1136,6 +1136,14 @@ test('CONTROL — the request really does pass validation and then fail the CLON
   // Without this the section could be green about a request that never got
   // past `validateRequest` — a caller-fault refusal looks nothing like the
   // one being hunted, but "no sentinel in the frame" is true of it too.
+  //
+  // THE SECOND READ IS THE WHOLE DISCRIMINATOR, and it is deliberately a
+  // fact about the tree rather than about the fix: nothing but the
+  // structured clone reads that value again, so `reads === 2` says the
+  // request reached `postMessage` and died there. A control that asserted
+  // on the stderr copy instead would only be able to pass once the fix
+  // existed, which is not a control — it could not have told the red tree
+  // apart from a tree where the request never got that far.
   const run = await uncontractedRejection();
   assert.strictEqual(run.reads, 2, 'the partition value must be read by the validator AND the clone');
   assert.ok(run.refusal, 'the call must be refused');
@@ -1143,10 +1151,6 @@ test('CONTROL — the request really does pass validation and then fail the CLON
     run.refusal.code,
     CODE.BAD_REQUEST_FIELD,
     'and refused past validation, not by it — this row is about the clone',
-  );
-  assert.ok(
-    run.stderr.includes('DataCloneError'),
-    'and the fault really is the structured clone, which is what makes it uncontracted',
   );
 });
 

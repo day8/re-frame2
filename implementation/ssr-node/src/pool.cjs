@@ -19,8 +19,43 @@
 //               requests, which is precisely the skew the build identity
 //               exists to catch. It is refused rather than absorbed.
 
-const { CODE, Refusal } = require('./protocol.cjs');
+const { CODE, Refusal, REPLACEMENT_FAILED_REFUSAL } = require('./protocol.cjs');
 const { Isolate } = require('./isolate.cjs');
+
+/**
+ * The operator's copy of a replacement boot that failed — everything the
+ * waiters' refusal deliberately does not carry.
+ *
+ * The third of these, after `worker.cjs`'s `reportRenderException` and
+ * `isolate.cjs`'s `reportIsolateFault`, and written for the same reason:
+ * closing a refusal's wording without opening the operator's copy trades a
+ * leak for a silence. Not a new subsystem and no flag — `bin/serve.cjs`
+ * already writes `[rf.ssr-node] …` here, so this is that stream under that
+ * prefix, and a diagnostic that can be switched off is off on the day it is
+ * wanted.
+ *
+ * UNCONDITIONAL, WHICH THE OTHER TWO ARE NOT. `reportIsolateFault` is
+ * guarded on there being a pending render because the unguarded half of
+ * that handler is the boot phase, which has its own diagnostic. This path
+ * has no second reporter at all: the caller-facing statement is a loop over
+ * `waiters`, so a replacement that failed with an EMPTY queue used to reach
+ * nobody — the pool shrank by an isolate and the process said nothing. That
+ * silence is the more dangerous of the two failures being fixed here,
+ * because a leak is at least visible to somebody.
+ *
+ * The `Refusal` arriving here carries the real trace in its `detail`
+ * (`isolate.cjs`'s boot receiver puts `err.stack` there), so `detail` is
+ * printed as well as the message — otherwise the operator's copy would be
+ * the one thing this function exists to avoid, a message with no stack.
+ */
+function reportReplacementFault(modulePath, err) {
+  const trace = err && err.stack ? err.stack : String(err);
+  const detail =
+    err && err.detail && Object.keys(err.detail).length ? ` ${JSON.stringify(err.detail)}` : '';
+  process.stderr.write(
+    `[rf.ssr-node] a replacement isolate failed to boot from ${modulePath}: ${trace}${detail}\n`,
+  );
+}
 
 class Pool {
   constructor({ modulePath, size = 2, admissionTimeoutMs = 250, bootTimeoutMs = 30000 }) {
@@ -169,13 +204,37 @@ class Pool {
         // A pool that cannot replace an isolate is a pool that shrinks.
         // Every waiter is refused rather than left holding a promise that
         // will only ever be settled by its own admission timer.
+        //
+        // AND EVERY BOOT REFUSAL STOPS HERE, which is the whole of the
+        // change rf2-2hmg made. This arm used to forward `err` untouched
+        // whenever it was already a `Refusal`, and to interpolate
+        // `err.message` when it was not — so both halves of the ternary
+        // published something a waiter had no business seeing, and the
+        // pass-through was the wider of the two. What arrives here is a
+        // BOOT refusal, and `isolate.cjs` builds those for an operator
+        // standing at a process that would not start: the module's own
+        // message, `err.stack` in the `detail`, the module path, and a
+        // `code` the module chose, since the boot receiver does not consult
+        // `isRefusalCode` the way the render receiver does. On
+        // `Pool.start()` that audience is real. Here it is a caller across a
+        // wire, and none of it is theirs.
+        //
+        // So the audience decides the wording, not the failure: one
+        // service-owned refusal, one code from the closed family, and a
+        // `detail` naming only what this file knows. `poolSize` is the same
+        // service-owned fact the `SERVICE_SATURATED` refusal above carries,
+        // and for the same reason — it is what a waiter that has just been
+        // refused capacity would ask next.
+        //
+        // The real failure goes to stderr FIRST, and unconditionally; see
+        // `reportReplacementFault` for why that is part of the fix rather
+        // than a courtesy.
         (err) => {
+          reportReplacementFault(this.modulePath, err);
           for (const waiter of this.waiters.splice(0)) {
             clearTimeout(waiter.timer);
             waiter.reject(
-              err instanceof Refusal
-                ? err
-                : new Refusal(CODE.ISOLATE_LOST, `could not replace an isolate: ${err.message}`, {}),
+              new Refusal(CODE.ISOLATE_LOST, REPLACEMENT_FAILED_REFUSAL, { poolSize: this.size }),
             );
           }
         },
