@@ -10,7 +10,7 @@
 
 ## Abstract
 
-A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers via `reg-event + make-machine-handler`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, the `:raise` reserved fx-id (machine-internal) that the machine handler routes locally, and the `:rf.machine/spawn` / `:rf.machine/destroy` fx-ids (canonical actor-lifecycle).
+A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers with `reg-machine`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, the `:raise` reserved fx-id (machine-internal) that the machine handler routes locally, and the `:rf.machine/spawn` / `:rf.machine/destroy` fx-ids (canonical actor-lifecycle).
 
 For readers familiar with xstate, [§Lessons from xstate](#lessons-from-xstate-deliberate-divergences) at the end of this spec lists the divergences inline and forward-points to [CP-5-MachineGuide §Lessons from xstate](CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) for the full divergence table.
 
@@ -21,7 +21,7 @@ Machines serve two distinct use cases:
 1. **High-level workflow.** Multi-step user flows (signup → verify → onboard → home), modal dismissal logic, wizard navigation. Without machines these get smeared across many event handlers and an `:app/screen` keyword in `app-db`; the smearing is the pain.
 2. **Low-level protocols.** Async resource lifecycles (HTTP request: `idle → loading → success/error/retry`), websocket connection states, animation transitions. Without machines these live as ad-hoc keywords in some sub-tree of `app-db`, with handlers that have to remember "if state is `:loading`, ignore another `:fetch`."
 
-Both want the same primitive but the ergonomics matter differently — workflow machines are few and named (one per major subsystem); protocol machines may have many concurrent instances (one per active resource). The same `make-machine-handler` factory covers both: a singleton machine is registered at boot via `reg-event`; a dynamic instance is registered at run time via the `[:rf.machine/spawn ...]` fx (per [§Spawning — dynamic actors](#spawning--dynamic-actors)).
+Both want the same primitive but the ergonomics matter differently — workflow machines are few and named (one per major subsystem); protocol machines may have many concurrent instances (one per active resource). The same machine primitive covers both: a singleton machine is registered at boot with `reg-machine`; a dynamic instance is registered at run time via the `[:rf.machine/spawn ...]` fx (per [§Spawning — dynamic actors](#spawning--dynamic-actors)).
 
 ## Naming — `:state` and `:data`
 
@@ -130,7 +130,7 @@ The shim is keyed off the sentinel `:rf/transition-pure` parent-id stamp on the 
 
 Every machine snapshot lives at a fixed reserved path: **`[:rf.runtime/machines :snapshots <machine-id>]`** in the frame's **runtime-db** partition (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)). The runtime owns this path; users do not pick a path per machine and `make-machine-handler` does not accept a `:path` key.
 
-For the registration `(rf/reg-event :drawer/editor (rf.machines/make-machine-handler {...}))`:
+For the registration `(rf/reg-machine :drawer/editor {...})`:
 
 ```clojure
 ;; in the frame's runtime-db, after initialisation:
@@ -855,19 +855,22 @@ The same principle holds for any data DSL the conformance corpus or a tooling la
 
 ## Registration — the machine IS the event handler
 
-A machine is registered as **one event handler** via `reg-event` whose body comes from `make-machine-handler`.
+A machine is registered as **one event handler**. `reg-machine` is the registration surface — it registers the machine *as* an event handler whose body interprets the transition table.
 
 ```clojure
-(rf/reg-event :drawer/editor
+(rf/reg-machine :drawer/editor
   {:doc          "Modal-edit flow."
-   :interceptors [:drawer/undoable]}                       ;; interceptor chains carry refs by id, in the metadata map
-  (rf.machines/make-machine-handler
-    {:initial :idle                                       ;; initial FSM-keyword
-     :data    {:circle-id nil :initial-radius nil :preview-radius nil}
-     :guards  {:circle-exists? (fn [{data :data}] (some? (:circle-id data)))}
-     :actions {:clear-error    (fn [_] {:data {:error nil}})}
-     :states  { ... }}))
+   :interceptors [:drawer/undoable]}                      ;; interceptor chains carry refs by id, in the metadata map
+  {:initial :idle                                         ;; initial FSM-keyword
+   :data    {:circle-id nil :initial-radius nil :preview-radius nil}
+   :guards  {:circle-exists? (fn [{data :data}] (some? (:circle-id data)))}
+   :actions {:clear-error    (fn [_] {:data {:error nil}})}
+   :states  { ... }})
 ```
+
+When the spec is a value rather than an inline literal, `defmachine` captures its per-element source at the **definition** site and `reg-machine` registers it — `(defmachine drawer-editor {…})` then `(reg-machine :drawer/editor drawer-editor)` (per [§Value-registered machines](#value-registered-machines--defmachine)).
+
+Beneath both sits `make-machine-handler`, the pure factory that turns a spec into the handler fn (per [§`make-machine-handler` is a pure factory](#make-machine-handler-is-a-pure-factory)). It stays public — it is the composition seam for programmatic registration — but `reg-machine` is the authoring surface, and the one that stamps the registration metadata `[:schemas :data]` validation resolves through.
 
 The `:guards` and `:actions` maps declare the machine's named guard / action implementations. Inside `:states`, a transition's `:guard :circle-exists?` resolves against this machine's `:guards` map; `:action :clear-error` resolves against `:actions`. **Each machine has its own guards/actions namespace** — there is no global `:machine-guard` / `:machine-action` registry. Inline fns remain first-class (`:guard (fn [...] ...)` skips the lookup).
 
@@ -879,7 +882,7 @@ Reference resolution:
 - `:action (fn [...] ...)` → inline fn, called directly.
 - `:on-spawn :observe-spawn` (when `:on-spawn` appears as a keyword reference, e.g. inside a `:spawn` slot) → resolved against an optional `:on-spawn-actions` map at the spec root if present, then falling back to `:actions`. Inline fns work as for `:action`. The `:on-spawn-actions` map is intended for advisory spawn-observation callbacks (logging / instrumentation), distinct from transition-time `:actions` — their return is dropped, so they are NOT the parent's id-recording mechanism (use `:system-id` / the registry slot / `:rf.machine/update-snapshot` per [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)); declaring the map is optional and the fallback to `:actions` keeps single-map machines simple.
 
-`make-machine-handler` walks the transition table at construction time and verifies every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) resolves to a key in the spec's `:guards` / `:actions` map. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
+The transition table is walked at registration time and every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) is verified to resolve to a key in the spec's `:guards` / `:actions` map. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
 
 **Cross-machine reuse via Clojure vars.** When a guard or action is shared across machines, define it as a Clojure var and reference the var from each machine's `:guards` / `:actions` map:
 
@@ -887,20 +890,18 @@ Reference resolution:
 (defn user-authenticated? [data _]
   (some? (:user-id data)))
 
-(rf/reg-event :auth/login {}
-  (rf.machines/make-machine-handler
-    {:guards {:authenticated? user-authenticated?}
-     ...}))
+(rf/reg-machine :auth/login
+  {:guards {:authenticated? user-authenticated?}
+   ...})
 
-(rf/reg-event :settings/page {}
-  (rf.machines/make-machine-handler
-    {:guards {:authenticated? user-authenticated?}
-     ...}))
+(rf/reg-machine :settings/page
+  {:guards {:authenticated? user-authenticated?}
+   ...})
 ```
 
 No framework support beyond ordinary Clojure var resolution. Each machine names the shared fn locally; the id is the meaning at the call site.
 
-**Hot-reload.** Re-evaluating `(reg-event :machine-id (make-machine-handler {:guards {...} :actions {...} ...}))` re-registers the handler with new `:guards` / `:actions` impls. Mounted snapshots survive (only the handler changes); the next dispatch uses the new bodies. Standard hot-reload story.
+**Hot-reload.** Re-evaluating `(reg-machine :machine-id {:guards {...} :actions {...} ...})` re-registers the handler with new `:guards` / `:actions` impls. Mounted snapshots survive (only the handler changes); the next dispatch uses the new bodies. Standard hot-reload story.
 
 What this gives:
 
@@ -942,19 +943,9 @@ This makes the standard fx-callback convention work without ceremony. Idiomatic 
 
 The fold only applies when the outer event has length ≥ 3 AND the second element is itself a vector. Length-2 dispatches (`[:machine-id [:inner-id]]`) and the legacy single-arg form (`[:machine-id]`) are unaffected. The runtime resolves the outer-shape ambiguity by inspecting the second element's type — a vector second element means "sub-event, fold extras"; anything else means "use the whole vector as the inner event" (compatibility fallback).
 
-### `make-machine-handler` is a pure factory
-
-The fn `make-machine-handler` returns is the event handler. Crucially, the factory itself:
-
-- **Registers nothing.** No `reg-*` side effects at construction time.
-- **Closes over no global state.** No `(get-machine-by-id ...)` lookups bound at construction.
-- **Does not know its own event id.** The handler's id is bound by the surrounding `reg-event` (or by the `[:rf.machine/spawn ...]` fx for dynamic instances).
-
-This is a real constraint on the implementation, not just a testing affordance — it's what makes the singleton vs spawned symmetry clean (the registration happens *outside* the factory in both cases) and what makes Level-2 testing (per [§Testing](#testing)) possible without a test frame.
-
 ### `reg-machine` — public registration surface
 
-Alongside the underlying `reg-event + make-machine-handler` form (per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler)), the framework ships **`reg-machine`** as the standard public registration entry point for machines. Both forms register the same thing — an event handler whose body interprets the transition table — and they reach the same registry slot. `reg-machine` is the surface that tools, examples, and CP-5-generated scaffolds default to.
+**`reg-machine`** is the standard public registration entry point for machines — the surface tools, examples, and CP-5-generated scaffolds default to. The underlying `reg-event` + `make-machine-handler` composition (per [§`make-machine-handler` is a pure factory](#make-machine-handler-is-a-pure-factory)) registers the same thing — an event handler whose body interprets the transition table — and reaches the same registry slot; what it does **not** do is stamp the registration metadata, which is why a `[:schemas :data]`-bearing spec is refused outside the registration home (below).
 
 ```clojure
 (rf/reg-machine :auth.login/flow
@@ -1003,6 +994,18 @@ Both forms return `machine-id` per the family-wide [`reg-*` return-value convent
 Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) follows the standard rules from [001 §Source-coord stamping](001-Registration.md): the macro stamps; programmatic registration via `reg-machine*` does not. See [§Source-coord stamping](#source-coord-stamping) for the per-element index.
 
 `reg-machine` is itself **late-bound** — `re-frame.core` carries the macro and a stub fn that resolves the producer through the late-bind hook table at registration time. Apps that use `reg-machine` MUST add `day8/re-frame2-machines` to their deps and require `re-frame.machines` at app boot; without it, the lookup throws `:rf.error/machines-artefact-missing`.
+
+### `make-machine-handler` is a pure factory
+
+`make-machine-handler` is the primitive `reg-machine` is built on, and it stays public — the composition seam for callers that must build a handler *without* registering one, such as code-gen and loader pipelines minting handlers for computed ids.
+
+The fn `make-machine-handler` returns is the event handler. Crucially, the factory itself:
+
+- **Registers nothing.** No `reg-*` side effects at construction time.
+- **Closes over no global state.** No `(get-machine-by-id ...)` lookups bound at construction.
+- **Does not know its own event id.** The handler's id is bound by the surrounding `reg-event` (or by the `[:rf.machine/spawn ...]` fx for dynamic instances).
+
+This is a real constraint on the implementation, not just a testing affordance — it's what makes the singleton vs spawned symmetry clean (the registration happens *outside* the factory in both cases) and what makes Level-2 testing (per [§Testing](#testing)) possible without a test frame.
 
 ### `reg-machine` vs `reg-machine*`
 
@@ -4154,7 +4157,7 @@ The handler resolves its id from the inbound event vector's first element (`:dra
 
 ```clojure
 (rf/with-new-frame [f (rf/make-frame {})]
-  (rf/reg-event :my/editor {} (rf.machines/make-machine-handler {...}))
+  (rf/reg-machine :my/editor {...})
   (rf/dispatch-sync [:my/init] {:frame f})   ;; seed via a setup dispatch
   (rf/dispatch-sync [:my/editor [:event]] {:frame f})
   (assert ...))
@@ -4234,59 +4237,58 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 ;; updates, so they stay inline (the escape hatch).
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event :drawer/editor
+(rf/reg-machine :drawer/editor
   {:doc "Modal-edit flow."}
-  (rf.machines/make-machine-handler
-    {:initial :idle
-     :data    {:circle-id nil :initial-radius nil :preview-radius nil}
-     :actions
-     {:begin-edit
-      ;; Seed circle-id, initial-radius, and preview-radius from the right-click event.
-      (fn [{[_ id radius] :event}]
-        {:data {:circle-id      id
-                :initial-radius radius
-                :preview-radius radius}})
+  {:initial :idle
+   :data    {:circle-id nil :initial-radius nil :preview-radius nil}
+   :actions
+   {:begin-edit
+    ;; Seed circle-id, initial-radius, and preview-radius from the right-click event.
+    (fn [{[_ id radius] :event}]
+      {:data {:circle-id      id
+              :initial-radius radius
+              :preview-radius radius}})
 
-      :commit
-      ;; Persist the previewed radius via :drawer/apply-radius and clear :data.
-      (fn [{data :data}]
-        {:fx   [[:dispatch [:drawer/apply-radius
-                            (:circle-id data)
-                            (:preview-radius data)]]]
-         :data {:circle-id      nil
-                :initial-radius nil
-                :preview-radius nil}})}
-     :states
-     {:idle
-      {:on
-       ;; Note the event shape — the view passes the radius in the payload
-       ;; rather than the machine reaching into app-db. Strict encapsulation:
-       ;; cross-cutting data flows via the event vector, not via :db.
-       {:right-click-circle
-        {:target :editing
-         :action :begin-edit}}}                              ;; resolves to :actions :begin-edit
+    :commit
+    ;; Persist the previewed radius via :drawer/apply-radius and clear :data.
+    (fn [{data :data}]
+      {:fx   [[:dispatch [:drawer/apply-radius
+                          (:circle-id data)
+                          (:preview-radius data)]]]
+       :data {:circle-id      nil
+              :initial-radius nil
+              :preview-radius nil}})}
+   :states
+   {:idle
+    {:on
+     ;; Note the event shape — the view passes the radius in the payload
+     ;; rather than the machine reaching into app-db. Strict encapsulation:
+     ;; cross-cutting data flows via the event vector, not via :db.
+     {:right-click-circle
+      {:target :editing
+       :action :begin-edit}}}                              ;; resolves to :actions :begin-edit
 
-      :editing
-      {:on
-       {:drag-slider
-        ;; internal self-transition — no :target, so no exit/entry.
-        ;; Single-key :data update, single non-branching expression — inline OK
-        ;; per the inspectability-bias escape hatch.
-        {:action (fn [{[_ new-r] :event}]
-                   {:data {:preview-radius new-r}})}
+    :editing
+    {:on
+     {:drag-slider
+      ;; internal self-transition — no :target, so no exit/entry.
+      ;; Single-key :data update, single non-branching expression — inline OK
+      ;; per the inspectability-bias escape hatch.
+      {:action (fn [{[_ new-r] :event}]
+                 {:data {:preview-radius new-r}})}
 
-        :close-dialog
-        {:target :idle
-         :action :commit}                                    ;; resolves to :actions :commit
+      :close-dialog
+      {:target :idle
+       :action :commit}                                    ;; resolves to :actions :commit
 
-        :cancel-dialog
-        ;; Single :data clear, single non-branching expression — inline OK.
-        ;; Nothing to apply — preview was never persisted.
-        {:target :idle
-         :action (fn [_]
-                   {:data {:circle-id      nil
-                           :initial-radius nil
-                           :preview-radius nil}})}}}}}))
+      :cancel-dialog
+      ;; Single :data clear, single non-branching expression — inline OK.
+      ;; Nothing to apply — preview was never persisted.
+      {:target :idle
+       :action (fn [_]
+                 {:data {:circle-id      nil
+                         :initial-radius nil
+                         :preview-radius nil}})}}}}})
 
 ;; ----------------------------------------------------------------------------
 ;; DOMAIN EVENTS (orthogonal to the machine)
