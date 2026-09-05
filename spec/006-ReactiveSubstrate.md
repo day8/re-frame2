@@ -699,7 +699,7 @@ The annotation site MUST sit inside `(when interop/debug-enabled? ...)` (the CLJ
 > 1. Reagent passes these props through as DOM attributes (it does not route them to React.createElement's `__source` slot), so React's runtime emitted "does not recognize the `_jsx*` prop on a DOM element" console warnings for every annotated view's root.
 > 2. React DevTools does not read "View source" from element props anyway — it reads `__source` off `React.createElement`'s third argument, which is set by the Babel plugin at JSX-compile time and is not reachable from hiccup. So the DevTools gesture never lit up for re-frame2-registered views.
 >
-> Net effect: dev-console noise with no DevTools benefit. The injection was dropped cleanly. The `data-rf2-source-coord` and `data-rf-view` DOM attributes (which DO work and are consumed by re-frame-pair, the view-walker, and IDE jump-to-source tooling) ride the same wrapper unchanged.
+> Net effect: dev-console noise with no DevTools benefit. The injection was dropped cleanly. The `data-rf2-source-coord` and `data-rf-view` DOM attributes (which DO work and are consumed by re-frame-pair, Xray's hover-highlight, and IDE jump-to-source tooling) ride the same wrapper unchanged.
 >
 > If a future pass restores React DevTools "View source" integration, the correct path is to thread `__source` into the React element at element-creation time (cloneElement's third arg, or a substrate hook that participates in element construction) — not via element props.
 
@@ -735,9 +735,9 @@ The view-side annotation above is one half of the tool-pair source-mapping contr
 
 Both surfaces share the production-elision contract: the co-location dev arm is gated on `interop/debug-enabled?`, so under `:advanced` + `goog.DEBUG=false` the closure compiler folds it away — the co-located `:source-code` / `:source-coords` slots (on element entries AND on `:states`-tree map nodes) DCE. The `scripts/check-elision.cjs` sentinel set greps the co-located `:source-code` fn-body fragments (which ride the same dev arm as the state-node co-location), verified ABSENT in the production bundle and PRESENT in the control bundle.
 
-## View tagging contract (fallback)
+## View tagging contract
 
-> **Status: fallback safety-net only.** The primary path for runtime view-hierarchy capture is the **Fiber-walker** documented in [View-Hierarchy-Capture.md](View-Hierarchy-Capture.md). This section pins the per-adapter fallback path that activates only if Fiber-reading breaks on a future React-version regression, or if a non-React substrate is ever wired in. Both paths can coexist; the fallback adds a single attribute per registered view and costs ~zero in production (elision-gated).
+> **Status: v1-required for every in-scope React-binding adapter** (the roster is [§Cross-host](#cross-host) above). `data-rf-view` is **the** runtime view-id capture surface — there is no other. It serves two lookups that ship today: the **forward** one, where a view-id resolves its rendered root (`[data-rf-view='<id>']` — Xray's hover-highlight, re-frame-pair's `ui/read`), and the **reverse** one, where an arbitrary node resolves its producing view via the nearest tagged ancestor (re-frame-pair's `ui/read` again). **Hierarchy capture** — a parent/children tree over those tags — is tool-owned and **optional**: no port owes a walker, no conformance family grades one, and the CLJS reference ships none because no reference tool consumes one (see [§Hierarchy inference](#hierarchy-inference-tool-side-optional) below). The tag adds a single attribute per registered view and costs ~zero in production (elision-gated).
 
 The same per-render wrapper that injects `data-rf2-source-coord` (§Source-coord annotation above) also injects `data-rf-view="<id>"` on the rendered root DOM element when `interop/debug-enabled?` is true. The two attributes ride the same wrapper, the same walk, and the same production-elision gate — there is no separate code path or separate elision contract.
 
@@ -757,7 +757,7 @@ The wrapper inspects the user render-fn's output and mutates the **first concret
 
 - `[:tag {…attrs} & children]` — merge `:data-rf-view` into the existing attrs map (alongside `:data-rf2-source-coord`).
 - `[:tag & children]` (no attrs map) — splice an attrs map in between head and children carrying both attributes.
-- `[fragment / interop-head / fn-component …]` — SKIP (see §Documented edge cases below).
+- `[fragment / interop-head / fn-component …]` — SKIP (see §Known limits of the tag and of DOM-containment inference below).
 - React-element output (UIx): `React.cloneElement` with `{"data-rf-view": <id>}` on the same call that adds `data-rf2-source-coord`.
 - Form-2: when the render-fn returns a fn, the wrapper recurses on the inner fn's output (same machinery as the source-coord walk).
 
@@ -776,19 +776,19 @@ Wrapping is a non-starter — it breaks every layout idiom that depends on the D
 
 The mutate-existing-attrs strategy avoids every one of these failure modes — the rendered DOM tree is structurally identical to the un-instrumented version, modulo two extra attributes on the root element of each registered view.
 
-### Documented edge cases (fidelity gaps)
+### Known limits of the tag and of DOM-containment inference
 
-The fallback is a **lossy approximation** of the Fiber-walker's hierarchy capture. These shapes are exempt from `data-rf-view` annotation (the wrapper SKIPs with a one-shot warning per id, same as the source-coord exemption):
+These shapes are exempt from `data-rf-view` annotation (the wrapper SKIPs with a one-shot warning per id, same as the source-coord exemption). An untagged view is invisible to view-id lookup, and — for a tool that chooses to infer hierarchy (§Hierarchy inference below) — invisible to that inference too:
 
-1. **React Fragment root (`:<>` / `<Fragment>`)** — a fragment has no DOM element to annotate. The fallback walker treats the component as invisible to hierarchy capture (its children become orphans of the next-up tagged ancestor). The Fiber-walker primary path handles fragments correctly via the `child` slot.
+1. **React Fragment root (`:<>` / `<Fragment>`)** — a fragment has no DOM element to annotate, so the view is invisible to view-id lookup. Under DOM-containment inference its children become orphans of the next-up tagged ancestor.
 
 2. **Nil / conditional root (`(when cond …)` returning nil)** — when the render-fn returns nil, no DOM element exists. Same fidelity gap as fragments: the view is invisible on the render that returned nil; subsequent re-renders that produce a DOM element are tagged correctly.
 
-3. **Component-returning-component head (`[other-view …]`)** — when a reg-view'd component's root is another reg-view'd component, the wrapper SKIPs (the head is a fn, not a DOM-tag keyword). The inner component will tag *its own* root; the outer view is invisible to the hierarchy capture and its children become orphans of the inner tagged element. Pair tools can chase the wrapping via `(rf/handler-meta :view id)`.
+3. **Component-returning-component head (`[other-view …]`)** — when a reg-view'd component's root is another reg-view'd component, the wrapper SKIPs (the head is a fn, not a DOM-tag keyword). The inner component will tag *its own* root; the outer view is invisible to view-id lookup, and under DOM-containment inference its children become orphans of the inner tagged element. Pair tools can chase the wrapping via `(rf/handler-meta :view id)`.
 
-4. **Portals (`React.createPortal`)** — portals teleport the rendered subtree to a different DOM location. The walker's DOM-containment inference will associate portal children with the portal target's ancestor chain, not with the portal-rendering component's ancestor chain. The Fiber-walker primary path handles portals correctly because Fiber `return` pointers follow the logical parent, not the DOM parent.
+4. **Portals (`React.createPortal`)** — portals teleport the rendered subtree to a different DOM location. DOM containment therefore associates portal children with the portal target's ancestor chain rather than with the portal-rendering component's — DOM parentage, not logical parentage. Inferred hierarchy is unreliable across a portal boundary; the tag itself is unaffected, and both forward and reverse view-id lookup still work on either side.
 
-5. **`display: none` subtrees** — elements with `display: none` are present in the DOM tree (and so are walkable by `querySelectorAll`) but are not laid out. The walker reports them; consumers (Xray Views panel) may choose to filter them out. This is a known fidelity gap, not a correctness bug.
+5. **`display: none` subtrees** — elements with `display: none` are present in the DOM tree (and so are enumerable by `querySelectorAll`) but are not laid out. They are tagged like any other element; consumers may choose to filter them out. This is a known limit, not a correctness bug.
 
 6. **Interop component head (`:>` in Reagent)** — `[:> Cmp {…props}]` hands the props map straight to React's component, which may not be a DOM-tag (and certainly should not have framework-derived strings inserted into its props). The wrapper SKIPs and emits the same warning as the source-coord exemption.
 
@@ -796,16 +796,18 @@ The fallback is a **lossy approximation** of the Fiber-walker's hierarchy captur
 
 `data-rf-view` MUST elide under `:advanced` + `goog.DEBUG=false` via the SAME `(when interop/debug-enabled? …)` gate that elides `data-rf2-source-coord`. The literal `data-rf-view` string fragment is part of the standard `scripts/check-elision.cjs` sentinel set.
 
-### Walker contract (fallback path)
+### Hierarchy inference (tool-side, optional)
 
-When the fallback is consuming the tagged DOM, the walker:
+Hierarchy is **not** part of this contract — the framework's commitment is the attribute, and nothing more. A tool that wants parent/children over the tags derives it, entirely tool-side:
 
-1. Calls `document.querySelectorAll('[data-rf-view]')` to enumerate every tagged element in document order.
-2. For each tagged element, reads `data-rf-view` and `data-rf2-source-coord` off the DOM node.
-3. Infers parent-child by DOM containment: element B is a child of element A iff A is the nearest tagged ancestor of B (via `.contains()` walks).
-4. Produces the same output shape as the Fiber-walker (per [View-Hierarchy-Capture.md §Output shape](View-Hierarchy-Capture.md#output-shape)) so consumer code is path-agnostic.
+1. Enumerate `[data-rf-view]` in document order (`document.querySelectorAll`), reading `data-rf-view` and `data-rf2-source-coord` off each node.
+2. Take each element's **nearest tagged ancestor** as its parent; depth is the count of tagged ancestors.
 
-The walker implementation lives at `tools/xray/src/day8/re_frame2_xray/views/view_walker.cljs` (alongside the Fiber-walker per the spec's Ownership table). Both walkers are bundle-isolated from production builds.
+The known limits above apply to anything so derived. The reverse half of that rule ships today as re-frame-pair's `nearest-view-root`, which resolves an arbitrary node to its producing view — the one live instance of DOM-containment inference in the tree. No port owes an implementation, no conformance family grades one, and the CLJS reference ships no walker.
+
+> **Decision, 2026-09-04 (rf2-2vpm).** The React Fiber-walker locked on 2026-05-19 as the primary hierarchy path was built (`fe4ff001b9`, PR #1533) and retired with its only consumer (`9781aa4e24`, PR #1741) the next day; this tag path landed five hours after that deletion (`da39b0c0f8`, PR #1780), so the two never coexisted. Hierarchy capture is now tool-owned and optional, the Fiber design is not a contract, and the unwired reference walker was removed.
+>
+> Revisit only when a named Xray surface needs *logical* rather than DOM parentage (fragments, portals), and then only after a mounted-React spike that proves root discovery (container vs host keys), committed-tree selection, and a registry identity join.
 
 ## React DevTools support (zero-config, dev-only)
 
@@ -820,7 +822,7 @@ re-frame2 is Reagent-substrate-native (see §Reactive Substrate above). The fram
 > - The **logical registry id** is a keyword — what `reg-view` registers, what `(rf/view :cart/total-line)` looks up. It is the thing itself.
 > - The **performance/display projection** is `entry-id`'s rendering of that keyword: colon-free, namespace preserved. It is what a *human or a tool reads*, and every surface that publishes a name to a developer publishes this one, through the same fn, so two spellings cannot drift into existence.
 >
-> `data-rf-view` is deliberately **not** amended and keeps `(str view-id)`. It is not a display projection but a round-trippable **encoding**: [§View tagging contract](#view-tagging-contract-fallback) requires the attribute to be reversible to the registered keyword, and `re-frame.source-coords/parse-view-id` reads the leading `:` back to distinguish a keyword id from a string one. A projection has no inverse to preserve; an encoding does.
+> `data-rf-view` is deliberately **not** amended and keeps `(str view-id)`. It is not a display projection but a round-trippable **encoding**: [§View tagging contract](#view-tagging-contract) requires the attribute to be reversible to the registered keyword, and `re-frame.source-coords/parse-view-id` reads the leading `:` back to distinguish a keyword id from a string one. A projection has no inverse to preserve; an encoding does.
 
 
 
