@@ -425,12 +425,71 @@
 (deftest expand-round-trips-every-collection-kind
   ;; The codec's structure-preserving guarantee, now ours to keep: lists,
   ;; seqs, sets, nested maps and map entries all rebuild as themselves.
+  ;; The name says EVERY kind, so the sorted pair rides along — they are
+  ;; the two core collections the walk cannot rebuild as themselves (see
+  ;; `sorted-map-with-a-pooled-key-…` below), and a suite that named them
+  ;; and then skipped them is how this class stayed unseen.
   (let [shared {:s #{:a :b} :v [1 2 3]}
-        v      {:list  (list shared shared)
-                :seq   (map identity [shared shared])
-                :set   #{[:x shared]}
-                :nest  {:deep {:deeper [shared shared]}}}
+        v      {:list   (list shared shared)
+                :seq    (map identity [shared shared])
+                :set    #{[:x shared]}
+                :nest   {:deep {:deeper [shared shared]}}
+                :sorted (sorted-map :b shared :a shared)
+                :s-set  (sorted-set :one :two)}
         out    (rf.mcp-base.dedup/expand (rf.mcp-base.dedup/de-dupe-eq v))]
     (is (= v out))
     (is (list? (:list out)) "a list rebuilds as a list")
-    (is (set? (:set out))   "a set rebuilds as a set")))
+    (is (set? (:set out))   "a set rebuilds as a set")
+    ;; Sortedness is DELIBERATELY not carried: the cache is EDN/JSON, where
+    ;; a sorted map reads back unsorted anyway, and holding the comparator
+    ;; is what made a pooled key throw. Clojure equality is exact either way.
+    (is (and (map? (:sorted out)) (not (sorted? (:sorted out))))
+        "a sorted map rebuilds as an unsorted map")
+    (is (and (set? (:s-set out)) (not (sorted? (:s-set out))))
+        "a sorted set rebuilds as an unsorted set")))
+
+;; ---- Sorted collections: comparator positions and pooled placeholders ------
+;;
+;; Substitution replaces a repeated cacheable subtree with a
+;; `de-dupe.cache/cache-N` SYMBOL. Rebuild a sorted collection through its
+;; own comparator and that symbol is handed to a comparator chosen for the
+;; data — `compare` on a Symbol and an IPersistentVector throws. Dedup is
+;; DEFAULT-ON, so this turned ordinary persistent app-db state into a
+;; boundary failure rather than a read.
+
+(deftest sorted-map-with-a-pooled-key-beside-an-unpooled-one-round-trips
+  (let [shared  [1 2 3]
+        unique  [4 5 6]
+        payload {:index (sorted-map shared :old unique :new)
+                 :again shared}
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key)
+        "non-vacuity: a real wrap, not the no-substitutions passthrough")
+    (is (< 1 (count cache))
+        "the repeated key really was pooled — a substitution beyond cache-0")
+    (is (= payload (rf.mcp-base.dedup/expand cache))
+        "expand is equal to the input")
+    (testing "the unordered control takes the same shape"
+      (let [control (assoc payload :index {shared :old unique :new})
+            c-out   (rf.mcp-base.dedup/dedup-value control true)
+            c-cache (get c-out rf.mcp-base.vocab/dedup-table-key)]
+        (is (< 1 (count c-cache)))
+        (is (= control (rf.mcp-base.dedup/expand c-cache)))))
+    (testing "opting out stays a strict passthrough"
+      (is (identical? payload (rf.mcp-base.dedup/dedup-value payload false))))))
+
+(deftest sorted-set-with-a-pooled-element-beside-an-unpooled-one-round-trips
+  ;; The same root cause reached through the other comparator-bearing core
+  ;; collection: here the placeholder lands in ELEMENT position.
+  (let [shared  [1 2 3]
+        payload {:index (sorted-set shared [4 5 6])
+                 :again shared}
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key)
+        "non-vacuity: a real wrap")
+    (is (< 1 (count cache))
+        "the repeated element really was pooled")
+    (is (= payload (rf.mcp-base.dedup/expand cache))
+        "expand is equal to the input")))

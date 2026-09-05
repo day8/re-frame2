@@ -127,6 +127,28 @@
       (is (= text (rf.story-mcp.tools.result/pr-edn sc))
           "the text slot is re-stringified from the deduped structured payload — both slots ride the same wire shape"))))
 
+(deftest apply-dedup-accepts-sorted-structured-content
+  ;; The wire boundary has to READ ordinary persistent app-db state, not
+  ;; fail on it. A sorted index keyed by path vectors used to throw
+  ;; `ClassCastException` out of the default-on dedup step the moment one
+  ;; key was pooled and another beside it was not — the placeholder symbol
+  ;; reached the tree comparator. The repair is in the shared walk
+  ;; (`re-frame.mcp-base.dedup`); this is the consumer-side pin that the
+  ;; envelope survives it with both slots consistent. No story-mcp
+  ;; production logic is involved.
+  (let [shared  [1 2 3]
+        payload {:index (sorted-map shared :old [4 5 6] :new)
+                 :again shared}
+        result  (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
+        out     (rf.story-mcp.tools.wire-pipeline/apply-dedup result true)
+        sc      (:structuredContent out)]
+    (is (contains? sc :rf.mcp/dedup-table)
+        "non-vacuity: the sorted payload still deduped rather than riding through raw")
+    (is (= payload (rf.story-mcp.test-support/dedup-expand sc))
+        "round-trip restores the original payload")
+    (is (= (-> out :content first :text) (rf.story-mcp.tools.result/pr-edn sc))
+        "text and structuredContent stay consistent")))
+
 (deftest apply-dedup-preserves-sibling-slots
   ;; Anything the handler set on the envelope (e.g. `:isError`) must
   ;; survive the dedup rewrite. The wire-boundary transform is

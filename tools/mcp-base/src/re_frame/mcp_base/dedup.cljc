@@ -348,18 +348,41 @@
   #?(:cljs (satisfies? IRecord form)
      :clj  (instance? clojure.lang.IRecord form)))
 
+(defn ^:private rebuild-into
+  "The empty collection `side-walk` rebuilds `form` into.
+
+  `(empty form)` for everything EXCEPT a sorted map or sorted set,
+  which lower to their unsorted counterparts. Substitution replaces a
+  repeated subtree with a `de-dupe.cache/cache-N` SYMBOL, so rebuilding
+  a sorted collection through its own comparator hands that placeholder
+  to a comparator chosen for the data: a default sorted-map of vector
+  keys throws the moment one key is pooled and another beside it is not
+  (`Symbol cannot be cast to IPersistentVector`). Dedup is default-on,
+  so that turned ordinary persistent app-db state — an index keyed by
+  path vectors, say — into a boundary failure instead of a read.
+
+  Lowering here costs nothing the codec ever kept: the cache travels as
+  EDN/JSON, where a sorted map reads back unsorted regardless, and
+  Clojure equality across the round trip is exact either way. Metadata
+  rides along as `empty` would have carried it."
+  [form]
+  (if (sorted? form)
+    (with-meta (if (map? form) {} #{}) (meta form))
+    (empty form)))
+
 (defn ^:private side-walk
   "Like `clojure.walk/walk`, but `outer` receives BOTH the original form
   and the rebuilt one — which is what lets the encoder read the
   `:cache-id` metadata `inner` attached before the rebuild dropped it.
-  Recognises every Clojure collection; consumes seqs as with `doall`."
+  Recognises every Clojure collection; consumes seqs as with `doall`.
+  Sorted maps/sets rebuild unsorted — see `rebuild-into`."
   [inner outer form]
   (cond
     (list? form)       (outer form (apply list (doall (map inner form))))
     (map-entry?* form) (outer form (vec (doall (map inner form))))
     (seq? form)        (outer form (doall (map inner form)))
     (record?* form)    (outer form (reduce (fn [r x] (conj r (inner x))) form form))
-    (coll? form)       (outer form (into (empty form) (doall (map inner form))))
+    (coll? form)       (outer form (into (rebuild-into form) (doall (map inner form))))
     :else              (outer form form)))
 
 (defn ^:private side-prewalk
