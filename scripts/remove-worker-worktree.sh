@@ -52,6 +52,15 @@
 #   --self-test  prove the disarm against a throwaway link in a temp dir
 #   --mayor-root <path> / RF2_MAYOR_ROOT   override mayor-root derivation
 #
+# THE ARGUMENT IS A PATH, NOT A WORKTREE NAME (rf2-u62e).
+#   Targets resolve exactly as any other shell path does: absolute, or relative
+#   to the CURRENT DIRECTORY. A BARE WORKTREE NAME IS NOT resolved against the
+#   worktree parent — `remove-worker-worktree.sh xraygate-a` run from the mayor
+#   checkout names `<mayor-checkout>/xraygate-a`, which does not exist. Pass the
+#   path `git worktree list` prints; it is already in the form this wants.
+#   A target that is not an existing directory is refused with exit 2 BEFORE the
+#   mayor root is derived or the canary taken, so nothing is read or unlinked.
+#
 # CONTRACT (preserved exactly across both implementations) — stdout lines:
 #   MAYOR_ROOT=<absolute path>
 #   CANARY_BEFORE=<path> <signature>        (one per real mayor node_modules)
@@ -72,7 +81,11 @@
 #        still the right tool (retry when the lock clears; --force-disposable
 #        for build output; a human for [KEEP] paths) or the wrong one for a
 #        path it declines to identify.
-#     2  usage error.
+#     2  usage error — an unknown flag, no targets at all, or a target that is
+#        not an existing directory (`REFUSED_BAD_ARGUMENT=`). The caller's
+#        NEXT ACTION is to fix the command line, which is what separates this
+#        from 1; and it is reached before any tree is read, so a 2 also says
+#        nothing at all was examined, snapshotted or unlinked.
 #     3  PARTIAL — the tree is already gutted and deregistered. This script
 #        can do nothing more with it; see REMOVE_PARTIAL below. 3 wins over 1
 #        when both occur in one run, because it is the outcome needing a
@@ -858,6 +871,67 @@ if [ "$SELF_TEST" -eq 1 ]; then
 
   printf 'SELF_TEST later_invocation guard=yes (ordinary dir REFUSED untouched; --husk alone REFUSED on the evidence; a lone tiny coincidental blob REFUSED by the byte floor; --husk on a live worktree REFUSED; a real husk still classified exit 3 with provenance named)\n'
 
+  # ---- THE ARGUMENT CONTRACT (rf2-u62e), END TO END ----
+  #
+  # A bare worktree name is a path like any other and resolves against the
+  # CURRENT DIRECTORY, so from the mayor checkout it names nothing. The refusal
+  # used to fire inside the per-target loop — after the canary — and onto
+  # stderr, so a refused run ENDED with six CANARY_AFTER lines and the
+  # explanation sat above them, out of reach of any caller who tailed it.
+  #
+  # THE LOAD-BEARING ASSERTION IS THAT THE RUN NEVER GOT AS FAR AS `MAYOR_ROOT=`.
+  # Exit 2 and the refusal line can both be produced by a check that runs late;
+  # only "the script had not started looking at any tree yet" distinguishes
+  # refusing up front from doing the work first and declining afterwards, which
+  # is the whole distinction this bead turned on.
+  #
+  # `MAYOR_ROOT=` rather than the CANARY_ lines, and the difference is the
+  # difference between a check and a vacuous one: these fixtures point
+  # --mayor-root at a throwaway repository that has no node_modules anywhere in
+  # it, so NO canary line is printed on any run against them, refused early or
+  # late. Asserting the absence of something that is absent either way proves
+  # nothing. `MAYOR_ROOT=` is printed unconditionally on every run that clears
+  # the gate, and printed before the canary, so its absence is a real signal —
+  # and the positive control below proves it does appear when it should.
+  #
+  # Three shapes, because they fail in different ways: a path that does not
+  # exist, a path that exists and is not a directory, and the bare name that
+  # started this.
+  ST_A_MISSING="$WORK_DIR/no-such-worktree-$$"
+  ST_A_FILE="$WORK_DIR/not-a-directory-$$"
+  printf 'a file, not a worktree\n' > "$ST_A_FILE"
+  [ ! -e "$ST_A_MISSING" ] \
+    || die "SELF_TEST=FAILED the missing-target fixture exists, so it proves nothing: $ST_A_MISSING"
+
+  for ST_A_BAD in "$ST_A_MISSING" "$ST_A_FILE" "no-such-bare-name-$$"; do
+    ST_A_RC=0
+    sh "$SCRIPT_SELF" --mayor-root "$ST_G_REPO" "$ST_A_BAD" > "$ST_G_OUT" 2>&1 || ST_A_RC=$?
+    [ "$ST_A_RC" -eq 2 ] \
+      || die "SELF_TEST=FAILED a bad argument exited $ST_A_RC, want 2 (usage error): $ST_A_BAD. Output: $(cat "$ST_G_OUT")"
+    grep -q '^REFUSED_BAD_ARGUMENT=' "$ST_G_OUT" \
+      || die "SELF_TEST=FAILED a bad argument was not refused by name: $ST_A_BAD. Output: $(cat "$ST_G_OUT")"
+    if grep -q '^MAYOR_ROOT=' "$ST_G_OUT"; then
+      die "SELF_TEST=FAILED a bad argument was refused only AFTER the script began examining trees, which is how the explanation came to be stranded above the canary block: $ST_A_BAD. Output: $(cat "$ST_G_OUT")"
+    fi
+  done
+
+  # THE POSITIVE CONTROL, and the assertions above are worth nothing without it:
+  # an existing directory still clears the gate and is judged on what it IS, not
+  # on how it is spelled. A gate that refused everything would satisfy every
+  # negative above, and this is the one line that would go red for it — it is
+  # also what proves `MAYOR_ROOT=` is a marker that appears at all.
+  ST_A_RC=0
+  sh "$SCRIPT_SELF" --mayor-root "$ST_G_REPO" "$ST_G_PLAIN" > "$ST_G_OUT" 2>&1 || ST_A_RC=$?
+  [ "$ST_A_RC" -eq 1 ] \
+    || die "SELF_TEST=FAILED an existing directory was rejected by the argument gate (exit $ST_A_RC, want 1 — refused on its identity, not its spelling). Output: $(cat "$ST_G_OUT")"
+  grep -q '^MAYOR_ROOT=' "$ST_G_OUT" \
+    || die "SELF_TEST=FAILED a well-formed argument never got past the argument gate, so the absence of MAYOR_ROOT= above proves nothing. Output: $(cat "$ST_G_OUT")"
+  if grep -q '^REFUSED_BAD_ARGUMENT=' "$ST_G_OUT"; then
+    die "SELF_TEST=FAILED a well-formed argument was refused as a bad one. Output: $(cat "$ST_G_OUT")"
+  fi
+
+  printf 'SELF_TEST argument_contract=yes (a missing path, a non-directory and a bare name each exit 2 with REFUSED_BAD_ARGUMENT= and no tree examined; a well-formed path still clears the gate and is judged on its identity)\n'
+
   if [ "$ST_LINK_OK" -eq 0 ]; then
     # The verdict CI greps for is withheld, exactly as it was before the link
     # assertions were made skippable: everything else passed, but a run that
@@ -866,13 +940,73 @@ if [ "$SELF_TEST" -eq 1 ]; then
     exit 0
   fi
 
-  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), the canary caught nested-only loss, a husk is not mistaken for a clean tree, and an unidentified directory is refused rather than condemned.\n' "$ST_AFTER"
+  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), the canary caught nested-only loss, a husk is not mistaken for a clean tree, an unidentified directory is refused rather than condemned, and a bad argument is refused before any tree is examined.\n' "$ST_AFTER"
   exit 0
 fi
 
 if [ ! -s "$TARGETS_FILE" ]; then
   printf 'usage: remove-worker-worktree.sh <worktree-path>... [--force|--force-disposable] [--dry-run]\n' >&2
   printf '       remove-worker-worktree.sh --self-test\n' >&2
+  exit 2
+fi
+
+# ---------------------------------------------------------------------------
+# THE ARGUMENT CONTRACT, enforced FIRST (rf2-u62e).
+#
+# A target is a PATH. normalize_path resolves it by `cd`-ing to it, which is
+# CWD-RELATIVE, so a BARE WORKTREE NAME run from the mayor checkout names
+# `<mayor-checkout>/<name>` and matches nothing. That is correct behaviour for a
+# path argument and is not what was wrong.
+#
+# WHAT WAS WRONG IS WHERE THE REFUSAL FIRED. It sat inside the per-target loop,
+# which runs AFTER the mayor root is derived and the canary taken, and it writes
+# to stderr while the canary writes to stdout. So the last six lines of a
+# refused run were the CANARY_AFTER block, with the explanation stranded above
+# it — and a caller who tailed the output saw a script that had done work and
+# then stopped without a verdict. Reproduced verbatim: exit 1, six CANARY_AFTER
+# lines, `REFUSED_UNREGISTERED=<name> (no such directory)` two lines above the
+# tail window, and nothing destroyed.
+#
+# An argument fault is knowable before anything is examined, so it is settled
+# here, with the documented usage code, and every bad target is named in one
+# pass so one re-run fixes the whole command line. It is expressed ONCE: the
+# loop's own no-such-directory branch is gone, because nothing reaches it now.
+#
+# ALL-OR-NOTHING IS DELIBERATE. A sweep list carrying one path that names
+# nothing is a list the caller should correct, not one this script should
+# half-run: partial work under a wrong command line is the shape of failure
+# this whole bead is about.
+# ---------------------------------------------------------------------------
+BAD_ARGS=0
+while IFS= read -r raw_target; do
+  [ -n "$raw_target" ] || continue
+  if [ -d "$raw_target" ]; then
+    continue
+  fi
+  if [ -e "$raw_target" ]; then
+    printf 'REFUSED_BAD_ARGUMENT=%s (not a directory)\n' "$raw_target" >&2
+  else
+    printf 'REFUSED_BAD_ARGUMENT=%s (no such directory)\n' "$raw_target" >&2
+  fi
+  BAD_ARGS=1
+done < "$TARGETS_FILE"
+
+if [ "$BAD_ARGS" -ne 0 ]; then
+  printf 'Targets are PATHS, resolved like any other shell path: absolute, or relative to\n' >&2
+  printf 'the CURRENT DIRECTORY. A BARE WORKTREE NAME IS NOT RESOLVED AGAINST THE WORKTREE\n' >&2
+  # The next two lines quote the placeholders `<name>` and `<mayor-checkout>` in
+  # backticks, which is how the reader needs to see them and is the whole value
+  # of the message. Single quotes are therefore CORRECT here — nothing is meant
+  # to expand — which is exactly what SC2016 asks about, so it is answered once
+  # per line rather than by rewording the refusal.
+  # shellcheck disable=SC2016
+  printf 'PARENT — a bare `<name>` run from the mayor checkout names\n' >&2
+  # shellcheck disable=SC2016
+  printf '`<mayor-checkout>/<name>`, which is not where worker worktrees live.\n' >&2
+  printf "Pass the path 'git worktree list' prints; it is already in the form this wants.\n" >&2
+  printf 'If the directory is genuinely gone but git still lists the worktree, the tool for\n' >&2
+  printf "that is 'git worktree prune', not this script.\n" >&2
+  printf 'NOTHING WAS EXAMINED, SNAPSHOTTED OR UNLINKED.\n' >&2
   exit 2
 fi
 
@@ -965,13 +1099,11 @@ while IFS= read -r raw_target; do
   # worktree. The version that inferred a husk from that negative alone
   # disarmed and condemned an ordinary temp directory. Identification now needs
   # a positive: the caller's --husk AND content this repository recognises.
+  #
+  # A target that is not a directory at all never reaches here: the argument
+  # contract at the top of the script refuses it with exit 2, before the canary
+  # (rf2-u62e). So every path below is one that EXISTS and is merely not ours.
   if ! grep -Fxq "$(to_lower "$WT")" "$WORK_DIR/roster"; then
-    if [ ! -d "$WT" ]; then
-      printf 'REFUSED_UNREGISTERED=%s (no such directory)\n' "$WT" >&2
-      printf "Nothing was touched. Check the path; 'git worktree list' shows what is registered.\n" >&2
-      FAILED=1
-      continue
-    fi
     if worktree_is_intact "$WT"; then
       printf 'REFUSED_UNREGISTERED=%s\n' "$WT" >&2
       printf 'It has a working .git and git answers for it, so it is some OTHER checkout —\n' >&2
