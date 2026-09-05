@@ -334,6 +334,76 @@
   [tags]
   (trace/emit-error! :rf.error/schema-validation-failure tags))
 
+(defn- record-type-tag
+  "TOTAL, CLOSED type tag for the always-on `:errors` record's `:reason`.
+  Returns one of nine string literals and nothing else, ever.
+
+  ## Why this exists rather than `error/type-of-value`
+
+  `type-of-value` is the right helper for the DEV TRACE, whose reason is
+  already unbounded (it interpolates `(pr-str schema)`) and which no
+  application listener receives. It is the wrong one HERE, and the reason is
+  a disclosure rather than a size: its fallback arm is `(str (type v))`, and
+  on ClojureScript `type` IS `(.-constructor x)` — `cljs/core.cljs` defines it
+  as exactly that, docstring \"Return x's constructor\".
+
+  `constructor` is an ORDINARY, WRITABLE property name. A foreign JS value
+  carrying its own `constructor` field returns that field's text verbatim, so
+  the supposed type tag is PAYLOAD wearing the costume of trusted runtime
+  structure. Measured (rf2-xpd8 audit of PR #9208): a `js-obj` with
+  `constructor` set to a sentinel string returned the sentinel, which
+  `emit-app-db-rejection-record!` then concatenated after `\"got \"` and
+  published unchanged to the corpus-wide `:errors` listener registry —
+  defeating this record's whole closed-shape/no-payload guarantee, the one
+  thing that let a dev-only check ride the always-on stream at all.
+
+  ## Why not a host classification either
+
+  The obvious repairs are both value-controlled too, which is why the
+  fallback here is a CONSTANT rather than a cleverer lookup:
+
+    - `Object.prototype.toString.call(v)` is steered by `Symbol.toStringTag`,
+      an ordinary own property — measured returning `[object <attacker text>]`.
+    - `(.-name (.-constructor v))` re-reads the same overridable slot.
+
+  So the only arms permitted here are predicates that read the VALUE'S SHAPE
+  through the runtime rather than through a property the value chooses:
+  `typeof`, `instanceof` (which consults the CONSTRUCTOR's
+  `Symbol.hasInstance`, never the value's), and CLJS protocol dispatch. The
+  cheap, non-property-reading predicates are ordered FIRST so a foreign value
+  reaches the protocol arms only after the primitives have declined it.
+
+  A value that masquerades — a JS object with a planted `cljs$core$IMap$`
+  slot, say — is classified `\"map\"`. That is a WRONG tag but not a leak,
+  which is the property that matters: every arm yields a framework literal,
+  so no path returns caller text.
+
+  ## Total, including against hostile code
+
+  `map?` / `vector?` are protocol lookups, i.e. property GETs, and a Proxy
+  can install a `get` trap that throws (measured: reading `.constructor`
+  through such a proxy raised). A diagnostic that explodes while explaining a
+  rejection is the rf2-9s68n failure one level up, so the whole cond is
+  wrapped and a throwing value classifies as `\"object\"`.
+
+  The eight named tags are `error/type-of-value`'s documented vocabulary,
+  reused deliberately: this record's reason stays a SUBSET of the framework's
+  existing reason-string vocabulary, so no consumer learns a new word. Only
+  the unbounded host-class fallback is replaced — by `\"object\"`."
+  [v]
+  (try
+    (cond
+      (nil? v)     "nil"
+      (string? v)  "string"
+      (integer? v) "integer"
+      (number? v)  "number"
+      (boolean? v) "boolean"
+      (keyword? v) "keyword"
+      (map? v)     "map"
+      (vector? v)  "vector"
+      :else        "object")
+    (catch #?(:clj Throwable :cljs :default) _ "object")))
+
 (defn- emit-app-db-rejection-record!
   "Fan ONE structural-only `:rf.error/schema-validation-failure` record onto
   the always-on `:errors` stream for a rejected `app-db` candidate — the
@@ -393,8 +463,13 @@
 
   `reason-string` interpolates `(pr-str schema)` — unbounded — so it cannot
   ride here. This sentence is built from the registered path and
-  `error/type-of-value` (a closed vocabulary plus host class names) alone,
-  and it is what the rf2-fu75 unowned-error console fallback prints when
+  `record-type-tag` alone — a CLOSED nine-literal vocabulary, never
+  `error/type-of-value`, whose host-class fallback `(str (type v))` reads the
+  value's own overridable `constructor` on CLJS and so returned caller text
+  through this slot until the rf2-xpd8 audit of PR #9208 caught it (see that
+  fn's docstring for the measurement and for why the obvious host-side
+  repairs are value-controlled too). The tag is what the rf2-fu75
+  unowned-error console fallback prints when
   nothing owns the `:errors` stream: seventeen red lines each naming a
   registered path and ending `got nil` is a self-diagnosing incident.
 
@@ -422,7 +497,7 @@
        ;; could not prove it absent.
        :reason          (str "App-db candidate at registered path "
                              registered-path " failed its schema (got "
-                             (error/type-of-value leaf-value)
+                             (record-type-tag leaf-value)
                              "); the candidate transition was rejected and nothing installed.")
        :time            (interop/now-ms)}))
   nil)
