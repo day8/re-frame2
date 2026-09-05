@@ -1,6 +1,7 @@
 {
   "name": "@day8/re-frame-migration",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Guided v1.x → v2 migration for re-frame ClojureScript codebases — swaps the artefact coord, applies Type A mechanical rewrites, flags Type B judgment calls. A Claude Code Skill, companion to the main re-frame2 and re-frame2-setup skills.",
   "keywords": [
     "claude-code",
@@ -32,9 +33,6 @@
     "references/",
     ".claude-plugin/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }

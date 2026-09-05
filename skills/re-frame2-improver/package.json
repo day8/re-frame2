@@ -1,6 +1,7 @@
 {
   "name": "@day8/re-frame2-improver",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Critique-mode for existing re-frame2 ClojureScript code. Reviews a body of source files against an anti-pattern catalogue, surfaces concrete findings cross-linked to canonical idioms, and may propose inline fixes. Activates only on explicit pull — vocabulary alone is not enough; a body of re-frame2 source must be in scope.",
   "keywords": [
     "claude-code",
@@ -32,9 +33,6 @@
     "references/",
     ".claude-plugin/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }

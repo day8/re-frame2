@@ -23,6 +23,15 @@ The installer is idempotent. It refuses to clobber a non-link copy without
 links. Run it once after cloning. Re-run with `--force` once to retire any
 stale copy a previous copy-install left behind.
 
+**Which channels exist — the single source.** Two do: this link install, and
+`npx skills add` against the public repo, which installs one skill directory
+on its own and needs no publish step (see [§Layout convention](#layout-convention)).
+Two do not: every `package.json` here is marked `private`, so nothing is
+published to npm, and the repo carries no Claude Code plugin marketplace
+manifest — the `.claude-plugin/plugin.json` beside each skill is staged
+packaging metadata, not a live channel. The per-skill READMEs say the same;
+this paragraph is what they answer to if one ever drifts.
+
 The docs-site landing page mirrors this index at
 [`docs/skills/index.md`](../docs/skills/index.md) — same 9 skills,
 hosted on the mkdocs site (it carries the human-facing decision flow;

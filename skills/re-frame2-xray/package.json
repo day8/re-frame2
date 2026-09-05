@@ -1,6 +1,7 @@
 {
   "name": "@day8/re-frame2-xray",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Question-first tour skill for Xray — the re-frame2 in-app devtools panel. Routes a debugging question to the one visible surface to open first — across the 10 Dynamic event-spine tabs and 5 Static registry-browse tabs — and teaches how to launch Xray (true-inline, the open-overlay! fallback for no-layout-host hosts, pop-out, programmatic, hotkeys, the Dynamic ↔ Static mode toggle). The canonical tab inventory lives in references/panels.md.",
   "keywords": [
     "claude-code",
@@ -31,9 +32,6 @@
     "references/",
     ".claude-plugin/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }
