@@ -199,7 +199,11 @@ function runCapturing(command, args, options) {
       });
     }
     child.on('error', (error) => resolve({ error, captured }));
-    child.on('close', (status) => resolve({ status, captured }));
+    // BOTH arguments. `close` reports a signal death as (null, 'SIGTERM') —
+    // the status is NULL, and the signal name is the only place the cause is
+    // written down. Dropping the second argument threw that away and left the
+    // caller a status it cannot tell apart from "no idea" (rf2-i7q4).
+    child.on('close', (status, signal) => resolve({ status, signal, captured }));
   });
 }
 
@@ -260,12 +264,31 @@ async function main(argv) {
     return 1;
   }
 
+  // rf2-i7q4 — A SIGNAL-KILLED CHILD IS NOT A PASSING BUILD, and Node's own
+  // convention is what made it read as one. `close` reports a signal death as
+  // (null, 'SIGTERM'): the status is NULL rather than a number, `null !== 0`
+  // so this branch was entered and printed "did not complete (exit null)" —
+  // and then returned that null to `process.exit()`, which reads a non-number
+  // as SUCCESS. The wrapper said the compile had failed and told automation it
+  // had passed, in the same breath. An OOM kill, a CI job cancellation, or an
+  // administrative taskkill of the shadow-cljs JVM all land here.
+  //
+  // So the seam is: a NUMERIC status is the child's own verdict and passes
+  // through untouched (0 continues into the output/tally checks below; 1, 3,
+  // anything else is returned as-is). Any NON-numeric completion is abnormal
+  // by construction and normalises to a stable 1.
   if (result.status !== 0) {
+    const numeric = typeof result.status === 'number';
+    const cause = numeric
+      ? `did not complete (exit ${result.status})`
+      : result.signal
+        ? `was terminated by signal ${result.signal} before it could complete`
+        : 'did not complete and reported no exit status';
     console.error(
-      `compile-node-test: shadow-cljs compile ${buildId} did not complete (exit ${result.status}); ` +
+      `compile-node-test: shadow-cljs compile ${buildId} ${cause}; ` +
         `${outputTo} was cleared before the attempt, not left stale.`
     );
-    return result.status;
+    return numeric ? result.status : 1;
   }
 
   if (!fs.existsSync(outputPath)) {
