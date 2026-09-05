@@ -18,7 +18,7 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.flows]                            ;; load-time hook for reg-flow
-            [re-frame.machines :as rf.machines]                          ;; load-time hook for make-machine-handler
+            [re-frame.machines]                         ;; load-time hooks behind rf/reg-machine
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
@@ -130,15 +130,14 @@
 ;; :fx from earlier slots in the cascade is dropped; :always does not
 ;; fire on the failed cascade.
 
-(rf/reg-event ::throw-in-machine
-  (rf.machines/make-machine-handler
-    {:initial :idle
-     :actions {:throw
-               (fn [_]
-                 ;; HOT PATH — the throw site for :rf.error/machine-action-exception.
-                 (throw (ex-info "deliberate-throw / machine action"
-                                 {:where :machine})))}
-     :states  {:idle {:on {::tick {:target :idle :action :throw}}}}}))
+(rf/reg-machine ::throw-in-machine
+  {:initial :idle
+   :actions {:throw
+             (fn [_]
+               ;; HOT PATH — the throw site for :rf.error/machine-action-exception.
+               (throw (ex-info "deliberate-throw / machine action"
+                               {:where :machine})))}
+   :states  {:idle {:on {::tick {:target :idle :action :throw}}}}})
 
 ;; ----------------------------------------------------------------------------
 ;; Subs + view

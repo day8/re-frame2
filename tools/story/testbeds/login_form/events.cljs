@@ -28,9 +28,10 @@
   network call never fires. The fx body below would run in the live
   app; in Story it's intercepted."
   (:require [re-frame.core :as rf]
-            ;; Loads the machine substrate's late-bind hooks so
-            ;; rf.machines/make-machine-handler resolves below.
-            [re-frame.machines :as rf.machines]
+            ;; Loads the machine substrate's late-bind hooks behind
+            ;; rf/reg-machine; without them the registration below
+            ;; throws :rf.error/machines-artefact-missing.
+            [re-frame.machines]
             ;; Loads :rf.http/managed; without it, dispatching
             ;; the login flow's request fx would throw
             ;; :rf.error/no-such-fx.
@@ -52,116 +53,115 @@
 ;; tutorial's claim that "you swap five variants without a single
 ;; refresh."
 
-(rf/reg-event :login/flow
+(rf/reg-machine :login/flow
   {:doc "Login flow machine — five-state authentication FSM."}
-  (rf.machines/make-machine-handler
-    {:initial :idle
-     :data    {:email      ""
-               :error      nil
-               :attempts   0}
+  {:initial :idle
+   :data    {:email      ""
+             :error      nil
+             :attempts   0}
 
-     :guards
-     {:credentials-look-valid
-      ;; Both fields non-blank and email looks email-ish. Keeps the
-      ;; guard surface honest — production would Malli-validate.
-      (fn [{[_ {:keys [email password]}] :event}]
-        (and (some? email) (some? password)
-             (re-find #".+@.+\..+" (str email))
-             (>= (count (str password)) 1)))}
+   :guards
+   {:credentials-look-valid
+    ;; Both fields non-blank and email looks email-ish. Keeps the
+    ;; guard surface honest — production would Malli-validate.
+    (fn [{[_ {:keys [email password]}] :event}]
+      (and (some? email) (some? password)
+           (re-find #".+@.+\..+" (str email))
+           (>= (count (str password)) 1)))}
 
-     :actions
-     {:remember-credentials
-      ;; Capture the email so the success banner can greet the user
-      ;; by handle. Production might capture the full claims set.
-      (fn [{data :data [_ {:keys [email]}] :event}]
-        {:data (assoc data :email email :error nil)})
+   :actions
+   {:remember-credentials
+    ;; Capture the email so the success banner can greet the user
+    ;; by handle. Production might capture the full claims set.
+    (fn [{data :data [_ {:keys [email]}] :event}]
+      {:data (assoc data :email email :error nil)})
 
-      :issue-request
-      ;; Issue the login HTTP request. The fx-id `:rf.http/managed`
-      ;; is the override seam: in Story variants `force-fx-stub`
-      ;; intercepts this id at the frame level; in the live app the
-      ;; production fx body fires the real network call.
-      (fn [{[_ creds] :event}]
-        {:fx [[:rf.http/managed
-               {:request    {:method :post
-                             :url    "/api/login"
-                             :body   creds
-                             :request-content-type :json}
-                :decode     :json
-                :on-success [:login/flow [:login/success]]
-                :on-failure [:login/flow [:login/failure]]}]]})
+    :issue-request
+    ;; Issue the login HTTP request. The fx-id `:rf.http/managed`
+    ;; is the override seam: in Story variants `force-fx-stub`
+    ;; intercepts this id at the frame level; in the live app the
+    ;; production fx body fires the real network call.
+    (fn [{[_ creds] :event}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post
+                           :url    "/api/login"
+                           :body   creds
+                           :request-content-type :json}
+              :decode     :json
+              :on-success [:login/flow [:login/success]]
+              :on-failure [:login/flow [:login/failure]]}]]})
 
-      :record-error
-      ;; Capture the server error and increment the attempt counter.
-      ;; `:attempts` is what flips the :error label from "Invalid
-      ;; credentials" to "Invalid credentials (attempt 2)" — the
-      ;; visible difference between :error and :submitting-retry
-      ;; once the retry lands.
-      ;; rf2-ibksxg — the classified failure map rides under :error on the
-      ;; canonical reply.
-      (fn [{data :data [_ {:keys [error]}] :event}]
-        {:data (-> data
-                   (update :attempts (fnil inc 0))
-                   (assoc :error (or (:message error)
-                                     "Invalid credentials.")))})
+    :record-error
+    ;; Capture the server error and increment the attempt counter.
+    ;; `:attempts` is what flips the :error label from "Invalid
+    ;; credentials" to "Invalid credentials (attempt 2)" — the
+    ;; visible difference between :error and :submitting-retry
+    ;; once the retry lands.
+    ;; rf2-ibksxg — the classified failure map rides under :error on the
+    ;; canonical reply.
+    (fn [{data :data [_ {:keys [error]}] :event}]
+      {:data (-> data
+                 (update :attempts (fnil inc 0))
+                 (assoc :error (or (:message error)
+                                   "Invalid credentials.")))})
 
-      :clear-error
-      ;; Reset the error message at retry-time so the form doesn't
-      ;; display stale text while the second request is in flight.
-      (fn [{data :data}]
-        {:data (assoc data :error nil)})}
+    :clear-error
+    ;; Reset the error message at retry-time so the form doesn't
+    ;; display stale text while the second request is in flight.
+    (fn [{data :data}]
+      {:data (assoc data :error nil)})}
 
-     :states
-     {;; :idle — empty form, ready for input. This is the entry
-      ;; state and also the state the variant body's `:setup` slot
-      ;; lands in for the *first* of the five Story variants.
-      :idle
-      {:on {:login/submit [{:target :submitting
-                            :guard  :credentials-look-valid
-                            :action :remember-credentials}]}}
+   :states
+   {;; :idle — empty form, ready for input. This is the entry
+    ;; state and also the state the variant body's `:setup` slot
+    ;; lands in for the *first* of the five Story variants.
+    :idle
+    {:on {:login/submit [{:target :submitting
+                          :guard  :credentials-look-valid
+                          :action :remember-credentials}]}}
 
-      ;; :submitting — first submit; HTTP request in flight. The
-      ;; submit button is disabled (the view queries the `:auth/busy`
-      ;; tag), the form is read-only. This is the second variant.
-      :submitting
-      {:tags  #{:auth/busy}
-       :entry :issue-request
-       :on    {:login/success {:target :authenticated}
-               :login/failure {:target :error
-                               :action :record-error}}}
+    ;; :submitting — first submit; HTTP request in flight. The
+    ;; submit button is disabled (the view queries the `:auth/busy`
+    ;; tag), the form is read-only. This is the second variant.
+    :submitting
+    {:tags  #{:auth/busy}
+     :entry :issue-request
+     :on    {:login/success {:target :authenticated}
+             :login/failure {:target :error
+                             :action :record-error}}}
 
-      ;; :error — server rejected creds. The user sees the error
-      ;; message and can either retry (fix the typo, click submit
-      ;; again) or dismiss (back to :idle without a message).
-      ;; This is the third variant — the canonical "error
-      ;; state" Story exists to capture.
-      :error
-      {:on {:login/retry   {:target :submitting-retry
-                            :guard  :credentials-look-valid
-                            :action :clear-error}
-            :login/dismiss {:target :idle
-                            :action :clear-error}}}
+    ;; :error — server rejected creds. The user sees the error
+    ;; message and can either retry (fix the typo, click submit
+    ;; again) or dismiss (back to :idle without a message).
+    ;; This is the third variant — the canonical "error
+    ;; state" Story exists to capture.
+    :error
+    {:on {:login/retry   {:target :submitting-retry
+                          :guard  :credentials-look-valid
+                          :action :clear-error}
+          :login/dismiss {:target :idle
+                          :action :clear-error}}}
 
-      ;; :submitting-retry — distinct from :submitting because the
-      ;; tutorial calls it out as the fourth state. Same busy tag,
-      ;; same request fx, but the variant body wraps the form in a
-      ;; small "Retrying" hint and the attempt counter is now > 1.
-      :submitting-retry
-      {:tags  #{:auth/busy :auth/retry}
-       :entry :issue-request
-       :on    {:login/success {:target :authenticated}
-               :login/failure {:target :error
-                               :action :record-error}}}
+    ;; :submitting-retry — distinct from :submitting because the
+    ;; tutorial calls it out as the fourth state. Same busy tag,
+    ;; same request fx, but the variant body wraps the form in a
+    ;; small "Retrying" hint and the attempt counter is now > 1.
+    :submitting-retry
+    {:tags  #{:auth/busy :auth/retry}
+     :entry :issue-request
+     :on    {:login/success {:target :authenticated}
+             :login/failure {:target :error
+                             :action :record-error}}}
 
-      ;; :authenticated — fifth variant. The welcome banner replaces
-      ;; the form. Not strictly terminal — :sign-out routes back to
-      ;; :idle so the live testbed page can demonstrate the full
-      ;; round-trip; Story variants pin the state via their own
-      ;; `:setup` slot regardless.
-      :authenticated
-      {:tags #{:auth/authenticated}
-       :on   {:login/sign-out {:target :idle
-                               :action :clear-error}}}}}))
+    ;; :authenticated — fifth variant. The welcome banner replaces
+    ;; the form. Not strictly terminal — :sign-out routes back to
+    ;; :idle so the live testbed page can demonstrate the full
+    ;; round-trip; Story variants pin the state via their own
+    ;; `:setup` slot regardless.
+    :authenticated
+    {:tags #{:auth/authenticated}
+     :on   {:login/sign-out {:target :idle
+                             :action :clear-error}}}}})
 
 ;; ============================================================================
 ;; DEMO FX — for the LIVE testbed page (not for Story variants)
