@@ -1,6 +1,7 @@
 {
   "name": "@day8/re-frame2-implementor",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Guided two-phase workflow for building a new re-frame2 implementation in a different host language or substrate. Phase 1 locks the load-bearing decisions; Phase 2 walks the spec corpus in dependency order. A Claude Code Skill, companion to the application-side re-frame2 skills.",
   "keywords": [
     "claude-code",
@@ -32,9 +33,6 @@
     "references/",
     ".claude-plugin/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }

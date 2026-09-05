@@ -41,7 +41,7 @@ The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-s
 
 ## Install
 
-`re-frame2` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The 2 supported channels are a repo checkout (git clone + link) and a Claude Code marketplace plugin — it is not published to npm (the `package.json` is marked `private`). Clone the repo and link the skill into `~/.claude/skills/` (Claude Code loads skills from there).
+`re-frame2` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The supported install is a repo checkout (git clone + link). It is not published to npm (the `package.json` is marked `private`), and there is no Claude Code marketplace manifest in the repo — the `.claude-plugin/plugin.json` beside each skill is staged packaging metadata, not a live plugin channel. Clone the repo and link the skill into `~/.claude/skills/` (Claude Code loads skills from there).
 
 Link, never copy. A copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. Use the cross-platform installer, which links every skill in the monorepo so the active skill is the repo source by construction:
 

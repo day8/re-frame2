@@ -83,7 +83,7 @@ skills/reagent-migration/
 
 ## Install
 
-`reagent-migration` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. Link the skill from a full monorepo clone into `~/.claude/skills/` (the repo-root `scripts/install-skills.sh` / `scripts/install-skills.ps1` link every skill at once). Link, never copy — a `cp -r` snapshot drifts from the maintained source. The `package.json` + `.claude-plugin/plugin.json` packaging metadata is staged for eventual Agent-Skill / Claude-Code-Plugin distribution, not yet a published install path (`plugin.json` carries `"status": "pre-alpha"`).
+`reagent-migration` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. Link the skill from a full monorepo clone into `~/.claude/skills/` (the repo-root `scripts/install-skills.sh` / `scripts/install-skills.ps1` link every skill at once). Link, never copy — a `cp -r` snapshot drifts from the maintained source. The `package.json` + `.claude-plugin/plugin.json` packaging metadata names no live channel: the `package.json` is marked `private`, and the repo carries no plugin marketplace manifest (`plugin.json` carries `"status": "pre-alpha"`).
 
 ## Source of truth
 

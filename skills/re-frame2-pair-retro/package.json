@@ -1,6 +1,7 @@
 {
   "name": "@day8/re-frame2-pair-retro",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Retrospect on a re-frame2-pair session in one read-only pass — identify workflow friction, propose prioritised improvements, and optionally include a copy-pasteable GitHub issue draft the user can file.",
   "keywords": [
     "claude-code",
@@ -30,9 +31,6 @@
     "references/",
     ".claude-plugin/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }

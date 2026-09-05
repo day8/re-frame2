@@ -28,7 +28,7 @@ This skill is the on-demand complement to [`re-frame2`](https://github.com/day8/
 
 ## Install
 
-`re-frame2-improver` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` and `.claude-plugin/plugin.json` metadata for eventual Agent-Skill / plugin distribution, but it is not published separately yet — the current install path is to clone re-frame2 and link the skill from `skills/re-frame2-improver/`. The packaged normal path is self-contained: everything a review loads (`SKILL.md` + `references/`) ships in the package's own file set — the sibling-skill routing boundary included, stated in full in [`SKILL.md` §Trigger semantics](SKILL.md#trigger-semantics-locked) — and links out to the monorepo (`skills/re-frame2/patterns/`, `spec/`, the `skills/README.md` routing matrix) are optional supporting destinations, not required reads.
+`re-frame2-improver` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` and `.claude-plugin/plugin.json` packaging metadata, but neither names a live channel: the `package.json` is marked `private`, and the repo carries no plugin marketplace manifest. The install path is to clone re-frame2 and link the skill from `skills/re-frame2-improver/`. The packaged normal path is self-contained: everything a review loads (`SKILL.md` + `references/`) ships in the package's own file set — the sibling-skill routing boundary included, stated in full in [`SKILL.md` §Trigger semantics](SKILL.md#trigger-semantics-locked) — and links out to the monorepo (`skills/re-frame2/patterns/`, `spec/`, the `skills/README.md` routing matrix) are optional supporting destinations, not required reads.
 
 ### Install the skill in Claude Code
 

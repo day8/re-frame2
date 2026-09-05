@@ -166,7 +166,7 @@ skills/re-frame2-setup/
 
 ## Install the skill in Claude Code
 
-`re-frame2-setup` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The supported install is a repo checkout (git clone + link) or a Claude Code marketplace plugin — it is not published to npm (the `package.json` is marked `private`). Clone re-frame2, check out a specific release tag or commit, and review the skill's `SKILL.md` and reference leaves before installing (the skill grants `Bash(...)` access to a small set of build/install commands; you should know what you're authorising). Then link the skill from `skills/re-frame2-setup/`.
+`re-frame2-setup` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The supported install is a repo checkout (git clone + link). It is not published to npm (the `package.json` is marked `private`), and there is no Claude Code marketplace manifest in the repo — the `.claude-plugin/plugin.json` beside each skill is staged packaging metadata, not a live plugin channel. Clone re-frame2, check out a specific release tag or commit, and review the skill's `SKILL.md` and reference leaves before installing (the skill grants `Bash(...)` access to a small set of build/install commands; you should know what you're authorising). Then link the skill from `skills/re-frame2-setup/`.
 
 Skills under `~/.claude/skills/` are agent instructions with shell access. Treat installation the same way you would treat installing any other plugin — pin the checkout you link from to a reviewed tag, read the code, install deliberately.
 

@@ -1,6 +1,7 @@
 {
   "name": "@day8/reagent-migration",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Optional, second-step rewrite of Reagent view code into Hicasso, re-frame2's re-frame-native view layer — establishes first that the user does not have to (the Reagent adapter is first-class and Hicasso is pre-publication), then applies the mechanical MIG rewrites, reasons through the judgment calls, and declines what Hicasso has no equivalent for. A Claude Code Skill, companion to re-frame-migration and re-frame2.",
   "keywords": [
     "claude-code",
@@ -32,9 +33,6 @@
     "references/",
     ".claude-plugin/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }
