@@ -479,6 +479,30 @@ can only be discovered after the render, a module that both emitted and
 returned produces a torn response carrying `detail.afterChunks` — the
 bytes really did leave, and the transport must not present them as a page.
 
+And a module that THROWS is refused the same way, which is the other door
+out of a render and the one an author meets by accident rather than on
+purpose. The refusal is always `:rf.ssr-node/render-threw`, with this
+contract's own wording and a `detail` of the entry and `afterChunks`:
+**the exception's `message`, its `detail`, and any `code` it carried do
+not cross the wire**. That is not tidiness. A renderer exception is built
+from the value being processed in the normal case — React names the
+property that was undefined, a validator quotes the input, a template
+interpolates the row — so forwarding it is the response leg carrying
+application data, which is the thing this contract exists not to do. A
+module-set `code` is refused for a second reason: the refusal family is
+this service's, and believing one would let an application bug present
+itself as a caller fault (400), a saturation (503) or a deadline (504),
+sending an operator and a retry policy down the wrong path.
+
+Nothing is lost by it. The full exception, **with its stack**, is written
+to the sidecar's stderr under the usual `[rf.ssr-node]` prefix, which is
+where an operator already reads this service — so a render bug is
+diagnosed in the sidecar's log rather than over a contract published to
+another machine. Two audiences, two channels, and no flag to get wrong.
+There is nothing for a render module to do about any of this: throw
+whatever is natural, and the boundary holds. `test/egress.test.cjs` §4 is
+the witness, with planted sentinels on all three fields.
+
 The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is a
 per-request `gensym` frame made with no initial events,
 `re-frame.ssr.render-state/deserialize` over `state` and `runtime`,
@@ -734,8 +758,20 @@ agreeing; the runaway render is shown still running after 400 ms before a
 200 ms refusal is called a termination; the egress scan is shown finding a
 planted leak — and the leaky fixture shown really returning one, and the
 null-returning fixture shown really returning `null` rather than drifting
-into falling off its end — before its zero is believed; and the absence
-scan is shown finding a planted reference before its zero is believed.
+into falling off its end, and the throwing fixture shown really carrying a
+distinct sentinel on each of `code`, `message` and a nested `detail` —
+before its zero is believed; and the absence scan is shown finding a
+planted reference before its zero is believed.
+
+One of those controls is worth reading twice, because it guards against a
+row going quiet rather than against a row going wrong. The status-spoof
+rows drive a fixture that hard-codes real members of the refusal family as
+its `error.code`, the way an application would — it does not import the
+service's protocol module. Rename a member of `CODE` and those literals
+become codes the service has never heard of, which map to 500 all on their
+own: the rows stay green and stop testing a spoof. So the codes are
+asserted to be live members, and to map to a status other than
+`render-threw`'s, before any of them is trusted reading 500.
 
 ---
 
