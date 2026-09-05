@@ -214,12 +214,17 @@
                        :cause    [:event :resources-ssr.app/page-opened]}]]]}))
 
 (rf/reg-event :resources-ssr.app/page-closed
-  {:doc       "The matching release, and it is not optional: whatever mints an
-               owner must also drop it, or the entry is pinned alive forever and
-               the cache never GCs. This demo is a single page whose lifetime is
-               its frame's, so nothing here dispatches it — a page that can be
-               unmounted dispatches it on the way out, and a routed app gets the
-               equivalent for free when route-leave releases the route owner."
+  {:doc       "The matching release. NOTHING IN THIS DEMO DISPATCHES IT, and the
+               reason is the boundary rather than an oversight: this page is the
+               whole app, so its lifetime is its frame's, and the entry it would
+               release lives in that frame's runtime-db — destroy the frame and
+               the cache goes with it, leaving no longer-lived cache for an
+               unreleased owner to pin. Read it as the half you WILL need. The
+               framework never auto-releases an app-minted owner, so the moment a
+               page can be unmounted while its frame lives on, the pairing stops
+               being optional: dispatch this on the way out or the entry is
+               pinned alive and never GCs. A routed app writes neither half —
+               route leave drops the route owner for you."
    :platforms #{:client}}
   (fn [_ _]
     {:fx [[:dispatch [:rf.resource/release-owner {:owner page-owner}]]]}))

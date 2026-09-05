@@ -122,13 +122,20 @@ per-request, and the wire payload stays minimal.
   for you. This page is deliberately route-free — the simplest SSR shape
   there is — so it uses the framework's other answer, the app-minted event
   owner ([Spec 016 §The scoped-cache owner
-  lifecycle](../../../../spec/016-Resources.md)), and owns the matching
-  `:resources-ssr.app/page-closed` release to go with it. Both halves
-  matter. An owner nobody releases pins its entry alive forever; an entry
-  nobody owns is renderable but inert — tag invalidation and
-  focus/reconnect revalidation pass it by, and no GC clock runs. Taking the
-  hold is what makes the hydrated cache a live cache rather than a picture
-  of one.
+  lifecycle](../../../../spec/016-Resources.md)). Taking the hold is what
+  makes the hydrated cache a live cache rather than a picture of one: an
+  entry nobody owns is renderable but inert — tag invalidation and
+  focus/reconnect revalidation pass it by, and no GC clock runs.
+
+  The matching `:resources-ssr.app/page-closed` release is registered here
+  too, and it is worth reading, but nothing in this demo dispatches it —
+  the page is the whole app, so its lifetime is its frame's, and the entry
+  it would release lives in that frame's runtime-db and goes when the frame
+  does. Copy it, though, and the pairing stops being optional the moment
+  the page can be unmounted while the frame lives on: an app-minted owner
+  is never auto-released, so an unreleased one pins its entry for as long
+  as the cache exists. A routed app never writes either half — route leave
+  drops the route owner for you.
 
 - Scope is a wall hydration may never cross. The resource declares
   `:scope :rf.scope/global` — the auditable claim that this article list
