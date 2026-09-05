@@ -1165,6 +1165,8 @@
             cycle. `mount/popout!` reaches keybinding ONLY through this
             slot, so an unregistered installer means a keyboard-less
             pop-out with nothing else failing."
+    ;; Two derefs, not one: the var holds an ATOM, so `@#'` yields the atom
+    ;; and the second `@` reads the installer out of it.
     (is (identical? keybinding/install-popout-keydown!
-                    @#'mount/popout-keydown-installer)
+                    @@#'mount/popout-keydown-installer)
         "keybinding registered its installer into mount at load time")))
