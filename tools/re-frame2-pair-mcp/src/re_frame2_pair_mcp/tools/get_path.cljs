@@ -39,6 +39,7 @@
   `:scalar-value` arm of `run-wire-pipeline` just counts the
   resulting `:rf.size/large-elided` markers."
   (:require [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.frame-resolve :as fr]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
             [re-frame2-pair-mcp.tools.probe :as probe]
@@ -60,52 +61,17 @@
          "         " elision-opts "))")
     value-sym))
 
-(def ^:private resolved-frame-sym
-  "Name of the let-binding `with-resolved-frame` puts the resolved
-  operating-frame id in. Both eval forms read app-db through it AND
-  hand it to the walker, so the value read and the elision handle
-  describe the same frame by construction."
-  "fid")
+;; The resolve-once-then-refuse wrapper this tool introduced (rf2-q17a)
+;; now lives in `re-frame2-pair-mcp.tools.frame-resolve`, shared with
+;; `trace-window` and `watch-epochs`, which had the same defect through
+;; the epoch ring rather than app-db (rf2-yo4s). Both eval forms here
+;; read app-db through the id it binds AND hand that same id to the
+;; walker, so the value read and the elision handle describe the same
+;; frame by construction.
+(def ^:private resolved-frame-sym fr/resolved-frame-sym)
 
-(defn- with-resolved-frame
-  "Wrap `inner-src` — a get-path eval form — in the operating-frame
-  resolution every frame-targeted call owes the Tool-Pair contract:
-  explicit override -> session pin -> sole app frame -> nil.
-
-  The resolve runs browser-side, ONCE, before any app-db read. `nil`
-  means two-plus app frames are registered with no pin, so the tool
-  cannot know which frame the caller meant, and a tier-4 read must
-  REFUSE rather than read some other frame.
-
-  Refusing is the whole of this wrapper's point. Without it the form
-  called `(snapshot)` — `(rf/app-db-value (current-frame))`, i.e.
-  `(rf/app-db-value nil)`, i.e. nil — and `get-in` over nil answers
-  `:path-not-found` (singular) or `{:exists? false}` for every path
-  (batch). That is a confident falsehood about application state in
-  the one session shape where frame identity matters most: the agent
-  believes the slot is absent and goes off to ADD a path that was
-  already there (rf2-q17a).
-
-  `ambiguous-frame-error` is the SAME refusal envelope `read-sub` and
-  `sub-cache-info` already return — `:reason :ambiguous-frame` plus
-  `:available-frames` and a `:hint` naming the two recoveries that
-  already ship (pass `frame`, or pin one with `set-operating-frame`).
-  No new vocabulary and no new helper layer: the refusal rides the
-  existing `run-eval` `:ok? false` -> `wire/err-text` path out as an
-  `isError` envelope."
-  [frame inner-src]
-  (ef/emit
-    (ef/rt-let
-      [(symbol resolved-frame-sym)
-       (if frame
-         (ef/rt-call 'current-frame frame)
-         (ef/rt-call 'current-frame))]
-      (ef/rt-raw
-        (str "(if (nil? " resolved-frame-sym ") "
-             (ef/emit (ef/rt-call 'ambiguous-frame-error :get-path))
-             " "
-             inner-src
-             ")")))))
+(defn- with-resolved-frame [frame inner-src]
+  (fr/with-resolved-frame :get-path frame inner-src))
 
 (defn- single-path-form
   "Eval form for the singular `:path` read. Calls `snapshot` (full db for

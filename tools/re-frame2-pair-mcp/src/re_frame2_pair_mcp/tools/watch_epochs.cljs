@@ -26,9 +26,23 @@
     - `:no-events-since-id` — caller passed `:since-id` and no new
       epochs landed after it. Calmly says \"nothing new\".
     - `:pred-excludes-history` — the predicate filtered every epoch
-      out. Says the history exists; the pred is the gate."
+      out. Says the history exists; the pred is the gate.
+
+  ## Operating frame
+
+  The poll is frame-targeted, so it resolves the operating frame — the
+  cursor's sticky `:frame` or the caller's `frame` as the tier-1
+  override, then session pin, then sole app frame — BEFORE it touches
+  the ring, and REFUSES at nil with `:ambiguous-frame` (see
+  `re-frame2-pair-mcp.tools.frame-resolve`). It does not read frame nil
+  and relay the empty ring that comes back, which told the agent TWO
+  falsehoods at once: `:count 0` (\"nothing matched\") and, because a
+  cursor id cannot be found in an empty history, `:id-aged-out? true`
+  (\"your cursor fell out of the ring\") — a live cursor declared dead
+  (rf2-yo4s)."
   (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.frame-resolve :as fr]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
             [re-frame2-pair-mcp.tools.probe :as probe]
@@ -88,17 +102,22 @@
             ;; envelope identical to a correctly-filtered page so the
             ;; agent couldn't detect the drop.
             sticky-pred     (or (:pred cursor-in) pred-arg)
-            epochs-since-call (if sticky-frame
-                                (ef/rt-call 'epochs-since effective-after sticky-frame)
-                                (ef/rt-call 'epochs-since effective-after))
+            ;; Both ring reads go against the RESOLVED frame id, never
+            ;; an implicit one: `(epochs-since id)` and
+            ;; `(epoch-history)` each default to `(current-frame)`,
+            ;; which is nil under two-plus app frames with no pin, and
+            ;; `rf/epoch-history` answers `[]` for an unknown frame
+            ;; without erroring. `epochs-since` then cannot find the
+            ;; caller's id in that empty history and reports
+            ;; `:id-aged-out? true` — so the ambiguity arrived as a
+            ;; quiet poll AND a dead cursor (rf2-yo4s).
+            epochs-since-call (fr/frame-sym-call 'epochs-since effective-after)
             matches-form (str "(filterv #"
                               (ef/emit (ef/rt-call 'epoch-matches?
                                                    (or sticky-pred {})
                                                    (ef/rt-raw "%")))
                               " (:epochs r))")
-            history-call (if sticky-frame
-                           (ef/rt-call 'epoch-history sticky-frame)
-                           (ef/rt-call 'epoch-history))
+            history-call (fr/frame-sym-call 'epoch-history)
             ;; The `:pred` filter runs on the RAW records
             ;; server-side (never egressed); the capped `:page` is the
             ;; egress slice, ALWAYS projected via `projected-record` for
@@ -106,7 +125,7 @@
             ;; `{:include-sensitive? true}` INTO the projection (app-db
             ;; sensitive axis only), it does NOT disable projection.
             page-src       (str "(vec (take " limit " matches))")
-            form (ef/emit
+            poll-src (ef/emit
                    (ef/rt-let
                      ['r             epochs-since-call
                       'matches       (ef/rt-raw matches-form)
@@ -128,93 +147,106 @@
                             " :next-id next-id"
                             " :history-count history-count"
                             " :since-count since-count"
-                            " :remaining (max 0 (- (count matches) (count page)))}"))))]
+                            " :remaining (max 0 (- (count matches) (count page)))}"))))
+            ;; Resolve once, refuse at nil, THEN poll. The sticky frame
+            ;; is the tier-1 override, so a cursor's frame outranks the
+            ;; session pin exactly as page 1 did.
+            form (fr/with-resolved-frame :watch-epochs sticky-frame poll-src)]
         (probe/eval-after-runtime!
           conn build-id form :watch-failed
           (fn [v]
-            (let [v          (if (map? v) v {})
-                  aged-out?  (:id-aged-out? v)]
-              (if (and aged-out? (some? effective-after))
-                (cursor/cursor-stale-result "watch-epochs"
-                                            {:requested-id (or (:requested-id v) effective-after)
-                                             :head-id      (:head-id v)})
-                (let [matches (vec (:matches v))
-                      {:keys [value indicators]}
-                      (wp/run-wire-pipeline matches
-                                            {:kind   :epoch-vector
-                                             :incl?  incl?
-                                             :mode   mode
-                                             :dedup? dedup?})
-                      {:keys [dropped elided count]} indicators
-                      next-id       (:next-id v)
-                      next-cursor   (cursor/encode-cursor
-                                      (when next-id
-                                        {:v        1
-                                         :after-id next-id
-                                         :ms       nil
-                                         :until-ms nil
-                                         :frame    sticky-frame
-                                         ;; Carry the sticky
-                                         ;; predicate so page 2+ keeps
-                                         ;; filtering. nil when no pred was
-                                         ;; supplied (round-trips losslessly
-                                         ;; through the base64-of-EDN codec).
-                                         :pred     sticky-pred}))
-                      remaining     (or (:remaining v) 0)
-                      history-count (or (:history-count v) 0)
-                      since-count   (or (:since-count v) 0)
-                      ;; Two distinct empty-result
-                      ;; explainers, picked by the runtime data:
-                      ;;
-                      ;;   - since-count = 0 + history-count > 0
-                      ;;     → caller's :since-id is at (or past)
-                      ;;     the head; calmly say \"nothing new
-                      ;;     yet\".
-                      ;;
-                      ;;   - since-count > 0 + count = 0
-                      ;;     → events landed since the id but the
-                      ;;     :pred filtered them all out — point
-                      ;;     at the predicate, not the buffer.
-                      advisory
-                      (cond
-                        (and (zero? count)
-                             (zero? since-count)
-                             (pos? history-count))
-                        {:reason            :no-events-since-id
-                         :frame             sticky-frame
-                         :epochs-in-history history-count
-                         :requested-id      effective-after
-                         :hint              (str "Per-frame history holds "
-                                                 history-count
-                                                 " epochs but none have landed since the "
-                                                 "supplied :since-id. Dispatch an event "
-                                                 "to advance the head, or omit :since-id "
-                                                 "to see the full ring.")}
+            (if (fr/refusal? v)
+              ;; An unanswerable poll is an isError envelope carrying the
+              ;; candidate frames and the recovery. Ahead of the
+              ;; cursor-stale branch on purpose: an ambiguous frame reads
+              ;; an empty ring, in which the caller's live cursor id is
+              ;; simply not found, so the poll would otherwise report the
+              ;; cursor DEAD and send the agent back to page 1 of the
+              ;; wrong frame.
+              (wire/err-text v)
+              (let [v          (if (map? v) v {})
+                    aged-out?  (:id-aged-out? v)]
+                (if (and aged-out? (some? effective-after))
+                  (cursor/cursor-stale-result "watch-epochs"
+                                              {:requested-id (or (:requested-id v) effective-after)
+                                               :head-id      (:head-id v)})
+                  (let [matches (vec (:matches v))
+                        {:keys [value indicators]}
+                        (wp/run-wire-pipeline matches
+                                              {:kind   :epoch-vector
+                                               :incl?  incl?
+                                               :mode   mode
+                                               :dedup? dedup?})
+                        {:keys [dropped elided count]} indicators
+                        next-id       (:next-id v)
+                        next-cursor   (cursor/encode-cursor
+                                        (when next-id
+                                          {:v        1
+                                           :after-id next-id
+                                           :ms       nil
+                                           :until-ms nil
+                                           :frame    sticky-frame
+                                           ;; Carry the sticky
+                                           ;; predicate so page 2+ keeps
+                                           ;; filtering. nil when no pred was
+                                           ;; supplied (round-trips losslessly
+                                           ;; through the base64-of-EDN codec).
+                                           :pred     sticky-pred}))
+                        remaining     (or (:remaining v) 0)
+                        history-count (or (:history-count v) 0)
+                        since-count   (or (:since-count v) 0)
+                        ;; Two distinct empty-result
+                        ;; explainers, picked by the runtime data:
+                        ;;
+                        ;;   - since-count = 0 + history-count > 0
+                        ;;     → caller's :since-id is at (or past)
+                        ;;     the head; calmly say \"nothing new
+                        ;;     yet\".
+                        ;;
+                        ;;   - since-count > 0 + count = 0
+                        ;;     → events landed since the id but the
+                        ;;     :pred filtered them all out — point
+                        ;;     at the predicate, not the buffer.
+                        advisory
+                        (cond
+                          (and (zero? count)
+                               (zero? since-count)
+                               (pos? history-count))
+                          {:reason            :no-events-since-id
+                           :frame             sticky-frame
+                           :epochs-in-history history-count
+                           :requested-id      effective-after
+                           :hint              (str "Per-frame history holds "
+                                                   history-count
+                                                   " epochs but none have landed since the "
+                                                   "supplied :since-id. Dispatch an event "
+                                                   "to advance the head, or omit :since-id "
+                                                   "to see the full ring.")}
 
-                        (and (zero? count)
-                             (pos? since-count))
-                        {:reason            :pred-excludes-history
-                         :frame             sticky-frame
-                         :epochs-in-history history-count
-                         :epochs-since-id   since-count
-                         :hint              (str since-count
-                                                 " epochs landed since the requested id but "
-                                                 "the :pred filter excluded all of them. "
-                                                 "Drop / widen :pred, or use trace-window for "
-                                                 "an unfiltered view.")})
-                      base          (cond-> {:ok?          true
-                                             :head-id      (:head-id v)
-                                             :id-aged-out? (boolean aged-out?)}
-                                      (:requested-id v) (assoc :requested-id (:requested-id v))
-                                      advisory          (assoc :advisory advisory))]
-                  (wire/ok-text (wire/with-indicators
-                                  (assoc base
-                                         :matches             value
-                                         :limit               limit
-                                         :count               count
-                                         :epochs-mode         mode
-                                         :dedup               dedup?
-                                         :has-more?           (some? next-cursor)
-                                         :estimated-remaining remaining
-                                         :next-cursor         next-cursor)
-                                  {:dropped dropped :elided elided})))))))))))
+                          (and (zero? count)
+                               (pos? since-count))
+                          {:reason            :pred-excludes-history
+                           :frame             sticky-frame
+                           :epochs-in-history history-count
+                           :epochs-since-id   since-count
+                           :hint              (str since-count
+                                                   " epochs landed since the requested id but "
+                                                   "the :pred filter excluded all of them. "
+                                                   "Drop / widen :pred, or use trace-window for "
+                                                   "an unfiltered view.")})
+                        base          (cond-> {:ok?          true
+                                               :head-id      (:head-id v)
+                                               :id-aged-out? (boolean aged-out?)}
+                                        (:requested-id v) (assoc :requested-id (:requested-id v))
+                                        advisory          (assoc :advisory advisory))]
+                    (wire/ok-text (wire/with-indicators
+                                    (assoc base
+                                           :matches             value
+                                           :limit               limit
+                                           :count               count
+                                           :epochs-mode         mode
+                                           :dedup               dedup?
+                                           :has-more?           (some? next-cursor)
+                                           :estimated-remaining remaining
+                                           :next-cursor         next-cursor)
+                                    {:dropped dropped :elided elided}))))))))))))
