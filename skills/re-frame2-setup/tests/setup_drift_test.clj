@@ -460,11 +460,11 @@
                "auto-injection — the manual path must ship the substrate "
                "`views.cljs`, not send the author to the Reagent `reg-view` "
                "views (rf2-74uffk)."))
-      (is (str/includes? body "uix-adapter/use-subscribe")
+      (is (str/includes? body "rf.adapter.uix/use-subscribe")
           (str "The UIx view snippet must read subscriptions through "
                "the adapter `use-subscribe` hook (no auto-injected `subscribe` "
                "on that substrate) (rf2-74uffk)."))
-      (is (str/includes? body "(uix-adapter/use-frame)")
+      (is (str/includes? body "(rf.adapter.uix/use-frame)")
           (str "The UIx view snippet must obtain `dispatch` from the "
                "adapter `use-frame` hook (capture-frame in hook position) — "
                "there is no auto-injected `dispatch` on that substrate "
@@ -822,9 +822,9 @@
       (is (not (re-find #"register-schema!|re-frame\.schemas" body))
           (str "entry-namespace.md's UIx core.cljs attaches a schema — the reduced "
                "scaffold has none on either substrate (rf2-rc0yh)."))
-      (is (re-find #"\(defn\s+\^:export\s+init\s+\[\]\s+\(rf/init!\s+uix-adapter/adapter\)\s+\(mount!\)\)" body)
+      (is (re-find #"\(defn\s+\^:export\s+init\s+\[\]\s+\(rf/init!\s+rf\.adapter\.uix/adapter\)\s+\(mount!\)\)" body)
           (str "entry-namespace.md's UIx `init` is no longer exactly `(rf/init! "
-               "uix-adapter/adapter)` then `(mount!)` — the template's two-step boot. "
+               "rf.adapter.uix/adapter)` then `(mount!)` — the template's two-step boot. "
                regenerate-hint)))))
 
 ;; ---------------------------------------------------------------------------

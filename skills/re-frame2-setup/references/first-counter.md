@@ -2,7 +2,7 @@
 
 The twelve files the default route writes: a counter SPA on the Reagent substrate, byte for byte what the generator template emits for its reference project `acme/my-app`. Write every file below at the path its heading names, then carry on from `SKILL.md` step 2 (point the two `day8/re-frame2*` coordinates at a checkout while the framework is unpublished, `npm install`, the terminating compile, the watch). Nothing here is a placeholder: the pins are the template's reviewed baseline, the name is the generator's reference identity. An author who names the project gets these same twelve files under a different identity — derive it with [`SKILL.md` §Project identity](../SKILL.md#project-identity) rather than substituting `acme` / `my-app` by eye: the namespace root, the `src/` + `test/` path, `package.json`'s `name` and the project directory are four different transforms of the one coordinate, and the `<h1>` / README heading is the coordinate verbatim.
 
-> **Reagent only.** `views.cljs` uses `rf/reg-view` (auto-injected `dispatch` / `subscribe`) and `core.cljs` mounts through the adapter's client root (`reagent-adapter/client-root` + `render!`). **UIx has no auto-injection** — an ordinary `defui` reads subs through the adapter's `use-subscribe` hook and carries the frame for `dispatch` through the `use-frame` hook. An explicit UIx request swaps exactly three of these files — `deps.edn`, `core.cljs`, `views.cljs` — for the trio in [`entry-namespace.md` §UIx greenfield](entry-namespace.md#uix-greenfield); the other nine are the same, bar the label `Reagent` → `UIx` in `package.json` and the README.
+> **Reagent only.** `views.cljs` uses `rf/reg-view` (auto-injected `dispatch` / `subscribe`) and `core.cljs` mounts through the adapter's client root (`rf.adapter.reagent/client-root` + `render!`). **UIx has no auto-injection** — an ordinary `defui` reads subs through the adapter's `use-subscribe` hook and carries the frame for `dispatch` through the `use-frame` hook. An explicit UIx request swaps exactly three of these files — `deps.edn`, `core.cljs`, `views.cljs` — for the trio in [`entry-namespace.md` §UIx greenfield](entry-namespace.md#uix-greenfield); the other nine are the same, bar the label `Reagent` → `UIx` in `package.json` and the README.
 
 The file bodies between the markers are **derived, not hand-written**: `tests/first_counter_derivation.clj` renders them from `tools/template/` through the template's own hooks, and two drift locks (the skill's structural suite; the template's JVM tier) fail when they diverge from what the generator emits. To change a file, change the template and run `bb tests/first_counter_derivation.clj` from `skills/re-frame2-setup/`.
 
@@ -143,7 +143,7 @@ h1 { margin: 0 0 1em; }
 (ns acme.my-app.core
   "Entry point: installs the Reagent adapter and mounts the app."
   (:require [re-frame.core            :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Requiring these installs their registrations.
             [acme.my-app.events]
             [acme.my-app.subs]
@@ -154,7 +154,7 @@ h1 { margin: 0 0 1em; }
 ;; it. React must not get a second `create-root` for a live DOM node, and a
 ;; hot reload has to render into the root that already owns #app — the
 ;; handle keeps both true, and allocating it touches no DOM.
-(defonce ^:private app-root (reagent-adapter/client-root))
+(defonce ^:private app-root (rf.adapter.reagent/client-root))
 
 (def app-frame :rf/default)
 
@@ -167,7 +167,7 @@ h1 { margin: 0 0 1em; }
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (reagent-adapter/render! app-root
+    (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id             app-frame
                       :initial-events [[:counter/initialise]]}
        [views/counter-app]]
@@ -177,7 +177,7 @@ h1 { margin: 0 0 1em; }
 ;; loads. `init!` installs the adapter; it does not create a frame — the
 ;; `frame-root` element in `mount!` does.
 (defn ^:export init []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (mount!))
 ```
 
@@ -258,8 +258,8 @@ h1 { margin: 0 0 1em; }
        node out/node-test.js"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core                 :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as ts]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support         :as rf.test-support]
             ;; Requiring these namespaces installs their registrations.
             [acme.my-app.events]
             [acme.my-app.subs]))
@@ -285,8 +285,8 @@ h1 { margin: 0 0 1em; }
 ;; future tests as handlers grow.
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
                 ;; The init hook overrides the fixture's default frame config.
                 (rf/make-frame {:id :rf/default :preset :test}))}))
@@ -392,7 +392,7 @@ First-run failures, in order:
 - **`shadow-cljs: command not found` / `Cannot find module`** — `npm install` has not run. Run it, then retry.
 - **`GET /js/main.js 404` in the browser console** — `:output-dir`, `:asset-path` and `index.html`'s `<script src>` disagree; the scaffold ships `resources/public/js` + `/js` + `/js/main.js`, so change all three or none.
 - **Blank page, no console errors** — `index.html` lost its `<main id="app">`, or `core.cljs` looks up a different id.
-- **`:rf.error/no-adapter-installed`** — something rendered before `(rf/init! reagent-adapter/adapter)`; check `shadow-cljs.edn`'s `:init-fn` names `acme.my-app.core/init`.
+- **`:rf.error/no-adapter-installed`** — something rendered before `(rf/init! rf.adapter.reagent/adapter)`; check `shadow-cljs.edn`'s `:init-fn` names `acme.my-app.core/init`.
 - **`:rf.error/no-frame-context`** — the tree rendered outside `[rf/frame-root {:id … :initial-events …} …]`; keep the root element `core.cljs` mounts.
 - **The number never appears, no error** — a subscribe to an unregistered sub renders `nil` (`:rf.error/no-such-sub`); make sure `core.cljs` still `:require`s `acme.my-app.subs` and `.events`, which is what loads their registrations.
 

@@ -12,7 +12,7 @@ The skill writes the generator template's twelve-file scaffold (`deps.edn`, `pac
 - **`examples/core/counter/core.cljs`** in the re-frame2 repo — the canonical first-counter logic the template's `_shared/events.cljs` + `_shared/subs.cljs` + `_reagent/views.cljs` mirror. (The `examples/core/counter/` directory ships `core.cljs` + `index.html` + `README.md` only — there is **no** per-example `shadow-cljs.edn`; the examples share a single repo-level build.)
 - **`tools/template/resources/day8/re_frame2_template/_shared/shadow-cljs.edn`** — the greenfield two-build (`:app` + `:test`) config the leaf carries and `references/shadow-cljs.md` explains; not the repo's own `implementation/shadow-cljs.edn`, which is the shared examples build.
 - **`tools/template/resources/day8/re_frame2_template/root/resources/public/index.html`** (+ `css/app.css`) — the canonical page: `<main id="app">` as the one mount point, an external stylesheet, `<script src="/js/main.js">` at the bottom of `<body>` (per `:asset-path "/js"`); no Xray host column and no CSP meta tag since rf2-zq34m.
-- **`day8/re-frame2-reagent`'s adapter export** — `re-frame.adapter.reagent/adapter` (a var holding the adapter spec map). The entry namespace's `(rf/init! reagent-adapter/adapter)` call comes from this surface.
+- **`day8/re-frame2-reagent`'s adapter export** — `re-frame.adapter.reagent/adapter` (a var holding the adapter spec map). The entry namespace's `(rf/init! rf.adapter.reagent/adapter)` call comes from this surface.
 
 ## 2. Secondary input — `implementation/core/src/re_frame/core.cljc`
 

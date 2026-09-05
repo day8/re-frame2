@@ -12,8 +12,8 @@
        node out/node-test.js"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core                 :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as ts]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support         :as rf.test-support]
             ;; Requiring these namespaces installs their registrations.
             [{{namespace}}.events]
             [{{namespace}}.subs]))
@@ -39,8 +39,8 @@
 ;; future tests as handlers grow.
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
                 ;; The init hook overrides the fixture's default frame config.
                 (rf/make-frame {:id :rf/default :preset :test}))}))

@@ -3,7 +3,7 @@
   (:require [uix.core             :refer [$]]
             [uix.dom              :as uix-dom]
             [re-frame.core        :as rf]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             ;; Requiring these installs their registrations.
             [{{namespace}}.events]
             [{{namespace}}.subs]
@@ -28,8 +28,8 @@
     (when-not @react-root
       (reset! react-root (uix-dom/create-root el)))
     (uix-dom/render-root
-      ($ uix-adapter/frame-root {:id             app-frame
-                                 :initial-events [[:counter/initialise]]}
+      ($ rf.adapter.uix/frame-root {:id             app-frame
+                                    :initial-events [[:counter/initialise]]}
          ($ views/counter-app))
       @react-root)))
 
@@ -37,5 +37,5 @@
 ;; loads. `init!` installs the adapter; it does not create a frame — the
 ;; `frame-root` element in `mount!` does.
 (defn ^:export init []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (mount!))

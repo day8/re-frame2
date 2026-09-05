@@ -18,8 +18,8 @@ The **boot lifecycle** of `core.cljs` — the entry namespace shadow-cljs's `:in
 
 `core.cljs` is the `ns` form, a `defonce` client-root handle, and **two** fns: the exported `init` shadow-cljs calls once, and a `^:dev/after-load mount!` the hot reload calls. Reading it top to bottom:
 
-1. `(rf/init! reagent-adapter/adapter)` — install the Reagent adapter. No frame exists yet.
-2. `(mount!)` — `(reagent-adapter/render! app-root … el)` the tree wrapped in `[rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]} …]` into `#app`. The first call creates the React root; every later call renders into that same root. `frame-root` is the ENSURE element: it **creates** the frame the first time (running the `:initial-events` seed synchronously, so the first render sees the seeded app-db), **reuses** the live frame without re-seeding on every later render, and provides it so every bare `dispatch` / `subscribe` under it resolves against that frame.
+1. `(rf/init! rf.adapter.reagent/adapter)` — install the Reagent adapter. No frame exists yet.
+2. `(mount!)` — `(rf.adapter.reagent/render! app-root … el)` the tree wrapped in `[rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]} …]` into `#app`. The first call creates the React root; every later call renders into that same root. `frame-root` is the ENSURE element: it **creates** the frame the first time (running the `:initial-events` seed synchronously, so the first render sees the seeded app-db), **reuses** the live frame without re-seeding on every later render, and provides it so every bare `dispatch` / `subscribe` under it resolves against that frame.
 
 **Why the mount is its own fn: the `^:dev/after-load` metadata on `mount!` is what gives you hot reload.** shadow-cljs calls the module `:init-fn` once, at bundle load. A reload loads the new code and then calls the build's `^:dev/after-load` hooks — it does not call `:init-fn` again, and with no hook configured it says so (`reloading code but no :after-load hooks are configured!`) while the page goes on painting the old view. Splitting the entry keeps the one-time ceremony (`init!`) out of the reload path while `mount!` re-renders the edited views. `defonce` keeps the same handle across saves, so the adapter never creates a second root, and the re-rendered `frame-root` finds the frame already live and leaves your state alone — a hot reload is a **no-op for app state**; the `:initial-events` seed runs once, at frame creation (refresh the tab to re-seed).
 
@@ -29,7 +29,7 @@ The **boot lifecycle** of `core.cljs` — the entry namespace shadow-cljs's `:in
 
 `init` must do these two things, **in this order**, every time:
 
-1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter. `init!` installs the adapter and runtime capabilities only; it creates **no** frame.
+1. **`(rf/init! rf.adapter.reagent/adapter)`** — install the substrate adapter. `init!` installs the adapter and runtime capabilities only; it creates **no** frame.
 2. **`(mount!)`** — the `^:dev/after-load` fn whose body renders `[rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]} [views/counter-app]]` into the retained root. Step 1 is the one-time ceremony and stays in `init`; step 2 is the only one a hot reload re-runs. `frame-root` creates the frame the first time — running the seed **synchronously at frame creation** — then reuses it without re-seeding, so a hot reload never clobbers state and editing what `:counter/initialise` writes changes what a fresh mount seeds. (`frame-provider` is the SCOPE-only sibling: it provides an **already-created** frame, e.g. one built programmatically with `rf/make-frame`, and fails loud given `{:id …}`.)
 
 If you render *without* `frame-root` (or a `frame-provider` around an existing frame), every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. If you render before `rf/init!`, `frame-root`'s frame creation finds no substrate adapter and you get `:rf.error/no-adapter-installed`.
@@ -48,7 +48,7 @@ re-frame2 splits **the registry** (the process-wide handler / sub / fx map your 
 
 The entry ns holds the adapter's client-root handle in a `defonce`, allocated inert at namespace load and filled by the first `render!` through it. Two contractual bits:
 
-- **`defonce` + `reagent-adapter/client-root`** — `core.cljs` reloads on every save, and `mount!` runs again on each one; the `defonce` keeps the same handle, and the handle keeps the same React root: the first `render!` creates it, every later one renders into it. React 19 complains loudly if `create-root` is called a second time on a live DOM node (or silently mounts two fighting roots) — with the adapter owning the root that cannot happen, and there is no raw root or create-or-render branch in your file. Every reload renders into that same retained root, which is why your app-db and your scroll position survive a save.
+- **`defonce` + `rf.adapter.reagent/client-root`** — `core.cljs` reloads on every save, and `mount!` runs again on each one; the `defonce` keeps the same handle, and the handle keeps the same React root: the first `render!` creates it, every later one renders into it. React 19 complains loudly if `create-root` is called a second time on a live DOM node (or silently mounts two fighting roots) — with the adapter owning the root that cannot happen, and there is no raw root or create-or-render branch in your file. Every reload renders into that same retained root, which is why your app-db and your scroll position survive a save.
 - **`(js/document.getElementById "app")`** — must match the `id` in `index.html`. Mismatch here is the most common cause of a blank page with no console error.
 
 `render!` takes the handle, the tree, and the DOM node; the node is read on the first call only. `reagent.dom.client` is never required by the entry ns — the adapter drives it for you (the same three functions come with `day8/reagent-slim`, so the file is byte-for-byte the same on either coordinate).
@@ -111,7 +111,7 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
   (:require [uix.core             :refer [$]]
             [uix.dom              :as uix-dom]
             [re-frame.core        :as rf]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             ;; Requiring these installs their registrations.
             [acme.my-app.events]
             [acme.my-app.subs]
@@ -136,8 +136,8 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
     (when-not @react-root
       (reset! react-root (uix-dom/create-root el)))
     (uix-dom/render-root
-      ($ uix-adapter/frame-root {:id             app-frame
-                                 :initial-events [[:counter/initialise]]}
+      ($ rf.adapter.uix/frame-root {:id             app-frame
+                                    :initial-events [[:counter/initialise]]}
          ($ views/counter-app))
       @react-root)))
 
@@ -145,7 +145,7 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
 ;; loads. `init!` installs the adapter; it does not create a frame — the
 ;; `frame-root` element in `mount!` does.
 (defn ^:export init []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (mount!))
 ```
 
@@ -157,11 +157,11 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
    adapter's `use-subscribe` hook and `dispatch` comes off `use-frame`,
    which captures the render-time frame so a callback targets it later."
   (:require [uix.core             :refer [$ defui]]
-            [re-frame.adapter.uix :as uix-adapter]))
+            [re-frame.adapter.uix :as rf.adapter.uix]))
 
 (defui counter-buttons []
-  (let [value              (uix-adapter/use-subscribe [:counter/value])
-        {:keys [dispatch]} (uix-adapter/use-frame)]
+  (let [value              (rf.adapter.uix/use-subscribe [:counter/value])
+        {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/increment])} "+1")
        ($ :span {:style #js {:margin "0 1em"}} value))))
@@ -180,6 +180,6 @@ The adapter's `frame-root` ensures + provides the app frame for its subtree; ren
 
 ## Differences from re-frame v1
 
-For a v1 dev starting fresh, three things changed at the entry-namespace layer: the render surface is now the adapter's client root (`reagent-adapter/render!` through a `defonce` `client-root` handle, over React 19's `reagent.dom.client` Root API, which you never call yourself); boot is **explicit** (`(rf/init! reagent-adapter/adapter)` is mandatory — no self-install); and there is **no implicit global `app-db`** — the root `frame-root {:id … :initial-events …}` ENSURE element creates your one app frame at mount (the runtime never infers a default; multi-frame apps add more roots/providers). Views are registered with the `reg-view` macro (v1 used plain `defn`).
+For a v1 dev starting fresh, three things changed at the entry-namespace layer: the render surface is now the adapter's client root (`rf.adapter.reagent/render!` through a `defonce` `client-root` handle, over React 19's `reagent.dom.client` Root API, which you never call yourself); boot is **explicit** (`(rf/init! rf.adapter.reagent/adapter)` is mandatory — no self-install); and there is **no implicit global `app-db`** — the root `frame-root {:id … :initial-events …}` ENSURE element creates your one app frame at mount (the runtime never infers a default; multi-frame apps add more roots/providers). Views are registered with the `reg-view` macro (v1 used plain `defn`).
 
 The full v1→v2 story is the migration skill's territory (`migration/from-re-frame-v1/`, via `SKILL-REDIRECT.md`); this skill is greenfield-only.
