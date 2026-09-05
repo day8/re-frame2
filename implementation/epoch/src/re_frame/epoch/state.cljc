@@ -52,6 +52,55 @@
   [x]
   (and (integer? x) (not (neg? x))))
 
+;; ---- retention serialization ----------------------------------------------
+;;
+;; `:depth` is a RULE about two stores — the per-frame rings, and the
+;; last-settled anchors that name records inside them — and both the rule and
+;; the stores are written in more than one step:
+;;
+;;   record!                  reads the depth, THEN swaps `histories`
+;;   set-last-settled-epoch!  reads the depth, THEN swaps `last-settled-epoch`
+;;   merge-config!            swaps `config`, THEN prunes every ring, THEN
+;;                            reconciles the anchors against the pruned map
+;;
+;; Left unserialized those sequences interleave, and the interleavings are not
+;; benign. A writer that captured the PREVIOUS depth can commit its append
+;; after `configure!` has already returned, which republishes the exact defect
+;; the boundary prune exists to close: the excess record is queryable through
+;; `epoch-history` / `projected-history`, and it is a live `restore-epoch!` /
+;; `replay-epoch!` target. Swapping the config before the prune makes that
+;; escape self-repairing for a POSITIVE depth — the next append re-caps the
+;; ring — but PERMANENT at depth 0, where `record!` never appends again. And
+;; "a later append repairs it" was never the promise: the promise is about the
+;; state at `configure!`'s RETURN. Symmetrically, an anchor published at the
+;; seam between the prune and the reconciliation is judged against a snapshot
+;; taken before its record existed, so a CORRECT anchor is discarded as
+;; unretained.
+;;
+;; One monitor closes both: it is held across each whole sequence, so
+;; `configure!` cannot return while a writer still holds a stale depth, and no
+;; anchor decision is taken against a stale ring.
+;;
+;; DEADLOCK-FREE BY CONSTRUCTION, and that is why it needs no place in the
+;; ledger lock order documented further down (nor in the `:drain-lock`
+;; argument beside it). This is a LEAF: every section it guards is atom swaps
+;; over the epoch stores and nothing else — no other lock is acquired
+;; underneath it and no foreign code runs there (`:redact-fn` is STORED here,
+;; never invoked). A lock that acquires nothing cannot supply the second edge
+;; of a cycle. `commit-frame-owner-record!` reaches it from INSIDE the
+;; frame-owner serialization, which fixes the only nesting that exists as
+;; frame-owner → retention; the JVM monitor is reentrant, so the two writers
+;; it calls take it without re-blocking.
+;;
+;; CLJS is single-threaded and keeps the simple path: the helper is a bare call.
+
+#?(:clj
+   (defonce ^:private retention-lock (Object.)))
+
+(defn- with-retention-lock [f]
+  #?(:clj  (locking retention-lock (f))
+     :cljs (f)))
+
 (declare enforce-depth!)
 
 (defn merge-config!
@@ -67,7 +116,11 @@
   knobs deliberately differ here: `:depth` is a bound on what the ring
   HOLDS, so it is applied at this boundary, whereas `:trace-events-keep`
   bounds how far back raw traces survive and stays an append-time rule (no
-  retained record has its payload rewritten by a config change)."
+  retained record has its payload rewritten by a config change).
+
+  The config swap and that enforcement are ONE step under the retention lock,
+  so no writer holding the previous depth can commit between them — see the
+  retention-serialization section above."
   [opts]
   (when (map? opts)
     (let [numeric-options (select-keys opts [:depth :trace-events-keep])
@@ -88,12 +141,16 @@
                                     {:redact-fn redact-fn-value})))
           valid-options (merge valid-numeric-options valid-redact-option)]
       (when (seq valid-options)
-        (swap! config merge valid-options)
-        ;; Config FIRST, then the rings: any `record!` that begins after
-        ;; the swap already reads the new depth, so the prune below cannot
-        ;; be undone by an append it raced.
-        (when (contains? valid-options :depth)
-          (enforce-depth! (:depth valid-options))))))
+        (with-retention-lock
+          (fn []
+            (swap! config merge valid-options)
+            ;; Config first, then the rings — but the ordering is no longer
+            ;; what carries the invariant. Both are inside the retention
+            ;; lock, which is what makes the prune un-undoable: a `record!`
+            ;; that read the previous depth cannot be mid-flight here, and
+            ;; one that starts after this section reads the new depth.
+            (when (contains? valid-options :depth)
+              (enforce-depth! (:depth valid-options))))))))
   nil)
 
 (defn current-config
@@ -207,14 +264,23 @@
   "Append a record into the frame's history. The depth cap and the
   `:trace-events-keep` cap are read from the config atom on each
   append so runtime `(rf/configure! {:epoch-history ...})` takes effect
-  immediately."
+  immediately.
+
+  The depth READ and the ring write are one step under the retention lock.
+  Split, they are a hole in `configure!`'s post-return invariant: an append
+  that captured the previous depth commits after the boundary prune has run,
+  and at depth 0 nothing later re-caps the ring (this function appends
+  nothing at depth 0, so the escaped record is permanent). See the
+  retention-serialization section at the top of this namespace."
   [record]
-  (let [history-depth       (depth)
-        trace-events-to-keep (trace-events-keep)]
-    (when (pos? history-depth)
-      (let [frame-id (:frame record)]
-        (swap! histories update frame-id append-record record
-               history-depth trace-events-to-keep)))))
+  (with-retention-lock
+    (fn []
+      (let [history-depth        (depth)
+            trace-events-to-keep (trace-events-keep)]
+        (when (pos? history-depth)
+          (let [frame-id (:frame record)]
+            (swap! histories update frame-id append-record record
+                   history-depth trace-events-to-keep)))))))
 
 (defn history-for
   "Return the frame's history vector (oldest-first) or `[]`."
@@ -277,10 +343,18 @@
   (`commit-record!`, the synthetic-replace recorder, and `perform-restore!`'s
   re-anchor): no anchor without a ring record to anchor to. The readers all
   `when-let` off `last-settled-epoch-id`, so a nil anchor degrades cleanly to
-  no back-fill — correct under depth 0."
+  no back-fill — correct under depth 0.
+
+  That gate is a depth read followed by a store write, which is the shape
+  `record!` has, so it takes the same retention lock for the same reason: an
+  anchor must not be published against a depth `configure!` has already
+  replaced, and `enforce-depth!`'s reconciliation must not be judging an
+  anchor against a ring snapshot taken before it existed."
   [frame-id epoch-id]
-  (when (and frame-id epoch-id (pos? (depth)))
-    (swap! last-settled-epoch assoc frame-id epoch-id))
+  (with-retention-lock
+    (fn []
+      (when (and frame-id epoch-id (pos? (depth)))
+        (swap! last-settled-epoch assoc frame-id epoch-id))))
   nil)
 
 (defn last-settled-epoch-id
@@ -924,12 +998,15 @@
   `drop-render-key-mount-attribution!`. `reset-histories!` below clears
   these same two anchors in lockstep, for the same reason.
 
-  Ordering against a concurrent JVM append: `merge-config!` swaps the
-  config BEFORE calling here, so any `record!` beginning afterwards already
-  reads the new depth. An append that had read the previous depth and lands
-  after this prune can leave one frame transiently one record over the cap;
-  `record!` re-reads the depth on every append, so the next append re-caps
-  it. Returns nil."
+  Against a concurrent JVM append: the CALLER holds the retention lock across
+  its config swap and this call, and `record!` / `set-last-settled-epoch!`
+  take that same lock across their own depth-read-then-write. So there is no
+  in-flight writer holding the previous depth to land after this prune, and
+  the retained-id set below cannot be stale with respect to a concurrently
+  committed record. An earlier revision left that gap open and called the
+  excess transient, which it is for a positive depth and is NOT at depth 0 —
+  `record!` appends nothing there, so no later append ever re-caps the ring
+  (rf2-f8wu post-merge audit). Returns nil."
   [depth]
   (let [pruned-histories (swap! histories
                                 (fn [histories-map]

@@ -139,7 +139,11 @@ test_root="$artefact/test"
 # the VACUOUS-PASS class rf2-o5dbf kept finding in routing, and for this artefact
 # it lives among the greens, not among the reds.
 known_red=(
-  # ── CLASS A · SUBJECT ELIDED (15).  These suites obtain their subject by
+  # ── CLASS A · SUBJECT ELIDED (17.  The 2026-08-15 triage below counted 15
+  #    and the number was not kept up as entries landed; it is recounted here
+  #    rather than restated.  `excluded` on the run's own summary line is the
+  #    authority either way — it counts the array.)  These suites obtain
+  #    their subject by
   #    dispatching and reading the ring back — recording, restore, replay,
   #    capture-buffer and projection-of-a-recorded-record.  Under the gate the
   #    ring never fills, so there is no subject to assert about; see the header
@@ -148,6 +152,12 @@ known_red=(
   #    designed not to have in production.  DISPOSITION: correct as-is.
   re-frame.actor-revertibility-restore-test              #  21 /   44
   re-frame.epoch-attribution-test                        # 107 /  208
+  #    rf2-f8wu post-merge audit — the `:depth` transition serialization.
+  #    Its subject is a writer PARKED INSIDE `record!`: under the gate
+  #    `record!` is never reached, so the park never arms and the suite has
+  #    nothing to observe.  Class A, and dev-only by construction rather
+  #    than by choice.
+  re-frame.epoch-depth-transition-race-test              #   2 /   14
   re-frame.epoch-drain-serialization-test                #  13 /   26
   re-frame.epoch-egress-redaction-cljs-test              #  62 /  117
   re-frame.epoch-egress-resource-trace-test              # 145 /  581
