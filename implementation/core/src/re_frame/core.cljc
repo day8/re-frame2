@@ -1015,9 +1015,24 @@
   and `:revalidate-on` (resources — a SET drawn from the closed enum
   `#{:focus :reconnect}` naming the host signals that revalidate the frame's
   active-stale reads; rf2-kuky.33). Creation installs, re-registration
-  reconciles, destroy removes. Declaring either while its artefact is absent
-  fails LOUD at registration (`:rf.error/routing-artefact-missing` /
-  `:rf.error/resources-artefact-missing`) rather than silently never firing.
+  reconciles, destroy removes.
+
+  What happens when the ARTEFACT IS ABSENT differs between them, deliberately:
+
+    :revalidate-on   without `re-frame.resources` FAILS LOUD at registration
+                     (`:rf.error/resources-artefact-missing`, zero residue).
+                     Nothing back-fills the listeners later, so storing a
+                     declaration nobody will honour would silently never
+                     revalidate.
+    :url-bound? true without `re-frame.routing` REGISTERS, and stays in
+                     `frame-meta`. Routing loading AFTER the frame is a
+                     supported order: the artefact reconciles the frame
+                     registry when its hooks install, seeding a sole
+                     pre-existing declaration as the URL owner (Spec 012
+                     §Multi-frame routing). The routing key that DOES fail
+                     loud is `:url-strategy` — an explicitly-declared strategy
+                     map only routing can validate — with
+                     `:rf.error/routing-artefact-missing`.
 
   Returns the frame VALUE — the live lifecycle token (its representation is not
   an app-facing data contract). The frame is fully runnable: the routing

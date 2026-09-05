@@ -58,10 +58,19 @@
   artefact never statically `:require`s the router); a stripped runtime with
   no dispatcher bound no-ops harmlessly.
 
-  Idempotent: reconciling a frame REPLACES (does not stack) its listeners —
-  hot-reload safe, and repeated `frame-root` renders with identical opts
-  cause no listener churn (the same teardown-then-reinstall shape
-  `re-frame.routing.history/reconcile-url-listener!` uses)."
+  Idempotent: reconciling a frame REPLACES its listeners — it detaches
+  whatever the frame had and attaches exactly the declared subset, every
+  time — so a repeated registration never STACKS a second listener, and
+  hot-reload is safe.
+
+  That is a REPLACE, not a diff: identical triggers still detach and
+  re-attach fresh handler closures. Deliberately so — re-registration is a
+  deliberate act rather than a render-frequency path, and the re-attach is
+  observationally inert. Routing's
+  `re-frame.routing.history/reconcile-url-listener!` DOES short-circuit on a
+  match, because re-installing ITS listener also re-syncs the current URL
+  into the owner's route slice — an observable effect this namespace has no
+  counterpart to."
   (:require [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -187,9 +196,11 @@
   `:resources/on-frame-destroyed!` hook.
 
   Called by the façade's `:resources/on-frame-registered!` lifecycle hook —
-  there is no install/remove fn for an app to sequence. Idempotent, so
-  repeated renders with identical opts cause no listener churn (hot-reload
-  safe). CLJS wires the host listeners; the JVM arm has no DOM under SSR /
+  there is no install/remove fn for an app to sequence. Idempotent, so a
+  repeated registration never STACKS a listener (hot-reload safe) — a
+  REPLACE rather than a diff, so identical triggers still detach and
+  re-attach fresh handlers, which is what \"replace-don't-stack\" above
+  means. CLJS wires the host listeners; the JVM arm has no DOM under SSR /
   JVM tests and only drops the side-table slot, so this is `:require`-able
   from `.cljc` boot code without a reader conditional at the call site.
   Returns nil."
