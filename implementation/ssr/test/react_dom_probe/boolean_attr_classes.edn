@@ -1,7 +1,10 @@
 ;; GENERATED FILE — do not hand-edit.
 ;;
 ;; react-dom boolean attribute-value evidence for rf2-r9kf. Every string
-;; below is react-dom's own output, measured by
+;; below is react-dom's own output — six values per attribute: `true`,
+;; `false`, and the four non-booleans `"yes"`, `""`, `0`, `"0"` that
+;; separate the presence class from the overloaded one and pin the
+;; JS-truthiness collapse (rf2-u82a). Measured by
 ;; `react_dom_probe/boolean_attr_classes.cjs` against the installed
 ;; package; nothing here restates a re-frame rule. The class is DERIVED
 ;; from these bytes in `re_frame/ssr_boolean_attr_react_parity_test.clj`.
@@ -15,147 +18,339 @@
  :rows
  [
   {:attribute "allowFullScreen" :element "div"
-   :true-markup  "<div allowFullScreen=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div allowFullScreen=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div allowFullScreen=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div allowFullScreen=\"\"></div>"}
   {:attribute "aria-expanded" :element "div"
-   :true-markup  "<div aria-expanded=\"true\"></div>"
-   :false-markup "<div aria-expanded=\"false\"></div>"}
+   :true-markup         "<div aria-expanded=\"true\"></div>"
+   :false-markup        "<div aria-expanded=\"false\"></div>"
+   :string-markup       "<div aria-expanded=\"yes\"></div>"
+   :empty-string-markup "<div aria-expanded=\"\"></div>"
+   :zero-markup         "<div aria-expanded=\"0\"></div>"
+   :string-zero-markup  "<div aria-expanded=\"0\"></div>"}
   {:attribute "aria-hidden" :element "div"
-   :true-markup  "<div aria-hidden=\"true\"></div>"
-   :false-markup "<div aria-hidden=\"false\"></div>"}
+   :true-markup         "<div aria-hidden=\"true\"></div>"
+   :false-markup        "<div aria-hidden=\"false\"></div>"
+   :string-markup       "<div aria-hidden=\"yes\"></div>"
+   :empty-string-markup "<div aria-hidden=\"\"></div>"
+   :zero-markup         "<div aria-hidden=\"0\"></div>"
+   :string-zero-markup  "<div aria-hidden=\"0\"></div>"}
   {:attribute "async" :element "div"
-   :true-markup  "<div async=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div async=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div async=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div async=\"\"></div>"}
   {:attribute "autoFocus" :element "div"
-   :true-markup  "<div autofocus=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div autofocus=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div autofocus=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div autofocus=\"\"></div>"}
   {:attribute "autoPlay" :element "div"
-   :true-markup  "<div autoPlay=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div autoPlay=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div autoPlay=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div autoPlay=\"\"></div>"}
   {:attribute "autoReverse" :element "div"
-   :true-markup  "<div autoReverse=\"true\"></div>"
-   :false-markup "<div autoReverse=\"false\"></div>"}
+   :true-markup         "<div autoReverse=\"true\"></div>"
+   :false-markup        "<div autoReverse=\"false\"></div>"
+   :string-markup       "<div autoReverse=\"yes\"></div>"
+   :empty-string-markup "<div autoReverse=\"\"></div>"
+   :zero-markup         "<div autoReverse=\"0\"></div>"
+   :string-zero-markup  "<div autoReverse=\"0\"></div>"}
   {:attribute "capture" :element "div"
-   :true-markup  "<div capture=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div capture=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div capture=\"yes\"></div>"
+   :empty-string-markup "<div capture=\"\"></div>"
+   :zero-markup         "<div capture=\"0\"></div>"
+   :string-zero-markup  "<div capture=\"0\"></div>"}
   {:attribute "checked" :element "input"
-   :true-markup  "<input checked=\"\"/>"
-   :false-markup "<input/>"}
+   :true-markup         "<input checked=\"\"/>"
+   :false-markup        "<input/>"
+   :string-markup       "<input checked=\"\"/>"
+   :empty-string-markup "<input/>"
+   :zero-markup         "<input/>"
+   :string-zero-markup  "<input checked=\"\"/>"}
   {:attribute "children" :element "div"
-   :true-markup  "<div></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div>yes</div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div>0</div>"
+   :string-zero-markup  "<div>0</div>"}
   {:attribute "contentEditable" :element "div"
-   :true-markup  "<div contentEditable=\"true\"></div>"
-   :false-markup "<div contentEditable=\"false\"></div>"}
+   :true-markup         "<div contentEditable=\"true\"></div>"
+   :false-markup        "<div contentEditable=\"false\"></div>"
+   :string-markup       "<div contentEditable=\"yes\"></div>"
+   :empty-string-markup "<div contentEditable=\"\"></div>"
+   :zero-markup         "<div contentEditable=\"0\"></div>"
+   :string-zero-markup  "<div contentEditable=\"0\"></div>"}
   {:attribute "controls" :element "div"
-   :true-markup  "<div controls=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div controls=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div controls=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div controls=\"\"></div>"}
   {:attribute "data-open" :element "div"
-   :true-markup  "<div data-open=\"true\"></div>"
-   :false-markup "<div data-open=\"false\"></div>"}
+   :true-markup         "<div data-open=\"true\"></div>"
+   :false-markup        "<div data-open=\"false\"></div>"
+   :string-markup       "<div data-open=\"yes\"></div>"
+   :empty-string-markup "<div data-open=\"\"></div>"
+   :zero-markup         "<div data-open=\"0\"></div>"
+   :string-zero-markup  "<div data-open=\"0\"></div>"}
   {:attribute "default" :element "div"
-   :true-markup  "<div default=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div default=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div default=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div default=\"\"></div>"}
   {:attribute "defaultChecked" :element "div"
-   :true-markup  "<div></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div></div>"}
   {:attribute "defaultValue" :element "div"
-   :true-markup  "<div></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div></div>"}
   {:attribute "defer" :element "div"
-   :true-markup  "<div defer=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div defer=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div defer=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div defer=\"\"></div>"}
   {:attribute "disablePictureInPicture" :element "div"
-   :true-markup  "<div disablePictureInPicture=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div disablePictureInPicture=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div disablePictureInPicture=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div disablePictureInPicture=\"\"></div>"}
   {:attribute "disableRemotePlayback" :element "div"
-   :true-markup  "<div disableRemotePlayback=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div disableRemotePlayback=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div disableRemotePlayback=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div disableRemotePlayback=\"\"></div>"}
   {:attribute "disabled" :element "div"
-   :true-markup  "<div disabled=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div disabled=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div disabled=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div disabled=\"\"></div>"}
   {:attribute "download" :element "div"
-   :true-markup  "<div download=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div download=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div download=\"yes\"></div>"
+   :empty-string-markup "<div download=\"\"></div>"
+   :zero-markup         "<div download=\"0\"></div>"
+   :string-zero-markup  "<div download=\"0\"></div>"}
   {:attribute "draggable" :element "div"
-   :true-markup  "<div draggable=\"true\"></div>"
-   :false-markup "<div draggable=\"false\"></div>"}
+   :true-markup         "<div draggable=\"true\"></div>"
+   :false-markup        "<div draggable=\"false\"></div>"
+   :string-markup       "<div draggable=\"yes\"></div>"
+   :empty-string-markup "<div draggable=\"\"></div>"
+   :zero-markup         "<div draggable=\"0\"></div>"
+   :string-zero-markup  "<div draggable=\"0\"></div>"}
   {:attribute "externalResourcesRequired" :element "div"
-   :true-markup  "<div externalResourcesRequired=\"true\"></div>"
-   :false-markup "<div externalResourcesRequired=\"false\"></div>"}
+   :true-markup         "<div externalResourcesRequired=\"true\"></div>"
+   :false-markup        "<div externalResourcesRequired=\"false\"></div>"
+   :string-markup       "<div externalResourcesRequired=\"yes\"></div>"
+   :empty-string-markup "<div externalResourcesRequired=\"\"></div>"
+   :zero-markup         "<div externalResourcesRequired=\"0\"></div>"
+   :string-zero-markup  "<div externalResourcesRequired=\"0\"></div>"}
   {:attribute "focusable" :element "div"
-   :true-markup  "<div focusable=\"true\"></div>"
-   :false-markup "<div focusable=\"false\"></div>"}
+   :true-markup         "<div focusable=\"true\"></div>"
+   :false-markup        "<div focusable=\"false\"></div>"
+   :string-markup       "<div focusable=\"yes\"></div>"
+   :empty-string-markup "<div focusable=\"\"></div>"
+   :zero-markup         "<div focusable=\"0\"></div>"
+   :string-zero-markup  "<div focusable=\"0\"></div>"}
   {:attribute "formNoValidate" :element "div"
-   :true-markup  "<div formNoValidate=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div formNoValidate=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div formNoValidate=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div formNoValidate=\"\"></div>"}
   {:attribute "hidden" :element "div"
-   :true-markup  "<div hidden=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div hidden=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div hidden=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div hidden=\"\"></div>"}
   {:attribute "inert" :element "div"
-   :true-markup  "<div inert=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div inert=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div inert=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div inert=\"\"></div>"}
   {:attribute "innerHTML" :element "div"
-   :true-markup  "<div></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div></div>"}
   {:attribute "is" :element "div"
-   :true-markup  "<div></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div is=\"yes\"></div>"
+   :empty-string-markup "<div is=\"\"></div>"
+   :zero-markup         "<div is=\"0\"></div>"
+   :string-zero-markup  "<div is=\"0\"></div>"}
   {:attribute "itemScope" :element "div"
-   :true-markup  "<div itemScope=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div itemScope=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div itemScope=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div itemScope=\"\"></div>"}
   {:attribute "loop" :element "div"
-   :true-markup  "<div loop=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div loop=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div loop=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div loop=\"\"></div>"}
   {:attribute "multiple" :element "div"
-   :true-markup  "<div multiple=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div multiple=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div multiple=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div multiple=\"\"></div>"}
   {:attribute "muted" :element "div"
-   :true-markup  "<div muted=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div muted=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div muted=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div muted=\"\"></div>"}
   {:attribute "noModule" :element "div"
-   :true-markup  "<div noModule=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div noModule=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div noModule=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div noModule=\"\"></div>"}
   {:attribute "noValidate" :element "div"
-   :true-markup  "<div noValidate=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div noValidate=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div noValidate=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div noValidate=\"\"></div>"}
   {:attribute "open" :element "div"
-   :true-markup  "<div open=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div open=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div open=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div open=\"\"></div>"}
   {:attribute "playsInline" :element "div"
-   :true-markup  "<div playsInline=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div playsInline=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div playsInline=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div playsInline=\"\"></div>"}
   {:attribute "preserveAlpha" :element "div"
-   :true-markup  "<div preserveAlpha=\"true\"></div>"
-   :false-markup "<div preserveAlpha=\"false\"></div>"}
+   :true-markup         "<div preserveAlpha=\"true\"></div>"
+   :false-markup        "<div preserveAlpha=\"false\"></div>"
+   :string-markup       "<div preserveAlpha=\"yes\"></div>"
+   :empty-string-markup "<div preserveAlpha=\"\"></div>"
+   :zero-markup         "<div preserveAlpha=\"0\"></div>"
+   :string-zero-markup  "<div preserveAlpha=\"0\"></div>"}
   {:attribute "readOnly" :element "div"
-   :true-markup  "<div readOnly=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div readOnly=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div readOnly=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div readOnly=\"\"></div>"}
   {:attribute "required" :element "div"
-   :true-markup  "<div required=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div required=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div required=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div required=\"\"></div>"}
   {:attribute "reversed" :element "div"
-   :true-markup  "<div reversed=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div reversed=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div reversed=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div reversed=\"\"></div>"}
   {:attribute "scoped" :element "div"
-   :true-markup  "<div scoped=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div scoped=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div scoped=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div scoped=\"\"></div>"}
   {:attribute "seamless" :element "div"
-   :true-markup  "<div seamless=\"\"></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div seamless=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div seamless=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div seamless=\"\"></div>"}
   {:attribute "selected" :element "option"
-   :true-markup  "<option selected=\"\"></option>"
-   :false-markup "<option></option>"}
+   :true-markup         "<option selected=\"\"></option>"
+   :false-markup        "<option></option>"
+   :string-markup       "<option selected=\"\"></option>"
+   :empty-string-markup "<option></option>"
+   :zero-markup         "<option></option>"
+   :string-zero-markup  "<option selected=\"\"></option>"}
   {:attribute "spellCheck" :element "div"
-   :true-markup  "<div spellCheck=\"true\"></div>"
-   :false-markup "<div spellCheck=\"false\"></div>"}
+   :true-markup         "<div spellCheck=\"true\"></div>"
+   :false-markup        "<div spellCheck=\"false\"></div>"
+   :string-markup       "<div spellCheck=\"yes\"></div>"
+   :empty-string-markup "<div spellCheck=\"\"></div>"
+   :zero-markup         "<div spellCheck=\"0\"></div>"
+   :string-zero-markup  "<div spellCheck=\"0\"></div>"}
   {:attribute "suppressContentEditableWarning" :element "div"
-   :true-markup  "<div></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div></div>"}
   {:attribute "suppressHydrationWarning" :element "div"
-   :true-markup  "<div></div>"
-   :false-markup "<div></div>"}
+   :true-markup         "<div></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div></div>"}
   {:attribute "value" :element "div"
-   :true-markup  "<div value=\"true\"></div>"
-   :false-markup "<div value=\"false\"></div>"}
+   :true-markup         "<div value=\"true\"></div>"
+   :false-markup        "<div value=\"false\"></div>"
+   :string-markup       "<div value=\"yes\"></div>"
+   :empty-string-markup "<div value=\"\"></div>"
+   :zero-markup         "<div value=\"0\"></div>"
+   :string-zero-markup  "<div value=\"0\"></div>"}
  ]}

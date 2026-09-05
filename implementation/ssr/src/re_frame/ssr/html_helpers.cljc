@@ -511,6 +511,14 @@
 ;; DIRECTION. Adding a name here without React's evidence reds that test just
 ;; as omitting one does. Two names are deliberate, documented exceptions;
 ;; the test names them and says why.
+;;
+;; THE EVIDENCE CARRIES SIX VALUES PER NAME, NOT TWO (rf2-u82a). `true` and
+;; `false` cannot separate `:presence` from `:overloaded` — the two render
+;; identically for both booleans — so a boolean-only fixture let the classes
+;; be merged with every row green, and `attr-string` serialised a non-boolean
+;; value wrongly for every member of `boolean-attrs`. The four non-booleans
+;; `"yes"`, `""`, `0` and `"0"` are what tell the classes apart and pin the
+;; JS-truthiness collapse the presence class runs on.
 
 (def boolean-attrs
   "HTML boolean attributes: `true` → presence, `false`/absent → omitted.
@@ -546,22 +554,79 @@
   Tracks react-dom 19.2.0."
   #{"download" "capture"})
 
+(defn presence-value-truthy?
+  "Would react-dom treat this value on a `:presence` attribute as present?
+  (rf2-u82a.)
+
+  react-dom's pure-boolean branch is a plain JAVASCRIPT truthiness test —
+  `if (value && …) push(name, '=\"\"')` — so a presence attribute COLLAPSES
+  every truthy value onto the bare name and writes nothing at all for a falsy
+  one. `{:disabled \"yes\"}` renders `disabled` and `{:disabled \"\"}` renders
+  nothing.
+
+  CLOJURE DISAGREES WITH JAVASCRIPT ABOUT EXACTLY TWO OF THE VALUES THAT CAN
+  APPEAR HERE, which is the whole reason this is a named predicate rather than
+  a `when`: `\"\"` and the NUMBER `0` are logically TRUE in Clojure and CLJS
+  and falsy in JS, so `(when v …)` emits a bare attribute where react-dom
+  emits none — a server/client divergence at the DOM level, not merely in
+  bytes, and Spec 011 records that React does not guarantee to patch an
+  attribute-only hydration mismatch. The trap in the other direction is the
+  STRING `\"0\"`, which is a non-empty string and therefore truthy; only the
+  number is not.
+
+  Spelled out rather than reached for through a host truthiness cast, because
+  this is `.cljc`: the JVM has no JS coercion, and the two runtimes must emit
+  the same bytes for the same tree (the render-tree hash compares them).
+  Beyond strings and numbers everything is truthy — keywords, collections,
+  objects — matching JS, where every object is truthy. `NaN` is JS-falsy and
+  is tested as `(not= v v)`, the one NaN check that reads the same on both
+  runtimes.
+
+  TOTAL over every value an attribute map can carry, `nil` and booleans
+  included, rather than documented as undefined for them. `attr-string` does
+  drop `nil` and dispatch booleans before it asks — but `re-frame.ssr.ui-tree`
+  routes both straight here, and a predicate whose contract said \"never
+  called with `nil`\" would have answered `true` for one and emitted an
+  attribute react-dom omits. `null` is falsy in JS, so `nil` is falsy here."
+  [v]
+  (cond
+    (nil? v)     false
+    (boolean? v) v
+    (string? v)  (not= "" v)
+    (number? v)  (not (or (zero? v) (not= v v)))
+    :else        true))
+
 (defn boolean-attr-class
   "Author attribute NAME (a string, no namespace) → the class that decides
-  how a BOOLEAN value for it serialises:
+  how a value for it serialises:
 
     `:stringify`  — `aria-*`, `data-*`, and the booleanish family
                     (`contentEditable` / `draggable` / `spellCheck` plus the
                     four SVG names in `booleanish-attrs`):
-                    `true`/`false` → `\"true\"`/`\"false\"`, NEVER omitted.
+                    `true`/`false` → `\"true\"`/`\"false\"`, NEVER omitted;
+                    any other value stringifies.
     `:presence`   — the true HTML boolean attributes (`disabled`, `checked`,
-                    …) and the overloaded booleans (`download`, `capture`):
-                    `true` → bare name, `false` → omitted. `=\"false\"` is
+                    …): `true` → bare name, `false` → omitted. `=\"false\"` is
                     still TRUTHY to a browser here, so omission is the only
-                    correct rendering of `false`.
+                    correct rendering of `false`. A NON-boolean value is
+                    collapsed the same way, on `presence-value-truthy?`.
+    `:overloaded` — `download` and `capture`: the two booleans exactly as
+                    `:presence`, but a non-boolean value is KEPT
+                    (`download=\"report.pdf\"`).
     `:ordinary`   — everything else: a boolean never reaches markup at all
                     (react-dom drops it rather than inventing a bare
-                    attribute).
+                    attribute); any other value stringifies.
+
+  `:presence` AND `:overloaded` WERE ONE CLASS UNTIL rf2-u82a, and the merge
+  was invisible for as long as only BOOLEAN values consulted this fn — the two
+  rules are identical for `true` and for `false`, and 004B's own tables state
+  them with the same two words. They part on the third case, which is where
+  `download=\"report.pdf\"` has to survive and `disabled=\"yes\"` has to
+  collapse, so a classifier that cannot tell them apart cannot serialise a
+  non-boolean value correctly for either. The split is now derived from
+  react-dom's measured bytes for a non-boolean value, in
+  `re-frame.ssr-boolean-attr-react-parity-test`, exactly as the other three
+  classes are.
 
   TWO NAMES ARE DELIBERATELY NOT WHAT REACT DOES, and both are recorded
   rather than left to be rediscovered (rf2-r9kf, second pass):
@@ -600,7 +665,7 @@
       (str/starts-with? attribute-name "aria-")        :stringify
       (str/starts-with? attribute-name "data-")        :stringify
       (contains? booleanish-attrs collapsed)           :stringify
-      (contains? overloaded-boolean-attrs collapsed)   :presence
+      (contains? overloaded-boolean-attrs collapsed)   :overloaded
       (contains? boolean-attrs collapsed)              :presence
       :else                                            :ordinary)))
 
@@ -706,12 +771,20 @@
   attribute entirely. All non-boolean values stringify and are
   `escape-attr`-escaped.
 
-  A BOOLEAN value is rendered by the attribute's class, not by the value
-  alone (`boolean-attr-class`, rf2-r9kf): `aria-*` / `data-*` / booleanish
-  names stringify BOTH `true` and `false` (`aria-expanded=\"false\"`); true
-  boolean and overloaded-boolean names keep presence semantics (`true` →
-  bare `disabled`, `false` → omitted); a boolean on any other attribute is
-  dropped rather than emitted as a bare name.
+  A value is rendered by the attribute's CLASS, not by the value alone
+  (`boolean-attr-class`, rf2-r9kf / rf2-u82a): `aria-*` / `data-*` /
+  booleanish names stringify BOTH `true` and `false`
+  (`aria-expanded=\"false\"`); true boolean and overloaded-boolean names keep
+  presence semantics for a boolean (`true` → bare `disabled`, `false` →
+  omitted); a boolean on any other attribute is dropped rather than emitted
+  as a bare name.
+
+  A NON-BOOLEAN value asks the class too, and the two presence classes part
+  there: a `:presence` name COLLAPSES it on react-dom's JS truthiness
+  (`{:disabled \"yes\"}` → bare `disabled`, `{:disabled \"\"}` and
+  `{:disabled 0}` → nothing — see `presence-value-truthy?`), while an
+  `:overloaded` name keeps it (`{:download \"report.pdf\"}` →
+  `download=\"report.pdf\"`). Everything else stringifies.
 
   Attribute KEYS are gated through `validate-attr-name!` (HTML5 grammar
   `[A-Za-z][A-Za-z0-9_:-]*`) — a key violating the grammar throws
@@ -744,11 +817,30 @@
                            ;; neighbours.
                            (boolean? v)
                            (case (boolean-attr-class (name k))
-                             :stringify (str (validate-attr-name! k)
-                                             "=\"" (escape-attr v) "\"")
-                             :presence  (when (true? v) (validate-attr-name! k))
-                             :ordinary  nil)
+                             :stringify  (str (validate-attr-name! k)
+                                              "=\"" (escape-attr v) "\"")
+                             (:presence
+                              :overloaded) (when (true? v) (validate-attr-name! k))
+                             :ordinary   nil)
                            (nil? v)   nil
+
+                           ;; rf2-u82a — a PRESENCE attribute collapses a
+                           ;; non-boolean value too, on react-dom's JS
+                           ;; truthiness. Asking the class BEFORE the value is
+                           ;; the whole repair: this branch used to be reached
+                           ;; only after `(boolean? v)` failed, so every
+                           ;; non-boolean fell through to the ordinary
+                           ;; stringify below and emitted `disabled="yes"`
+                           ;; where react-dom emits `disabled=""` — a DOM-level
+                           ;; hydration divergence, and one the structural-tree
+                           ;; serialiser next door already got right.
+                           ;; `:overloaded` deliberately does NOT come here:
+                           ;; keeping the value is what it is for
+                           ;; (`download="report.pdf"`).
+                           (= :presence (boolean-attr-class (name k)))
+                           (when (presence-value-truthy? v)
+                             (validate-attr-name! k))
+
                            :else
                            (let [rendered-val
                                  (cond

@@ -38,6 +38,25 @@
 //      `multiple` a `<select>`, `muted` a `<video>`; everything else lands on
 //      a `<div>`). Where two elements disagree about the class, the generator
 //      ABORTS rather than picking one.
+//   4. The same element's markup for FOUR NON-BOOLEAN values as well —
+//      `"yes"`, `""`, `0` and `"0"` (rf2-u82a). Two things need them, and
+//      neither is reachable from the boolean pair alone.
+//
+//      FIRST, `:presence` and `:overloaded` are INDISTINGUISHABLE for a
+//      boolean: both render `name=""` for `true` and nothing for `false`.
+//      They part only on a non-boolean value — a presence name collapses it
+//      to `name=""`, an overloaded name keeps it as `name="value"` — which is
+//      why `download="report.pdf"` survives and `disabled="yes"` does not.
+//      Recording `"yes"` lets the class be derived four ways instead of
+//      three, from React's bytes exactly as the other three are.
+//
+//      SECOND, the presence collapse runs on JAVASCRIPT truthiness, and
+//      ClojureScript disagrees with JS about two values that matter: `""` and
+//      the number `0` are logically TRUE in CLJS and FALSY in JS, so the
+//      obvious `(when v …)` emits a bare attribute where React emits none.
+//      `""` and `0` measure that, and `"0"` pins the asymmetry that invites
+//      the over-correction — the STRING `"0"` is truthy; only the NUMBER 0 is
+//      not.
 //
 // The EDN carries React's bytes and nothing else — no class label, no
 // restatement of our own rules. `re_frame/ssr_boolean_attr_react_parity_test`
@@ -238,12 +257,34 @@ function probe(name) {
   return chosen;
 }
 
+// The non-boolean values, measured on the SAME element the boolean pair was
+// measured on so the six strings in a row are comparable. Keyed by the EDN
+// field each becomes; the value is what is handed to `createElement`.
+const nonBooleanProbes = [
+  ['stringMarkup', 'yes'],       // truthy in JS and in CLJS
+  ['emptyStringMarkup', ''],     // FALSY in JS, logically true in CLJS
+  ['zeroMarkup', 0],             // FALSY in JS, logically true in CLJS
+  ['stringZeroMarkup', '0'],     // truthy — the string, not the number
+];
+
 const rows = [];
 for (const name of [...candidates, ...prefixProbes]) {
   if (!acceptsBoolean(name)) continue;
   const { element, trueMarkup, falseMarkup } = probe(name);
   if (trueMarkup === null || falseMarkup === null) continue;
-  rows.push({ name, element, trueMarkup, falseMarkup });
+  const row = { name, element, trueMarkup, falseMarkup };
+  let incomplete = false;
+  for (const [field, value] of nonBooleanProbes) {
+    const html = markup(element, name, value);
+    // A null here means react-dom THREW on this element for this value. It
+    // cannot be recorded as "the attribute was omitted" — that is a real
+    // verdict this row would then be asserting falsely — so the whole row is
+    // dropped and the fixture's own floor below catches a mass loss.
+    if (html === null) { incomplete = true; break; }
+    row[field] = html;
+  }
+  if (incomplete) continue;
+  rows.push(row);
 }
 rows.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
@@ -268,7 +309,10 @@ const out = [];
 out.push(';; GENERATED FILE — do not hand-edit.');
 out.push(';;');
 out.push(';; react-dom boolean attribute-value evidence for rf2-r9kf. Every string');
-out.push(';; below is react-dom\'s own output, measured by');
+out.push(';; below is react-dom\'s own output — six values per attribute: `true`,');
+out.push(';; `false`, and the four non-booleans `"yes"`, `""`, `0`, `"0"` that');
+out.push(';; separate the presence class from the overloaded one and pin the');
+out.push(';; JS-truthiness collapse (rf2-u82a). Measured by');
 out.push(';; `react_dom_probe/boolean_attr_classes.cjs` against the installed');
 out.push(';; package; nothing here restates a re-frame rule. The class is DERIVED');
 out.push(';; from these bytes in `re_frame/ssr_boolean_attr_react_parity_test.clj`.');
@@ -284,8 +328,12 @@ out.push(' [');
 for (const row of rows) {
   out.push('  {:attribute ' + ednString(row.name) +
            ' :element ' + ednString(row.element));
-  out.push('   :true-markup  ' + ednString(row.trueMarkup));
-  out.push('   :false-markup ' + ednString(row.falseMarkup) + '}');
+  out.push('   :true-markup         ' + ednString(row.trueMarkup));
+  out.push('   :false-markup        ' + ednString(row.falseMarkup));
+  out.push('   :string-markup       ' + ednString(row.stringMarkup));
+  out.push('   :empty-string-markup ' + ednString(row.emptyStringMarkup));
+  out.push('   :zero-markup         ' + ednString(row.zeroMarkup));
+  out.push('   :string-zero-markup  ' + ednString(row.stringZeroMarkup) + '}');
 }
 out.push(' ]}');
 process.stdout.write(out.join('\n') + '\n');
