@@ -8,7 +8,7 @@
   dev-mode DOM annotations on EVERY host: `data-rf2-source-coord=\"<ns>:
   <sym>:<line>:<col>\"` (rf2-z7f7 — maps a rendered node back to its
   reg-view call site) and `data-rf-view=\"<str id>\"` (rf2-01il5 — the
-  view-hierarchy fallback). The client stamps both at React render time;
+  view-id capture surface). The client stamps both at React render time;
   this namespace stamps both on the server render's hiccup so the two
   hosts emit the same evidence and a dev SSR page hydrates as a clean
   ADOPTION rather than an attribute-mismatch (rf2-8vi4q).

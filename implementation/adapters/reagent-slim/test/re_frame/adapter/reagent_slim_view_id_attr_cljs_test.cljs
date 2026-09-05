@@ -5,8 +5,8 @@
   Per Spec 006 §View tagging contract: when `interop/debug-enabled?` is
   true, a registered view's rendered root DOM element MUST carry
   `data-rf-view=\"<id>\"` ALONGSIDE `data-rf2-source-coord`. The view-id
-  attribute is the FALLBACK data source for the runtime view-hierarchy
-  walker when the Fiber-walker primary path is unavailable. The tagging
+  attribute is the runtime view-id capture surface, read forward (id →
+  rendered root) and in reverse (node → producing view). The tagging
   is driven through `re-frame.views` under the *installed* adapter — so
   this file installs the slim adapter via the reset-runtime fixture and
   proves slim participates in the same tagging contract the bridge does.

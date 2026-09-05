@@ -249,8 +249,8 @@
 ;; recovers the id from that string. Both live HERE — in the source-coord
 ;; contract owner (Spec 006 §View tagging contract / §Source-coord annotation) —
 ;; because the read rule used to live ONLY in `format-view-id`'s docstring +
-;; Spec 006 prose and was re-implemented inline by every consumer (the Xray
-;; fallback view-walker and the re-frame2-pair preload runtime's `view-entity`).
+;; Spec 006 prose and was re-implemented inline by every consumer (its
+;; consumers today — e.g. the re-frame2-pair preload runtime's `view-entity`).
 ;; Co-locating format + parse keeps the round-trip a single source of truth
 ;; (rf2-ztxnm8 collapses those re-derivations — the data-rf-view analogue of the
 ;; `parse-source-coord` work in rf2-nr7vf2; rf2-5q0jv brought the formatters

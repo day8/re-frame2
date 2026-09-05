@@ -435,9 +435,9 @@ const DEV_ONLY_SENTINELS = [
   // re-frame.views — view-id DOM annotation (Spec 006 §View tagging
   // contract, rf2-01il5). The reg-view* wrapper ALSO merges
   // `:data-rf-view` onto the rendered root DOM element when
-  // `interop/debug-enabled?` is true — the fallback path for runtime
-  // view-hierarchy capture when the Fiber-walker primary path
-  // (rf2-mxkq7) is unavailable. The injection rides the SAME gate as
+  // `interop/debug-enabled?` is true — the runtime view-id capture
+  // surface, read forward (id → rendered root) and in reverse (node →
+  // producing view). The injection rides the SAME gate as
   // data-rf2-source-coord (no separate code path or elision branch);
   // the literal "data-rf-view" string fragment must NOT appear in
   // :advanced + goog.DEBUG=false bundles.
@@ -449,8 +449,8 @@ const DEV_ONLY_SENTINELS = [
   // attributes triggering React warnings, and DevTools' "View source"
   // reads `__source` off React.createElement's third arg, not element
   // props). The injection branch is gone; `data-rf2-source-coord` +
-  // `data-rf-view` (the real DOM API used by re-frame-pair and the
-  // view-walker) ride the same wrapper unchanged and remain covered
+  // `data-rf-view` (the real DOM API used by re-frame-pair and Xray's
+  // hover-highlight) ride the same wrapper unchanged and remain covered
   // by their own sentinels above.
   // re-frame.frame/safe-call-hook! — :rf.warning/teardown-hook-exception
   // per-hook DEV DIAGNOSTIC trace (EP-0008 R2, rf2-x3m8c / rf2-inkdqh).

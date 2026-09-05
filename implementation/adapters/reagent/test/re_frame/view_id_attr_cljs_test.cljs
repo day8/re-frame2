@@ -3,9 +3,8 @@
   `interop/debug-enabled?` is true, the Reagent substrate adapter MUST
   also inject `data-rf-view=\"<id>\"` on the rendered root DOM element
   of every registered view — ALONGSIDE `data-rf2-source-coord`. The
-  view-id attribute is the FALLBACK data source for the runtime
-  view-hierarchy walker when the Fiber-walker primary path (rf2-mxkq7)
-  is unavailable.
+  view-id attribute is the runtime view-id capture surface, read
+  forward (id → rendered root) and in reverse (node → producing view).
 
   Coverage (mirrors `source_coord_dom_cljs_test.cljs` shape):
 
@@ -127,9 +126,9 @@
 (deftest fragment-root-is-exempt-for-view-id
   (testing "a render-fn that returns a React Fragment :<> at the root is
             exempt for :data-rf-view (same exemption as source-coord);
-            the walker falls back to the Fiber-walker primary path for
-            fragments per Spec 006 §View tagging contract §Documented
-            edge cases"
+            the view is then invisible to view-id lookup, a documented
+            limit per Spec 006 §View tagging contract §Known limits of
+            the tag and of DOM-containment inference"
     (rf/reg-view ^{:rf/id :rf.view-id-test/fragment} fragment-view []
       [:<> [:p "a"] [:p "b"]])
     (let [render (rf/view :rf.view-id-test/fragment)
