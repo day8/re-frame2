@@ -217,8 +217,8 @@
 ;; ---- parse-view-id (rf2-ztxnm8 / rf2-16znzb) --------------------------------
 ;;
 ;; The canonical inverse of `format-view-id`, collapsing the reader that was
-;; reimplemented inline in Xray's fallback view-walker and the re-frame2-pair
-;; preload runtime's `view-entity`. These tests pin the read contract (Spec 006
+;; reimplemented inline by its consumers — e.g. the re-frame2-pair preload
+;; runtime's `view-entity`. These tests pin the read contract (Spec 006
 ;; §View tagging contract §Attribute value format) and the round-trip against
 ;; the REAL `re-frame.adapter.context/format-view-id` so the format + parse pair
 ;; can never drift apart — the data-rf-view analogue of the parse-source-coord

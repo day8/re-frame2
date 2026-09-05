@@ -2374,8 +2374,8 @@
 
    Alias of the canonical `re-frame.source-coords/parse-view-id` (the source-
    coord contract owner) — the inverse of `format-view-id`. `view-entity` here
-   and Xray's fallback view-walker both route through this one canonical impl
-   in core. See that fn
+   routes through that one canonical impl in core rather than re-deriving the
+   read rule. See that fn
    for the value format (Spec 006 §View tagging contract §Attribute value
    format) and the Tool-Pair opacity caveat (downstream callers MUST NOT depend
    on the parsed shape's stability across re-frame2 versions)."
@@ -2575,9 +2575,8 @@
 ;;
 ;; The resolved producing ENTITY is the headline payload — view-id,
 ;; source-coord (attribute + `handler-meta :view` :file augmentation),
-;; render-key (a stable node hash, the fallback view-walker's `:node-key`
-;; vocabulary), and the live `subs-read` (the frame's materialised
-;; sub-cache query-vectors — "which subs feed this view?").
+;; render-key (a stable node hash), and the live `subs-read` (the frame's
+;; materialised sub-cache query-vectors — "which subs feed this view?").
 ;;
 ;; ## Privacy — elide like snapshot / get-path
 ;;
@@ -2608,8 +2607,10 @@
 (defn- nearest-view-root
   "Return `el` itself when it carries `data-rf-view`, else the nearest
    ancestor that does — the producing view's root for an arbitrary node
-   (a point hit or a sub-selector match). Mirrors the fallback
-   view-walker's `nearest-tagged-ancestor` containment rule (Spec 006)."
+   (a point hit or a sub-selector match). The shipped instance of the
+   nearest-tagged-ancestor containment rule stated as an optional
+   tool-side inference in Spec 006 §View tagging contract §Hierarchy
+   inference."
   [el]
   (loop [n el]
     (cond
@@ -2832,13 +2833,14 @@
   "Resolve the re-frame2 ENTITY that produced `view-root` — the headline
    of a `ui-read`. `view-root` is a DOM element carrying `data-rf-view`
    (or nil when the hit element had no tagged ancestor, e.g. a portal /
-   fragment root — Spec 006 §Documented edge cases). `frame-id` resolves
+   fragment root — Spec 006 §Known limits of the tag and of
+   DOM-containment inference). `frame-id` resolves
    the sub-cache for the `:subs-read` slice.
 
    Returns:
      {:view-id      <keyword|string|nil>   ;; parsed from data-rf-view
       :source-coord {:ns :handler-id :line :col :file}  ;; attr + handler-meta
-      :render-key   <int>                  ;; stable node hash (view-walker :node-key)
+      :render-key   <int>                  ;; stable node hash
       :subs-read    [<query-v> ...]}        ;; the frame's live materialised subs
 
    When `view-root` is nil → `{:view-id nil :reason :no-tagged-view-root}`
@@ -2850,8 +2852,8 @@
     (let [attr     (.getAttribute view-root "data-rf-view")
           ;; The canonical `data-rf-view` reader (the inverse of
           ;; `format-view-id`): leading-colon → keyword, else raw string
-          ;; (Spec 006 §View tagging contract). Same parse the fallback
-          ;; view-walker uses — both alias core's `parse-view-id`.
+          ;; (Spec 006 §View tagging contract). Aliases core's
+          ;; `parse-view-id` rather than re-deriving the read rule.
           view-id  (parse-view-id attr)
           ;; Source-coord: the attribute carries <ns>:<sym>:<line>:<col>;
           ;; handler-meta augments with :file (the four-segment attr can't

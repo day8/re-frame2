@@ -2031,8 +2031,8 @@
   §View tagging contract, rf2-01il5). Non-element outputs (nil,
   fragment, function-component head) emit a one-shot warning per id
   and pass through unchanged — pair tools fall back to `:rf/id` for
-  source-coord; the view-walker falls back to the Fiber-walker primary
-  path for hierarchy capture.
+  source-coord, and the view is untagged and so invisible to view-id
+  lookup, a documented limit in Spec 006 §View tagging contract.
 
   CRITICAL: cloneElement returns a new element with the SAME `type` and
   `key` slots — it does NOT wrap the original. Wrapping with a

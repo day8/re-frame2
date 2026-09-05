@@ -12,8 +12,8 @@
   stamps `data-rf-view=\":rf.foo/bar\"` on the same root element — the
   value is `(str id)` (a printed keyword, leading colon included; see the
   shared `format-view-id`), not the colon-less `<ns>/<sym>` form. It is
-  the view-hierarchy fallback when Fiber inspection is unavailable. Both
-  attributes ride the same Hiccup walk and debug-elision gate.
+  the runtime view-id capture surface. Both attributes ride the same
+  Hiccup walk and debug-elision gate.
 
   Contract details:
 
@@ -34,9 +34,9 @@
         * `[fn-or-component-or-fragment …]` (head is a fn / class / `:>`
           / React-fragment marker) → SKIP and emit a one-shot warning
           per id. Pair-tool consumers fall back to the registry's
-          `:rf/id` for source-coord; the view-walker falls back to the
-          Fiber-walker primary path (or treats the view as invisible to
-          the hierarchy capture — documented edge case).
+          `:rf/id` for source-coord; the view itself is untagged and so
+          invisible to view-id lookup — a documented limit in Spec 006
+          §View tagging contract.
         * Form-2: when the render-fn returns a fn (`(fn [args] body)`),
           we recurse on the inner-fn's output the next time the wrapper
           is called — Reagent invokes the inner fn during the SAME
@@ -181,7 +181,8 @@
 
     ;; Non-DOM root (fn-component head, fragment, lazy-seq, string, number,
     ;; nil). Skip with a one-shot warning. Pair tools fall back to :rf/id;
-    ;; view-walker falls back to the Fiber-walker primary path.
+    ;; the view is untagged and so invisible to view-id lookup — a
+    ;; documented limit in Spec 006 §View tagging contract.
     ;;
     ;; Warn for every non-nil unannotatable root, matching the React-hook
     ;; adapters. nil is silent because a view may legitimately render nothing.
