@@ -168,6 +168,25 @@
 ;; for it can only be hitting THIS drive's credential.
 (def sentinel "PW-REALWORLD-SENTINEL-7d2c4a")
 
+;; LOCAL MIRROR of the app's `:auth/classify-token` (`realworld_http/core.cljs`),
+;; which marks the durable JWT path sensitive at frame creation. This suite
+;; deliberately requires the app's FEATURE namespaces and NOT its `core` ("no
+;; core -> no routes"), so it cannot reach the app's own event, and it must not
+;; borrow it: `:auth/classify-token` resolved here only because the row sat LIVE
+;; in the process registrar, put there by a LATER test namespace's require chain
+;; and reachable because `reinstate-and-snapshot!` folds this ns's baseline OVER
+;; the live registrar. That is a cross-suite accident, not a dependency this ns
+;; declares, and it evaporates the moment the suite that owns the app claims it
+;; with the fixture's `:app-ns` (rf2-kuky.27). Reproducing the one-line effect
+;; locally is the same move the sibling boot-seed suite makes for the app's seed
+;; events, and it keeps what is under test the APP's classification discipline
+;; rather than the bundle's load order.
+(rf/reg-event :test.realworld/classify-token
+  {:doc "Mirror of realworld-http.core's :auth/classify-token — mark the durable
+         JWT path [:auth :token] sensitive on this bare test frame."}
+  (fn [{:keys [db]} _]
+    {:db db :sensitive [[:auth :token]]}))
+
 ;; A UNIQUE sentinel JWT — for the item 4/6/7 closure tests below, which chase
 ;; the session TOKEN through the redesigned success-reply path.
 (def token-sentinel "JWT-REALWORLD-SENTINEL-9f1e6b")
@@ -399,11 +418,11 @@
             egress-only"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
                                                     :auth.session/persist :rf/no-op}})]
-      ;; :auth/classify-token mirrors what the real app's :initial-events
-      ;; does at frame creation (core.cljs) — without it [:auth :token]
-      ;; would be UNCLASSIFIED in this bare test frame, which would be a
-      ;; test-harness gap, not the app's.
-      (rf/dispatch-sync [:auth/classify-token] {:frame f})
+      ;; The local mirror of core.cljs's :auth/classify-token (see its
+      ;; registration above) — without it [:auth :token] would be UNCLASSIFIED
+      ;; in this bare test frame, which would be a test-harness gap, not the
+      ;; app's.
+      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
       (let [traces (record-traces! ::login-cascade)]
         (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
@@ -434,7 +453,7 @@
             password either (scoped past the same documented :rf.event/fx gap)"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
                                                     :auth.session/persist :rf/no-op}})]
-      (rf/dispatch-sync [:auth/classify-token] {:frame f})
+      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (rf/dispatch-sync [:auth.register-form/initialise] {:frame f})
       (let [traces (record-traces! ::register-cascade)]
         (rf/dispatch-sync [:auth.register-form/edit-field :username "alice"] {:frame f})

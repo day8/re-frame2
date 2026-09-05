@@ -85,18 +85,6 @@
 (swap! registrar/kind->id->metadata update :resource
        (fn [m] (apply dissoc m (keys resource-kind-snapshot))))
 
-
-;; rf2-h1vqa4 BUNDLE CO-LOAD HYGIENE: this app registers the reserved
-;; per-app `:rf.route/not-found` route at ns load. Co-loaded example apps
-;; each do the same, and two provenance rows for the id fail default-image
-;; assembly loud for every suite whose fixture baseline is captured after
-;; the second app loads. Sequester OUR app's row at ns load; `init!`
-;; reinstates it (registrar + source store in lockstep) for this suite's
-;; own tests.
-(def ^:private not-found-route-row
-  (test-support/sequester-app-registration!
-    :route :rf.route/not-found "infinite-feed.core"))
-
 (defn- init!
   "Per-test setup (after adapter install, registrar live). The infinite-feed
    example owns the URL through `:rf/default` (`:url-bound? true`), so
@@ -124,7 +112,6 @@
    (`docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs`,
    which documents \"the frame is made last\")."
   []
-  (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
   ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
@@ -160,7 +147,15 @@
 (use-fixtures :each
   isolate-trace-bus-fixture
   (test-support/make-reset-runtime-fixture
+    ;; BUNDLE CO-LOAD HYGIENE: this app registers the reserved per-app
+    ;; `:rf.route/not-found` route at ns load, and every co-loaded example app
+    ;; does the same — two provenance rows for one id fail default-image
+    ;; assembly loud for any suite whose baseline is captured after the second
+    ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
+    ;; keeps its rows out of every suite's baseline and reinstates them for
+    ;; this suite's own tests (rf2-kuky.27).
     {:adapter reagent-adapter/adapter
+     :app-ns  "infinite-feed."
      :init-fn init!}))
 
 ;; ============================================================================
