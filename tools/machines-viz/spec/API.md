@@ -2316,6 +2316,19 @@ back.
   tag as a child state, so a conforming `<state id="idle"><onentry/></state>`
   imported as `{:states {:idle {:states {nil {}}}}}` — a definition
   `reg-machine`, `MachineChart` and every sibling emitter reject.)
+  **Nor into the ROOT.** Whether a document is a parallel-root or a flat
+  machine is decided from the root's **direct** children, so an
+  unsupported subtree cannot supply the `<parallel>` that decides it.
+  W3C SCXML §6.4 makes that reachable from a *conforming* document —
+  `<invoke>` may carry a whole nested `<scxml>` inline through
+  `<content>` — and such a payload is ignored exactly like any other
+  unsupported subtree: **never rejected** (it is valid SCXML) and
+  **never adopted**. (Pre-fix the root scan searched every token in the
+  root body for the first open `<parallel>`, so an invoked document's
+  topology replaced the importing machine's outright; because the
+  substitute is itself well formed, the `grammar/valid-definition?`
+  import postcondition returned true over it — a confidently wrong
+  machine, with no diagnostic anywhere.)
 - `:spawn-all` rows — omitted; the parent state renders without
   spawn affordances.
 - **Internal-default self / proper-ancestor self-transition semantics
