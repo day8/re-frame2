@@ -1373,9 +1373,9 @@ The bang axis above answers *whether* a tear-down surface carries `!`. The **ver
 
 ### `clear-*` — registrar / cache / buffer decrement (in-process)
 
-Symmetric inverse of `reg-*`. Removes an id from a registry the process owns (event registrar, sub registrar, fx registrar, flow registrar, route registrar, http-interceptor registrar) or drops a process-local cache / buffer outright.
+Symmetric inverse of `reg-*`. Removes an id from a registry the process owns (event registrar, sub registrar, fx registrar, flow registrar, route registrar, http-interceptor registrar, resource / mutation / resource-scope registrars) or drops a process-local cache / buffer outright.
 
-- Single-id decrement, registry-shaped: `clear-event`, `clear-sub`, `clear-fx`, `clear-flow`, `clear-route`, `clear-http-interceptor` (bucket 1, no bang)
+- Single-id decrement, registry-shaped: `clear-event`, `clear-sub`, `clear-fx`, `clear-resource`, `clear-mutation`, `clear-resource-scope`, `clear-http-interceptor` on the `re-frame.core` façade, plus `clear-flow` (`re-frame.flows`) and `clear-route` (`re-frame.routing`) on their owning namespaces (bucket 1, no bang)
 - Drop-everything, process-level: `clear-sub-cache!`, `clear-trace-buffer!` (bucket 3, bang)
 
 ### `destroy-*` — lifecycle boundary
@@ -1463,10 +1463,10 @@ When a macro has a fn-version (the unsweetened, runtime-callable surface) that i
 
 The current pairs:
 
-| Macro (ergonomic) | Fn (`*` form) | Spec |
-|---|---|---|
-| `reg-view` | `reg-view*` | [001 §The registration family](001-Registration.md) |
-| `reg-machine` | `reg-machine*` | [005 §reg-machine vs reg-machine*](005-StateMachines.md) |
+| Macro (ergonomic) | Fn (`*` form) | Where the fn lives | Spec |
+|---|---|---|---|
+| `reg-view` | `reg-view*` | `re-frame.core` (a façade export) | [001 §The registration family](001-Registration.md) |
+| `reg-machine` | `reg-machine*` | `re-frame.machines` — **not** a `re-frame.core` façade export (rf2-wad2fl, front-porch shrink) | [005 §reg-machine vs reg-machine*](005-StateMachines.md) |
 
 (`inject-cofx` / `inject-cofx*` are **removed** — EP-0017; coeffect consumption is declared with the `:rf.cofx/requires` registration-metadata key, not invoked at a call site. See [001 §`inject-cofx` is removed](001-Registration.md#inject-cofx-is-removed).)
 
@@ -1480,7 +1480,9 @@ The convention applies **only where adding the `*` partner buys something** the 
 
 ### Convention A — same-name CLJS value-alias (no `*` twin)
 
-For `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-app-schemas`, `reg-interceptor`, `dispatch`, `dispatch-sync`, and `subscribe`, the CLJS fn-alias lives under the macro's **own name** (per `re-frame.core` CLJS aliases): the macro stamps source-coords from `&form` on JVM (and captures `:rf.trace/call-site` for `dispatch` / `dispatch-sync` / `subscribe` specifically, per [009 §`:rf.trace/call-site` — naming the invocation line](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line)); on CLJS, in VALUE position (not call position — e.g. an argument, a `let`-binding, `(or dispatch-fn rf/dispatch)`) the SAME name resolves to a plain-fn Var instead, for HoF / programmatic callers (`(map dispatch events)` — the macro can't ride a HoF position). The call-site stamp (where applicable) is the only thing the value-alias path loses. Adding a `reg-event*` / `dispatch*` synonym would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner) for why the family is intentionally asymmetric, and rf2-m90brg for the dispatch/subscribe/reg-interceptor collapse onto this convention.)
+The set is stated as a **rule, not a roster**: for **every `reg-*` registration macro that splices its arguments straight through to an owning-namespace fn** — that is, every one except the two that walk a literal form or `def` a Var (`reg-machine`, `reg-view`; likewise the `def`-shaped `defmachine`, which is not `reg-*`-named and registers nothing) — plus `dispatch`, `dispatch-sync`, and `subscribe`, the CLJS fn-alias lives under the macro's **own name** (per `re-frame.core` CLJS aliases): the macro stamps source-coords from `&form` on JVM (and captures `:rf.trace/call-site` for `dispatch` / `dispatch-sync` / `subscribe` specifically, per [009 §`:rf.trace/call-site` — naming the invocation line](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line)); on CLJS, in VALUE position (not call position — e.g. an argument, a `let`-binding, `(or dispatch-fn rf/dispatch)`) the SAME name resolves to a plain-fn Var instead, for HoF / programmatic callers (`(map dispatch events)` — the macro can't ride a HoF position). The call-site stamp (where applicable) is the only thing the value-alias path loses. Adding a `reg-event*` / `dispatch*` synonym would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner) for why the family is intentionally asymmetric, and rf2-m90brg for the dispatch/subscribe/reg-interceptor collapse onto this convention.)
+
+**Why the rule replaced the roster.** In the CLJS reference implementation the two halves are two declarations: the macros are emitted from one generator table (`defreg-macro` / `defreg-event-macro`), while the same-name value aliases are `def`s in the facade's CLJS branch. A roster is a third statement of the same set, and all three drifted — five registrars (`reg-flow`, `reg-mutation`, `reg-head`, `reg-error-projector`, `reg-http-interceptor`) carried a macro and no alias, and the roster named a registrar that had no alias while omitting two that did (rf2-kuky.23). The reference implementation now pins the two halves equal in `re-frame.registrar-alias-concordance-cljs-test`, which derives both from the facade source itself, so a new `reg-*` macro without its alias fails the suite. A conforming host owes the same concordance; how it proves it is its own business.
 
 The `dispatch` / `dispatch-sync` / `subscribe` macros are the canonical invocation surface in user code — they pay no extra runtime cost in production (the call-site stamp DCEs under `:advanced` + `goog.DEBUG=false`) and let tooling render two click-to-jump links per error: registration-site (`:rf.trace/trigger-handler`) and invocation-site (`:rf.trace/call-site`). The value-alias forms exist for higher-order use and programmatic / REPL paths where there is no syntactic call site to attribute to.
 
@@ -1583,8 +1585,10 @@ The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose regi
 (rf/reg-app-schema [:user] UserSchema)
 (rf/reg-app-schema [:user] {:frame :session} UserSchema)
 
-(rf/clear-flow :flow-id)
-(rf/clear-flow :flow-id {:frame :session})
+;; `clear-flow` is `re-frame.flows/clear-flow`, not a `re-frame.core` façade
+;; export (rf2-wad2fl) — the opts-map shape is the same wherever it is reached
+(rf.flows/clear-flow :flow-id)
+(rf.flows/clear-flow :flow-id {:frame :session})
 ```
 
 The convention extends `dispatch` / `subscribe`'s opts-map shape — `:frame` is the same mounting key in the same kwarg position across the dispatch/subscribe/`reg-*`/`clear-*` family. Most `reg-*` surfaces adopt this shape: `:frame` lives in the trailing `opts` kwarg, not inside the registration's primary argument. The one principled exception is `reg-http-interceptor` (`(rf/reg-http-interceptor id interceptor-map)`): because HTTP interceptors are themselves data — a registration IS an interceptor-map carrying `:before` / `:after` / `:frame` / `:rf/registration-metadata` — the shape mirrors the event-interceptor `{:id :before :after}` mental model (Spec 002) and folds `:frame` into the interceptor-map alongside its sibling slots. The family is uniform on intent (`:frame` is a kwarg, never a positional arg); the HTTP surface differs only in that its primary argument IS a map of kwargs.
