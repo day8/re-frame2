@@ -124,7 +124,21 @@
   events whose `:sensitive?` flag is true are dropped from the capture
   set when Story's local-render egress profile redacts
   (`:rf.egress/local-redacted` — the default). A counter bump is recorded
-  so the UI's redaction hint can surface 'N sensitive events suppressed'."
+  so the UI's redaction hint can surface 'N sensitive events suppressed'.
+
+  The suppress branch ALSO records the dropped event's framework
+  `:operation` via `note-redacted-failure!` when the event is a pipeline
+  exception for THIS variant. That is not a second capture path and it
+  reveals nothing further: the assertion records stay exactly as redacted
+  as before, and what is kept is one member of the closed
+  `pipeline-exception-operations` enum — no message, no `ex-data`, no
+  failing event. It exists because the assertion accumulator is the
+  DISPLAY path, so a caller that must answer 'did phases 0-2 succeed?'
+  cannot read it: under the default profile a sensitive `:setup` failure
+  left the accumulator empty, and `prepare-variant` published a
+  step-debugger over a frame whose `:setup` never ran (rf2-k6y2,
+  post-merge audit of PR #9252). Readiness therefore rests on a fact the
+  egress filter cannot erase, rather than on redaction being weakened."
   [variant-id phase body-fn]
   (let [collected (atom [])
         listener  (fn [ev]
@@ -132,7 +146,16 @@
                       ;; Resolve the suppress decision against the event's
                       ;; own frame (per-(tool,frame) visibility).
                       (rf.story.config/suppress-sensitive? ev)
-                      (rf.story.config/note-suppressed! (rf.trace/trace-event-frame ev))
+                      (do
+                        (rf.story.config/note-suppressed!
+                          (rf.trace/trace-event-frame ev))
+                        ;; `pipeline-exception-event?` also checks the event
+                        ;; targets THIS variant's frame, so a sibling
+                        ;; frame's suppressed failure never marks this
+                        ;; preparation unready.
+                        (when (rf.story.error/pipeline-exception-event? variant-id ev)
+                          (rf.story.config/note-redacted-failure!
+                            variant-id (:operation ev))))
 
                       (rf.story.error/pipeline-exception-event? variant-id ev)
                       (swap! collected conj ev)))]
@@ -824,7 +847,13 @@
   BEFORE phase-1 loaders fire so the privacy gate suppresses sensitive
   loader-phase events and loader-phase handler-exceptions are captured.
   We clear the per-frame `pending-exceptions` slot so the listener has a
-  clean slot; `execute-play!` clears it again at play start.
+  clean slot; `execute-play!` clears it again at play start. The
+  `redacted-failures` record is cleared in the same breath and for the
+  same reason: it is the privacy-safe half of the phases 0-2 failure
+  picture (`capture-phase-errors`), and `prepare-variant` reads it as a
+  yes/no on THIS preparation. Clearing it here — at the same fresh-frame
+  boundary that resets `[:rf.story/assertions]` — is what makes both
+  halves describe one run rather than an accumulation.
 
   The `:loaders-complete-when` vector form reads the epoch
   tape (`rf.story.assertions/dispatched-events`, the SSOT) rather than a side-table
@@ -844,6 +873,7 @@
   (rf.story.frames/allocate! variant-id decorator-stack
                      (select-keys (:world plan) [:sensitive :large]))
   (swap! rf.story.play/pending-exceptions assoc variant-id [])
+  (rf.story.config/reset-redacted-failures! variant-id)
   (rf.story.play/install-trace-listener! variant-id)
   (assoc ctx :epoch-baseline (rf.story.play.runner-events/last-epoch-id variant-id)))
 
@@ -1765,6 +1795,37 @@
                   (not passed?)))
            (read-assertions variant-id)))
 
+(defn- redacted-prepare-failures
+  "The framework operation keywords of the phases 0-2 pipeline exceptions
+  the PRIVACY EGRESS FILTER suppressed for `variant-id` — a (possibly
+  empty) set.
+
+  `captured-prepare-failures` above reads `[:rf.story/assertions]`, and
+  those records are produced AFTER the egress gate. `capture-phase-errors`'
+  first `cond` branch drops a `:sensitive?` trace event before
+  `record-error!` ever runs, so under the default
+  `:rf.egress/local-redacted` profile a `:setup` / `:loaders` handler whose
+  failure is classified sensitive leaves NO assertion — and the predicate
+  above then has nothing to refuse on. That is the shape rf2-k6y2's
+  post-merge audit of PR #9252 found: an instrument answering 'nothing
+  here' in the same voice whether nothing was wrong or the question could
+  not be asked, so Start published a cursor-0 stepper over failed setup.
+
+  The redaction is CORRECT and is untouched. The repair is to stop reading
+  the ABSENCE of an assertion as evidence of success: the capture boundary
+  additionally records the suppressed event's `:operation`, one member of
+  the closed `pipeline-exception-operations` enum, and this reads that.
+  Nothing author-owned crosses — no message, no `ex-data`, no failing
+  event, no `:failing-id`.
+
+  Distinct from `rf.story.config/suppressed-count`, which counts EVERY
+  suppressed sensitive event. A privacy-classified variant whose
+  preparation is healthy suppresses plenty of events and must still be
+  step-debuggable, so suppression alone is never a refusal — only a
+  suppressed pipeline EXCEPTION is."
+  [variant-id]
+  (rf.story.config/redacted-failure-ops variant-id))
+
 (defn prepare-variant
   "Re-run the PREPARE half of the four-phase lifecycle for `variant-id` —
   phases 0-2 (fresh-frame boundary, allocation, `:db-seed`, `:loaders`,
@@ -1798,7 +1859,8 @@
   inactive state instead of presenting controls over a frame that never
   reached the state the variant's `:setup` describes.
 
-  Those failures reach here by TWO routes, and only one of them is a throw:
+  Those failures reach here by THREE routes, and only one of them is a
+  throw:
 
   - THROWN — an unknown variant (the plan compiler refuses with
     `:rf.error/story-unknown-variant`) and a `:db-seed` schema violation
@@ -1807,15 +1869,29 @@
     `run-loaders!` / `run-events!` project it onto `[:rf.story/assertions]`
     and return normally (`run-variant`'s gather-the-full-picture contract),
     so `prepare-ctx!` completes over a frame whose `:setup` never ran.
+  - REDACTED — the same captured failure, but CLASSIFIED SENSITIVE. The
+    privacy egress gate drops the trace event before `record-error!`, so
+    it leaves no assertion either: the frame looks not merely healthy but
+    UNEVENTFUL.
 
   Reading the absence of a throw as success therefore published an active
   cursor-0 stepper over a failed preparation — the residual the rf2-k6y2
-  post-merge audit found in the fix for rf2-k6y2 itself. So this checks
-  `captured-prepare-failures` explicitly and rejects on a non-empty set,
-  carrying the records under the thrown error's `:failures` so the caller
-  can say WHAT failed rather than only THAT it did. `run-variant` and
-  `prepare-run!` are untouched: they keep resolving a result that reports
-  every failure they saw.
+  post-merge audit found in the fix for rf2-k6y2 itself. Reading the
+  absence of an ASSERTION as success published the same stepper over the
+  sensitive-classified case, which the audit of PR #9252 then found. So
+  this checks `captured-prepare-failures` AND `redacted-prepare-failures`
+  and rejects on either, carrying the visible records under the thrown
+  error's `:failures` and the redacted ones' framework operation keywords
+  under `:redacted-failure-ops`, so the caller can say WHAT failed — or,
+  when the filter hid it, what CLASS of thing failed — rather than only
+  THAT it did.
+
+  The two sets answer the same question through independent channels, and
+  that is the point: the display path is redactable by design, so
+  readiness cannot rest on it alone. Neither check weakens the redaction —
+  the second reads a closed framework enum, never author data — and
+  `run-variant` / `prepare-run!` are untouched: they keep resolving a
+  result that reports every failure they saw.
 
   `opts` is the standard `run-variant` opts (`:active-modes` /
   `:cell-overrides` / `:substrate`)."
@@ -1830,21 +1906,30 @@
          ;; synchronous, so the promise has settled by the time this returns.
          (reset-run-owner! variant-id)
          (prepare-ctx! variant-id (rf.story.frames/variant-body variant-id) opts)
-         (when-let [failures (seq (captured-prepare-failures variant-id))]
-           (rf.error/throw-error!
-             :rf.error/story-prepare-failed
-             'rf.story/prepare-variant
-             (str "re-frame2-story: variant " variant-id
-                  " — preparation (phases 0-2) recorded "
-                  (count failures)
-                  " captured pipeline exception(s) from :loaders / :setup, so "
-                  "the frame never reached the state the variant's :setup "
-                  "describes. The records are on the frame's "
-                  ":rf.story/assertions and under :failures here; fix the "
-                  "failing handler and prepare again.")
-             {:recovery :fix-the-failing-loader-or-setup-handler
-              :extra    {:variant/id variant-id
-                         :failures   (vec failures)}}))
+         (let [failures (vec (captured-prepare-failures variant-id))
+               redacted (vec (sort (redacted-prepare-failures variant-id)))]
+           (when (or (seq failures) (seq redacted))
+             (rf.error/throw-error!
+               :rf.error/story-prepare-failed
+               'rf.story/prepare-variant
+               (str "re-frame2-story: variant " variant-id
+                    " — preparation (phases 0-2) recorded "
+                    (count failures)
+                    " captured pipeline exception(s) from :loaders / :setup"
+                    (when (seq redacted)
+                      (str " and " (count redacted)
+                           " more whose details the privacy egress filter "
+                           "suppressed (operations " (pr-str redacted)
+                           "; reveal this frame with :rf.egress/local-raw to "
+                           "see them)"))
+                    ", so the frame never reached the state the variant's "
+                    ":setup describes. The visible records are on the frame's "
+                    ":rf.story/assertions and under :failures here; fix the "
+                    "failing handler and prepare again.")
+               {:recovery :fix-the-failing-loader-or-setup-handler
+                :extra    {:variant/id           variant-id
+                           :failures             failures
+                           :redacted-failure-ops redacted}})))
          (resolve nil))))))
 
 ;; ---- watch-variant -------------------------------------------------------

@@ -20,6 +20,7 @@
   register via `reg-tag` *before* use; an unregistered tag on a
   variant's `:tags` set raises `:rf.error/unknown-tag`."
   (:require [re-frame.story.assertions   :as rf.story.assertions]
+            [re-frame.story.config       :as rf.story.config]
             [re-frame.story.frames       :as rf.story.frames]
             [re-frame.story.fx-stubs     :as rf.story.fx-stubs]
             [re-frame.story.late-bind    :as rf.story.late-bind]
@@ -64,9 +65,15 @@
   ;; listener closures inspecting every future trace event.
   ;; `remove-trace-listener!` is idempotent, so destroying a frame that never
   ;; installed a listener (or a double-destroy) is harmless.
+  ;; `redacted-failures` is the privacy-safe half of the same phases 0-2
+  ;; failure picture (`runtime/capture-phase-errors` → `prepare-variant`),
+  ;; so it is evicted here for the same reason and at the same moment as
+  ;; `pending-exceptions`: both are per-frame accumulators, and a destroyed
+  ;; frame that kept one would leak it for the life of the session.
   (rf.story.late-bind/set-fn! :drop-assertion-accumulators
     (fn [frame-id]
       (rf.story.play/drop-pending-exceptions! frame-id)
+      (rf.story.config/reset-redacted-failures! frame-id)
       (rf.story.play/remove-trace-listener! frame-id)))
   ;; The play-runner's per-frame run-state (`run-state` / `runs-by-play` /
   ;; `active-play` / `step-boundaries`) is evicted on frame teardown via
