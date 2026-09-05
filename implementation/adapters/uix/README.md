@@ -63,7 +63,7 @@ Compose `use-effect` with the standard outer/inner split: the outer `defui` read
           (.addEventListener el "animationend" listener)
           (fn cleanup []
             (.removeEventListener el "animationend" listener))))
-      [tile-id])
+      [tile-id dispatch])   ;; `dispatch` too — it changes when the provider retargets
     ($ :div {:ref ref :class "tile merging"})))
 
 ;; Outer — reads subs, hands props to the inner. Plain UIx defui.
@@ -74,9 +74,9 @@ Compose `use-effect` with the standard outer/inner split: the outer `defui` read
 
 4 things matter:
 
-- The frame api comes from the `use-frame` hook, called at the top of the component body — never a bare `(rf/capture-frame)`. `use-frame` reads the surrounding `frame-provider` / `frame-root` through React context; a no-arg `(rf/capture-frame)` in a plain hooks component reads only the dynamic-var tier and raises `:rf.error/no-frame-context` under a context-provided frame. The `dispatch` you pull off it closes over the resolved frame at render-time, so the effect body — which fires after commit on a frameless stack — still routes to the right frame.
+- The frame api comes from the `use-frame` hook, called at the top of the component body — never a bare `(rf/capture-frame)`. `use-frame` reads the surrounding `frame-provider` / `frame-root` through React context; a no-arg `(rf/capture-frame)` in a plain hooks component reads only the dynamic-var tier and raises `:rf.error/no-frame-context` under a context-provided frame. The `dispatch` you pull off it closes over the resolved frame **at the render that installed the effect**, so the effect body — which fires after commit on a frameless stack — routes to that frame. Keeping it routed to the *surrounding* frame is the deps vector's job, below.
 - The cleanup fn is mandatory. Without it, the listener leaks across re-mounts and across hot-reloads. The cleanup runs on unmount and before each re-run when deps change.
-- The deps vector matters. Include every prop the effect reads so React re-runs the effect when those props change. An empty deps vector means "run once on mount, clean up on unmount."
+- The deps vector matters. Include every **reactive value** the effect reads, not just the props — and that includes the frame-bound callbacks off `use-frame`. `dispatch` is a *different* function once the surrounding provider targets a different frame, so an effect that omits it keeps the listener it installed under the **old** frame: the DOM event then dispatches into a frame the UI has already navigated away from (silently, if that frame is still live — frames are isolated, so nothing errors). The ops map is reference-stable for the same frame incarnation, so naming `dispatch` costs no effect churn within one frame and re-installs the listener exactly when the frame changes. An empty deps vector means "run once on mount, clean up on unmount."
 - Don't call `use-subscribe` inside the effect body. Hooks must be called at the top of the component body, not inside another hook's callback. Subscribe in the outer (or in the inner's top-level `let`) and pass the value as a dep.
 
 ### Cross-references
