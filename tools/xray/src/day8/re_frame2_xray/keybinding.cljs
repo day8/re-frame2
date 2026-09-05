@@ -342,7 +342,62 @@
          (or (= "j" k) (= "KeyJ" code)
              (= "k" k) (= "KeyK" code)))))
 
-(defn- handle-keydown [^js event]
+;; ---- surfaces (rf2-61i5) -------------------------------------------------
+;;
+;; Xray can be on screen in TWO documents at once: the opener's in-app shell
+;; and a `mount/popout!` window. DOM key events do not cross realms, so each
+;; live document needs its own listener — but they must not need their own
+;; keyboard MAP. `handle-keydown-on` below is the single canonical handler;
+;; a surface is the small bundle of answers that differ between the two.
+;;
+;;   :shell-visible?  is THIS surface's shell on screen right now?
+;;                    Opener: `mount/visible?`, which reads `mount-state`.
+;;                    Pop-out: always — the listener's lifetime IS the
+;;                    pop-out shell's lifetime (installed by `popout!`,
+;;                    disposed by `teardown-popout-state!`), so there is no
+;;                    window in which it is installed and the shell is not
+;;                    showing. Reading `mount/visible?` here would be the
+;;                    bug: it reports on the OPENER's inline shell, so a
+;;                    pop-out user with no inline shell open would find the
+;;                    spine keys dead.
+;;   :show-shell!     make it visible before opening the palette. The
+;;                    pop-out shell is already visible, so this is a no-op
+;;                    there — and it must stay one, or Cmd/Ctrl+K in the
+;;                    pop-out would mount or reopen the opener's shell.
+;;   :owns-shell-toggle-chord?
+;;                    Ctrl+Shift+C shows/hides the opener's IN-APP shell.
+;;                    That surface does not exist in the pop-out document,
+;;                    and reaching across to toggle the opener's would be
+;;                    an action the user did not ask for in the window they
+;;                    are looking at, so the chord stays opener-owned. In
+;;                    the pop-out the key is left entirely alone — not
+;;                    consumed, not `preventDefault`ed — so it falls
+;;                    through to the browser like any unbound key.
+;;
+;; Everything else — the chord predicates, the spine roster, the repeat /
+;; editable / activatable / modal guards, and the `:rf/xray` frame every
+;; action dispatches on — is shared verbatim. There is no second table.
+
+;; Both entries call THROUGH the var rather than capturing the fn object at
+;; def time. Capturing would freeze whatever `mount/visible?` was bound to
+;; when this ns loaded — breaking `with-redefs` in the existing tests, and
+;; leaving a stale fn behind after a shadow-cljs `:after-load` recompiles
+;; mount. Same reasoning as the `attached-fn` stash, in the other direction.
+(def ^:private opener-surface
+  {:shell-visible?           (fn opener-shell-visible? [] (mount/visible?))
+   :show-shell!              (fn opener-show-shell! [] (mount/toggle!))
+   :owns-shell-toggle-chord? true})
+
+(def ^:private popout-surface
+  {:shell-visible?           (constantly true)
+   :show-shell!              (fn no-op-show-shell! [] nil)
+   :owns-shell-toggle-chord? false})
+
+(defn- handle-keydown-on
+  "The one canonical keydown handler, read against `surface` (see above).
+  Every arm below is shared by both surfaces; only the three destructured
+  answers differ."
+  [{:keys [shell-visible? show-shell! owns-shell-toggle-chord?]} ^js event]
   (cond
     ;; rf2-llecpa — ignore OS key-repeat for every binding EXCEPT the
     ;; j / k step keys. Holding a toggle chord (Ctrl+Shift+C shell,
@@ -355,10 +410,15 @@
     (and (.-repeat event) (not (step-key? event)))
     nil
 
+    ;; rf2-61i5 — opener-owned. In the pop-out this arm matches and then
+    ;; does nothing: no dispatch, and deliberately no `preventDefault`, so
+    ;; the keystroke is left to the browser rather than being swallowed by
+    ;; a surface that has no in-app shell to toggle.
     (xray-toggle-key? event)
-    (do (.preventDefault event)
-        (.stopPropagation event)
-        (mount/toggle!))
+    (when owns-shell-toggle-chord?
+      (.preventDefault event)
+      (.stopPropagation event)
+      (mount/toggle!))
 
     ;; rf2-o5f5f.1 — Cmd-Shift-M flips Dynamic ↔ Static. Always
     ;; wired; the chord owns this keystroke for Xray (per
@@ -401,8 +461,13 @@
         ;; stranded hidden while the palette state flips invisibly).
         ;; The palette-toggle dispatch is routed through Xray's frame so
         ;; the palette open-state lives on :rf/xray.
-        (when-not (mount/visible?)
-          (mount/toggle!))
+        ;;
+        ;; rf2-61i5 — both halves read from the SURFACE. In the pop-out
+        ;; `shell-visible?` is always true, so `show-shell!` is never
+        ;; reached and the opener's mount state is not touched: the palette
+        ;; opens in the window the user is typing in.
+        (when-not (shell-visible?)
+          (show-shell!))
         (rf/with-frame :rf/xray
           (rf/dispatch [:rf.xray/palette-toggle])))
 
@@ -418,7 +483,7 @@
     ;; `target-inside-modal?` which closest-walks the event target
     ;; for `data-rf-xray-mode="settings"|"palette"`.
     :else
-    (when (and (mount/visible?)
+    (when (and (shell-visible?)
                (target-inside-xray? event)
                (not (target-editable? event))
                ;; rf2-d716o9 — yield to a focused activatable control
@@ -431,6 +496,13 @@
         (.stopPropagation event)
         (rf/with-frame :rf/xray
           (rf/dispatch [event-id]))))))
+
+(defn- handle-keydown
+  "The opener document's handler. Kept as its own `defn` because
+  `attach!` / `detach!` stash and compare this exact fn object across
+  shadow-cljs `:after-load` reloads (rf2-t2o6o)."
+  [^js event]
+  (handle-keydown-on opener-surface event))
 
 (defn attach!
   "Install the global Ctrl+Shift+C listener once. No-op on second +
@@ -487,3 +559,44 @@
   currently installed?'. Reads the `attached-state` defonce atom."
   []
   @attached-state)
+
+;; ---- pop-out document listener (rf2-61i5) --------------------------------
+
+(defn install-popout-keydown!
+  "Install ONE capture-phase `keydown` listener on pop-out document `doc`
+  and return a zero-arg disposer that removes exactly that listener.
+  Returns nil — installing nothing — when there is no document, or when
+  the host has cleared `:rf.xray/keybinding-enabled?`.
+
+  Called by `mount/popout!` through the installer slot this namespace
+  registers below; the disposer is stored in `popout-state` and invoked
+  by `teardown-popout-state!`, which is the single disposal path for an
+  external window close, `teardown!`, and reopen alike.
+
+  Deliberately NOT routed through `attach!`'s `defonce` sentinel. That
+  sentinel exists to keep the ONE process-wide opener listener from
+  double-attaching across hot reloads. A pop-out listener is per-document
+  and per-window-lifetime: its handler is a fresh closure over `doc`, held
+  only by the disposer mount stores, so reopening installs one new
+  listener rather than accumulating handlers, and a reload cannot leave a
+  stale one behind that a reference comparison would miss.
+
+  The config slot is read at install time, matching `attach!`'s posture:
+  an embed host that suppressed Xray's global keyboard gets no pop-out
+  listener either."
+  [^js doc]
+  (when (and (some? doc)
+             (config/keybinding-attach-enabled?))
+    (let [f (fn popout-keydown [^js e]
+              (handle-keydown-on popout-surface e))]
+      (.addEventListener doc "keydown" f true)
+      (fn dispose-popout-keydown! []
+        (.removeEventListener doc "keydown" f true)
+        nil))))
+
+;; The injection that closes the mount <-> keybinding cycle. This namespace
+;; already requires mount (for `visible?` / `toggle!`), so the hook is pushed
+;; DOWN rather than pulled up. Registration is inert on its own: nothing
+;; installs until `popout!` calls the installer, and the installer re-reads
+;; the config slot then.
+(mount/register-popout-keydown-installer! install-popout-keydown!)

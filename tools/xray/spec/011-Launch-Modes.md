@@ -355,6 +355,61 @@ via `window.opener`. The pop-out renders into the new window but
 — no `BroadcastChannel`, no `postMessage`, no structured-clone
 serialisation. Same JS realm, no protocol cost.
 
+#### The pop-out has its own keyboard (rf2-61i5)
+
+Runtime state crosses the realm boundary; **DOM key events do not**. A
+keydown made while focus is in the pop-out window is delivered only to
+listeners on the POP-OUT document, so the opener-document listener
+`keybinding/attach!` installs can never see it. A pop-out therefore gets
+**exactly one capture-phase `keydown` listener on its own document**,
+installed by `popout!` and removed by `teardown-popout-state!` — the
+single disposal path that serves an external window close, `teardown!`,
+and reopen alike, so listeners cannot accumulate across open/close
+cycles.
+
+It is the SAME keyboard map, not a second one. `keybinding` exposes one
+canonical handler parameterised by a **surface**; only three answers
+differ between the opener and the pop-out:
+
+| | Opener | Pop-out |
+|---|---|---|
+| "is this surface's shell visible?" | `mount/visible?` (reads `mount-state`) | always — the listener's lifetime *is* the pop-out shell's lifetime |
+| show the shell before opening the palette | `mount/toggle!` | no-op — it is already visible |
+| owns the `Ctrl+Shift+C` shell chord | yes | no |
+
+Three consequences are normative:
+
+- **Spine keys work in the pop-out with no inline shell open.**
+  `mount/visible?` reports on the opener's in-app shell, so reusing it
+  in the pop-out would leave `Space` / `L` / `j` / `k` / `Shift+G` /
+  `,` / `s` dead for exactly the user who moved Xray to a second
+  monitor.
+- **`Cmd/Ctrl+K` opens the palette in the pop-out without mounting,
+  showing, hiding or reparenting the opener's shell.** The palette's
+  open state lives on `:rf/xray`, which both windows render, so it
+  appears wherever a shell is on screen; what must not happen is a
+  change to the OPENER's mount state.
+- **`Ctrl+Shift+C` stays opener-owned.** It shows/hides the opener's
+  in-app shell, a surface that does not exist in the pop-out document.
+  Pressed in the pop-out it is left entirely alone — not dispatched and
+  not `preventDefault`ed — so it falls through to the browser like any
+  unbound key. This is the *operating* chord; the separate decision that
+  **no chord LAUNCHES a pop-out pre-alpha** (above) is untouched.
+
+Every other binding — the mode chord, the settings keys, the
+editor-hint `Esc` path, and the repeat / editable / activatable / modal
+guards — is shared verbatim and dispatches on `:rf/xray` exactly as it
+does from the opener.
+
+Mount reaches this listener through an **injected installer slot**
+rather than a require: `keybinding` already requires `mount` (for
+`visible?` / `toggle!`), so the hook is pushed down at load time
+instead of pulled up, which would be a cycle. An unregistered slot
+degrades to the pre-`rf2-61i5` behaviour — a pop-out with no keyboard —
+and the installer re-reads `:rf.xray/keybinding-enabled?` at install
+time, so an embed host that suppressed Xray's global keyboard gets no
+pop-out listener either.
+
 **Pop-out REFLECTS the opener's already-running instance; it must not
 RESET it (rf2-n4p5it).** `popout!` calls `mount/ensure-xray-frame!`
 with no arg — the SAME default `frame-id` the inline shell already

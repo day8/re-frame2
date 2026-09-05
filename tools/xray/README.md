@@ -248,7 +248,12 @@ lives in [`spec/007-UX-IA.md`](spec/007-UX-IA.md) §Global shortcuts):
 open-in-editor hint). Inside the shell, the LIVE-feed spine binds bare
 `Space` / `L` / `j` / `k` / `G`. Pop-out is launched from the chrome's
 `⛶` button or programmatically via `(xray/popout!)` — it is not bound
-to a global chord.
+to a global chord. Once open, the pop-out window has its own listener
+and the same chords work there, with one exception: `Ctrl+Shift+C`
+shows/hides the OPENER's in-app shell, so it stays opener-owned and does
+nothing in the pop-out (see
+[`spec/011-Launch-Modes.md`](spec/011-Launch-Modes.md) §Pop-out to a
+second window).
 
 ### Disable
 
