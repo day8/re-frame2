@@ -559,12 +559,21 @@
   is NO LONGER threaded onto the `make-frame` config — the frame annotation is
   removed. It is applied as commit-plane classification effects into the
   frame's elision registry right after `make-frame`, before the lifecycle /
-  init events run (see `apply-variant-classification!`)."
+  init events run (see `apply-variant-classification!`).
+
+  rf2-kuky.18: the config also declares Story's own `:observability :errors`
+  sink, so a variant's deliberate refusal is ROUTED rather than merely
+  unreported — that is what keeps `re-frame.error-emit`'s dev console
+  fallback quiet for Story's frames without silencing a host app's frames on
+  the same page. Conj'd onto whatever `[:observability :errors]` entries are
+  already there, never replacing them."
   [variant-id fx-overrides {:keys [image-ids]}]
   (cond-> {:doc        (str "Variant frame for " variant-id ".")
            :preset     :story
            :rf/story?  true
            :rf/variant variant-id}
+    :always            (update-in [:observability :errors] (fnil conj [])
+                                  {:sink rf.story.config/error-sink-id})
     (seq fx-overrides) (assoc :fx-overrides fx-overrides)
     ;; EP-0023 §Stories — report the IMAGE ids this behaviour-variant frame
     ;; resolves behaviour against, on frame-meta, so Test mode / MCP / Xray can
@@ -861,13 +870,19 @@
 (defn- inline-frame-config
   "Construct the `make-frame` record-config map for an inline-plan frame. Mirrors
   `variant-frame-config` but stamps `:rf/inline? true` (the inline run's
-  anonymous frame is never a navigable variant)."
+  anonymous frame is never a navigable variant). It carries the same
+  `:observability :errors` sink for the same reason (rf2-kuky.18): an inline
+  plan fails on purpose exactly as a variant does, and a frame Story
+  allocated without the policy would be the one hole in
+  \"every Story frame routes its refusals\"."
   [frame-id fx-overrides]
   (cond-> {:doc        (str "Inline-plan frame for " frame-id ".")
            :preset     :story
            :rf/story?  true
            :rf/inline? true
            :rf/variant frame-id}
+    :always            (update-in [:observability :errors] (fnil conj [])
+                                  {:sink rf.story.config/error-sink-id})
     (seq fx-overrides) (assoc :fx-overrides fx-overrides)))
 
 (defn allocate-inline!

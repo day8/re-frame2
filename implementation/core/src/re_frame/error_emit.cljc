@@ -118,18 +118,45 @@
 ;;     uncaught / recoverable React callback errors. Different situation;
 ;;     untouched by this.)
 ;;
-;;   * ONLY while the listener registry is EMPTY. Registering ANY `:errors`
-;;     listener (`rf/register-listener! :errors …` →
-;;     [[register-error-listener!]]) takes corpus-wide OWNERSHIP and the
-;;     fallback goes quiet — even if that listener ignores this category or
-;;     itself throws. That self-suppression is what keeps this from being a
-;;     nag-diagnostic, and it is why there is NO suppression knob and no new
-;;     API: the off-switch is the listener an owning app already has.
-;;     Dropping the last listener resumes the fallback. Xray does NOT
-;;     populate this registry (it rides the dev-only TRACE axis — `router`
-;;     forwards to `rf.trace/emit-error!`), so a console line may coexist with
-;;     an Xray row; the tutorial already frames console + Xray as
-;;     complementary and the duplication is accepted.
+;;   * ONLY when NOTHING ROUTED THIS RECORD. That is TWO arms, and the
+;;     fallback fires when neither holds (rf2-kuky.18):
+;;
+;;       (a) a corpus-wide `:errors` listener is registered
+;;           (`rf/register-listener! :errors …` → [[register-error-listener!]]).
+;;           Ownership is the REGISTRATION — even if that listener ignores
+;;           this category or itself throws — because the listener registry
+;;           is one undifferentiated corpus-wide door and the framework
+;;           cannot tell an indifferent owner from an attentive one without
+;;           inventing per-category ownership, which stays REJECTED.
+;;
+;;       (b) the record's OWNING FRAME declares an `:observability :errors`
+;;           policy and at least one of its entries resolved to a REGISTERED
+;;           sink fn, which was INVOKED. This is the NORMAL production door
+;;           (Spec 015 §Frame-owned observability sink policy), and the count
+;;           comes back from `route-error!` / `route-error-record!` — the
+;;           console decision is therefore taken AFTER the sink route rather
+;;           than before it. A policy naming a sink the app never registered
+;;           routes NOWHERE and does not own the record (fail-visible: the
+;;           console is the only channel left). A registered sink that THROWS
+;;           does own it — the sink author has the record, exactly as for a
+;;           throwing listener.
+;;
+;;     The two arms differ in SCOPE, and that difference is the point. A
+;;     listener owns corpus-wide; a frame's sink policy owns only that
+;;     frame's records, so a sibling frame on the same page that declared
+;;     nothing keeps its console line. Keying the fallback on arm (a) ALONE
+;;     made a no-op listener — registered purely to buy silence, ignoring
+;;     every record it was handed — the cheapest way to quiet the console
+;;     for a whole page, which is precisely the shape a fallback keyed on
+;;     ownership should not reward.
+;;
+;;     There is still NO suppression knob and no new API: the off-switch is
+;;     the listener or the frame sink policy an owning app already has, and
+;;     dropping the last of either resumes the fallback. Xray does NOT
+;;     populate the listener registry (it rides the dev-only TRACE axis —
+;;     `router` forwards to `rf.trace/emit-error!`), so a console line may
+;;     coexist with an Xray row; the tutorial already frames console + Xray
+;;     as complementary and the duplication is accepted.
 ;;
 ;;   * DEV + BROWSER-HOSTED only. `rf.interop/debug-enabled?` (`@define`
 ;;     `goog/DEBUG`) is the outer gate, so `:advanced` + `goog.DEBUG=false`
@@ -199,10 +226,19 @@
       (str (:error record)))))
 
 (defn- report-unowned-error!
-  "Print `record` to the browser console when NOTHING owns it. Dev builds
-  only, browser hosts only, and only while the corpus-wide `:errors`
-  listener registry is EMPTY — see §Unowned-error dev console fallback
-  above for why each of those three conditions is load-bearing.
+  "Print `record` to the browser console when NOTHING ROUTED IT. Dev builds
+  only, browser hosts only, and only when neither ownership arm holds — see
+  §Unowned-error dev console fallback above for why each condition is
+  load-bearing.
+
+  `routed` is the number of REGISTERED `:observability :errors` sinks the
+  record's owning frame just delivered it to (arm (b)); the caller takes it
+  from `route-error!` / `route-error-record!`, which is why the caller runs
+  the sink route BEFORE this. Zero for a frameless record, for a frame with
+  no `:errors` policy, and for a policy naming only sinks the app never
+  registered — all three of which leave the console the record's only
+  channel. Arm (a), an `:errors` listener being registered at all, is read
+  here off `listeners` and is unchanged.
 
   Arguments are `[\"[re-frame2]\" <summary-line> <record>]`, plus the
   original `<exception>` when the category carries one. The summary leads so
@@ -213,12 +249,13 @@
   A no-op on the JVM, on Node-targeted CLJS (and CLJS SSR), and in any
   `goog.DEBUG=false` build, where the whole body constant-folds away.
   Never throws. Returns nil."
-  [record]
+  [record routed]
   #?(:clj nil
      :cljs
      (when rf.interop/debug-enabled?
        (try
          (when (and (empty? @listeners)
+                    (zero? routed)
                     (exists? js/document)
                     (exists? js/console)
                     (fn? (.-error js/console)))
@@ -591,11 +628,6 @@
            ;; Elision is callback-bearing. Corpus sibling fanout is one
            ;; already-linearized publication; frame routing is a later one.
            (when (rf.trace/continuation-live?)
-             ;; rf2-fu75 — decided immediately before publication, under the
-             ;; SAME continuation/ownership conditions, exactly once per
-             ;; fully built record. Fires only when the registry is empty, so
-             ;; the fan-out below is a no-op whenever this printed.
-             (report-unowned-error! record)
              ((:fan-out registry) record rf.trace/continuation-live?)
              ;; EP-0015 §9: frame-owned observability sink route. Pass the RAW
              ;; event so the sink projects under its own egress profile rather
@@ -610,16 +642,27 @@
              ;; `re-frame.ui` `(frame)` bundle before it went with that artefact
              ;; (rf2-0yp7w) — so a dead incarnation's bare id can never resolve
              ;; to a same-id successor's error sink; the corpus fan-out above
-             ;; still fired.
-             (when (and route-frame? (rf.trace/continuation-live?))
-               (when-let [route-error! (rf.late-bind/get-fn-cached
-                                         :observability/route-error)]
-                 (try
-                   (route-error! error-kw event event-id frame-id exception
-                                 elapsed-ms time nil raw-identity-event?)
-                   (catch #?(:clj Throwable :cljs :default) e
-                     (when (rf.trace/continuation-live?)
-                       (throw e)))))))))))
+             ;; still fired. A suppressed route delivered to nothing, so it
+             ;; contributes 0 to the console decision below and the record
+             ;; keeps its fallback.
+             (let [routed (if (and route-frame? (rf.trace/continuation-live?))
+                            (if-some [route-error! (rf.late-bind/get-fn-cached
+                                                     :observability/route-error)]
+                              (try
+                                (route-error! error-kw event event-id frame-id exception
+                                              elapsed-ms time nil raw-identity-event?)
+                                (catch #?(:clj Throwable :cljs :default) e
+                                  (if (rf.trace/continuation-live?) (throw e) 0)))
+                              0)
+                            0)]
+               ;; rf2-fu75, re-keyed by rf2-kuky.18 — decided ONCE per fully
+               ;; built record, and now AFTER the sink route because the
+               ;; decision needs its delivered-count (arm (b)). Ordering
+               ;; between the corpus fan-out and the sink route is unchanged:
+               ;; the fan-out stays FIRST, so a throwing route can never
+               ;; starve the always-on listener registry, which is the
+               ;; production-survivable source of truth.
+               (report-unowned-error! record routed)))))))
    nil))
 
 ;; ---- the two-channel fan-out helper ---------------------------------------
@@ -850,19 +893,22 @@
   but the bare frame id can no longer name A's sink policy and must not resolve
   to a same-id successor B."
   [record route-frame?]
-  ;; rf2-fu75 — the union-record fan-out site's half of the unowned-error dev
-  ;; console fallback. Same rule as `dispatch-on-error!`: immediately before
-  ;; publication, under the same (here unconditional) conditions, exactly once
-  ;; per record, and only while the registry is empty.
-  (report-unowned-error! record)
   ((:fan-out registry) record rf.trace/continuation-live?)
-  (when (and route-frame? (rf.trace/continuation-live?))
-    (when-let [route-error-record! (rf.late-bind/get-fn-cached
-                                     :observability/route-error-record)]
-      (try
-        (route-error-record! record)
-        (catch #?(:clj Throwable :cljs :default) e
-          (when (rf.trace/continuation-live?) (throw e))))))
+  (let [routed (if (and route-frame? (rf.trace/continuation-live?))
+                 (if-some [route-error-record! (rf.late-bind/get-fn-cached
+                                                 :observability/route-error-record)]
+                   (try
+                     (route-error-record! record)
+                     (catch #?(:clj Throwable :cljs :default) e
+                       (if (rf.trace/continuation-live?) (throw e) 0)))
+                   0)
+                 0)]
+    ;; rf2-fu75, re-keyed by rf2-kuky.18 — the union-record fan-out site's
+    ;; half of the fallback. Same rule as `dispatch-on-error!`: exactly once
+    ;; per record, under the same (here unconditional) conditions, and taken
+    ;; AFTER the sink route so arm (b)'s delivered-count is available. Most
+    ;; of these records are frameless, which routes to nothing and returns 0.
+    (report-unowned-error! record routed))
   nil)
 
 (defn dispatch-error-record!

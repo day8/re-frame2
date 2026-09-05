@@ -188,25 +188,39 @@ the registry level; stale variants re-mount.
 
 ### Error-stream ownership
 
-Mounting the shell registers an `:errors` listener; unmounting drops it
-again. The listener carries no behaviour — the registration *is* the
-payload, because it is a claim rather than a sink.
+Every frame Story allocates declares `{:sink :rf.story/errors}` on its
+`[:observability :errors]` policy, and mounting the shell registers the
+concrete sink under that id; unmounting unregisters it. The sink body is
+empty — Story reads its refusals off the trace axis, which carries the
+per-variant frame scope its assertions need — but the registration is not
+a bare claim: it is the frame policy's named destination, and the record
+genuinely arrives there.
 
 The framework's dev console fallback (Spec 009 §Error-emit listener)
-prints a promoted `:rf.error/*` record to `console.error` only while the
-corpus-wide `:errors` registry is empty, on the reasoning that an
-untooled dev build would otherwise surface a captured refusal nowhere at
-all. A mounted shell is the tooled case. Story runs failing variants on
-purpose, captures every promoted refusal off the trace axis, and shows
-the outcome in the assertion strip, the Test pane's per-row verdict and
-the embedded Xray Trace tab — so a console line would only duplicate
-what is already on screen, once per failing run.
+prints a promoted `:rf.error/*` record to `console.error` only when
+*nothing routed that record*, on the reasoning that an untooled dev build
+would otherwise surface a captured refusal nowhere at all. A mounted shell
+is the tooled case. Story runs failing variants on purpose, captures every
+promoted refusal off the trace axis, and shows the outcome in the
+assertion strip, the Test pane's per-row verdict and the embedded Xray
+Trace tab — so a console line would only duplicate what is already on
+screen, once per failing run.
 
-Registering any `:errors` listener takes ownership corpus-wide, which is
-what the framework contract offers as the fallback's off-switch. Story's
-claim is scoped to the mounted shell: unmounting hands the fallback back
-to whatever runs on the page next, and a host app's own `:errors`
-listener rides under its own id and survives a Story unmount untouched.
+Ownership is therefore **frame-scoped, and scoped by construction rather
+than by id discipline**. A host app's frames on the same page declare no
+`:observability :errors` policy and Story registers nothing on their
+behalf, so their refusals still reach the console; a host app's own
+`:errors` *listener* is a different registry Story never touches at all.
+Unmounting leaves the frames' policy naming a sink nobody has registered,
+which routes nowhere — so the fallback returns to whatever runs on the
+page next.
+
+Story previously bought the same silence by registering a no-op
+corpus-wide `:errors` listener, back when the fallback keyed on that
+registry being empty. That worked, but it silenced the console for *every*
+frame on the page, including frames Story neither mounted nor read.
+`rf2-kuky.18` re-keyed the fallback on nothing-routed-this-record, which is
+what makes the frame-scoped form above expressible.
 
 ### One run owner (prepare / resume)
 

@@ -1107,57 +1107,77 @@
           [rf.story.ui.promotion/promotion-dialog]
           [rf.story.ui.command-palette.view/command-palette-host]]))}))
 
-;; ---- error ownership while a shell is mounted (rf2-8yyd) -----------------
+;; ---- error ownership while a shell is mounted (rf2-8yyd, rf2-kuky.18) ----
 ;;
 ;; `re-frame.error-emit`'s dev console fallback (rf2-fu75) prints a promoted
-;; `:rf.error/*` record to `console.error` when — and ONLY when — the
-;; corpus-wide `:errors` listener registry is EMPTY. Its whole point is the
-;; UNTOOLED dev build, where a captured refusal would otherwise reach no
-;; channel at all. A mounted Story shell is the opposite case: Story runs
-;; deliberately-failing variants ON PURPOSE, captures every promoted refusal
-;; off the trace axis (`play/register-listener!`, `frames`, `runtime`), and
-;; surfaces the result in the assertion strip, the Test pane's per-row
-;; verdict and the embedded Xray Trace tab. The refusal is owned, asserted
-;; on, and already on screen.
+;; `:rf.error/*` record to `console.error` when NOTHING ROUTED IT. Its whole
+;; point is the UNTOOLED dev build, where a captured refusal would otherwise
+;; reach no channel at all. A mounted Story shell is the opposite case: Story
+;; runs deliberately-failing variants ON PURPOSE, captures every promoted
+;; refusal off the trace axis (`play/register-listener!`, `frames`,
+;; `runtime`), and surfaces the result in the assertion strip, the Test
+;; pane's per-row verdict and the embedded Xray Trace tab. The refusal is
+;; owned, asserted on, and already on screen.
 ;;
-;; Left unclaimed, the fallback printed one console line per captured
-;; refusal — 227 of them in a single Story feature-load browser run — which
-;; reds `examples/scripts/run-story-feature-load-tests.cjs` (console errors
-;; are fatal there, not just `pageerror`).
+;; Left unowned, the fallback printed one console line per captured refusal
+;; — 227 of them in a single Story feature-load browser run — which reds
+;; `examples/scripts/run-story-feature-load-tests.cjs` (console errors are
+;; fatal there, not just `pageerror`).
 ;;
-;; So the shell claims the stream the way the fallback's contract defines:
-;; registering ANY `:errors` listener takes corpus-wide ownership and the
-;; fallback goes quiet, "even if that listener ignores this category". That
-;; IS the documented off-switch — there is deliberately no suppression knob
-;; — and the claim is honest here rather than a workaround.
+;; Story owns those records as DATA ON THE FRAMES IT CREATES. Every frame
+;; Story allocates carries `{:sink ::errors}` on its `[:observability
+;; :errors]` policy (`frames/variant-frame-config`, `frames/inline-frame-
+;; config`, `artifact/replay-run-artifact`), and the shell registers the
+;; concrete sink for its own lifetime. A record from a Story frame is then
+;; routed to a registered sink, which is what the fallback keys on, so the
+;; console stays quiet for exactly the frames Story made — and a host app's
+;; frames on the same page keep their console lines, because they declared
+;; no policy and Story registered nothing on their behalf.
 ;;
-;; The listener body is empty on purpose. Story's capture path is the trace
-;; axis, which carries the per-variant frame scope Story's assertions need;
-;; the always-on `:errors` record is corpus-wide and frame-fanned, so
-;; buffering it here would be a second copy nothing reads. The registration
-;; is the whole payload.
+;; That scoping is the whole reason this is a sink rather than the corpus-
+;; wide `:errors` listener it used to be. The old form registered
+;; `(fn [_record] nil)` purely to claim the stream: a no-op listener on a
+;; door nobody reads, silencing the console for EVERY frame on the page
+;; including ones Story neither mounted nor looked at. A listener existing
+;; only to suppress a console fallback is the tell that the fallback was
+;; keyed on the wrong thing, and rf2-kuky.18 moved the key rather than
+;; keeping the workaround.
 ;;
-;; Scoped to the shell's own lifetime and registered under the shell's own
-;; id: unmounting releases the claim (a later untooled dispatch on the same
-;; page gets its console line back), and a host app that registered its own
-;; `:errors` listener keeps it — ids are independent, and dropping ours
-;; never drops theirs.
+;; The sink body is empty on purpose, and that is now honest rather than a
+;; claim in disguise: Story's capture path is the trace axis, which carries
+;; the per-variant frame scope Story's assertions need, so buffering the
+;; projected record here would be a second copy nothing reads. What the sink
+;; asserts is that these records HAVE a home — which they do.
+;;
+;; Sink resolution happens at delivery time, so mount order between the
+;; shell and a variant frame does not matter: a frame allocated before the
+;; shell mounted routes to the sink as soon as it is registered, and one
+;; whose record arrives after unmount falls back to the console exactly as
+;; an untooled page should.
 
-(def ^:private error-ownership-listener-id
-  ::error-ownership)
-
-(defn- claim-error-ownership!
-  "Take corpus-wide `:errors` ownership for the mounted shell. See the
-  §Error ownership note above. Returns nil."
-  []
-  (rf/register-listener! :errors error-ownership-listener-id (fn [_record] nil))
+(defn- story-error-sink
+  "The shell's `:observability :errors` sink. Deliberately a no-op: Story
+  reads its refusals off the TRACE axis, which carries the per-variant frame
+  scope the assertion strip and the Test pane need, so the projected record
+  would be a second copy nothing reads. Registering it is what gives every
+  Story-frame refusal a routed home, which is what keeps the untooled dev
+  console fallback quiet for Story's frames and only Story's frames.
+  Returns nil."
+  [_projected]
   nil)
 
-(defn- release-error-ownership!
-  "Release the shell's `:errors` claim on unmount, restoring the untooled
-  dev console fallback for whatever runs on the page next. Returns nil."
+(defn- register-error-sink!
+  "Register the shell's `:observability :errors` sink for the mounted
+  shell's lifetime. See the §Error ownership note above. Returns nil."
   []
-  (rf/unregister-listener! :errors error-ownership-listener-id)
+  (rf/register-observability-sink! rf.story.config/error-sink-id story-error-sink)
+  nil)
+
+(defn- unregister-error-sink!
+  "Unregister the shell's sink on unmount, restoring the untooled dev
+  console fallback for whatever runs on the page next. Returns nil."
+  []
+  (rf/unregister-observability-sink! rf.story.config/error-sink-id)
   nil)
 
 ;; ---- mount / unmount surface ---------------------------------------------
@@ -1183,7 +1203,7 @@
         (catch :default _ nil)))
     ;; Before the first render: a variant prepared on mount can already
     ;; produce a captured refusal. See §Error ownership above.
-    (claim-error-ownership!)
+    (register-error-sink!)
     (let [root (rdc/create-root dom-node)]
       (rdc/render root [shell])
       (let [handle {:root root :node dom-node}]
@@ -1209,7 +1229,7 @@
        (catch :default _ nil))
      (rf.story.ui.state/reset-shell-state!)
      (teardown-all-listeners!)
-     (release-error-ownership!)
+     (unregister-error-sink!)
      (stop-hot-reload-poll!)
      (reset! shell-singleton nil)
      nil)))

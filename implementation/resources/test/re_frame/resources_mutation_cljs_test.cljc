@@ -177,8 +177,9 @@
   AND in a production build, while a category that fans nothing is invisible
   everywhere. (Since PR #8108 there is ALSO a browser-console fallback, but it
   is not the always-on contract and cannot fire here: it needs a dev build, a
-  browser host — this suite is the Node lane, no `js/document` — and an EMPTY
-  `:errors` registry, which the listener below fills.) Sibling of
+  browser host — this suite is the Node lane, no `js/document` — and nothing to
+  have ROUTED the record, whereas the listener below owns it; since rf2-kuky.18
+  a frame's registered `:observability :errors` sink owns it too.) Sibling of
   `record-mutation-traces!` above (rf2-06lp)."
   [body-fn]
   (let [seen (atom [])
@@ -382,7 +383,9 @@
         ;; §Observability channels a listener is the only ALWAYS-ON channel, so
         ;; this listener is where a refusal is legible in dev AND prod. The
         ;; browser-dev console fallback (#8108) is not a second reading here —
-        ;; it needs an EMPTY registry, and this listener fills it.
+        ;; it needs nothing to have ROUTED the record, and this listener owns it
+        ;; (rf2-kuky.18: a frame's registered `:observability :errors` sink owns
+        ;; it too; neither arm fires here).
         (is (some? rec)
             ":rf.mutation/execute fanned an always-on error record")
         (is (= :rf.mutation/execute (:event-id rec)))

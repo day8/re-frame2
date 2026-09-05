@@ -79,6 +79,10 @@
   runners (DOM/browser) supply their own flush-hooks; this ns defaults to
   the headless hooks and never reaches for `dispatch-sync` directly."
   (:require [re-frame.core                        :as rf]
+            ;; rf2-kuky.18: the one Story-owned `:observability :errors` sink
+            ;; id, shared with `frames` and `ui.shell`. `config` is the leaf
+            ;; all three can reach without closing a cycle.
+            [re-frame.story.config                :as rf.story.config]
             [re-frame.story.play.evidence         :as rf.story.play.evidence]
             [re-frame.story.play.runner           :as rf.story.play.runner]
             [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
@@ -442,10 +446,20 @@
          ;; the run still reads `:pass`. Destroying the value no-ops against B
          ;; (its carried token is stale), leaving B alive, while an ordinary
          ;; A-only replay still tears A down.
+         ;; rf2-kuky.18: a replay frame is a frame STORY allocated, so it
+         ;; declares Story's `:observability :errors` sink like every other
+         ;; one — conj'd on AFTER the caller's `frame-config` is merged, so a
+         ;; caller's own `[:observability :errors]` entries survive rather
+         ;; than being replaced. Without it a `:dom`-adapter replay would be
+         ;; the single Story-allocated frame whose refusals still reached the
+         ;; console.
          own-frame-value (when own-frame?
-                           (rf/make-frame (merge {:id  frame-id
-                                                  :doc "rf2-5x1wt.7 run-artifact replay frame"}
-                                                 frame-config)))]
+                           (rf/make-frame
+                             (-> (merge {:id  frame-id
+                                         :doc "rf2-5x1wt.7 run-artifact replay frame"}
+                                        frame-config)
+                                 (update-in [:observability :errors] (fnil conj [])
+                                            {:sink rf.story.config/error-sink-id}))))]
      (try
        ;; Re-install the artifact's `:network` route stubs (when any) for the
        ;; duration of the replay, so the `:fx-decisions` managed-stub redirect

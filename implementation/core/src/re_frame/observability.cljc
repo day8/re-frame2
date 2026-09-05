@@ -161,32 +161,45 @@
   `projected` record to it. A throwing sink is dropped (sibling isolation —
   a buggy sink cannot block its siblings, same posture as the error-emit
   fan-out). A `sink-id` with no registered fn is a no-op (the policy named
-  a sink the app has not wired yet). Returns nil."
+  a sink the app has not wired yet).
+
+  Returns 1 when a registered sink fn was INVOKED and 0 when none resolved.
+  Invocation is the unit, not outcome: a sink that then threw still counts,
+  because the sink author HAS the record and the swallow above must not read
+  downstream as nobody-received-it. That count is what `error-emit`'s dev
+  console fallback keys on (rf2-kuky.18) — see [[route-error!]]."
   [sink-id projected]
-  (when-let [f (get @sinks sink-id)]
-    (try
-      (f projected)
-      (catch #?(:clj Throwable :cljs :default) _ nil)))
-  nil)
+  (if-let [f (get @sinks sink-id)]
+    (do (try
+          (f projected)
+          (catch #?(:clj Throwable :cljs :default) _ nil))
+        1)
+    0))
 
 (defn- route-stream!
   "Route `record` to every sink entry on one `:observability` stream
   (`:handled-events` / `:errors`). For each entry: project `record` through
   `project-egress` under `frame-id`'s classification and the entry's
   `:rf.egress/profile` (defaulting to `off-box-observability`), then deliver
-  the projected record to the entry's `:sink`. Returns nil. A nil / empty
-  `entries` is a no-op."
+  the projected record to the entry's `:sink`.
+
+  Returns the NUMBER of registered sinks the record was delivered to — 0 for
+  nil / empty `entries`, and 0 for entries that name only sinks the app has
+  not registered. Declaring a policy is not routing: that distinction is the
+  whole of the second ownership arm in `error-emit`'s console fallback."
   [frame-id record entries]
-  (doseq [entry entries
-          :let [sink-id (:sink entry)]
-          :when sink-id]
-    (let [profile   (get entry :rf.egress/profile default-profile)
-          projected (rf.projection/project-egress
-                      record
-                      {:frame             frame-id
-                       :rf.egress/profile profile})]
-      (deliver-to-sink! sink-id projected)))
-  nil)
+  (reduce
+    (fn [n entry]
+      (if-some [sink-id (:sink entry)]
+        (let [profile   (get entry :rf.egress/profile default-profile)
+              projected (rf.projection/project-egress
+                          record
+                          {:frame             frame-id
+                           :rf.egress/profile profile})]
+          (+ n (deliver-to-sink! sink-id projected)))
+        n))
+    0
+    entries))
 
 (defn route-handled-event!
   "Route ONE `:rf.observe/handled-event` record for a processed event to
@@ -237,9 +250,17 @@
   record.
 
   Fail-closed: a NO-OP when `frame-id` is unresolved or declares no
-  `:errors` policy. Returns nil. Called from `error-emit/dispatch-on-error!`
-  via the `:observability/route-error` late-bind hook, ALONGSIDE the
-  always-on corpus-wide error-listener fan-out.
+  `:errors` policy. Called from `error-emit/dispatch-on-error!` via the
+  `:observability/route-error` late-bind hook, ALONGSIDE the always-on
+  corpus-wide error-listener fan-out.
+
+  Returns the NUMBER of registered sinks this record was DELIVERED to (0
+  when the frame is unresolved, declares no `:errors` policy, or names only
+  sinks the app never registered). `error-emit` takes its dev console
+  fallback decision off that count (rf2-kuky.18): a record the owning
+  frame's policy actually handed to a sink is owned, and printing it beside
+  the sink would be the duplicate the fallback exists to avoid — while a
+  policy that routed NOWHERE leaves the console the only channel it has.
 
   `raw-event?` (trailing, default false — #6441 / rf2-zwgqe) marks `:event` as
   a subscription QUERY VECTOR: raw IDENTITY that egresses VERBATIM, never
@@ -257,7 +278,7 @@
   ([error-kw event event-id frame-id exception elapsed-ms time correlation raw-event?]
    (let [observability (frame-observability frame-id)
          entries       (:errors observability)]
-     (when (seq entries)
+     (if (seq entries)
        (let [record (cond-> {:kind       :rf.observe/error
                              :frame      frame-id
                              :error      error-kw
@@ -268,8 +289,8 @@
                              :time       time}
                       (some? correlation) (assoc :correlation correlation)
                       raw-event?          (assoc :re-frame.projection/raw-event? true))]
-         (route-stream! frame-id record entries))))
-   nil))
+         (route-stream! frame-id record entries))
+       0))))
 
 ;; ---- non-event union record route (EP-0008) -------------------------------
 ;;
@@ -322,14 +343,19 @@
   Fail-closed: a NO-OP when the record's `:frame` is unresolved (destroyed /
   never-registered — incl. the FRAMELESS `:frame nil` records, which carry no
   frame-owned sink policy by definition) or declares no `:errors` policy.
-  Returns nil. Called from `error-emit/dispatch-error-record!` via the
+  Called from `error-emit/dispatch-error-record!` via the
   `:observability/route-error-record` late-bind hook, ALONGSIDE the always-on
-  corpus-wide error-listener fan-out."
+  corpus-wide error-listener fan-out.
+
+  Returns the NUMBER of registered sinks this record was DELIVERED to, on the
+  same terms as [[route-error!]] — so a frameless record always returns 0 and
+  keeps the console fallback, which is the untooled case the fallback exists
+  for."
   [record]
   (let [frame-id      (:frame record)
         observability (frame-observability frame-id)
         entries       (:errors observability)]
-    (when (seq entries)
+    (if (seq entries)
       (let [summary  (select-keys record error-record-summary-keys)
             ;; Everything that is NOT a summary slot, the literal :error
             ;; category, or the (separately-handled) :exception rides :tags so
@@ -343,8 +369,8 @@
                        (seq tags)              (assoc :tags tags)
                        (contains? record :exception)
                        (assoc :exception (:exception record)))]
-        (route-stream! frame-id observe entries))))
-  nil)
+        (route-stream! frame-id observe entries))
+      0)))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

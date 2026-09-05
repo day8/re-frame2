@@ -98,7 +98,10 @@
                 ;; The error-listener registry is a `defonce` atom that
                 ;; survives test re-runs. A listener leaked from a sibling
                 ;; suite would both pollute the counts here AND silence the
-                ;; rf2-fu75 console fallback the browser suite asserts.
+                ;; rf2-fu75 console fallback the browser suite asserts — which
+                ;; since rf2-kuky.18 fires when NOTHING ROUTED the record, a
+                ;; registered `:errors` listener and a frame's registered
+                ;; `:observability :errors` sink each counting as owning it.
                 (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------

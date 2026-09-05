@@ -3,14 +3,14 @@
   `re-frame.error-emit`.
 
   RULED (2026-08-13): an untooled dev build DOES surface a framework
-  refusal, via a dev-build console.error fallback that fires ONLY when the
-  corpus-wide `:errors` listener registry is EMPTY. Not `reportError`; no
-  new API knob; browser-hosted dev builds only.
+  refusal, via a dev-build console.error fallback that fires ONLY when
+  NOTHING ROUTED the record. Not `reportError`; no new API knob;
+  browser-hosted dev builds only.
 
   This suite is the two-way control the ruling asks for, and BOTH halves are
   the contract:
 
-    - with an EMPTY registry a promoted refusal reaches the console exactly
+    - with nothing owning it a promoted refusal reaches the console exactly
       once, as `[\"[re-frame2]\" <summary> <record> <exception>]` — a readable
       SUMMARY LINE first, then the structured record and the ORIGINAL
       exception as separate console ARGUMENTS;
@@ -19,6 +19,11 @@
       is corpus-wide and implicit: a listener that ignores the category, or
       one that itself throws, still owns the stream. Dropping the last
       listener resumes the fallback.
+
+  rf2-kuky.18 added the SECOND ownership arm, and its block sits beside the
+  listener block below: the record's owning frame having routed it to a
+  REGISTERED `:observability :errors` sink also owns it, frame-scoped rather
+  than corpus-wide. The listener arm above is unchanged in every respect.
 
   ## The summary argument (rf2-6sqv)
 
@@ -71,6 +76,7 @@
             ;; late-bind hooks are what the candidate walker resolves, and
             ;; without them the deftest would pass vacuously.
             [re-frame.machines]
+            [re-frame.observability :as rf.observability]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -82,7 +88,12 @@
                 ;; test re-runs, and EMPTINESS is the whole condition under
                 ;; test here — a listener leaked from a sibling test would
                 ;; silently invert every assertion below.
-                (rf.error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!)
+                ;; The sink registry is the SECOND ownership arm and a
+                ;; `defonce` atom for the same reason (rf2-kuky.18), so a
+                ;; sink leaked from a sibling test silences the fallback
+                ;; just as invisibly.
+                (rf.observability/clear-observability-sinks!))}))
 
 (defn- browser?
   "True only on a real DOM host. `js/document` presence is the same
@@ -375,6 +386,155 @@
           "the registry is empty again, so the fallback resumes")
       (is (= "[re-frame2]" (ffirst (:console unowned))))
       (is (zero? (:report-error unowned))))))
+
+;; ===========================================================================
+;; OWNED BY THE FRAME'S SINK POLICY — the second ownership arm (rf2-kuky.18)
+;; ===========================================================================
+;;
+;; The fallback fires when NOTHING ROUTED THIS RECORD, which is two arms, not
+;; one. Arm (a) — any corpus-wide `:errors` listener — is the block above and
+;; is unchanged. Arm (b) is here: the record's OWNING FRAME declared an
+;; `:observability :errors` policy and at least one of its entries resolved to
+;; a REGISTERED sink fn, which was invoked. That is the NORMAL production
+;; door (Spec 015 §Frame-owned observability sink policy), and keying the
+;; fallback on the listener registry alone meant a frame whose sink already
+;; had the record still got a console line — while a *listener* that never
+;; looked at the category silenced records belonging to frames it had never
+;; heard of.
+;;
+;; The two arms differ in SCOPE on purpose: a listener owns corpus-wide, a
+;; sink policy owns only the frame that declared it. So a sibling frame with
+;; no policy on the same page keeps its console line — the property the
+;; page-wide claim could not offer, and the reason a no-op listener
+;; registered purely to buy silence is no longer anybody's idiom.
+;;
+;; "Routed" is exact: DELIVERED to a registered sink fn. A policy naming a
+;; sink the app never registered routes nowhere and does NOT own the record
+;; (fail-visible — the console is the only place it would otherwise appear).
+;; A registered sink that THROWS does own it: the sink author has the record,
+;; and swallowing their throw must not read as nobody-owns-it — the same
+;; posture `ownership-is-implicit-and-corpus-wide` pins for a throwing
+;; listener.
+
+(defn- register-sink-refusal!
+  "Register a throwing handler on `frame-id`, whose frame declares
+  `entries` as its `:observability :errors` policy. Returns nil."
+  [frame-id entries]
+  (rf/make-frame (cond-> {:id frame-id :doc "rf2-kuky.18 sink-ownership witness"}
+                   (some? entries) (assoc :observability {:errors entries})))
+  (rf/reg-event :fu75.sink/throws
+                {:frame frame-id}
+                (fn [_ _] (throw (ex-info "sink-arm kaboom" {:cause :test}))))
+  nil)
+
+(deftest a-registered-frame-sink-suppresses-the-fallback
+  (when (browser?)
+    (testing "the frame's :errors policy delivered the record to a REGISTERED
+              sink, so the record was routed and the console stays silent —
+              with NO :errors listener anywhere"
+      (let [seen (atom [])]
+        ;; Arm (a) must be provably OUT of the picture, or the silence below
+        ;; could be a leaked listener rather than the sink route.
+        (rf.error-emit/clear-error-listeners!)
+        (rf/register-observability-sink! :fu75.sink/collector
+                                         (fn [r] (swap! seen conj r)))
+        (register-sink-refusal! :fu75.sink/frame [{:sink :fu75.sink/collector}])
+        (let [{:keys [console report-error]}
+              (capture-console
+                #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/frame}))]
+          (is (= 1 (count @seen))
+              (str "premise: the sink genuinely received the record — without "
+                   "this the silence below would be vacuous; got " (count @seen)))
+          (is (= :rf.observe/error (:kind (first @seen))))
+          (is (empty? console)
+              (str "the record was routed, so nothing is unowned; got "
+                   (pr-str console)))
+          (is (zero? report-error)))))))
+
+(deftest a-policy-naming-an-UNREGISTERED-sink-still-prints
+  (when (browser?)
+    (testing "declaring a policy is not routing. The named sink was never
+              registered, so `deliver-to-sink!` no-op'd and the record went
+              NOWHERE — fail-visible: the console is the only channel left"
+      (register-sink-refusal! :fu75.sink/orphan [{:sink :fu75.sink/never-wired}])
+      (let [{:keys [console report-error]}
+            (capture-console
+              #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/orphan}))]
+        (is (= 1 (count console))
+            (str "an unwired sink id must not buy silence; got " (pr-str console)))
+        (let [[prefix summary record] (first console)]
+          (is (= "[re-frame2]" prefix))
+          (is (re-find #"^:rf\.error/handler-exception\b" summary))
+          (is (= :fu75.sink/orphan (:frame record))))
+        (is (zero? report-error))))))
+
+(deftest sink-ownership-is-frame-scoped-not-page-wide
+  (when (browser?)
+    (testing "one frame's policy silences ONLY its own records. A sibling
+              frame on the same page that declared nothing keeps its console
+              line — this is the property a corpus-wide listener claim could
+              not express, and the whole reason the key moved"
+      (let [seen (atom [])]
+        (rf/register-observability-sink! :fu75.sink/collector
+                                         (fn [r] (swap! seen conj r)))
+        (register-sink-refusal! :fu75.sink/owned [{:sink :fu75.sink/collector}])
+        (rf/make-frame {:id :fu75.sink/bare :doc "no :observability policy"})
+        (rf/reg-event :fu75.sink/bare-throws
+                      {:frame :fu75.sink/bare}
+                      (fn [_ _] (throw (ex-info "bare kaboom" {}))))
+        (let [owned (capture-console
+                      #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/owned}))
+              bare  (capture-console
+                      #(rf/dispatch-sync [:fu75.sink/bare-throws] {:frame :fu75.sink/bare}))]
+          (is (empty? (:console owned))
+              (str "the frame that routed stays quiet; got "
+                   (pr-str (:console owned))))
+          (is (= 1 (count (:console bare)))
+              (str "the frame that routed NOTHING still prints; got "
+                   (pr-str (:console bare))))
+          (is (= :fu75.sink/bare (:frame (nth (first (:console bare)) 2)))
+              "and the line that printed is the bare frame's own record"))))))
+
+(deftest a-throwing-registered-sink-still-owns-the-record
+  (when (browser?)
+    (testing "the sink was invoked and threw. `deliver-to-sink!` swallows it
+              for sibling isolation, and that swallow must not read as
+              nobody-owns-it — the sink author HAS the record. Same posture
+              as the throwing listener in `ownership-is-implicit-and-corpus-wide`"
+      (let [calls (atom 0)]
+        (rf/register-observability-sink! :fu75.sink/broken
+                                         (fn [_r]
+                                           (swap! calls inc)
+                                           (throw (ex-info "sink boom" {}))))
+        (register-sink-refusal! :fu75.sink/throwing [{:sink :fu75.sink/broken}])
+        (let [{:keys [console report-error]}
+              (capture-console
+                #(rf/dispatch-sync [:fu75.sink/throws] {:frame :fu75.sink/throwing}))]
+          (is (= 1 @calls) "premise: the sink really was invoked")
+          (is (empty? console)
+              (str "delivery is ownership, whatever the sink then did; got "
+                   (pr-str console)))
+          (is (zero? report-error)))))))
+
+(deftest a-frameless-record-has-no-sink-arm-and-still-prints
+  (when (browser?)
+    (testing "a `:frame nil` record carries no frame-owned policy BY
+              DEFINITION, so arm (b) can never fire for it. With no listener
+              either, the fallback is unchanged — this is the untooled case
+              rf2-fu75 exists for, and the arm added here must not erode it"
+      (rf/register-observability-sink! :fu75.sink/collector (fn [_r] nil))
+      (let [payload (rf.frame/no-frame-context-payload :subscribe
+                                                       {:where 'rf/subscribe})
+            {:keys [console report-error]}
+            (capture-console #(rf.frame/emit-no-frame-context! payload))]
+        (is (= 1 (count console))
+            (str "a frameless record still reaches the console; got "
+                 (pr-str console)))
+        (let [[prefix _summary record] (first console)]
+          (is (= "[re-frame2]" prefix))
+          (is (nil? (:frame record))
+              "premise: this record really is frameless"))
+        (is (zero? report-error))))))
 
 ;; ===========================================================================
 ;; THE APP-DB CANDIDATE REJECTION — rf2-xpd8's whole point (PR1)
