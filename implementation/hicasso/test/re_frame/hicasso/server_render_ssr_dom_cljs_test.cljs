@@ -82,6 +82,7 @@
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.server :as server]
             [re-frame.hicasso.test.server :as ts]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.constants :as ssr-constants]
             [re-frame.test-support :as test-support]
@@ -98,6 +99,24 @@
 (rf/reg-sub ::label (fn [db _] (:label db)))
 (rf/reg-sub ::secret (fn [db _] (:secret db)))
 (rf/reg-event ::relabel (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
+
+;; rf2-323z — the platform PAIR. Two effects that differ in exactly one
+;; thing, their `:platforms` metadata, dispatched together from one event,
+;; so which of them runs READS OFF the active platform of whatever frame
+;; drained the event. Nothing else in the pair can decide the answer, which
+;; is what lets the untagged control below be a control.
+(def ^:private platform-spy (atom []))
+
+(rf/reg-fx ::client-only-spy
+  {:platforms #{:client}}
+  (fn [_ _] (swap! platform-spy conj :client)))
+
+(rf/reg-fx ::server-only-spy
+  {:platforms #{:server}}
+  (fn [_ _] (swap! platform-spy conj :server)))
+
+(rf/reg-event ::fire-both-platform-arms
+  (fn [_ _] {:fx [[::client-only-spy {}] [::server-only-spy {}]]}))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -446,6 +465,63 @@
               no-participation shape, not a nil stamped on the wire"
       (let [{:keys [payload]} (server/render (request))]
         (is (not (contains? payload :rf/schema-digest)))))))
+
+(deftest the-request-frame-is-server-platform-and-no-caller-can-invert-it
+  ;; rf2-323z. `render` is the whole-page NODE renderer, and its private
+  ;; request frame was born UNTAGGED. Platform resolution is
+  ;; `(or (-> frame-record :config :platform) (rf.interop/active-platform))`
+  ;; (`fx/platform-for-frame-record`), and the CLJS host marker is `:client`
+  ;; by default (`interop.cljs`) — so an untagged request frame ran a render
+  ;; with no client on the CLIENT contract: a correctly declared
+  ;; `:platforms #{:client}` effect reached from `:initial-events` EXECUTED
+  ;; in Node, and the `#{:server}` one was skipped. Frames are isolated
+  ;; contexts, and a request frame answering to the wrong platform contract
+  ;; is that isolation broken rather than untidiness.
+  ;;
+  ;; The sibling `render-body` has carried `:platform :server` since it
+  ;; landed; this row is what stops the two doors drifting apart again.
+  (testing "with the host-wide marker at CLJS's own `:client` default, a
+            render's initial event runs the SERVER arm of a platform pair
+            and not the client arm"
+    (let [restore (interop/active-platform)]
+      (try
+        (rf/init-platform :client)
+        (is (= :client (interop/active-platform))
+            "PREMISE: the host marker is `:client`, so the frame's own tag is
+             the only thing that can select the server arm below — without
+             this line a green row could mean the host was `:server` all
+             along and the tag did nothing")
+
+        (reset! platform-spy [])
+        (server/render (request :initial-events [[::fire-both-platform-arms]]))
+        (is (= [:server] @platform-spy)
+            "exactly the server-only effect ran inside the request frame")
+
+        (testing "and `:frame-opts` cannot invert it — the renderer OWNS its
+                  server identity, so a caller's contradictory `:platform
+                  :client` is assoc'd OVER rather than merged under, exactly
+                  as `:id` and `:initial-events` are"
+          (reset! platform-spy [])
+          (server/render (request :initial-events [[::fire-both-platform-arms]]
+                                  :frame-opts     {:platform :client}))
+          (is (= [:server] @platform-spy)
+              "the hostile `:platform :client` did not reach the frame"))
+
+        (testing "NON-VACUITY — the same event in an UNTAGGED frame of this
+                  same runtime selects the CLIENT arm. This is the shape
+                  `render` used to build, so it is the defect itself, kept as
+                  the control: were the pair not really platform-gated (both
+                  effects inert, one unregistered, the metadata ignored) this
+                  row would not read `[:client]`, and the two `[:server]`
+                  assertions above would be green about nothing"
+          (reset! platform-spy [])
+          (rf/make-frame {:id             ::untagged-platform-control
+                          :initial-events [[::fire-both-platform-arms]]})
+          (rf/destroy-frame! ::untagged-platform-control)
+          (is (= [:client] @platform-spy)
+              "an untagged frame falls back to the host marker — `:client`"))
+        (finally
+          (rf/init-platform restore))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3b — HOW EVERY ASYNC ROW BELOW ENDS

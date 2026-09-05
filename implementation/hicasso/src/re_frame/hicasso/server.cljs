@@ -220,10 +220,11 @@
       `:frame`, and that frame is a registered `:platform :server` frame.
       Hicasso's cold reads go through pure `compute-sub`, whose
       `:rf.error/sub-exception` is stamped `:frame nil` BY CONSTRUCTION —
-      a pure fn has no frame in scope to stamp — so the second condition
-      already drops it; and `render` does not set `:platform :server` on
-      its per-request frame, so the third would drop it even if the second
-      did not. The buffer stays empty and the host ships a 200.
+      a pure fn has no frame in scope to stamp — so the SECOND condition
+      drops it, and drops it alone: since rf2-323z the request frame IS
+      tagged `:platform :server`, so the third now holds. The buffer still
+      stays empty and the host still ships a 200 — the reason is one
+      condition rather than two, and the verdict below is unchanged.
 
   The verdict is deliberately BOUNDED and deliberately BLUNT: any error
   record inside the window fails the page, including one the application
@@ -321,11 +322,14 @@
                          must be handed the same string, or every
                          `useId` in the tree diverges.
       :app-element-id    :script-src  :title   the document envelope's.
-      :frame-opts        merged UNDER the id and the setup vector, so a
-                         request needing `:images`, `:url-strategy` or
-                         `:fx-overrides` declares them the way any other
-                         frame does. `:id` and `:initial-events` are
-                         this module's and cannot be overridden.
+      :frame-opts        merged UNDER the id, the platform and the setup
+                         vector, so a request needing `:images`,
+                         `:url-strategy` or `:fx-overrides` declares them
+                         the way any other frame does. `:id`, `:platform`
+                         and `:initial-events` are this module's and cannot
+                         be overridden — the renderer OWNS its server
+                         identity rather than asking every caller to
+                         remember it (rf2-323z).
       :version           :schema-digest   passed to `build-payload`.
 
   The first eight are the spellings `18-ssr-and-hydration.md` teaches
@@ -360,6 +364,21 @@
     (try
       (rf/make-frame (assoc frame-opts
                             :id             frame-id
+                            ;; RENDERER-OWNED, exactly as in `render-body`, and
+                            ;; for the same reason: the tag is what gates
+                            ;; client-only fx and cofx out of a render that has
+                            ;; no client. `platform-for-frame-record` reads the
+                            ;; frame's `:config :platform` FIRST and falls back
+                            ;; to the host-wide marker, and that marker is
+                            ;; `:client` on CLJS by default
+                            ;; (`rf.interop/active-platform`) — so an untagged
+                            ;; request frame runs a Node render on the CLIENT
+                            ;; contract, executing browser-only effects in Node
+                            ;; and skipping the server-only ones. Assoc'd OVER
+                            ;; `frame-opts` rather than merged under it: a
+                            ;; caller's `:platform :client` would otherwise
+                            ;; invert the renderer's own identity (rf2-323z).
+                            :platform       :server
                             :initial-events (setup-events snapshot initial-events)))
       (let [;; The hiccup as written, through the same `tree` the hydrating
             ;; door calls: `:adoption` is what it branches on, so this is
