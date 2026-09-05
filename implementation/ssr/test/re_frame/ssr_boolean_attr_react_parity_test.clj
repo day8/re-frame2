@@ -33,6 +33,30 @@
   (`value` and `ismap`); they are named below with their reasons, and each is
   pinned so that the premise reding is itself a failure.
 
+  ## The second hole, and it was this file's own shape (rf2-u82a)
+
+  Every row here drove the emitters with `true` and `false` and nothing else,
+  and that was not a gap in coverage so much as a gap the file could not see
+  past. TWO OF THE FOUR CLASSES ARE INDISTINGUISHABLE FOR A BOOLEAN:
+  `:presence` and `:overloaded` both render `name=\"\"` for `true` and
+  nothing for `false`. They part only on a NON-boolean value — a presence
+  name collapses it, an overloaded name keeps it — so a boolean-only probe
+  cannot derive the difference, a boolean-only drive cannot catch a
+  serialiser getting it wrong, and the roster could merge the two classes
+  with every row green. It had: `attr-string` sent every non-boolean value
+  down its ordinary branch and emitted `disabled=\"yes\"` where react-dom
+  emits `disabled=\"\"`, while `re-frame.ssr.ui-tree` next door collapsed —
+  two SSR pipelines answering ONE input two ways, which is precisely the
+  drift the first pass of this file was written to stop.
+
+  The fixture therefore carries FOUR more values per attribute — `\"yes\"`,
+  `\"\"`, `0` and `\"0\"` — and the class is derived four ways instead of
+  three. Those four are not arbitrary: the presence collapse runs on
+  JAVASCRIPT truthiness, and Clojure disagrees about `\"\"` and the number
+  `0` (logically true here, falsy there), while the string `\"0\"` is the
+  trap in the other direction. The evidence is still React's; only the
+  question got wider.
+
   Then it drives every row through the PUBLIC emitters — `emit/
   render-to-string`, `streaming/render-shell`, and `ui-tree/emit-ui-tree` —
   so the roster being right cannot be undone by a serialiser that stops
@@ -91,8 +115,19 @@
 (defn- react-class
   "One evidence row -> the class react-dom applied: `:stringify` (both
   booleans reach markup as `=\"true\"` / `=\"false\"`), `:presence` (`true`
-  reaches markup, `false` does not), or `:ordinary` (neither does)."
-  [{:keys [attribute true-markup false-markup]}]
+  reaches markup as `=\"\"`, `false` does not, and a NON-boolean value is
+  collapsed to `=\"\"` as well), `:overloaded` (the same two booleans, but a
+  non-boolean value is KEPT — `download=\"report.pdf\"`), or `:ordinary`
+  (neither boolean reaches markup).
+
+  THE BOOLEAN PAIR ALONE CANNOT SEPARATE THE MIDDLE TWO (rf2-u82a). Presence
+  and overloaded render identically for `true` and for `false`; they part
+  only on a non-boolean value, which is exactly the case the first version of
+  this file never probed and `attr-string` therefore got wrong for every
+  member of `boolean-attrs`. `:string-markup` — react-dom's own bytes for the
+  value `\"yes\"`, on the same element — is what tells them apart, so the
+  distinction is derived from React here rather than declared by us."
+  [{:keys [attribute true-markup false-markup string-markup]}]
   (let [mentions? #(react-writes? attribute % "=\"")]
     (cond
       (and (react-writes? attribute true-markup "=\"true\"")
@@ -101,7 +136,9 @@
 
       (and (react-writes? attribute true-markup "=\"\"")
            (not (mentions? false-markup)))
-      :presence
+      (if (react-writes? attribute string-markup "=\"yes\"")
+        :overloaded
+        :presence)
 
       (and (not (mentions? true-markup)) (not (mentions? false-markup)))
       :ordinary
@@ -110,7 +147,8 @@
       (throw (ex-info "react-dom markup this test cannot classify"
                       {:attribute attribute
                        :true-markup true-markup
-                       :false-markup false-markup})))))
+                       :false-markup false-markup
+                       :string-markup string-markup})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The two documented divergences.
@@ -154,7 +192,19 @@
      HTML-correct rendering, and the grammar tracks HTML where the two part
      on a genuine HTML boolean attribute. The expected class below is
      therefore unchanged — what changed is that the divergence is now stated
-     in 004B with its reason instead of hiding inside a false provenance."}})
+     in 004B with its reason instead of hiding inside a false provenance.
+
+     rf2-u82a EXTENDS the same divergence to a non-boolean value, and does so
+     deliberately rather than by oversight: `{:ismap \"yes\"}` now renders
+     bare `ismap` here, where react-dom's pass-through default renders
+     `ismap=\"yes\"`. Presence-class is presence-class for every value — 004B
+     says exactly that in its `hidden` row, which calls `hidden` *a pure
+     boolean attr, not an enumerated exception* and records that the draft's
+     `\"until-found\"` string carve-out was FALSIFIED. Re-introducing a
+     value-shaped carve-out for one name is the shape 004B removed, and it
+     would make the class un-statable as a class. The divergence is also
+     strictly smaller than the boolean one already ruled: for `true`,
+     react-dom emits no `ismap` at all while this grammar emits it."}})
 
 (defn- expected-class
   "What `boolean-attr-class` must say for `attribute-name`: React's class,
@@ -176,12 +226,17 @@
         "the fixture records which react-dom produced it")
     (is (<= 30 (count (rows)))
         "react-dom 19 carries three dozen boolean-class attributes")
-    (is (every? (fn [{:keys [attribute true-markup false-markup]}]
-                  (and (string? attribute)
-                       (string? true-markup)
-                       (string? false-markup)))
+    (is (every? (fn [{:keys [attribute true-markup false-markup string-markup
+                             empty-string-markup zero-markup
+                             string-zero-markup]}]
+                  (every? string? [attribute true-markup false-markup
+                                   string-markup empty-string-markup
+                                   zero-markup string-zero-markup]))
                 (rows))
-        "every row carries an attribute name and both markup strings"))
+        "every row carries an attribute name and all SIX markup strings —
+         a row missing the four non-boolean ones would make the presence /
+         overloaded split below derive `:presence` for everything and agree
+         with a classifier that had never learned the difference"))
 
   (testing "rf2-r9kf — NON-VACUITY: the eight names the audit found missing
             are actually IN the evidence, so the agreement asserted below is
@@ -211,6 +266,60 @@
             (str attribute " — react-dom " (:react-dom-version @react-evidence)
                  " renders " (pr-str (:true-markup row)) " / "
                  (pr-str (:false-markup row))))))))
+
+(deftest the-presence-overloaded-split-is-real-in-react-s-own-bytes
+  (testing "rf2-u82a NON-VACUITY — the four-way derivation above is only a
+            check if the evidence actually carries BOTH middle classes. A
+            fixture with no `:overloaded` row would let `boolean-attr-class`
+            call `download` anything at all and still agree"
+    (let [derived (frequencies (map react-class (rows)))]
+      (is (<= 20 (get derived :presence 0))
+          "react-dom 19.2.0 carries a couple of dozen pure boolean attributes")
+      (is (= 2 (get derived :overloaded 0))
+          "and exactly two overloaded ones — `download` and `capture`")
+      (let [overloaded (set (map :attribute (filter #(= :overloaded (react-class %))
+                                                    (rows))))]
+        (is (= #{"download" "capture"} overloaded)
+            "and they are the two 004B names them"))))
+
+  (testing "rf2-u82a — react-dom collapses a presence attribute on JAVASCRIPT
+            truthiness, and this is the premise the emitters are held to
+            below. It matters because CLOJURE disagrees about exactly two of
+            these four values: `\"\"` and the NUMBER 0 are logically TRUE in
+            Clojure and falsy in JS, so the obvious `(when v …)` emits a bare
+            attribute where React emits nothing. `\"0\"` is the trap in the
+            other direction — the STRING is truthy; only the number is not"
+    (doseq [row (rows)
+            :when (= :presence (react-class row))]
+      (let [{:keys [attribute string-markup empty-string-markup
+                    zero-markup string-zero-markup]} row
+            present? #(react-writes? attribute % "=\"\"")
+            absent?  #(not (react-writes? attribute % "=\""))]
+        (is (present? string-markup)
+            (str attribute " — a truthy string COLLAPSES to =\"\", it is not "
+                 "kept as =\"yes\""))
+        (is (absent? empty-string-markup)
+            (str attribute " — the empty string is JS-falsy: no attribute"))
+        (is (absent? zero-markup)
+            (str attribute " — the NUMBER 0 is JS-falsy: no attribute"))
+        (is (present? string-zero-markup)
+            (str attribute " — the STRING \"0\" is truthy: attribute present")))))
+
+  (testing "rf2-u82a — while an OVERLOADED name keeps every non-boolean value
+            it is given, falsy ones included. This is the half the current
+            `:else` branch already gets right, and pinning it is what stops a
+            repair to the presence class taking `download=\"report.pdf\"` with
+            it"
+    (doseq [row (rows)
+            :when (= :overloaded (react-class row))]
+      (let [{:keys [attribute string-markup empty-string-markup
+                    zero-markup]} row]
+        (is (react-writes? attribute string-markup "=\"yes\"")
+            (str attribute " keeps a string value"))
+        (is (react-writes? attribute empty-string-markup "=\"\"")
+            (str attribute " keeps an empty string as an empty value"))
+        (is (react-writes? attribute zero-markup "=\"0\"")
+            (str attribute " keeps the number 0 as \"0\""))))))
 
 (deftest documented-divergences-still-have-their-premise
   (testing "rf2-r9kf — `value` is deliberately NOT booleanish here. The
@@ -266,12 +375,85 @@
 
 (defn- expected-hiccup-markup
   "The `<div>` markup the hiccup emitters must produce for `attribute` set to
-  `value`, given the class."
+  a BOOLEAN `value`, given the class. Presence and overloaded names are one
+  arm here: for a boolean they are indistinguishable, which is precisely why
+  the non-boolean drive below has to exist."
   [klass attribute value]
   (case klass
-    :stringify (str "<div " attribute "=\"" value "\"></div>")
-    :presence  (if value (str "<div " attribute "></div>") "<div></div>")
-    :ordinary  "<div></div>"))
+    :stringify              (str "<div " attribute "=\"" value "\"></div>")
+    (:presence :overloaded) (if value (str "<div " attribute "></div>") "<div></div>")
+    :ordinary               "<div></div>"))
+
+;; ---------------------------------------------------------------------------
+;; The NON-BOOLEAN drive (rf2-u82a).
+;;
+;; Everything above this line hands the emitters `true` and `false` only, and
+;; that is the shape of the hole it left: a presence attribute given a
+;; non-boolean value took `attr-string`'s ordinary `:else` branch and emitted
+;; `disabled="yes"`, where react-dom collapses to `disabled=""` and the
+;; structural-tree serialiser next door already collapsed too. Two SSR
+;; pipelines disagreeing about one input, with every row in this file green,
+;; because no row could reach the input.
+;; ---------------------------------------------------------------------------
+
+(def ^:private non-boolean-probe-values
+  "The four non-boolean values `react_dom_probe/boolean_attr_classes.cjs`
+  measures beside the booleans. Each carries the fixture field holding
+  react-dom's own markup for it, and the string every class EXCEPT
+  `:presence` must serialise it to (`0` is a JVM `Long` here, and
+  `hash/canonical-number` prints it `\"0\"` — the same bytes CLJS produces)."
+  [{:value "yes" :field :string-markup       :serialised "yes"}
+   {:value ""    :field :empty-string-markup :serialised ""}
+   {:value 0     :field :zero-markup         :serialised "0"}
+   {:value "0"   :field :string-zero-markup  :serialised "0"}])
+
+(defn- react-emits?
+  "Did react-dom write `attribute` at all in this markup?"
+  [attribute markup]
+  (react-writes? attribute markup "=\""))
+
+(defn- expected-hiccup-markup-for-value
+  "The `<div>` markup the hiccup emitters must produce for a NON-boolean
+  `value`. For the presence class the expectation is react-dom's OWN verdict
+  on the same value — read off the row rather than restated — re-spelled in
+  this grammar's bare presence form. Every other class keeps the value."
+  [klass attribute {:keys [field serialised]} row]
+  (if (= :presence klass)
+    (if (react-emits? attribute (get row field))
+      (str "<div " attribute "></div>")
+      "<div></div>")
+    (str "<div " attribute "=\"" serialised "\"></div>")))
+
+(deftest render-to-string-follows-react-for-every-non-boolean-probe-value
+  (testing "rf2-u82a — the PUBLIC hiccup render path over the whole evidence
+            and all four non-boolean values. A presence name collapses a
+            truthy value to its bare self and omits a JS-falsy one; an
+            overloaded name keeps every value it is given; a stringifying or
+            ordinary name keeps it too"
+    (doseq [row   (rows)
+            probe non-boolean-probe-values]
+      (let [attribute (:attribute row)
+            klass     (expected-class attribute (react-class row))]
+        (is (= (expected-hiccup-markup-for-value klass attribute probe row)
+               (rf.ssr.emit/render-to-string
+                 [:div {(keyword attribute) (:value probe)}] {}))
+            (str attribute " " (pr-str (:value probe)) " (" klass ") — react-dom "
+                 (:react-dom-version @react-evidence) " renders "
+                 (pr-str (get row (:field probe)))))))))
+
+(deftest render-shell-follows-react-for-every-non-boolean-probe-value
+  (testing "rf2-u82a — and the STREAMING hiccup mode, which re-derives
+            attributes through the same shared helper. A repair landing on
+            one hiccup mode only is the drift this pins"
+    (doseq [row   (rows)
+            probe non-boolean-probe-values]
+      (let [attribute (:attribute row)
+            klass     (expected-class attribute (react-class row))]
+        (is (= (expected-hiccup-markup-for-value klass attribute probe row)
+               (:shell-html
+                 (rf.ssr.streaming/render-shell
+                   [:div {(keyword attribute) (:value probe)}])))
+            (str attribute " " (pr-str (:value probe)) " (" klass ")"))))))
 
 (deftest render-to-string-follows-react-for-every-evidenced-attribute
   (testing "rf2-r9kf — the PUBLIC hiccup render path, table-driven over the
@@ -306,14 +488,19 @@
   structural-tree serialiser renames attributes through the React prop
   vocabulary, so matching on the author's name would misread a rename as an
   omission."
-  [baseline true-html false-html]
+  [baseline true-html false-html string-html]
   (cond
     (and (str/includes? true-html "=\"true\"")
          (str/includes? false-html "=\"false\""))
     :stringify
 
     (and (not= baseline true-html) (= baseline false-html))
-    :presence
+    ;; The two middle classes are one shape for a boolean, so the split is
+    ;; read off a NON-boolean value exactly as react-dom's own is (rf2-u82a):
+    ;; a presence name collapses `"yes"` onto the same output `true` gave, an
+    ;; overloaded name keeps it. Still name-agnostic — this compares the
+    ;; serialiser's outputs with each other, never with the author's spelling.
+    (if (= true-html string-html) :presence :overloaded)
 
     (and (= baseline true-html) (= baseline false-html))
     :ordinary
@@ -321,7 +508,7 @@
     :else
     (throw (ex-info "serialiser output this test cannot classify"
                     {:baseline baseline :true-html true-html
-                     :false-html false-html}))))
+                     :false-html false-html :string-html string-html}))))
 
 (defn- tree-html [attrs]
   (rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version 1 :tag :div :attrs attrs}))
@@ -340,5 +527,35 @@
           (is (= klass
                  (observed-class baseline
                                  (tree-html {key true})
-                                 (tree-html {key false})))
+                                 (tree-html {key false})
+                                 (tree-html {key "yes"})))
               (str attribute " (" klass ") — structural-tree serialiser")))))))
+
+(deftest structural-tree-serialiser-collapses-on-react-s-truthiness
+  (testing "rf2-u82a — the structural-tree serialiser's presence collapse held
+            its OWN truthiness predicate, and it disagreed with react-dom on
+            two of these four values: it read the number `0` as present (only
+            `nil` was absent) and a whitespace string as absent (`str/blank?`).
+            Both rules are now the one shared helper the hiccup emitter uses,
+            so the two pipelines cannot answer one input two ways again.
+            Name-agnostic: the serialiser renames attributes through the React
+            prop vocabulary, so every comparison is between its OWN outputs"
+    (let [baseline (tree-html {})]
+      (doseq [row   (rows)
+              probe non-boolean-probe-values
+              :let  [attribute (:attribute row)
+                     klass     (expected-class attribute (react-class row))
+                     key       (keyword attribute)]
+              :when (contains? #{:presence :overloaded} klass)]
+        (let [observed (tree-html {key (:value probe)})
+              why      (str attribute " " (pr-str (:value probe)) " (" klass
+                            ") — react-dom renders "
+                            (pr-str (get row (:field probe))))]
+          (if (= :presence klass)
+            (if (react-emits? attribute (get row (:field probe)))
+              (is (= (tree-html {key true}) observed)
+                  (str why "; a truthy value collapses onto what `true` gives"))
+              (is (= baseline observed)
+                  (str why "; a JS-falsy value writes no attribute at all")))
+            (is (str/includes? observed (str "=\"" (:serialised probe) "\""))
+                (str why "; an overloaded name keeps the value"))))))))

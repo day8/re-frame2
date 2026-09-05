@@ -597,15 +597,19 @@
     (or (keyword? value) (symbol? value))    (name value)
     :else                                    (str value)))
 
-(defn- truthy-attr?
-  "React's boolean-attribute presence test over TREE-SPACE values: `true`
-  -> present; `false` -> absent; a non-empty string is present (`hidden
-  \"until-found\"` renders bare presence on react-dom/server 19.2.0)."
-  [value]
-  (cond
-    (boolean? value) value
-    (string? value)  (not (str/blank? value))
-    :else            (some? value)))
+;; The presence test over TREE-SPACE values is `html/presence-value-truthy?`
+;; — react-dom's own JS truthiness — and it is REACHED rather than restated
+;; (rf2-u82a).
+;;
+;; This ns carried its own near-miss copy until then, and it disagreed with
+;; react-dom on two values in OPPOSITE directions: `(some? value)` made the
+;; NUMBER `0` present where react-dom omits it, and `str/blank?` made a
+;; whitespace string absent where react-dom emits it. Neither was reachable
+;; by any test, because every parity row drove booleans only. Sharing the
+;; rule is the move rf2-r9kf already made for the rosters: the hiccup
+;; emitter and this serialiser answer one input one way, or the two SSR
+;; pipelines drift again — and the drift is silent, because each is
+;; self-consistent.
 
 (defn- serialise-attr
   "One author-space `[k v]` -> `[final-name serialised-value]` or nil
@@ -645,7 +649,7 @@
 
       (contains? boolean-attrs collapsed-name)
       ;; presence/absence; presence serialises as attr="".
-      (when (truthy-attr? attribute-value)
+      (when (html/presence-value-truthy? attribute-value)
         [(dom-attr-name attribute-name) ""])
 
       (boolean? attribute-value)
