@@ -1283,10 +1283,11 @@
   is skipped WITH ITS WHOLE SUBTREE.
 
   Nested `<parallel>` is deliberately absent: the exporter emits `<parallel>`
-  only as the ROOT (`emit-parallel`), `scxml->spec` handles that root case
-  before it ever reaches this collector, and `parse-state-block` has no
-  nested-parallel branch — so a nested `<parallel>` would have become a
-  malformed state, not a region. Ignoring it is the lossy-by-design answer."
+  only as the ROOT (`emit-parallel`), `scxml->spec` selects that root case
+  from the same `direct-children` scan this collector reads, and
+  `parse-state-block` has no nested-parallel branch — so a nested
+  `<parallel>` would have become a malformed state, not a region. Ignoring it
+  is the lossy-by-design answer."
   #{"state" "final" "history"})
 
 (defn- scan-element-body
@@ -1330,55 +1331,60 @@
       :else
       (recur (conj body (first rs)) depth (rest rs)))))
 
-(defn- group-children-by-state
-  "Given a flat seq of tokens that sit inside one `<state>` body
-  (already excluding transitions), pair every `<state>` / `<final>` /
-  `<history>` open token with its matching close + interior tokens.
-  Returns a seq of `{:start ... :body ... :self? bool}` maps.
+(defn- direct-children
+  "Split a flat seq of tokens composing ONE element's body into that element's
+  DIRECT child elements, in document order, as
+  `{:start <token> :body <interior tokens> :self? bool}` maps.
 
-  rf2-qy8p — the tag test is an ALLOWLIST (`topology-child-tags`), not
-  \"everything that is not a `<transition>`\". An unsupported element is
-  skipped: a self-closing one outright, an open one TOGETHER WITH ITS WHOLE
-  SUBTREE (via `scan-element-body`), so markup nested inside it — a `<state>`
-  buried in an `<onentry>`, a `<data>` in a `<datamodel>` — cannot be
-  promoted into the parent's `:states`."
+  rf2-qy8p — **this is the one place the importer learns where a subtree
+  ends**, and every decision the importer makes about an element's children
+  reads it: the topology collector (`group-children-by-state`) and
+  `scxml->spec`'s root-`<parallel>` selection alike. A descendant token always
+  sits inside its own ancestor's `:body`, never at this level, so no element —
+  supported or not — can contribute markup to the scope enclosing it.
+
+  That is a property of the SCAN rather than of any tag, which is what the
+  bead's residual needed. `<invoke>` is the reachable case (W3C SCXML §6.4
+  lets it carry a whole nested `<scxml>` document inline through `<content>`),
+  but it is not a special one: `<datamodel>`/`<data>` §5.3, `<send>`'s and
+  `<donedata>`'s `<content>`, and an unsupported nested `<parallel>` all carry
+  opaque markup by the same rule, and a scan that respects boundaries covers
+  every one of them without naming any."
   [tokens]
   (loop [remaining tokens
          acc       []]
     (if (empty? remaining)
       acc
-      (let [t   (first remaining)
-            tag (:tag t)]
-        (cond
-          ;; Transitions are not state blocks — skip them at this
-          ;; level. consume-transitions picks up the direct
-          ;; transitions before group-children-by-state is called
-          ;; on the children-tokens.
-          (and (= "transition" tag)
-               (or (= :self (:kind t))
-                   (= :start (:kind t))
-                   (= :end (:kind t))))
-          (recur (rest remaining) acc)
-
-          (= :self (:kind t))
-          (recur (rest remaining)
-                 (if (contains? topology-child-tags tag)
-                   (conj acc {:start t :body [] :self? true})
-                   ;; Unsupported self-closing element — ignored (lossy).
-                   acc))
-
-          (= :start (:kind t))
-          ;; The body is consumed either way; only a recognised tag keeps it.
-          (let [[body rest-tokens] (scan-element-body tag (rest remaining))]
-            (recur rest-tokens
-                   (if (contains? topology-child-tags tag)
-                     (conj acc {:start t :body body :self? false})
-                     ;; Unsupported open element — the WHOLE subtree is
-                     ;; dropped, so nothing inside it is reachable as topology.
-                     acc)))
-
-          :else
+      (let [t (first remaining)]
+        (case (:kind t)
+          :self  (recur (rest remaining) (conj acc {:start t :body [] :self? true}))
+          :start (let [[body rest-tokens] (scan-element-body (:tag t) (rest remaining))]
+                   (recur rest-tokens (conj acc {:start t :body body :self? false})))
+          ;; A stray `:end` closes nothing open at this level (an unmatched
+          ;; close, or a `</transition>` `consume-transitions` already lifted
+          ;; its opening token out of the stream). It names no child here.
           (recur (rest remaining) acc))))))
+
+(defn- topology-blocks
+  "Narrow a `direct-children` seq to the blocks the importer models as
+  topology (`topology-child-tags`).
+
+  rf2-qy8p — the tag test is an ALLOWLIST, not \"everything that is not a
+  `<transition>`\", and it applies AFTER the scan: an unsupported element is
+  dropped together with its whole subtree, so markup nested inside it — a
+  `<state>` buried in an `<onentry>`, a `<data>` in a `<datamodel>` — cannot
+  be promoted into the enclosing scope. `<transition>` needs no branch of its
+  own: it is simply not on the allowlist, and `consume-transitions` has
+  already taken the direct ones it cares about."
+  [children]
+  (filter #(contains? topology-child-tags (:tag (:start %))) children))
+
+(defn- group-children-by-state
+  "The `<state>` / `<final>` / `<history>` children of one element's body —
+  `direct-children` narrowed by `topology-blocks`. Returns a seq of
+  `{:start ... :body ... :self? bool}` maps."
+  [tokens]
+  (topology-blocks (direct-children tokens)))
 
 (defn- parse-history-block
   "rf2-m285a — parse a W3C SCXML `<history>` pseudo-state element back into
@@ -1590,6 +1596,15 @@
   list says — no executable semantics are imported and nothing nested
   inside such an element is promoted into `:states`.
 
+  **Nor into the ROOT.** Whether a document is a parallel-root or a flat
+  machine is decided from the root's DIRECT children, so an unsupported
+  subtree cannot supply the `<parallel>` that decides it. This matters for a
+  CONFORMING document: W3C SCXML §6.4 lets `<invoke>` carry a whole nested
+  `<scxml>` inline through `<content>`, and reading into it let the invoked
+  document's topology replace the importing one outright. Such a payload is
+  ignored, exactly like every other unsupported subtree — never rejected
+  (it is valid SCXML) and never adopted.
+
   rf2-qy8p — **and success is a postcondition, not a hope**: every
   definition this returns has passed the canonical recursive grammar gate
   (`grammar/valid-definition?`), the same one `spec->scxml`, Mermaid,
@@ -1645,39 +1660,30 @@
                             (recur (inc i) depth)))]
             (subvec tail 0 end-idx))
 
-          parallel-token
-          (first (filter #(and (= "parallel" (:tag %))
-                               (= :start (:kind %)))
-                         root-body))]
+          ;; rf2-qy8p — the root topology decision (parallel-root vs flat)
+          ;; reads the root's DIRECT children, the same boundary-respecting
+          ;; scan `group-children-by-state` reads. It used to search every
+          ;; token in the root body for the first open `<parallel>`, which ran
+          ;; BEFORE any collector could drop an unsupported subtree — so a
+          ;; `<parallel>` the importer had already declared unreachable could
+          ;; still choose, and wholly define, the imported machine. A W3C
+          ;; SCXML §6.4 `<invoke><content><scxml>…</scxml></content></invoke>`
+          ;; reaches that from a CONFORMING document: the invoked document's
+          ;; topology replaced the outer one entirely, and because the
+          ;; substitute is itself well-formed, `grammar/valid-definition?`
+          ;; returned true over it — a confidently wrong machine, silently.
+          ;; Scanning direct children closes it for every opaque subtree at
+          ;; once rather than for `<invoke>` by name.
+          root-children (direct-children root-body)
+
+          parallel-child
+          (first (filter #(and (= "parallel" (:tag (:start %)))
+                               (not (:self? %)))
+                         root-children))]
       (import-postcondition
-       (if parallel-token
+       (if parallel-child
         ;; Parallel definition
-        (let [p-start-idx (some (fn [i] (when (identical? (nth root-body i) parallel-token) i))
-                                (range (count root-body)))
-              tail (subvec root-body (inc p-start-idx))
-              end-idx (loop [i 0 depth 1]
-                        (cond
-                          (>= i (count tail))
-                          (rf.error/throw-error!
-                            :scxml/parse-error
-                            'machines-viz/scxml->spec
-                            (str "SCXML import: unclosed <parallel> element; "
-                                 "add the matching </parallel> closing tag.")
-                            {:recovery :close-the-parallel-element})
-
-                          (and (= :start (:kind (nth tail i)))
-                               (= "parallel" (:tag (nth tail i))))
-                          (recur (inc i) (inc depth))
-
-                          (and (= :end (:kind (nth tail i)))
-                               (= "parallel" (:tag (nth tail i))))
-                          (if (= 1 depth)
-                            i
-                            (recur (inc i) (dec depth)))
-
-                          :else
-                          (recur (inc i) depth)))
-              parallel-body (subvec tail 0 end-idx)
+        (let [parallel-body (:body parallel-child)
               ;; rf2-41goo — the parallel-root `:on-done` rides a
               ;; `done.state.<parallel-id>` transition that is a DIRECT
               ;; child of `<parallel>`. `parse-parallel-body` (via
@@ -1701,13 +1707,11 @@
 
         ;; Flat / compound definition
         (let [initial-str (get-in root-start [:attrs "initial"])
-              ;; group-children-by-state itself skips <transition>
-              ;; tokens at the current depth — so root-level
-              ;; transitions are dropped (we have no slot for them
-              ;; in our spec grammar) and nested transitions stay
-              ;; inside their owning state's body for
-              ;; consume-transitions to pick up.
-              top-state-blocks (group-children-by-state root-body)
+              ;; The topology allowlist keeps <state>/<final>/<history> — so
+              ;; root-level transitions are dropped (we have no slot for them
+              ;; in our spec grammar) and nested transitions stay inside their
+              ;; owning state's body for consume-transitions to pick up.
+              top-state-blocks (topology-blocks root-children)
               states (into {}
                            (map parse-state-block top-state-blocks))]
           (when (empty? states)

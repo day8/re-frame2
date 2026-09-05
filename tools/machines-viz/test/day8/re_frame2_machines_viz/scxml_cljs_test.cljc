@@ -1715,3 +1715,108 @@
         (is (g/valid-definition? imported)
             (str "import of " (pr-str (or (:initial spec) (:type spec))) " must be projectable"))
         (is (= spec imported) "and the round-trip stays value-equal")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-qy8p — "ignored wholesale" has to hold for the ROOT topology too.
+;;
+;; The allowlist above stops an unsupported subtree contributing a `:states`
+;; entry. It says nothing about the earlier decision `scxml->spec` makes
+;; BEFORE any collector runs: parallel-root or flat? That scan used to search
+;; EVERY token in the root body for the first open `<parallel>`, so markup the
+;; importer had already declared unreachable could still choose — and wholly
+;; define — the imported machine.
+;;
+;; W3C SCXML §6.4 makes this reachable from a CONFORMING document: `<invoke>`
+;; carries a whole nested `<scxml>` inline through `<content>`. That is a real
+;; SCXML feature, so the answer is not to reject it; the answer is that the
+;; outer parser must not read into it. Pre-fix the inner document's
+;; `<parallel>` REPLACED the outer machine outright and
+;; `grammar/valid-definition?` still returned true — the substitute is itself
+;; well-formed, so the importer produced a confidently wrong machine with no
+;; diagnostic anywhere.
+;;
+;; `<invoke>` is not special here, and the fix does not name it: a nested
+;; `<parallel>` inside an ordinary `<state>` (unsupported by design — see
+;; `topology-child-tags`) reached the same selector by the same route.
+
+(def invoked-inner-parallel
+  "The payload document: a two-region parallel machine, emitted by our own
+  exporter so the fixture cannot drift from the emitter."
+  {:type    :parallel
+   :regions {:left  {:initial :a :states {:a {}}}
+             :right {:initial :b :states {:b {}}}}})
+
+(def outer-flat-machine
+  "The OUTER machine — the one an import of the assembled document must
+  return, unchanged, whatever the invoked payload contains."
+  {:initial :idle
+   :states  {:idle {:on {:go :done}}
+             :done {:final? true}}})
+
+(defn- inline-invoked-scxml
+  "Assemble the outer machine's SCXML with `inner-scxml` embedded verbatim in
+  a W3C §6.4 `<invoke><content>` payload on `<state id='idle'>`. The inner
+  document's XML declaration is dropped so the assembled document is
+  well-formed."
+  [inner-scxml]
+  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
+       "<state id='idle'>"
+       "<transition event='go' target='done'/>"
+       "<invoke type='http://www.w3.org/TR/scxml/'><content>"
+       (str/replace inner-scxml #"(?s)^\s*<\?xml[^?]*\?>\s*" "")
+       "</content></invoke>"
+       "</state>"
+       "<final id='done'/>"
+       "</scxml>"))
+
+(deftest import-does-not-adopt-a-parallel-root-from-an-invoked-document
+  (testing "rf2-qy8p — an inline <invoke><content><scxml> payload cannot
+            replace the outer machine's topology"
+    (let [spec (scxml/scxml->spec
+                 (inline-invoked-scxml (scxml/spec->scxml invoked-inner-parallel)))]
+      (is (= outer-flat-machine spec)
+          "the OUTER flat machine imports exactly; the invoked payload is ignored wholesale")
+      (is (nil? (:type spec))
+          "the inner <parallel> must not make this a parallel machine")
+      (is (nil? (:regions spec))
+          "and must not contribute regions")
+      (is (= #{:idle :done} (set (keys (:states spec))))
+          "the outer states survive; :left/:right never appear")
+      (is (g/valid-definition? spec)))))
+
+(deftest import-does-not-adopt-a-parallel-root-nested-in-a-state
+  (testing "rf2-qy8p — the same holds for a <parallel> nested in an ordinary
+            <state> (unsupported by design): <invoke> is not a special case"
+    (let [spec (scxml/scxml->spec
+                 (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
+                      "<state id='idle'>"
+                      "<transition event='go' target='done'/>"
+                      "<parallel id='nested'>"
+                      "<state id='nested___left' initial='nested___left___a'>"
+                      "<state id='nested___left___a'/></state>"
+                      "<state id='nested___right' initial='nested___right___b'>"
+                      "<state id='nested___right___b'/></state>"
+                      "</parallel>"
+                      "</state>"
+                      "<final id='done'/>"
+                      "</scxml>"))]
+      (is (= outer-flat-machine spec)
+          "the nested <parallel> is dropped with its subtree, not promoted to the root")
+      (is (nil? (:type spec)))
+      (is (g/valid-definition? spec)))))
+
+(deftest import-still-reads-a-real-root-parallel-and-a-flat-invoked-payload
+  (testing "rf2-qy8p — the controls: a DIRECT root <parallel> still imports,
+            and an invoked FLAT payload leaves the outer definition exact"
+    ;; Control 1 — the supported location. A `<parallel>` that really is a
+    ;; direct child of `<scxml>` must still select the parallel branch.
+    (is (= parallel-machine
+           (scxml/scxml->spec (scxml/spec->scxml parallel-machine)))
+        "a genuine root <parallel> still round-trips value-equal")
+    ;; Control 2 — the same invoked-payload shape carrying a FLAT document.
+    ;; This passed before the fix too: that is what makes it a control on the
+    ;; subtree drop rather than on the parallel selector.
+    (is (= outer-flat-machine
+           (scxml/scxml->spec
+             (inline-invoked-scxml (scxml/spec->scxml idle-loading-success-error))))
+        "an invoked flat payload contributes nothing either")))
