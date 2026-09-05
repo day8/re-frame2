@@ -110,7 +110,7 @@ never asks for one carries none of it.
 | [re-frame.adapter.uix](re-frame.adapter.uix.md) | UIx substrate |
 | [re-frame.hicasso](re-frame.hicasso.md) | The Hicasso view layer's door — authoring macros, reads, roots, markup |
 | [re-frame.hicasso.substrate](re-frame.hicasso.substrate.md) | Hicasso's own substrate adapter — the value `init!` takes |
-| [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
+| [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
 | [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
 

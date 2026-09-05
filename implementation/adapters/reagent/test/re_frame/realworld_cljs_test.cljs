@@ -133,18 +133,6 @@
 ;; survives the per-test reset.
 (reg-canned-success! :realworld.test/canned-success-empty {})
 
-
-;; rf2-h1vqa4 BUNDLE CO-LOAD HYGIENE: this app registers the reserved
-;; per-app `:rf.route/not-found` route at ns load. Co-loaded example apps
-;; each do the same, and two provenance rows for the id fail default-image
-;; assembly loud for every suite whose fixture baseline is captured after
-;; the second app loads. Sequester OUR app's row at ns load; the fixture
-;; init reinstates it (registrar + source store in lockstep) for this
-;; suite's own tests.
-(def ^:private not-found-route-row
-  (test-support/sequester-app-registration!
-    :route :rf.route/not-found "realworld-http.routing"))
-
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each helper spins its OWN top-level frame via
@@ -159,17 +147,15 @@
      ;; and cljs.test runs one only under a map fixture. Sync rows are served
      ;; identically (re-frame.async-reset-fixture-cljs-test pins that).
      :async?        true
-     ;; rf2-h1vqa4: reinstate the sequestered per-app not-found route for
-     ;; this suite's own tests (see the sequester def above).
-     :init-fn       (fn []
-                      ;; rf2-h1vqa4: the realworld-http tree is sequestered at
-                      ;; the sibling resources suite's ns load (bundle co-load
-                      ;; hygiene), which runs before ANY test — reinstate the
-                      ;; whole app tree for THIS suite's tests (registrar +
-                      ;; source store in lockstep).
-                      (test-support/reinstate-app-namespaces! "realworld-http.")
-                      (test-support/reinstate-app-registration!
-                        not-found-route-row))}))
+     ;; BUNDLE CO-LOAD HYGIENE (rf2-kuky.27): the RealWorld twins share id
+     ;; vocabulary (`:settings/load`, `:auth/initialise`, …) and both register
+     ;; the reserved per-app `:rf.route/not-found` route, so two provenance
+     ;; rows for one id fail default-image assembly loud for any suite whose
+     ;; baseline is captured after the second app loads. `:app-ns` names OUR
+     ;; OWN app's whole tree — never the sibling's: the fixture keeps these
+     ;; rows out of every suite's baseline (this one included) and reinstates
+     ;; them, registrar + source store in lockstep, for this suite's tests.
+     :app-ns        "realworld-http."}))
 
 ;; ============================================================================
 ;; auth — the auth state machine

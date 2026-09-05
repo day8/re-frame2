@@ -165,127 +165,6 @@
   (reset! rf.source-store/kind->id->ns->descriptor baseline)
   nil)
 
-(defn sequester-app-registration!
-  "BUNDLE CO-LOAD HYGIENE (rf2-h1vqa4). Remove ONE app namespace's
-  registration row for `(kind, id)` from the live registrar AND the
-  provenance source store, returning the captured source-store descriptor
-  (or nil when absent). Reinstate per-test with
-  [[reinstate-app-registration!]].
-
-  Why: the CLJS node runner loads every test namespace into ONE bundle
-  before running ANY test, so two co-loaded example apps that each
-  register the same PER-APP id (the canonical case: `:rf.route/not-found`,
-  the reserved per-app route customization point) leave TWO provenance
-  rows in the shared source store. Any suite whose fixture baseline is
-  captured after the second app loads then fails default-image assembly
-  loud (`:rf.error/image-duplicate-id`) on every `make-frame`. Each
-  consuming test ns calls this at NS LOAD (right after requiring its app
-  ns) so no other suite's baseline ever sees more than one row.
-
-  PROVENANCE-SAFE + TRUE NO-OP (rf2-22vzb). Two guards keep a co-loaded
-  suite's removal from ever touching a SIBLING namespace's live
-  registration:
-
-    - ABSENT ROW => TRUE NO-OP. When `[kind id provenance-ns]` has no
-      source-store row, neither the live registrar nor the source store is
-      touched and nil is returned. A requested namespace that never
-      registered `(kind, id)` therefore cannot clobber whichever namespace
-      DID (the reported bug: sequestering `missing.app`'s absent row was
-      wiping `app.b`'s live `(kind, id)` and leaving its source row behind).
-    - REGISTRAR LEG IS OWNERSHIP-GUARDED. The registrar's single
-      `(kind, id)` slot is the LAST writer's — for an id BOTH apps register
-      that may be a SIBLING's. Remove it ONLY when its current writer IS
-      `provenance-ns`; otherwise leave it standing so the sibling's live
-      registration survives (mirrors the registrar guard in
-      [[sequester-app-namespaces!]]). This suite's own source row is
-      forgotten either way — sibling source rows survive — so registrar and
-      source-store authority stay coherent."
-  [kind id provenance-ns]
-  (when-let [row (get-in @rf.source-store/kind->id->ns->descriptor
-                         [kind id provenance-ns])]
-    ;; Registrar leg — remove the shared (kind, id) resolver slot ONLY when
-    ;; this provenance-ns is its CURRENT writer, so an id both apps register
-    ;; does not have a sibling's live registration clobbered.
-    (swap! rf.registrar/kind->id->metadata update kind
-           (fn [m]
-             (let [cur    (get m id)
-                   cur-ns (or (get cur rf.source-store/provenance-ns-key)
-                              (some-> (:ns cur) str))]
-               (if (and cur (= cur-ns (str provenance-ns)))
-                 (dissoc m id)
-                 m))))
-    ;; Source leg — forget THIS provenance-ns's own row; sibling rows survive.
-    (rf.source-store/forget-descriptor! kind id provenance-ns)
-    row))
-
-(defn reinstate-app-registration!
-  "Reinstate a descriptor captured by [[sequester-app-registration!]]
-  through `rf.registrar/register!` — registrar + source store in lockstep
-  (an image-loaded frame resolves through the STORE; a raw registrar-atom
-  write would be invisible to its generation). No-op on nil."
-  [descriptor]
-  (when descriptor
-    (rf.registrar/register! (:kind descriptor) (:id descriptor) descriptor))
-  nil)
-
-(defonce ^:private sequestered-namespace-rows
-  ;; prefix-string -> captured rows (vector of source-store descriptors).
-  ;; Memoized so a SECOND suite sequestering the same app prefix is a no-op
-  ;; that still exposes the captured rows for reinstatement.
-  (atom {}))
-
-(defn sequester-app-namespaces!
-  "BUNDLE CO-LOAD HYGIENE (rf2-h1vqa4), namespace-tree form: remove EVERY
-  source-store row whose provenance namespace starts with `ns-prefix` (and
-  the matching registrar ids), capturing them once (memoized per prefix).
-  Two co-loaded example apps that share id vocabulary (the RealWorld
-  twins both register `:settings/load`, …) otherwise fail default-image
-  assembly loud for every suite whose baseline is captured after the
-  second app loads. Reinstate a suite's own app with
-  [[reinstate-app-namespaces!]]. Returns the captured row count."
-  [ns-prefix]
-  (let [captured (get @sequestered-namespace-rows ns-prefix)
-        rows     (or captured
-                     (vec (for [[kind id->ns] @rf.source-store/kind->id->ns->descriptor
-                                [id ns->d]    id->ns
-                                [pns d]       ns->d
-                                :when (and (string? pns)
-                                           (clojure.string/starts-with? pns ns-prefix))]
-                            d)))]
-    (when-not captured
-      (swap! sequestered-namespace-rows assoc ns-prefix rows))
-    ;; Scrub on EVERY call (capture only the first): the merge-form store
-    ;; restore preserves slots a suite's baseline does not know about, so a
-    ;; suite that must stay clear of the sibling app's rows re-sequesters in
-    ;; its per-test init as well.
-    (do
-      (doseq [{:keys [kind id] :as d} rows]
-        ;; Registrar leg: remove the (kind, id) row ONLY when the CURRENT
-        ;; registrar metadata belongs to the sequestered prefix — for an id
-        ;; BOTH apps register (the collision case this helper exists for)
-        ;; the registrar's single row is the LAST writer's, which may be the
-        ;; SIBLING app's; deleting it would leave the id to whatever
-        ;; leftover an earlier suite's restore folds around (rf2-h1vqa4).
-        (swap! rf.registrar/kind->id->metadata update kind
-               (fn [m]
-                 (let [cur (get m id)]
-                   (if (and cur
-                            (some-> (:ns cur) str
-                                    (clojure.string/starts-with? ns-prefix)))
-                     (dissoc m id)
-                     m))))
-        (rf.source-store/forget-descriptor! kind id (:rf.provenance/ns d)))
-      (count rows))))
-
-(defn reinstate-app-namespaces!
-  "Reinstate every row [[sequester-app-namespaces!]] captured for
-  `ns-prefix` through `rf.registrar/register!` (registrar + source store in
-  lockstep). Call from a suite's per-test init-fn."
-  [ns-prefix]
-  (doseq [d (get @sequestered-namespace-rows ns-prefix)]
-    (rf.registrar/register! (:kind d) (:id d) d))
-  nil)
-
 (defn snapshot-registrar
   "Capture the current registrar contents.
 
@@ -326,6 +205,119 @@
   `:each` fixture last restored the registrar to (rf2-7hwnu)."
   [base overlay]
   (merge-with merge base overlay))
+
+;; ---- bundle co-load hygiene: the fixture's `:app-ns` rows -----------------
+;;
+;; A CLJS node runner loads EVERY test namespace into ONE bundle before any
+;; test runs, so two co-loaded example apps that register the same per-app id
+;; (the canonical case `:rf.route/not-found`; the RealWorld twins also share
+;; `:settings/load`, `:auth/initialise`, …) leave TWO provenance rows in the
+;; shared source store — and every suite whose fixture baseline is captured
+;; after the second app loads then fails default-image assembly loud
+;; (`:rf.error/image-duplicate-id`) on `make-frame {}`.
+;;
+;; That is a BASELINE concern, and `make-reset-runtime-fixture` already owns
+;; the baseline: it pins the registrar + source store at fixture-build time and
+;; restores both around every test. `:app-ns` therefore folds the whole cycle
+;; into the fixture rather than spelling it a second time beside it — capture
+;; the app's rows at BUILD time, before the baselines are taken, and reinstate
+;; them per test.
+;;
+;; SELF-HIDING IS THE INVARIANT: a suite names its OWN app's root namespace,
+;; never a sibling's. That is sufficient because of WHEN a fixture is built — a
+;; test ns's `use-fixtures` form is evaluated at that ns's load, immediately
+;; after its `:require` chain brought the app live — so an app's rows are
+;; removed the moment they appear, before any RIVAL app has loaded, and no other
+;; suite's baseline can hold them.
+;;
+;; SO A SUITE THAT USES AN APP DECLARES IT — every suite, not only the one that
+;; happens to load it first. That is not a tidiness rule; it is what the option
+;; requires, and the way it bites is worth writing down because it is invisible.
+;; `reinstate-and-snapshot!` folds the ns-load baseline OVER the live registrar
+;; (`merge-with merge live baseline`), so a suite silently resolves ids that were
+;; never in its own baseline but merely sat LIVE in the registrar because some
+;; other test ns's `:require` chain registered them. Measured on this tree: the
+;; RealWorld password-classification suite requires the app's feature namespaces
+;; but NOT its `core`, and reached `:auth/classify-token` — a `core`
+;; registration — purely through that leftover. Claiming the app on the suite
+;; that owns it removes the leftover, and the borrowing suite then loses an id it
+;; never declared. Declaring `:app-ns` on the borrower is the repair: it
+;; reinstates the whole app from the union, `core` included.
+;;
+;; The other unreached case is two rival apps in ONE suite's baseline, and it is
+;; loud rather than silent: that suite's `make-frame {}` raises
+;; `:rf.error/image-duplicate-id`. Its repair is the same one — name the app on
+;; the suite that loaded it — and never to name a SIBLING from somewhere else,
+;; which is the capture-before-the-app-finished-loading shape that broke the
+;; predecessor.
+
+(defonce ^:private app-ns-rows
+  ;; prefix string → {[kind id provenance-ns] → source-store descriptor}
+  ;;
+  ;; Rows `:app-ns` removed at fixture-build time, UNIONED across fixture
+  ;; builds and read back at TEST time. Both halves are load-bearing, because
+  ;; CLJS loads a required namespace ONCE: the second suite to build a fixture
+  ;; for an app finds the rows already gone and captures only what its own
+  ;; requires added, so it has to reinstate what an earlier suite captured; and
+  ;; a part of an app that loads LATE is captured by whichever fixture builds
+  ;; after it, so a suite built earlier has to see that too.
+  ;;
+  ;; UNION, NOT MEMO. The predecessor this option replaces kept a
+  ;; first-capture-WINS memo, so a capture taken before an app had finished
+  ;; loading pinned an incomplete set for every later suite — measured, with a
+  ;; route row left live and a sibling suite's frame creation failing.
+  (atom {}))
+
+(defn- capture-app-ns-rows!
+  "Remove every live source-store row whose provenance namespace starts with
+  `prefix` from BOTH stores and union the captured rows into `app-ns-rows`
+  under `prefix`. Called once per fixture build, BEFORE the fixture takes its
+  baselines, so the rows are absent from every baseline in the bundle.
+
+  The registrar leg is OWNERSHIP-GUARDED. The registrar's single `(kind, id)`
+  slot is the LAST writer's, and for an id BOTH apps register that may be a
+  SIBLING's — so drop it only when its current writer is itself under `prefix`,
+  leaving a sibling's live registration standing. This app's own source row is
+  forgotten either way, which is what keeps registrar and source-store
+  authority coherent. NOT `rf.registrar/unregister!`: that forgets EVERY
+  provenance slot for `(kind, id)` and would clobber a sibling's row for a
+  shared id."
+  [prefix]
+  (let [rows (vec (for [[kind id->ns] @rf.source-store/kind->id->ns->descriptor
+                        [id ns->d]    id->ns
+                        [pns d]       ns->d
+                        :when (and (string? pns)
+                                   (clojure.string/starts-with? pns prefix))]
+                    [[kind id pns] d]))]
+    (doseq [[[kind id pns] _] rows]
+      (swap! rf.registrar/kind->id->metadata update kind
+             (fn [m]
+               (let [cur    (get m id)
+                     cur-ns (or (get cur rf.source-store/provenance-ns-key)
+                                (some-> (:ns cur) str))]
+                 (if (and cur
+                          (string? cur-ns)
+                          (clojure.string/starts-with? cur-ns prefix))
+                   (dissoc m id)
+                   m))))
+      (rf.source-store/forget-descriptor! kind id pns))
+    (swap! app-ns-rows update prefix (fnil into {}) rows)
+    nil))
+
+(defn- reinstate-app-ns-rows!
+  "Reinstate every row captured for `prefix` through `rf.registrar/register!`,
+  so registrar and source store go back in lockstep (an image-loaded frame
+  resolves through the STORE; a raw registrar-atom write would be invisible to
+  its generation).
+
+  Reads `app-ns-rows` HERE rather than closing over the build-time capture:
+  the union is what makes repeated suites for one app work in either order, and
+  a suite that built its fixture first must still see rows a later fixture
+  build captured."
+  [prefix]
+  (doseq [[_ d] (get @app-ns-rows prefix)]
+    (rf.registrar/register! (:kind d) (:id d) d))
+  nil)
 
 ;; ---- full per-test runtime reset ------------------------------------------
 
@@ -540,11 +532,19 @@
   `frames` registry (clearing every record + its `:generation`), run the
   pre/post-dispose late-bind hook phases, dispose then (re)install the adapter
   and ensure the conventional `:rf/default` app frame, re-seed the framework
-  standards (`:rf/set-db`; the machine runtime when loaded), and apply
-  `:clear-kinds` / `:clear-app-schemas?`. Establishes everything EXCEPT the
+  standards (`:rf/set-db`; the machine runtime when loaded), apply
+  `:clear-kinds` / `:clear-app-schemas?`, and LAST reinstate the `:app-ns`
+  rows the fixture removed at build time. Establishes everything EXCEPT the
   ambient frame scope — each shape owns how it makes that scope survive (see
-  the section comment above)."
-  [{:keys [adapter clear-kinds clear-app-schemas?]} clear-fn]
+  the section comment above).
+
+  The `:app-ns` reinstatement is last so it lands after `:clear-kinds` (rows
+  the suite declared as its OWN app are not what `:clear-kinds` is clearing)
+  and before the caller's `:init-fn`, which both shapes run next — the setup
+  ordering an app's `init!` depends on is therefore unchanged: it still
+  registers its plans and stubs against a live registrar before it makes any
+  frame."
+  [{:keys [adapter clear-kinds clear-app-schemas? app-ns]} clear-fn]
   (reset! rf.frame/frames {})
   (run-reset-hooks! :pre-dispose)
   (rf.substrate.adapter/dispose-adapter!)
@@ -560,7 +560,9 @@
   (doseq [k clear-kinds]
     (rf.registrar/clear-kind! k))
   (when (and clear-app-schemas? clear-fn)
-    (clear-fn)))
+    (clear-fn))
+  (when app-ns
+    (reinstate-app-ns-rows! app-ns)))
 
 (defn- finish-runtime-reset!
   "The post-test finally body shared by both fixture shapes. Restore the
@@ -638,23 +640,57 @@
     6. If an `:adapter` was supplied, installs it and ensures the
        `:rf/default` frame. Otherwise leaves adapter installation to
        the test (or to a separate fixture).
-    7. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
+    7. If an `:app-ns` was supplied, reinstates the app rows it removed at
+       fixture-build time (registrar + source store in lockstep) — so this
+       suite sees its own app, and no other suite's baseline ever did.
+    8. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
        hook for per-suite setup that needs the registrar / adapter
        live — e.g. seeding test data into the just-installed adapter's
        app-db.
-    8. Runs the test.
-    9. Restores the registrar to the captured snapshot.
-   10. Resets `rf.frame/frames` back to `{}` for symmetry, and (when their
+    9. Runs the test.
+   10. Restores the registrar to the captured snapshot.
+   11. Resets `rf.frame/frames` back to `{}` for symmetry, and (when their
        artefacts are loaded) the flows registry (via the
        `:flows/reset-flows!` late-bind hook) and the schemas per-frame
        registry (via the `:schemas/clear-by-frame!` late-bind hook).
 
-  Steps 9–10 run in a `finally` block so they fire even on test
-  exceptions.
+  Steps 10–11 run in a `finally` block so they fire even on test
+  exceptions. The source-store restore they carry is also what takes the
+  `:app-ns` rows of step 7 back out — the baseline they restore to never
+  held them — so an exceptional teardown leaves no app row behind.
 
   Options (all optional):
     :adapter      — substrate adapter to install. If omitted, no adapter
                     is installed by the fixture.
+    :app-ns       — BUNDLE CO-LOAD HYGIENE. A provenance-namespace PREFIX
+                    string naming THIS suite's own app, e.g. `\"realworld-http.\"`
+                    — every source-store row whose `:rf.provenance/ns` starts
+                    with it is this suite's app. Name your own app's root
+                    namespace and cover its WHOLE tree (`\"linearlite.\"`, not
+                    `\"linearlite.core\"`); NEVER name a sibling app's.
+                    The rows are captured and removed from the live registrar +
+                    source store when this fixture is BUILT (i.e. at this test
+                    ns's load, after its `:require` chain), so they are absent
+                    from every suite's ns-load baseline; they are reinstated
+                    through `rf.registrar/register!` before each test, after
+                    the reset and before `:init-fn`, and the ordinary
+                    source-store restore takes them back out on the way out
+                    (including on a test exception).
+                    Why: a CLJS node runner loads EVERY test namespace into one
+                    bundle before any test runs, so two co-loaded example apps
+                    registering the same per-app id (`:rf.route/not-found`; the
+                    RealWorld twins' shared `:settings/load`, …) leave two
+                    provenance rows in the shared source store, and any suite
+                    whose baseline was captured after the second app loaded
+                    then fails `make-frame {}` loud with
+                    `:rf.error/image-duplicate-id`. When every app suite hides
+                    ITSELF, no suite needs to know its sibling's name. A
+                    workspace with one app in its bundle never meets the
+                    collision and never needs this key.
+                    EVERY suite that USES the app declares it, not only the one
+                    that loads it first — see the §bundle co-load hygiene
+                    section comment for why a suite can otherwise resolve ids it
+                    never declared, and lose them when the owner claims the app.
     :init-fn      — zero-arg fn run after adapter install, before the test.
     :clear-kinds  — collection of registry kinds to `clear-kind!`
                     AFTER the snapshot capture and BEFORE the test
@@ -728,7 +764,7 @@
       flows baselines). `cljs.test` guarantees `:after` runs AFTER the test's
       `done`, so the restore does not race the async body.
 
-  All other options (`:adapter`, `:init-fn`, `:clear-kinds`,
+  All other options (`:adapter`, `:app-ns`, `:init-fn`, `:clear-kinds`,
   `:clear-app-schemas?`, `:ambient-frame`) behave identically across both
   shapes. `:ambient-frame nil` / an adapter-less fixture opts out of the
   ambient scope under `:async?` too (no `set!`), for tests that drive their
@@ -766,6 +802,15 @@
           {:adapter             reagent-adapter/adapter
            :clear-app-schemas?  true}))
 
+  Example (CLJS, an example-app suite in a bundle that co-loads a rival app
+  sharing its id vocabulary — the suite names its OWN app, never the rival):
+
+      (use-fixtures :each
+        (test-support/make-reset-runtime-fixture
+          {:adapter reagent-adapter/adapter
+           :app-ns  \"realworld-http.\"
+           :init-fn init!}))
+
   Example (JVM, default plain-atom adapter):
 
       (use-fixtures :each
@@ -796,7 +841,13 @@
         (test-support/make-reset-runtime-fixture
           {:adapter plain-atom/adapter :async? true}))"
   ([] (make-reset-runtime-fixture {}))
-  ([{:keys [adapter init-fn] :as opts}]
+  ([{:keys [adapter init-fn app-ns] :as opts}]
+   ;; `:app-ns` (bundle co-load hygiene) — FIRST, before either baseline below
+   ;; is taken, so this suite's own app rows are absent from every baseline in
+   ;; the bundle and are reinstated per test by `reset-runtime!`. See the
+   ;; §bundle co-load hygiene section comment above for the invariant.
+   (when app-ns
+     (capture-app-ns-rows! app-ns))
    ;; `:ambient-frame` (EP-0002, rf2-9o48ih): the frame the fixture establishes
    ;; as the ambient scope when an adapter is installed. Default `:rf/default`
    ;; when the key is OMITTED; an explicit `:ambient-frame nil` OPTS OUT.

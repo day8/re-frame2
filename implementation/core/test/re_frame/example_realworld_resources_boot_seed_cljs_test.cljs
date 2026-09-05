@@ -80,11 +80,14 @@
    those ids into the shared source store from this ns's load onward, and every
    alphabetically-later suite's baseline then failed default-image assembly with
    `:rf.error/image-duplicate-id` — dozens of unrelated tests, in nine
-   namespaces. Sequestering the sibling tree from here does not fix it either:
-   `sequester-app-namespaces!` captures a prefix's rows ONCE and memoizes them,
-   so a call this early captures an incomplete set and that becomes the memo the
-   later suites get (measured: `:home/show-global-feed` left unsequestered,
-   failing the sibling resources suite's own frame creation).
+   namespaces. Nor is hiding the sibling tree from HERE the fix. The fixture's
+   `:app-ns` option exists for exactly this collision, but its invariant is
+   SELF-HIDING — a suite names its OWN app, so the app is removed the moment its
+   requires bring it live and no later baseline can hold it. A suite that named
+   an app it does not own would be claiming rows before that app had finished
+   loading, which is the incomplete-capture shape measured against the memoized
+   predecessor of that option (`:home/show-global-feed` left live, failing the
+   sibling resources suite's own frame creation). This ns owns neither app.
 
    So the seeds below are local events that reproduce the app's own writes —
    same paths, same slice shapes, one dispatch each. What is under test is the

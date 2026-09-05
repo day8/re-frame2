@@ -67,6 +67,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   | Key | Meaning |
   |-----|---------|
   | `:adapter` | Substrate adapter to install; also ensures the `:rf/default` frame. When omitted, no adapter is installed. |
+| `:app-ns` | **Bundle co-load hygiene.** A provenance-namespace PREFIX string naming **this suite's own app** (`"realworld-http."` — the whole tree, not one ns; never a sibling's). Rows whose `:rf.provenance/ns` starts with it are captured and removed from the live registrar and the source store when the fixture is **built** — before it takes its baselines, so no suite's baseline holds them — and reinstated through `registrar/register!` before each test, after the reset and before `:init-fn`. The ordinary source-store restore takes them out again, on the exceptional path too. Omit it unless your bundle co-loads rival apps. |
   | `:init-fn` | Zero-arg fn run after adapter install, before the test body, under the same ambient frame scope as the body. |
   | `:clear-kinds` | Collection of registrar kinds cleared after the snapshot capture and before the body (the snapshot restores them on the way out). |
   | `:clear-app-schemas?` | Boolean; clear the schemas artefact's per-frame side-table for the test's duration. |
@@ -86,100 +87,28 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   — no reader conditional at the call site, because the factory already picks
   the map on CLJS and the fn-form on the JVM.
 
-## Bundle co-load hygiene
+  **`:app-ns` — when your bundle co-loads more than one app.** A CLJS node
+  runner loads *every* test namespace into one bundle before any test runs. Two
+  co-loaded apps that register the same per-app id — `:rf.route/not-found`, or
+  shared event vocabulary — leave duplicate provenance rows in the source store,
+  and default-image assembly then fails loud with
+  `:rf.error/image-duplicate-id` for any suite whose baseline was captured after
+  the second app loaded. `:app-ns` folds the whole capture/reinstate cycle into
+  the fixture that already owns the baseline:
 
-CLJS node runners often load **every** test namespace into one bundle before any
-test runs. Two example apps that both register the same per-app id (for example
-`:rf.route/not-found`, or shared event vocabulary) leave duplicate provenance rows
-in the shared source store; default-image assembly then fails loud with
-`:rf.error/image-duplicate-id`. The sequester / reinstate pair removes a suite's
-sibling registrations for the duration of its tests.
-
-Call sequester at **namespace load** (right after requiring the app ns), and
-reinstate from a per-test `:init-fn` (or equivalent) when the suite must see its
-own registrations again.
-
-### `sequester-app-registration!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (sequester-app-registration! kind id provenance-ns) → descriptor | nil
-  ```
-- **Description**: Remove **one** app namespace's registration row for
-  `(kind, id)` from the live registrar **and** the provenance source store.
-  `kind` is the **registrar kind** the id was registered under — `:route` for
-  routes, `:event` for events, `:sub` for subscriptions, and so on. The `(kind,
-  id)` pair must match the live registration: a mismatched kind captures nothing,
-  returns `nil`, and leaves the row registered. Returns the captured source-store
-  descriptor, or `nil` when absent. Reinstate with `reinstate-app-registration!`.
-- **Example**:
-  ```clojure
-  ;; At ns load, after requiring the app under test. A per-app not-found route
-  ;; registers under registrar kind :route (NOT :event) — pass the kind the id
-  ;; was registered under.
-  (defonce !not-found
-    (ts/sequester-app-registration! :route :rf.route/not-found
-                                    "my.app.routes"))
-
-  ;; A non-nil return is the captured descriptor — proof the route row was found
-  ;; and removed (a nil would mean the (kind, id) matched nothing). Reinstate it
-  ;; when this suite must see its own :rf.route/not-found again, e.g. from a
-  ;; per-test :init-fn:
-  ;;   (ts/reinstate-app-registration! !not-found)
-  ```
-
-### `reinstate-app-registration!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reinstate-app-registration! descriptor) → nil
-  ```
-- **Description**: Reinstate a descriptor captured by
-  `sequester-app-registration!` through `registrar/register!` (registrar and
-  source store in lockstep). No-op on `nil`.
-- **Example**:
-  ```clojure
-  (ts/reinstate-app-registration! !not-found)
-  ```
-
-### `sequester-app-namespaces!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (sequester-app-namespaces! ns-prefix) → captured-row-count
-  ```
-- **Description**: Namespace-tree form: remove **every** source-store row whose
-  provenance namespace starts with `ns-prefix` (and the matching registrar ids when
-  the current registrar row belongs to that prefix). Capture is **memoized** per
-  prefix; scrubbing runs on every call so merge-form restores cannot reintroduce
-  sibling rows. Returns the captured row count. Reinstate with
-  `reinstate-app-namespaces!`.
-- **Example**:
-  ```clojure
-  ;; At ns load — drop the co-loaded sibling app's registrations:
-  (ts/sequester-app-namespaces! "realworld.uix")
-  ```
-
-### `reinstate-app-namespaces!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reinstate-app-namespaces! ns-prefix) → nil
-  ```
-- **Description**: Reinstate every row `sequester-app-namespaces!` captured for
-  `ns-prefix` through `registrar/register!`. Call from a suite's per-test
-  `init-fn` when that suite owns the prefix.
-- **Example**:
   ```clojure
   (use-fixtures :each
     (ts/make-reset-runtime-fixture
-     {:adapter plain-atom/adapter
-      :init-fn #(ts/reinstate-app-namespaces! "realworld.reagent")}))
+      {:adapter reagent-adapter/adapter
+       :app-ns  "my-app."          ; rows under this provenance prefix are MINE
+       :init-fn init!}))
   ```
+
+  Name **your own** app's root namespace and cover its whole tree — never a
+  sibling's. When every app suite hides itself, no suite needs to know its
+  sibling's name, and the suites are independent of each other's load order. A
+  workspace with one app in its bundle never meets the collision and never needs
+  this key.
 
 ## Test-flavoured helpers
 

@@ -145,27 +145,6 @@
                  reg
                  resource-kind-snapshots)))
 
-
-;; rf2-h1vqa4: the RealWorld twins share id vocabulary (`:settings/load`,
-;; …) — sequester the SIBLING app's whole namespace tree so this suite's
-;; fixture baseline never carries both provenances for one id (the
-;; realworld-http suites' baselines were captured before this ns loaded,
-;; and their fixtures restore those baselines per test, so they are
-;; unaffected; later-loading realworld-http consumers reinstate via
-;; test-support/reinstate-app-namespaces!).
-(test-support/sequester-app-namespaces! "realworld-http.")
-
-;; rf2-h1vqa4 BUNDLE CO-LOAD HYGIENE: this app registers the reserved
-;; per-app `:rf.route/not-found` route at ns load. Co-loaded example apps
-;; each do the same, and two provenance rows for the id fail default-image
-;; assembly loud for every suite whose fixture baseline is captured after
-;; the second app loads. Sequester OUR app's row at ns load; the fixture
-;; init reinstates it (registrar + source store in lockstep) for this
-;; suite's own tests.
-(def ^:private not-found-route-row
-  (test-support/sequester-app-registration!
-    :route :rf.route/not-found "realworld-resources.routing"))
-
 (defn- init!
   "Per-test setup. The example owns the URL through `:rf/default`
    (`:url-bound? true`); re-register it that way, re-install the example's
@@ -193,12 +172,6 @@
    (`docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs`,
    which documents \"the frame is made last\")."
   []
-  ;; rf2-h1vqa4: re-scrub the sibling app's rows per test — the merge-form
-  ;; store restore preserves slots this suite's baseline does not know
-  ;; about, so an earlier realworld-http suite's restored rows would
-  ;; otherwise collide with ours at default-image assembly.
-  (test-support/sequester-app-namespaces! "realworld-http.")
-  (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
   (reset! managed-args-log [])
   ;; Re-install the example's ns-load resource/mutation/scope registrations.
@@ -274,7 +247,17 @@
      ;; `(async done …)` row, and cljs.test runs one only under map fixtures.
      ;; Sync rows are served identically (re-frame.async-reset-fixture-cljs-test
      ;; pins that).
-     :async?  true}))
+     :async?  true
+     ;; BUNDLE CO-LOAD HYGIENE (rf2-kuky.27): the RealWorld twins share id
+     ;; vocabulary (`:settings/load`, `:auth/initialise`, …) and both register
+     ;; the reserved per-app `:rf.route/not-found` route. `:app-ns` names OUR
+     ;; OWN app's whole tree: the fixture removes those rows before it takes
+     ;; this suite's baseline — so no suite's baseline ever carries both
+     ;; provenances for one id — and reinstates them, registrar + source store
+     ;; in lockstep, before each of this suite's tests. The sibling hides
+     ;; ITSELF the same way, which is why nothing here names `realworld-http.`
+     ;; and why the per-test re-scrub this suite used to carry is gone.
+     :app-ns  "realworld-resources."}))
 
 ;; ============================================================================
 ;; HELPERS

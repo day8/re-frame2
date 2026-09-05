@@ -42,8 +42,8 @@
             [re-frame.registrar :as registrar]
             ;; the provenance store behind the registrar — section 0's control
             ;; reads it to find WHICH namespace owns each rival "/" route row,
-            ;; so it can sequester them through the provenance-safe pairing
-            ;; rather than by a raw registrar write.
+            ;; so it can drop them through the ownership-guarded two-leg pairing
+            ;; below rather than by a raw registrar write.
             [re-frame.source-store :as source-store]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -99,18 +99,6 @@
                  reg
                  resource-kind-snapshots)))
 
-
-;; rf2-h1vqa4 BUNDLE CO-LOAD HYGIENE: this app registers the reserved
-;; per-app `:rf.route/not-found` route at ns load. Co-loaded example apps
-;; each do the same, and two provenance rows for the id fail default-image
-;; assembly loud for every suite whose fixture baseline is captured after
-;; the second app loads. Sequester OUR app's row at ns load; `init!`
-;; reinstates it (registrar + source store in lockstep) for this suite's
-;; own tests.
-(def ^:private not-found-route-row
-  (test-support/sequester-app-registration!
-    :route :rf.route/not-found "linearlite.core"))
-
 (defn- init!
   "Per-test setup (after adapter install, registrar live). The linearlite
    example owns the URL through `:rf/default` (`:url-bound? true`), so
@@ -146,7 +134,6 @@
    Verified by building this suite in a single-app bundle: 16 failures before,
    0 after."
   []
-  (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
   ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
@@ -181,7 +168,15 @@
 (use-fixtures :each
   isolate-trace-bus-fixture
   (test-support/make-reset-runtime-fixture
+    ;; BUNDLE CO-LOAD HYGIENE: this app registers the reserved per-app
+    ;; `:rf.route/not-found` route at ns load, and every co-loaded example app
+    ;; does the same — two provenance rows for one id fail default-image
+    ;; assembly loud for any suite whose baseline is captured after the second
+    ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
+    ;; keeps its rows out of every suite's baseline and reinstates them for
+    ;; this suite's own tests (rf2-kuky.27).
     {:adapter reagent-adapter/adapter
+     :app-ns  "linearlite."
      :init-fn init!}))
 
 ;; ============================================================================
@@ -273,8 +268,8 @@
 ;; would have supplied:
 ;;
 ;;   (1) "/" is answered by THIS app's board route ALONE. Every rival row is
-;;       sequestered through the same provenance-safe pairing the suite already
-;;       uses for `:rf.route/not-found`, and reinstated in a `finally`.
+;;       dropped through the local, ownership-guarded two-leg pairing below
+;;       (`drop-route-row!`), and restored in a `finally`.
 ;;   (2) The `:resource` / `:mutation` kinds are EMPTY when `init!` starts —
 ;;       the state the shared fixture's post-dispose reset hook really leaves,
 ;;       and which refilling is `init!`'s whole job.
@@ -287,8 +282,8 @@
 ;; it is the point: a refactor that puts the frame back in front of the
 ;; registrar reinstatement, by any route, fails HERE.
 ;;
-;; The first assertion is the control's own positive control. If the
-;; sequestering ever silently stops working — a route row that moves, a `:path`
+;; The first assertion is the control's own positive control. If the rival
+;; removal ever silently stops working — a route row that moves, a `:path`
 ;; key that is renamed — the URL sync lands on a sibling's route id and this
 ;; test fails LOUD, rather than passing while checking nothing.
 
@@ -302,17 +297,59 @@
         provenance-ns (keys (source-store/descriptors-for :route id))]
     [id provenance-ns]))
 
+(defn- drop-route-row!
+  "Remove ONE rival `:route` row for `(id, provenance-ns)` from the live
+   registrar AND the provenance source store, returning the captured
+   source-store descriptor (or nil when the slot is absent).
+
+   LOCAL TO THIS TEST, deliberately (rf2-kuky.27). Removing a RIVAL app's
+   registrations to reproduce a single-app bundle in process is a different job
+   from the fixture's `:app-ns`, which hides a suite's OWN app so no sibling's
+   baseline sees it. Only this one control needs the rival-removal shape, so it
+   stays a private helper here rather than a public verb every conforming port
+   would have to carry.
+
+   Both legs, and the registrar leg ownership-guarded, for the same reasons the
+   fixture's own remover has them: an ABSENT source row is a true no-op (so a
+   requested slot that never registered cannot clobber whichever namespace DID),
+   and the registrar's single `(id)` slot is the LAST writer's, so it is dropped
+   only when that writer IS `provenance-ns`. `registrar/unregister!` would be
+   wrong here — it forgets EVERY provenance slot for the id."
+  [id provenance-ns]
+  (when-let [row (get-in @source-store/kind->id->ns->descriptor
+                         [:route id provenance-ns])]
+    (swap! registrar/kind->id->metadata update :route
+           (fn [m]
+             (let [cur    (get m id)
+                   cur-ns (or (get cur source-store/provenance-ns-key)
+                              (some-> (:ns cur) str))]
+               (if (and cur (= cur-ns (str provenance-ns)))
+                 (dissoc m id)
+                 m))))
+    (source-store/forget-descriptor! :route id provenance-ns)
+    row))
+
+(defn- restore-route-row!
+  "Put a descriptor captured by [[drop-route-row!]] back through
+   `registrar/register!` — registrar + source store in lockstep, because an
+   image-loaded frame resolves through the STORE and a raw registrar-atom write
+   would be invisible to its generation. No-op on nil."
+  [descriptor]
+  (when descriptor
+    (registrar/register! (:kind descriptor) (:id descriptor) descriptor))
+  nil)
+
 (deftest init-refills-the-registrar-before-it-makes-the-url-bound-frame
   (testing "examples/capabilities/resources/linearlite — with \"/\" owned by this app alone and
             the :resource/:mutation kinds cleared (a single-app bundle's two
             conditions, reproduced in process), init!'s construction-time URL
             sync plans the blocking :linearlite/board resource cleanly. This is
             the assertion the consolidated bundle cannot make for itself"
-    (let [sequestered (atom [])]
+    (let [removed (atom [])]
       (try
         (doseq [[id provenance-ns] (root-path-rivals)]
-          (when-let [row (test-support/sequester-app-registration! :route id provenance-ns)]
-            (swap! sequestered conj row)))
+          (when-let [row (drop-route-row! id provenance-ns)]
+            (swap! removed conj row)))
         (registrar/clear-kind! :resource)
         (registrar/clear-kind! :mutation)
         (reset! frame/frames {})
@@ -332,7 +369,7 @@
                error is STICKY, which is why the suite's own navigate never
                clears it"))
         (finally
-          (run! test-support/reinstate-app-registration! @sequestered)
+          (run! restore-route-row! @removed)
           (reset! frame/frames {}))))))
 
 ;; ============================================================================
