@@ -679,6 +679,23 @@ dressed as proportionality. One mayor did it once, on a session's smallest dispa
 pasted the full block on every larger one; the worker behaved anyway, and the outcome does not
 validate the shortcut.
 
+**Measured since, on a dispatch smaller still: the worker did not behave.** A mayor condensed the
+gate-mechanics block for a two-file rename, and the worker ended its turn waiting to be woken — the
+exact failure that block names, refutes and closes, in text the mayor had read and chose not to
+send. Nothing new had to be written to prevent it. **And note WHICH part went missing**, because it
+is not random: a mayor condensing drops what looks least relevant to this task, and what stranded
+the worker was a mechanic belonging to the harness rather than to the task — precisely what looks
+least relevant. A condensed block is not a shorter block; it is a block with the harness mechanics
+taken out of it.
+
+**The pressure is structural, because the block only ever grows.** Every failure it closes adds
+lines, so the better it gets the more it dwarfs a small task, and the more condensing it reads as
+proportionality — a ratchet turning against the one rule that holds it. No wording fixes that, and
+a block cannot be kept short enough to be safe. The defence is that the extraction is MECHANICAL,
+and a mechanical extraction costs the same on the session's smallest dispatch as on its largest:
+if you are weighing which parts this worker needs, you have stopped extracting and started
+paraphrasing.
+
 **But "verbatim" forbids WEAKENING a block, not adding to it — and the paragraphs addressed to YOU
 are not part of what travels.** Where the payload is FENCED, the fence settles it: take the
 fence, and every line outside it is yours. Two of the three here are fenced, and their
@@ -1139,6 +1156,28 @@ restore. Five cautions on the plant itself:
 **Scope a plant to the suite under test.** Where the runner executes a whole lane in one block
 without catching exceptions, a plant that crashes any namespace stops every namespace after it and
 the log still looks plausible. Compare namespace and assertion counts against a control run.
+
+**The gates the brief nominated are not the whole obligation, because a project's RATCHET gates
+grade the PATHS you touched rather than the change you made.** A ratchet permits a recorded count
+and refuses any increase: a per-surface floor that a surface carrying baselined debt already sits
+exactly on, or a retired-vocabulary scan whose permitted count is zero. On either shape an ordinary
+new file — or one word in a comment — is a regression, and no brief nominated the gate, because the
+change looked nothing like its subject. So before you open the change, find the ratchets covering
+your paths, run them, and treat each gate's own output as the authority on what it wants: one that
+fails prints the exact spelling it wanted, so a worker who runs it once needs no further guidance.
+A project keeps them together — a checks directory, and the job lists of the workflows that run
+them — which is where to look. **Do not ask for a list of them, and do not write one**: the set
+grows, and an enumeration is a count, which is the thing that goes stale first.
+
+**Two properties of that repair, both learned by getting them wrong.** These gates grade more than
+the lines you think you changed — some read the whole tracked file, comments and docstrings
+included, so a sentence naming the design you REJECTED fails while the code it describes passes;
+others grade a form nobody counts as part of the change, such as an import edge. And a ratchet is
+repaired by changing your own lines, never by moving its floor: raising a recorded count to admit
+the new debt inverts the gate, and walking that debt down is another item's job, so repairing
+pre-existing violations in files you did not otherwise touch is sprawl into it. Read the gate's
+WHOLE output before you fix — it names every surface over its floor, where a number quoted into a
+brief from a failed run names one.
 
 **Re-run the gates on the final base after every rebase.** A pre-rebase green is evidence about a
 tree that no longer exists, and nothing warns you: the rebase reports success and the old log still
