@@ -911,15 +911,24 @@
                        "the machine drill is among the captured symbols")
                    (is (contains? syms "machines-list")
                        "the machine enumeration is among the captured symbols")
-                   (doseq [s (sort syms)]
-                     ;; A PUBLIC `defn` at column 0. `defn-` would not match,
-                     ;; and must not: a private fn is unreachable from an eval
-                     ;; form even though the name is spelled identically.
-                     (is (str/includes? src (str "\n(defn " s "\n"))
-                         (str "re-frame2-pair.runtime must publish " s
-                              " — an emitted form calls it by name across a process "
-                              "boundary, so a rename on the preload is a runtime failure "
-                              "here and nowhere else"))))))
+                   ;; A PUBLIC `defn` at column 0. `defn-` would not match, and
+                   ;; must not: a private fn is unreachable from an eval form
+                   ;; even though the name is spelled identically.
+                   ;;
+                   ;; Asserted as ONE set difference rather than an `is` per
+                   ;; symbol: `is` renders the whole form it was handed, and a
+                   ;; per-symbol `str/includes?` over the preload therefore
+                   ;; prints four thousand lines of somebody else's source
+                   ;; around the one word that matters.
+                   (let [missing (into (sorted-set)
+                                       (remove #(str/includes? src (str "\n(defn " % "\n")))
+                                       syms)]
+                     (is (empty? missing)
+                         (str "re-frame2-pair.runtime must publish every symbol an emitted "
+                              "form names — missing: " (pr-str (vec missing))
+                              ". Each is called by name across a process boundary, so a "
+                              "rename on the preload is a runtime failure here and "
+                              "nowhere else."))))))
         (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))
 
