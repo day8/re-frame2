@@ -46,12 +46,16 @@
 (rf/reg-route :routing.app/articles
   {:doc  "Articles list."} "/articles")
 
-;; A route may also carry `:params` / `:query` Malli schemas. They are worth
-;; knowing about, but they only *do* anything in an app that loads
-;; `re-frame.schemas` — that require is what wires the validator. This example
-;; stays schemas-free, so it declares none: a schema here would read like a
-;; contract and enforce nothing. `:id` arrives as the string the URL held.
-;; See the schemas guide:
+;; A route may also carry `:params` / `:query` Malli schemas, and they do two
+;; jobs that are worth keeping apart. Coercion always happens: `reg-route`
+;; compiles the schema into a coercion table, so `:params [:map [:id :int]]`
+;; hands the page the number 42 rather than the string "42", schemas artefact
+;; or not. Enforcement is the half that late-binds — a value the schema
+;; rejects is only *refused* in an app that requires `re-frame.schemas`, the
+;; require that wires the validator. Without it a bad value simply passes
+;; through uncoerced and the declared contract goes unchecked. This example
+;; stays schemas-free, so it declares neither schema and `:id` arrives as the
+;; string the URL held. See the schemas guide:
 ;; ../../../../docs/core/how-to/validate-with-schemas.md
 (rf/reg-route :routing.app/article-detail
   {:doc  "Detail page for one article."} "/articles/:id")
