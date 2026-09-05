@@ -724,6 +724,59 @@
                "was captured — a comparison against nothing (rf2-44d3).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Handler fingerprint wire key (rf2-66xy8)
+;; ---------------------------------------------------------------------------
+;;
+;; The Experiment loop's "did the patch land?" check compares a handler
+;; fingerprint across a hot-reload. The fingerprint's WIRE KEY is
+;; `:handler-fn-hash`: `registrar-describe` (preload/re_frame2_pair/runtime.cljs)
+;; `(dissoc :handler-fn)`s the live Function before returning and augments the
+;; map with `:handler-fn-hash`, and the MCP `handler-meta` tool repeats the
+;; dissoc server-side. `tests/runtime/registrar_describe_test.clj` pins both
+;; halves. So a recipe that tells the agent to keep "the `:handler-fn` hash"
+;; names a key that is never on the wire — and it is the ONLY discriminator
+;; when an in-place body edit leaves `:line` / `:column` unchanged, so the
+;; canonical workflow would claim to prove the patch landed while reading an
+;; absent key.
+;;
+;; The bare-key regex uses a negative lookahead so `:handler-fn-hash` itself
+;; does not trip it; the section scope keeps `ops.md` / `STATUS.md`'s correct
+;; references to the RAW `(rf/handler-meta ...)` map — which really does carry
+;; `:handler-fn` — out of range.
+
+(deftest experiment-loop-names-the-handler-fn-hash-wire-key
+  (let [section (recipe-section @recipes-md "Experiment loop")]
+    (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
+
+    (testing "the fingerprint is named by its actual wire key"
+      (is (str/includes? section ":handler-fn-hash")
+          (str "the Experiment loop no longer names `:handler-fn-hash`. That is "
+               "the key `handler-meta` actually returns — the live `:handler-fn` "
+               "is stripped — so without it the recipe has no fingerprint to "
+               "capture or compare (rf2-66xy8).")))
+
+    (testing "the absent :handler-fn key is not offered as the fingerprint"
+      (is (not (re-find #":handler-fn(?!-hash)" section))
+          (str "the Experiment loop names a bare `:handler-fn` key. "
+               "`registrar-describe` dissocs the live handler fn and the MCP "
+               "tool repeats the dissoc, so that key is never on the wire; an "
+               "agent comparing it sees nil-vs-nil and reports the patch landed "
+               "when it did not. Use `:handler-fn-hash` (rf2-66xy8).")))
+
+    (testing "the recipe says WHY the hash is the discriminator"
+      ;; Without the mechanism the key reads as a spelling preference and the
+      ;; next author reverts it to the shorter, wronger name.
+      (is (re-find #"(?is)strip[^.\n]{0,120}:handler-fn-hash" section)
+          (str "the Experiment loop no longer states that the live handler fn "
+               "is STRIPPED and replaced by `:handler-fn-hash`. The rule reads "
+               "as a spelling nit without the mechanism (rf2-66xy8)."))
+      (is (re-find #"(?is):handler-fn-hash[^.\n]{0,120}(only discriminator|line[^.\n]{0,20}column unchanged)" section)
+          (str "the Experiment loop no longer says the hash is what "
+               "discriminates when `:line` / `:column` are unchanged — the "
+               "in-place body edit is exactly the case the fingerprint exists "
+               "for (rf2-66xy8).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Single-host boundary (rf2-p1keh)
 ;; ---------------------------------------------------------------------------
 ;;
