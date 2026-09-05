@@ -549,14 +549,27 @@
   that frame's app-db. Handlers are NOT re-registered per frame (the
   registry is process-global) — only the per-frame app-db seed runs.
 
-  ## Why here, not at preload time
+  ## What is lazy here, and what no longer is (rf2-avi7)
 
-  Per rf2-in6l2 the registration was attempted at preload time but
-  reverted (rf2-e9s81): the preload runs before the host's `rf/init!`
-  has installed a substrate adapter, and the `:initial-events` seed
-  dispatch needs a running adapter to be reactive. The first
-  Ctrl+Shift+C keypress fires from the user well after `rf/init!`, so
-  `open!` is the canonical lazy-registration point.
+  Per rf2-in6l2 the registration was attempted at preload LOAD time but
+  reverted (rf2-e9s81): the preload runs before the host's `rf/init!` has
+  installed a substrate adapter, and `rf/make-frame` raises
+  `:rf.error/no-adapter-installed` without one.
+
+  That constraint is about the adapter, not about opening, and the two came
+  apart once `boot-on-runtime-ready!` grew a readiness loop: the SEAT now runs
+  from there the moment `rf/init!` lands, so `:rf/xray` exists whether or not
+  anything ever opens Xray. Tying it to `open!` had left Xray addressable but
+  not writable between preload and first open — see that fn's docstring for
+  the `:rf.error/frame-destroyed` this closes.
+
+  So the `seat-xray-frame!` call below is normally a cheap re-seat skip, and
+  what this fn contributes is the FIRST-MOUNT hook fan-out: seeding
+  `:trace-buffer` and `:epoch-history` from the history the user produced
+  BEFORE opening Xray. That belongs at first open and stays here, guarded by
+  `seeded-frame-ids`. The seat is kept unconditional so a caller reaching this
+  fn without the preload's loop (a testbed's second shell, a direct `open!`)
+  still gets its frame.
 
   ## First-mount hook table (rf2-y1saa)
 
@@ -1145,36 +1158,82 @@
   (reset! auto-open-state {:started? false :attempts 0})
   nil)
 
-(defn auto-open-inline!
-  "Preload entry: wait briefly for the host app to call `rf/init!`, then
-  open Xray in the true-inline host. Missing host emits a single
-  actionable diagnostic; no alert and no blocking startup."
+(defn boot-on-runtime-ready!
+  "Preload entry: wait briefly for the host app to call `rf/init!`, then run
+  Xray's two runtime-dependent boot steps — SEAT the shell frame, and open
+  Xray in the true-inline host unless the host disabled auto-open. Missing
+  host emits a single actionable diagnostic; no alert and no blocking startup.
+
+  ## Why the frame is seated here (rf2-avi7)
+
+  `:rf/xray` is an ordinary frame, so `rf/make-frame` needs an installed
+  substrate adapter: it raises `:rf.error/no-adapter-installed` before the
+  host's `rf/init!`, which is why rf2-e9s81 reverted seating at preload LOAD
+  time. Adapter readiness is therefore the earliest moment the frame can exist
+  at all, and this loop is the one place in Xray already watching for it.
+
+  Seating used to ride `open!` alone, which tied the frame's existence to a
+  React commit. Xray's whole `:rf.xray/*` instruction set is registered at
+  preload, so between preload and first open Xray was ADDRESSABLE BUT NOT
+  WRITABLE: every dispatch into `:rf/xray` — `core/set-target-frame!`,
+  `focus!`, a host re-orienting the observed frame — recovered-but-emitted
+  `:rf.error/frame-destroyed`, dropped the host's intent, and named the
+  HANDLER's registration coord rather than the caller, so the diagnostic
+  pointed at the wrong file. A host that sets `:rf.xray/auto-open? false`
+  never left that window until it opened a panel of its own. Seating here
+  closes it: the frame exists as soon as the runtime does, opened or not.
+
+  What stays lazy is the FIRST-MOUNT seed/hydrate fan-out. It harvests the
+  trace rings the user has already produced BEFORE opening Xray, so it belongs
+  at first open and keeps its own `seeded-frame-ids` guard inside
+  `ensure-xray-frame!` — which skips the redundant re-seat and runs the hooks."
   []
   (when (compare-and-set! auto-open-state {:started? false :attempts 0}
                           {:started? true :attempts 0})
+    ;; `auto-open-enabled?` is read INSIDE the tick and nowhere else. The
+    ;; documented ordering is `configure!` → `rf/init!`, and BOTH run after the
+    ;; preload's load-time block has called this fn — so a read taken out here
+    ;; would see the default `true` on every host that suppresses the open, and
+    ;; the `:auto-open-disabled` diagnostic would never be recorded.
+    ;;
+    ;; What it no longer gates is the SEAT. A host that turns auto-open off is
+    ;; exactly the host most likely to drive Xray by dispatch instead, so the
+    ;; frame is seated on readiness either way and only the open is suppressed.
     (letfn [(tick! []
               (let [{:keys [attempts]} @auto-open-state]
                 (cond
-                  (not (config/auto-open-enabled?))
-                  (note-auto-open-disabled!)
-
                   @mount-state nil
 
                   (rf.substrate.adapter/current-adapter)
-                  (open!)
+                  (do
+                    ;; Idempotent (`xray-frame-seated?` skips a re-seat), and
+                    ;; seed-free — `open!` here, or a later first open, still
+                    ;; runs the first-mount hooks through `ensure-xray-frame!`.
+                    (image-reads/seat-xray-frame! shell/default-frame-id)
+                    (if (config/auto-open-enabled?)
+                      (open!)
+                      (note-auto-open-disabled!)))
 
                   (< attempts 120)
                   (do
                     (swap! auto-open-state update :attempts inc)
                     (js/setTimeout tick! 50))
 
-                  :else
+                  ;; Gave up waiting for the host runtime. The missing-adapter
+                  ;; diagnostic is about auto-OPEN failing, so it is reported
+                  ;; only to a host that wanted the open; one that suppressed
+                  ;; it is told just that, and its unseated frame is the
+                  ;; consequence of its own missing `rf/init!`.
+                  (config/auto-open-enabled?)
                   (report-diagnostic!
                     {:ok? false
                      :reason :no-substrate-adapter
                      :message "Xray preload could not auto-open because no re-frame2 substrate adapter was installed. Call (rf/init! adapter) before app render."
                      :selector (config/get-layout-host-selector)
-                     :snippet  config/default-layout-host-snippet}))))]
+                     :snippet  config/default-layout-host-snippet})
+
+                  :else
+                  (note-auto-open-disabled!))))]
       (tick!)))
   nil)
 

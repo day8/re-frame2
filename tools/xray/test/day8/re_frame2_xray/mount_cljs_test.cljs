@@ -878,7 +878,7 @@
             (is (false? (mount/mounted?)))
             (is (false? (mount/visible?)))))))))
 
-(deftest auto-open-inline!-honours-disabled-launch-config
+(deftest boot-on-runtime-ready!-honours-disabled-launch-config
   (testing "Story/tool pages can suppress only the preload's default
             auto-open before adapter readiness; explicit open! keeps
             the normal missing-host diagnostic path"
@@ -894,7 +894,7 @@
                                                   (swap! console-calls conj args)
                                                   nil)))
               (try
-                (mount/auto-open-inline!)
+                (mount/boot-on-runtime-ready!)
                 (is (nil? @@#'mount/mount-state)
                     "auto-open disabled does not mount")
                 (is (zero? (count @calls))
@@ -992,14 +992,15 @@
                 "mounted? flips back to false after teardown!")))))))
 
 ;; -------------------------------------------------------------------------
-;; (8) Lazy `:rf/xray` frame registration (rf2-in6l2)
+;; (8) `:rf/xray` frame seating (rf2-in6l2, rf2-avi7)
 ;; -------------------------------------------------------------------------
 ;;
-;; Per rf2-in6l2 the `:rf/xray` frame is lazy-registered by `open!` —
-;; the preload runs before `rf/init!` has installed a substrate adapter
-;; so `make-frame` cannot run there (per rf2-e9s81). The first Ctrl+
-;; Shift+C keypress fires `open!` AFTER `rf/init!`, so that's the
-;; canonical registration point. Subsequent toggles surgical-update
+;; The `:rf/xray` frame cannot be seated at preload LOAD time: the preload
+;; runs before `rf/init!` has installed a substrate adapter, so `make-frame`
+;; raises there (per rf2-e9s81). Per rf2-avi7 the seat rides adapter
+;; READINESS instead of `open!` — `boot-on-runtime-ready!` seats as soon as
+;; `rf/init!` lands, opened or not — and `open!` still seats unconditionally
+;; for callers that bypass that loop. Subsequent toggles surgical-update
 ;; (make-frame's re-register semantics) — the frame's app-db and sub-
 ;; cache are preserved across keypresses.
 

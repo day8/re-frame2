@@ -180,7 +180,7 @@ const STAGED_SURFACES = [
 
 // How long `openXray` waits for the preload's auto-open to reach a
 // terminal state before it touches the toggle chord — see the race note
-// in `openXray` (rf2-7jevo). This is `mount/auto-open-inline!`'s OWN
+// in `openXray` (rf2-7jevo). This is `mount/boot-on-runtime-ready!`'s OWN
 // retry budget (120 attempts × 50ms), not a guess: after it elapses the
 // tick has either mounted the shell or reported `:no-substrate-adapter`
 // and stopped for good, so at that point auto-open provably cannot fire
@@ -192,7 +192,7 @@ const AUTO_OPEN_SETTLE_MS = 120 * 50;
 // ## Why this settles before pressing the chord (rf2-7jevo)
 //
 // `Ctrl+Shift+C` is a TOGGLE (`mount/toggle!`), and Xray's preload runs
-// a second, concurrent opener: `mount/auto-open-inline!` polls every
+// a second, concurrent opener: `mount/boot-on-runtime-ready!` polls every
 // 50ms until the host's `rf/init!` has installed the substrate adapter,
 // then calls `open!`. Sampling the shell once and pressing the chord on
 // a miss races that tick — when auto-open lands in the gap between the

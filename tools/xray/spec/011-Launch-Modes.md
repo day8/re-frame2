@@ -259,9 +259,9 @@ single source of truth.
 ```
 
 The preload registers Xray's listeners under `register-listener!`
-and `register-epoch-listener!`, installs the browser API/keybinding, then
-auto-opens into the configured layout host once `rf/init!` has
-installed a substrate adapter.
+and `register-epoch-listener!` and installs the browser API/keybinding; then,
+once `rf/init!` has installed a substrate adapter, it seats the `:rf/xray`
+frame and auto-opens into the configured layout host.
 
 Tool-owned pages that deliberately do not allocate app layout real
 estate for Xray (for example Story-only browser-test canvases) MAY
@@ -275,8 +275,11 @@ suppress only the default page-load open before `rf/init!`:
 This does not disable Xray. The collectors, browser API, keybinding,
 and explicit `open!` / `toggle!` calls remain installed; if an explicit
 open has no host, it MUST still emit the normal actionable missing-host
-diagnostic. App dev pages should keep the default `true` posture and
-provide `[data-rf-xray-host]`.
+diagnostic. **The `:rf/xray` frame is still seated on adapter readiness**
+(§Mount lifecycle), so such a page can drive Xray by dispatch — which is
+what a tool-owned page embedding Xray's panels itself typically does. App
+dev pages should keep the default `true` posture and provide
+`[data-rf-xray-host]`.
 
 ### Disable
 
@@ -565,9 +568,32 @@ available. The lifecycle is normative.
    the artefact is always present in an Xray build.
 4. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
-5. Schedule default true-inline auto-open once the substrate adapter
-   is ready, unless `:rf.xray/auto-open?` is false before the probe
-   observes readiness.
+5. Schedule a bounded substrate-adapter readiness probe. On readiness it
+   MUST **seat the `:rf/xray` frame**, and MUST then open the default
+   true-inline shell unless `:rf.xray/auto-open?` is false.
+
+**Seating is unconditional; opening is not (rf2-avi7).** Step 1 registers
+Xray's whole instruction set, but `:rf/xray` is an ordinary frame, so
+`rf/make-frame` needs an installed substrate adapter and cannot run at
+preload namespace load (`:rf.error/no-adapter-installed`). Adapter readiness
+is therefore the earliest moment the frame can exist, and the probe of step 5
+MUST seat it there whether or not it goes on to open — a host is entitled to
+drive Xray purely by dispatch (`set-target-frame!`, `focus!`, the
+`:rf.xray/*` events) without ever showing the shell.
+
+Binding the seat to the open instead leaves Xray **addressable but not
+writable** for the whole window between preload and first open: a dispatch
+into an unseated `:rf/xray` recovers-but-emits `:rf.error/frame-destroyed`
+per [Spec 002 §Run-to-completion](../../../spec/002-Frames.md), drops the
+host's intent, and — because a `frame-destroyed` source-coord resolves out of
+the `[:event id]` registry — names the handler's registration site rather
+than the caller. For a host that suppresses auto-open the window never closes
+at all. Seating stays idempotent, so a later `open!` re-seats as a no-op.
+
+What remains lazy is the **first-mount seed/hydrate pass** (`:trace-buffer`
+and `:epoch-history`, per rf2-1barg / rf2-boyc2):
+it harvests the history the user produced *before* opening Xray, so it MUST
+fire on first open, not at seating.
 
 There is no view-evidence acquire step, and none is missing (rf2-l86mm).
 Two predecessors sat at exactly this position: the first claimed the

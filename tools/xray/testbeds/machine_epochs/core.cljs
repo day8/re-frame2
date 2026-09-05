@@ -686,10 +686,10 @@
 ;; <frame-id>]` (re-seeding :target-frame + :epoch-history) without flipping
 ;; the operator's chosen L4 tab.
 ;;
-;; The :rf/xray frame is lazy-registered by Xray's preload AFTER the host's
-;; rf/init! (mount/auto-open-inline! polls for the adapter then opens). So at
-;; BOOT — when `run` auto-selects :door before Xray has mounted — the frame
-;; may not exist yet. We guard on `(rf/frame-meta :rf/xray)`: pre-mount the
+;; The :rf/xray frame is seated by Xray's preload AFTER the host's rf/init!
+;; (mount/boot-on-runtime-ready! polls for the adapter, then seats). So at
+;; BOOT — when `run` auto-selects :door before that poll lands — the frame
+;; may not exist yet. We guard on `(rf/frame-meta :rf/xray)`: pre-seat the
 ;; re-point is a no-op (Xray's head-frame default already scopes to the most
 ;; recent event's frame, which IS the just-booted machine frame), and any
 ;; user SELECT after Xray opens re-points explicitly. This keeps the boot
