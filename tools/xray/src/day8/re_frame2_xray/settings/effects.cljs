@@ -549,9 +549,10 @@
 ;; ## Why not install at preload
 ;;
 ;; The watcher subscribes to a sub that reads from `:rf/xray`'s
-;; app-db; but `:rf/xray` is lazy-registered by
-;; `mount/ensure-xray-frame!` on first open (see mount.cljs §Why
-;; here, not at preload time). Subscribing into a non-existent frame
+;; app-db; but `:rf/xray` is seated only once the host's `rf/init!`
+;; has installed a substrate adapter, which is strictly later than
+;; preload load time (see `mount/boot-on-runtime-ready!`).
+;; Subscribing into a non-existent frame
 ;; returns nil, and `(add-watch nil ...)` throws under Story
 ;; testbeds that never open Xray. The frame-presence guard below
 ;; makes the install a defensive no-op pre-mount; the install
@@ -583,11 +584,11 @@
   surrounding dynamic-frame scope. The reaction is held in a `defonce`
   atom so re-install on `:after-load` does not double-watch."
   []
-  ;; Defensive: the `:rf/xray` frame is lazy-registered by
-  ;; `mount.cljs/ensure-xray-frame!` on the first `open!` call (see
-  ;; mount.cljs §Why here, not at preload time). If we land here
-  ;; before that registration — e.g. preload runs in a Story testbed
-  ;; where the user never opens Xray — `rf/subscribe` returns nil
+  ;; Defensive: the `:rf/xray` frame is seated by
+  ;; `mount.cljs/boot-on-runtime-ready!` once the host's `rf/init!` has
+  ;; installed a substrate adapter — later than preload load time, and
+  ;; never at all in a host that omits `rf/init!`. If we land here
+  ;; before that seat, `rf/subscribe` returns nil
   ;; and `(add-watch nil ...)` throws
   ;; `No protocol method IWatchable.-add-watch defined for type null`.
   ;; The frame guard makes pre-mount calls a silent no-op; the install

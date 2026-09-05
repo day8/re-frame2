@@ -72,7 +72,9 @@
   ## Hydration
 
   `hydrate!` runs at install time (preload) AND from
-  `mount/ensure-xray-frame!` on first open. Re-entrant — the dispatch
+  `mount/ensure-xray-frame!` on first open. The preload call lands before
+  `boot-on-runtime-ready!` has seated `:rf/xray`, so it still short-circuits.
+  Re-entrant — the dispatch
   is a wholesale `(assoc db :focus (assoc focus :frame …))`. Guards
   on `(rf.frame/frame defaults/default-frame-id)` so the pre-mount call short-circuits
   cleanly. Mirrors the `filters/hydrate!` shape so the two surfaces

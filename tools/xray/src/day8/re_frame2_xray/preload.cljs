@@ -11,12 +11,14 @@
      `:rf.xray/trace-collector` — see `re-frame2-xray.trace-collector`.
   3. Attaches a global Ctrl+Shift+C keydown listener — see
      `re-frame2-xray.keybinding`.
-  4. Auto-opens the full shell into the host app's normal-flow
-     `[data-rf-xray-host]` layout host once the substrate adapter is
-     ready, unless the host configured `:rf.xray/auto-open? false`
-     before adapter readiness. Missing host is reported via
-     `console.error` and the inspectable Xray status API; startup is
-     not blocked.
+  4. Once the substrate adapter is ready, SEATS the `:rf/xray` frame and —
+     unless the host configured `:rf.xray/auto-open? false` — auto-opens the
+     full shell into the host app's normal-flow `[data-rf-xray-host]` layout
+     host. The seat is unconditional: it is what makes the `:rf.xray/*`
+     instruction set registered in step 1 actually WRITABLE, so a host can
+     dispatch into Xray (`set-target-frame!`, `focus!`) without ever opening
+     the shell (rf2-avi7). Missing host is reported via `console.error` and
+     the inspectable Xray status API; startup is not blocked.
 
   All four are idempotent: re-loading the namespace (shadow-cljs
   `:after-load`) re-runs the side-effects but each step
@@ -114,9 +116,10 @@
   (settings-effects/apply-all!)
   ;; Auto-open-on-error watcher — NOT installed here.
   ;; The watcher subscribes to `:rf.xray/issues-ribbon`, a sub that
-  ;; reads from `:rf/xray`'s app-db; but `:rf/xray` is
-  ;; lazy-registered by `mount/ensure-xray-frame!` on first open
-  ;; (see mount.cljs §Why here, not at preload time). Subscribing
+  ;; reads from `:rf/xray`'s app-db; but `:rf/xray` is seated only once
+  ;; the host's `rf/init!` has installed a substrate adapter, which is
+  ;; strictly later than this load-time block (see `mount/boot-on-runtime-
+  ;; ready!` §Why the frame is seated here). Subscribing
   ;; here would return nil, and `(add-watch nil ...)` throws
   ;; `No protocol method IWatchable.-add-watch defined for type
   ;; null` in test runtimes that never open Xray (Story testbeds).
@@ -127,4 +130,4 @@
   ;;   2. `:rf.xray/settings-update` — on flip-on, install; on
   ;;      flip-off, detach (covers the runtime toggle).
   ;; Both paths are idempotent via the `auto-open-watcher` atom.
-  (mount/auto-open-inline!))
+  (mount/boot-on-runtime-ready!))

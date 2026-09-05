@@ -257,14 +257,15 @@
 
 (deftest configure!-auto-open-false-is-honoured-at-boot
   (testing "rf2-5w06uu — :rf.xray/auto-open? false set via configure! before
-            boot wins: the preload's auto-open-inline! short-circuits to the
-            disabled diagnostic rather than mounting."
+            boot wins: the preload's boot-on-runtime-ready! records the
+            disabled diagnostic rather than mounting. rf2-avi7 — it still
+            SEATS `:rf/xray`; only the OPEN is suppressed."
     (core/configure! {:rf.xray/auto-open? false})
     (is (= false (config/auto-open-enabled?))
         "auto-open slot is off before any auto-open attempt")
-    (mount/auto-open-inline!)
+    (mount/boot-on-runtime-ready!)
     (is (not (mount/mounted?))
-        "auto-open-inline! did not mount when auto-open? false")
+        "boot-on-runtime-ready! did not mount when auto-open? false")
     (is (= :auto-open-disabled (get-in (mount/status) [:diagnostic :reason]))
         "auto-open short-circuited to the disabled diagnostic")))
 
