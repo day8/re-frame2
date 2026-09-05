@@ -51,8 +51,21 @@
   `-dom-cljs-test$` puts this namespace in `:browser-test` (real React,
   real DOM) and in `:node-test`, whose `cljs-test$` matches the same
   suffix. Every row here needs a fiber, so each degrades in Node to a
-  stated skip rather than to a false green."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  stated skip rather than to a false green.
+
+  ## §3 — the hydration zero the outward bridge inherited
+
+  §3 is not part of the reactivity story above. It re-takes the reading
+  `rf2-s52w` established and then lost: a root the CONSUMER opened
+  carries no Spec 011 hydration reporter, so a divergence under a bridged
+  subtree is React's to report and the framework's diagnostic never
+  fires. Its witness used to be
+  *a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter*
+  in `native_abi_dom_cljs_test.cljs`, deleted with the native authoring
+  tier by `aa01f0e8a6`. **The subject was never retired** — `h/as-component`
+  is live and this file is the suite that inherited it — so the row is
+  re-taken here rather than withdrawn (`rf2-2tt2` residue 2)."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -108,6 +121,11 @@
   (test-support/make-reset-runtime-fixture
     {:adapter       reagent-adapter/adapter
      :ambient-frame nil
+     ;; §3 is an `(async done …)` row and `cljs.test` runs one only under a
+     ;; MAP-form fixture. `:async? true` selects that shape; with
+     ;; `:ambient-frame nil` it establishes no ambient scope, so §1 and §2
+     ;; keep the behaviour they had under the fn-form.
+     :async?        true
      :init-fn       (fn []
                       (support/leave-act-environment!)
                       (reset! !runs 0)
@@ -344,3 +362,138 @@
                 (is (= (str painted "/42") (text-of node))
                     "and the readout moved"))
               (finally (stop)))))))))
+
+;; ===========================================================================
+;; 3 · A CONSUMER-BUILT ROOT ADOPTS A BRIDGED SUBTREE WITH NO FRAMEWORK
+;;     REPORTER
+;; ===========================================================================
+;;
+;; `onRecoverableError` is an option of an INDIVIDUAL `hydrateRoot`
+;; (`impl/roots.cljs`), and this package sets no option on a root it did not
+;; open. So a consumer who calls `hydrateRoot` themselves and puts the minted
+;; bridge inside it gets React's own reporting and none of Spec 011's:
+;; `:rf.ssr/hydration-mismatch` never fires, however visibly the DOM diverged.
+;;
+;; That is a SCOPE and not a gap. `spec/011-SSR.md` states it normatively, and
+;; `137bd927db` (PR #8646, rf2-0brem) narrowed the requirement to owe mismatch
+;; attribution only on roots a re-frame2 door opens. What this row adds is that
+;; the zero is READ rather than argued — which is what `rf2-s52w` established
+;; and then lost when its witness went with `native_abi_dom_cljs_test.cljs`.
+;;
+;; THE PACKAGE'S OWN DOOR IS THE CONTROL, and it is what makes the zero a
+;; reading: the same manufactured divergence through `h/hydrate!`'s impl DOES
+;; reach the stream. Without it an empty `@seen` is equally well explained by a
+;; listener that was never live, and a row that cannot tell those apart passes
+;; on a runtime with the diagnostic ripped out.
+
+(defn- consumer-element
+  "What a consumer puts inside a root they opened themselves: the frame
+  provider and the minted bridge, exactly as [[plain-react-root]] mounts
+  it. `label` is a PROP, so a server/client divergence is a
+  one-argument change rather than a second app."
+  [frame-kw label]
+  (mount/provider frame-kw (react/createElement bridged #js {"label" label})))
+
+(defn- consumer-server-bytes!
+  "The markup a consumer's own server render would deliver for the bridged
+  subtree — the SAME element their `hydrateRoot` adopts, painted once on
+  an ordinary root and unmounted, so nothing of that render survives into
+  the reading."
+  [frame-kw label]
+  (let [node (mount/fresh-container!)
+        root (react-dom-client/createRoot node)]
+    (react-dom/flushSync (fn [] (.render root (consumer-element frame-kw label))))
+    (let [html (.-innerHTML node)]
+      (try (.unmount root) (catch :default _ nil))
+      html)))
+
+(defn- complained?
+  "Did the PAGE hear about the divergence, on either of React's two
+  channels? Matched loosely and case-insensitively on purpose: the exact
+  wording is React's to change, and both arms below read it through this
+  one function, so a wording change moves them together instead of
+  inverting one of them."
+  [captured]
+  (boolean (some #(re-find #"(?i)hydrat" %) @captured)))
+
+(defn- consumer-arm!
+  "THE CLAIM. A root the CONSUMER opened, adopting a bridged subtree whose
+  server bytes disagree with the client model. Answers a promise."
+  []
+  (let [frame ::hydrate-consumer]
+    (seat! frame 1)
+    (let [html (consumer-server-bytes! frame "srv")]
+      (collector/reset-runtime!)
+      (let [node                      (support/server-dom! html)
+            {:keys [seen stop!]}      (support/watch-mismatches!)
+            {:keys [captured close!]} (support/open-console-capture!
+                                        {:swallow-uncaught? true})
+            root                      (react-dom-client/hydrateRoot
+                                        node (consumer-element frame "cli"))]
+        (-> (support/wait-until! #(= "cli/1" (text-of node)))
+            (.then
+              (fn [recovered?]
+                (close!)
+                (stop!)
+                (is (true? recovered?)
+                    "PRECONDITION: React adopted the container and recovered to
+                     the CLIENT model — a row where nothing diverged would have
+                     nothing to report and would read zero for free")
+                (is (complained? captured)
+                    "PRECONDITION: and the page itself heard about it, so the
+                     divergence did reach a channel")
+                (is (zero? (count @seen))
+                    (str "THE ZERO: no `:rf.ssr/hydration-mismatch`. The consumer
+                          built this root, so no re-frame2 door set
+                          `onRecoverableError` and Spec 011's diagnostic has
+                          nowhere to fire from; got "
+                         (pr-str (mapv (comp :error support/tags-of) @seen))))
+                (try (.unmount root) (catch :default _ nil))
+                true)))))))
+
+(defn- package-arm!
+  "THE CONTROL. The SAME manufactured divergence through the package's own
+  door, which does set the option. Answers a promise."
+  []
+  (let [frame ::hydrate-package]
+    (seat! frame 1)
+    (let [html (support/server-html! frame [card {:label "own-srv"}])]
+      (collector/reset-runtime!)
+      (let [node                      (support/server-dom! html)
+            {:keys [seen stop!]}      (support/watch-mismatches!)
+            {:keys [captured close!]} (support/open-console-capture!
+                                        {:swallow-uncaught? true})
+            handle                    (mount/hydrate-root!
+                                        node frame [card {:label "own-cli"}])]
+        (-> (support/adopted! handle)
+            (.then
+              (fn [adopted?]
+                (close!)
+                (stop!)
+                (is (true? adopted?) "the package's own root must finish adopting")
+                (is (complained? captured)
+                    "the same manufactured divergence, seen through the package's
+                     door")
+                (is (pos? (count @seen))
+                    "THE CONTROL BITES: through `h/hydrate!`'s impl the SAME
+                     divergence DOES reach the instrumentation stream — so the
+                     zero above is the absence of a REPORTER, not of a listener")
+                (doseq [ev @seen]
+                  (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                         (:where (support/tags-of ev)))
+                      "and what fired is tier-discriminated by the door that
+                       opened the root"))
+                (mount/unmount! handle)
+                true)))))))
+
+(deftest a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter
+  (async done
+    (if-not (mount/browser?)
+      (do (support/skip! ":node-test has no DOM") (done))
+      (-> (consumer-arm!)
+          (.then (fn [_] (package-arm!)))
+          (.then (fn [_] (done)))
+          (.catch (fn [e]
+                    (is false (str "the hydration row rejected rather than
+                                    asserting: " e))
+                    (done)))))))

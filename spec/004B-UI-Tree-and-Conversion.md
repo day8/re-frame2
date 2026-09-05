@@ -230,8 +230,12 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   double nearest `1.3990134524153749e17` is exactly `139901345241537488`, where
   JavaScript prints `139901345241537490`), and the JVM's own `Double/toString` is not
   always the shortest one either (it answers `4.9E-324` for `Double.MIN_VALUE`, where
-  JavaScript answers `5e-324`). `-0.0` renders `"0"`; `NaN` and the infinities take
-  their JavaScript spellings.
+  JavaScript answers `5e-324`). `-0.0` renders `"0"`, and the infinities take their
+  JavaScript spellings. **`NaN` has no row here at all**, and that is the value
+  grammar speaking rather than an omission: §The opaque marker rejects it at the site
+  that recorded it, so no `NaN` is ever a prop for this row to render. A serialiser
+  answering `##NaN` is therefore printing EDN's spelling of a value the tree may not
+  carry — the repair is the refusal upstream, never a spelling exception here.
 - **JVM integers are a wider domain than JavaScript's, deliberately.** A JVM integral
   type (`Long`, `BigInt`) renders its **exact** decimal at any magnitude — printing an
   approximation of a value the host holds exactly would be a lie. Inside JavaScript's
