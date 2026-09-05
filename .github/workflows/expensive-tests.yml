@@ -472,6 +472,258 @@ jobs:
         working-directory: tools/re-frame2-pair-mcp
         run: npm run test:stdin-eof-shutdown
 
+  mcp-live-windows:
+    name: MCP live hermetic suite on WINDOWS (two consecutive runs)
+    # rf2-hhw6, closing rf2-kzbf's AC4. THE ONLY WINDOWS RUNNER IN THIS REPO,
+    # and it exists because the mechanism it covers cannot execute anywhere
+    # else. `makeShadowTreeReaper` — the owned-descendant teardown rf2-kzbf
+    # shipped, in
+    # `tools/mcp-conformance/scripts/run-re-frame2-pair-live-hermetic-suite.cjs`
+    # — opens `if (platform !== 'win32') return inert;`. Every other job that
+    # runs the hermetic suite is ubuntu-latest (`mcp-live` above, and
+    # test.yml's `mcp-conformance-re-frame2-pair`), so on both of them that
+    # entire code path is the identity function and a green rollup is SILENT
+    # about it. The unit tests in `test/runner-cleanup.test.cjs` model the
+    # process table; this is the only place the real one is read.
+    #
+    # WHY NIGHTLY RATHER THAN PER-PR. Three reasons, in order of weight.
+    #
+    #   1. THE DEFECT'S BLAST RADIUS IS THE NEXT RUN ON THE SAME MACHINE. A
+    #      shadow-cljs JVM that survives teardown goes on holding the fixture's
+    #      port 8030. GitHub-hosted runners are a fresh VM per job, so CI is
+    #      structurally immune to the leak — the party who actually suffers it
+    #      is a developer running the hermetic suite twice on one Windows
+    #      workstation. That makes this a regression net for a mechanism no
+    #      contributor's PR can plausibly break in passing, which is the
+    #      nightly's job description and not the per-PR gate's.
+    #
+    #   2. COST. A Windows runner (billed at twice a Linux minute) booting a
+    #      JDK, a Clojure CLI, a cold shadow-cljs resolve over five
+    #      `:local/root` artefacts, a Chromium download, and then the whole
+    #      hermetic suite TWICE. Charging that to every contributor on every
+    #      push buys none of them anything.
+    #
+    #   3. BAND. A job added to test.yml moves the per-PR check-count band the
+    #      merge criterion measures every open PR against. A nightly job does
+    #      not. This change adds no job key to test.yml.
+    runs-on: windows-latest
+    # Two full hermetic runs plus a cold toolchain. The per-step caps below are
+    # the real bounds; this is the circuit breaker that keeps a wedged runner
+    # from producing no verdict at all (rf2-rsn1e).
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: tools/mcp-conformance
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # NOT `.github/scripts/install-clojure-cli.sh`, and NOT the setup-clojure
+      # action. Both exclusions are forced rather than chosen:
+      #
+      #   * The shared installer — rf2-e7ja9's single owner of this policy —
+      #     fetches the official `linux-install.sh` and runs it under `sudo`.
+      #     Neither half exists here, so it is structurally unusable on this
+      #     platform rather than merely awkward.
+      #   * The setup-clojure action is refused repo-wide by
+      #     `implementation/scripts/_changed-surfaces.test.cjs` ("no workflow
+      #     carries an inline Clojure installer body or setup-clojure"), for
+      #     the un-retried curl rf2-9sgj8 removed.
+      #
+      # So: deps.clj, the single-binary drop-in for the Clojure CLI, pinned by
+      # version AND verified against the SHA-256 its release publishes, with
+      # Invoke-WebRequest's own retry supplying the resilience the shared
+      # installer gets from its curl/backoff loop. This IS a second owner of
+      # Clojure-install policy, which rf2-e7ja9 exists to prevent; the
+      # difference is that it owns one job on the one platform the shared
+      # script cannot reach, not 59 copies of a reachable one.
+      #
+      # `deps.exe` is COPIED to `clojure.exe` because shadow-cljs on win32
+      # shells out as `powershell -command clojure ...` (the `win32` branch of
+      # `shadow-cljs/cli/dist.js`): it needs `clojure` resolvable as a command,
+      # not `deps`. Verified at this exact version on a Windows 11 developer
+      # machine — `powershell -NoProfile -command clojure -Spath` resolved a
+      # real classpath and exited 0.
+      - name: Install the Clojure CLI for Windows (deps.clj)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '1.12.6.1673'
+          $expected = '826e2f52657483471bb98013797d9d01df2ddac850ca7182792936cd6b31c834'
+          $url = "https://github.com/borkdude/deps.clj/releases/download/v$version/deps.clj-$version-windows-amd64.zip"
+          $zip = Join-Path $env:RUNNER_TEMP 'deps-clj.zip'
+          $bin = Join-Path $env:RUNNER_TEMP 'clojure-bin'
+          Invoke-WebRequest -Uri $url -OutFile $zip -MaximumRetryCount 5 -RetryIntervalSec 10
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            Write-Host "::error title=deps.clj download does not match its published SHA-256 - CI infrastructure - not this diff::expected $expected, got $actual. NO GATE RAN IN THIS JOB: this step provisions the toolchain, so the hermetic suite never started and this red says nothing about the change."
+            exit 1
+          }
+          Expand-Archive -LiteralPath $zip -DestinationPath $bin -Force
+          Copy-Item -LiteralPath (Join-Path $bin 'deps.exe') -Destination (Join-Path $bin 'clojure.exe')
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      # The SAME key roster as `mcp-live` above, deliberately unaltered: rf2-cd0zz
+      # is the record of what happens when this key omits an artefact the fixture
+      # resolves — the pre-bump entry keeps being restored and, because an exact
+      # key hit suppresses the save, never refreshes. `runner.os` is `Windows`
+      # here, so this can never collide with the Linux entry.
+      #
+      # `~/AppData/Local/Apps/clojure` is deps.clj's own tools directory, the
+      # Windows analogue of `~/.deps.clj` (confirmed as its `:install-dir` in
+      # `clojure -Sdescribe` output). Caching it keeps the night's first
+      # `clojure` invocation off download.clojure.org.
+      - name: Cache Maven / gitlibs / deps.clj tools
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/AppData/Local/Apps/clojure
+          key: ${{ runner.os }}-expensive-mcp-live-windows-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-expensive-mcp-live-windows-
+
+      # Its own named step so that a failure here is its own signature for
+      # `nightly_failure_alert.py`. deps.clj downloads the official Clojure
+      # tools on its first invocation; without this, a failure in THAT download
+      # would surface six steps later as an unexplained shadow-cljs boot
+      # timeout, which is the misattribution rf2-xsfr's `::error` annotation
+      # exists to delete on the Linux side.
+      - name: Verify the Clojure CLI answers
+        run: clojure -Sdescribe
+
+      - name: Install re-frame2-pair-mcp deps
+        working-directory: tools/re-frame2-pair-mcp
+        run: npm install
+
+      - name: Compile re-frame2-pair-mcp server bundle
+        working-directory: tools/re-frame2-pair-mcp
+        run: npx shadow-cljs compile server
+
+      # `npm ci` rather than `npm install`: tools/mcp-conformance ships a
+      # committed package-lock.json, so this is lockfile-exact and fails on
+      # package.json/lock drift (rf2-vtp2er's posture, matching test.yml's
+      # `mcp-conformance-re-frame2-pair`).
+      - name: Install mcp-conformance deps
+        run: npm ci
+
+      # ---- Pre-warm what the orchestrator's own watchdogs would otherwise
+      # have to absorb ------------------------------------------------------
+      #
+      # The orchestrator caps its whole run at HERMETIC_TIMEOUT_MS (9 min) and
+      # the shadow boot at SHADOW_BOOT_TIMEOUT_MS (6 min), and it will itself
+      # `npm install` the fixture and cold-resolve its classpath INSIDE those
+      # windows. On a cold-cache Windows runner that resolve is the single
+      # slowest thing in the job, and paying it inside a watchdog turns a slow
+      # night into a red one for a reason that has nothing to do with teardown.
+      # Both pre-warms are ordinary job setup, identical for both runs below,
+      # and each is its own named step so a failure in either is legible as
+      # itself rather than as a boot timeout.
+      - name: Pre-warm the fixture's Clojure classpath (keeps the cold resolve out of the boot watchdog)
+        working-directory: skills/re-frame2-pair/tests/fixture
+        timeout-minutes: 15
+        run: clojure -P
+
+      - name: Pre-warm the fixture's npm deps
+        working-directory: skills/re-frame2-pair/tests/fixture
+        run: npm install --no-audit --no-fund
+
+      # The hermetic orchestrator resolves `playwright` from
+      # tools/mcp-conformance or implementation/, and only the latter declares
+      # it as a dependency.
+      - name: Install implementation deps (for Playwright)
+        working-directory: implementation
+        run: npm install --no-audit --no-fund
+
+      # `~/AppData/Local/ms-playwright` is Playwright's browser cache on
+      # Windows — the platform's own location, not the `~/.cache/ms-playwright`
+      # the Linux jobs name.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/AppData/Local/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # No `--with-deps`: that flag apt-installs Chromium's system libraries and
+      # is Ubuntu-only. No `timeout -k ... || playwright-install-failed.sh`
+      # either — both are bash/coreutils and the shell here is pwsh; the step
+      # cap does that job.
+      - name: Install Playwright chromium (for hermetic browser preload)
+        working-directory: implementation
+        timeout-minutes: 10
+        run: npx playwright install chromium
+
+      # ---- The thing this job exists for ----------------------------------
+      #
+      # TWO CONSECUTIVE RUNS, and the second is deliberately NOT handed a
+      # cleaned tree. Wiping `.shadow-cljs`, `public/out` and the nREPL port
+      # file between them would test LESS, not more: the whole claim under test
+      # is that run 2 — "the next run on the same machine" — is unharmed by
+      # whatever run 1's teardown left behind. Leaving the tree alone is what
+      # actually exercises the orchestrator's stale-port-file wipe
+      # (`wipeStalePortFileCandidate`) and its stale-bundle removal, rather
+      # than assuming them. rf2-kzbf AC3.
+      - name: Run re-frame2-pair-mcp live conformance suite (HERMETIC, run 1 of 2)
+        timeout-minutes: 15
+        run: npm run test:re-frame2-pair-live-hermetic-suite
+
+      # `!cancelled()` on this and every step below: a run that FAILED is
+      # exactly the case where a leaked listener matters most, so the assertion
+      # must still be taken. A missing `Get-NetTCPConnection` fails CLOSED here
+      # — under `$ErrorActionPreference = 'Stop'` an unresolvable command
+      # terminates the step even with `-ErrorAction SilentlyContinue` on it
+      # (measured), so this can go red but it cannot go vacuously green.
+      - name: Assert nothing holds fixture port 8030 after run 1
+        if: ${{ !cancelled() }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $listeners = @(Get-NetTCPConnection -LocalPort 8030 -State Listen -ErrorAction SilentlyContinue)
+          if ($listeners.Count -gt 0) {
+            Write-Host "::error title=Hermetic teardown leaked the fixture port after run 1::$($listeners.Count) process(es) still LISTENING on 8030. The owned-descendant reap did not drain the shadow-cljs subtree (rf2-kzbf / rf2-hhw6)."
+            foreach ($l in $listeners) {
+              $owner = Get-Process -Id $l.OwningProcess -ErrorAction SilentlyContinue
+              $name = if ($owner) { $owner.ProcessName } else { '<already exited>' }
+              $exe = if ($owner) { $owner.Path } else { '' }
+              Write-Host ("  pid={0} name={1} path={2}" -f $l.OwningProcess, $name, $exe)
+            }
+            exit 1
+          }
+          Write-Host 'port 8030 is free - run 1 left no listener behind.'
+
+      - name: Run re-frame2-pair-mcp live conformance suite (HERMETIC, run 2 of 2 - tree deliberately NOT cleaned)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: npm run test:re-frame2-pair-live-hermetic-suite
+
+      - name: Assert nothing holds fixture port 8030 after run 2
+        if: ${{ !cancelled() }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $listeners = @(Get-NetTCPConnection -LocalPort 8030 -State Listen -ErrorAction SilentlyContinue)
+          if ($listeners.Count -gt 0) {
+            Write-Host "::error title=Hermetic teardown leaked the fixture port after run 2::$($listeners.Count) process(es) still LISTENING on 8030. The owned-descendant reap did not drain the shadow-cljs subtree (rf2-kzbf / rf2-hhw6)."
+            foreach ($l in $listeners) {
+              $owner = Get-Process -Id $l.OwningProcess -ErrorAction SilentlyContinue
+              $name = if ($owner) { $owner.ProcessName } else { '<already exited>' }
+              $exe = if ($owner) { $owner.Path } else { '' }
+              Write-Host ("  pid={0} name={1} path={2}" -f $l.OwningProcess, $name, $exe)
+            }
+            exit 1
+          }
+          Write-Host 'port 8030 is free - run 2 left no listener behind.'
+
   jvm-slow-tests:
     # rf2-bv2qqm — the heavy `^:slow` / `^:stress` JVM tests (the SSR
     # 2000-request teardown load test, the ssr-ring multi-thread Jetty
@@ -586,6 +838,7 @@ jobs:
       - browser-bundle-and-story-gates
       - template-emitted-app
       - mcp-live
+      - mcp-live-windows
       - jvm-slow-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
