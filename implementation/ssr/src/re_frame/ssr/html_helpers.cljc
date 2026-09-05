@@ -578,9 +578,24 @@
   this is `.cljc`: the JVM has no JS coercion, and the two runtimes must emit
   the same bytes for the same tree (the render-tree hash compares them).
   Beyond strings and numbers everything is truthy — keywords, collections,
-  objects — matching JS, where every object is truthy. `NaN` is JS-falsy and
-  is tested as `(not= v v)`, the one NaN check that reads the same on both
-  runtimes.
+  objects — matching JS, where every object is truthy.
+
+  `NaN` IS JS-FALSY, AND `NaN?` IS THE CHECK — NOT the self-inequality idiom
+  `(not= v v)`, which this predicate shipped with and which is DEAD CODE on
+  the JVM. `clojure.lang.Util/equiv` short-circuits on reference identity
+  before it ever compares numerically, and a predicate parameter is ONE boxed
+  object handed to both argument positions, so `(= v v)` answers `true` for
+  every value a caller can supply — `NaN` included — and `(not= v v)` is
+  therefore `false` for all of them. Nothing errors and no branch is skipped;
+  the NaN arm simply never runs. What makes the idiom so convincing is that it
+  is genuinely correct in CLJS, where `=` on numbers reaches `identical?` and
+  `NaN === NaN` is false: it is right on one runtime and inert on the other,
+  and the JVM is the runtime that renders. `NaN?` is `clojure.core`'s since
+  1.11 and `cljs.core`'s, it is correct for a boxed argument on both, and it
+  says what it tests. (`==` also discriminates `NaN` correctly on both hosts —
+  `Numbers/equiv` takes no identity shortcut — but `(== v v)` has to be
+  decoded before it reads as a NaN test, and this predicate exists to be
+  read.)
 
   TOTAL over every value an attribute map can carry, `nil` and booleans
   included, rather than documented as undefined for them. `attr-string` does
@@ -593,7 +608,7 @@
     (nil? v)     false
     (boolean? v) v
     (string? v)  (not= "" v)
-    (number? v)  (not (or (zero? v) (not= v v)))
+    (number? v)  (not (or (zero? v) (NaN? v)))
     :else        true))
 
 (defn boolean-attr-class
