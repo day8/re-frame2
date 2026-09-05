@@ -63,9 +63,40 @@
 // it. A channel that refuses is a channel that stays closed.
 
 const { parentPort, workerData } = require('node:worker_threads');
-const { CODE, validateModule, MODULE_RETURN_REFUSAL } = require('./protocol.cjs');
+const {
+  CODE,
+  validateModule,
+  MODULE_RETURN_REFUSAL,
+  RENDER_THREW_REFUSAL,
+} = require('./protocol.cjs');
 
 const postMessage = (message) => parentPort.postMessage(message);
+
+/**
+ * The operator's copy of a render exception — everything the refusal
+ * deliberately does not carry.
+ *
+ * TWO AUDIENCES, TWO CHANNELS, and the distinction is the reason closing
+ * the refusal costs nothing. The caller across the wire is a different
+ * process on a different machine holding a contract; the operator is
+ * inside this one, already reading its output. So the exception goes where
+ * an operator already looks and stops going where a contract is published.
+ *
+ * NOT A NEW SUBSYSTEM. `bin/serve.cjs` already writes `[rf.ssr-node] …` to
+ * stderr, and this is that stream under that prefix — a worker thread's
+ * stderr is piped to the parent process's, so a line written here lands in
+ * the sidecar's log beside the rest. There is no flag: a diagnostic that
+ * can be switched off is one that is off on the day it is wanted, and this
+ * is the only remaining copy of the exception.
+ *
+ * The stack, not the message alone. It opens with the error's own name and
+ * message, so nothing is dropped by preferring it, and it adds the frames
+ * — which is the half a refusal could never have carried anyway.
+ */
+function reportRenderException(entry, err) {
+  const trace = err && err.stack ? err.stack : String(err);
+  process.stderr.write(`[rf.ssr-node] render threw in entry ${entry}: ${trace}\n`);
+}
 
 let renderModule = null;
 let busy = false;
@@ -216,12 +247,44 @@ async function handleRender(renderId, request) {
       renderMs,
     });
   } catch (err) {
+    // THE EXCEPTION DOOR, and it is the same door as the egress door
+    // above — a render module leaves this isolate by returning or by
+    // throwing, and for a while only one of the two was watched.
+    //
+    // What used to be here was `code: err.code ?? …, message: err.message
+    // ?? …, detail: err.detail ?? {}`: three application-authored fields
+    // copied straight onto the protocol, and from there into the public
+    // `Refusal` and the HTTP JSON body. That reads as diagnostic
+    // generosity and it is the very leak the return door refuses, arriving
+    // through the other one. It is also the LIKELIER of the two, which is
+    // the part worth internalising: returning a payload takes a module
+    // doing something unusual, whereas an exception built from the value
+    // being processed is what every renderer already produces — React
+    // names the undefined property, a validator quotes the input, a
+    // template interpolates the row.
+    //
+    // `code` is a second, distinct failure. `http.cjs` maps the refusal
+    // code to a status, so a module that set `err.code` to a member of
+    // this service's own closed family could present its own bug as a 400
+    // the caller blames itself for, a 503 a retry policy sleeps on, or a
+    // 504 — the refusal taxonomy describes THIS SERVICE'S crossing, and
+    // the application is not one of its authors.
+    //
+    // So: one code, one wording, and a `detail` this file builds. The
+    // `entry` is the caller's own identifier handed back — the same
+    // reasoning `requestId` gets on the `complete` frame — and
+    // `afterChunks` is counted here. Neither originates in the module.
+    //
+    // NOTHING IS LOST BY IT, because a refusal was never where an operator
+    // read a stack anyway. The real exception goes to stderr below, in
+    // full; see `reportRenderException`.
+    reportRenderException(request.entry, err);
     postMessage({
       t: 'error',
       id: renderId,
-      code: err.code ?? CODE.RENDER_THREW,
-      message: err.message ?? String(err),
-      detail: err.detail ?? {},
+      code: CODE.RENDER_THREW,
+      message: RENDER_THREW_REFUSAL,
+      detail: { entry: request.entry },
       // NO `stack`, for the reason the boot path gives: the render
       // receiver reads `code`, `message`, `detail` and `afterChunks`, so a
       // stack posted here crossed the boundary only to be dropped — a
@@ -245,7 +308,20 @@ parentPort.on('message', (message) => {
     // unhandled rejection here would be a second failure channel with no
     // request id on it.
     handleRender(message.id, message.request).catch((err) => {
-      postMessage({ t: 'error', id: message.id, code: CODE.RENDER_THREW, message: String(err) });
+      // Service-owned here too. `handleRender` catches the module's own
+      // throw, so anything reaching this last-resort arm is a fault in
+      // THIS file rather than in the render — but `String(err)` was still
+      // an unbounded string on the response protocol, and a law with one
+      // arm that states it differently is a law with a way around it. The
+      // operator gets the real one, as everywhere else on this path.
+      reportRenderException(message.request?.entry, err);
+      postMessage({
+        t: 'error',
+        id: message.id,
+        code: CODE.RENDER_THREW,
+        message: RENDER_THREW_REFUSAL,
+        detail: {},
+      });
     });
   }
 });

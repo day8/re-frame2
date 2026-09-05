@@ -215,6 +215,60 @@ const MODULE_RETURN_REFUSAL =
   'an absence. Render what the module has to say, and return nothing.';
 
 /**
+ * What a caller is told when the render module threw.
+ *
+ * ONE WORDING FOR EVERY RENDER EXCEPTION, and the wording is this
+ * contract's rather than the module's — which is the whole of the fix, so
+ * it is worth saying why a fixed string beats the obvious alternative.
+ *
+ * A thrown `Error` is the OTHER way out of a render, and it was carrying
+ * what the returned value is refused for. `message` is built from the
+ * value being processed in every renderer worth the name — React names the
+ * property that was undefined, a validator quotes the input, a template
+ * interpolates the row — so this is not a leak that needs a module doing
+ * something strange; it is a leak that needs a module having a bug.
+ * `detail` is worse: nothing bounds what an application hangs on it. Both
+ * crossed into the public `Refusal` and into the HTTP JSON body.
+ *
+ * `code` is the same untrusted property and a distinct failure. It is a
+ * bare field on an ordinary `Error`, and `http.cjs`'s `statusFor` maps it
+ * to a status — so a module could describe its own bug in this service's
+ * closed vocabulary and present a render fault as a 400 the caller blames
+ * itself for, a 503 a retry policy sleeps on, or a 504. The refusal
+ * taxonomy is a fact about THIS SERVICE'S crossing; the application is not
+ * one of its authors.
+ *
+ * WHY NOT A REDACTED OR TRUNCATED MESSAGE. Because there is no rule that
+ * separates the safe part of an application's exception from the rest, and
+ * a rule that only usually holds is the shape this file already refuses on
+ * the request leg. The diagnosis is not lost — the worker writes the real
+ * exception, stack and all, to the sidecar's stderr, which is where an
+ * operator already reads this package (`bin/serve.cjs` writes there under
+ * the same prefix). Two audiences, two channels: the caller across the
+ * wire gets an honest, closed refusal; the operator inside the process
+ * gets everything.
+ */
+const RENDER_THREW_REFUSAL =
+  'the render module threw. Its exception belongs to the application, not to this contract: ' +
+  'the message, the `detail` and any `code` it carried are the module\'s own and do not cross ' +
+  'this boundary — a diagnostic that echoed them would be application data leaving through ' +
+  'the error channel, which is the same egress the response leg refuses wearing a different ' +
+  'frame type, and a module-chosen `code` would let a render fault present itself as a ' +
+  'caller fault, a saturation or a deadline. The full exception, with its stack, is on the ' +
+  'sidecar\'s stderr for the operator.';
+
+/**
+ * Is this one of the refusal codes this service publishes?
+ *
+ * The family is closed — `CODE` is the whole of it — and this is the test
+ * that says so at the boundary that BUILDS a public `Refusal`, so that a
+ * code arriving from anywhere else cannot reach `statusFor` and be given a
+ * status of its own choosing.
+ */
+const REFUSAL_CODES = Object.freeze(new Set(Object.values(CODE)));
+const isRefusalCode = (code) => REFUSAL_CODES.has(code);
+
+/**
  * A top-level partition key, as its EDN text. Keywords in re-frame2 are
  * what top-level app-db and runtime-db keys are (Spec 011 §`:rf/app-db`
  * projection; Conventions §Reserved runtime-db keys), so the wire spelling
@@ -550,6 +604,8 @@ module.exports = {
   REFUSED_FIELDS,
   COMPLETE_FIELDS,
   MODULE_RETURN_REFUSAL,
+  RENDER_THREW_REFUSAL,
+  isRefusalCode,
   Refusal,
   validateModule,
   validateRequest,

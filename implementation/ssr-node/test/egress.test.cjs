@@ -44,6 +44,30 @@
 // except, so the null rows below are ordinary members of this section
 // rather than an appendix to it.
 //
+// ## THERE ARE TWO DOORS OUT OF A RENDER, AND THIS FILE ONCE WATCHED ONE
+//
+// A render module leaves the isolate by RETURNING or by THROWING, and for
+// a commit the sections above were the whole of this file — every one of
+// them driving a module that returns. The row that read "the refusal does
+// not carry the payload out through the error channel" was the closest
+// thing to a guard on the second door and it drove the LEAKY fixture,
+// which returns; so the error channel it checked was the one the return
+// door opens, and a module that threw was never on the table. A control
+// shaped so that it cannot reach the case it is named for is worse than an
+// absent one, because its green is spent.
+//
+// Section 4 is that door. It matters more than the return door rather than
+// less, for a reason worth stating plainly: RETURNING a payload is a
+// module doing something unusual, while THROWING an Error built from the
+// value being processed is what every renderer already does — React names
+// the property that was undefined, a validation error quotes the input, a
+// template error interpolates the row. So the leak on this side does not
+// need a module that reaches for a second channel; it needs a module that
+// has an ordinary bug. And `error.code` is the second half: it is a bare
+// property on an ordinary `Error`, `statusFor` maps it to an HTTP status,
+// so an application render fault could present itself as a 400 the caller
+// blames itself for, a 503 a retry policy sleeps on, or a 504.
+//
 // ## EVERY ROW HAS A CONTROL, AND THE CONTROLS ARE ORDINARY ROWS
 //
 // The suite-wide discipline (see the package README) applies here with
@@ -60,10 +84,16 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { withService, collect, refusalOf, post } = require('./_support.cjs');
-const { CODE, COMPLETE_FIELDS, MODULE_RETURN_REFUSAL } = require('../src/protocol.cjs');
-const { serve } = require('../src/http.cjs');
+const {
+  CODE,
+  COMPLETE_FIELDS,
+  MODULE_RETURN_REFUSAL,
+  RENDER_THREW_REFUSAL,
+} = require('../src/protocol.cjs');
+const { serve, statusFor } = require('../src/http.cjs');
 const LEAKY = require('./fixtures/leaky.cjs');
 const NULL_RETURN = require('./fixtures/null-return.cjs');
+const THROWS_DATA = require('./fixtures/throws-data.cjs');
 
 // ---------------------------------------------------------------------------
 // The two checkers. Both are ordinary functions so a control can feed them
@@ -308,10 +338,17 @@ test('a render module that returns a value is REFUSED, not silently dropped', as
   });
 });
 
-test('the refusal does not carry the payload out through the error channel', async () => {
+test('the RETURN refusal does not carry the payload out through the error channel', async () => {
   // The subtle re-run of the same leak: a diagnostic that echoed what the
   // module tried to return would be the identical egress wearing a
   // different frame type, and it would look like helpfulness.
+  //
+  // SCOPE, because this row's name used to overstate it. The fixture is
+  // `leaky`, which RETURNS — so what is checked here is the error channel
+  // as the RETURN door opens it, and a thrown Error's `code`, `message`
+  // and `detail` are a different path through the same channel that no row
+  // in this file reached. Section 4 is that path; this row is now half of
+  // a pair rather than the whole claim it was written as.
   await withService('leaky', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() =>
       collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '"secret-state-3ab1"' } }),
@@ -370,5 +407,220 @@ test('a well-behaved module returns nothing, and the service is fine with that',
     const { chunks, complete } = await collect(service, req());
     assert.strictEqual(chunks.length, 1);
     assert.strictEqual(complete.type, 'complete');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. The OTHER door — a render module that THROWS
+//
+// See the header. Everything above drives a module that returns; these
+// rows drive one that throws, which is the ordinary way a renderer fails
+// and was the open half of the response law.
+// ---------------------------------------------------------------------------
+
+// One sentinel per live field of the thrown Error, each arriving as a
+// separate allowlisted state key so a green scan cannot be one field's
+// accident. Distinctive on purpose, for the reason `SENTINELS` gives.
+const THROW_STATE = {
+  ':for-code': '"rf2-c38b-code-1e4a77"',
+  ':for-message': '"rf2-c38b-message-8b30d2"',
+  ':for-detail': '"rf2-c38b-detail-c519f0"',
+};
+const THROW_SENTINELS = [
+  'rf2-c38b-code-1e4a77',
+  'rf2-c38b-message-8b30d2',
+  'rf2-c38b-detail-c519f0',
+];
+
+const throwReq = (entry) => ({ protocol: 1, entry, state: THROW_STATE });
+
+/**
+ * Everything a caller of the in-process API can read off a refusal, as one
+ * scannable frame plus the stack separately.
+ *
+ * `toFrame` is the wire shape, so scanning it is scanning what a transport
+ * would serialise; it is fed to `scanForEgress` rather than to a second
+ * hand-rolled scanner, so the control at the top of section 2 covers this
+ * section too. `stack` is checked alongside because it is a string a
+ * caller can reach on the `Error` even though no frame carries it — and a
+ * service-owned message is what keeps it clean, since `Error`'s stack
+ * opens with the message.
+ */
+const refusalLeaks = (err) => [
+  ...scanForEgress([err.toFrame('corr-throw')], THROW_SENTINELS),
+  ...THROW_SENTINELS.filter((s) => (err.stack ?? '').includes(s)).map((s) => ({
+    type: 'stack',
+    sentinel: s,
+    in: err.stack,
+  })),
+];
+
+test('CONTROL — the throwing fixture really does put all three sentinels on the Error', () => {
+  // In-process, with no service in the way, and for exactly the reason the
+  // leaky control exists: three absence checks below are only measurements
+  // if the three values were genuinely on the Error to begin with. A
+  // fixture that had drifted into throwing a bare `new Error('boom')` would
+  // satisfy every assertion in this section and prove nothing at all.
+  let thrown = null;
+  try {
+    THROWS_DATA.render({ entry: 'app/plain', state: THROW_STATE }, () => {});
+  } catch (err) {
+    thrown = err;
+  }
+  assert.ok(thrown, 'the fixture must actually throw');
+  assert.ok(thrown.message.includes(THROW_SENTINELS[1]), 'message carries its sentinel');
+  assert.ok(String(thrown.code).includes(THROW_SENTINELS[0]), 'code carries its sentinel');
+  assert.ok(thrown.detail.echoed.includes(THROW_SENTINELS[2]), 'detail carries its sentinel');
+  assert.ok(
+    thrown.detail.nested.deeper.includes(THROW_SENTINELS[2]),
+    'and it is NESTED, so a shallow scan would miss it',
+  );
+
+  // The three really are distinct, or one leak could pass for another.
+  assert.strictEqual(new Set(THROW_SENTINELS).size, 3);
+});
+
+test('CONTROL — the spoofed codes really are members of the refusal family', () => {
+  // Without this row the status-spoof row below could go vacuous in the
+  // quietest possible way: rename a member of `CODE`, and the fixture's
+  // hard-coded strings become codes the service has never heard of, which
+  // `statusFor` maps to 500 all on its own. The row would still be green
+  // and would no longer be testing a spoof.
+  const members = new Set(Object.values(CODE));
+  for (const [entry, code] of Object.entries(THROWS_DATA.SPOOFED_CODE)) {
+    assert.ok(members.has(code), `${entry} spoofs ${code}, which is no longer a real code`);
+    assert.notStrictEqual(
+      statusFor(code),
+      statusFor(CODE.RENDER_THREW),
+      `${code} must map to a DIFFERENT status than render-threw, or there is nothing to spoof`,
+    );
+  }
+  assert.strictEqual(Object.keys(THROWS_DATA.SPOOFED_CODE).length, 3, '400, 503 and 504');
+});
+
+test('a render that THROWS is refused with service-owned wording, carrying nothing it authored', async () => {
+  await withService('throws-data', { isolates: 1 }, async (service) => {
+    const err = await refusalOf(() => collect(service, throwReq('app/plain')));
+    assert.ok(err, 'a throw must refuse');
+
+    assert.strictEqual(err.code, CODE.RENDER_THREW, 'the documented code, not the module’s');
+    assert.strictEqual(err.message, RENDER_THREW_REFUSAL, 'the contract owns the wording');
+    assert.deepStrictEqual(
+      Object.keys(err.detail).sort(),
+      ['afterChunks', 'entry'],
+      'the detail is service-owned: the entry the caller named, and the tear count',
+    );
+    assert.strictEqual(err.detail.entry, 'app/plain');
+    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
+
+    assert.deepStrictEqual(
+      refusalLeaks(err),
+      [],
+      'the module’s exception reached the public refusal',
+    );
+  });
+});
+
+test('a THROW after emitting is still a torn response, and still carries nothing', async () => {
+  // The pre-emit row above is the clean refusal; this is the other half,
+  // and closing the leak must not have cost the tear. A `detail` rebuilt
+  // by the service is exactly where `afterChunks` could quietly go missing.
+  await withService('throws-data', { isolates: 1 }, async (service) => {
+    const chunks = [];
+    const err = await refusalOf(async () => {
+      for await (const frame of service.renderFrames(throwReq('app/torn'))) {
+        if (frame.type === 'chunk') chunks.push(frame.html);
+      }
+    });
+    assert.deepStrictEqual(chunks, ['<p>first</p>'], 'the bytes really did leave');
+    assert.strictEqual(err.code, CODE.RENDER_THREW);
+    assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
+    assert.strictEqual(err.detail.afterChunks, 1, 'the tear is still named, with its count');
+    assert.deepStrictEqual(refusalLeaks(err), []);
+  });
+});
+
+test('a thrown `code` cannot choose the refusal code, in-process', async () => {
+  // The taxonomy is closed and it is the SERVICE's. A module that types
+  // `err.code = ':rf.ssr-node/service-saturated'` is describing its own
+  // failure in this service's vocabulary; believing it turns an
+  // application bug into a lie about whose fault the failure was.
+  await withService('throws-data', { isolates: 1 }, async (service) => {
+    for (const entry of Object.keys(THROWS_DATA.SPOOFED_CODE)) {
+      const err = await refusalOf(() => collect(service, throwReq(entry)));
+      assert.strictEqual(err.code, CODE.RENDER_THREW, `${entry} spoofed the refusal code`);
+      assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
+      assert.deepStrictEqual(refusalLeaks(err), [], `${entry} leaked`);
+    }
+    // …and the invented-code entry, which is the same fault with no
+    // plausible deniability: a code that is not in the family at all.
+    const invented = await refusalOf(() => collect(service, throwReq('app/plain')));
+    assert.strictEqual(invented.code, CODE.RENDER_THREW);
+  });
+});
+
+test('and it cannot choose the HTTP status either — every throw is a 500', async () => {
+  // The corollary over the transport, and the arm with the operational
+  // teeth: `statusFor` reads the refusal code, so a spoofed 400 tells a
+  // JVM host "your request was bad" about a fault that was entirely ours,
+  // a 503 puts a retry policy to sleep, and a 504 blames a deadline.
+  await withService('throws-data', { isolates: 1 }, async (service) => {
+    const http = await serve({ service, port: 0 });
+    try {
+      const entries = ['app/plain', ...Object.keys(THROWS_DATA.SPOOFED_CODE)];
+      for (const entry of entries) {
+        const res = await post(`http://127.0.0.1:${http.port}/render`, throwReq(entry));
+        assert.strictEqual(res.status, 500, `${entry} chose its own HTTP status`);
+        assert.strictEqual(
+          res.headers.get('x-rf-ssr-refusal'),
+          CODE.RENDER_THREW,
+          `${entry} chose its own refusal header`,
+        );
+
+        const headers = JSON.stringify(Object.fromEntries(res.headers.entries()));
+        for (const s of THROW_SENTINELS) {
+          assert.ok(!res.text.includes(s), `${entry} leaked ${s} into the JSON body`);
+          assert.ok(!headers.includes(s), `${entry} leaked ${s} into a header`);
+        }
+        assert.ok(
+          JSON.parse(res.text).message === RENDER_THREW_REFUSAL,
+          'the body carries the contract’s wording',
+        );
+      }
+    } finally {
+      await http.close();
+    }
+  });
+});
+
+test('a streaming response torn by a throw is DESTROYED, not completed', async () => {
+  // The post-emit arm over the transport. Headers are already sent, so
+  // there is no status left to send and `sendRefusal` destroys the socket:
+  // the caller must see a broken transfer rather than a well-formed
+  // shorter page it would cache and serve. `fetch` surfaces that as a
+  // rejected body read, which is the observation this row makes.
+  await withService('throws-data', { isolates: 1 }, async (service) => {
+    const http = await serve({ service, port: 0 });
+    try {
+      const res = await fetch(`http://127.0.0.1:${http.port}/render?stream=1`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(throwReq('app/torn')),
+      });
+      // The first chunk really did go out under a 200 — that is what makes
+      // the tear a tear rather than a refusal.
+      assert.strictEqual(res.status, 200);
+      const read = await res.text().then(
+        (text) => ({ ok: true, text }),
+        (err) => ({ ok: false, err }),
+      );
+      assert.strictEqual(read.ok, false, 'a torn stream must not read as a complete body');
+      assert.ok(
+        !String(read.err).includes(THROW_SENTINELS[1]),
+        'not even the transport error may carry the module’s wording',
+      );
+    } finally {
+      await http.close();
+    }
   });
 });
