@@ -877,10 +877,25 @@
    when A's older reply lands: `:peer-optimistic` leaves B in flight, so the
    reply can only erase an OPTIMISTIC value (the visible regression);
    `:peer-accepted` settles B first, so it can only revert a COMMITTED one (the
-   permanent last-reply-wins cache state). Both were rf2-9man's symptoms."
+   permanent last-reply-wins cache state). Both were rf2-9man's symptoms.
+
+   EVERY ROW STARTS FROM A FRESH RUNTIME, and the reset belongs HERE rather
+   than in the fixture: `use-fixtures :each` runs once per `deftest`, so the
+   three rows of one `doseq` would otherwise share a single board, and each
+   row's `:final` is written against the canned two-card board. `load-board!`
+   cannot stand in for the reset — re-entering a route already entered plans no
+   second read, so its `reply-success!` finds no board request in
+   `last-managed-args` and reseeds nothing. The leak is not only arithmetic on
+   `:final`: `dispatch-b!` identifies a created card BY TITLE, so a Gamma left
+   committed by an earlier row is the card it returns, and the row then watches
+   an instance that settled before it began. `frames`-reset-then-`init!` is
+   section 0's pairing, and calling the example's own `init!` keeps the
+   registrar refilled before the url-bound frame is made (rf2-k4oe)."
   [{:keys [writer peer dispatch-a! reply-a dispatch-b! reply-b
            peer-desc peer-holds? writer-desc writer-committed? final]}
    order]
+  (reset! frame/frames {})
+  (init!)
   (load-board!)
   (let [inst-a (dispatch-a!)
         args-a @last-managed-args]
