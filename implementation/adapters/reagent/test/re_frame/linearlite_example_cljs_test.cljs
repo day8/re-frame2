@@ -209,6 +209,14 @@
 
 (defn- issue-by-id [id] (some #(when (= id (:id %)) %) (issues)))
 
+(defn- issue-by-title
+  "The card carrying `title`. A newly created card is found by title rather
+   than by id, because its id changes underneath it — the client-minted `tmp-N`
+   placeholder gives way to the server's on commit — while the title is the one
+   thing that survives the round trip unchanged."
+  [title]
+  (some #(when (= title (:title %)) %) (issues)))
+
 (defn- mutation-state
   "The passive `[:rf/mutation {:instance …}]` view-model the example's
    card view reads (`{:pending? :success? :error? :settled? :optimistic? …}`)."
@@ -763,3 +771,169 @@
             "A's older snapshot landing last must not revert B's ACCEPTED move —
              pre-fix this was permanent last-reply-wins in the client cache")
         (is (= "Alpha!" (:title (issue-by-id "srv-1"))) "A's accepted title survives")))))
+
+
+;; ============================================================================
+;; 7. EVERY ARM TAKES ITS TURN AS THE OLDER WRITE (rf2-chl2)
+;; ============================================================================
+;;
+;; Section 6 pins the defect through ONE pairing: `edit-title` is always the
+;; older write and `change-status` always the newer one, and only the older
+;; one's reply ever lands behind a change it does not know about. That leaves
+;; two of the three commit arms without a tooth, in two different ways:
+;;
+;;   * Restore `change-status` ALONE to `:populates` and section 6 stays GREEN.
+;;     Its reply is the snapshot taken AFTER the retitle, so seeding the whole
+;;     entry from it happens to reinstate the very change that seeding would
+;;     otherwise clobber. An arm can be reverted with nothing on screen.
+;;   * `create-issue` is never one of the two writes at all, and its commit is
+;;     not the same shape as the other two — it reconciles a temporary row
+;;     against the server's, rather than lifting one field off it. Nothing in
+;;     section 6 reaches that code.
+;;
+;; So here each arm takes its turn as A, the OLDER write, against a DIFFERENT
+;; instance's later change B on a different card. One table, one driver, run in
+;; both settle orders: B still merely optimistic when A's older reply lands, and
+;; B already ACCEPTED when it lands. Reverting any single arm to `:populates`
+;; reds the row that names it.
+;;
+;; THE REPLY SHAPE IS THE EXAMPLE'S OWN, and deliberately not section 6's.
+;; `apply-write!` answers a write with just the row it changed, in the board's
+;; `{:issues [...]}` envelope, so that is what each row here replays. Section 6's
+;; coarse whole-board envelopes are the sharper probe for `edit-title` and
+;; `change-status`, whose commits pick their own row out of whatever they are
+;; handed — and they are the WRONG probe for `create-issue`, whose commit upserts
+;; every row the reply carries and is contracted to receive only the one it
+;; created. Feeding it a whole board would test the test's envelope rather than
+;; the example. Under `:patches` a single-row reply says nothing about any other
+;; card and every arm leaves the rest of the board alone; under `:populates` that
+;; same reply BECOMES the whole board and the other card vanishes outright.
+
+(def ^:private stale-writer-cases
+  "One row per commit arm. `A` is the arm under test — the older write, whose
+   reply is built before `B` is dispatched and speaks only for A's own row. `B`
+   is a different mutation on a different card, so a row stays red for exactly
+   the arm it names when that arm alone is reverted.
+
+   `dispatch-a!` / `dispatch-b!` dispatch their write and RETURN its mutation
+   instance, because a create's instance carries the temporary id it minted."
+  [{:writer            "create-issue"
+    :peer              "change-status"
+    :dispatch-a!       (fn []
+                         (rf/dispatch-sync [:linearlite/create-issue "Gamma"])
+                         [:create (:id (issue-by-title "Gamma"))])
+    :reply-a           {:issues [{:id "srv-3" :title "Gamma" :status :backlog}]}
+    :dispatch-b!       (fn []
+                         (rf/dispatch-sync [:linearlite/change-status "srv-2" :done])
+                         [:status "srv-2"])
+    :reply-b           {:issues [{:id "srv-2" :title "Beta" :status :done}]}
+    :peer-desc         "srv-2's move to :done"
+    :peer-holds?       (fn [] (= :done (:status (issue-by-id "srv-2"))))
+    :writer-desc       "the server's row replaces the temporary card"
+    :writer-committed? (fn [] (= {:id "srv-3" :title "Gamma" :status :backlog}
+                                 (issue-by-id "srv-3")))
+    :final             #{{:id "srv-1" :title "Alpha" :status :backlog}
+                         {:id "srv-2" :title "Beta"  :status :done}
+                         {:id "srv-3" :title "Gamma" :status :backlog}}}
+
+   {:writer            "edit-title"
+    :peer              "create-issue"
+    :dispatch-a!       (fn []
+                         (rf/dispatch-sync [:linearlite/commit-edit "srv-1" "Alpha!"])
+                         [:edit "srv-1"])
+    :reply-a           {:issues [{:id "srv-1" :title "Alpha!" :status :backlog}]}
+    :dispatch-b!       (fn []
+                         (rf/dispatch-sync [:linearlite/create-issue "Gamma"])
+                         [:create (:id (issue-by-title "Gamma"))])
+    :reply-b           {:issues [{:id "srv-3" :title "Gamma" :status :backlog}]}
+    ;; the created card is watched by TITLE: its id changes on commit.
+    :peer-desc         "the newly created Gamma card"
+    :peer-holds?       (fn [] (some? (issue-by-title "Gamma")))
+    :writer-desc       "srv-1's accepted title"
+    :writer-committed? (fn [] (= "Alpha!" (:title (issue-by-id "srv-1"))))
+    :final             #{{:id "srv-1" :title "Alpha!" :status :backlog}
+                         {:id "srv-2" :title "Beta"   :status :in-progress}
+                         {:id "srv-3" :title "Gamma"  :status :backlog}}}
+
+   {:writer            "change-status"
+    :peer              "edit-title"
+    :dispatch-a!       (fn []
+                         (rf/dispatch-sync [:linearlite/change-status "srv-2" :done])
+                         [:status "srv-2"])
+    :reply-a           {:issues [{:id "srv-2" :title "Beta" :status :done}]}
+    :dispatch-b!       (fn []
+                         (rf/dispatch-sync [:linearlite/commit-edit "srv-1" "Alpha!"])
+                         [:edit "srv-1"])
+    :reply-b           {:issues [{:id "srv-1" :title "Alpha!" :status :backlog}]}
+    :peer-desc         "srv-1's retitle to \"Alpha!\""
+    :peer-holds?       (fn [] (= "Alpha!" (:title (issue-by-id "srv-1"))))
+    :writer-desc       "srv-2's accepted move"
+    :writer-committed? (fn [] (= :done (:status (issue-by-id "srv-2"))))
+    :final             #{{:id "srv-1" :title "Alpha!" :status :backlog}
+                         {:id "srv-2" :title "Beta"   :status :done}}}])
+
+(defn- run-stale-writer-case!
+  "Drive one row of `stale-writer-cases`. `order` picks what B's change is worth
+   when A's older reply lands: `:peer-optimistic` leaves B in flight, so the
+   reply can only erase an OPTIMISTIC value (the visible regression);
+   `:peer-accepted` settles B first, so it can only revert a COMMITTED one (the
+   permanent last-reply-wins cache state). Both were rf2-9man's symptoms."
+  [{:keys [writer peer dispatch-a! reply-a dispatch-b! reply-b
+           peer-desc peer-holds? writer-desc writer-committed? final]}
+   order]
+  (load-board!)
+  (let [inst-a (dispatch-a!)
+        args-a @last-managed-args]
+    (reset! last-managed-args nil)
+    (let [inst-b (dispatch-b!)
+          args-b @last-managed-args]
+      (is (some? args-a) (str writer " (A, the older write) lowered a request"))
+      (is (some? args-b) (str peer " (B) lowered a request"))
+      ;; POSITIVE CONTROLS: the overlap is REAL — two instances in flight over
+      ;; the one board entry, each with its optimistic value showing. Without
+      ;; these the row would still pass if a refactor made a write settle at
+      ;; dispatch, and would then be pinning nothing.
+      (is (true? (:optimistic? (mutation-state inst-a)))
+          (str "CONTROL: " writer " (A) is still in flight"))
+      (is (true? (:optimistic? (mutation-state inst-b)))
+          (str "CONTROL: " peer " (B) is still in flight"))
+      (is (peer-holds?)
+          (str "CONTROL: " peer-desc " is on the board before A settles"))
+      (when (= :peer-accepted order)
+        (reply-success! args-b reply-b)
+        (is (true? (:success? (mutation-state inst-b)))
+            (str "CONTROL: " peer " has SETTLED :success"))
+        (is (false? (:optimistic? (mutation-state inst-b)))
+            (str "CONTROL: " peer-desc " is ACCEPTED — what follows can only "
+                 "revert a committed change, never a merely-optimistic one")))
+      ;; A's reply lands. It was built before B was dispatched and speaks only
+      ;; for the row A wrote.
+      (reply-success! args-a reply-a)
+      (is (peer-holds?)
+          (str "settling " writer " must not erase " peer-desc
+               " — A's reply predates B and says nothing about B's card"))
+      (is (writer-committed?)
+          (str "…while A's own accepted change commits: " writer-desc))
+      (when (= :peer-optimistic order)
+        (reply-success! args-b reply-b))
+      (is (peer-holds?) (str peer-desc " survives once both writes have settled"))
+      (is (writer-committed?) (str writer-desc " survives once both writes have settled"))
+      (is (= final (set (issues)))
+          "the board is exactly both accepted changes and nothing else — no card
+           lost, no stale value reinstated, no optimistic marker left behind"))))
+
+(deftest each-arm-in-turn-settles-behind-a-still-optimistic-peer
+  (doseq [{:keys [writer peer] :as row} stale-writer-cases]
+    (testing (str "examples/capabilities/resources/linearlite — " writer
+                  " is the OLDER write and its reply lands while " peer
+                  " is still optimistic over another card. Committing it must "
+                  "not erase what the other write has on screen (rf2-chl2)")
+      (run-stale-writer-case! row :peer-optimistic))))
+
+(deftest each-arm-in-turn-settles-behind-an-already-accepted-peer
+  (doseq [{:keys [writer peer] :as row} stale-writer-cases]
+    (testing (str "examples/capabilities/resources/linearlite — the same pairing "
+                  "with the replies REORDERED: " peer " settles and is ACCEPTED "
+                  "first, then " writer "'s older reply lands last. It must not "
+                  "permanently revert a change already committed (rf2-chl2)")
+      (run-stale-writer-case! row :peer-accepted))))
