@@ -401,6 +401,18 @@
   "Poll `pred?` on real timers until it answers truthy. Answers a promise
   of true, or of false if `budget-ms` elapses first.
 
+  Why this is not `re-frame.test-support/poll-until`. That is the one
+  PUBLIC poll, and it DOES run on real timers with a caller-set interval
+  and deadline, so the polling half is the same idea and no claim is made
+  here that it could not carry it. Two things below are not its contract.
+  This RESOLVES FALSE on timeout where `poll-until` REJECTS, which is what
+  lets every row here assert `(is (true? ok) …)` as a named premise at the
+  call site rather than route a rejection past its own assertions. And a
+  truthy predicate does not resolve at once but after a 16 ms quiesce,
+  putting the reading on the far side of the entry reap horizon exactly as
+  [[adopted!]] does. Both would survive as wrapper code around the public
+  poll; whether that layer is worth adding is rf2-kuky.28's to settle.
+
   How a two-root row waits on something that is not a window: the cell
   table, which acquires at COMMIT and therefore cannot mention a frame
   before that frame's root committed. [[adopted!]] is the other per-root

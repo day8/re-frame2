@@ -2969,8 +2969,13 @@
   "rf2-b6nm5: the canonical test-flush hook `flush-views!` is surfaced
   from this adapter's ns with the canonical nil-return shape (Decision 6).
   Node-safe (no DOM): pins the SHAPE — the Var is a fn, the 0-arity call
-  returns nil and does not throw under the :node-test runner (act() gated
-  / unreachable there ⇒ the spine degrades to a plain synchronous flush).
+  returns nil and does not throw under the :node-test runner, where act()
+  is gated / unreachable. What a spine DOES with an unreachable act() is
+  per-spine and is deliberately NOT what this pins: the React-hook spine
+  no-ops (`f` never runs), while the ratom spine falls back to its
+  injected synchronous render drain (`f` runs and the render queue
+  drains). Both return nil, and that convergence — not either fallback —
+  is the contract under test.
   The cross-substrate convergence (same name + nil-return on all four
   substrates) is what lets a test suite port touching only the init! Var.
 

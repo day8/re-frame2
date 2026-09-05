@@ -157,7 +157,16 @@
   Returns a Promise so callers can `await` deterministic completion;
   the synchronous side-effects (dirty components forceUpdate'd,
   Reactions recomputed, :after-render hooks fired, React commit
-  complete) happen by the time `act`'s callback returns.
+  complete) happen by the time `act`'s callback returns. With act()
+  unreachable the drain still runs, synchronously and to completion,
+  but there is nothing to await and the return is nil.
+
+  NOT the canonical cross-substrate hook. The adapter-ns Var
+  `re-frame.adapter.reagent-slim/flush-views!` is the converged
+  nil-returning contract (rf2-b6nm5, Decision 6), surfaced under the
+  same name from every adapter ns and routed through the spine. Reach
+  THIS one only for the Promise return / deterministic Suspense
+  ordering.
 
   Production cost: zero — the body is gated on `goog.DEBUG` so
   `:advanced` + `goog.DEBUG=false` DCEs it entirely."
