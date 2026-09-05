@@ -217,3 +217,99 @@
         (is (seq (event-ops captured))
             (str "control — the recorder does capture :rf.event traffic, so the "
                  "empty window slice above is a real absence"))))))
+
+;; ---------------------------------------------------------------------------
+;; The caveat on the effect route — what the asymmetry does NOT rest on
+;; ---------------------------------------------------------------------------
+
+(deftest effect-reg-flow-evaluates-immediately-even-against-an-unseeded-db
+  (testing "an event whose only effect registers a flow settles it on that
+            event, against whatever app-db that event leaves — so an effect
+            registration whose declared inputs are not yet present evaluates
+            the :derive on their absence and can fail normally"
+    ;; This is a CAVEAT on the section above, and it is here because the
+    ;; rationale it guards was once written the other way round. An earlier
+    ;; revision of Spec 013 §Why a direct `reg-flow` does not settle explained
+    ;; the effect route's safety by saying it runs inside a drain, "where
+    ;; app-db is by construction the application's live seeded state, so the
+    ;; hazard cannot arise". A drain guarantees no such thing: it is simply
+    ;; the event's own pending db, which may be empty, and this test is that
+    ;; sentence refuted (rf2-f3yl post-merge audit of PR #9222).
+    ;;
+    ;; Nothing about the ASYMMETRY changes. The real distinction is one of
+    ;; timing that the caller controls: an effect registration REQUESTS
+    ;; immediate evaluation, and its event is responsible for establishing or
+    ;; preceding the inputs — a failure there is an ordinary event failure,
+    ;; reported at the effect's explicit settle boundary. A direct
+    ;; registration deliberately waits for the caller's next drain, because
+    ;; boot code has no such event to be responsible for.
+    (let [derives (atom [])
+          errors  (atom [])]
+      (rf/register-listener! :errors ::effect-reg-error-recorder
+                             (fn [record] (swap! errors conj record)))
+      ;; The `:derive` is written the way a real one is: a pure function of an
+      ;; input it expects to be there. It is spelled with an explicit refusal
+      ;; rather than left to arithmetic on nil, because that is the only form
+      ;; that fails identically on both hosts — `(* 2 nil)` throws on the JVM
+      ;; but evaluates to 0 in CLJS, which would make this witness green on
+      ;; one host for the wrong reason.
+      (rf/reg-event :register-only
+        (fn [_ _]
+          {:fx [[:rf.fx/reg-flow
+                 [:audit/double
+                  {:inputs [[:n]] :output-path [:out]}
+                  (fn [n]
+                    (swap! derives conj n)
+                    (if (nil? n)
+                      (throw (ex-info "derive is not total on an absent input"
+                                      {:input n}))
+                      (* 2 n)))]]]}))
+      (is (= {} (rf/app-db-value :rf/default))
+          "precondition — app-db is empty; the event below seeds nothing")
+
+      (rf/dispatch-sync [:register-only])
+
+      (is (= [nil] @derives)
+          "the effect route DID evaluate, exactly once, and against the absent
+           input — the drain offered no seeded state to protect it")
+      (is (= {} (rf/app-db-value :rf/default))
+          "the failing settle installed nothing")
+      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :audit/double)
+          "the registration itself stands — it is the settle that failed, and
+           the flow will re-attempt on the next drain")
+
+      (let [record (first (filterv #(= :rf.error/flow-eval-exception (:error %))
+                                   @errors))]
+        (is (some? record)
+            "the failure surfaces as the ordinary flow-eval error, on the
+             always-on axis — an ordinary event failure, not a new category")
+        (is (= :audit/double (:flow-id record))
+            "attributed to the flow whose derive refused")
+        (is (= :derive (:phase record))
+            "and to the authored callback, which is where the reader should
+             look")))))
+
+(deftest effect-reg-flow-succeeds-when-its-own-event-seeds-first
+  (testing "the same effect registration on an event that establishes the
+            inputs materialises the initial output on that event — which is
+            what makes the caveat above a caveat rather than a defect"
+    ;; The other half of the caveat, and the reason it implies no lifecycle
+    ;; change: the effect route's immediacy is the feature. An event that
+    ;; seeds and registers in one go gets the initial output committed by the
+    ;; time the dispatch returns, exactly as Spec 013 §Sequencing requires.
+    (rf/reg-event :seed-and-register
+      (fn [_ _]
+        {:db {:n 21}
+         :fx [[:rf.fx/reg-flow
+               [:audit/double
+                {:inputs [[:n]] :output-path [:out]}
+                (fn [n]
+                  (if (nil? n)
+                    (throw (ex-info "derive is not total on an absent input"
+                                    {:input n}))
+                    (* 2 n)))]]]}))
+    (rf/dispatch-sync [:seed-and-register])
+    (is (= {:n 21 :out 42} (rf/app-db-value :rf/default))
+        "the initial output is materialised by the time the dispatching event
+         settles — the caller establishes the inputs, and the effect route
+         evaluates against them")))
