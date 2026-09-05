@@ -372,7 +372,7 @@ rather than presenting a well-formed shorter page.
 | `:rf.ssr-node/build-identity-mismatch` | caller's `buildId` ≠ the bundle's |
 | `:rf.ssr-node/render-timeout` | deadline expired; the isolate was terminated |
 | `:rf.ssr-node/render-threw` | the render module threw, emitted nothing, or returned a value |
-| `:rf.ssr-node/isolate-lost` | the worker died mid-render |
+| `:rf.ssr-node/isolate-lost` | the worker died mid-render, or an exception escaped the render call |
 | `:rf.ssr-node/service-saturated` | no isolate free within the admission budget |
 | `:rf.ssr-node/service-closed` | the service is shutting down |
 | `:rf.ssr-node/malformed-render-module` | the bundle failed validation at boot |
@@ -502,6 +502,22 @@ another machine. Two audiences, two channels, and no flag to get wrong.
 There is nothing for a render module to do about any of this: throw
 whatever is natural, and the boundary holds. `test/egress.test.cjs` §4 is
 the witness, with planted sentinels on all three fields.
+
+An exception that **escapes the render call** — thrown from a callback the
+render scheduled, so it lands on a later tick with no `try` above it — is
+an uncaught exception in the worker thread, and Node terminates the thread
+rather than delivering it to the render. The law is the same and the
+outcome is honestly different: the refusal is `:rf.ssr-node/isolate-lost`,
+because the render did not finish *and* the isolate is not reusable, so
+the pool replaces it. The code is not smoothed into `render-threw` — a
+caller acts on the difference — but the wording is this contract's, the
+`detail` is the service's own (`isolate`, `threadId`), and the exception's
+message and stack stay off the wire. The stack matters twice over here: on
+top of the module's wording it names absolute paths in the deployment's
+filesystem. It goes to the same stderr, and on this path that is not
+merely the better channel but the only one — the worker never caught
+anything, so nothing inside it ever saw the fault. `test/egress.test.cjs`
+§5 is the witness, driving one Error down both routes as a matched pair.
 
 The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is a
 per-request `gensym` frame made with no initial events,
@@ -734,8 +750,9 @@ below: the changed-surface classifier, which is the repo's own answer to
 and nothing else.
 
 The suite drives the service against reference render modules under
-`test/fixtures/` — well-behaved, mutating, sloppy-mode, hanging, throwing,
-chunking, byte-hostile, leaky and null-returning — because every guarantee here is a
+`test/fixtures/` — well-behaved, mutating, sloppy-mode, hanging, throwing
+(inside the call and escaping it), chunking, byte-hostile, leaky and
+null-returning — because every guarantee here is a
 property of the service, and a fixture that misbehaves on purpose is the
 only way to see a guard fire.
 
@@ -759,7 +776,9 @@ agreeing; the runaway render is shown still running after 400 ms before a
 planted leak — and the leaky fixture shown really returning one, and the
 null-returning fixture shown really returning `null` rather than drifting
 into falling off its end, and the throwing fixture shown really carrying a
-distinct sentinel on each of `code`, `message` and a nested `detail` —
+distinct sentinel on each of `code`, `message` and a nested `detail`, and
+the ESCAPING one's scheduled callback intercepted before it fires and shown
+really throwing that sentinel —
 before its zero is believed; and the absence scan is shown finding a
 planted reference before its zero is believed.
 
