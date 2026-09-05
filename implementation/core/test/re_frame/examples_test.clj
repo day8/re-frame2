@@ -847,6 +847,252 @@
                 "the client cache keys the installed entry on the byte key-id")))))))
 
 ;; ============================================================================
+;; resources-ssr — THE CLIENT BOOT SEAM (rf2-h3c9)
+;; ============================================================================
+;;
+;; The two tests above stop at `rf.ssr/hydrate!`. Hydration is a state install
+;; and a classification: it reconciles the payload, DROPS the completed
+;; request's `[:ssr …]` owner, and issues nothing. Everything the example
+;; claims about liveness therefore rests on the beat that follows it — the
+;; `:resources-ssr.app/page-opened` acquisition `run` dispatch-syncs after the
+;; hydrate and before the first render. That beat had no test at all, so its
+;; four load-bearing claims (owner attachment, request counts, first-paint
+;; state, and the release that ends the hold) were asserted in prose only.
+;;
+;; The example's `run` is `:cljs`-only, so these tests drive the same seam a
+;; beat lower: the example's OWN registered events against the example's OWN
+;; `app-frame`, in `run`'s order. Everything under test is the example's
+;; production source — the example tree stays test-free (rf2-8cevm).
+;;
+;; The discriminator throughout is Spec 016 §Invalidation's owner rule:
+;; invalidation refetches a matched entry that has ACTIVE OWNERS and leaves a
+;; matched OWNERLESS entry merely stale. So "the client owner is live" is not
+;; asserted by reading a set — it is proved by the request the cache does or
+;; does not make, in both directions.
+
+(def ^:private resources-ssr-articles
+  [{:slug "welcome"   :title "Welcome to re-frame2"}
+   {:slug "resources" :title "Server-state as resources"}])
+
+(def ^:private resources-ssr-key
+  "The example's one scoped resource key — `:articles/list` at global scope,
+  no params. Spec 016 §Resource identity."
+  [:rf.scope/global :articles/list {}])
+
+(defn- resources-ssr-entry
+  "The example's ONE cache entry, read out of `frame`'s runtime-db."
+  [frame]
+  (get-in (:rf.db/runtime (rf/frame-state-value frame))
+          (rf.resources.state/entry-path resources-ssr-key)))
+
+(defn- resources-ssr-owners
+  "The entry's active-owner set (empty when the entry is absent)."
+  [frame]
+  (set (:active-owners (resources-ssr-entry frame))))
+
+(defn- resources-ssr-html
+  "Render the example's own root view through `frame` — the first client paint."
+  [frame]
+  (rf/with-frame frame (rf/render-to-string ((rf/view :app/root)) {})))
+
+(defn- reg-counting-transport!
+  "Register a managed-HTTP stand-in under `fx-id` that COUNTS every request the
+  resource runtime lowers, and — when `reply?` — settles it with the canned
+  articles through the framework's own canned-success stub. Returns the counter
+  atom. A counter is the only honest way to assert `ensure`'s fresh-skip: the
+  refetch PLAN being empty says what hydration classified, not what the
+  acquisition afterwards did or didn't send."
+  [fx-id {:keys [reply?]}]
+  (let [calls (atom 0)]
+    (rf/reg-fx fx-id
+      {:platforms #{:server :client}}
+      (fn [frame-ctx args-map]
+        (swap! calls inc)
+        (when reply?
+          (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
+            (stub frame-ctx (assoc args-map :value resources-ssr-articles))))))
+    calls))
+
+(defn- resources-ssr-client-frame!
+  "The example's own client app-frame, with `:rf.http/managed` redirected at the
+  counting stand-in. `:platform :client` is what makes this the browser seam
+  rather than a second server render."
+  [fx-id]
+  (let [fid @(resolve 'resources-ssr.core/app-frame)]
+    (rf/make-frame {:id           fid
+                    :doc          "resources-ssr client boot seam"
+                    :platform     :client
+                    :fx-overrides {:rf.http/managed fx-id}})
+    fid))
+
+(defn- resources-ssr-static-payload
+  "The `__rf_payload` EDN baked into the SHIPPED `index.html` — the same
+  forever-fresh entry a reader opening the file offline hydrates from."
+  []
+  (some-> (io/resource "resources_ssr/index.html")
+          slurp
+          (->> (re-find #"(?s)id=\"__rf_payload\" type=\"application/edn\">(.*?)</script>"))
+          second
+          edn/read-string))
+
+(deftest resources-ssr-example-cold-client-boot-acquires-and-first-paints-loading
+  (testing "examples/capabilities/ssr/resources_ssr — a plain client-only load
+            with NO `__rf_payload` (nothing to hydrate). The
+            `:resources-ssr.app/page-opened` acquisition issues EXACTLY ONE
+            managed-HTTP request under the page's app-minted owner, and the
+            first paint is the `:loading` skeleton — NOT the empty `<ul>` an
+            absent entry projects as `:idle`, which reads as a successful answer
+            of zero articles. rf2-h3c9."
+    (require 'resources-ssr.core :reload)
+    (rf/init! rf.ssr/adapter)
+    (let [calls (reg-counting-transport! :resources-ssr-test/pending {:reply? false})
+          fid   (resources-ssr-client-frame! :resources-ssr-test/pending)
+          owner @(resolve 'resources-ssr.core/page-owner)]
+      ;; BEFORE — nothing hydrated, so there is no entry and nothing has fetched.
+      (is (nil? (resources-ssr-entry fid))
+          "a cold client boot starts with no cache entry at all")
+      (is (zero? @calls) "and with no request issued")
+      (is (clojure.string/includes? (resources-ssr-html fid) "articles-list")
+          "the absent entry projects :idle — an EMPTY <ul>, the false empty-success
+           first paint this acquisition exists to prevent")
+      ;; ACQUIRE — `run`'s second beat, dispatch-sync so the ensure drains.
+      (rf/dispatch-sync [:resources-ssr.app/page-opened] {:frame fid})
+      (is (= 1 @calls)
+          "the acquisition issued EXACTLY ONE managed-HTTP request (not zero, not two)")
+      (is (contains? (resources-ssr-owners fid) owner)
+          "the entry is held by the page's app-minted owner [:resources-ssr.app/page-opened]")
+      (is (= :loading (:status (rf/resource-state {:resource :articles/list
+                                                   :scope    :rf.scope/global
+                                                   :params   {}
+                                                   :frame    fid})))
+          "the public read projects :loading while that one request is in flight")
+      ;; AFTER — the first paint the reader actually sees.
+      (let [html (resources-ssr-html fid)]
+        (is (clojure.string/includes? html "articles-skeleton")
+            "first paint is the loading skeleton")
+        (is (not (clojure.string/includes? html "articles-list"))
+            "and NOT an empty <ul> that looks like a successful empty answer")))))
+
+(deftest resources-ssr-example-fresh-hydrated-boot-takes-the-hold-without-refetching
+  (testing "examples/capabilities/ssr/resources_ssr — the ACTUAL checked-in
+            forever-fresh `index.html` payload. Hydration leaves a renderable
+            but OWNERLESS entry (the `[:ssr …]` owner belonged to the finished
+            server request); the acquisition then takes `ensure`'s fresh-skip
+            cache-hit path — it attaches the page owner and issues ZERO
+            requests, and the server's markup still paints. rf2-h3c9."
+    (require 'resources-ssr.core :reload)
+    (rf/init! rf.ssr/adapter)
+    (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
+          fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
+          owner   @(resolve 'resources-ssr.core/page-owner)
+          payload (resources-ssr-static-payload)]
+      (is (some? payload) "the checked-in index.html payload parsed")
+      (rf.ssr/hydrate! {:frame fid :payload payload})
+      ;; BEFORE — the gap this example exists to close: loaded, and held by nothing.
+      (is (= :loaded (:status (resources-ssr-entry fid)))
+          "hydration installed the server's entry :loaded")
+      (is (empty? (resources-ssr-owners fid))
+          "and OWNERLESS — the reconcile dropped the completed request's [:ssr …] owner")
+      (is (zero? @calls) "hydration itself issued nothing")
+      ;; ACQUIRE — the fresh-skip cache hit.
+      (rf/dispatch-sync [:resources-ssr.app/page-opened] {:frame fid})
+      (is (zero? @calls)
+          "a FRESH hydrated entry fresh-skips: the acquisition sent NO request
+           (this is the whole payoff of preloading — no double-fetch)")
+      (is (contains? (resources-ssr-owners fid) owner)
+          "and the page owner is now attached, so the entry is a live consumer")
+      (is (= :loaded (:status (resources-ssr-entry fid)))
+          "the entry stayed :loaded — nothing was disturbed")
+      ;; AFTER — first paint still adopts the server's data.
+      (let [html (resources-ssr-html fid)]
+        (is (clojure.string/includes? html "Welcome to re-frame2"))
+        (is (clojure.string/includes? html "Server-state as resources")
+            "the acquisition did not disturb the markup the server rendered")))))
+
+(deftest resources-ssr-example-stale-hydrated-boot-keeps-data-and-issues-one-request
+  (testing "examples/capabilities/ssr/resources_ssr — a STALE hydrated entry.
+            Invalidating the `[:article-list]` tag BEFORE the acquisition stales
+            the entry while it is still ownerless, which issues nothing (Spec 016
+            §Invalidation leaves a matched OWNERLESS entry stale rather than
+            refetching it — the counterfactual that makes the owner assertions
+            elsewhere mean something). The acquisition then issues EXACTLY ONE
+            background request while the last-known-good data stays visible.
+            rf2-h3c9."
+    (require 'resources-ssr.core :reload)
+    (rf/init! rf.ssr/adapter)
+    (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
+          fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
+          owner   @(resolve 'resources-ssr.core/page-owner)
+          payload (resources-ssr-static-payload)]
+      (rf.ssr/hydrate! {:frame fid :payload payload})
+      ;; STALE IT — and prove an ownerless entry refetches nothing.
+      (rf/dispatch-sync [:rf.resource/invalidate-tags
+                         {:scope :rf.scope/global
+                          :tags  #{[:article-list]}
+                          :cause [:test :resources-ssr/stale-fixture]}]
+                        {:frame fid})
+      (is (zero? @calls)
+          "an OWNERLESS stale entry issues NOTHING — hydration alone never
+           re-establishes liveness, which is exactly the defect rf2-h3c9 names")
+      (is (empty? (resources-ssr-owners fid))
+          "still held by nothing")
+      (is (clojure.string/includes? (resources-ssr-html fid) "Welcome to re-frame2")
+          "stale data stays renderable — last-known-good, not blanked")
+      ;; ACQUIRE — one background request, data still on screen.
+      (rf/dispatch-sync [:resources-ssr.app/page-opened] {:frame fid})
+      (is (= 1 @calls)
+          "the acquisition on a STALE entry issues EXACTLY ONE request")
+      (is (contains? (resources-ssr-owners fid) owner)
+          "under the page's app-minted owner")
+      (let [html (resources-ssr-html fid)]
+        (is (not (clojure.string/includes? html "articles-skeleton"))
+            "a stale refresh shows no skeleton — the entry had data all along")
+        (is (clojure.string/includes? html "Welcome to re-frame2")
+            "and the last-known-good articles stayed on screen throughout")))))
+
+(deftest resources-ssr-example-page-closed-releases-the-hold-the-acquisition-took
+  (testing "examples/capabilities/ssr/resources_ssr — the release half.
+            `:resources-ssr.app/page-closed` is the matching drop for the owner
+            `:resources-ssr.app/page-opened` mints; the framework never
+            auto-releases an app-minted owner. Liveness is proved by request
+            behaviour in BOTH directions: while the owner is attached an
+            invalidation refetches exactly once, and after the release the same
+            invalidation issues nothing and leaves the entry GC-eligible.
+            rf2-h3c9."
+    (require 'resources-ssr.core :reload)
+    (rf/init! rf.ssr/adapter)
+    (let [calls      (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
+          fid        (resources-ssr-client-frame! :resources-ssr-test/canned)
+          owner      @(resolve 'resources-ssr.core/page-owner)
+          payload    (resources-ssr-static-payload)
+          invalidate #(rf/dispatch-sync [:rf.resource/invalidate-tags
+                                         {:scope :rf.scope/global
+                                          :tags  #{[:article-list]}
+                                          :cause [:test :resources-ssr/liveness-probe]}]
+                                        {:frame fid})]
+      (rf.ssr/hydrate! {:frame fid :payload payload})
+      (rf/dispatch-sync [:resources-ssr.app/page-opened] {:frame fid})
+      (is (contains? (resources-ssr-owners fid) owner) "the page owner holds the entry")
+      (is (zero? @calls) "the fresh-skip acquisition issued nothing")
+      ;; HELD — invalidation refetches, because a live owner needs fresh data now.
+      (invalidate)
+      (is (= 1 @calls)
+          "invalidating [:article-list] refetched EXACTLY ONCE — the client owner
+           is semantically live, not merely present in a set")
+      ;; RELEASED — the hold is dropped.
+      (rf/dispatch-sync [:resources-ssr.app/page-closed] {:frame fid})
+      (is (not (contains? (resources-ssr-owners fid) owner))
+          "page-closed released the app-minted owner")
+      (is (empty? (resources-ssr-owners fid))
+          "leaving the entry pinned by nothing — eligible for the ordinary GC lifecycle")
+      ;; AND LIVENESS WENT WITH IT — the same probe now issues nothing.
+      (invalidate)
+      (is (= 1 @calls)
+          "after the release the SAME invalidation refetches nothing (still 1 in
+           total) — the release genuinely ended the hold rather than only
+           emptying a set"))))
+
+;; ============================================================================
 ;; state-machine-walkthrough — chapter §Headless testing. Two flavours:
 ;; pure machine-transition (no rf.frame/app-db) and drain-level (frame +
 ;; :fx-overrides canned stub). JVM-runnable. Formerly the
