@@ -30,6 +30,16 @@
   [x]
   (gen/contains-string? x sentinel))
 
+;; CROSS-RECORD SPELLING (rf2-l7s7b7, Managed-Effects §The reply map). Every
+;; top-level REPLY ENVELOPE below single-roots the work identity as
+;; `:rf.reply/work-id` / `:rf.reply/work-kind`. The bare `:work/id` spelling is
+;; the DURABLE work-ledger / verification-payload fact and survives here only on
+;; the data-only carried/current stale-gate maps, which are exactly that layer.
+;; `trace-summary` projects the wire slots and otherwise preserves the supplied
+;; map verbatim, so a fixture that modelled the ledger layer would let this
+;; suite stay green while proving nothing about the identity that actually
+;; egresses (rf2-xy3g).
+;;
 ;; `trace-summary` elides each wire slot rooted at its OWN value (not at the
 ;; reply-map root), so classification paths are relative to each slot value:
 ;;   :value slot value       {:token <secret> :doc <big>}        → [:token] / [:doc]
@@ -61,7 +71,8 @@
                                     :detail {:token sentinel}}
                      :correlation  {:partner-key sentinel :trace-id "t-1"}
                      :meta         {:token sentinel :note "ok"}
-                     :work/id      [:rf.work/http :article/by-id 1]
+                     :rf.reply/work-id      [:rf.work/http :article/by-id 1]
+                     :rf.reply/work-kind    :http
                      :rf.reply/work-status  :failed
                      :rf.frame/id  :reply/framed
                      :completed-at 1781078400456}
@@ -82,10 +93,18 @@
       (is (not (contains-sentinel? (:meta out))))
       ;; Framework identity facts remain available for tool correlation.
       (is (= :partial (:status out)))
-      (is (= [:rf.work/http :article/by-id 1] (:work/id out)) "canonical :work/id verbatim")
+      (is (= [:rf.work/http :article/by-id 1] (:rf.reply/work-id out))
+          "canonical :rf.reply/work-id verbatim")
+      (is (= :http (:rf.reply/work-kind out)) "canonical :rf.reply/work-kind verbatim")
       (is (= :failed (:rf.reply/work-status out)))
       (is (= :reply/framed (:rf.frame/id out)))
-      (is (= 1781078400456 (:completed-at out)) "causal completion timestamp verbatim"))))
+      (is (= 1781078400456 (:completed-at out)) "causal completion timestamp verbatim")
+      (testing "TOOTH — framed egress preserves the TRANSIENT-ENVELOPE identity
+                and grows NO top-level bare ledger alias beside it (rf2-xy3g)"
+        (is (not (contains? out :work/id))
+            "no top-level bare :work/id alias survives framed trace egress")
+        (is (not (contains? out :work/kind))
+            "no top-level bare :work/kind alias survives framed trace egress")))))
 
 (deftest trace-summary-delegates-to-shared-walker
   (testing "each wire slot in the trace summary equals elide-wire-value under
@@ -95,7 +114,8 @@
     (let [opts {:frame :reply/deleg}
           value {:token sentinel :doc big-string :public 7}
           reply-map {:status :ok :value value
-                     :work/id [:rf.work/http :x 1] :rf.reply/work-status :completed}
+                     :rf.reply/work-id [:rf.work/http :x 1]
+                     :rf.reply/work-status :completed}
           out (reply/trace-summary reply-map opts)]
       (is (= (:value out) (elision/elide-wire-value value opts))
           ":value slot is exactly elide-wire-value under the resolved opts"))))
@@ -110,7 +130,7 @@
                        :error       {:kind :rf.http/cors :detail sentinel}
                        :correlation {:partner-key sentinel}
                        :meta        {:secret sentinel}
-                       :work/id     [:rf.work/http :y 2]
+                       :rf.reply/work-id [:rf.work/http :y 2]
                        :rf.reply/work-status :failed}
             out (reply/trace-summary reply-map nil)]
         (is (gen/redacted? (:error out)) ":error fails closed (whole slot redacted)")
@@ -118,11 +138,13 @@
         (is (gen/redacted? (:meta out)) ":meta fails closed")
         (is (not (contains-sentinel? out)) "no sentinel survives frameless egress")
         (is (= :error (:status out)))
-        (is (= [:rf.work/http :y 2] (:work/id out)))
-        (is (= :failed (:rf.reply/work-status out))))
+        (is (= [:rf.work/http :y 2] (:rf.reply/work-id out)))
+        (is (= :failed (:rf.reply/work-status out)))
+        (is (not (contains? out :work/id))
+            "TOOTH — frameless egress grows no top-level bare :work/id alias (rf2-xy3g)"))
       ;; Explicit sensitive inclusion is the trusted-local opt-out.
       (let [out (reply/trace-summary {:status :ok :value {:token sentinel}
-                                      :work/id [:rf.work/http :z 3]
+                                      :rf.reply/work-id [:rf.work/http :z 3]
                                       :rf.reply/work-status :completed}
                   {:rf.size/include-sensitive? true})]
         (is (= sentinel (get-in out [:value :token]))
@@ -134,7 +156,8 @@
   validate-reply-legal), but every present wire slot plants the sentinel."
   (gen/gen-fmap
     (fn [[status work-status]]
-      (let [base {:work/id     [:rf.work/http :gen 1]
+      (let [base {:rf.reply/work-id   [:rf.work/http :gen 1]
+                  :rf.reply/work-kind :http
                   :rf.reply/work-status work-status
                   :rf.frame/id :reply/corpus
                   :correlation {:partner-key sentinel :trace-id "tc"}
@@ -173,10 +196,18 @@
                             (not (contains-sentinel? (:error out)))
                             (not (contains-sentinel? (:correlation out)))
                             (not (contains-sentinel? (:meta out)))
-                            (contains? reply/statuses (:status out))))))]
+                            (contains? reply/statuses (:status out))
+                            ;; rf2-xy3g — across every status the canonical
+                            ;; TRANSIENT-ENVELOPE identity survives egress and
+                            ;; no bare ledger alias appears beside it.
+                            (= [:rf.work/http :gen 1] (:rf.reply/work-id out))
+                            (= :http (:rf.reply/work-kind out))
+                            (not (contains? out :work/id))
+                            (not (contains? out :work/kind))))))]
       (is (nil? result)
           (str "a reply trace summary shipped the sentinel / left the closed "
-               "taxonomy: " (pr-str (when result (dissoc result :threw))))))))
+               "taxonomy / lost the canonical envelope identity: "
+               (pr-str (when result (dissoc result :threw))))))))
 
 (deftest stale-suppression-never-delivers-app-target-or-value
   (testing "suppress on a superseded completion yields :deliver? false,
@@ -185,8 +216,12 @@
     (let [carried {:work/id [:rf.work/http :a 1] :generation 1}
           current {:work/id [:rf.work/http :a 1] :generation 2}
           ;; Model a caller threading a full natural success reply as `extra`.
+          ;; It is a REPLY ENVELOPE, so its identity is single-rooted; the
+          ;; carried/current gate maps above are ledger data and stay bare.
           natural {:status :ok :value {:token sentinel}
-                   :rf.reply/work-status :completed :work/id [:rf.work/http :a 1]
+                   :rf.reply/work-status :completed
+                   :rf.reply/work-id [:rf.work/http :a 1]
+                   :rf.reply/work-kind :http
                    :rf.frame/id :reply/stale :completed-at 1781078400456}
           {:keys [deliver? reply] :as outcome} (reply/suppress nil carried current natural)]
       (is (false? deliver?) "a superseded app reply is NOT delivered")
@@ -195,15 +230,28 @@
       (is (= :suppressed (:rf.reply/work-status reply)) ":rf.reply/work-status forced to :suppressed")
       (is (not (contains? reply :value)) ":value is STRIPPED — no app mutation can ride")
       (is (not (contains-sentinel? reply)) "the secret value never rides the stale reply")
-      (is (= [:rf.work/http :a 1] (:work/id reply)) "carried :work/id survives")
+      (is (= [:rf.work/http :a 1] (:rf.reply/work-id reply))
+          "the work identity survives on the envelope spelling")
+      (is (= :http (:rf.reply/work-kind reply)) ":rf.reply/work-kind survives")
+      (is (not (contains? reply :work/id))
+          "TOOTH — suppression grows no top-level bare :work/id alias (rf2-xy3g)")
       (is (= :reply/stale (:rf.frame/id reply)))
       (is (= 1781078400456 (:completed-at reply)) "causal completion time survives")
       (is (reply/valid-reply? reply) "the suppression reply is contract-valid")
       ;; Suppression traces retain correlation without carrying the value.
       (let [trace (:trace outcome)]
         (is (true? (:rf.reply/suppressed? trace)))
+        ;; The trace reads its work id off `:rf.reply/work-id` on the reply, so
+        ;; a fixture spelling the identity the LEDGER way left this nil while
+        ;; the suite stayed green (rf2-xy3g). This is that tooth.
+        (is (= [:rf.work/http :a 1] (:rf.reply/work-id trace))
+            "the suppression trace carries the canonical envelope work id")
+        ;; The carried/current gate maps ARE ledger correlation, so the trace
+        ;; keeps them verbatim with their bare `:work/id` intact.
         (is (= carried (:rf.reply/carried trace)))
         (is (= current (:rf.reply/current trace)))
+        (is (= [:rf.work/http :a 1] (:work/id (:rf.reply/carried trace)))
+            "the carried LEDGER gate keeps the bare spelling — not renamed")
         (is (not (contains-sentinel? trace)) "the suppression trace carries no sentinel")))))
 
 (deftest app-target-cannot-obtain-stale-delivery
@@ -237,7 +285,8 @@
     ;; A function is a host handle on both runtimes.
     (let [handle (fn [] :callback)
           reply-with-handle {:status :ok :value {:on-done handle}
-                             :work/id [:rf.work/http :h 1] :rf.reply/work-status :completed}
+                             :rf.reply/work-id [:rf.work/http :h 1]
+                             :rf.reply/work-status :completed}
           problems (reply/validate-reply reply-with-handle)]
       (is (some #(= :rf.reply/host-handle (:rf.reply/problem %)) problems)
           "validate-reply flags the host handle in the reply :value"))
@@ -249,5 +298,6 @@
       (is (= :rf.error/reply-non-data-target (:rf.error/id data))
           "a host handle in a durable target's public field fails loud"))
     (is (reply/valid-reply? {:status :ok :value {:public 1}
-                             :work/id [:rf.work/http :h 2] :rf.reply/work-status :completed}))
+                             :rf.reply/work-id [:rf.work/http :h 2]
+                             :rf.reply/work-status :completed}))
     (is (reply/data-only-target? {:event [:app/on-reply] :delivery :append}))))

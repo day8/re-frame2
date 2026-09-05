@@ -49,14 +49,22 @@
 
 (def ^:private completed-at-ms 1781078400456)
 
+;; CROSS-RECORD SPELLING (rf2-l7s7b7, Managed-Effects §The reply map). The
+;; TRANSIENT reply envelope single-roots the work identity as
+;; `:rf.reply/work-id` / `:rf.reply/work-kind`. The SAME fact is spelled bare
+;; `:work/id` / `:work/kind` on the DURABLE work-ledger row, the runtime
+;; verification payload, and an entry's `:current-work` — and on the data-only
+;; carried/current stale-gate maps below, which are ledger correlation rather
+;; than envelope fields. Two spellings, two record layers, one fact each. A
+;; fixture is an executable example, so it must model the layer it claims.
 (def ^:private canonical-reply
-  {:status       :ok
-   :value        {:article {:id 42 :title "Welcome"}}
-   :work/id      [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1]
-   :work/kind    :resource
+  {:status                :ok
+   :value                 {:article {:id 42 :title "Welcome"}}
+   :rf.reply/work-id      [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1]
+   :rf.reply/work-kind    :resource
    :rf.reply/work-status  :completed
-   :rf.frame/id  :rf/default
-   :completed-at completed-at-ms})
+   :rf.frame/id           :rf/default
+   :completed-at          completed-at-ms})
 
 ;; Image resolution stores the registration descriptor plus its selection keys
 ;; (mirrors `event_frame_isolation_conformance`): a frame's OWN image handler,
@@ -117,11 +125,22 @@
                 ":value preserved")
             (is (nil? (:error delivered-reply)) "no :error on an :ok reply")
             (is (= [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1]
-                   (:work/id delivered-reply))
-                ":work/id tuple preserved")
-            (is (= :rf.work/resource (first (:work/id delivered-reply)))
-                ":work/id head is the family head")
-            (is (= :resource (:work/kind delivered-reply)) ":work/kind preserved")
+                   (:rf.reply/work-id delivered-reply))
+                ":rf.reply/work-id tuple preserved")
+            (is (= :rf.work/resource (first (:rf.reply/work-id delivered-reply)))
+                ":rf.reply/work-id head is the family head")
+            (is (= :resource (:rf.reply/work-kind delivered-reply))
+                ":rf.reply/work-kind preserved")
+            (testing "TOOTH — ordinary delivery keeps the identity on the
+                      TRANSIENT-ENVELOPE spelling and grows NO top-level bare
+                      ledger alias beside it (rf2-xy3g). A runtime that
+                      regressed to the durable `:work/id` spelling, or that
+                      carried both, is caught here rather than passing a
+                      fixture that modelled the wrong record layer."
+              (is (not (contains? delivered-reply :work/id))
+                  "no top-level bare :work/id alias on a delivered reply envelope")
+              (is (not (contains? delivered-reply :work/kind))
+                  "no top-level bare :work/kind alias on a delivered reply envelope"))
             (is (= :completed (:rf.reply/work-status delivered-reply))
                 ":rf.reply/work-status preserved")
             (is (= :rf/default (:rf.frame/id delivered-reply)) ":rf.frame/id preserved")
@@ -171,6 +190,10 @@
                            image-registrations)
           ;; A PLAIN app-shaped target — nothing capability-bearing rides it.
           reply-target [:article/loaded {:id 42}]
+          ;; The carried/current stale-GATE maps are data-only LEDGER
+          ;; correlation, so they keep the bare `:work/id` spelling. Reading
+          ;; that bare fact and placing it under `:rf.reply/work-id` in `extra`
+          ;; IS the record -> envelope hop, spelled out.
           carried-correlation
           {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4]
            :generation 4}
@@ -179,9 +202,9 @@
            :generation 5}
           suppression-outcome
           (rf.reply/suppress reply-target carried-correlation current-correlation
-            {:rf.reply/work-id (:work/id carried-correlation)
-                     :work/kind        :resource
-                     :rf.frame/id      :evt.reply/frame})]
+            {:rf.reply/work-id   (:work/id carried-correlation)
+             :rf.reply/work-kind :resource
+             :rf.frame/id        :evt.reply/frame})]
       (testing "TOOTH — app non-delivery: the suppress outcome is universally
                 non-delivering, so the ONLY way the stale reply reaches a handler
                 is a deliberate observer self-dispatch"
@@ -205,6 +228,24 @@
               "the delivered envelope is :status :stale")
           (is (= :suppressed (:rf.reply/work-status delivered-reply))
               ":rf.reply/work-status :suppressed")
+          (testing "TOOTH — the suppression boundary carries the identity
+                    forward on the TRANSIENT-ENVELOPE spelling and grows NO
+                    top-level bare ledger alias (rf2-xy3g). The carried gate
+                    map keeps its bare `:work/id`; the envelope does not
+                    inherit it."
+            (is (= (:work/id carried-correlation) (:rf.reply/work-id delivered-reply))
+                "the CARRIED work id rides the stale envelope as :rf.reply/work-id")
+            (is (= :resource (:rf.reply/work-kind delivered-reply))
+                ":rf.reply/work-kind rides the stale envelope")
+            (is (not (contains? delivered-reply :work/id))
+                "no top-level bare :work/id alias on the stale reply envelope")
+            (is (not (contains? delivered-reply :work/kind))
+                "no top-level bare :work/kind alias on the stale reply envelope")
+            (is (= (:work/id carried-correlation)
+                   (:rf.reply/work-id (:trace suppression-outcome)))
+                "the suppression TRACE reads its work id off the envelope spelling")
+            (is (= carried-correlation (:rf.reply/carried (:trace suppression-outcome)))
+                "the trace keeps the carried LEDGER gate map verbatim, bare keys intact"))
           (is (true? (:stale? delivered-reply)) "the :stale? marker rides")
           (is (some? (:rf.reply/stale-reason delivered-reply))
               "a :rf.reply/stale-reason rides")
