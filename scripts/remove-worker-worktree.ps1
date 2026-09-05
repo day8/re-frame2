@@ -50,6 +50,15 @@
 #   ... -SelfTest   prove the disarm against a throwaway junction in a temp dir
 #   -MayorRoot <path> / RF2_MAYOR_ROOT   override mayor-root derivation
 #
+# THE ARGUMENT IS A PATH, NOT A WORKTREE NAME (rf2-u62e).
+#   Targets resolve exactly as any other path does: absolute, or relative to the
+#   CURRENT DIRECTORY. A BARE WORKTREE NAME IS NOT resolved against the worktree
+#   parent - `remove-worker-worktree.ps1 xraygate-a` run from the mayor checkout
+#   names `<mayor-checkout>\xraygate-a`, which does not exist. Pass the path
+#   `git worktree list` prints; it is already in the form this wants.
+#   A target that is not an existing directory is refused with exit 2 BEFORE the
+#   mayor root is derived or the canary taken, so nothing is read or unlinked.
+#
 # CONTRACT (identical to the POSIX primary; see its header for the full list).
 #   CANARY_BEFORE=/CANARY_AFTER= carry a <signature>, which is
 #   `<immediate-entries>/<recursive-files>/<sentinels-present>` e.g. `103/2933/2`.
@@ -130,7 +139,11 @@
 #        still the right tool (retry when the lock clears; -ForceDisposable for
 #        build output; a human for [KEEP] paths) or the wrong one for a path it
 #        declines to identify.
-#     2  usage error.
+#     2  usage error - an unknown flag, no targets at all, or a target that is
+#        not an existing directory (`REFUSED_BAD_ARGUMENT=`). The caller's NEXT
+#        ACTION is to fix the command line, which is what separates this from 1;
+#        and it is reached before any tree is read, so a 2 also says nothing at
+#        all was examined, snapshotted or unlinked.
 #     3  PARTIAL - already gutted and deregistered; this script can do nothing
 #        more with it. 3 wins over 1 when both occur in one run, because it is
 #        the outcome needing a different remedy. Exit 3 is a CLAIM ABOUT
@@ -881,6 +894,79 @@ if ($SelfTest) {
       }
 
       Write-Output "SELF_TEST later_invocation guard=yes (ordinary dir REFUSED untouched; -Husk alone REFUSED on the evidence; a lone tiny coincidental blob REFUSED by the byte floor; -Husk on a live worktree REFUSED; a real husk still classified exit 3 with provenance named)"
+
+      # ---- THE ARGUMENT CONTRACT (rf2-u62e), END TO END ----
+      #
+      # A bare worktree name is a path like any other and resolves against the
+      # CURRENT DIRECTORY, so from the mayor checkout it names nothing. The
+      # refusal used to fire inside the per-target loop - after the canary - and
+      # onto the warning stream, so a refused run ENDED with the CANARY_AFTER
+      # block and the explanation sat above it, out of reach of a caller who
+      # tailed the output.
+      #
+      # THE LOAD-BEARING ASSERTION IS THAT THE RUN NEVER REACHED `MAYOR_ROOT=`.
+      # Exit 2 and the refusal line can both come from a check that runs late;
+      # only "no tree had been examined yet" separates refusing up front from
+      # doing the work and declining afterwards, which is the distinction this
+      # bead turned on.
+      #
+      # `MAYOR_ROOT=` rather than the CANARY_ lines, and the difference is the
+      # difference between a check and a vacuous one: these fixtures point
+      # -MayorRoot at a throwaway repository with no node_modules anywhere in
+      # it, so NO canary line is printed on any run against them, refused early
+      # or late. Asserting the absence of something absent either way proves
+      # nothing. `MAYOR_ROOT=` is printed unconditionally by every run that
+      # clears the gate, and before the canary, so its absence is a real signal
+      # - and the positive control below proves it appears when it should.
+      $aMissing = Join-Path $stRoot 'no-such-worktree'
+      $aFile    = Join-Path $stRoot 'not-a-directory.txt'
+      Set-Content -LiteralPath $aFile -Value 'a file, not a worktree'
+      if (Test-Path -LiteralPath $aMissing) {
+        Write-Error "SELF_TEST=FAILED the missing-target fixture exists, so it proves nothing: $aMissing"
+        exit 1
+      }
+
+      # Three shapes, because they fail in different ways: a path that does not
+      # exist, a path that exists and is not a directory, and the bare name that
+      # started this.
+      foreach ($aBad in @($aMissing, $aFile, 'no-such-bare-name-rf2-u62e')) {
+        $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, $aBad)
+        $gText = ($g.Output -join "`n")
+        if ($g.ExitCode -ne 2) {
+          Write-Error "SELF_TEST=FAILED a bad argument exited $($g.ExitCode), want 2 (usage error): $aBad. Output: $gText"
+          exit 1
+        }
+        if ($gText -notmatch 'REFUSED_BAD_ARGUMENT=') {
+          Write-Error "SELF_TEST=FAILED a bad argument was not refused by name: $aBad. Output: $gText"
+          exit 1
+        }
+        if ($gText -match 'MAYOR_ROOT=') {
+          Write-Error "SELF_TEST=FAILED a bad argument was refused only AFTER the script began examining trees, which is how the explanation came to be stranded above the canary block: $aBad. Output: $gText"
+          exit 1
+        }
+      }
+
+      # THE POSITIVE CONTROL, and the assertions above are worth nothing without
+      # it: an existing directory still clears the gate and is judged on what it
+      # IS, not on how it is spelled. A gate that refused everything would
+      # satisfy every negative above, and this is the line that would go red for
+      # it - it is also what proves `MAYOR_ROOT=` is a marker that appears at all.
+      $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, $gPlain)
+      $gText = ($g.Output -join "`n")
+      if ($g.ExitCode -ne 1) {
+        Write-Error "SELF_TEST=FAILED an existing directory was rejected by the argument gate (exit $($g.ExitCode), want 1 - refused on its identity, not its spelling). Output: $gText"
+        exit 1
+      }
+      if ($gText -notmatch 'MAYOR_ROOT=') {
+        Write-Error "SELF_TEST=FAILED a well-formed argument never got past the argument gate, so the absence of MAYOR_ROOT= above proves nothing. Output: $gText"
+        exit 1
+      }
+      if ($gText -match 'REFUSED_BAD_ARGUMENT=') {
+        Write-Error "SELF_TEST=FAILED a well-formed argument was refused as a bad one. Output: $gText"
+        exit 1
+      }
+
+      Write-Output "SELF_TEST argument_contract=yes (a missing path, a non-directory and a bare name each exit 2 with REFUSED_BAD_ARGUMENT= and no tree examined; a well-formed path still clears the gate and is judged on its identity)"
     }
     else {
       # NOT a SKIP - see the POSIX primary. The junction fixture above may
@@ -892,7 +978,7 @@ if ($SelfTest) {
       exit 1
     }
 
-    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), the canary caught nested-only loss, a husk is not mistaken for a clean tree, and an unidentified directory is refused rather than condemned."
+    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), the canary caught nested-only loss, a husk is not mistaken for a clean tree, an unidentified directory is refused rather than condemned, and a bad argument is refused before any tree is examined."
     exit 0
   }
   finally {
@@ -903,6 +989,61 @@ if ($SelfTest) {
 
 if ($Worktree.Count -eq 0) {
   Write-Error "usage: remove-worker-worktree.ps1 <worktree-path>... [-Force|-ForceDisposable] [-DryRun]`n       remove-worker-worktree.ps1 -SelfTest"
+  exit 2
+}
+
+# ---------------------------------------------------------------------------
+# THE ARGUMENT CONTRACT, enforced FIRST (rf2-u62e).
+#
+# A target is a PATH. Normalize-Path resolves it with GetFullPath, which is
+# CWD-RELATIVE, so a BARE WORKTREE NAME run from the mayor checkout names
+# `<mayor-checkout>\<name>` and matches nothing. That is correct behaviour for a
+# path argument and is not what was wrong.
+#
+# WHAT WAS WRONG IS WHERE THE REFUSAL FIRED. It sat inside the per-target loop,
+# which runs AFTER the mayor root is derived and the canary taken, and it writes
+# to the warning stream while the canary writes to stdout. So the last lines of
+# a refused run were the CANARY_AFTER block with the explanation stranded above
+# it, and a caller who tailed the output saw a script that had done work and
+# then stopped without a verdict. Reproduced on the POSIX primary: exit 1, six
+# CANARY_AFTER lines, the refusal two lines above the tail window, nothing
+# destroyed.
+#
+# An argument fault is knowable before anything is examined, so it is settled
+# here, with the documented usage code, and every bad target is named in one
+# pass so one re-run fixes the whole command line. It is expressed ONCE: the
+# loop's own no-such-directory branch is gone, because nothing reaches it now.
+#
+# ALL-OR-NOTHING IS DELIBERATE. A sweep list carrying one path that names
+# nothing is a list the caller should correct, not one this script should
+# half-run: partial work under a wrong command line is the shape of failure
+# this whole bead is about.
+# ---------------------------------------------------------------------------
+$badArgs = $false
+foreach ($rawTarget in $Worktree) {
+  if ([string]::IsNullOrWhiteSpace($rawTarget)) { continue }
+  if (Test-Path -LiteralPath $rawTarget -PathType Container) { continue }
+  if (Test-Path -LiteralPath $rawTarget) {
+    Write-Warning "REFUSED_BAD_ARGUMENT=$rawTarget (not a directory)"
+  }
+  else {
+    Write-Warning "REFUSED_BAD_ARGUMENT=$rawTarget (no such directory)"
+  }
+  $badArgs = $true
+}
+
+if ($badArgs) {
+  foreach ($line in @(
+      'Targets are PATHS, resolved like any other path: absolute, or relative to the',
+      'CURRENT DIRECTORY. A BARE WORKTREE NAME IS NOT RESOLVED AGAINST THE WORKTREE',
+      'PARENT - a bare `<name>` run from the mayor checkout names',
+      '`<mayor-checkout>\<name>`, which is not where worker worktrees live.',
+      "Pass the path 'git worktree list' prints; it is already in the form this wants.",
+      'If the directory is genuinely gone but git still lists the worktree, the tool for',
+      "that is 'git worktree prune', not this script.",
+      'NOTHING WAS EXAMINED, SNAPSHOTTED OR UNLINKED.')) {
+    Write-Warning $line
+  }
   exit 2
 }
 
@@ -991,13 +1132,11 @@ foreach ($rawTarget in $Worktree) {
   # worktree. The version that inferred a husk from that negative alone
   # disarmed and condemned an ordinary temp directory. Identification now needs
   # a positive: the caller's -Husk AND content this repository recognises.
+  #
+  # A target that is not a directory at all never reaches here: the argument
+  # contract at the top of the script refuses it with exit 2, before the canary
+  # (rf2-u62e). So every path below is one that EXISTS and is merely not ours.
   if ($roster -notcontains $wt.ToLowerInvariant()) {
-    if (-not (Test-Path -LiteralPath $wt -PathType Container)) {
-      Write-Warning "REFUSED_UNREGISTERED=$wt (no such directory)"
-      Write-Warning "Nothing was touched. Check the path; 'git worktree list' shows what is registered."
-      $failed = $true
-      continue
-    }
     if (Test-WorktreeIsIntact $wt) {
       Write-Warning "REFUSED_UNREGISTERED=$wt"
       Write-Warning 'It has a working .git and git answers for it, so it is some OTHER checkout -'
