@@ -2408,6 +2408,28 @@ else
       skills/re-frame2-pair/*|skills/shared/*)
         skills_structural=true
         ;;
+      skills/re-frame2-improver/*)
+        # rf2-z65e — the same silent hole rf2-g1m2q found in two other trees:
+        # this one armed NOTHING AT ALL. The main case has no default arm, so a
+        # diff confined to the improver tree classified to zero outputs, and
+        # `skills/re-frame2-improver/tests/storage_materializer_test.clj` (added
+        # by PR #9232 with `.github/workflows/**` fenced out, so local-only) had
+        # nothing scheduling it. The step that loops it lives in the
+        # `skills-structural` job, gated on this output.
+        #
+        # THE NEAR-MISS PREFIX HERE IS `implementor`, NOT `pair-retro`. Both
+        # `skills/re-frame2-improver/` and `skills/re-frame2-implementor/` begin
+        # `skills/re-frame2-imp`, and the implementor tree carries no tests and
+        # no arm — so a pattern loosened to `skills/re-frame2-imp*` would arm
+        # this tier for a tree with nothing to run. The literal name is the
+        # whole guard.
+        #
+        # ONE output, structural only. The tree is prose plus a Babashka
+        # fixture that loads no re-frame2 runtime, drives no live Pair op and
+        # compiles into no example build, so the expensive lanes the
+        # `skills/re-frame2-pair/*` neighbour arms have nothing to do here.
+        skills_structural=true
+        ;;
       skills/re-frame2-setup/*)
         # rf2-agi57x — the re-frame2-setup skill carries a structural drift
         # guard (tests/setup_drift_test.clj) gated under skills-structural.
