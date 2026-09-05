@@ -766,7 +766,8 @@
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000). Sticky across pagination — encoded into the cursor on the first call."}
-                              :frame {:type "string"}
+                              :frame {:type "string"
+                                      :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame; a multi-frame session with no selection returns :ambiguous-frame rather than an empty window."}
                               :limit knobs/limit-property
                               :cursor knobs/cursor-property
                               :epochs-mode {:type "string"
@@ -813,7 +814,8 @@
    :inputSchema {:type "object"
                  :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh). Supplanted by :cursor when both are passed."}
                               :pred     {:type "object" :description "Filter map"}
-                              :frame    {:type "string"}
+                              :frame    {:type "string"
+                                         :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame; a multi-frame session with no selection returns :ambiguous-frame rather than an empty poll with :id-aged-out? true."}
                               :limit    knobs/limit-property
                               :cursor   knobs/cursor-property
                               :epochs-mode {:type "string"
