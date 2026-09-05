@@ -34,14 +34,11 @@
 (ns machine-describe-test
   (:require [clojure.test :refer [deftest is run-tests]]
             [clojure.edn :as edn]
+            [clojure.string :as str]
             [runtime-support :as rt]))
 
 (def ^:private defn-form rt/defn-named)
 (def ^:private form-contains? rt/form-contains?)
-
-(defn- calls? [form sym]
-  ;; True when `form` invokes `sym` as the head of any sub-list.
-  (form-contains? (fn [node] (and (seq? node) (= sym (first node)))) form))
 
 (def ^:private machine-describe-form (defn-form 'machine-describe))
 (def ^:private machines-list-form    (defn-form 'machines-list))
@@ -177,7 +174,7 @@
   ;; below would throw, which is what the codec turns into `:unserializable`.
   (let [stripped (strip-fns-fn machine-spec-with-fns)
         printed  (pr-str stripped)]
-    (is (not (clojure.string/includes? printed "#object"))
+    (is (not (str/includes? printed "#object"))
         "no raw Function survives into the printed EDN")
     (is (= stripped (edn/read-string printed))
         "the stripped spec round-trips through EDN unchanged")))
