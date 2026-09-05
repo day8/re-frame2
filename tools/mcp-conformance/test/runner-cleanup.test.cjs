@@ -964,7 +964,8 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
   });
   const rootPid = shadow.pid;
   let shadowExited = false;
-  shadow.on('exit', () => { shadowExited = true; });
+  let shadowExitedAtMs = 0;
+  shadow.on('exit', () => { shadowExited = true; shadowExitedAtMs = Date.now(); });
 
   // Wait for the wrapper to exit AND the grandchild to announce itself.
   const deadline = Date.now() + 20_000;
@@ -1013,6 +1014,7 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
       hasShadowExited: () => shadowExited,
       reapShadowTree: makeShadowTreeReaper({
         rootPid, spawnedAtMs, rootExited: () => shadowExited,
+        rootExitedAtMs: () => shadowExitedAtMs,
         treeKill: () => {}, graceMs: 300, pollMs: 50,
         log: () => {}, logErr: () => {},
       }),
@@ -1039,6 +1041,7 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
       // through the dead parent link instead (rf2-kzbf audit).
       reapShadowTree: makeShadowTreeReaper({
         rootPid, spawnedAtMs, rootExited: () => shadowExited,
+        rootExitedAtMs: () => shadowExitedAtMs,
         log: () => {}, logErr: () => {},
       }),
       log: () => {}, logErr: () => {},
