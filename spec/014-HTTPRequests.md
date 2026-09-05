@@ -938,6 +938,8 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 
 Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
 
+The `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` fxs reach the same registration seam from `:fx` with map-shaped args; how that pair sits against the framework-wide rule for when a registrar carries an fx form, and what shape its args take, is [Conventions §When a registrar has an fx form](Conventions.md#when-a-registrar-has-an-fx-form).
+
 ## Call-site helpers
 
 The canonical `[:rf.http/managed args-map]` envelope is correct and complete, but the args map carries 12+ keys and every call site repeats `{:request {:method <verb> :url <url>} ...}` boilerplate. The `re-frame.http` namespace ships pure synthesis fns — one per HTTP verb — that build the canonical fx vector from a URL + an args map. Result:
