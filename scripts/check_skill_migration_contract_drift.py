@@ -170,7 +170,17 @@ Two contract facts, each pinned against the shipped spec:
     of the leaves: the same shapes, reported only where the match's own CLAUSE
     carries no negation cue. Clause-scoped, not line-scoped — the stale
     sentence carried "not yet published" and "no v2 version" earlier on its own
-    line, so a line-wide test reads the defect as legal. MIGRATION_MD stays on
+    line, so a line-wide test reads the defect as legal. Clause-scoped is about
+    the NEGATION test; the SCAN UNIT is a normalised paragraph, and the two are
+    independent. The first cut ran the pattern over `text.splitlines()`, which
+    made both banned phrases evade the lock the moment an author reflowed the
+    paragraph — `leave the dependency\nalone` (the shape's `\s+` never reaches
+    a newline `splitlines` has already cut) and `wait until a\nrelease lands`
+    (whose `[^.\n]` excludes one outright). An editor's wrap, not a rewrite,
+    and invisible in review (rf2-qivv post-merge audit). Paragraphs are joined
+    and whitespace-collapsed before the pattern runs, with an origin-line map
+    so a finding still names the physical line; blank lines still bound a
+    paragraph, so a negation cannot leak across one. MIGRATION_MD stays on
     Rule 6's stricter whole-file assertion. Retire with Rule 6 at a real first
     publish. See `skill_leaf_publication_route_problems`.
 
@@ -1898,6 +1908,14 @@ def m0_publication_route_problems() -> list[str]:
 # a legal one.
 _EMPHASIS_RE = re.compile(r"[*_`]+")
 _CLAUSE_BOUNDARY_RE = re.compile("[.;:,\u2014]|--")
+# Hard wraps and whitespace runs collapse to one space before the pattern runs
+# (rf2-qivv post-merge audit) - see `_normalised_paragraphs`.
+_WS_RUN_RE = re.compile(r"[ \t]+")
+# How much of the normalised paragraph a finding quotes either side of the
+# match. A paragraph can be long; the match plus its clause is what a reader
+# needs, and the reported line number is the physical one.
+_EXCERPT_LEAD = 90
+_EXCERPT_TRAIL = 60
 SKILL_NEGATION_CUE_RE = re.compile(
     r"\b(?:not|never|cannot|can't|don't|doesn't|won't|rather than|instead of)\b",
     re.IGNORECASE,
@@ -1933,17 +1951,66 @@ def _clause_is_negated(line: str, offset: int) -> bool:
     return bool(SKILL_NEGATION_CUE_RE.search(prefix[last:]))
 
 
+def _normalised_paragraphs(text: str) -> list[tuple[str, list[int]]]:
+    """`[(paragraph, line_of_char)]` — each blank-line-separated paragraph with
+    its hard wraps and whitespace runs collapsed to single spaces, beside a
+    parallel list giving the SOURCE LINE of every character, so a match still
+    reports the physical line it starts on.
+
+    This is the scan unit Rule 6b needs. The banned shapes are multi-word
+    phrases, and Markdown reflow puts a newline anywhere between two words:
+    `leave the dependency\\nalone` and `wait until a\\nrelease lands` are the
+    same instruction as their flat spellings, and a per-physical-line scan
+    cannot see either — the first because `\\s+` is never allowed to reach a
+    newline, the second because `[^.\\n]` excludes one outright. Blank lines
+    still bound a paragraph, so a cue cannot leak across a paragraph break."""
+    paragraphs: list[tuple[str, list[int]]] = []
+    buf: list[str] = []
+    line_of: list[int] = []
+
+    def flush() -> None:
+        if buf:
+            paragraphs.append(("".join(buf), list(line_of)))
+        buf.clear()
+        line_of.clear()
+
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        if not raw.strip():
+            flush()
+            continue
+        piece = _WS_RUN_RE.sub(" ", raw.strip())
+        if buf:
+            buf.append(" ")
+            line_of.append(lineno)
+        buf.append(piece)
+        line_of.extend([lineno] * len(piece))
+    flush()
+    return paragraphs
+
+
 def _skill_leaf_route_problems(text: str) -> list[tuple[int, str, str]]:
     """Rule-6b drift in one migration-skill leaf: the Rule-6 stop-and-wait
     shapes, reported only where the match's own clause is not negated.
     `(lineno, label, excerpt)`. Text-pure so the self-test can exercise it
-    against fixtures and against a mutation of the shipped leaf."""
+    against fixtures and against a mutation of the shipped leaf.
+
+    Scanned per NORMALISED PARAGRAPH rather than per physical line (rf2-qivv
+    post-merge audit): the first cut ran the pattern against
+    `text.splitlines()`, so either banned phrase evaded the lock the moment an
+    author reflowed the paragraph it sat in — an editor's wrap, not a rewrite,
+    and invisible in review. The banned vocabulary is unchanged; only the unit
+    the pattern reads is."""
     problems: list[tuple[int, str, str]] = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        for match in M0_STOP_AND_WAIT_RE.finditer(line):
-            if _clause_is_negated(line, match.start()):
+    for paragraph, line_of in _normalised_paragraphs(text):
+        for match in M0_STOP_AND_WAIT_RE.finditer(paragraph):
+            if _clause_is_negated(paragraph, match.start()):
                 continue
-            problems.append((lineno, SKILL_ROUTE_PROBLEM, line.strip()))
+            start = max(0, match.start() - _EXCERPT_LEAD)
+            excerpt = paragraph[start:match.end() + _EXCERPT_TRAIL].strip()
+            if start:
+                excerpt = "... " + excerpt
+            problems.append((line_of[match.start()], SKILL_ROUTE_PROBLEM,
+                             excerpt))
             break
     return problems
 
@@ -3512,6 +3579,49 @@ def _self_test() -> int:
             )
             failures += 1
 
+    # SETUP-5..8 - the scan unit is a NORMALISED PARAGRAPH, not a physical
+    # line (rf2-qivv post-merge audit). Both banned phrases are multi-word, and
+    # Markdown reflow puts a newline anywhere between two words: the first
+    # shape's `\s+` was never allowed to reach one (`splitlines` had already
+    # cut it) and the second's `[^.\n]` excludes one outright, so an editor's
+    # wrap - not a rewrite - silently retired the lock. SETUP-5 and SETUP-6
+    # wrap the two real sentences INSIDE the banned phrase itself, which is the
+    # only wrap that matters; SETUP-7 pins that a wrap does not flip polarity
+    # the other way either; SETUP-8 pins the paragraph BOUND, so a negation two
+    # paragraphs up cannot shield an instruction the way joining the whole file
+    # would let it.
+    expect_leaf(
+        '**Per-feature artefact not yet published.** Same shape as M-0\'s '
+        '"no v2 version" edge case: leave the dependency\n'
+        "alone, flag in the report, the author updates manually when the "
+        "artefact lands.",
+        dirty=True,
+        label="SETUP-5 the stale paragraph hard-wrapped inside "
+              "'leave the dependency alone'",
+    )
+    expect_leaf(
+        "If the artefact is not published, wait until a\n"
+        "release lands before adding it.",
+        dirty=True,
+        label="SETUP-6 a wait-for-a-release instruction hard-wrapped inside "
+              "the phrase",
+    )
+    expect_leaf(
+        "and the migration proceeds normally - apply every M/O-rule exactly as "
+        "you would against a published target. Do **not** leave the\n"
+        "dep alone, and do **not** stop and wait for a release.",
+        dirty=False,
+        label="SETUP-7 a wrap does not turn M-0's negated quotation dirty",
+    )
+    expect_leaf(
+        "Do not defer a per-feature artefact.\n"
+        "\n"
+        "leave the dep alone until the artefact lands.",
+        dirty=True,
+        label="SETUP-8 a negation in a PRIOR paragraph does not shield the "
+              "instruction",
+    )
+
     # SETUP-4 - live tooth against the SHIPPED leaf, not a fixture that could
     # drift away from it: setup.md must scan clean today, and re-growing the
     # stale paragraph in it must red.
@@ -3535,6 +3645,43 @@ def _self_test() -> int:
                 "trip Rule 6b - the rf2-qivv defect could land again."
             )
             failures += 1
+        # SETUP-4b - the same live mutation, hard-wrapped inside the banned
+        # phrase. This is the one the pre-audit per-line scan missed, so it is
+        # asserted against the real leaf and not only against a fixture. The
+        # reported line must be the physical line the phrase STARTS on, which
+        # is what makes a paragraph-scoped finding actionable.
+        _wrapped_stale = LEAF_STALE.replace(
+            "leave the dep alone", "leave the dep\nalone")
+        if _wrapped_stale == LEAF_STALE:
+            print(
+                "SELF-TEST FAIL (SETUP-4b anchor): the stale fixture no longer "
+                "carries the exact `leave the dep alone` phrase, so the "
+                "hard-wrap mutation is a no-op - re-point it in the same change."
+            )
+            failures += 1
+        else:
+            _wrapped_problems = _skill_leaf_route_problems(
+                _live_text + "\n\n" + _wrapped_stale)
+            if not _wrapped_problems:
+                print(
+                    "SELF-TEST FAIL (SETUP-4b undetected): the stale paragraph "
+                    "re-grown in setup.md with an ordinary Markdown wrap inside "
+                    "`leave the dep alone` did not trip Rule 6b. The lock is "
+                    "back to failing open on reflow (rf2-qivv audit)."
+                )
+                failures += 1
+            else:
+                _expected_line = (
+                    len((_live_text + "\n\n" + _wrapped_stale).splitlines())
+                    - _wrapped_stale.count("\n"))
+                if _wrapped_problems[0][0] != _expected_line:
+                    print(
+                        "SELF-TEST FAIL (SETUP-4b lineno): the wrapped finding "
+                        f"reported line {_wrapped_problems[0][0]}, expected "
+                        f"{_expected_line} - the paragraph scan must still map "
+                        "a match back to the physical line it starts on."
+                    )
+                    failures += 1
 
     # Live-corpus teeth: the SHIPPED owners must both carry the invariant, and a
     # mutation that drops the A→B sentence from either owner must be caught — so a
