@@ -106,7 +106,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { withService, collect, refusalOf, post } = require('./_support.cjs');
+const { withService, collect, observed, refusalOf, post } = require('./_support.cjs');
 const {
   CODE,
   COMPLETE_FIELDS,
@@ -116,6 +116,7 @@ const {
   REPLACEMENT_FAILED_REFUSAL,
   isRefusalCode,
 } = require('../src/protocol.cjs');
+const { Service } = require('../src/service.cjs');
 const { serve, statusFor } = require('../src/http.cjs');
 const LEAKY = require('./fixtures/leaky.cjs');
 const NULL_RETURN = require('./fixtures/null-return.cjs');
@@ -1068,31 +1069,44 @@ test('and the OPERATOR gets the boot failure, in full, on the sidecar stderr', a
 // for anything that did not arrive as a `Refusal`. It was reported as
 // unreachable — every `isolate.render()` path was believed to reject with a
 // `Refusal` — and as harmless if reached, on the ground that it could only
-// carry this package's own error text. Both halves are false, and the row
-// below is the measurement rather than the argument.
+// carry this package's own error text. Both halves were false, and this
+// section was the measurement rather than the argument.
 //
-// THE ROUTE IS AN ORDINARY IN-PROCESS CALL, with no internals stubbed.
-// `validatePartition` returns the CALLER'S OWN partition object rather than
-// a copy, so the object the validator reads and the object `postMessage`
-// structured-clones are the same live object, read twice. Anything with an
-// accessor on it — a getter, a Proxy, a lazily-materialised row from a
-// serializer — can therefore satisfy `typeof value === 'string'` on the
-// first read and hand back something unclonable on the second.
-// `postMessage` then throws `DataCloneError` synchronously inside
-// `render()`'s promise executor, which is not a `Refusal` and never passed
-// through a receiver that could have made it one.
+// THE ROUTE WAS AN ORDINARY IN-PROCESS CALL, and rf2-ey07 has since CLOSED
+// it at the cause. `validatePartition` used to return the CALLER'S OWN
+// partition object rather than a copy, so the object the validator read and
+// the object `postMessage` structured-cloned were one live object read
+// twice — and anything with an accessor on it (a getter, a Proxy, a lazily
+// materialised row from a serializer) could satisfy `typeof value ===
+// 'string'` on the first read and hand back something unclonable on the
+// second, at which point `postMessage` threw `DataCloneError` synchronously
+// inside `render()`'s executor with no receiver above it. `validateRequest`
+// now reads every field exactly once and returns what it read, so a request
+// that passes validation is a request that can be cloned, and a caller has
+// no second say.
 //
-// AND THE TEXT IT CARRIES IS THE CALLER'S. A `DataCloneError` names the
-// value it choked on, so the caller's own value is interpolated into the
-// message and published on the public refusal frame — the same egress
-// sections 4 and 5 refuse, arriving through the one door still open.
+// SO THE SECTION KEEPS BOTH HALVES, and they are different claims now.
+// The first row is the ROUTE, and it is the same two-faced request driven
+// the same way through the same real service — the read count simply reads
+// 1 where it read 2, which is what closing the gap looks like from outside.
+// Keeping it is not sentiment: it is the only thing that would notice the
+// day somebody reintroduces the second read.
+//
+// The rows after it are the ARM, which stays exactly as rf2-2hmg left it —
+// deleting it would let a raw `Error` reach `statusFor` with no code at
+// all. With the caller's route closed there is no longer a request that
+// reaches it, so it is driven at the seam it actually guards: a `Service`
+// over a stand-in pool whose isolate rejects with a raw `Error`. That is a
+// weaker witness than a live route and it is said plainly here rather than
+// dressed up — but an unreachable backstop with no witness is how a
+// backstop stops working without anyone noticing.
 // ---------------------------------------------------------------------------
 
 const CLONE_SENTINEL = 'rf2-2hmg-caller-7c19ab';
 
 /**
- * A `state` partition whose one value is a string when the validator reads
- * it and an unclonable, sentinel-bearing `Symbol` when the clone does.
+ * A `state` partition whose one value is a string on its first read and an
+ * unclonable, sentinel-bearing `Symbol` on every read after it.
  *
  * A `Symbol` rather than a function on purpose: `DataCloneError` renders a
  * function as its source text, which would carry nothing the caller chose,
@@ -1113,7 +1127,54 @@ function twoFacedState() {
   return { state, reads: () => reads };
 }
 
-/** Drive one such request, capturing the sidecar's stderr alongside. */
+test('the CLONE gets no second say — the validator keeps what it checked (rf2-ey07)', async () => {
+  // THE READ COUNT IS THE WHOLE DISCRIMINATOR, and it is deliberately a
+  // fact about the tree rather than about the fix: nothing but the
+  // structured clone would read that value again. Two reads said the
+  // caller's own object reached `postMessage`; one says the validator
+  // captured the value and the clone copied the capture.
+  //
+  // The render therefore SUCCEEDS, which is the outcome that was owed all
+  // along — the request was well-formed on every value anyone validated,
+  // and refusing it was the defect rather than the safety.
+  const twoFaced = twoFacedState();
+  const run = await withService('reference', { isolates: 1 }, (service) =>
+    collect(service, { protocol: 1, entry: 'app/root', state: twoFaced.state }),
+  );
+  assert.strictEqual(twoFaced.reads(), 1, 'nothing may read the caller\'s value a second time');
+  assert.strictEqual(run.chunks.length, 1, 'and the request must render rather than refuse');
+  assert.strictEqual(
+    observed(run).readRoute,
+    '{:name :ok}',
+    'the module must be handed the value the validator approved',
+  );
+});
+
+/**
+ * A `Service` whose one isolate rejects with `error`, over a pool that is
+ * three methods and two tables — everything `renderFrames` reads and
+ * nothing more.
+ *
+ * A stand-in and not a fixture, because the fault being staged is one no
+ * render module can produce: a rejection that is not a `Refusal` means
+ * every receiver between the module and here was bypassed, and a fixture
+ * reaching this arm would be a fixture that had found a fifth route.
+ */
+function serviceOverRejectingIsolate(error) {
+  const pool = {
+    buildId: 'reference-build-1',
+    entries: { 'app/root': { stateAllowlist: [':route'], runtimeAllowlist: [] } },
+    acquire: async () => ({ render: () => Promise.reject(error) }),
+    release: () => {},
+  };
+  return new Service(pool, {
+    defaultTimeoutMs: 1000,
+    maxTimeoutMs: 5000,
+    maxRequestBytes: 1 << 20,
+  });
+}
+
+/** Drive one such render, capturing the sidecar's stderr alongside. */
 async function uncontractedRejection() {
   const captured = [];
   const realWrite = process.stderr.write;
@@ -1122,35 +1183,31 @@ async function uncontractedRejection() {
     return realWrite.call(this, chunk, ...rest);
   };
   try {
-    const twoFaced = twoFacedState();
-    const refusal = await withService('reference', { isolates: 1 }, (service) =>
-      refusalOf(() => collect(service, { protocol: 1, entry: 'app/root', state: twoFaced.state })),
+    // The wording a real `DataCloneError` carried on the closed route: the
+    // caller's own value, interpolated by the runtime into a message
+    // nothing downstream was going to redact.
+    const service = serviceOverRejectingIsolate(
+      new TypeError(`Symbol(${CLONE_SENTINEL}) could not be cloned.`),
     );
-    return { refusal, reads: twoFaced.reads(), stderr: captured.join('') };
+    const refusal = await refusalOf(() =>
+      collect(service, { protocol: 1, entry: 'app/root', state: { ':route': '{:name :ok}' } }),
+    );
+    return { refusal, stderr: captured.join('') };
   } finally {
     process.stderr.write = realWrite;
   }
 }
 
-test('CONTROL — the request really does pass validation and then fail the CLONE', async () => {
-  // Without this the section could be green about a request that never got
-  // past `validateRequest` — a caller-fault refusal looks nothing like the
-  // one being hunted, but "no sentinel in the frame" is true of it too.
-  //
-  // THE SECOND READ IS THE WHOLE DISCRIMINATOR, and it is deliberately a
-  // fact about the tree rather than about the fix: nothing but the
-  // structured clone reads that value again, so `reads === 2` says the
-  // request reached `postMessage` and died there. A control that asserted
-  // on the stderr copy instead would only be able to pass once the fix
-  // existed, which is not a control — it could not have told the red tree
-  // apart from a tree where the request never got that far.
+test('CONTROL — the staged fault really does reach the arm, past validation', async () => {
+  // Without this the two rows below could be green about a request the
+  // validator refused — "no sentinel in the frame" is true of a caller-fault
+  // refusal too, and it would prove nothing about the arm.
   const run = await uncontractedRejection();
-  assert.strictEqual(run.reads, 2, 'the partition value must be read by the validator AND the clone');
   assert.ok(run.refusal, 'the call must be refused');
-  assert.notStrictEqual(
+  assert.strictEqual(
     run.refusal.code,
-    CODE.BAD_REQUEST_FIELD,
-    'and refused past validation, not by it — this row is about the clone',
+    CODE.RENDER_THREW,
+    'and refused BY the last-resort arm, which is the only thing that answers with this code here',
   );
 });
 

@@ -179,7 +179,16 @@ class Isolate {
    * arrives — never buffered here, because a layer that buffers is a layer
    * that has to be rewritten when a streaming module lands.
    *
-   * Resolves with the terminal facts; rejects with a `Refusal`.
+   * Resolves with the terminal facts; rejects with a `Refusal` — with one
+   * deliberate exception, named because a docstring that quietly overstates
+   * its contract is worse than one that admits the edge. A `postMessage`
+   * that throws rejects with the RAW fault: that is a fault in the sidecar
+   * rather than in the application, and `service.cjs`'s last receiver is
+   * the only thing that both writes the real trace to the operator's stderr
+   * and publishes the contract's own wording to the caller. Building a
+   * `Refusal` here would satisfy the sentence above and leave the operator
+   * with no copy of the failure at all, which is the trade rf2-2hmg
+   * refused.
    */
   render(request, { timeoutMs, onChunk }) {
     if (this.dead) {
@@ -200,6 +209,27 @@ class Isolate {
     const renderId = this._nextRenderId++;
 
     return new Promise((resolve, reject) => {
+      // THE POST COMES FIRST, AND NOTHING IS MARKED UNTIL IT LANDS
+      // (rf2-ey07). `postMessage` throws — a structured clone refuses any
+      // value it cannot copy — and this used to run last, after the flag
+      // and the timer were already set. A throw then left the isolate
+      // marked busy with a render that had already rejected, and only the
+      // deadline could clear it: `pendingRender` is the sole reading of
+      // `busy`, and every other path that clears it is a message about a
+      // render this one never sent. So the pool took the isolate back
+      // (`dead` was false, so nothing replaced it), handed it to the next
+      // caller, and that caller was refused SERVICE_SATURATED by an isolate
+      // doing nothing at all — until the deadline fired and TERMINATED a
+      // healthy worker thread, costing one more request and a boot.
+      //
+      // Ordering is the whole fix, and it needs no new state: a throw here
+      // unwinds the executor with the timer unarmed and `pendingRender`
+      // untouched, so the isolate is exactly as free as it was a line ago.
+      // The reverse ordering is safe because nothing can observe the gap —
+      // a reply from another thread cannot arrive until this synchronous
+      // executor has run to its end.
+      this.worker.postMessage({ t: 'render', id: renderId, request });
+
       const deadlineTimer = setTimeout(() => {
         // HARD TERMINATION. Not a cancel, not a reject-and-hope: the
         // thread is stopped, because a synchronous render cannot be asked
@@ -227,7 +257,6 @@ class Isolate {
         onChunk,
         chunkCount: 0,
       };
-      this.worker.postMessage({ t: 'render', id: renderId, request });
     });
   }
 

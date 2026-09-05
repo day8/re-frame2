@@ -476,18 +476,28 @@ function validateModule(renderModule, moduleLabel = '<render module>') {
 
 /**
  * Validate one partition of a request — `state` or `runtime` — against
- * the entry's allowlist for it. Returns `{ partition, bytes }`: the
- * partition as sent (an empty object when the field was absent) and the
- * UTF-8 byte count of every key and value in it, so the caller can hold
- * both partitions to one ceiling. Throws `Refusal`.
+ * the entry's allowlist for it. Returns `{ partition, bytes }`: a SNAPSHOT
+ * of the partition as sent (an empty object when the field was absent) and
+ * the UTF-8 byte count of every key and value in it, so the caller can
+ * hold both partitions to one ceiling. Throws `Refusal`.
+ *
+ * A SNAPSHOT AND NOT THE CALLER'S OWN OBJECT (rf2-ey07). What this returns
+ * is what `isolate.cjs` hands to `postMessage`, and a structured clone is a
+ * SECOND READ of every value in it. Returning the caller's object put that
+ * second read outside the validator's reach: a value backed by an accessor
+ * — a getter, a Proxy, a lazily materialised row out of a serializer —
+ * could be a well-formed EDN string when the checks below read it and
+ * something else when the clone did, so the checks were about a value the
+ * wire never saw. Copying the already-read, already-checked value into a
+ * fresh object closes that gap at its cause rather than guarding its
+ * symptom: there is no second read to disagree with the first.
  */
 function validatePartition(
-  request,
+  partition,
   entryConfig,
   entryId,
   { field: partitionField, allowlist: allowlistField, keys: partitionLabel },
 ) {
-  const partition = request[partitionField];
   if (partition === undefined) return { partition: {}, bytes: 0 };
   if (!isPlainObject(partition)) {
     refuse(
@@ -498,6 +508,7 @@ function validatePartition(
     );
   }
   let partitionBytes = 0;
+  const validated = {};
   for (const [partitionKey, ednText] of Object.entries(partition)) {
     if (!KEY_TEXT.test(partitionKey)) {
       refuse(
@@ -527,10 +538,11 @@ function validatePartition(
         },
       );
     }
+    validated[partitionKey] = ednText;
     partitionBytes +=
       Buffer.byteLength(partitionKey, 'utf8') + Buffer.byteLength(ednText, 'utf8');
   }
-  return { partition, bytes: partitionBytes };
+  return { partition: validated, bytes: partitionBytes };
 }
 
 /**
@@ -542,6 +554,14 @@ function validatePartition(
  * Order matters and is deliberate: shape, then identity, then content. A
  * caller reading its first refusal wants the field it got wrong, not the
  * consequence three checks downstream.
+ *
+ * AND EVERY FIELD IS READ EXACTLY ONCE (rf2-ey07). The request that comes
+ * back is built from the values the checks below actually inspected, never
+ * from a fresh read of the caller's object — because this request is what
+ * `postMessage` structured-clones, and that clone is a second read the
+ * validator has no say over. Read-once is the whole of the discipline: it
+ * needs no defensive copy of the request, no freeze and no re-check, and
+ * it removes the class rather than the instance.
  */
 function validateRequest(request, moduleTables, limits = {}) {
   const { defaultTimeoutMs = 1000, maxTimeoutMs = 5000, maxRequestBytes = 1 << 20 } = limits;
@@ -568,21 +588,34 @@ function validateRequest(request, moduleTables, limits = {}) {
     }
   }
 
-  if (request.protocol !== PROTOCOL_VERSION) {
+  // ---- read once; everything below reads these, never `request` ----------
+  // The one place this function touches the caller's object. What follows
+  // validates these bindings and returns these bindings, so there is no
+  // read left for an accessor to answer differently — see the header.
+  const protocol = request.protocol;
+  const entry = request.entry;
+  const requestId = request.requestId;
+  const args = request.args;
+  const buildId = request.buildId;
+  const timeout = request.timeoutMs;
+  const state = request[PARTITIONS[0].field];
+  const runtime = request[PARTITIONS[1].field];
+
+  if (protocol !== PROTOCOL_VERSION) {
     refuse(
       CODE.PROTOCOL_VERSION,
-      `request declares protocol ${JSON.stringify(request.protocol)}; this service speaks ${PROTOCOL_VERSION}`,
-      { declared: request.protocol, expected: PROTOCOL_VERSION },
+      `request declares protocol ${JSON.stringify(protocol)}; this service speaks ${PROTOCOL_VERSION}`,
+      { declared: protocol, expected: PROTOCOL_VERSION },
     );
   }
 
-  if (typeof request.entry !== 'string' || request.entry.length === 0) {
+  if (typeof entry !== 'string' || entry.length === 0) {
     refuse(CODE.BAD_REQUEST_FIELD, '`entry` must be a non-empty string', { field: 'entry' });
   }
-  if (request.requestId !== undefined && typeof request.requestId !== 'string') {
+  if (requestId !== undefined && typeof requestId !== 'string') {
     refuse(CODE.BAD_REQUEST_FIELD, '`requestId` must be a string', { field: 'requestId' });
   }
-  if (request.args !== undefined && typeof request.args !== 'string') {
+  if (args !== undefined && typeof args !== 'string') {
     refuse(
       CODE.BAD_REQUEST_FIELD,
       '`args` is the root arguments as EDN TEXT, not a decoded value — the service does not ' +
@@ -590,7 +623,7 @@ function validateRequest(request, moduleTables, limits = {}) {
       { field: 'args' },
     );
   }
-  if (request.buildId !== undefined && typeof request.buildId !== 'string') {
+  if (buildId !== undefined && typeof buildId !== 'string') {
     refuse(CODE.BAD_REQUEST_FIELD, '`buildId` must be a string', { field: 'buildId' });
   }
 
@@ -599,29 +632,29 @@ function validateRequest(request, moduleTables, limits = {}) {
   // id it deployed against turns "the two artefacts are from different
   // builds" — which otherwise has nothing to compare, and fails as two
   // different applications answering one request — into a refusal.
-  if (request.buildId !== undefined && request.buildId !== moduleTables.buildId) {
+  if (buildId !== undefined && buildId !== moduleTables.buildId) {
     refuse(
       CODE.BUILD_IDENTITY_MISMATCH,
-      `request expects build ${JSON.stringify(request.buildId)} but this sidecar is serving ` +
+      `request expects build ${JSON.stringify(buildId)} but this sidecar is serving ` +
         `${JSON.stringify(moduleTables.buildId)}`,
-      { expected: request.buildId, serving: moduleTables.buildId },
+      { expected: buildId, serving: moduleTables.buildId },
     );
   }
 
   // ---- the entry table ---------------------------------------------------
-  const entryConfig = Object.prototype.hasOwnProperty.call(moduleTables.entries, request.entry)
-    ? moduleTables.entries[request.entry]
+  const entryConfig = Object.prototype.hasOwnProperty.call(moduleTables.entries, entry)
+    ? moduleTables.entries[entry]
     : undefined;
   if (entryConfig === undefined) {
-    refuse(CODE.UNKNOWN_ENTRY, `no entry named ${JSON.stringify(request.entry)} in this bundle`, {
-      entry: request.entry,
+    refuse(CODE.UNKNOWN_ENTRY, `no entry named ${JSON.stringify(entry)} in this bundle`, {
+      entry,
       known: Object.keys(moduleTables.entries),
     });
   }
 
   // ---- the two partitions, and their render-visibility allowlists --------
-  const stateValidation = validatePartition(request, entryConfig, request.entry, PARTITIONS[0]);
-  const runtimeValidation = validatePartition(request, entryConfig, request.entry, PARTITIONS[1]);
+  const stateValidation = validatePartition(state, entryConfig, entry, PARTITIONS[0]);
+  const runtimeValidation = validatePartition(runtime, entryConfig, entry, PARTITIONS[1]);
   // ONE ceiling over both partitions: the budget is the request's EDN
   // text, and a partition is a way of naming it, not a second allowance.
   const requestBytes = stateValidation.bytes + runtimeValidation.bytes;
@@ -635,12 +668,8 @@ function validateRequest(request, moduleTables, limits = {}) {
 
   // ---- the deadline ------------------------------------------------------
   let timeoutMs = defaultTimeoutMs;
-  if (request.timeoutMs !== undefined) {
-    if (
-      typeof request.timeoutMs !== 'number' ||
-      !Number.isFinite(request.timeoutMs) ||
-      request.timeoutMs <= 0
-    ) {
+  if (timeout !== undefined) {
+    if (typeof timeout !== 'number' || !Number.isFinite(timeout) || timeout <= 0) {
       refuse(CODE.BAD_REQUEST_FIELD, '`timeoutMs` must be a positive finite number', {
         field: 'timeoutMs',
       });
@@ -648,16 +677,16 @@ function validateRequest(request, moduleTables, limits = {}) {
     // Clamped rather than refused: a caller asking for longer than the
     // service will ever wait has made a configuration mistake, and the
     // service's own ceiling is the one that binds either way.
-    timeoutMs = Math.min(request.timeoutMs, maxTimeoutMs);
+    timeoutMs = Math.min(timeout, maxTimeoutMs);
   }
 
   return {
     protocol: PROTOCOL_VERSION,
-    entry: request.entry,
+    entry,
     state: stateValidation.partition,
     runtime: runtimeValidation.partition,
-    args: request.args,
-    requestId: request.requestId,
+    args,
+    requestId,
     timeoutMs,
   };
 }

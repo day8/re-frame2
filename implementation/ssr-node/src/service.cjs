@@ -139,28 +139,36 @@ class Service {
           // would carry only this package's own text if it were not.
           // Neither half survived being measured.
           //
-          // It is reached by an ORDINARY IN-PROCESS CALL. `validatePartition`
-          // returns the caller's own partition object rather than a copy, so
-          // the object the validator inspects and the object `postMessage`
-          // structured-clones are one object read twice — and anything with
-          // an accessor on it (a getter, a Proxy, a lazily-materialised row
-          // out of a serializer) can be a string on the first read and
-          // unclonable on the second. `postMessage` then throws
+          // It was reached by an ORDINARY IN-PROCESS CALL. `validatePartition`
+          // used to return the caller's own partition object rather than a
+          // copy, so the object the validator inspected and the object
+          // `postMessage` structured-clones were one object read twice — and
+          // anything with an accessor on it (a getter, a Proxy, a lazily
+          // materialised row out of a serializer) could be a string on the
+          // first read and unclonable on the second. `postMessage` then threw
           // `DataCloneError` synchronously inside `render()`'s executor,
           // which never passed through a receiver that could have made it a
           // `Refusal`.
           //
-          // And the text is the CALLER'S, not ours: a `DataCloneError` names
+          // And the text was the CALLER'S, not ours: a `DataCloneError` names
           // the value it choked on, so the caller's own value was
           // interpolated into a message published on the widest surface this
           // package has — the egress this file's header says does not exist.
           //
-          // THE ARM ITSELF IS NOT THE DEFECT AND IS NOT REMOVED. It is what
+          // THAT ROUTE IS CLOSED (rf2-ey07): `validateRequest` now reads every
+          // field exactly once and returns what it read, so a request that
+          // validates is a request that clones.
+          //
+          // THE ARM ITSELF WAS NEVER THE DEFECT AND IS NOT REMOVED, and being
+          // unreachable from a caller is not a reason to remove it. It is what
           // guarantees `renderFrames` throws nothing but a `Refusal`, which
           // is the property every transport is written against; deleting it
-          // would let a raw `Error` reach `statusFor` with no code at all.
-          // Only the wording was ever wrong, and the contract already owns
-          // the wording.
+          // would let a raw `Error` reach `statusFor` with no code at all —
+          // and `isolate.cjs`'s `render` deliberately lets a `postMessage`
+          // that throws reject RAW rather than dressing it as a `Refusal`,
+          // precisely so this arm is what states the wording and writes the
+          // operator's copy. Only the wording was ever wrong, and the
+          // contract already owns the wording.
           reportUncontractedFault(error);
           renderFailure = new Refusal(CODE.RENDER_THREW, RENDER_THREW_REFUSAL, {});
         },

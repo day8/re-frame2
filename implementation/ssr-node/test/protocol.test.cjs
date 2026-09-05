@@ -287,6 +287,119 @@ test('a deadline over the service ceiling is clamped rather than refused', () =>
 });
 
 // ---------------------------------------------------------------------------
+// THE NORMALIZED REQUEST IS A SNAPSHOT (rf2-ey07)
+//
+// Everything above asks whether a bad request is refused. This asks the
+// question one step later, and it is a different question: of the request
+// that PASSED, is what comes out the thing that was checked?
+//
+// It has to be, because the returned object is what `isolate.render` hands
+// to `postMessage`, and a structured clone is a SECOND READ of every value
+// in it. A field backed by an accessor — a getter, a Proxy, a lazily
+// materialised row out of a serializer — can be a well-formed string when
+// the validator reads it and something else entirely when the clone does.
+// A validator that returns the caller's own object has therefore checked a
+// value the wire will never see, and the fail-closed guarantee above is
+// about that unchecked second read rather than about the request.
+//
+// THE READ COUNT IS THE DISCRIMINATOR, and it is deliberately a fact about
+// the tree rather than about the fix: a witness that merely passes a bad
+// value proves nothing about a time-of-check/time-of-use gap, because a
+// value that is bad on BOTH reads is refused by the ordinary type checks
+// thirty lines up. Only a value that CHANGES between reads separates the
+// two, and only a read count can see it change.
+// ---------------------------------------------------------------------------
+
+/**
+ * Install a property on `host` that is `honestValue` for its first
+ * `honestReads` reads and an unclonable `Symbol` on every read after that.
+ * Returns the read counter.
+ *
+ * A `Symbol` rather than a function or a big object because it is the
+ * shape that cannot be smuggled past anything: no coercion turns one into
+ * a string by accident, `typeof` names it, and a structured clone refuses
+ * it outright.
+ */
+function twoFaced(host, key, honestValue, honestReads = 1) {
+  let reads = 0;
+  Object.defineProperty(host, key, {
+    enumerable: true,
+    configurable: true,
+    get() {
+      reads += 1;
+      return reads <= honestReads ? honestValue : Symbol('rf2-ey07-second-read');
+    },
+  });
+  return () => reads;
+}
+
+test('a partition value is CAPTURED, so the request carries what was validated', () => {
+  const state = {};
+  const reads = twoFaced(state, ':route', '{:name :ok}');
+  const out = validateRequest({ protocol: 1, entry: 'app/root', state }, TABLES);
+
+  assert.notStrictEqual(
+    out.state,
+    state,
+    "the normalized request must not alias the caller's own partition object",
+  );
+  assert.strictEqual(
+    out.state[':route'],
+    '{:name :ok}',
+    'it must carry the value the validator checked, not a fresh read of the accessor behind it',
+  );
+  assert.strictEqual(
+    reads(),
+    1,
+    "and reading the normalized request must not reach back into the caller's object",
+  );
+});
+
+test('`args` is captured too — the partition is the shape, not the whole of it', () => {
+  // Same defect, a field away. `args` was read by its `!== undefined` test,
+  // read again by its `typeof` test, and read a THIRD time to build the
+  // returned request — so a caller could satisfy both checks and still put
+  // something else on the wire. A fix that closed the partition and left
+  // this open would have moved the defect rather than closed it.
+  const req = { protocol: 1, entry: 'app/root', state: { ':todos': '[]' } };
+  const reads = twoFaced(req, 'args', '[1 2 3]', 2);
+  const out = validateRequest(req, TABLES);
+  assert.strictEqual(
+    out.args,
+    '[1 2 3]',
+    'the request must carry the EDN text that was validated',
+  );
+  assert.strictEqual(reads(), 1, 'and one read is all a validated field ever needs');
+});
+
+test('every field the normalized request carries is read exactly ONCE', () => {
+  // The invariant the two rows above are consequences of, stated directly
+  // and over the whole field list rather than over the two fields that
+  // happened to be reachable. This one uses an honest accessor: it changes
+  // no value and forces no failure, it only counts. A field read twice is
+  // a field whose second read nobody validated, whatever it returns today.
+  const req = {};
+  const counters = {
+    protocol: twoFaced(req, 'protocol', 1, Infinity),
+    entry: twoFaced(req, 'entry', 'app/root', Infinity),
+    buildId: twoFaced(req, 'buildId', TABLES.buildId, Infinity),
+    args: twoFaced(req, 'args', '[1 2 3]', Infinity),
+    requestId: twoFaced(req, 'requestId', 'corr-1', Infinity),
+    timeoutMs: twoFaced(req, 'timeoutMs', 250, Infinity),
+    state: twoFaced(req, 'state', { ':todos': '[]' }, Infinity),
+    runtime: twoFaced(req, 'runtime', {}, Infinity),
+  };
+
+  const out = validateRequest(req, TABLES);
+  assert.strictEqual(out.entry, 'app/root', 'the control: this request must actually validate');
+
+  const readTwice = Object.entries(counters)
+    .filter(([, reads]) => reads() !== 1)
+    .map(([field, reads]) => `${field} (${reads()})`);
+  assert.deepStrictEqual(readTwice, [], 'these fields were read more than once');
+});
+
+// ---------------------------------------------------------------------------
 // The module's own tables are fail-closed too
 // ---------------------------------------------------------------------------
 

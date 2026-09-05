@@ -86,6 +86,50 @@ test('an isolate refuses a second dispatch outright', async () => {
   }
 });
 
+test('a post that THROWS leaves the isolate free, not stuck busy (rf2-ey07)', async () => {
+  // Guarantee 3 has a second half nobody had asked about: an isolate that
+  // is marked busy must be busy WITH something. `render()` used to set
+  // `pendingRender` and arm the deadline before handing the message to
+  // `postMessage`, so a post that threw — and a structured clone throws on
+  // any value it cannot copy — left the flag set with the render it was
+  // supposed to describe already rejected. Nothing but the deadline could
+  // clear it, and clearing it that way is not a release: the deadline's own
+  // callback TERMINATES the worker thread, so a healthy isolate is killed
+  // and the pool has to boot a replacement.
+  //
+  // NO STUB AND NO PLANT — the throw is `postMessage`'s own, raised by
+  // Node's structured clone on a value the request really carries.
+  //
+  // This row is deliberately at the ISOLATE rather than through a service.
+  // `validateRequest` no longer lets such a request past (see
+  // protocol.test.cjs), which is the other half of rf2-ey07 — so a
+  // service-level version of this row would go green on the validator's
+  // repair and stop saying anything about the ordering here.
+  const isolate = await new Isolate({ modulePath: FIXTURE }).start();
+  try {
+    const err = await refusalOf(() =>
+      isolate.render(
+        { entry: 'app/root', state: { ':route': Symbol('rf2-ey07') }, protocol: 1 },
+        { timeoutMs: 5000, onChunk: () => {} },
+      ),
+    );
+    assert.ok(err, 'the render must fail — the request cannot cross the thread boundary');
+    assert.strictEqual(isolate.busy, false, 'a post that threw must leave nothing in flight');
+    assert.strictEqual(isolate.dead, false, 'and must not have cost the isolate its life either');
+
+    // The flag is the mechanism; THIS is the consequence, and it is what a
+    // caller would have met: the next request handed this isolate.
+    const chunks = [];
+    await isolate.render(
+      { entry: 'app/root', state: { ':todos': '[]' }, protocol: 1 },
+      { timeoutMs: 5000, onChunk: (frame) => chunks.push(frame) },
+    );
+    assert.strictEqual(chunks.length, 1, 'the isolate must still serve the request after it');
+  } finally {
+    await isolate.close();
+  }
+});
+
 test('a saturated pool REFUSES rather than queueing without a bottom', async () => {
   await withService('reference', { isolates: 1, admissionTimeoutMs: 20 }, async (service) => {
     const slow = collect(service, req({ state: { ':todos': '[]', ':delay': '250' } }));
