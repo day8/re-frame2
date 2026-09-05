@@ -16,6 +16,11 @@
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
             [clojure.walk :as walk]
+            ;; rf2-qy8p — the canonical recursive grammar gate. The import
+            ;; regressions below assert the POSTCONDITION `scxml->spec` now
+            ;; carries: a successful import is a definition every emitter,
+            ;; the chart projector and `reg-machine` accept.
+            [day8.re-frame2-machines-viz.grammar :as g]
             [day8.re-frame2-machines-viz.scxml :as scxml]))
 
 (defn- deep-strings
@@ -1526,3 +1531,187 @@
       ;; the bead's negative regression: NO retired/foreign cofx vocabulary
       (is (not (str/includes? out "rf.world/inputs")))
       (is (not (str/includes? out "inject-cofx"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-qy8p — SCXML executable / data-model content is IGNORED, never
+;; reinterpreted as topology
+;;
+;; W3C SCXML §3.3 lets a conforming `<state>` carry `<onentry>`, `<onexit>`,
+;; `<invoke>`, `<datamodel>` and friends. The re-frame2 importer models
+;; TOPOLOGY only — `<state>` / `<final>` / `<history>` / `<transition>` — so
+;; those bodies are LOSSY BY DESIGN, exactly as the ns docstring's
+;; "Not supported" list says.
+;;
+;; What is NOT acceptable is inventing topology out of them. Pre-fix the
+;; direct-child collector accepted EVERY non-transition tag, so an
+;; `<onentry/>` became an id-less `:states` entry keyed by `nil`, and the
+;; import returned a definition `grammar/valid-definition?` — and therefore
+;; `reg-machine`, `MachineChart` and every sibling emitter — rejects. The
+;; failure surfaced far downstream as a compound-state error naming a state
+;; the programmer never authored.
+;;
+;; Two invariants are pinned here:
+;;   1. only recognised topology tags are collected as child states;
+;;   2. every SUCCESSFUL `scxml->spec` result passes the canonical recursive
+;;      grammar gate (the postcondition the public docstring promises).
+
+(def onentry-only-scxml
+  "The minimal reproduction: a conforming `<state>` whose only child is an
+  empty `<onentry/>`."
+  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
+       "<state id='idle'><onentry/></state>"
+       "</scxml>"))
+
+(deftest import-ignores-empty-onentry-executable-content
+  (testing "rf2-qy8p — an empty <onentry/> is ignored, not promoted to a nil-keyed state"
+    (let [spec (scxml/scxml->spec onentry-only-scxml)]
+      (is (= {:initial :idle :states {:idle {}}} spec)
+          "the state imports bare; the executable body leaves no trace")
+      (is (not (contains? (:states spec) nil))
+          "no phantom nil-keyed state")
+      (is (empty? (get-in spec [:states :idle :states]))
+          "the leaf stays a leaf — <onentry> is not a child state")
+      (is (g/valid-definition? spec)
+          "a successful import passes the canonical recursive grammar gate")
+      (is (nil? (g/definition-defect spec))))))
+
+(def executable-and-datamodel-scxml
+  "Every unsupported family the bead names — `<datamodel>`/`<data>` at the
+  root, `<onentry>` with a `<log>` body, `<invoke>` with a `<param>`, and
+  `<onexit>` with an `<assign>` — wrapped around otherwise supported states
+  and transitions."
+  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='go'>"
+       "<datamodel><data id='counter' expr='0'/></datamodel>"
+       "<state id='go'>"
+       "<onentry><log expr='entering'/></onentry>"
+       "<invoke type='http://www.w3.org/TR/scxml/'><param name='p' expr='1'/></invoke>"
+       "<transition event='next' target='wait'/>"
+       "</state>"
+       "<state id='wait'>"
+       "<onexit><assign location='counter' expr='counter'/></onexit>"
+       "<transition event='finish' target='done'/>"
+       "</state>"
+       "<final id='done'/>"
+       "</scxml>"))
+
+(deftest import-ignores-executable-and-datamodel-subtrees-wholesale
+  (testing "rf2-qy8p — <datamodel>/<onentry>/<onexit>/<invoke> subtrees are dropped
+            wholesale while the real ids and transitions import exactly"
+    (let [spec (scxml/scxml->spec executable-and-datamodel-scxml)]
+      (is (= {:initial :go
+              :states  {:go   {:on {:next :wait}}
+                        :wait {:on {:finish :done}}
+                        :done {:final? true}}}
+             spec)
+          "topology is exact; every unsupported subtree is ignored")
+      (is (= #{:go :wait :done} (set (keys (:states spec))))
+          "no phantom state from <datamodel> at the root")
+      (is (not (contains? (set (keys (:states spec))) nil)))
+      ;; the unsupported subtrees' own attributes must not leak in as ids
+      (is (not (contains? (:states spec) :counter))
+          "<data id='counter'> is data-model, not a state")
+      (is (g/valid-definition? spec)))))
+
+(def nested-state-inside-unsupported-scxml
+  "An unsupported element that CONTAINS a `<state>`. Skipping only the open
+  tag would promote the nested element into the parent's `:states`; the whole
+  subtree has to go."
+  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='a'>"
+       "<state id='a'>"
+       "<onentry><state id='sneaky'/><final id='sneakier'/></onentry>"
+       "<transition event='go' target='b'/>"
+       "</state>"
+       "<state id='b'/>"
+       "</scxml>"))
+
+(deftest import-does-not-promote-a-state-nested-in-an-unsupported-element
+  (testing "rf2-qy8p — only DIRECT recognised children are collected; an
+            unsupported element is skipped together with its whole subtree"
+    (let [spec (scxml/scxml->spec nested-state-inside-unsupported-scxml)]
+      (is (= {:initial :a
+              :states  {:a {:on {:go :b}}
+                        :b {}}}
+             spec))
+      (is (empty? (get-in spec [:states :a :states]))
+          "the <state> buried inside <onentry> is NOT promoted")
+      (is (not (contains? (:states spec) :sneaky)))
+      (is (not (contains? (:states spec) :sneakier)))
+      (is (g/valid-definition? spec)))))
+
+(deftest import-tolerates-unsupported-content-around-history-and-compounds
+  (testing "rf2-qy8p — the allowlist keeps <history> and nested compounds; only
+            the unsupported families are dropped"
+    (let [spec (scxml/scxml->spec
+                 (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='outer'>"
+                      "<state id='outer' initial='outer___one'>"
+                      "<onentry><log expr='x'/></onentry>"
+                      "<history id='outer___hist' type='deep'>"
+                      "<transition target='outer___one'/>"
+                      "</history>"
+                      "<state id='outer___one'>"
+                      "<onexit/>"
+                      "<transition event='next' target='outer___two'/>"
+                      "</state>"
+                      "<state id='outer___two'/>"
+                      "</state>"
+                      "</scxml>"))]
+      (is (= {:initial :outer
+              :states  {:outer {:initial :one
+                                :states  {:hist {:type :history :deep? true
+                                                 :default-target :one}
+                                          :one  {:on {:next :two}}
+                                          :two  {}}}}}
+             spec))
+      (is (g/valid-definition? spec)))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-qy8p — the import POSTCONDITION: success implies a projectable
+;; definition. Parser output that cannot be represented as a valid re-frame2
+;; definition throws the documented `:scxml/invalid-spec`, value-free.
+
+(def missing-initial-scxml
+  "No root `initial` — the machine contract wants a keyword `:initial`.
+  Pre-fix this returned `{:states {:a {}}}` silently, contradicting the
+  public docstring's stated error boundary."
+  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
+       "<state id='a'/></scxml>"))
+
+(deftest import-throws-invalid-spec-rather-than-returning-a-malformed-definition
+  (testing "rf2-qy8p — a document whose topology cannot be a valid re-frame2
+            definition throws :scxml/invalid-spec instead of returning it"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                 (scxml/scxml->spec missing-initial-scxml)))
+    (let [d (try (scxml/scxml->spec missing-initial-scxml)
+                 nil
+                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :scxml/invalid-spec (:rf.error/id d)) "the documented discriminator"))))
+
+(deftest import-invalid-spec-error-is-value-free
+  (testing "rf2-qy8p — the import-side invalid-spec ex-data carries only the
+            shared value-free summary: no raw XML, no parsed definition"
+    (let [secret "patientrecordsecret42"
+          xml    (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
+                      "<state id='" secret "'/></scxml>")
+          d      (try (scxml/scxml->spec xml) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :scxml/invalid-spec (:rf.error/id d)))
+      (is (some? (:spec-summary d)) "value-free summary present")
+      (is (not (contains? d :input)) "no raw :input slot")
+      (is (not (contains? d :spec)) "no raw :spec slot")
+      (is (not (some #(str/includes? % secret) (deep-strings d)))
+          "the id must not survive anywhere in ex-data"))))
+
+(deftest every-supported-fixture-imports-to-a-valid-definition
+  (testing "rf2-qy8p — the postcondition holds across the whole supported
+            round-trip corpus (the guard against a gate that rejects real imports)"
+    (doseq [spec [idle-loading-success-error
+                  compound-machine
+                  namespaced-machine
+                  guarded-machine
+                  after-machine
+                  always-machine
+                  parallel-machine]]
+      (let [imported (scxml/scxml->spec (scxml/spec->scxml spec))]
+        (is (g/valid-definition? imported)
+            (str "import of " (pr-str (or (:initial spec) (:type spec))) " must be projectable"))
+        (is (= spec imported) "and the round-trip stays value-equal")))))

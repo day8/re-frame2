@@ -76,6 +76,15 @@
 
   ## Not supported (lossy or omitted)
 
+  - SCXML EXECUTABLE CONTENT and the DATA MODEL — `<onentry>`, `<onexit>`,
+    `<script>`, `<log>`, `<assign>`, `<raise>`, `<send>`, `<datamodel>` /
+    `<data>`, `<invoke>` and any other foreign child of a `<state>`. The
+    import models the static TOPOLOGY only, so on the way IN every such
+    element is IGNORED together with its whole subtree, and on the way OUT
+    none is emitted. Ignoring is the whole of the behaviour (rf2-qy8p): a
+    foreign element never becomes a `:states` entry, and a `<state>` nested
+    inside one is NOT promoted into the parent's `:states`. Only `<state>`,
+    `<final>`, `<history>` and `<transition>` carry meaning here.
   - `:spawn-all` rows — omitted; the parent state renders without
     spawn affordances.
   - INTERNAL-default self / proper-ancestor SELF-TRANSITION semantics
@@ -1250,23 +1259,102 @@
 
 (declare parse-state-block)
 
+;; rf2-qy8p — the CLOSED set of child tags the importer models as topology.
+;; W3C SCXML §3.3 lets a conforming `<state>` carry executable content
+;; (`<onentry>`, `<onexit>`, `<script>`, `<log>`, `<assign>`), a `<datamodel>`
+;; and `<invoke>`. This importer covers the static topology only, so those
+;; families are LOSSY BY DESIGN — the ns docstring's "Not supported" list says
+;; so, and ignoring them is coherent.
+;;
+;; What is NOT coherent is what the collector did before this set existed: it
+;; special-cased `<transition>` and then accepted EVERY remaining tag as a
+;; child state. An `<onentry/>` has no `id`, so `id-string->abs-path nil` →
+;; `[nil]` → a `:states` entry keyed by `nil`; several such elements
+;; overwrote one another; and a `<state>` nested inside one got PROMOTED into
+;; the parent's `:states`. The import then returned a definition
+;; `grammar/valid-definition?` rejects, so the failure surfaced far downstream
+;; as a compound-state error naming a state the programmer never authored.
+(def ^:private topology-child-tags
+  "The SCXML child elements `group-children-by-state` collects as re-frame2
+  topology: `<state>` / `<final>` (ordinary + terminal states) and
+  `<history>` (the pseudo-state `parse-state-block` routes to
+  `parse-history-block`). `<transition>` is handled earlier by
+  `consume-transitions` and skipped here. Every other tag is unsupported and
+  is skipped WITH ITS WHOLE SUBTREE.
+
+  Nested `<parallel>` is deliberately absent: the exporter emits `<parallel>`
+  only as the ROOT (`emit-parallel`), `scxml->spec` handles that root case
+  before it ever reaches this collector, and `parse-state-block` has no
+  nested-parallel branch — so a nested `<parallel>` would have become a
+  malformed state, not a region. Ignoring it is the lossy-by-design answer."
+  #{"state" "final" "history"})
+
+(defn- scan-element-body
+  "Consume one balanced `<tag> … </tag>` element body from `rs` (the tokens
+  AFTER the open tag). Returns `[body rest-tokens]`, where `body` is the
+  interior tokens and `rest-tokens` the stream past the matching close.
+
+  Throws the documented `:scxml/parse-error` for an unclosed element — the
+  same error the inline scan this replaces threw, so malformed-input error
+  ids are unchanged. Shared by the recognised-tag branch (which keeps the
+  body) and the unsupported-tag branch (which discards it), so an
+  unsupported element can never leak its subtree back into the token stream."
+  [tag rs]
+  (loop [body  []
+         depth 1
+         rs    rs]
+    (cond
+      (empty? rs)
+      (rf.error/throw-error!
+        :scxml/parse-error
+        'machines-viz/scxml->spec
+        (str "SCXML import: unclosed <" tag
+             "> element; add the matching </"
+             tag "> closing tag.")
+        {:recovery :close-the-open-element
+         :extra    {:tag tag}})
+
+      (and (= :end (:kind (first rs)))
+           (= tag (:tag (first rs)))
+           (= 1 depth))
+      [body (rest rs)]
+
+      (and (= :start (:kind (first rs)))
+           (= tag (:tag (first rs))))
+      (recur (conj body (first rs)) (inc depth) (rest rs))
+
+      (and (= :end (:kind (first rs)))
+           (= tag (:tag (first rs))))
+      (recur (conj body (first rs)) (dec depth) (rest rs))
+
+      :else
+      (recur (conj body (first rs)) depth (rest rs)))))
+
 (defn- group-children-by-state
   "Given a flat seq of tokens that sit inside one `<state>` body
-  (already excluding transitions), pair every `<state>` /
-  `<final>` open token with its matching close + interior tokens.
-  Returns a seq of `{:start ... :body ... :self? bool}` maps."
+  (already excluding transitions), pair every `<state>` / `<final>` /
+  `<history>` open token with its matching close + interior tokens.
+  Returns a seq of `{:start ... :body ... :self? bool}` maps.
+
+  rf2-qy8p — the tag test is an ALLOWLIST (`topology-child-tags`), not
+  \"everything that is not a `<transition>`\". An unsupported element is
+  skipped: a self-closing one outright, an open one TOGETHER WITH ITS WHOLE
+  SUBTREE (via `scan-element-body`), so markup nested inside it — a `<state>`
+  buried in an `<onentry>`, a `<data>` in a `<datamodel>` — cannot be
+  promoted into the parent's `:states`."
   [tokens]
   (loop [remaining tokens
          acc       []]
     (if (empty? remaining)
       acc
-      (let [t (first remaining)]
+      (let [t   (first remaining)
+            tag (:tag t)]
         (cond
           ;; Transitions are not state blocks — skip them at this
           ;; level. consume-transitions picks up the direct
           ;; transitions before group-children-by-state is called
           ;; on the children-tokens.
-          (and (= "transition" (:tag t))
+          (and (= "transition" tag)
                (or (= :self (:kind t))
                    (= :start (:kind t))
                    (= :end (:kind t))))
@@ -1274,41 +1362,20 @@
 
           (= :self (:kind t))
           (recur (rest remaining)
-                 (conj acc {:start t :body [] :self? true}))
+                 (if (contains? topology-child-tags tag)
+                   (conj acc {:start t :body [] :self? true})
+                   ;; Unsupported self-closing element — ignored (lossy).
+                   acc))
 
           (= :start (:kind t))
-          (let [tag (:tag t)
-                [body rest-tokens] (loop [body []
-                                          depth 1
-                                          rs (rest remaining)]
-                                     (cond
-                                       (empty? rs)
-                                       (rf.error/throw-error!
-                                         :scxml/parse-error
-                                         'machines-viz/scxml->spec
-                                         (str "SCXML import: unclosed <" tag
-                                              "> element; add the matching </"
-                                              tag "> closing tag.")
-                                         {:recovery :close-the-open-element
-                                          :extra    {:tag tag}})
-
-                                       (and (= :end (:kind (first rs)))
-                                            (= tag (:tag (first rs)))
-                                            (= 1 depth))
-                                       [body (rest rs)]
-
-                                       (and (= :start (:kind (first rs)))
-                                            (= tag (:tag (first rs))))
-                                       (recur (conj body (first rs)) (inc depth) (rest rs))
-
-                                       (and (= :end (:kind (first rs)))
-                                            (= tag (:tag (first rs))))
-                                       (recur (conj body (first rs)) (dec depth) (rest rs))
-
-                                       :else
-                                       (recur (conj body (first rs)) depth (rest rs))))]
+          ;; The body is consumed either way; only a recognised tag keeps it.
+          (let [[body rest-tokens] (scan-element-body tag (rest remaining))]
             (recur rest-tokens
-                   (conj acc {:start t :body body :self? false})))
+                   (if (contains? topology-child-tags tag)
+                     (conj acc {:start t :body body :self? false})
+                     ;; Unsupported open element — the WHOLE subtree is
+                     ;; dropped, so nothing inside it is reachable as topology.
+                     acc)))
 
           :else
           (recur (rest remaining) acc))))))
@@ -1459,6 +1526,43 @@
       (:on coll)    (assoc :on    (into {} (map (fn [[ev cs]] [ev (simplify-candidates cs)]) (:on coll))))
       (:after coll) (assoc :after (into {} (map (fn [[k cs]] [k (simplify-candidates cs)]) (:after coll)))))))
 
+(defn- import-postcondition
+  "rf2-qy8p — the IMPORT-side counterpart of the check `spec->scxml` already
+  makes: a definition `scxml->spec` is about to return must be one the rest of
+  re-frame2 accepts. Returns `definition` when it is projectable; otherwise
+  throws the documented `:scxml/invalid-spec`.
+
+  The export side routes its shape check through `grammar/valid-definition?`
+  (rf2-egupfk) and so do `share`, Mermaid, AI-generate and the chart
+  projector — the import side was the ONE public boundary that returned its
+  assembled map unchecked, so a parse that could not be represented as a
+  re-frame2 definition reported SUCCESS and displaced the failure to
+  `reg-machine` / `MachineChart` / the next export. This closes that seam with
+  the same gate, giving the surface one law: a successful import yields a
+  machine every other boundary accepts.
+
+  EP-0015 / Spec 015 §exception-path residual — the ex-data carries the shared
+  value-FREE `grammar/definition-summary` under this ns's `:spec-summary` key.
+  NEITHER the raw SCXML input NOR the parsed definition appears: an imported
+  document is untrusted content and its ids are attacker-chosen in content and
+  size, which is precisely the case the summary exists to describe."
+  [definition]
+  (when-not (g/valid-definition? definition)
+    (rf.error/throw-error!
+      :scxml/invalid-spec
+      'machines-viz/scxml->spec
+      (str "SCXML import: the document parsed, but its topology is not a "
+           "re-frame2 machine definition. A machine needs a keyword :initial "
+           "plus a non-empty :states map (or :type :parallel plus :regions), "
+           "and every compound state needs its own :initial naming one of its "
+           "children. Note that unsupported SCXML executable / data-model "
+           "content is IGNORED rather than imported as topology, so check the "
+           "document's <state> / <final> / <history> structure.")
+      {:recovery :fix-the-imported-machine-topology
+       ;; rf2-8nzxib — value-FREE; never the raw input or the parsed map.
+       :extra    {:spec-summary (g/definition-summary definition)}}))
+  definition)
+
 (defn scxml->spec
   "Parse an SCXML XML string into a re-frame2 machine spec.
 
@@ -1475,7 +1579,24 @@
   document our parser recognises (missing root `<scxml>`, unclosed tags,
   etc.). Throws `:scxml/invalid-spec` if
   the parsed structure is missing required keys (no `:initial`, no
-  `:states`)."
+  `:states`).
+
+  rf2-qy8p — **unsupported SCXML child content is IGNORED, never
+  reinterpreted as topology.** Only `<state>`, `<final>`, `<history>` and
+  `<transition>` are modelled (`topology-child-tags`); a conforming
+  document's `<onentry>`, `<onexit>`, `<script>`, `<log>`, `<assign>`,
+  `<datamodel>` / `<data>` and `<invoke>` are skipped together with their
+  whole subtrees. That is LOSSY, as the ns docstring's \"Not supported\"
+  list says — no executable semantics are imported and nothing nested
+  inside such an element is promoted into `:states`.
+
+  rf2-qy8p — **and success is a postcondition, not a hope**: every
+  definition this returns has passed the canonical recursive grammar gate
+  (`grammar/valid-definition?`), the same one `spec->scxml`, Mermaid,
+  AI-generate, the share codec and the chart projector use. Parser output
+  that cannot be represented as a valid re-frame2 definition throws
+  `:scxml/invalid-spec` (with a value-free `:spec-summary`) rather than
+  returning a structurally invalid map."
   [scxml-string]
   (when-not (string? scxml-string)
     (rf.error/throw-error!
@@ -1528,7 +1649,8 @@
           (first (filter #(and (= "parallel" (:tag %))
                                (= :start (:kind %)))
                          root-body))]
-      (if parallel-token
+      (import-postcondition
+       (if parallel-token
         ;; Parallel definition
         (let [p-start-idx (some (fn [i] (when (identical? (nth root-body i) parallel-token) i))
                                 (range (count root-body)))
@@ -1599,4 +1721,4 @@
             ;; rf2-mnp93.7 — the root `initial` is a top-level state's
             ;; qualified id; the re-frame2 `:initial` is its local key.
             initial-str (assoc :initial (abs-path->local-key
-                                         (id-string->abs-path initial-str)))))))))
+                                         (id-string->abs-path initial-str))))))))))
