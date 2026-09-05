@@ -572,12 +572,21 @@ close this window; either is individually sufficient for its axis, and together 
    resolves for the enqueue or read. There is therefore **no liveness-check-to-bare-id-use window**: on
    the concurrent JVM host, an actor that destroys the captured incarnation and reseats a same-id
    successor between the capture's liveness pre-check and its ordinary address-directed consumption can
-   never redirect the stale op into that successor (rf2-dlld6). This is the async-safe, recover-but-emit
-   sibling of the synchronous **throwing** incarnation fence the `(frame)` accessor bundle already
-   applies; it is the last-line guard for a predecessor cleanup — including a throwing-host quarantine
+   never redirect the stale op into that successor (rf2-dlld6). This fence is **recover-but-emit**, not
+   throwing: it is the last-line guard for a predecessor cleanup — including a throwing-host quarantine
    React later self-completes — that fires after both the successor adapter and a same-id successor
-   frame are live. A capture whose id was **not** live at capture (the `capture-frame` 1-arity
+   frame are live, and these ops run from host cleanup, where a throw would break the very teardown
+   running them. A capture whose id was **not** live at capture (the `capture-frame` 1-arity
    lock-to-id form used from outside any scope) pins nothing and stays address-directed.
+
+   A **throwing** synchronous sibling of this fence existed until 2026-08-16, and is recorded rather
+   than dropped because an older cross-reference may still send a reader looking for it: it was the
+   retired `re-frame.ui` `(frame)` operation bundle's own incarnation check, and it went with that
+   artefact (rf2-0yp7w). Nothing replaced it, so the recover-but-emit fence above is the only
+   incarnation fence there is — as [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)
+   records for `:rf.error/frame-destroyed`, whose `:op` realm enum is exactly `:dispatch` /
+   `:dispatch-sync` / `:subscribe` since the fourth value `:capture`, which named that retired read
+   alone, was struck on 2026-09-04 (rf2-xtqs).
 
 This is consistent with **"Disposal is total"** and **"no state survives"** (the adapter-revertibility
 contract above): the surviving `:tearing-down` claim is a **host-ownership quarantine** tracking a
