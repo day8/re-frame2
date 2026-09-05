@@ -19,7 +19,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { withService, collect, observed, refusalOf } = require('./_support.cjs');
-const { CODE } = require('../src/protocol.cjs');
+const { CODE, RENDER_THREW_REFUSAL } = require('../src/protocol.cjs');
 
 const hang = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: {}, ...extra });
 const quick = () => ({ protocol: 1, entry: 'app/quick', state: {} });
@@ -93,7 +93,18 @@ test('a render that throws BEFORE emitting is a clean refusal', async () => {
       collect(service, { protocol: 1, entry: 'app/before', state: {} }),
     );
     assert.strictEqual(err.code, CODE.RENDER_THREW);
-    assert.match(err.message, /fell over immediately/);
+    // The wording is the CONTRACT'S, not the module's. This row asserted
+    // `/fell over immediately/` — the exact string authored at
+    // `fixtures/throws.cjs:20` — which made it a standing witness that the
+    // module's own message crossed into the public refusal. That was the
+    // leak rather than a feature of it: an exception's message is built
+    // from the value being processed in any real renderer, so the string
+    // this row was pinning is the shape request state travels in. The
+    // operator still gets the original, with its stack, on the sidecar's
+    // stderr; `egress.test.cjs` §4 is where the absence is measured with
+    // planted sentinels.
+    assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
+    assert.ok(!err.message.includes('fell over immediately'), 'the authored string must not cross');
     assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
   });
 });

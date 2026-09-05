@@ -33,7 +33,7 @@
 
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
-const { CODE, Refusal, chunkFrame } = require('./protocol.cjs');
+const { CODE, Refusal, chunkFrame, isRefusalCode } = require('./protocol.cjs');
 
 const WORKER_PATH = path.join(__dirname, 'worker.cjs');
 
@@ -198,9 +198,18 @@ class Isolate {
       return;
     }
     if (message.t === 'error') {
+      // THE SECOND READING, and the same discipline the `complete` branch
+      // above states: this is the boundary that BUILDS the public
+      // `Refusal`, so the closed family is checked here as well as at the
+      // worker that posts it. The worker is the enforcement — it is what
+      // stops a module's own `code` being believed at all — and this is
+      // the reading that stops any code the family does not contain from
+      // reaching `http.cjs`'s `statusFor` and choosing a status of its
+      // own. Two independent readings of one property, which is what makes
+      // it a boundary rather than a habit.
       this._settlePendingRender(message.id, () =>
         pendingRender.reject(
-          new Refusal(message.code ?? CODE.RENDER_THREW, message.message, {
+          new Refusal(isRefusalCode(message.code) ? message.code : CODE.RENDER_THREW, message.message, {
             ...(message.detail ?? {}),
             // A caller that already saw chunks has a TORN response. It is
             // named rather than smoothed over: the transport must not
