@@ -145,6 +145,19 @@ it". The failure mode it guards is the asymmetric one that dossier names:
 a client payload allowlist that is too narrow costs a recompute, while a
 render projection that is too narrow is a silently wrong page.
 
+**Every field is read exactly once.** `validateRequest` takes each field
+off the caller's object one time and returns what it took — the two
+partitions as fresh objects of the values it checked, never the caller's
+own. That is not tidiness: what it returns is what `postMessage`
+structured-clones, and a clone is a second read the validator has no say
+over. A field backed by an accessor — a getter, a Proxy, a lazily
+materialised row out of a serializer — could otherwise be well-formed EDN
+text when the checks read it and something else when the clone did, so the
+checks would have been about a value the wire never saw. Read-once removes
+the class rather than guarding the symptom: there is no second read left
+to disagree with the first, and so no defensive copy of the request, no
+re-check and no freeze to maintain.
+
 ### 3. One in-flight render per isolate
 
 An isolate accepts one render at a time. A second dispatch to a busy
@@ -154,6 +167,12 @@ because it only ever hands work to an idle isolate and answers
 none free. Back-pressure, not an unbounded queue: a request that waits
 forever for capacity is a request whose outcome is being decided by the
 caller's timeout, which is the wrong process deciding.
+
+The guarantee has a second half: an isolate that is marked busy is busy
+**with something**. `render()` hands the message to `postMessage` before it
+arms the deadline or sets the in-flight record, so a post that throws
+unwinds leaving the isolate exactly as free as it was — nothing to clear,
+and nothing that only the deadline could clear.
 
 The qualifier the bead attaches — "until proven otherwise" — is the honest
 state of it, and the reason is source-located. The Hicasso render entry
@@ -542,14 +561,22 @@ The last receiver is one no application can reach on purpose: a render that
 rejects with something that is **not a `Refusal` at all**. It is a fault in
 this package rather than in the application — every receiver between the
 module and the caller builds a refusal, so anything else got past all of
-them — and it is reachable, by an in-process caller whose request carries
-an accessor. Validation reads a partition value and the structured clone
-reads it again, so a getter or a Proxy can be a string the first time and
-unclonable the second, and the resulting `DataCloneError` names the value
+them. It was once reachable, by an in-process caller whose request carried
+an accessor: validation read a partition value and the structured clone
+read it again, so a getter or a Proxy could be a string the first time and
+unclonable the second, and the resulting `DataCloneError` named the value
 it choked on. A caller's own value on a public refusal is the same egress
 as any other, so this arm carries the contract's `render-threw` wording and
-sends the real fault to the operator. `test/egress.test.cjs` §6 and §7 are
-the witnesses.
+sends the real fault to the operator.
+
+**That route is closed** — the read-once rule under guarantee 2 means a
+request that passes validation is a request that can be cloned — and the
+arm stays anyway. It is what guarantees `renderFrames` throws nothing but a
+`Refusal`, which is the property every transport is written against;
+removing it would let a raw `Error` reach `statusFor` with no code at all.
+`test/egress.test.cjs` §6 and §7 are the witnesses: §7's first row holds
+the closed route open to inspection by counting the reads, and the rest
+drive the arm at the seam it guards.
 
 The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is a
 per-request `gensym` frame made with no initial events,
