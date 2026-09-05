@@ -10,7 +10,7 @@ A coeffect is a **fact the causal run consumed** — data from outside the event
 
 The coeffects map has two layers. The **base framework coeffects are always staged**: `:db` and `:event` (the fold's own arguments), `:rf.db/runtime` (the runtime-db partition), `:rf.frame/id` (the runtime-context frame stamp), and `:rf.cofx` (the whole flat recordable-coeffect map — the envelope's canonical record, including `:rf/time-ms`). On top, the handler's **user-declared leaves are declared-only**: the runtime delivers **exactly the facts named in `:rf.cofx/requires`**, flat under their ids, and stages nothing else from the token. So no *user* coeffect — not even the time — arrives without being declared; the base framework coeffects always do, and `:rf.cofx` is filtered out of the Xray COEFFECTS lens (which shows only declared leaves). Read the declared time-fact off `:rf/time-ms` (delivered flat when declared), not off `:rf.cofx`.
 
-> **`inject-cofx` is REMOVED (EP-0017, no alias).** Calling it is the hard error `:rf.error/inject-cofx-removed`. Declare the coeffect on the handler's registration metadata instead. If you are migrating a v1 app, see [`causal-world-inputs.md`](../../../re-frame-migration/references/causal-world-inputs.md).
+> **`inject-cofx` is REMOVED (EP-0017, no alias).** Calling it is the hard error `:rf.error/inject-cofx-removed`. Declare the coeffect on the handler's registration metadata instead. If you are migrating a v1 app, see [`causal-world-inputs.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/causal-world-inputs.md).
 
 ## Canonical signature — `reg-cofx` is value-returning
 

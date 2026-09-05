@@ -1,6 +1,6 @@
 # launch-programmatic — driving Xray from code
 
-Source of truth: [`tools/xray/spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md)
+Source of truth: [`tools/xray/spec/011-Launch-Modes.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/011-Launch-Modes.md)
 plus the `core.cljs` docstrings. Sibling leaves:
 [`launch-modes.md`](launch-modes.md) (getting Xray visible) and
 [`launch-lifecycle.md`](launch-lifecycle.md) (pop-out, hotkeys, posture).
@@ -26,7 +26,7 @@ panel. It registers the `:rf.xray/*` handlers, the trace + epoch collectors,
 the `window.day8.re_frame2_xray.*` browser-API exports, and the keybinding
 listener, then threads each supplied opt to its backing
 surface (per the `init!` docstring in
-[`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)).
+[`core.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/core.cljs)).
 Unlike the preload it does **not** schedule the page-load auto-open, so after
 `init!` you must call one of the three mount verbs to make Xray visible:
 
@@ -60,7 +60,7 @@ dev build's entry point loads and your release build never names:
 
 All four opts are wired today (the recognised set is exactly
 `:target-frame :theme :density :buffer-depths`, per the `init!` docstring
-in [`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)):
+in [`core.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/core.cljs)):
 
 - `:target-frame` dispatches `:rf.xray/set-target-frame`.
 - `:theme` / `:density` write the persisted Settings shape and apply the
@@ -138,7 +138,7 @@ hidden shell. Reach it after the preload (or `init!`) plus a mount verb.
 
 Every field is optional — an empty command `{}` is a well-formed no-op.
 The command keys, per
-[`focus.cljc`](../../../tools/xray/src/day8/re_frame2_xray/focus.cljc):
+[`focus.cljc`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/focus.cljc):
 
 | Key | Meaning |
 |---|---|

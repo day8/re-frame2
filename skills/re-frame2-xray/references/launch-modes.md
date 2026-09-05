@@ -1,6 +1,6 @@
 # launch-modes — getting Xray visible
 
-Source of truth: [`tools/xray/spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md).
+Source of truth: [`tools/xray/spec/011-Launch-Modes.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/011-Launch-Modes.md).
 This leaf is the decision-tree-shaped tour of what the spec normalises;
 on a corner it doesn't cover, defer to the spec doc.
 
@@ -55,7 +55,7 @@ The default path. Add the preload namespace to shadow-cljs's
 ```
 
 The preload runs five foundation side-effects (per
-[`spec/011-Launch-Modes.md` §Mount lifecycle](../../../tools/xray/spec/011-Launch-Modes.md);
+[`spec/011-Launch-Modes.md` §Mount lifecycle](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/011-Launch-Modes.md);
 matching the `init!` docstring's enumeration in `core.cljs`):
 
 1. Register `:rf.xray/*` handlers against the `:rf/xray` frame.
@@ -164,10 +164,10 @@ App dev pages should keep the default `true` posture and provide
 
 The single most common "Xray didn't open" cause: the preload ran but no
 element matched the layout-host selector when the substrate adapter became
-ready. Per [`spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md)
+ready. Per [`spec/011-Launch-Modes.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/011-Launch-Modes.md)
 Xray **must fail loudly but safely** — it MUST NOT `alert()` and MUST NOT
 block host app startup. The same diagnostic lands in two places (source
-[`mount.cljs`](../../../tools/xray/src/day8/re_frame2_xray/mount.cljs)
+[`mount.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/mount.cljs)
 `missing-host-diagnostic` / `report-diagnostic!`):
 
 1. **`console.error`** — names the expected selector + the host snippet to
@@ -219,15 +219,15 @@ layout column.
 
 `open-overlay!` is one of the mount facade's three open verbs
 (`open!` inline · `open-overlay!` modal overlay · `popout!` window — per
-[`spec/API.md` §Mount facade](../../../tools/xray/spec/API.md), three
+[`spec/API.md` §Mount facade](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md), three
 distinct mount surfaces, not modal variants of one shape). It is the
 **optional, non-default** path: the inline panel is the canonical
 developer experience, and per
-[`spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md)
+[`spec/011-Launch-Modes.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/011-Launch-Modes.md)
 the overlay "remains an optional debug mode and must not be described as
 the primary path." Prefer the `[data-rf-xray-host]` column when the host
 can give one; reach for `open-overlay!` only when it can't. Source
-[`mount.cljs`](../../../tools/xray/src/day8/re_frame2_xray/mount.cljs)
+[`mount.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/mount.cljs)
 (`open-overlay!`), exported via
-[`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs).
+[`core.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/core.cljs).
 

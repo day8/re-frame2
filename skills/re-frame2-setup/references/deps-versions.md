@@ -15,7 +15,7 @@ Which re-frame2 artefacts a project depends on, what version they are pinned at,
 
 ## The lockstep contract
 
-re-frame2 ships **ten Maven artefacts in lockstep** (core + 7 per-feature + 2 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release. Mixing versions across `day8/re-frame2-*` coordinates is **unsupported and undefined** — the runtime contract is bound to a single coordinated VERSION.
+re-frame2 ships **ten Maven artefacts in lockstep** (core + 7 per-feature + 2 per-adapter; see [`spec/Conventions.md` §Packaging conventions](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)): every artefact at the same VERSION, every release. Mixing versions across `day8/re-frame2-*` coordinates is **unsupported and undefined** — the runtime contract is bound to a single coordinated VERSION.
 
 **Lockstep is a build/dependency discipline, not a boot-time runtime check.** `rf/init!` only checks you handed it an adapter spec map (nil / non-map rejected); the spec carries a `:kind` discriminator, **not** a VERSION, so the runtime never compares per-artefact versions at boot. The enforcement that *does* exist is **build-time**: `tools/template/test/day8/re_frame2_template/version_lockstep_test.clj` fails if the template's pinned `:rf2-version` / `:shadow-version` / `:react-version` literals drift from their sources of truth, and the derived scaffold in `first-counter.md` is drift-locked against the template. Keep every coordinate at one VERSION because a mixed set is undefined, not because a guard will catch it.
 
@@ -26,7 +26,7 @@ re-frame2 ships **ten Maven artefacts in lockstep** (core + 7 per-feature + 2 pe
 grep -oE 'day8/re-frame2[a-z-]* *\{[^}]*(:mvn/version|:git/sha) "[^"]+"' deps.edn
 ```
 
-**Same VERSION, different release trigger — and that matters when you write a tools coordinate.** The ten framework artefacts ship together on a `v*` tag. Xray and Story are **tools**, and the tools tier ships on its own per-tool tags — `xray-v*`, `story-v*` — which a framework `v*` tag does not cut ([`docs/release-process.md` §The tools tier](../../../docs/release-process.md)). So a `day8/re-frame2-xray {:mvn/version "<VERSION>"}` coordinate stays a 404 until an `xray-v*` release lands, however current `<VERSION>` is; give a tool a `:git/sha` coordinate until then. Neither tool is in the scaffold — attach one when you want it, by its own recipe.
+**Same VERSION, different release trigger — and that matters when you write a tools coordinate.** The ten framework artefacts ship together on a `v*` tag. Xray and Story are **tools**, and the tools tier ships on its own per-tool tags — `xray-v*`, `story-v*` — which a framework `v*` tag does not cut ([`docs/release-process.md` §The tools tier](https://github.com/day8/re-frame2/blob/main/docs/release-process.md)). So a `day8/re-frame2-xray {:mvn/version "<VERSION>"}` coordinate stays a 404 until an `xray-v*` release lands, however current `<VERSION>` is; give a tool a `:git/sha` coordinate until then. Neither tool is in the scaffold — attach one when you want it, by its own recipe.
 
 ## The ten artefacts
 
@@ -43,7 +43,7 @@ grep -oE 'day8/re-frame2[a-z-]* *\{[^}]*(:mvn/version|:git/sha) "[^"]+"' deps.ed
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
 | `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch!` — or when you want `re-frame2-pair`'s live time-travel, which reads `epoch-history` and so needs this artefact on your app's own classpath. |
 
-These ten are the **publishable** lockstep set. (Two niche local roots — `reagent-slim`, `re-frame2-ssr-ring` — ride the same version but aren't greenfield. `day8/re-frame2-resources`, Spec [016](../../../spec/016-Resources.md) / EP-0003, is a post-v1 per-feature artefact outside the ten; add it when you call `reg-resource`.) `day8/re-frame2-xray` is tooling, not one of the ten.
+These ten are the **publishable** lockstep set. (Two niche local roots — `reagent-slim`, `re-frame2-ssr-ring` — ride the same version but aren't greenfield. `day8/re-frame2-resources`, Spec [016](https://github.com/day8/re-frame2/blob/main/spec/016-Resources.md) / EP-0003, is a post-v1 per-feature artefact outside the ten; add it when you call `reg-resource`.) `day8/re-frame2-xray` is tooling, not one of the ten.
 
 **Greenfield day-one shape.** Matching the generator template, the day-one set is **two** re-frame2 coords — `day8/re-frame2` (core) + the substrate adapter (`day8/re-frame2-reagent`, or `day8/re-frame2-uix` on explicit request) — plus the view library the adapter renders through (`reagent/reagent`, or `com.pitch/uix.core` + `uix.dom`), pinned explicitly so a surprise transitive bump cannot change your rendering substrate. Everything else — schemas, Xray, Story, the per-feature artefacts — stays **pay-as-you-go**: add it at the moment the author writes code that calls into it, so apps that don't use it don't pay the classpath cost.
 
@@ -61,7 +61,7 @@ An author who supplies a pin gets it on every `day8/re-frame2*` line (lockstep) 
 
 ## Choosing the coordinate (publication state decides the shape)
 
-**Pre-publish reality (today): re-frame2 is NOT on Clojars/npm yet.** The repo's [`README.md`](../../../README.md) §Status confirms this. The `day8/re-frame2*` Maven coordinates **do not resolve** — the `{:mvn/version "…"}` lines the scaffold's `deps.edn` carries are forward-correct and fail resolution today with `Could not find artifact day8/re-frame2`. So the coordinate *shape* branches on publication state, and pointing the framework coords at something that resolves is `SKILL.md` step 2 on both routes:
+**Pre-publish reality (today): re-frame2 is NOT on Clojars/npm yet.** The repo's [`README.md`](https://github.com/day8/re-frame2/blob/main/README.md) §Status confirms this. The `day8/re-frame2*` Maven coordinates **do not resolve** — the `{:mvn/version "…"}` lines the scaffold's `deps.edn` carries are forward-correct and fail resolution today with `Could not find artifact day8/re-frame2`. So the coordinate *shape* branches on publication state, and pointing the framework coords at something that resolves is `SKILL.md` step 2 on both routes:
 
 - **Before the first Clojars release (now):** a **`:local/root`** against a reviewed monorepo checkout — the default, because the skill is installed by link from exactly such a checkout and resolves its absolute path itself — OR a **`:git/url` + `:git/sha`** coord for each artefact. This is the **only** working manual route today.
 - **After publication (forward-correct):** leave the `{:mvn/version "<VERSION>"}` lines the scaffold ships — the post-publish destination, not usable until the coords resolve on Clojars.

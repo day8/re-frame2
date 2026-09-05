@@ -2,7 +2,7 @@
 
 Type B walkthroughs covering event handlers, registration shape, render-count test re-baselining, error handlers, routing fallbacks, top-level db seeding, the retired `:rf/runtime` app-db root (now a hard error), machine spawn-id tracking, and the React-19-removed Reagent surfaces. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
 
-The **M-11** view-under-frame sweep (subscribing plain `(defn …)` Reagent views → `reg-view`) is its own leaf: [`guided-views-m11.md`](guided-views-m11.md). For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md).
+The **M-11** view-under-frame sweep (subscribing plain `(defn …)` Reagent views → `reg-view`) is its own leaf: [`guided-views-m11.md`](guided-views-m11.md). For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 
 ## Contents
 
@@ -109,7 +109,7 @@ A v1 codebase that stacked multiple handlers (e.g. one for recovery, one for log
 
 Present the categorisation; confirm with the author; apply.
 
-**Writing the new trace listener**: the closed set of `:operation` keywords — and the `:op-type` / `:tags` shape for filtering listeners — lives in [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). See [`error-events.md`](error-events.md) for the pointer and the prefix-family reference. Do not infer category names from the v1 code or comments — the catalogue at Spec 009 is authoritative.
+**Writing the new trace listener**: the closed set of `:operation` keywords — and the `:op-type` / `:tags` shape for filtering listeners — lives in [`spec/009-Instrumentation.md` §Error event catalogue](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#error-event-catalogue). See [`error-events.md`](error-events.md) for the pointer and the prefix-family reference. Do not infer category names from the v1 code or comments — the catalogue at Spec 009 is authoritative.
 
 ---
 
@@ -151,7 +151,7 @@ Present the seed value and the proposed rewrite; confirm with the author; apply 
 
 **Risk**: framework runtime no longer lives in `app-db` at all — it sits in a **separate partition, the runtime-db** (`:rf.db/runtime`, subsystem children under `:rf.runtime/*`). A handler's `:db` return replaces **only** the app-db partition and cannot reach it, so the v1-era "wholesale `{:db fresh-map}` boot silently wipes the runtime" footgun is **structurally gone**: nothing to preserve, nothing to clobber, and a boot machine's snapshot survives any app-db replace. (The two-partition contract and the reserved runtime-db key list live in the corpus section linked below — don't re-derive them here.)
 
-The retired app-db root `:rf/runtime` is now a **hard error**. A `:db` value carrying a top-level `:rf/runtime` key throws `:rf.error/legacy-runtime-root` (the always-on post-commit guard `re-frame.events/reject-legacy-runtime-root!`, per [Conventions §The legacy `:rf/runtime` root](../../../spec/Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). The error is loud and immediate (not a silent runtime hang, not the dev-only advisory). So the migration concern flips: the rewrite is not "preserve the runtime across the replace" — it is "**strip the `:rf/runtime` key**; the runtime is no longer your responsibility to thread."
+The retired app-db root `:rf/runtime` is now a **hard error**. A `:db` value carrying a top-level `:rf/runtime` key throws `:rf.error/legacy-runtime-root` (the always-on post-commit guard `re-frame.events/reject-legacy-runtime-root!`, per [Conventions §The legacy `:rf/runtime` root](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). The error is loud and immediate (not a silent runtime hang, not the dev-only advisory). So the migration concern flips: the rewrite is not "preserve the runtime across the replace" — it is "**strip the `:rf/runtime` key**; the runtime is no longer your responsibility to thread."
 
 **Decision shape** (per wholesale-replace handler):
 
@@ -166,7 +166,7 @@ The retired app-db root `:rf/runtime` is now a **hard error**. A `:db` value car
 
 The old `:rf.warning/runtime-state-dropped` containment warning is **retired** — there is no clobber to warn about. Its replacement is the structural `:rf.error/legacy-runtime-root` hard error above, which fires in every build (dev and production) the moment a handler returns a `:rf/runtime`-bearing `:db`.
 
-Present the categorisation and the proposed rewrite; confirm with the author; apply. Full rationale and the canonical before→after: [`MIGRATION.md` §M-15b](../../../migration/from-re-frame-v1/README.md#m-15b-a-full-app-db-replace-boot--initialise-event-is-safe--but-strip-any-retired-rfruntime-key-now-a-hard-error). The end-to-end boot recipe: [`spec/Pattern-Boot.md` §Worked example — the singleton boot machine](../../../spec/Pattern-Boot.md#worked-example--the-singleton-boot-machine).
+Present the categorisation and the proposed rewrite; confirm with the author; apply. Full rationale and the canonical before→after: [`MIGRATION.md` §M-15b](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-15b-a-full-app-db-replace-boot--initialise-event-is-safe--but-strip-any-retired-rfruntime-key-now-a-hard-error). The end-to-end boot recipe: [`spec/Pattern-Boot.md` §Worked example — the singleton boot machine](https://github.com/day8/re-frame2/blob/main/spec/Pattern-Boot.md#worked-example--the-singleton-boot-machine).
 
 ---
 
@@ -185,7 +185,7 @@ Present the categorisation and the proposed rewrite; confirm with the author; ap
 2. **Test asserts a stale snapshot / leak after exit**: the assertion is now wrong (the actor is correctly destroyed). The author decides whether the test should assert the new correct teardown or whether the spec genuinely wanted the actor to survive (rare — usually means a `:system-id` named machine, not a transient spawn).
 3. **`:exit` body reads `(:pending data)` to address the child**: still works (user `:data` is user territory) — leave as-is, but confirm the author still wants the id recorded in `:data` for their own bookkeeping rather than relying on the runtime slot.
 
-Present the categorisation per site; confirm with the author; only then apply. Full rationale: [`MIGRATION.md` §M-34](../../../migration/from-re-frame-v1/README.md#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfruntimemachines-spawned-).
+Present the categorisation per site; confirm with the author; only then apply. Full rationale: [`MIGRATION.md` §M-34](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfruntimemachines-spawned-).
 
 ---
 
@@ -229,7 +229,7 @@ M-0's committed artefact still decides the **coordinate**, but it no longer chan
 2. **`dom-node` (Type B — ask first; BOTH targets)**: `findDOMNode` returned the underlying DOM node for a mounted component; the canonical React-19 replacement captures the node via `:ref` at the call site **of the parent**, not at the consumer. There is **no static-analysable rewrite** — the agent flags every `dom-node` site and the author supplies the parent ref ownership. Report the sites **before** the first compile: stock Reagent 2.0.1 has already removed the Var, so an unswept site breaks the bridge build too, not just slim's.
 3. **`force-update-all` (Type B — ask first; slim only)**: had no documented use beyond global-rebuild scripts. Flag every site and ask the maintainer whether it can be removed entirely; if not, file a GitHub issue (per the [`issue-filing.md`](issue-filing.md) recipe) rather than inventing a replacement. (Available unchanged on the bridge.)
 
-Apply the render mount-path half mechanically (in the adapter's namespace); flag the `dom-node` / `force-update-all` half and wait for the author. Full rationale + the removed-surface list: [`MIGRATION.md` §M-42](../../../migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-are-absent-under-day8reagent-slim-compile-time-unresolved-var) — note its heading and shim list predate the slim change that made these surfaces **absent** (compile-time unresolved-var) rather than throw-on-call.
+Apply the render mount-path half mechanically (in the adapter's namespace); flag the `dom-node` / `force-update-all` half and wait for the author. Full rationale + the removed-surface list: [`MIGRATION.md` §M-42](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-are-absent-under-day8reagent-slim-compile-time-unresolved-var) — note its heading and shim list predate the slim change that made these surfaces **absent** (compile-time unresolved-var) rather than throw-on-call.
 
 ---
 

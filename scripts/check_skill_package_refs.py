@@ -2,18 +2,32 @@
 """In-package link-resolution gate for packaged skills (rf2-deo2zp).
 
 re-frame2's published skills (the ones carrying a `package.json` +
-`.claude-plugin/plugin.json`) each ship a self-contained package: every
-instruction a skill's normal operation loads is included by its own
-`package.json` `files` allow-list. (The former sibling `skills/shared/`
-protocol layer — and the link-only distribution caveat + guard arm that
-defended it, rf2-f14su — was retired under rf2-fqjys: each consumer now owns
-its instructions locally, so there is no parent-escaping runtime dependency
-left to caveat.)
+`.claude-plugin/plugin.json`) each ship a self-contained package under a
+TWO-PROMISE package boundary (rf2-nvbz):
 
-The invariant this gate enforces — in-package link resolution (rf2-deo2zp):
+    1. Anything a skill's normal operation must READ ships inside the package
+       (its `package.json` `files` allow-list) and is linked package-relative,
+       or is read through the verified PINNED LOCAL CHECKOUT that skill's own
+       leaves name — re-frame-migration's references/setup.md "Pin the
+       migration corpus before reading it", re-frame2-implementor's cardinal
+       rule 1. Neither of those routes is the monorepo the package happens to
+       sit in, and neither is the network.
+    2. Everything a shipped doc merely CITES outside its package is spelled as
+       an absolute repository URL — `https://github.com/day8/re-frame2/blob/
+       main/<path>[#anchor]` for a file, `tree/main/<path>` for a directory.
 
-    For every packaged skill, every INTRA-package relative link from a shipped
-    doc MUST resolve to a file the package.json `files` allow-list ships.
+(The former sibling `skills/shared/` protocol layer — and the link-only
+distribution caveat + guard arm that defended it, rf2-f14su — was retired under
+rf2-fqjys: each consumer now owns its instructions locally.)
+
+The two invariants this gate enforces:
+
+    a. In-package link resolution (rf2-deo2zp). For every packaged skill,
+       every INTRA-package relative link from a shipped doc MUST resolve to a
+       file the `files` allow-list ships.
+
+    b. No escape (rf2-nvbz). NO relative link in a shipped doc may resolve
+       OUTSIDE its package at all.
 
 "Shipped doc" is DERIVED from that same allow-list rather than from a roster of
 directory names (rf2-pp72). The docs a packaged install can resolve links inside
@@ -28,17 +42,30 @@ and it is correctly out of scope.
 (rf2-kgw8z). A `../` from a nested doc usually lands back inside the package —
 `references/README.md` -> `../spec/design.md` is the reported case, and
 `references/x.md` -> `../SKILL.md` is the common one — so treating the literal
-`../` prefix as "escapes the package" left those links unexamined.
+`../` prefix as "escapes the package" left those links unexamined. Resolution
+still decides which invariant a link answers to now that both are enforced:
+re-entry is invariant (a)'s allow-list question, a genuine escape is invariant
+(b), and neither can be read off the spelling.
 
-The defect this prevents: a shipped doc links to a sibling support doc
+The defect invariant (a) prevents: a shipped doc links to a sibling support doc
 (`docs/LOCAL_DEV.md`, `STATUS.md`, `RELEASING.md`, ...) that the `files`
 allow-list omits, so a packaged install resolves the link to a missing file at
-exactly the point a user is configuring the skill. Links that genuinely RESOLVE
-outside the package point at the monorepo, not the tarball, and stay out of
-scope here — the repo-wide docs link gate (`scripts/check_doc_slugs.py`) fails
-any such link whose target does not exist in the repo, which is what retires a
-reintroduced `../shared/`-style dependency. npm always ships `package.json`,
-the README, and LICENSE/LICENCE regardless of `files`.
+exactly the point a user is configuring the skill.
+
+The defect invariant (b) prevents (rf2-nvbz): a link that genuinely RESOLVES
+outside the package is correct for a reader standing in the monorepo and dead
+for everyone else — each skill publishes as its OWN package with its own name
+and `repository.directory`, so an installed one has no sibling skill beside it
+and no `spec/` above it. Those links used to be OUT OF SCOPE here, on the
+reasoning that they point at the monorepo rather than the tarball, while
+`check_doc_slugs.py` passed them because their targets do exist in the repo —
+so 427 of them accumulated in the seam between the two gates with the tree
+green throughout. They now take the absolute-URL spelling, and
+`check_doc_slugs.py` unwraps this repo's own `blob/main` / `tree/main` URLs so
+that spelling keeps the rename-safety the relative one had.
+
+npm always ships `package.json`, the README, and LICENSE/LICENCE regardless of
+`files`.
 
 This gate is NOT an existence checker, and must not become one: a link to a
 path that matches the `files` allow-list but does not exist on disk passes here
@@ -101,6 +128,27 @@ _MD_LINK_RE = re.compile(r"\]\(\s*<?([^)>\s]+)>?\s*\)")
 # omits from its published package and tells the reader to reach from a clone.
 # When the linking line carries one of these, an unshipped target is expected,
 # not a defect.
+# The spelling a shipped doc must use to cite anything outside its package
+# (rf2-nvbz). Deliberate TWINS of `GH_BLOB_BASE` in mkdocs_hooks.py, which
+# rewrites out-of-context references to GitHub URLs for the same reason; the
+# hook is a MkDocs plugin and is not imported here. If the repository moves,
+# these change with it.
+_GH_BLOB_BASE = "https://github.com/day8/re-frame2/blob/main"
+_GH_TREE_BASE = "https://github.com/day8/re-frame2/tree/main"
+
+
+def _repo_display(resolved: Path) -> str:
+    """`resolved` as a repo-relative path when it is in the repo, else absolute.
+
+    Only used inside a finding message, so an out-of-repo path (a self-test
+    tempdir) degrades to something readable rather than raising.
+    """
+    try:
+        return resolved.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
 _MONOREPO_ONLY_MARKERS = (
     "not in the published package",
     "deliberately not in the published",
@@ -201,11 +249,22 @@ def _broken_package_links(skill_dir: Path) -> list[str]:
                 try:
                     rel_target = resolved.relative_to(skill_dir.resolve())
                 except ValueError:
-                    # Genuinely escapes the package: points at the monorepo,
-                    # not the tarball, so it is out of scope for this
-                    # allow-list check. The repo-wide docs link gate
-                    # (check_doc_slugs.py) validates that its target exists in
-                    # the repo.
+                    # Genuinely escapes the package. Under the two-promise rule
+                    # (rf2-nvbz) that is now a finding rather than out of scope:
+                    # the link resolves for a reader who happens to be standing
+                    # in the monorepo and resolves nowhere for a packaged
+                    # install, which has no sibling skill and no spec/ above it.
+                    # A marker does NOT excuse it — the marker mechanism says
+                    # "this in-package path is deliberately unshipped", and an
+                    # escaping link has a spelling that works for every reader.
+                    findings.append(
+                        f"{rel_doc.as_posix()} links to `{target}` "
+                        f"→ resolves OUTSIDE the package "
+                        f"({_repo_display(resolved)}); a shipped doc may leave "
+                        f"its package only by absolute repo URL "
+                        f"({_GH_BLOB_BASE}/…, {_GH_TREE_BASE}/… for a "
+                        f"directory), or the material must ship in `files`"
+                    )
                     continue
                 rel_str = rel_target.as_posix()
                 if _is_shipped(rel_str, allow):
@@ -246,10 +305,22 @@ def check(skills_root: Path, verbose: bool = False, ci: bool = False) -> int:
                 rel = skill_dir
             sys.stderr.write(f"  {prefix}{rel}: {msg}\n")
         sys.stderr.write(
-            "\nFix: a shipped doc links to a file the package.json `files` "
-            "allow-list omits, so a packaged install resolves the link to a "
-            "missing file. Add the target to `files`, or mark the linking line "
-            "as a deliberate monorepo-only reference. (rf2-deo2zp)\n"
+            "\nFix, by which finding you have:\n"
+            "  * `omitted from package.json files` — a shipped doc links to a "
+            "path INSIDE the package that the allow-list does not ship, so a "
+            "packaged install resolves it to a missing file. Add the target to "
+            "`files`, or mark the linking line as a deliberate monorepo-only "
+            "reference. (rf2-deo2zp)\n"
+            "  * `resolves OUTSIDE the package` — a shipped doc reaches out of "
+            "its own package by a relative link, which resolves only for a "
+            "reader standing in the monorepo. Spell it as an absolute repo URL "
+            f"instead: {_GH_BLOB_BASE}/<path>[#anchor] for a file, "
+            f"{_GH_TREE_BASE}/<path> for a directory — or, if the skill's "
+            "normal operation must READ it, ship the material in `files` (or "
+            "route the read through the pinned checkout the skill names). The "
+            "monorepo-only marker does not apply here: it excuses an unshipped "
+            "IN-package path, and an escape has a spelling that works for "
+            "every reader. (rf2-nvbz)\n"
         )
     elif verbose:
         sys.stderr.write(
@@ -355,16 +426,46 @@ def _run_self_tests(verbose: bool = False) -> int:
             ),
             0,
         ),
-        # link RESOLVING outside the package is out of scope here (the repo-wide
-        # docs link gate validates its target exists in the repo)      -> 0
+        # rf2-nvbz — a link RESOLVING outside the package is a FINDING. It is
+        # correct for a reader standing in the monorepo and dead for a packaged
+        # install, which carries no sibling skill and no spec/ above it. This
+        # case expected 0 until the two-promise rule landed.            -> 1
         (
-            "ok_parent_escape_out_of_scope",
+            "bad_parent_escape",
             dict(
                 package=True,
                 files=["SKILL.md", "README.md"],
                 skill_link="../../tools/foo/README.md",
             ),
+            1,
+        ),
+        # rf2-nvbz — an absolute repo URL is the sanctioned spelling for the
+        # same citation, and carries no allow-list question at all.      -> 0
+        (
+            "ok_parent_escape_as_repo_url",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md"],
+                skill_link=(
+                    "https://github.com/day8/re-frame2/blob/main/"
+                    "tools/foo/README.md"
+                ),
+            ),
             0,
+        ),
+        # rf2-nvbz — the monorepo-only MARKER does not excuse an escaping link.
+        # The marker says "this in-package path is deliberately unshipped"; an
+        # escape has a spelling that works for every reader, so there is
+        # nothing to excuse.                                             -> 1
+        (
+            "bad_parent_escape_marker_does_not_excuse",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md"],
+                skill_link="../../tools/foo/README.md",
+                monorepo_only=True,
+            ),
+            1,
         ),
         # rf2-kgw8z — a `../` link from a NESTED doc that resolves back INSIDE
         # the package, at a path `files` omits. Spelled like an escape, but it

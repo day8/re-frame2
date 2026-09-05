@@ -12,7 +12,7 @@ npm publishing is for distribution to other people. While developing the skill i
 
 Same as the README's *Requirements*:
 
-- The **MCP server** — the only skill-facing transport. It is **not yet published to npm**, so build and run it straight from this clone — see [§MCP server from a clone](#mcp-server-from-a-clone) below. Once published, `npm install -g @day8/re-frame2-pair-mcp` plus an `mcpServers` entry (see [`tools/re-frame2-pair-mcp/README.md`](../../../tools/re-frame2-pair-mcp/README.md)) becomes the shorter path.
+- The **MCP server** — the only skill-facing transport. It is **not yet published to npm**, so build and run it straight from this clone — see [§MCP server from a clone](#mcp-server-from-a-clone) below. Once published, `npm install -g @day8/re-frame2-pair-mcp` plus an `mcpServers` entry (see [`tools/re-frame2-pair-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md)) becomes the shorter path.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
 - The **`re-frame2-pair.runtime` preload** on the app's `:source-paths`. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point `:source-paths` at the absolute `skills/re-frame2-pair/preload/` path. For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-loaded-but-preload-missing` without it (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis, and the reason the per-op marker check reports).
@@ -37,7 +37,7 @@ build`) and point your Claude Code `mcpServers` entry at the compiled server:
 }
 ```
 
-See [`tools/re-frame2-pair-mcp/README.md`](../../../tools/re-frame2-pair-mcp/README.md)
+See [`tools/re-frame2-pair-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md)
 for the exact entry point, the launch flags (`--allow-writes`,
 `--allow-sensitive-reads`, `--no-eval`, `--port-file`), and port discovery.
 Restart Claude Code after editing `mcpServers`.
@@ -59,7 +59,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1
 
 Idempotent; re-run any time. It refuses to overwrite a non-link copy without
 `--force`/`-Force`, and `--check`/`-Check` verifies the links. See
-[`skills/README.md`](../../README.md#installing-link-never-copy).
+[`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy).
 
 The remaining paths below link this one skill by hand — equivalent for a
 single skill, useful when you are not working from a full re-frame2 clone.

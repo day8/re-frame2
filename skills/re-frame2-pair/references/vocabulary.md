@@ -74,12 +74,12 @@ belongs to `skills/re-frame2/` (authoring) or direct spec reading.
 
 The full mechanism (projection profiles, the off-box redaction ruling,
 the elision walker) is documented once in
-[`skills/re-frame2/references/cross-cutting/privacy-and-elision.md`](../../re-frame2/references/cross-cutting/privacy-and-elision.md)
+[`skills/re-frame2/references/cross-cutting/privacy-and-elision.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/privacy-and-elision.md)
 and the consolidated capability contract in
-[`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md).
+[`spec/Tool-Pair.md`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
 This is the operational summary for a pair session.
 
-**The contract.** Per [Spec 009 §Privacy](../../../spec/009-Instrumentation.md),
+**The contract.** Per [Spec 009 §Privacy](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md),
 the re-frame2-pair-mcp server defaults to a redacting wire boundary. The
 `--allow-sensitive-reads` boot gate is **OFF by default** (CLI flag aligned
 across the day8 MCP family). With it OFF, every **structured read tool**

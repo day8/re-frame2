@@ -31,7 +31,7 @@ Greppable signals — flag when **any** match AND no production gate is wired:
 
 ## The canonical fix
 
-[`schemas.md`](../../re-frame2/references/fundamentals/schemas.md), spec source [`spec/010-Schemas.md`](../../../spec/010-Schemas.md) — wire an always-on gate matched to the boundary shape (per the two-gate split in Detection rules). `:schema` and `reg-app-schema` stay valuable dev-time tools but do not satisfy this rule alone. The `:rf.error/schema-validation-failure` error category is the corresponding instrumentation signal.
+[`schemas.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/schemas.md), spec source [`spec/010-Schemas.md`](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md) — wire an always-on gate matched to the boundary shape (per the two-gate split in Detection rules). `:schema` and `reg-app-schema` stay valuable dev-time tools but do not satisfy this rule alone. The `:rf.error/schema-validation-failure` error category is the corresponding instrumentation signal.
 
 ## Worked example
 
@@ -126,7 +126,7 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
     (cond-> {} stored (assoc :db (assoc db :session stored)))))
 ```
 
-The generator's `(m/validate Session parsed)` is the always-on **trust** gate — it runs in production (no `goog.DEBUG` guard), so a tampered or stale `localStorage` payload is rejected before it reaches `app-db`. `:recordable? true` is what makes it **replay-safe**: without it the cofx is *ambient* (the `reg-cofx` default), so epoch-restore / SSR-hydration / time-travel re-run the generator against **live** `localStorage` and the replayed `:session/rehydrate` folds a *different* value than the one first written. This is the canonical recordable-generator shape ([`cofx.md`](../../re-frame2/references/fundamentals/cofx.md) §the app-owned recordable generator — the shipped `:todo.storage/todos` boot read).
+The generator's `(m/validate Session parsed)` is the always-on **trust** gate — it runs in production (no `goog.DEBUG` guard), so a tampered or stale `localStorage` payload is rejected before it reaches `app-db`. `:recordable? true` is what makes it **replay-safe**: without it the cofx is *ambient* (the `reg-cofx` default), so epoch-restore / SSR-hydration / time-travel re-run the generator against **live** `localStorage` and the replayed `:session/rehydrate` folds a *different* value than the one first written. This is the canonical recordable-generator shape ([`cofx.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/cofx.md) §the app-owned recordable generator — the shipped `:todo.storage/todos` boot read).
 
 **Absent and unusable are two conditions, and the generator has to be total over both.** Different causes, same delivered value, and neither may throw:
 

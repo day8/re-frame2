@@ -35,22 +35,22 @@ Handlers describe *what* should happen as data (effects out via `:fx`) and consu
 
 - **Testability** — the handler no longer runs under `dispatch-sync` against a JVM frame; tests need DOM/time/random mocks instead of injecting a fixed `:now` / `:new-id` and asserting the emitted `[fx-id args]`.
 - **Time-travel & replay** — imperative *writes* can double-write `localStorage` or refocus the wrong element on replay; impure *reads that decide a durable write* replay to a *different value* because `Date.now` / `Math.random` / the generated id moved (the durable-write rule, below).
-- **SSR & `:platforms` gating** — [Spec 011](../../../spec/011-SSR.md) runs handlers on the server; `js/document` blows up and client-only reads return nonsense. Both `reg-fx` and `reg-cofx` may declare `:platforms #{:client}` and skip cleanly; an inlined call cannot.
+- **SSR & `:platforms` gating** — [Spec 011](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md) runs handlers on the server; `js/document` blows up and client-only reads return nonsense. Both `reg-fx` and `reg-cofx` may declare `:platforms #{:client}` and skip cleanly; an inlined call cannot.
 - **Instrumentation** — Spec 009's `:rf.fx/*` trace channel sees only what flows through `reg-fx`; imperative calls are invisible to Xray, Story, and re-frame2-pair.
 
 ## The canonical fix
 
 Route by direction:
 
-- **Writes → data-only fx.** [`fx.md`](../../re-frame2/references/fundamentals/fx.md) — wrap the side-effect in `reg-fx` once, then issue `[[:my-fx args]]` from the handler's `:fx`. The fx-handler body is the one place imperative interop is legitimate. (HTTP + transport retry/timers → Managed HTTP, [`manual-retry-loops.md`](manual-retry-loops.md).)
-- **Reads → input data, by destination.** A **durable write** needs a **recorded fact**; a **diagnostic / host-transient** slot may stay an **ambient** `reg-cofx`. [`cofx.md`](../../re-frame2/references/fundamentals/cofx.md) owns the cofx mechanics (grades, `:rf/time-ms`, recordable generators); the routing rule is the fork below.
+- **Writes → data-only fx.** [`fx.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/fx.md) — wrap the side-effect in `reg-fx` once, then issue `[[:my-fx args]]` from the handler's `:fx`. The fx-handler body is the one place imperative interop is legitimate. (HTTP + transport retry/timers → Managed HTTP, [`manual-retry-loops.md`](manual-retry-loops.md).)
+- **Reads → input data, by destination.** A **durable write** needs a **recorded fact**; a **diagnostic / host-transient** slot may stay an **ambient** `reg-cofx`. [`cofx.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/cofx.md) owns the cofx mechanics (grades, `:rf/time-ms`, recordable generators); the routing rule is the fork below.
 
 ### Reads — the durable/diagnostic fork (EP-0010)
 
 **Durable state folds facts, never reads.** A read inside a handler routes by **where its value lands**, not merely by being impure:
 
 1. **Durable read → declared recordable coeffect / event payload.** The value is written into app-db, runtime-db, a resource, a machine snapshot, a ledger row, or a hydration/epoch payload (a `:created-at` timestamp, a generated id, a `:loaded-at`). It must fold a **recorded fact**, not an ambient host read at the write site.
-   - **Durable wall-clock time** is the headline case: declare `:rf.cofx/requires [:rf/time-ms]` and read `time-ms` flat — *not* a `:now` cofx that re-reads `js/Date`. A hand-rolled durable `:now` cofx is itself the milder anti-pattern (it re-reads the host on replay). Mechanics in [`cofx.md`](../../re-frame2/references/fundamentals/cofx.md).
+   - **Durable wall-clock time** is the headline case: declare `:rf.cofx/requires [:rf/time-ms]` and read `time-ms` flat — *not* a `:now` cofx that re-reads `js/Date`. A hand-rolled durable `:now` cofx is itself the milder anti-pattern (it re-reads the host on replay). Mechanics in [`cofx.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/cofx.md).
    - **Generated ids / random choices / durable host facts** ride the **event payload** (the caller pins the value — preferred) or a **recordable** `reg-cofx` (a stable id, EDN-serializable value, re-presented from the record on replay). A plain ambient cofx here replays to a different value — the defect.
 2. **Diagnostic / host-transient read → ambient `reg-cofx` is fine.** The value powers only a dev log, a perf span, error metadata, or a host-transient side-table (a timer handle, an AbortController, a cache key) and decides no durable write. Demanding a recordable coeffect here is over-engineering.
 
@@ -58,13 +58,13 @@ Route by direction:
 
 ### `subscribe-once` in a handler is NOT an anti-pattern
 
-`rf/subscribe-once` is the shipped public **one-shot, non-reactive read** ([`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) §`subscribe-once`; [`spec/API.md`](../../../spec/API.md)). It subscribes, derefs, and unsubscribes in one call, leaving no reaction behind; the contract names **event handlers, REPL sessions, SSR builders, and any non-reactive consumer** as legitimate callers. Three rules for a reviewer:
+`rf/subscribe-once` is the shipped public **one-shot, non-reactive read** ([`spec/006-ReactiveSubstrate.md`](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md) §`subscribe-once`; [`spec/API.md`](https://github.com/day8/re-frame2/blob/main/spec/API.md)). It subscribes, derefs, and unsubscribes in one call, leaving no reaction behind; the contract names **event handlers, REPL sessions, SSR builders, and any non-reactive consumer** as legitimate callers. Three rules for a reviewer:
 
 - **Do not flag `(rf/subscribe-once [:some/sub])` in a handler body.** Converting it to a cofx purely because it appears in a handler is a policy-inverted rewrite. A cofx wrap is a *preference* — recommend it only when the read should be reusable across handlers, parameterised by name, stubbable, schema-validated, or visible as a named coeffect.
 - **Do flag a *reactive* `@(rf/subscribe …)` or a retained reaction** in a handler body — that leaks (the write-signals list above).
-- **Do flag `subscribe-once` inside a machine callback.** A machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once` (nor read app-db any other ambient way): an in-callback ambient read is unrecorded, so replay can select a *different* transition ([`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) §`subscribe-once`; [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) §Causal host facts). The fix is **payload threading** (the triggering event carries the fact) or a **declared recordable coeffect** on the machine's `:rf.cofx` record.
+- **Do flag `subscribe-once` inside a machine callback.** A machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once` (nor read app-db any other ambient way): an in-callback ambient read is unrecorded, so replay can select a *different* transition ([`spec/006-ReactiveSubstrate.md`](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md) §`subscribe-once`; [`spec/005-StateMachines.md`](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md) §Causal host facts). The fix is **payload threading** (the triggering event carries the fact) or a **declared recordable coeffect** on the machine's `:rf.cofx` record.
 
-Spec source: [`spec/Conventions.md`](../../../spec/Conventions.md) (data-only fx) and Cardinal Rule #1. `reg-fx` and `reg-cofx` are public `re-frame.core` exports; there is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` declaration.
+Spec source: [`spec/Conventions.md`](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md) (data-only fx) and Cardinal Rule #1. `reg-fx` and `reg-cofx` are public `re-frame.core` exports; there is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` declaration.
 
 ## Worked example
 

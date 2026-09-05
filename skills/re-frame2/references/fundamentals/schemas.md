@@ -59,7 +59,7 @@ That rule is normative (Spec 000 C-000.35). An ordinary registration diagnostic 
 
 None of that softens the section above: a `reg-app-schema` registration and a handler's `:schema` metadata still do not run in production.
 
-The improver skill's [`schemaless-events.md`](../../../re-frame2-improver/references/schemaless-events.md) is the audit-side counterpart: a handler ingesting untrusted input while carrying only `:schema` / `reg-app-schema` is a finding, not a pass.
+The improver skill's [`schemaless-events.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/references/schemaless-events.md) is the audit-side counterpart: a handler ingesting untrusted input while carrying only `:schema` / `reg-app-schema` is a finding, not a pass.
 
 ## What `:schema` does on a handler
 

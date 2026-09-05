@@ -1,10 +1,10 @@
 # re-frame-migration
 
-> ↑ [`skills/`](..) — index of all re-frame2 skills.
+> ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all re-frame2 skills.
 
 A `Skill` that helps `Claude Code` migrate an existing re-frame v1.x ClojureScript codebase to [re-frame2](https://github.com/day8/re-frame2) — from `re-frame/re-frame` deps to `day8/re-frame2`, mechanical rewrites applied automatically, judgment-call call sites flagged for human review.
 
-This is the migration companion to the main [`re-frame2`](../re-frame2) skill (which writes new application code) and [`re-frame2-setup`](../re-frame2-setup) (which bootstraps a fresh re-frame2 project). The 3 skills cover the 3 orthogonal v2 authoring situations:
+This is the migration companion to the main [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) skill (which writes new application code) and [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) (which bootstraps a fresh re-frame2 project). The 3 skills cover the 3 orthogonal v2 authoring situations:
 
 - greenfield — `re-frame2-setup`
 - already on v2 and writing application code — `re-frame2`
@@ -29,7 +29,7 @@ This is the migration companion to the main [`re-frame2`](../re-frame2) skill (w
 - greenfield setup — that's `re-frame2-setup`
 - live-runtime inspection of the running v2 app — that's `re-frame2-pair`
 - substrate migration (Reagent → UIx) — never part of a v1→v2 migration; opt-in via O-13
-- migrating Reagent **views** to Hicasso — that is the optional, second step after this one, [`reagent-migration`](../reagent-migration/SKILL.md); staying on Reagent views is a first-class, fully-supported choice
+- migrating Reagent **views** to Hicasso — that is the optional, second step after this one, [`reagent-migration`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md); staying on Reagent views is a first-class, fully-supported choice
 - stylistic refactoring, naming changes, or any rewriting the author didn't ask for
 - interactive / visual confirmation when no drivable runtime is connected — the skill hands over one checklist and reports the smoke as pending rather than claiming completion
 

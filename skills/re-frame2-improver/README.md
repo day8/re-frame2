@@ -1,10 +1,10 @@
 # re-frame2-improver
 
-> ↑ [`skills/`](..) — index of all re-frame2 skills.
+> ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all re-frame2 skills.
 
 `re-frame2-improver` is a Claude Code critique-mode skill for existing re-frame2 ClojureScript code. One request returns one complete critique: it reviews a body of source files (or a user-supplied snippet) against a small catalogue of re-frame2 anti-patterns and surfaces every material finding in the same turn — severity-ordered, each with concrete evidence, its consequence, the smallest safe correction, and a cross-link to the canonical idiom under `skills/re-frame2/patterns/`. It applies fixes only when the request says to fix as well as review.
 
-This skill is the on-demand complement to [`re-frame2`](../re-frame2): re-frame2 authors new code from canonical idioms; re-frame2-improver retrospectively critiques existing code against the same idioms. It activates only on explicit pull — "review my re-frame2 code", "any anti-patterns?", "audit against best practices" — and only when a body of re-frame2 source is in scope (a `.cljs` / `.cljc` file read or edited in the conversation, a pasted snippet, or a named path the skill reads). Vocabulary alone does not trigger it. The 3 activation filters and the not-for routing are stated once in [`SKILL.md` §Trigger semantics](SKILL.md#trigger-semantics-locked).
+This skill is the on-demand complement to [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2): re-frame2 authors new code from canonical idioms; re-frame2-improver retrospectively critiques existing code against the same idioms. It activates only on explicit pull — "review my re-frame2 code", "any anti-patterns?", "audit against best practices" — and only when a body of re-frame2 source is in scope (a `.cljs` / `.cljc` file read or edited in the conversation, a pasted snippet, or a named path the skill reads). Vocabulary alone does not trigger it. The 3 activation filters and the not-for routing are stated once in [`SKILL.md` §Trigger semantics](SKILL.md#trigger-semantics-locked).
 
 ## Repo contents
 
@@ -17,9 +17,9 @@ This skill is the on-demand complement to [`re-frame2`](../re-frame2): re-frame2
 
 ## Relationship to other skills
 
-- [`re-frame2`](../re-frame2) — authors new application code. The improver leans on its `patterns/` and `spec/` leaves as the canonical-idiom source-of-truth for every cross-link.
-- [`re-frame2-pair`](../re-frame2-pair) — pair-programs with a running re-frame2 application. The improver is static — it never attaches to a runtime; if the user wants live inspection, route to re-frame2-pair.
-- [`re-frame2-pair-retro`](../re-frame2-pair-retro) — retros on a re-frame2-pair session. Session-shaped and read-only, where this skill is source-shaped; both are self-contained.
+- [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) — authors new application code. The improver leans on its `patterns/` and `spec/` leaves as the canonical-idiom source-of-truth for every cross-link.
+- [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) — pair-programs with a running re-frame2 application. The improver is static — it never attaches to a runtime; if the user wants live inspection, route to re-frame2-pair.
+- [`re-frame2-pair-retro`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro) — retros on a re-frame2-pair session. Session-shaped and read-only, where this skill is source-shaped; both are self-contained.
 
 ## How it works, in brief
 
@@ -34,7 +34,7 @@ This skill is the on-demand complement to [`re-frame2`](../re-frame2): re-frame2
 
 Link, never copy. Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy, which silently falls behind the anti-pattern catalogue. Always link the repo source.
 
-The cross-platform installer at the repo root links every re-frame2 skill (this one included) into `~/.claude/skills/`. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour.
+The cross-platform installer at the repo root links every re-frame2 skill (this one included) into `~/.claude/skills/`. See [`skills/README.md` §Installing (link, never copy)](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour.
 
 To link just this one skill:
 

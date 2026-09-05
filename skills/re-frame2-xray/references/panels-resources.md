@@ -36,8 +36,8 @@ The sections, top → bottom:
 read) surfaces as its own suppression op, not as a missing row — so "my
 `:reply-to` didn't fire" / "my read didn't refetch" is answered by the
 *presence of the suppression evidence*. The op vocabulary is normative in
-[`024-Resources-Panel.md`](../../../tools/xray/spec/024-Resources-Panel.md)
-+ [`spec/016-Resources.md`](../../../spec/016-Resources.md); cite those
+[`024-Resources-Panel.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/024-Resources-Panel.md)
++ [`spec/016-Resources.md`](https://github.com/day8/re-frame2/blob/main/spec/016-Resources.md); cite those
 rather than re-deriving field-by-field detail.
 
 ## Posture

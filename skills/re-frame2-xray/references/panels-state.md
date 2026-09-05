@@ -31,7 +31,7 @@ change. Section order, top → bottom:
 Empty/absent reserved areas are omitted — no "no X here" placeholder
 clutter. The operator-facing section labels map onto framework state in
 the runtime-db partition; the mapping is normative in
-[`004-App-DB-Diff.md` §Reserved-keys group](../../../tools/xray/spec/004-App-DB-Diff.md).
+[`004-App-DB-Diff.md` §Reserved-keys group](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/004-App-DB-Diff.md).
 
 When the L2 spine is at head (no historical epoch focused), sections show
 the most-recent epoch's state with its inline diffs — current db,
@@ -40,8 +40,8 @@ sectioned. Same render shape, no second mode.
 **Open when:** "what just changed in app-db?", "when did
 `[:cart :items]` last change?", "show me the full db at this epoch."
 
-Spec: [`021-Dynamic-Panel-Designs.md` §4](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
-+ [`004-App-DB-Diff.md`](../../../tools/xray/spec/004-App-DB-Diff.md).
+Spec: [`021-Dynamic-Panel-Designs.md` §4](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md)
++ [`004-App-DB-Diff.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/004-App-DB-Diff.md).
 
 ## Views — what rendered, and why
 
@@ -74,5 +74,5 @@ the live element.
 sub or props?", "which views re-rendered this epoch?", "which subs
 short-circuited?"
 
-Spec: [`021-Dynamic-Panel-Designs.md` §3](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
-+ [`012-Views.md`](../../../tools/xray/spec/012-Views.md).
+Spec: [`021-Dynamic-Panel-Designs.md` §3](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md)
++ [`012-Views.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/012-Views.md).

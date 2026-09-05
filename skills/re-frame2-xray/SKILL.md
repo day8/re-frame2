@@ -42,7 +42,7 @@ owns its exclusion. See
 - **The agent inspecting or changing the running app** — "read this sub
  for me", "what's at `[:cart :items]` right now?", "dispatch this and
  tell me what happens" — routes to
- [`re-frame2-pair`](../re-frame2-pair/SKILL.md), **whether or not the
+ [`re-frame2-pair`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md), **whether or not the
  operation mutates anything**. Pair owns agent runtime access — read-sub,
  get-path, snapshots, trace/epoch reads, DOM/UI reads, and writes alike.
  The boundary is human panel vs agent runtime, not read vs write.
@@ -236,17 +236,17 @@ rewinds — Redux's slider replays into the store, Xray does not), and
 **Static mode** is the "what's registered?" catalogue half Redux never
 had. Xray is the structural successor to **re-frame-10x** and references
 it nowhere; the contract behind that claim is owned by
-[`spec/Tool-Pair.md` §Implications for downstream tools](../../spec/Tool-Pair.md#implications-for-downstream-tools).
+[`spec/Tool-Pair.md` §Implications for downstream tools](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md#implications-for-downstream-tools).
 
 ## Out of scope
 
 - **Deep workflow recipes** (find-wrong-sub walking, redaction-marker
  grammar, click-to-source internals, branch-and-explore). Source of
- truth: [`tools/xray/spec/007-UX-IA.md`](../../tools/xray/spec/007-UX-IA.md)
+ truth: [`tools/xray/spec/007-UX-IA.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md)
  and the per-panel specs — the spec is the answer.
 - **Agent runtime access** — inspecting or driving the running app on the
  user's behalf, read-only or mutating. Route to
- [`re-frame2-pair`](../re-frame2-pair/SKILL.md) (§First fork above).
+ [`re-frame2-pair`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md) (§First fork above).
 - **Implementing Xray** (mount lifecycle internals, panel seams). The
  spec under `tools/xray/spec/` is the answer; no implementor skill
  exists.
@@ -263,10 +263,10 @@ it nowhere; the contract behind that claim is owned by
  point at the spec when asked about an in-progress surface.
 - **Don't invent controls.** Only the four hotkey families in §Wired
  hotkeys are live; cite
- [`keybinding.cljs`](../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs)
+ [`keybinding.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/keybinding.cljs)
  when in doubt.
 
 ---
 
 *For the full skill-disambiguation matrix (when to use which skill) see
-[`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*
+[`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source).*

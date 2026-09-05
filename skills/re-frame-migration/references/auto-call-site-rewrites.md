@@ -2,7 +2,7 @@
 
 Type A — per-call-site mechanical rewrites the agent applies without asking. Covers namespace requires, effect-map consolidation, and dispatch-shape changes. The agent walks call sites, applies the search→rewrite shapes verbatim, and cites the rule id (`M-N`) in the migration report.
 
-For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md). This leaf is a shape catalogue, not a rationale. For cross-cutting renames (keywords, interceptor lists, views, init, per-feature artefacts), see [`auto-cross-cutting.md`](auto-cross-cutting.md). For judgment-call rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md), [`guided-views-m11.md`](guided-views-m11.md) (the M-11 view conversion) and [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
+For the *why* of each rule, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md). This leaf is a shape catalogue, not a rationale. For cross-cutting renames (keywords, interceptor lists, views, init, per-feature artefacts), see [`auto-cross-cutting.md`](auto-cross-cutting.md). For judgment-call rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md), [`guided-views-m11.md`](guided-views-m11.md) (the M-11 view conversion) and [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
 
 ## Announce each multi-file sweep, then proceed
 
@@ -48,7 +48,7 @@ This is the **single, canonical allowlist** of `re-frame.*` namespaces the M-1 s
 - **`re-frame.adapter.<substrate>`** — the published substrate-adapter namespaces (`re-frame.adapter.reagent` / `re-frame.adapter.uix`), the adapter-tier public surface (`spec/api-manifest-metadata.edn`). **M-38 rewrites *into* it and M-40 boot *requires* it**, so it is on-contract — never an M-1 site. (M-38 renames the v1 `re-frame.substrate.<name>` require to this destination; that destination must survive the scan, not be flagged by it.)
 - **The per-feature artefact namespaces** `re-frame.<feature>` you require *only when the feature is in use* (M-27..M-33): `re-frame.schemas`, `re-frame.machines`, `re-frame.routing`, `re-frame.flows`, `re-frame.http.managed` / `re-frame.http`, `re-frame.ssr`, `re-frame.epoch`, and the test-side `re-frame.test-support` / `re-frame.http.test-support`.
 - **`re-frame.interop`** (JVM interop) — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave it.
-- **`re-frame.spec`** — the namespace is **NOT renamed**; its alias is preserved for back-compat. M-54 renames the `:spec` metadata *key* to `:schema` — it does **not** touch the `re-frame.spec` *namespace* (see [`auto-cross-cutting.md` §M-54](auto-cross-cutting.md#m-54--schema-vocabulary-unification-spec--schema) / [`MIGRATION.md` §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema)). Leave the require in place; reach the schema boundary-validator by its framework ref `:rf.schema/at-boundary`, never by rewriting the require away.
+- **`re-frame.spec`** — the namespace is **NOT renamed**; its alias is preserved for back-compat. M-54 renames the `:spec` metadata *key* to `:schema` — it does **not** touch the `re-frame.spec` *namespace* (see [`auto-cross-cutting.md` §M-54](auto-cross-cutting.md#m-54--schema-vocabulary-unification-spec--schema) / [`MIGRATION.md` §M-54](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema)). Leave the require in place; reach the schema boundary-validator by its framework ref `:rf.schema/at-boundary`, never by rewriting the require away.
 
 **`re-frame.std-interceptors` is NOT on the surface** — it is off-contract, and its v1 helpers (`unwrap` / `debug` / `trim-v` / `on-changes` / `enrich` / `after`) are removed under M-21, so a require of it is itself an M-1 site and each helper call site is an M-21 / M-19 / M-70 rewrite.
 
@@ -98,11 +98,11 @@ rg -n '\[\s*re-frame\.[a-z-]+' . \
 
 **Note (M-1 `get-handler` rewrite)**: the rewrite above targets `rf/handler-meta`, which is the actual public registrar-query surface in `re-frame.core`. The MIGRATION.md M-1 row was corrected to match — there is no `rf/get-handler` in v2.
 
-**Caveat (M-1 `get-handler` → `handler-meta` is NOT verbatim where the result is CALLED — silent wrong value):** the corpus row carries a condition the one-line rewrite above cannot — *"For call sites that introspected the registration this is the right surface; a call site that actually **invoked** the returned handler fn needs a rethink (flag for review)"* ([`MIGRATION.md` §M-1](../../../migration/from-re-frame-v1/README.md#m-1-private-namespace-access--re-framedb-re-framerouter-re-framesubs-re-frameevents-re-frameregistrar--public-clear-subscription-cache-rename)). `handler-meta` returns the registration **metadata map**, not the handler fn — and the dominant v1 use of `re-frame.registrar/get-handler` is a test suite invoking the handler directly, `((reg/get-handler :event :foo) cofx [:foo 1])`.
+**Caveat (M-1 `get-handler` → `handler-meta` is NOT verbatim where the result is CALLED — silent wrong value):** the corpus row carries a condition the one-line rewrite above cannot — *"For call sites that introspected the registration this is the right surface; a call site that actually **invoked** the returned handler fn needs a rethink (flag for review)"* ([`MIGRATION.md` §M-1](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-1-private-namespace-access--re-framedb-re-framerouter-re-framesubs-re-frameevents-re-frameregistrar--public-clear-subscription-cache-rename)). `handler-meta` returns the registration **metadata map**, not the handler fn — and the dominant v1 use of `re-frame.registrar/get-handler` is a test suite invoking the handler directly, `((reg/get-handler :event :foo) cofx [:foo 1])`.
 
 That shape does not fail loudly after the swap, because **a CLJS map is itself callable**: invoked as a fn it is a keyword-lookup-with-default, so the two-arg call above returns its **second argument** (`[:foo 1]`) and a one-arg call returns `nil`. No compile error, no arity error, no throw — the wrong value simply flows on, and only the project's own suite surfaces it ([`runtime-smoke-test.md`](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build) — fixtures and `*_test` namespaces never load at app boot).
 
-So classify each `get-handler` hit by **what happens to its result**: introspected (a key read off it, handed to a tool) → the mechanical swap above; **invoked** → **flag for the author (Type B, cite M-1)**, since no raw handler fn is exposed publicly in v2. The v2 route for the test that wanted the fn is to drive the handler through `dispatch-sync` under `make-reset-runtime-fixture` ([`MIGRATION.md` §M-52](../../../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)), or to hold a direct reference to the handler fn in the test namespace.
+So classify each `get-handler` hit by **what happens to its result**: introspected (a key read off it, handed to a tool) → the mechanical swap above; **invoked** → **flag for the author (Type B, cite M-1)**, since no raw handler fn is exposed publicly in v2. The v2 route for the test that wanted the fn is to drive the handler through `dispatch-sync` under `make-reset-runtime-fixture` ([`MIGRATION.md` §M-52](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)), or to hold a direct reference to the handler fn in the test namespace.
 
 **Caveat (M-1 `@app-db` → `app-db-value` is NOT semantically identical — reactivity loss):** `(rf/app-db-value :rf/default)` returns a **non-reactive snapshot** — a plain `app-db` map value, no deref, no reactive subscription (per `re-frame.core/app-db-value`'s docstring: *"current `app-db` VALUE (a plain map)… no deref, no container"*). v1's `@re-frame.db/app-db` is a **reactive** deref — `app-db` is a Reagent `ratom`, so a deref **inside a reactive context** (a `reaction`, a component render body, a `track`) subscribes that render to db changes and re-renders when `app-db` changes.
 
@@ -293,7 +293,7 @@ These are the same rules the app-source sweep applies, but the test layer is a *
   body...)
 ```
 
-Mechanical name-rename only. The macro's `binding` over `re-frame.router/*fx-overrides*`, the override-map shape, precedence rules, and composition with `with-frame` are unchanged — three names (macro / `:fx-overrides` opt key / `*fx-overrides*` dynvar) now share the `fx-overrides` stem. See [MIGRATION.md §M-50](../../../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides).
+Mechanical name-rename only. The macro's `binding` over `re-frame.router/*fx-overrides*`, the override-map shape, precedence rules, and composition with `with-frame` are unchanged — three names (macro / `:fx-overrides` opt key / `*fx-overrides*` dynvar) now share the `fx-overrides` stem. See [MIGRATION.md §M-50](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides).
 
 ---
 
@@ -420,7 +420,7 @@ rg -U 'reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]'
 **Two things the blanket `_`-prepend gets wrong — check both before rewriting:**
 
 1. **Cross-file direct callers.** A converted fx handler often doubles as a plain fn (`log!`, `track!`) called directly by other namespaces. Re-arity-ing the fn silently breaks every one of them. Grep for callers outside the handler's own file; if there are any, **wrap instead of re-arity** — `(rf/reg-fx :id (fn [_ req] (existing-fn req)))`. The full statement of this hazard is the M-51 cross-file-caller note in [`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab).
-2. **Async handlers need the frame, not just the arity.** The ignore-`m` rewrite is correct for sync-only handlers. A handler that dispatches from an async callback should take `m` and capture the frame — `(rf/capture-frame (:frame m))` — per [`MIGRATION.md` §M-51](../../../migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg), which carries the full before/after and the rationale.
+2. **Async handlers need the frame, not just the arity.** The ignore-`m` rewrite is correct for sync-only handlers. A handler that dispatches from an async callback should take `m` and capture the frame — `(rf/capture-frame (:frame m))` — per [`MIGRATION.md` §M-51](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg), which carries the full before/after and the rationale.
 
 ---
 
@@ -520,7 +520,7 @@ There is no automatic rewrite. Surface every M-16b hit and let the operator pick
 
 ### M-73 — one event-registration form (`reg-event`)
 
-The three public event registrars collapse to one — **`reg-event`**, semantically the former `reg-event-fx` (coeffects in, a closed effects map out). A scanner + conservative codemod ships with the migration guide at [`migration/from-re-frame-v1/codemod/`](../../../migration/from-re-frame-v1/codemod/README.md); prefer running it over hand-editing — it preserves formatting and comments (rewrite-clj) and emits the Type-B flags below. The mechanical (Type A) cases:
+The three public event registrars collapse to one — **`reg-event`**, semantically the former `reg-event-fx` (coeffects in, a closed effects map out). A scanner + conservative codemod ships with the migration guide at [`migration/from-re-frame-v1/codemod/`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/codemod/README.md); prefer running it over hand-editing — it preserves formatting and comments (rewrite-clj) and emits the Type-B flags below. The mechanical (Type A) cases:
 
 **`reg-event-fx` → `reg-event` — pure rename.** The handler is byte-for-byte unchanged.
 
@@ -560,7 +560,7 @@ A retired name left in place is **loud-at-registration** (a hard error names the
 ## What this leaf is NOT
 
 - It is not the full Type A catalogue — cross-cutting renames, view rewrites, init wiring, and per-feature artefact adds live in [`auto-cross-cutting.md`](auto-cross-cutting.md).
-- It is not a substitute for [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md)'s per-rule rationale — when you apply a rewrite, you cite the rule id; you don't quote the rule's text inline.
+- It is not a substitute for [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md)'s per-rule rationale — when you apply a rewrite, you cite the rule id; you don't quote the rule's text inline.
 - It is not exhaustive. The shapes here are the most common Type A trigger patterns. If a call site matches the *intent* of a Type A rule but not the *shape* here, apply the rewrite — the shapes are illustrative.
 
-When the rewrite shape doesn't fit a real call site exactly, **stop and consult the full rule in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md)**. Don't improvise.
+When the rewrite shape doesn't fit a real call site exactly, **stop and consult the full rule in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md)**. Don't improvise.

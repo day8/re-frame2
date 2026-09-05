@@ -1,8 +1,8 @@
 # re-frame2 (skill)
 
-> ↑ [`skills/`](..) — index of all 9 re-frame2 skills.
+> ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all 9 re-frame2 skills.
 
-A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) author re-frame2 ClojureScript applications. Companion to [`re-frame2-pair`](../re-frame2-pair) (which targets running apps) and [`re-frame2-setup`](../re-frame2-setup) (which bootstraps new projects from scratch).
+A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) author re-frame2 ClojureScript applications. Companion to [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) (which targets running apps) and [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) (which bootstraps new projects from scratch).
 
 This skill carries the recipes, decision rules, and canonical declarations Claude needs to write idiomatic re-frame2 code on the first attempt — events, subscriptions, effects, frames, state machines, schemas, stories, routing, and the canonical patterns (RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction).
 
@@ -12,7 +12,7 @@ This skill carries the recipes, decision rules, and canonical declarations Claud
 |---|---|
 | Writing new re-frame2 code (`.cljs` / `.cljc`) | Greenfield project bootstrap → `re-frame2-setup` |
 | Choosing between slice / region / machine | Inspecting a running app → `re-frame2-pair` |
-| Picking a canonical pattern | Migrating a v1 app → [`re-frame-migration`](../re-frame-migration) |
+| Picking a canonical pattern | Migrating a v1 app → [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) |
 | Composing patterns | Full API reference / EP rationale → `SKILL-REDIRECT.md` |
 
 ## Layout
@@ -52,7 +52,7 @@ scripts/install-skills.sh                                              # macOS /
 powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
 ```
 
-The installer is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`) to verify the links. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the full rationale. To make the skill available to a team through a project repo, link from a checkout the team shares rather than committing a `cp -r` snapshot that will go stale.
+The installer is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`) to verify the links. See [`skills/README.md` §Installing (link, never copy)](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the full rationale. To make the skill available to a team through a project repo, link from a checkout the team shares rather than committing a `cp -r` snapshot that will go stale.
 
 ## How it activates
 
@@ -69,8 +69,8 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 ## Cross-link
 
 - [re-frame2 monorepo](https://github.com/day8/re-frame2)
-- [re-frame2-pair](../re-frame2-pair) — live-app inspection
-- [SKILL-REDIRECT.md](../../SKILL-REDIRECT.md) — canonical pointer table for deep-dive content
+- [re-frame2-pair](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) — live-app inspection
+- [SKILL-REDIRECT.md](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) — canonical pointer table for deep-dive content
 
 ## Status
 
