@@ -42,7 +42,7 @@
   and B never hears it.
 
   The recipe component is compiled here with its real spelling
-  (`uix/use-effect` + `uix-adapter/use-frame` + a UIx `use-ref` on a DOM
+  (`uix/use-effect` + `rf.adapter.uix/use-frame` + a UIx `use-ref` on a DOM
   node), so UIx's own `::missing-deps` analysis guards the dependency list at
   compile time as well.
 
@@ -67,11 +67,11 @@
             [uix.core :as uix :refer-macros [defui $]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter uix-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- lane gate -------------------------------------------------------------
 ;;
@@ -114,7 +114,7 @@
   "The README's canonical imperative-lifecycle recipe, compiled."
   [{:keys [tile-id]}]
   (let [ref                     (uix/use-ref)
-        {:keys [dispatch-sync]} (uix-adapter/use-frame)]
+        {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
     (uix/use-effect
       (fn []
         (let [el       (.-current ref)
@@ -133,7 +133,7 @@
   the subject here, not a mistake for UIx's linter to report."
   [{:keys [tile-id]}]
   (let [ref                     (uix/use-ref)
-        {:keys [dispatch-sync]} (uix-adapter/use-frame)]
+        {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
     (uix/use-effect
       (fn []
         (let [el       (.-current ref)
@@ -175,7 +175,7 @@
          root       (react-dom-client/createRoot mount-node)
          render!    (fn [frame-kw]
                       (act-fn (fn []
-                                (.render root ($ uix-adapter/frame-provider
+                                (.render root ($ rf.adapter.uix/frame-provider
                                                  {:frame frame-kw}
                                                  ($ component {:tile-id 7}))))))
          element    #(.querySelector mount-node ".tile")

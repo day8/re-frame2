@@ -61,12 +61,12 @@
             ;; Side-effect require: publishes the `:epoch/*` late-bind hooks
             ;; the core facade's epoch surface resolves through.
             [re-frame.epoch]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -92,9 +92,9 @@
   [frame-id event]
   (let [reached   (promise)
         release   (promise)
-        real-keep epoch-state/trace-events-keep
+        real-keep rf.epoch.state/trace-events-keep
         writer    (future
-                    (with-redefs [epoch-state/trace-events-keep
+                    (with-redefs [rf.epoch.state/trace-events-keep
                                   (fn []
                                     (deliver reached true)
                                     (deref release join-ms :timeout)
@@ -121,7 +121,7 @@
   (let [configurer (future (rf/configure! {:epoch-history {:depth depth}})
                            :configured)
         published? (fn []
-                     (and (= depth (epoch-state/depth))
+                     (and (= depth (rf.epoch.state/depth))
                           (<= (count (rf/epoch-history frame-id)) depth)))]
     (loop [remaining 60]
       (when (and (pos? remaining) (not (published?)))
@@ -158,7 +158,7 @@
           "the parked append did not escape the transition")
       (is (= [] (rf/projected-history :test/main))
           "and it is not reachable through the off-box projection either")
-      (is (nil? (epoch-state/last-settled-epoch-id :test/main))
+      (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
           "no back-fill anchor survives naming a record the ring does not hold")
       (is (= {:n 2} (rf/app-db-value :test/main))
           "the frame itself still settled the event — only its RETENTION was
@@ -189,7 +189,7 @@
       (is (= :configured (deref configurer join-ms :timeout)) "configure! finished")
 
       (let [ids    (epoch-ids :test/main)
-            anchor (epoch-state/last-settled-epoch-id :test/main)]
+            anchor (rf.epoch.state/last-settled-epoch-id :test/main)]
         (is (= 1 (count ids))
             "the ring holds the accepted depth, not the one the writer captured")
         (is (= {:n 3} (:db-after (last (rf/epoch-history :test/main))))
