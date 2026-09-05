@@ -18,10 +18,20 @@
 > by measurement, because the subject is gone.
 >
 > **What was re-run.** `rf2-nf8w` re-took this record's §2 Correctness section against
-> `main`@`4f54988b07` on 2026-09-04. Two of its four conjuncts pass, one is unreproducible for the
-> reason just given, and the result is written into the `rf2-s52w` row of
+> `main`@`4f54988b07` on 2026-09-04. **Three of its four conjuncts pass** — the three-way matrix and
+> the bundle gate on captured exit `0`, and the parity-witness conjunct on inspection — and the
+> fourth, the native-language-leakage sabotages, is unreproducible for the reason just given. The
+> result is written into the `rf2-s52w` row of
 > [`correction-ledger.md`](correction-ledger.md) and into [Row 5](#row-5--server-and-hydration)
 > below. **Row 5's score does not move.**
+>
+> **[Corrected 2026-09-05, `rf2-nf8w`, after the merged-PR audit of #9185 and #9189.]** The paragraph
+> above formerly read *two of its four conjuncts pass, one is unreproducible* — which counts three
+> conjuncts of four and drops the parity-witness pass that the `rf2-s52w` ledger row records in terms
+> (*"Two conjuncts passed, one passed on inspection, one is unreproducible by deletion"*). The
+> arithmetic is corrected; **no conjunct is re-run and no verdict moves.** And the tier sentence above
+> is about the **native tier**, not about everything the verdict names: `h/as-component` — the
+> outward bridge — is **live** on the facade, and Row 5's own correction below says why.
 
 **Verdict: the Phase 3 exit is NOT MET, and the host, outward-bridge and hot-path facade are
 therefore NOT frozen.** The canonical native-tier checklist is not green — no row of the eight is
@@ -265,6 +275,32 @@ still naming the equality it proves, with server bytes and element shape asserte
   `impl/roots.cljs:23` still states that `onRecoverableError` is an option of an *individual*
   `hydrateRoot`, so a root the consumer opens carries no framework reporter. It is the *bridge*, not
   the mechanism, that has gone.
+
+  **[Corrected 2026-09-05, `rf2-nf8w`, after the merged-PR audit of #9185 and #9189. The amendment
+  above is kept as written, because a later reader will meet its last sentence; the score still does
+  not move, and nothing here is a re-run.]** **The outward bridge has not gone.** The sentence *it is
+  the bridge, not the mechanism, that has gone* — and *the outward bridge this bullet is about is
+  gone with them*, four paragraphs up — are both **false at tip**, and they conflate a deleted
+  **witness** with a deleted **product surface**. `h/as-component` is live at
+  `implementation/hicasso/src/re_frame/hicasso.cljc`, where the facade's own docstring calls it **the
+  outward bridge**, and at `impl/codec.cljs`; that docstring says in terms that it sits on the facade
+  *rather than* on the native tier precisely so that a UIx or JavaScript parent need not require the
+  native namespace — so it was deliberately placed off the tier that was retired, and `aa01f0e8a6`
+  did not reach it. Its client-side witness is live too, at
+  `implementation/hicasso/test/re_frame/hicasso/foreign_root_bridge_dom_cljs_test.cljs`, which mints
+  the bridge and mounts it from raw-React and UIx parents, and which carries no hydration row.
+  [`dispositions.md`](dispositions.md)'s `HS-21` row says the same thing: the native ABI witness
+  retired while the outward-bridge scope survived. **What `aa01f0e8a6` deleted is the old native
+  construction grammar, the `native_fence` conjunct and the `native_abi` witness** — including
+  `rf2-s52w`'s *a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter* row —
+  **not `h/as-component`.** So the subject of this finding **survives and only its witness is gone**,
+  which is a different state from the one the amendment above describes. **Row 5 still does not
+  move**, and the reason is now the narrower one: not that there is nothing left to measure, but that
+  the row's surviving subject has **no witness at tip that re-takes the reading**, and minting one
+  would be re-scoring, which this record may not do. This also narrows `rf2-vszd`: closing the
+  `rf2-s52w` row as *withdrawn — the surface the finding is about was retired* is **not available on
+  the ground that the bridge is gone**, because it is not gone. Whether a new witness on
+  `foreign_root_bridge_dom_cljs_test.cljs` is worth adding is a separate operator choice, `rf2-2tt2`.
 - **Quality — the row points at the wrong document.** Its deciding evidence is the SSR/hydration
   matrix, which is a table of **policy** carrying no witness column and no test citation. The witness
   ledger is [`dispositions.md` §2.1](dispositions.md). A reviewer following the release checklist
