@@ -909,6 +909,138 @@ it('serve-example keeps the wait on the WATCH path only, and tears down on first
   );
 });
 
+// ---- watch termination before the first build (rf2-qwy3, merged-PR audit) --
+//
+// The first-build wait above closed the "live URL, absent bundle" window, but
+// the watch exit handler that ABORTS that wait only fired on a NON-ZERO exit.
+// A `shadow-cljs watch` that terminated with code 0 before publishing main.js
+// therefore left the server up, the abort flag false and waitForFirstBuild
+// polling forever: the runner hung silently, with no URL, no diagnostic and no
+// exit — the one outcome the acceptance criterion ("any watch-child exit before
+// readiness must tear down and exit non-zero") rules out.
+//
+// The classification now lives in the pure, exported watchExitAbortsRun, and
+// the handler holds none of its own — which is what makes these cases
+// authoritative for the handler, and is pinned as such below.
+
+const { watchExitAbortsRun } = require('../../examples/scripts/serve-example.cjs');
+
+it('TEETH: a CLEAN (code 0) watch exit BEFORE the first build ends the run (rf2-qwy3)', () => {
+  // The audit's case, stated on its own: exiting 0 is not "nothing to see" while
+  // the watcher is still the only thing that can publish the entrypoint.
+  assert.strictEqual(
+    watchExitAbortsRun({ code: 0, signal: null, interrupted: false, firstBuildReady: false }),
+    true,
+    'a watcher that exits 0 before publishing the entrypoint leaves nobody to produce it',
+  );
+});
+
+it('TEETH: every unasked-for watch termination before the first build is terminal (rf2-qwy3)', () => {
+  for (const outcome of [
+    { code: 1, signal: null }, // compile-loop crash / JVM error
+    { code: 0, signal: null }, // the audit's case: a clean early exit
+    { code: null, signal: 'SIGKILL' }, // OOM-killed
+    { code: null, signal: null }, // gone, with nothing to say
+  ]) {
+    assert.strictEqual(
+      watchExitAbortsRun({ ...outcome, interrupted: false, firstBuildReady: false }),
+      true,
+      `a pre-readiness watch exit ${JSON.stringify(outcome)} must end the run`,
+    );
+  }
+});
+
+it('after the first build, a clean watch exit is an ordinary shutdown (rf2-qwy3)', () => {
+  // The repair is bounded to the pre-readiness phase on purpose: once the bundle
+  // is served the page works, and decideRunnerExit already grades a clean exit 0.
+  assert.strictEqual(
+    watchExitAbortsRun({ code: 0, signal: null, interrupted: false, firstBuildReady: true }),
+    false,
+  );
+  // ...but an UNEXPECTED termination still tears the server down, as before.
+  assert.strictEqual(watchExitAbortsRun({ code: 2, firstBuildReady: true }), true);
+  assert.strictEqual(
+    watchExitAbortsRun({ code: null, signal: 'SIGKILL', firstBuildReady: true }),
+    true,
+  );
+});
+
+it('an interrupt (Ctrl+C) is never a watch crash, in either phase (rf2-qwy3)', () => {
+  for (const firstBuildReady of [false, true]) {
+    assert.strictEqual(
+      watchExitAbortsRun({ code: null, signal: 'SIGINT', interrupted: true, firstBuildReady }),
+      false,
+      'a child stopped by the teardown the user asked for is not a failure',
+    );
+  }
+});
+
+itAsync('TEETH: a fake watcher that exits 0 before publishing aborts the wait rather than hanging (rf2-qwy3)', async () => {
+  // The runner's own composition, driven by a fake watch child: its exit
+  // handler classifies the outcome with watchExitAbortsRun and flips the abort
+  // flag the first-build wait reads. This is the behaviour the injected
+  // `watchDied = true` witness above could not reach, because it skipped the
+  // classification entirely.
+  const preAudit = ({ code }, interrupted) =>
+    !interrupted && !(typeof code === 'number' && code === 0);
+  assert.strictEqual(
+    preAudit({ code: 0, signal: null }, false),
+    false,
+    'control: the pre-audit classification read this exact outcome as benign, ' +
+      'which is why the wait below used to poll forever',
+  );
+
+  let watchDied = false;
+  const firstBuildReady = false; // the wait has not yet proven a served bundle
+  const onWatchExit = ({ code, signal }) => {
+    if (watchExitAbortsRun({ code, signal, interrupted: false, firstBuildReady })) {
+      watchDied = true;
+    }
+  };
+
+  let probes = 0;
+  const result = await waitForFirstBuild({
+    fetchBody: async () => {
+      probes++;
+      if (probes === 2) onWatchExit({ code: 0, signal: null }); // a clean early exit
+      return null; // the entrypoint is never published
+    },
+    isAborted: () => watchDied,
+    sleep: async () => {},
+  });
+
+  assert.ok(watchDied, 'the clean early exit must be classified as terminal');
+  assert.deepStrictEqual(
+    result,
+    { ok: false, reason: 'child-exited' },
+    'the wait must abort so the caller reports the failure non-zero, never hang',
+  );
+});
+
+it('TEETH: the watch exit handler delegates its classification to watchExitAbortsRun (rf2-qwy3)', () => {
+  // The predicate cases above are authoritative for the handler only while the
+  // handler keeps no classification of its own, so pin both halves.
+  assert.ok(
+    /watchProc\.on\('exit',[\s\S]{0,400}?watchExitAbortsRun\(\{[^}]*firstBuildReady[^}]*\}\)/.test(
+      SERVE_EXAMPLE_SRC,
+    ),
+    "the watch 'exit' handler must classify via watchExitAbortsRun, passing the readiness phase",
+  );
+  assert.ok(
+    !/!\(typeof code === 'number' && code === 0\)/.test(SERVE_EXAMPLE_SRC),
+    'the pre-audit inline "a code-0 exit is benign" test must not survive in the handler',
+  );
+  // And the phase flag must only be asserted AFTER the wait proves the bundle
+  // is served — set it earlier and the code-0 hole reopens under a new name.
+  const setAt = SERVE_EXAMPLE_SRC.indexOf('firstBuildReady = true;');
+  const waitAt = SERVE_EXAMPLE_SRC.indexOf('await waitForFirstBuild(');
+  assert.ok(setAt !== -1, 'the runner must record when the first build became ready');
+  assert.ok(
+    waitAt !== -1 && waitAt < setAt,
+    'first-build readiness must be asserted only after the wait that proves it',
+  );
+});
+
 // Drain the queued async cases, then own the summary + exit code for the whole
 // file (both the synchronous `it` results already counted in `failed` and these).
 (async () => {
