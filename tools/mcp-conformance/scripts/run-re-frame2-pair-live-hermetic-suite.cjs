@@ -302,13 +302,108 @@ function readWindowsProcessTable({ runPs } = {}) {
 //                  either (the caller grades it dirty).
 //   'ours'       — a row wears it, we have not seen our child exit, and it
 //                  was created at or after the instant we spawned.
-function classifyRootRow(table, rootPid, notBeforeMs, { rootExited = false } = {}) {
+function classifyRootRow(table, rootPid, notBeforeMs, opts = {}) {
+  const { rootExited = false, rootExitedAtMs = 0 } = opts;
   const row = table.find((r) => r.pid === rootPid);
   if (!row) return 'absent';
-  if (rootExited) return 'stranger';
+  // An observed exit INSTANT is the same evidence as the boolean, carrying
+  // more of it — accept either, so a caller cannot supply the instant and
+  // still be classified as though the handle were live.
+  if (rootExited || rootExitedAtMs > 0) return 'stranger';
   if (!Number.isFinite(row.createdMs) || row.createdMs <= 0) return 'unprovable';
   if (row.createdMs < notBeforeMs) return 'stranger';
   return 'ours';
+}
+
+// The evidence the KILL DECISION turns on — for the root row AND for the rows
+// that merely NAME its number as their parent (rf2-kzbf audit of PR #9247).
+//
+// Fencing the root row answered "may we kill the row wearing our number?".
+// It left the other half unanswered: the walk started at `rootPid` and swept
+// up its ppid claimants regardless of what the root had just been classified
+// as. Two holes of exactly the shape the first fix closed, one level down:
+//
+//   * an UNPROVABLE root still handed us its children, and the reaper
+//     tree-killed them before returning its dirty error. If the undated row
+//     is a stranger, that was the stranger's child; reporting dirty AFTER
+//     the kill is not fail-closed.
+//   * an ABSENT root left NO ceiling at all (`strangerCeilingMs` is Infinity
+//     when no row wears the number), so a stranger that took the number,
+//     forked, and exited before we enumerated left a child wearing our
+//     number as PPID, above our spawn floor and below no ceiling.
+//
+// A boolean "our wrapper exited" cannot separate that child from our own
+// orphan. The INSTANT it exited can: a DIRECT child of our wrapper had to be
+// created before the wrapper died, so the observed exit time is a genuine
+// upper bound on ownership. Where neither that instant nor a dated stranger
+// row is available there is no positive evidence at all, and the answer is to
+// kill nothing and grade dirty — never to guess.
+//
+// Returns `{ rootClass, killRoot, strangerCeilingMs, exitCeilingMs, error }`.
+// A non-null `error` with `refuse` set means the walk must not run.
+function rootOwnershipEvidence(table, rootPid, notBeforeMs, opts = {}) {
+  const rootClass = classifyRootRow(table, rootPid, notBeforeMs, opts);
+  const rootRow = table.find((r) => r.pid === rootPid) || null;
+  const exitedAtMs = Number(opts.rootExitedAtMs);
+  // Our own direct child predates our wrapper's death, so anything parented
+  // by that number afterwards is somebody else's.
+  const exitCeilingMs =
+    Number.isFinite(exitedAtMs) && exitedAtMs > 0 ? exitedAtMs : Infinity;
+  // A stranger that inherited the number was created after our wrapper died,
+  // so its own creation instant bounds ownership too.
+  const strangerCeilingMs =
+    rootClass === 'stranger' && rootRow && rootRow.createdMs > 0
+      ? rootRow.createdMs
+      : Infinity;
+  const base = { rootClass, killRoot: false, strangerCeilingMs, exitCeilingMs };
+
+  if (rootClass === 'ours') {
+    // The row IS our live wrapper, so its ppid link is trustworthy and no
+    // ceiling applies: anything below it is ours by construction.
+    return { ...base, killRoot: true, refuse: false, error: null };
+  }
+  if (rootClass === 'unprovable') {
+    return {
+      ...base,
+      refuse: true,
+      error:
+        'the process table reported no usable creation time for the row ' +
+        `wearing root pid ${rootPid} — refusing to tree-kill a PID that ` +
+        'cannot be proven ours, or anything parented by it',
+    };
+  }
+  // 'absent' / 'stranger': the wrapper is gone, so the ppid link is the only
+  // claim a direct child has on us. It needs a ceiling to be worth anything.
+  const claimants = table.filter((r) => r.ppid === rootPid && r.pid !== rootPid);
+  if (
+    claimants.length > 0 &&
+    !Number.isFinite(exitCeilingMs) &&
+    !Number.isFinite(strangerCeilingMs)
+  ) {
+    return {
+      ...base,
+      refuse: true,
+      error:
+        `${claimants.length} process(es) name the vacated root pid ${rootPid} ` +
+        'as their parent, but neither an observed wrapper-exit instant nor a ' +
+        'dated row wearing that number is available — ownership could not be ' +
+        'bounded, so nothing was killed',
+    };
+  }
+  // An undated claimant cannot be held against either ceiling. It is left
+  // alone (it may be a stranger's) and named, so the run is not certified on
+  // a tree we could not fully account for.
+  const undated = claimants.filter((r) => !(r.createdMs > 0)).map((r) => r.pid);
+  return {
+    ...base,
+    refuse: false,
+    error:
+      undated.length > 0
+        ? `pid(s) ${undated.join(', ')} name the vacated root pid ${rootPid} ` +
+          'as their parent but report no usable creation time — they cannot ' +
+          'be proven ours, so they were left alone'
+        : null,
+  };
 }
 
 // Breadth-first descendant closure of `rootPid` over `table`, EXCLUDING any
@@ -319,41 +414,36 @@ function classifyRootRow(table, rootPid, notBeforeMs, { rootExited = false } = {
 // in its children's `ParentProcessId`, so the walk always starts from
 // `rootPid` even when no row of ours wears it any more.
 //
-// One extra bound applies in the 'stranger' case: the stranger's own children
-// must not be swept up with our orphans. A process of ours orphaned by our
-// dead wrapper necessarily PREDATES the stranger that inherited the number,
-// so a direct child of `rootPid` created at or after the stranger's own
-// creation is the STRANGER'S child, not ours.
+// The ceilings from `rootOwnershipEvidence` bound that discovery, and they
+// apply to the ROOT'S DIRECT CHILDREN only: a grandchild our own JVM forked
+// later reaches us through a parent we have already proven ours, so its ppid
+// link is trustworthy and no ceiling applies to it.
 function ownedDescendants(table, rootPid, notBeforeMs, opts = {}) {
+  const ev = rootOwnershipEvidence(table, rootPid, notBeforeMs, opts);
+  if (ev.refuse) return [];
   const childrenOf = new Map();
   for (const row of table) {
     if (!childrenOf.has(row.ppid)) childrenOf.set(row.ppid, []);
     childrenOf.get(row.ppid).push(row);
   }
-  const byPid = new Map(table.map((r) => [r.pid, r]));
-  const rootClass = classifyRootRow(table, rootPid, notBeforeMs, opts);
-  const rootRow = byPid.get(rootPid) || null;
-  const strangerCeilingMs =
-    rootClass === 'stranger' && rootRow && rootRow.createdMs > 0
-      ? rootRow.createdMs
-      : Infinity;
   const owned = [];
   const seen = new Set([rootPid]);
   const queue = [rootPid];
-  if (rootClass === 'ours') owned.push(rootPid);
+  if (ev.killRoot) owned.push(rootPid);
   while (queue.length > 0) {
     const current = queue.shift();
     for (const child of childrenOf.get(current) || []) {
       if (seen.has(child.pid)) continue;
       // A descendant created before we spawned our root is not ours.
       if (child.createdMs > 0 && child.createdMs < notBeforeMs) continue;
-      // Nor is a direct child the STRANGER fathered after taking the number.
-      if (
-        current === rootPid &&
-        child.createdMs > 0 &&
-        child.createdMs >= strangerCeilingMs
-      ) {
-        continue;
+      if (current === rootPid && ev.rootClass !== 'ours') {
+        // A direct claimant on a VACATED number needs a date to be held
+        // against the ceilings at all; without one it is not provably ours.
+        if (!(child.createdMs > 0)) continue;
+        // Nor is a direct child the STRANGER fathered after taking the number.
+        if (child.createdMs >= ev.strangerCeilingMs) continue;
+        // Nor one created after our own wrapper had already died.
+        if (child.createdMs > ev.exitCeilingMs) continue;
       }
       seen.add(child.pid);
       owned.push(child.pid);
@@ -377,6 +467,11 @@ function makeShadowTreeReaper({
   // number is free, so any row still wearing it belongs to somebody else.
   // Read as a thunk because it flips while cleanup is running.
   rootExited = () => false,
+  // WHEN it emitted `exit`, as epoch ms (0 until it has). The boolean above
+  // withdraws the authority to kill the NUMBER; this is what bounds the
+  // orphans discovered THROUGH it, since a direct child of our wrapper had
+  // to be created before the wrapper died (rf2-kzbf audit of PR #9247).
+  rootExitedAtMs = () => 0,
   platform = process.platform,
   readTable = readWindowsProcessTable,
   treeKill = defaultWindowsTreeKill,
@@ -405,11 +500,17 @@ function makeShadowTreeReaper({
   }
   return async function reapShadowTree() {
     let owned;
-    let rootClass;
+    let evidence;
     try {
       const table = readTable();
-      const opts = { rootExited: Boolean(rootExited()) };
-      rootClass = classifyRootRow(table, rootPid, spawnedAtMs, opts);
+      const exitedAt = Number(rootExitedAtMs());
+      const opts = {
+        rootExited: Boolean(rootExited()),
+        rootExitedAtMs: Number.isFinite(exitedAt) && exitedAt > 0 ? exitedAt : 0,
+      };
+      // ONE evidence read drives both the kill decision and the grade, so the
+      // two can never disagree about what we were entitled to touch.
+      evidence = rootOwnershipEvidence(table, rootPid, spawnedAtMs, opts);
       owned = ownedDescendants(table, rootPid, spawnedAtMs, opts);
     } catch (e) {
       return {
@@ -419,14 +520,11 @@ function makeShadowTreeReaper({
         error: `could not enumerate the process table (${e && e.message})`,
       };
     }
-    // FAIL CLOSED on a root row we cannot date: it is not ours to kill, and
-    // "we could not tell" is not a proven teardown either (AC3).
-    const rootError =
-      rootClass === 'unprovable'
-        ? 'the process table reported no usable creation time for the row ' +
-          `wearing root pid ${rootPid} — refusing to tree-kill a PID that ` +
-          'cannot be proven ours'
-        : null;
+    // FAIL CLOSED wherever ownership could not be established: nothing of the
+    // sort is ours to kill, and "we could not tell" is not a proven teardown
+    // either (AC3).
+    const rootClass = evidence.rootClass;
+    const rootError = evidence.error;
     if (rootClass === 'stranger') {
       logFn(
         `the row wearing root pid ${rootPid} is NOT the process we spawned ` +
@@ -449,7 +547,7 @@ function makeShadowTreeReaper({
       // number is provably the process we spawned. Then any orphan we
       // attributed to the root but whose own parent link died with the
       // wrapper.
-      if (rootClass === 'ours') treeKill(rootPid);
+      if (evidence.killRoot) treeKill(rootPid);
       for (const pid of owned) {
         if (pid !== rootPid && isAlive(pid)) treeKill(pid);
       }
@@ -1400,8 +1498,13 @@ async function main() {
   // own, and the ONLY subtree teardown is allowed to touch (rf2-kzbf).
   const shadowRootPid = shadow.pid;
   let shadowExited = false;
+  // WHEN the wrapper died, not merely THAT it did: our own direct children
+  // all predate this instant, so it is the upper bound that keeps a
+  // stranger's later child out of the kill set (rf2-kzbf audit of PR #9247).
+  let shadowExitedAtMs = 0;
   shadow.on('exit', (code, sig) => {
     shadowExited = true;
+    shadowExitedAtMs = Date.now();
     log(`shadow-cljs exited code=${code} sig=${sig}`);
   });
   shadow.stdout.on('data', (d) => {
@@ -1434,6 +1537,7 @@ async function main() {
       rootPid: shadowRootPid,
       spawnedAtMs: shadowSpawnedAtMs,
       rootExited: () => shadowExited,
+      rootExitedAtMs: () => shadowExitedAtMs,
     }),
   });
   // Expose the teardown to the module-scope hard watchdog
@@ -1847,5 +1951,6 @@ module.exports = {
   makeShadowTreeReaper,
   ownedDescendants,
   classifyRootRow,
+  rootOwnershipEvidence,
   pidAlive,
 };
