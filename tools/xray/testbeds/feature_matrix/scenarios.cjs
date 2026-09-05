@@ -593,20 +593,37 @@ async function sendPopoutKey(page, init) {
  * opener's MOUNT state, not about where the palette paints.
  */
 async function assertPopoutKeyboard(page, state) {
-  // (0) STAGE a step-able spine. The scenario cleared the trace bus and
-  //     dispatched a single host event, and one event has nowhere to step
-  //     to — `focus-step-reducer` clamps at the edge and returns `db`
-  //     unchanged, so a probe run against it would assert nothing. Two
-  //     more host dispatches give the walk room in both directions.
+  // (0) STAGE a step-able spine, and let it SETTLE before reading it.
+  //
+  //     The scenario cleared the trace bus and dispatched a single host
+  //     event, and one event has nowhere to step to — `focus-step-reducer`
+  //     clamps at the edge and returns `db` unchanged, so a probe run
+  //     against it would assert nothing. Two more host dispatches give the
+  //     walk room; the counter surface emits nothing on its own, so once
+  //     the row list stops growing no further host dispatch is in flight.
+  //
+  //     Settling is load-bearing rather than tidy. In LIVE mode the spine
+  //     tracks head, so a row arriving between the read and the keypress
+  //     silently moves the row this probe believes it is stepping from.
   await clickHostButtonByLabel(page, '+');
   await clickHostButtonByLabel(page, '+');
 
+  await waitForStableValue(
+    async () => JSON.stringify((await readPopoutKeyboardState(page)).rows || null),
+    { intervalMs: 150, samples: 3, timeoutMs: 20000 },
+  );
+  //     `focusedIndex >= 2` is the real precondition, not a row count:
+  //     the probe takes TWO steps back, so the focused row needs two rows
+  //     to its left. Deriving it from the focused position rather than
+  //     asserting focus sits at head keeps the probe independent of the
+  //     small difference between the rows the L2 list RENDERS and the
+  //     event-bundles the spine considers FOCUSABLE.
   const staged = await waitForValue(
     () => readPopoutKeyboardState(page),
-    (s) => s.ok && s.rows.length >= 3 && s.focusedCount === 1,
+    (s) => s.ok && s.focusedCount === 1 && s.focusedIndex >= 2,
     {
-      timeoutMs: 15000,
-      description: 'pop-out L2 spine carrying >=3 rows with exactly one focused row',
+      timeoutMs: 10000,
+      description: 'settled pop-out L2 spine with one focused row and two rows to step back through',
     },
   );
 
@@ -624,11 +641,21 @@ async function assertPopoutKeyboard(page, state) {
     );
   }
 
-  // (2) STAGE a PINNED focus. In LIVE mode the spine tracks head, so the
-  //     focused row moves whenever the host dispatches. One `j` steps back
-  //     off head, which flips the spine to RETRO and pins focus — after
-  //     which the measured step below is a step from a KNOWN row rather
-  //     than from whatever head happened to be at keypress time.
+  // (2) STAGE a PINNED focus. In LIVE mode the spine tracks head; one `j`
+  //     steps back off head, which flips the spine to RETRO and pins the
+  //     focus, so the measured step below starts from a KNOWN row.
+  //
+  //     EVERY wait from here on names the EXACT row it expects, never
+  //     merely "a row other than the one we last saw". A not-equal
+  //     predicate is also satisfied by a LIVE head that moved, so it can
+  //     return while the step it is waiting for is still queued — after
+  //     which the next assertion measures the previous key's effect and
+  //     attributes it to this one. That is the same false-pass class as
+  //     reading in the callback that sent the key, reached through the
+  //     predicate instead of through the clock; it was measured on the
+  //     first draft of this probe, which reported Cmd/Ctrl+K stepping the
+  //     spine when the step was a `j` landing late.
+  const pinnedTestId = staged.rows[staged.focusedIndex - 1];
   const pin = await sendPopoutKey(page, { key: 'j', code: 'KeyJ' });
   if (!pin.defaultPrevented) {
     failWithDetails(
@@ -637,39 +664,42 @@ async function assertPopoutKeyboard(page, state) {
   }
   const before = await waitForValue(
     () => readPopoutKeyboardState(page),
-    (s) => s.ok && s.focusedCount === 1 && s.focusedIndex >= 1
-      && s.focusedTestId !== opening.focusedTestId,
+    (s) => s.ok && s.focusedCount === 1 && s.focusedTestId === pinnedTestId,
     {
       timeoutMs: 5000,
-      description: `pop-out spine to pin off head (was ${opening.focusedTestId}) with a row still to its left`,
+      description: `pop-out spine focus pinned on ${pinnedTestId} after j (was ${staged.focusedTestId})`,
     },
   );
 
   // (3) MEASURE one spine step. `j` is prev, and the L2 list renders the
   //     event-bundle vector in order, so the focused row must land on its
-  //     immediate PREDECESSOR — one row, in the documented direction.
-  //     Rows only ever append, so an index captured in `before.rows`
-  //     still names the same row afterwards even if the host dispatched
-  //     again in between.
+  //     immediate PREDECESSOR — one row, in the documented direction. The
+  //     stability check after it is what makes "exactly one" a measurement
+  //     rather than a hope: arriving at the neighbour proves the step is
+  //     not short, and STAYING there proves it is not long.
+  const expectedTestId = staged.rows[staged.focusedIndex - 2];
   const step = await sendPopoutKey(page, { key: 'j', code: 'KeyJ' });
   if (!step.defaultPrevented) {
     failWithDetails(
       'A pop-out spine step key was not consumed by the pop-out listener (rf2-61i5)',
       { observed: { before, step } });
   }
-  const expectedTestId = before.rows[before.focusedIndex - 1];
   const afterStep = await waitForValue(
     () => readPopoutKeyboardState(page),
-    (s) => s.ok && s.focusedCount === 1 && s.focusedTestId !== before.focusedTestId,
+    (s) => s.ok && s.focusedCount === 1 && s.focusedTestId === expectedTestId,
     {
       timeoutMs: 5000,
-      description: `pop-out spine focus to move off ${before.focusedTestId} after j`,
+      description: `pop-out spine focus to step exactly one row back, ${pinnedTestId} -> ${expectedTestId}`,
     },
   );
-  if (afterStep.focusedTestId !== expectedTestId) {
+  const settledAfterStep = await waitForStableValue(
+    async () => (await readPopoutKeyboardState(page)).focusedTestId,
+    { intervalMs: 100, samples: 3, timeoutMs: 3000 },
+  );
+  if (settledAfterStep !== expectedTestId) {
     failWithDetails(
-      '`j` in the pop-out did not step the spine focus exactly one row back (rf2-61i5)',
-      { observed: { before, afterStep, expectedTestId } });
+      'One `j` in the pop-out stepped the spine focus more than one row (rf2-61i5)',
+      { observed: { before, afterStep, expectedTestId, settledAfterStep } });
   }
   if (afterStep.paletteOpen) {
     failWithDetails(
@@ -694,10 +724,10 @@ async function assertPopoutKeyboard(page, state) {
       description: 'command palette open in the POP-OUT document after Cmd/Ctrl+K',
     },
   );
-  if (afterPalette.focusedTestId !== afterStep.focusedTestId) {
+  if (afterPalette.focusedTestId !== expectedTestId) {
     failWithDetails(
       'Cmd/Ctrl+K in the pop-out also stepped the spine — the chord was read as the bare `k` key (rf2-61i5)',
-      { observed: { afterStep, afterPalette } });
+      { observed: { expectedTestId, afterStep, afterPalette } });
   }
 
   // (5) CLOSE it again through the same chord. A one-way observation
@@ -758,9 +788,10 @@ async function assertPopoutKeyboard(page, state) {
 
   state.popoutKeyboard = {
     rowsAtStart: staged.rows.length,
-    pinnedFrom: opening.focusedTestId,
-    steppedFrom: before.focusedTestId,
+    stagedFocus: opening.focusedTestId,
+    pinnedOn: before.focusedTestId,
     steppedTo: afterStep.focusedTestId,
+    settledAfterStep,
     expectedTestId,
     paletteOpenedInPopout: afterPalette.paletteOpen,
     paletteClosedAgain: !afterClose.paletteOpen,
