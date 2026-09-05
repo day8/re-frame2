@@ -35,11 +35,19 @@
   at all, which is precisely the difference that made it incoherent rather
   than merely late (Spec 013 §Sequencing).
 
-  The `:rf.fx/reg-flow` route settles, and must: it runs INSIDE a drain, where
-  `app-db` is by construction the application's live seeded state, so the
-  hazard above cannot arise. The boundary is a property of WHEN the call runs,
-  not of the operation — which is the same reasoning `clear-flow` used to
-  reach the opposite answer for itself.
+  The `:rf.fx/reg-flow` route settles, and must — but NOT because a drain
+  makes the hazard above impossible. It does not: a drain evaluates against
+  the EVENT'S OWN pending `app-db`, which may be empty. The last two tests in
+  this file are that measurement, and they are why this paragraph no longer
+  reads the way it once did (rf2-f3yl post-merge audit of PR #9222). The real
+  difference is RESPONSIBILITY: an effect registration is issued from inside
+  an event, so that event is the place to establish the inputs, and it
+  REQUESTS evaluation now — a failure there is an ordinary event failure at
+  the effect's explicit settle boundary. A direct registration has no such
+  event to be responsible for, so it declares and lets the next drain
+  evaluate. The boundary is a property of WHEN the call runs, not of the
+  operation — which is the same reasoning `clear-flow` used to reach the
+  opposite answer for itself.
 
   This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test` build
   (ns-regexp `cljs-test$`) discovers it AND the cognitect JVM runner runs it
