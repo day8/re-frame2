@@ -2302,6 +2302,20 @@ back.
 
 ### Not supported (lossy or omitted)
 
+- **SCXML executable content + the data model (rf2-qy8p).**
+  `<onentry>`, `<onexit>`, `<script>`, `<log>`, `<assign>`, `<raise>`,
+  `<send>`, `<datamodel>` / `<data>`, `<invoke>` and any other foreign
+  child of a `<state>` are **IGNORED on import and never emitted on
+  export**. The mapping covers the static TOPOLOGY only, so this is
+  lossy by design — no executable semantics are imported. **Ignored is
+  the whole of the behaviour**: a foreign element is skipped *together
+  with its entire subtree*, so it never becomes a `:states` entry and a
+  `<state>` nested inside one is **not** promoted into the parent's
+  `:states`. Only `<state>`, `<final>`, `<history>` and `<transition>`
+  carry meaning. (Pre-fix the importer accepted every non-`<transition>`
+  tag as a child state, so a conforming `<state id="idle"><onentry/></state>`
+  imported as `{:states {:idle {:states {nil {}}}}}` — a definition
+  `reg-machine`, `MachineChart` and every sibling emitter reject.)
 - `:spawn-all` rows — omitted; the parent state renders without
   spawn affordances.
 - **Internal-default self / proper-ancestor self-transition semantics
@@ -2350,7 +2364,7 @@ sentence, and `ex-message` leads with the sentence and trails the
 
 | `:rf.error/id` | Meaning |
 |---|---|
-| `:scxml/invalid-spec` | Input spec fails the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18): not just a missing root `:initial` / `:states` (or `:type :parallel` / `:regions`), but any structural defect the runtime machine contract rejects at `reg-machine` — a nested compound missing `:initial`, a dangling / malformed transition target, an unknown bare node / spawn key, a malformed history / final-state / `:tags` / `:after`-delay shape. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id) — see [The value-free definition summary](#the-value-free-definition-summary) for exactly what that may and may not name. |
+| `:scxml/invalid-spec` | The definition crossing the boundary fails the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18): not just a missing root `:initial` / `:states` (or `:type :parallel` / `:regions`), but any structural defect the runtime machine contract rejects at `reg-machine` — a nested compound missing `:initial`, a dangling / malformed transition target, an unknown bare node / spawn key, a malformed history / final-state / `:tags` / `:after`-delay shape. **BOTH directions (rf2-qy8p):** on export it gates the spec handed to `spec->scxml`; on import it is `scxml->spec`'s POSTCONDITION — parser output that cannot be represented as a valid re-frame2 definition throws here rather than being returned, so a successful import always yields a machine every other boundary accepts. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id) — never the raw spec and never the raw XML — see [The value-free definition summary](#the-value-free-definition-summary) for exactly what that may and may not name. |
 | `:scxml/parse-error`  | Input XML is malformed or missing the `<scxml>` root. |
 
 ## AI-generate-a-machine (v1.1, rf2-1bncf)
