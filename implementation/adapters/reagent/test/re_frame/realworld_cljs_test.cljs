@@ -3206,6 +3206,132 @@
           "bob's OWN rollback is accepted — it restores the captured prior flag,
            so the gate correlates rather than swallowing rollbacks"))))
 
+;; ---------------------------------------------------------------------------
+;; …and the SAME-profile race the username gate cannot see (rf2-8icg residual)
+;; ---------------------------------------------------------------------------
+;;
+;; Every settle above was refused because it named a profile the slice no
+;; longer targets. That gate is blind to the other ordering hazard, because
+;; both of its replies name the CURRENT profile and both therefore pass:
+;; Follow flips :following true and issues a POST; the button now reads
+;; "Unfollow", so a second click issues a DELETE; let the DELETE settle first
+;; and the older POST settle last, and :profile/followed re-seeds the whole
+;; banner :following true — an older settle overwriting a newer accepted
+;; intent. Rollback ordering inverts the same way.
+;;
+;; The app's answer is to serialise rather than supersede (`:request-id` would
+;; abort the in-flight write, and an abort is no proof the server declined it).
+;; `:follow-pending?` latches while a mutation is outstanding, both handlers
+;; refuse a second intent, the button disables on it, and every correlated
+;; settle clears it. So the witness below is a COUNT: the second intent never
+;; becomes a second request, which removes the pair rather than refereeing it.
+
+(defn- follow-requests
+  "Every captured follow/unfollow request for `username`, in lowering order."
+  [lowered username]
+  (filterv #(str/ends-with? (get-in % [:request :url])
+                            (str "/profiles/" username "/follow"))
+           lowered))
+
+(defn- profile-follow-toggle-is-serialised-test []
+  (with-held-profile-fx :realworld.test/profile-follow-serialised
+    (fn [f lowered]
+      ;; Land on alice, not yet followed, and let her banner settle.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                  {:profile (full-profile "alice" false)})
+      (is (false? (:following (pf-sub* f [:profile/data]))) "alice starts unfollowed")
+      (is (false? (pf-sub* f [:profile/follow-pending?]))
+          "…with nothing in flight, so the button is live")
+
+      ;; ---- FIRST intent: Follow ----
+      (rf/dispatch-sync [:profile/follow] {:frame f})
+      (is (true? (:following (pf-sub* f [:profile/data])))
+          "the optimistic flip lands immediately")
+      (is (true? (pf-sub* f [:profile/follow-pending?]))
+          "…and latches the toggle, which is what disables the button")
+      (is (= 1 (count (follow-requests @lowered "alice")))
+          "exactly one mutation out")
+
+      ;; ---- SECOND intent while the first is outstanding: REFUSED ----
+      (let [before (pf-slice* f :profile)]
+        (rf/dispatch-sync [:profile/unfollow] {:frame f})
+        (is (= before (pf-slice* f :profile))
+            "the second intent changed NOTHING — not the flag, not the latch")
+        (is (= 1 (count (follow-requests @lowered "alice")))
+            "and issued NO second request: there is no pair left to reorder,
+             which is how the race is removed rather than refereed")
+        (is (nil? (req-by-method+url @lowered :delete "/profiles/alice/follow"))
+            "specifically, no DELETE exists that could arrive out of order and
+             let the older POST re-seed :following true behind it"))
+
+      ;; ---- the first mutation settles, releasing the latch ----
+      (settle-ok! f (:on-success (req-by-method+url @lowered :post "/profiles/alice/follow"))
+                  {:profile (full-profile "alice" true)})
+      (is (true? (:following (pf-sub* f [:profile/data])))
+          "the POST's own settle is accepted and seeds the server's answer")
+      (is (false? (pf-sub* f [:profile/follow-pending?]))
+          "the correlated success released the latch — the button is live again")
+
+      ;; ---- NON-VACUITY: the toggle works normally once nothing is in flight ----
+      (rf/dispatch-sync [:profile/unfollow] {:frame f})
+      (is (false? (:following (pf-sub* f [:profile/data])))
+          "the unfollow the reader wanted is accepted now, optimistically")
+      (is (true? (pf-sub* f [:profile/follow-pending?])) "and latches in its turn")
+      (is (some? (req-by-method+url @lowered :delete "/profiles/alice/follow"))
+          "…issuing the very DELETE that was refused a moment ago")
+      (is (= 2 (count (follow-requests @lowered "alice")))
+          "two mutations in total, strictly one after the other")
+
+      ;; the block is symmetric: a follow during an in-flight unfollow
+      (rf/dispatch-sync [:profile/follow] {:frame f})
+      (is (= 2 (count (follow-requests @lowered "alice")))
+          "an unfollow in flight blocks a follow exactly as a follow in flight
+           blocked an unfollow")
+
+      ;; ---- a correlated ROLLBACK releases the latch too ----
+      (settle-fail! f (:on-failure (req-by-method+url @lowered :delete
+                                                      "/profiles/alice/follow")))
+      (is (true? (:following (pf-sub* f [:profile/data])))
+          "the rollback restored the captured prior flag")
+      (is (false? (pf-sub* f [:profile/follow-pending?]))
+          "a FAILED mutation releases the latch as surely as a successful one —
+           otherwise a single 500 would disable the button for good"))))
+
+(defn- profile-follow-latch-does-not-outlive-its-profile-test []
+  (with-held-profile-fx :realworld.test/profile-follow-latch-nav
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                  {:profile (full-profile "alice" false)})
+      (rf/dispatch-sync [:profile/follow] {:frame f})
+      (is (true? (pf-sub* f [:profile/follow-pending?])) "alice's toggle is latched")
+
+      ;; The reader navigates away while it is still outstanding. Alice's settle
+      ;; will be refused by the correlation gate when it lands, so nothing will
+      ;; ever clear HER latch. It must not become bob's problem — a latch that
+      ;; outlived its profile would disable bob's button with no way back.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob"] {:frame f})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "bob"]))
+                  {:profile (full-profile "bob" false)})
+      (is (false? (pf-sub* f [:profile/follow-pending?]))
+          "the new identity rebuilt the banner slice and the latch went with it")
+
+      (rf/dispatch-sync [:profile/follow] {:frame f})
+      (is (some? (req-by-method+url @lowered :post "/profiles/bob/follow"))
+          "…so bob's own follow issues normally")
+
+      ;; Alice's orphaned settle arrives now: still refused, and it must not
+      ;; release BOB's latch either.
+      (settle-ok! f (:on-success (req-by-method+url @lowered :post
+                                                    "/profiles/alice/follow"))
+                  {:profile (full-profile "alice" true)})
+      (is (= "bob" (:username (pf-sub* f [:profile/data])))
+          "the orphaned alice success is still refused by the correlation gate")
+      (is (true? (pf-sub* f [:profile/follow-pending?]))
+          "…and did not unlatch bob's in-flight mutation — releasing the latch
+           is correlated too, not a side effect any settle may cause"))))
+
 (deftest realworld-profile-page-cross-username
   (testing "cross-username banner/authored requests are independently
             deliverable; usernames ride both reply targets; a LATE alice
@@ -3223,7 +3349,16 @@
   (testing "a held alice follow settles — success or rollback — cannot mutate
             bob's banner, while bob's own follow success and rollback are both
             accepted (rf2-8icg)"
-    (profile-cross-username-follow-settles-are-refused-test)))
+    (profile-cross-username-follow-settles-are-refused-test))
+  (testing "the SAME-profile Follow→Unfollow ordering hazard, which the
+            username gate cannot see: the toggle is serialised, so a second
+            intent issues no second request and there is no pair to reorder;
+            both a success and a rollback release the latch (rf2-8icg)"
+    (profile-follow-toggle-is-serialised-test))
+  (testing "a latch does not outlive the profile it was taken on: navigating
+            away rebuilds the banner slice and frees the button, and a stale
+            settle cannot release the CURRENT profile's latch (rf2-8icg)"
+    (profile-follow-latch-does-not-outlive-its-profile-test)))
 
 ;; ============================================================================
 ;; http — failure->message + pure pagination/query helpers
