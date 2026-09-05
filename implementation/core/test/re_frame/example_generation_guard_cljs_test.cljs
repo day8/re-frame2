@@ -287,4 +287,6 @@
         (dispatch-at! f (+ t0 80100) [:timer/tick 2])
         (is (= 100 (elapsed-ms f))
             "the sample after Reset measured from the Reset — 100ms. Zeroing
-             elapsed without re-anchoring would have jumped it to ~9900")))))
+             elapsed without re-anchoring would have handed this sample the
+             whole 10000ms back to the previous one, and the display would
+             have leapt straight off zero")))))
