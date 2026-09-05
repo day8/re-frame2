@@ -3221,10 +3221,20 @@
 ;;
 ;; The app's answer is to serialise rather than supersede (`:request-id` would
 ;; abort the in-flight write, and an abort is no proof the server declined it).
-;; `:follow-pending?` latches while a mutation is outstanding, both handlers
-;; refuse a second intent, the button disables on it, and every correlated
-;; settle clears it. So the witness below is a COUNT: the second intent never
-;; becomes a second request, which removes the pair rather than refereeing it.
+;; `:profile.follow-pending` holds the profiles with a mutation outstanding,
+;; both handlers refuse a second intent for a profile already in it, the button
+;; disables on it, and every settle takes its own username back out. So the
+;; first witness below is a COUNT: the second intent never becomes a second
+;; request, which removes the pair rather than refereeing it.
+;;
+;; That latch is keyed by username and lives OUTSIDE the banner slice, and the
+;; two tests after it are the two halves of what the keying buys. A latch must
+;; SURVIVE its profile leaving the screen — alice → bob → alice with the POST
+;; still out is the ordering the immediate-toggle test cannot reach, because a
+;; latch that died with the banner slice hands the reader a live button on the
+;; way back and the pair goes out after all. And it must not LEAK onto a
+;; bystander, in either direction: bob's button stays live while alice's
+;; mutation is out, and alice's settle releases alice alone.
 
 (defn- follow-requests
   "Every captured follow/unfollow request for `username`, in lowering order."
@@ -3298,7 +3308,71 @@
           "a FAILED mutation releases the latch as surely as a successful one —
            otherwise a single 500 would disable the button for good"))))
 
-(defn- profile-follow-latch-does-not-outlive-its-profile-test []
+(defn- profile-follow-latch-survives-a-walk-away-and-back-test []
+  (with-held-profile-fx :realworld.test/profile-follow-latch-return
+    (fn [f lowered]
+      ;; Alice, unfollowed, banner settled. Follow — the POST is held open.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                  {:profile (full-profile "alice" false)})
+      (rf/dispatch-sync [:profile/follow] {:frame f})
+      (let [a-follow (req-by-method+url @lowered :post "/profiles/alice/follow")]
+        (is (some? a-follow) "the follow POST went out and is held open")
+        (is (= 1 (count (follow-requests @lowered "alice")))
+            "exactly one mutation out")
+
+        ;; ---- away to bob, and straight back, the POST still in flight ----
+        (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob"] {:frame f})
+        (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "bob"]))
+                    {:profile (full-profile "bob" false)})
+        (reset! lowered [])
+        (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+        ;; The RETURN GET reports the server's truth, and the truth is that the
+        ;; POST was applied — only its REPLY is still in the air. So the reader
+        ;; is looking at a followed alice with a mutation still outstanding,
+        ;; which is exactly the state a slice-borne latch could not represent.
+        (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                    {:profile (full-profile "alice" true)})
+        (is (true? (:following (pf-sub* f [:profile/data])))
+            "the return GET truthfully reports :following true")
+        (is (= #{"alice"} (pf-slice* f :profile.follow-pending))
+            "…and alice is still latched: the latch outlived the banner slice
+             that was rebuilt twice under it, because it belongs to the
+             MUTATION and the mutation has not settled")
+        (is (true? (pf-sub* f [:profile/follow-pending?]))
+            "…which the public sub reports, so the button comes back DISABLED.
+             This is the whole fix — a latch that died with the slice would
+             hand the reader a live button here")
+
+        ;; ---- so the second intent is refused, and no pair reaches the wire ----
+        (let [before (pf-slice* f :profile)]
+          (rf/dispatch-sync [:profile/unfollow] {:frame f})
+          (is (= before (pf-slice* f :profile))
+              "the Unfollow is refused outright — nothing flipped")
+          (is (empty? (follow-requests @lowered "alice"))
+              "…and issued NO second mutation. That DELETE could have settled
+               BEFORE the held POST, leaving the older reply to re-seed
+               :following true over the newer accepted intent; it never exists")
+          (is (nil? (req-by-method+url @lowered :delete "/profiles/alice/follow"))
+              "specifically, no alice DELETE is out at all"))
+
+        ;; ---- the held POST lands, correlated: it seeds AND releases ----
+        (settle-ok! f (:on-success a-follow) {:profile (full-profile "alice" true)})
+        (is (true? (:following (pf-sub* f [:profile/data])))
+            "the reader is back on alice, so the banner write IS accepted")
+        (is (false? (pf-sub* f [:profile/follow-pending?]))
+            "…and the mutation's own settle released its latch")
+
+        ;; NON-VACUITY: the refusal above was the latch doing its job, not a
+        ;; toggle broken for good.
+        (rf/dispatch-sync [:profile/unfollow] {:frame f})
+        (is (false? (:following (pf-sub* f [:profile/data])))
+            "the unfollow the reader wanted is accepted now, optimistically")
+        (is (some? (req-by-method+url @lowered :delete "/profiles/alice/follow"))
+            "…issuing the very DELETE that was refused a moment ago — strictly
+             after the POST it would otherwise have raced")))))
+
+(defn- profile-follow-latch-does-not-leak-to-a-bystander-test []
   (with-held-profile-fx :realworld.test/profile-follow-latch-nav
     (fn [f lowered]
       (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
@@ -3306,31 +3380,54 @@
                   {:profile (full-profile "alice" false)})
       (rf/dispatch-sync [:profile/follow] {:frame f})
       (is (true? (pf-sub* f [:profile/follow-pending?])) "alice's toggle is latched")
+      (let [a-follow (req-by-method+url @lowered :post "/profiles/alice/follow")]
 
-      ;; The reader navigates away while it is still outstanding. Alice's settle
-      ;; will be refused by the correlation gate when it lands, so nothing will
-      ;; ever clear HER latch. It must not become bob's problem — a latch that
-      ;; outlived its profile would disable bob's button with no way back.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob"] {:frame f})
-      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "bob"]))
-                  {:profile (full-profile "bob" false)})
-      (is (false? (pf-sub* f [:profile/follow-pending?]))
-          "the new identity rebuilt the banner slice and the latch went with it")
+        ;; The reader walks away while alice's POST is still out. Her latch goes
+        ;; on holding ALICE — but it is keyed, so it must not disable BOB.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob"] {:frame f})
+        (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "bob"]))
+                    {:profile (full-profile "bob" false)})
+        (is (= #{"alice"} (pf-slice* f :profile.follow-pending))
+            "alice stays latched across the navigation")
+        (is (false? (pf-sub* f [:profile/follow-pending?]))
+            "…yet bob's button is LIVE: a latch is taken on a profile, not on
+             the page, so it never disables a bystander")
 
-      (rf/dispatch-sync [:profile/follow] {:frame f})
-      (is (some? (req-by-method+url @lowered :post "/profiles/bob/follow"))
-          "…so bob's own follow issues normally")
+        (rf/dispatch-sync [:profile/follow] {:frame f})
+        (is (some? (req-by-method+url @lowered :post "/profiles/bob/follow"))
+            "…so bob's own follow issues normally, alongside alice's")
+        (is (= #{"alice" "bob"} (pf-slice* f :profile.follow-pending))
+            "two mutations outstanding at once, each under its own username")
 
-      ;; Alice's orphaned settle arrives now: still refused, and it must not
-      ;; release BOB's latch either.
-      (settle-ok! f (:on-success (req-by-method+url @lowered :post
-                                                    "/profiles/alice/follow"))
-                  {:profile (full-profile "alice" true)})
-      (is (= "bob" (:username (pf-sub* f [:profile/data])))
-          "the orphaned alice success is still refused by the correlation gate")
-      (is (true? (pf-sub* f [:profile/follow-pending?]))
-          "…and did not unlatch bob's in-flight mutation — releasing the latch
-           is correlated too, not a side effect any settle may cause"))))
+        ;; ALICE's settle now arrives with BOB's mutation still pending — an
+        ;; older reply landing underneath a newer operation. It must release its
+        ;; own latch and touch nothing else.
+        (let [before (pf-slice* f :profile)]
+          (settle-ok! f (:on-success a-follow) {:profile (full-profile "alice" true)})
+          (is (= before (pf-slice* f :profile))
+              "the off-screen alice success is refused by the correlation gate —
+               bob's banner is untouched, name, bio and flag alike")
+          (is (= #{"bob"} (pf-slice* f :profile.follow-pending))
+              "…and it released ALICE only. Releasing is keyed too, not a side
+               effect any settle may cause on whatever is latched")
+          (is (true? (pf-sub* f [:profile/follow-pending?]))
+              "…so bob's own in-flight mutation is still latched"))
+
+        ;; The ROLLBACK branch releases exactly as narrowly. Walk on to carol,
+        ;; latch her, and let bob's failure land underneath.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/profile/carol"] {:frame f})
+        (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "carol"]))
+                    {:profile (full-profile "carol" false)})
+        (rf/dispatch-sync [:profile/follow] {:frame f})
+        (is (= #{"bob" "carol"} (pf-slice* f :profile.follow-pending))
+            "bob's is still out; carol's joins it")
+        (settle-fail! f (:on-failure (req-by-method+url @lowered :post
+                                                        "/profiles/bob/follow")))
+        (is (= #{"carol"} (pf-slice* f :profile.follow-pending))
+            "bob's late ROLLBACK releases bob and leaves carol latched — a
+             failure frees its own mutation exactly as a success does")
+        (is (true? (pf-sub* f [:profile/follow-pending?]))
+            "…so carol's button is still correctly disabled")))))
 
 (deftest realworld-profile-page-cross-username
   (testing "cross-username banner/authored requests are independently
@@ -3355,10 +3452,16 @@
             intent issues no second request and there is no pair to reorder;
             both a success and a rollback release the latch (rf2-8icg)"
     (profile-follow-toggle-is-serialised-test))
-  (testing "a latch does not outlive the profile it was taken on: navigating
-            away rebuilds the banner slice and frees the button, and a stale
-            settle cannot release the CURRENT profile's latch (rf2-8icg)"
-    (profile-follow-latch-does-not-outlive-its-profile-test)))
+  (testing "the latch OUTLIVES a walk away and back, because it belongs to the
+            mutation rather than to the banner slice: alice → bob → alice with
+            the POST still in flight comes back disabled, so the newer Unfollow
+            the older POST would have overwritten is never issued (rf2-8icg)"
+    (profile-follow-latch-survives-a-walk-away-and-back-test))
+  (testing "the latch is KEYED, so it never leaks onto a bystander: bob's
+            button stays live while alice's mutation is out, two profiles can
+            be latched at once, and an older settle — success or rollback —
+            releases its own username alone (rf2-8icg)"
+    (profile-follow-latch-does-not-leak-to-a-bystander-test)))
 
 ;; ============================================================================
 ;; http — failure->message + pure pagination/query helpers
