@@ -26,11 +26,11 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.validate :as validate]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.validate :as rf.schemas.validate]))
 
-(def ^:private tag #'validate/record-type-tag)
+(def ^:private tag #'rf.schemas.validate/record-type-tag)
 
 (def ^:private sentinel "rf2-xpd8-secret-from-value")
 
@@ -114,12 +114,12 @@
             emits a record carrying the sentinel NOWHERE: not in `:reason`,
             not in any other slot. Pre-fix the `:reason` read
             `got rf2-xpd8-secret-from-value`."
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [records (atom [])]
         (rf/register-listener! :errors ::rec (fn [r] (swap! records conj r)))
         (try
           (rf/reg-app-schema [:tenant] [:map [:id :int]])
-          (schemas/validate-app-schema!
+          (rf.schemas/validate-app-schema!
             {:tenant {:id (planted-constructor-obj)}}
             :tenant/set-bad)
           (finally

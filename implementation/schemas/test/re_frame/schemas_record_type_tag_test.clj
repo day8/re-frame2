@@ -36,14 +36,14 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]
-            [re-frame.schemas.validate :as validate]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.schemas.validate :as rf.schemas.validate]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
-(def ^:private tag #'validate/record-type-tag)
+(def ^:private tag #'rf.schemas.validate/record-type-tag)
 
 (def ^:private closed-vocabulary
   "Every string `record-type-tag` is permitted to return. The record's
@@ -114,11 +114,11 @@
             leaf is outside the eight-tag vocabulary emits a record whose
             :reason says `got object`, never the leaf's class name. Pre-fix
             this reason read `got class clojure.lang.PersistentHashSet`."
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (rf/reg-app-schema [:tenant] [:map [:id :int]])
       (let [records (rejection-records
                       (capture-errors
-                        #(schemas/validate-app-schema!
+                        #(rf.schemas/validate-app-schema!
                            {:tenant {:id #{:not :an :int}}}
                            :tenant/set-bad)))]
         (is (= 1 (count records))
@@ -142,12 +142,12 @@
   (testing "the fix REPLACES the unbounded fallback only — the documented
             vocabulary the PR1 tests pin (`got nil`, `got string`) is
             unchanged, so no consumer learns a new word"
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (rf/reg-app-schema [:acct] [:map [:n :int]])
       (let [reason (fn [db]
                      (-> (rejection-records
                            (capture-errors
-                             #(schemas/validate-app-schema! db :acct/bad)))
+                             #(rf.schemas/validate-app-schema! db :acct/bad)))
                          first
                          :reason))]
         (is (str/includes? (reason {:acct {:n "text"}}) "got string"))
