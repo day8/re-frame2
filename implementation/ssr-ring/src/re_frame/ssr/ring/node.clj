@@ -88,11 +88,16 @@
   opaque value: the sidecar's code vocabulary is the sidecar's, spelled
   nowhere on the JVM — which is also what its own absence witness holds.
     :rf.error/ssr-node-build-skew   a 200 whose `x-rf-ssr-build` is not the
-                                    `:build-id` this renderer was built with.
-                                    The sidecar already refuses a mismatched
-                                    REQUEST; this is the defensive check on
-                                    the ANSWER (S7). ex-data `:expected`,
-                                    `:serving`.
+                                    `:build-id` this renderer was built with
+                                    — INCLUDING an absent header, since an
+                                    answer that names no build is not a
+                                    verifiable match and `:render-hash` is
+                                    nil here, so nothing downstream would
+                                    catch it. The sidecar already refuses a
+                                    mismatched REQUEST; this is the defensive
+                                    check on the ANSWER (S7). ex-data
+                                    `:expected`, `:serving` (nil when the
+                                    answer named no build).
 
   `:on-error` keeps its meaning — the net for when the projector cannot
   run — and nothing here reaches it. A malformed construction opt throws
@@ -306,12 +311,23 @@
                 :message message
                 :detail  detail}}))
 
-(defn- throw-build-skew! [{:keys [build-id endpoint]} serving]
+(defn- throw-build-skew!
+  "The answer-side build refusal, for both ways a 200 fails to prove it came
+  from `:build-id`: `serving` names a DIFFERENT build, or it is nil because
+  the answer named none. The two causes read differently to an operator, so
+  the sentence names which one it is; the id and the ex-data slots are one."
+  [{:keys [build-id endpoint]} serving]
   (error/throw-error!
     :rf.error/ssr-node-build-skew error-origin
-    (str "the Node render sidecar at " endpoint " answered from build "
-         (pr-str serving) " where this renderer was built against "
-         (pr-str build-id) ". Redeploy the bundle that matches the JVM host.")
+    (str "the Node render sidecar at " endpoint " answered 200 "
+         (if serving
+           (str "from build " (pr-str serving) " where this renderer was built "
+                "against " (pr-str build-id)
+                ". Redeploy the bundle that matches the JVM host.")
+           (str "with no x-rf-ssr-build header, so its bytes cannot be shown "
+                "to come from " (pr-str build-id)
+                ". Find what stripped the header, or what is answering in "
+                "the sidecar's place.")))
     {:recovery :redeploy-the-matching-bundle
      :extra    {:expected build-id
                 :serving  serving}}))
@@ -351,7 +367,13 @@
         body   (.body http-response)]
     (if (= 200 status)
       (let [serving (response-header http-response "x-rf-ssr-build")]
-        (when (and serving (not= serving build-id))
+        ;; An EQUALITY, not a mismatch test: absence is not a verifiable
+        ;; match. A 200 that names no build reads the same whether a proxy
+        ;; stripped the header, the service is malformed, or something that
+        ;; is not the sidecar answered — and `:render-hash` is nil for a
+        ;; native root, so nothing downstream can catch it either. The bytes
+        ;; are refused rather than wrapped in the JVM-owned document.
+        (when-not (= serving build-id)
           (throw-build-skew! opts serving))
         {:body-html (str body) :render-hash nil})
       (let [error-payload (try

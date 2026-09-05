@@ -394,8 +394,9 @@
 
 (defn- with-stub-sidecar
   "Run `f` with the URL of a JDK HttpServer answering every request with
-  `status`, `headers` and `body` — a sidecar impostor for the one answer
-  the real one can never give (a 200 from the wrong build)."
+  `status`, `headers` and `body` — a sidecar impostor for the answers the
+  real one can never give (a 200 from the wrong build, and a 200 that names
+  no build at all)."
   [status headers ^String body f]
   (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
         bytes  (.getBytes body "UTF-8")]
@@ -424,6 +425,32 @@
         (is (= [:rf.error/ssr-node-build-skew] (render-failure-ids @seen)))
         (is (= {:expected "crossing-build-1" :serving "drifted-build-9"}
                (select-keys (render-failure-data @seen) [:expected :serving])))
+        (rf/unregister-listener! :errors ::crossing-recorder)))))
+
+(deftest ^:crossing build-skew-arm-a-200-that-names-no-build-is-refused-on-the-jvm
+  ;; The companion to the row above, and the one absence needs a row of its
+  ;; own for: the skew row sends a header, so it can never exercise the arm
+  ;; where there is none. A 200 carrying no `x-rf-ssr-build` is not a
+  ;; verifiable match — a proxy that strips the header, a malformed service,
+  ;; an impostor answering in the sidecar's place all present identically —
+  ;; and this adapter returns `:render-hash nil` for a native root, so the
+  ;; structural hydration-hash channel offers no second check. Unverified
+  ;; bytes must not reach the JVM-owned document.
+  (register-app!)
+  (with-stub-sidecar 200 {} "<main>impostor</main>"
+    (fn [url]
+      (let [seen          (capture-errors!)
+            frames-before (set (rf/frame-ids))
+            response      ((handler (node-renderer url)) request)]
+        (assert-projected-5xx! response frames-before)
+        (is (not (str/includes? (:body response) "impostor"))
+            "the unverified body never ships")
+        (is (= [:rf.error/ssr-node-build-skew] (render-failure-ids @seen))
+            "the same refusal the wrong build gets — no new error category")
+        (let [data (render-failure-data @seen)]
+          (is (= "crossing-build-1" (:expected data)) "the configured expectation")
+          (is (contains? data :serving) "…and an honest missing-serving slot")
+          (is (nil? (:serving data)) "…carrying nil, because the answer named none"))
         (rf/unregister-listener! :errors ::crossing-recorder)))))
 
 ;; ===========================================================================
