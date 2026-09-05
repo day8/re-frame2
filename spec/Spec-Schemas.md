@@ -697,25 +697,25 @@ The string format is committed as a public contract: pair-shaped tools, conforma
 ### `:rf/view-id-attr`
 
 > **Layer:** Public
-> **Owner:** [006-ReactiveSubstrate §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback)
-> **Status:** v1-required (fallback path; primary path is the Fiber walker per [View-Hierarchy-Capture.md](View-Hierarchy-Capture.md))
+> **Owner:** [006-ReactiveSubstrate §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract)
+> **Status:** v1-required
 
-The DOM-attribute string contract emitted by the Reagent / UIx adapters as the value of `data-rf-view` on rendered view roots (per [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback)). The stringified registry id keyword:
+The DOM-attribute string contract emitted by the Reagent / UIx adapters as the value of `data-rf-view` on rendered view roots (per [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract)). The stringified registry id keyword:
 
 ```
 <id-as-str>          ;; e.g. ":my.app/header" for the keyword :my.app/header
 ```
 
-For a namespaced keyword id, the attribute value is `(str id)` — the leading `:` is preserved so the walker can distinguish `(keyword (subs s 1))` from a non-keyword id. For a non-keyword id (unusual but legal at the registrar layer) the attribute carries the raw string repr.
+For a namespaced keyword id, the attribute value is `(str id)` — the leading `:` is preserved so a reader can distinguish `(keyword (subs s 1))` from a non-keyword id. For a non-keyword id (unusual but legal at the registrar layer) the attribute carries the raw string repr.
 
 ```clojure
 (def ViewIdAttr
   [:re #"^:?[^/]+(?:/.+)?$"])                                                  ;; permissive; consumers prefer (keyword (subs s 1)) when leading-colon
 ```
 
-Consumers (the fallback `view-walker`) read the attribute and call `(keyword (subs s 1))` when the string starts with `:`; otherwise the raw string is used as the id.
+Consumers (Xray's hover-highlight, re-frame-pair's `ui/read`) read the attribute and call `(keyword (subs s 1))` when the string starts with `:`; otherwise the raw string is used as the id.
 
-The view-id attribute pairs with `data-rf2-source-coord` (`:rf/source-coord-attr` above) — both attributes land on the same root element of every registered view, ride the same `interop/debug-enabled?` elision gate, and elide together under `:advanced` + `goog.DEBUG=false`. Per Spec 006 §View tagging contract: `data-rf-view` is the FALLBACK; the primary path for runtime view-hierarchy capture is the Fiber walker.
+The view-id attribute pairs with `data-rf2-source-coord` (`:rf/source-coord-attr` above) — both attributes land on the same root element of every registered view, ride the same `interop/debug-enabled?` elision gate, and elide together under `:advanced` + `goog.DEBUG=false`.
 
 ### `:rf/effect-map`
 
