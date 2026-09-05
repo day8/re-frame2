@@ -782,7 +782,7 @@ These shapes are exempt from `data-rf-view` annotation (the wrapper SKIPs with a
 
 1. **React Fragment root (`:<>` / `<Fragment>`)** — a fragment has no DOM element to annotate, so the view is invisible to view-id lookup. Under DOM-containment inference its children become orphans of the next-up tagged ancestor.
 
-2. **Nil / conditional root (`(when cond …)` returning nil)** — when the render-fn returns nil, no DOM element exists. Same fidelity gap as fragments: the view is invisible on the render that returned nil; subsequent re-renders that produce a DOM element are tagged correctly.
+2. **Nil / conditional root (`(when cond …)` returning nil)** — when the render-fn returns nil, no DOM element exists. Same limit as fragments: the view is invisible on the render that returned nil; subsequent re-renders that produce a DOM element are tagged correctly.
 
 3. **Component-returning-component head (`[other-view …]`)** — when a reg-view'd component's root is another reg-view'd component, the wrapper SKIPs (the head is a fn, not a DOM-tag keyword). The inner component will tag *its own* root; the outer view is invisible to view-id lookup, and under DOM-containment inference its children become orphans of the inner tagged element. Pair tools can chase the wrapping via `(rf/handler-meta :view id)`.
 
