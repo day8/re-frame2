@@ -261,6 +261,18 @@
 ;; the *capture* path; the merge path is in the fns. Apps that reach
 ;; the registration fn programmatically (HoF, runtime registration) use
 ;; these aliases.
+;;
+;; CONCORDANCE (Conventions §Convention A). Every `defreg-macro` /
+;; `defreg-event-macro` row in the `#?(:clj …)` table below has EXACTLY ONE
+;; same-named alias here, delegating to the SAME fn, and this block is kept
+;; in the table's order so the two read side by side. The two declarations
+;; are a hand-written pair, so they are pinned equal by
+;; `re-frame.registrar-alias-concordance-cljs-test`, which derives both from
+;; THIS FILE (read once under `:features #{:clj}` and once under `#{:cljs}`)
+;; rather than restating either as a list — a new registrar macro without its
+;; alias goes red there, which is how the previous five-name gap (`reg-flow`,
+;; `reg-mutation`, `reg-head`, `reg-error-projector`, `reg-http-interceptor`)
+;; stayed latent (rf2-kuky.23).
 
 #?(:cljs
    (do
@@ -293,6 +305,15 @@
   `re-frame.interceptor-registry/reg-interceptor*` and spec/API.md
   §Registration."}
        reg-interceptor  rf.interceptor-registry/reg-interceptor*)
+     (def ^{:doc "Fn-alias of the `reg-flow` macro for HoF / programmatic
+  registration (no source-coord capture). Register a flow under `flow-id`:
+  `(reg-flow flow-id metadata derive-fn)` — the pure `:derive` fn is the
+  THIRD value slot (rf2-bqstzr), `metadata` carries `:inputs` /
+  `:output-path` (both REQUIRED) plus optional `:doc` / `:schema` / the
+  EP-0025 classification keys and the `:frame` mounting key. Implementation
+  ships in `day8/re-frame2-flows`; require `re-frame.flows` at boot. See
+  `re-frame.core-flows/reg-flow` and spec/API.md §Registration."}
+       reg-flow        rf.core-flows/reg-flow)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
   registration (no source-coord capture). Register a route: `(reg-route id
   metadata path)` — `metadata` is the MIDDLE registration-metadata map
@@ -313,6 +334,17 @@
   `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-resource` and spec/API.md §Registration."}
        reg-resource    rf.core-resources/reg-resource)
+     (def ^{:doc "Fn-alias of the `reg-mutation` macro for HoF / programmatic
+  registration (no source-coord capture). Register a mutation — a named,
+  causal WRITE to remote state that, on success, invalidates / patches /
+  populates cached resource reads: `(reg-mutation mutation-id metadata
+  request-fn)` — the `:request` write fn (a Spec 014 managed-HTTP args map)
+  is the THIRD value slot (rf2-wvh95f F1), `metadata` carries the REQUIRED
+  `:params-schema` plus optional `:invalidates` / `:patches` / `:populates` /
+  `:scope` / `:invalidate-timing` / `:retry`. Implementation ships in
+  `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
+  `re-frame.core-resources/reg-mutation` and spec/API.md §Resources."}
+       reg-mutation    rf.core-resources/reg-mutation)
      (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
   programmatic registration (no source-coord capture). Register a PURE named
   scope resolver under `scope-id`. Per rf2-bqstzr the 3-slot grammar is
@@ -349,6 +381,31 @@
   See `re-frame.core-schemas/reg-app-schemas` and spec/API.md
   §Registration."}
        reg-app-schemas rf.core-schemas/reg-app-schemas)
+     (def ^{:doc "Fn-alias of the `reg-error-projector` macro for HoF /
+  programmatic registration (no source-coord capture). Register an error
+  projector — `(fn [trace-event] public-error-map)` — under `id`; frames opt
+  in via the `:ssr` config's `:public-error-id` key. Implementation ships in
+  `day8/re-frame2-ssr`; require `re-frame.ssr` at boot. See
+  `re-frame.core-ssr/-reg-error-projector` and Spec 011 §Server error
+  projection."}
+       reg-error-projector rf.core-ssr/-reg-error-projector)
+     (def ^{:doc "Fn-alias of the `reg-head` macro for HoF / programmatic
+  registration (no source-coord capture). Register a head-fragment producer —
+  `(fn [db route] head-model)` — under a namespaced keyword `id`; routes name
+  a registered head via `:head` route metadata. Implementation ships in
+  `day8/re-frame2-ssr`; require `re-frame.ssr` at boot. See
+  `re-frame.core-ssr/-reg-head` and Spec 011 §Head/meta contract."}
+       reg-head        rf.core-ssr/-reg-head)
+     (def ^{:doc "Fn-alias of the `reg-http-interceptor` macro for HoF /
+  programmatic registration (no source-coord capture). Register an HTTP
+  interceptor on a frame's `:rf.http/managed` middleware chain:
+  `(reg-http-interceptor id interceptor-map)` — per rf2-uheqq the surface
+  mirrors the event-interceptor `{:id :before :after}` shape, so the single
+  map argument carries at least one of `:before` / `:after` plus an optional
+  `:frame` override. Implementation ships in `day8/re-frame2-http`; require
+  `re-frame.http.managed` at boot. See
+  `re-frame.core-http/reg-http-interceptor` and Spec 014 §Middleware."}
+       reg-http-interceptor rf.core-http/reg-http-interceptor)
      (def ^{:doc "Fn-alias of the `dispatch` macro for HoF / programmatic
   dispatch (no call-site source-coord capture). Appends `event-vec` to the
   target frame's router queue; returns nil.
