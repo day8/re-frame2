@@ -31,7 +31,10 @@ the tree it excludes is no longer somewhere a reader could go and look.
 re-measured and none moved; what this note records is the state of the artefacts
 the figures were taken from.**
 
-Every figure in §2–§5 and §7 was taken by the **per-keystroke census suite**,
+Every figure in §2–§5 and §7 — **except §4.1's**, which come from
+[the layer-2 contrast][contrast] on the same lane and the same profile and carry
+[their own run table](#41-the-layer-2-contrast-measured), exactly as
+[§7](#7-provenance) already says — was taken by the **per-keystroke census suite**,
 which stood at
 `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs`
 and **is no longer in the tree**: it was retired on 2026-08-30 by `f5f40d1116`,
