@@ -117,7 +117,7 @@
         {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
     (uix/use-effect
       (fn []
-        (let [el       (.-current ref)
+        (let [el       @ref
               listener (fn [_evt] (dispatch-sync [::finished tile-id]))]
           (swap! effect-log conj :setup)
           (.addEventListener el "animationend" listener)
@@ -136,7 +136,7 @@
         {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
     (uix/use-effect
       (fn []
-        (let [el       (.-current ref)
+        (let [el       @ref
               listener (fn [_evt] (dispatch-sync [::finished tile-id]))]
           (swap! effect-log conj :setup)
           (.addEventListener el "animationend" listener)
