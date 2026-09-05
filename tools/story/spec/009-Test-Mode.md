@@ -510,7 +510,7 @@ promise `prepare-variant` returns, and `begin!` leaves the section in its
 inactive state rather than offering step controls over a frame that never
 reached the state the variant's `:setup` describes.
 
-Those failures reach `prepare-variant` by two routes, and **only one of them
+Those failures reach `prepare-variant` by three routes, and **only one of them
 is a throw** — which is why the rejection is a decision the seam makes
 rather than one it inherits:
 
@@ -518,6 +518,7 @@ rather than one it inherits:
 |-----------|--------------------------------------------------------------|-----------------------------------------------------------------------|
 | Thrown    | unknown variant; a `:db-seed` schema violation               | escapes phases 0-2; the promise rejects on it                          |
 | Captured  | a throwing `:loaders` / `:setup` handler                     | recorded onto `[:rf.story/assertions]`; **the phase returns normally** |
+| Redacted  | the same, CLASSIFIED SENSITIVE                               | dropped at the privacy egress gate; **no assertion is recorded at all** |
 
 The captured route is `run-variant`'s gather-the-full-picture contract
 (`002-Runtime.md` §Error projection — a run reports every failure it saw
@@ -535,6 +536,37 @@ onto `prepare-variant` and had `begin!` branch on rejection alone, so a
 captured `:setup` failure resolved `nil` and published an active cursor-0
 stepper over a failed preparation — the same class of lie as the original
 defect, one lifecycle half further in.
+
+**The redacted route is that same lie once more, and reading the assertions
+accumulator does not reach it.** Those records are the DISPLAY path, and the
+display path runs through the privacy egress gate: per Spec 009 §Privacy +
+EP-0015 a pipeline-exception trace event flagged `:sensitive?` is dropped
+before it is ever projected onto `[:rf.story/assertions]`, under the default
+`:rf.egress/local-redacted` profile. So a `:setup` handler whose failure is
+classified sensitive — the variant declares `:sensitive {:app-db [...]}` and
+the handler's chain focuses an overlapping path — left the accumulator EMPTY,
+and a check reading it saw nothing to refuse on. The frame did not look
+merely healthy; it looked uneventful.
+
+The repair is **not** to redact less. Readiness instead rests on a fact the
+filter cannot erase: the capture boundary that drops the event additionally
+records its framework `:operation` — one member of the closed
+`:rf.error/handler-exception` / `:rf.error/coeffect-exception` /
+`:rf.error/interceptor-exception` enum, carrying no message, no `ex-data`, no
+failing event, no `:failing-id`. `prepare-variant` rejects when EITHER set is
+non-empty, reporting the visible records under `:failures` and the hidden
+ones' operation keywords under `:redacted-failure-ops`, so the operator
+learns what CLASS of thing failed without the filter yielding an inch. Like
+the assertions accumulator, the record is cleared at phase 0's fresh-frame
+boundary, so every entry belongs to THIS preparation.
+
+**Suppression is not itself a failure.** A privacy-classified variant whose
+preparation is healthy suppresses plenty of events and MUST still be
+step-debuggable — refusing every such variant would withdraw the debugger
+exactly where privacy makes it hardest to reason without one. Only a
+suppressed pipeline EXCEPTION refuses, which is why the record keys on the
+operation rather than on the suppressed-event counter the `[● REDACTED]`
+hint reads.
 
 `:rf.error/loader-incomplete` is deliberately NOT a prepare failure. A
 `:loaders-complete-when` that reports not-ready is a contract-pending signal

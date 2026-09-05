@@ -760,6 +760,74 @@
    (swap! suppressed-counters dissoc (or variant-id :global))
    nil))
 
+;; ---- *redacted-failures* (readiness the egress filter cannot erase) -----
+;;
+;; The counter above answers "how many sensitive events did you not show
+;; me?" — a DISPLAY hint, and deliberately blind to what those events were.
+;; That blindness is what made a caller reading the display path unable to
+;; tell a clean preparation from a redacted catastrophe: a `:setup` handler
+;; whose failure is classified sensitive emits a pipeline exception that the
+;; egress gate drops BEFORE `record-error!`, so `[:rf.story/assertions]`
+;; stays empty and `prepare-variant` resolved over a frame whose `:setup`
+;; never ran (rf2-k6y2, post-merge audit of PR #9252).
+;;
+;; So the capture boundaries record one additional PRIVACY-SAFE fact when
+;; the event they are dropping is a pipeline exception: its `:operation`.
+;; That is a member of the closed framework enum
+;; `rf.story.error/pipeline-exception-operations` — one of three
+;; `:rf.error/*` keywords — and carries no author data at all: no message,
+;; no `ex-data`, no failing event, no `:failing-id`. Nothing here weakens
+;; the redaction; it records only THAT a failure was hidden, and of which
+;; framework class.
+;;
+;; A SET rather than a count, for two reasons. Both Story listeners (the
+;; runtime's `capture-phase-errors` and the play-runner's per-frame
+;; listener) observe the same trace event, so a count would double-report a
+;; single failure; and presence is the whole of what a readiness check
+;; needs. Callers ask "is this empty?", never "how many?".
+
+(defonce
+  ^{:doc "Atom: `{variant-id → #{:rf.error/* operation …}}`. The framework
+         operation keyword of every SUPPRESSED pipeline exception, recorded
+         by the Story listener that dropped it. Read by
+         `re-frame.story.runtime/prepare-variant` so a step-debugger Start
+         refuses a preparation whose failure the privacy filter hid.
+         Per-variant and cleared at the phase-0 fresh-frame boundary, so
+         every entry present when phases 0-2 return belongs to THIS
+         preparation."}
+  redacted-failures
+  (atom {}))
+
+(defn note-redacted-failure!
+  "Record that a pipeline exception carrying `operation` was SUPPRESSED for
+  `variant-id` by the privacy egress gate. Called from a capture-boundary
+  listener's suppress branch, alongside `note-suppressed!` — the counter
+  keeps answering the display question, this answers the readiness one.
+
+  Only the operation keyword is stored. A `nil` `variant-id` is a no-op:
+  readiness is asked per-variant, and a frameless event belongs to no
+  preparation."
+  [variant-id operation]
+  (when (and (some? variant-id) (some? operation))
+    (swap! redacted-failures update variant-id (fnil conj #{}) operation))
+  nil)
+
+(defn redacted-failure-ops
+  "The (possibly empty) SET of framework operation keywords whose pipeline
+  exceptions were suppressed for `variant-id`. Non-empty means a failure
+  occurred that the egress filter erased from the display path."
+  [variant-id]
+  (get @redacted-failures variant-id #{}))
+
+(defn reset-redacted-failures!
+  "Clear the redacted-failure record. With no arg, clears all; with a
+  `variant-id`, just that variant. Called at the phase-0 fresh-frame
+  boundary and on variant teardown."
+  ([] (reset! redacted-failures {}) nil)
+  ([variant-id]
+   (swap! redacted-failures dissoc variant-id)
+   nil))
+
 ;; ---- *reset-all!* (config-leak test-isolation) -------------------------
 ;;
 ;; Every leakable process-global config atom above is a `defonce` that
@@ -806,6 +874,7 @@
                                               reset directly, no toggle-off fire)
   - `session-egress-profile`      → `:rf.egress/local-redacted`
   - `suppressed-counters`         → `{}`
+  - `redacted-failures`           → `{}`
 
   Deliberately leaves `toggle-off-callbacks` intact — those are
   load-time module registrations, not per-test state."
@@ -818,4 +887,5 @@
   (reset! frame-egress-profiles {})
   (reset! session-egress-profile default-egress-profile)
   (reset! suppressed-counters {})
+  (reset! redacted-failures {})
   nil)
