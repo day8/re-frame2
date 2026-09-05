@@ -951,3 +951,220 @@
         (handle-keydown event)
         (is (true? @prevented)
             "Space consumed — the spine live-pause binding fired on a plain node")))))
+
+;; ---- (10) the pop-out document's own listener (rf2-61i5) -----------------
+;;
+;; `mount/popout!` renders a live shell into a SECOND document, and DOM key
+;; events do not cross realms — so the opener-document listener could never
+;; see a keypress made in the pop-out window, and the documented keyboard
+;; workflow was inert whenever focus was there.
+;;
+;; Two things are under test, and they fail in different ways:
+;;
+;;   * ROUTING. `handle-keydown-on` is now surface-parameterised. Every
+;;     assertion below pairs the pop-out surface with the OPENER surface on
+;;     the identical event, so a test cannot pass by the handler having
+;;     become inert — the control shares the shape of the target.
+;;   * OWNERSHIP. `install-popout-keydown!` must add exactly one
+;;     capture-phase listener to the document it is handed and return a
+;;     disposer that removes THAT fn object.
+;;
+;; The browser-level counterpart (a real second window, real keypresses)
+;; lives in the feature-matrix scenario added under the same bead.
+
+(defn- handle-keydown-on [surface event]
+  (#'keybinding/handle-keydown-on surface event))
+
+(def ^:private popout-surface @#'keybinding/popout-surface)
+(def ^:private opener-surface @#'keybinding/opener-surface)
+
+(defn- mk-shell-key-event
+  "Synthetic keydown whose `.target` resolves the Xray shell testid via
+  `.closest` — i.e. a key pressed INSIDE a rendered shell, which is what
+  both surfaces see. Modifiers and key are caller-supplied; prevent/stop
+  are spied."
+  [{:keys [key code ctrl? shift? meta? alt?]
+    :or   {ctrl? false shift? false meta? false alt? false}}]
+  (let [prevented  (atom false)
+        stopped    (atom false)
+        shell-node (js-obj "id" "fake-shell")
+        target     (js-obj "tagName"      "DIV"
+                           "getAttribute" (fn [_] nil)
+                           "closest"      (fn [sel]
+                                            (when (re-find #"rf-xray-shell" sel)
+                                              shell-node)))]
+    {:event     (js-obj "key"             key
+                        "code"            code
+                        "target"          target
+                        "ctrlKey"         ctrl?
+                        "shiftKey"        shift?
+                        "metaKey"         meta?
+                        "altKey"          alt?
+                        "repeat"          false
+                        "preventDefault"  (fn [] (reset! prevented true))
+                        "stopPropagation" (fn [] (reset! stopped true)))
+     :prevented prevented
+     :stopped   stopped}))
+
+(deftest popout-spine-keys-fire-with-no-opener-shell-visible
+  (testing "rf2-61i5 — the bug's core. `mount/visible?` reports on the
+            OPENER's in-app shell, so with no inline shell open every bare
+            spine key was refused. In the pop-out the shell IS on screen,
+            so the spine must fire; the opener surface on the SAME event
+            must still refuse. Pairing them is the control: if the handler
+            had merely gone inert, the pop-out half would fail too."
+    (setup-xray-runtime!)
+    (with-redefs [mount/visible? (constantly false)]
+      (doseq [k [{:key " " :code "Space"}
+                 {:key "j" :code "KeyJ"}
+                 {:key "k" :code "KeyK"}
+                 {:key "l" :code "KeyL"}]]
+        (let [{:keys [event prevented]} (mk-shell-key-event k)]
+          (handle-keydown-on popout-surface event)
+          (is (true? @prevented)
+              (str "pop-out spine key " k " must fire with no opener shell")))
+        (let [{:keys [event prevented]} (mk-shell-key-event k)]
+          (handle-keydown-on opener-surface event)
+          (is (false? @prevented)
+              (str "opener spine key " k " must still refuse when its own "
+                   "shell is hidden — the pre-existing contract")))))))
+
+(deftest popout-palette-does-not-touch-the-opener-shell
+  (testing "rf2-61i5 — Cmd/Ctrl+K in the pop-out opens the palette WITHOUT
+            mounting, showing or reopening the opener's inline shell. The
+            opener surface on the identical event still calls `toggle!`
+            when its shell is hidden, which is what makes the pop-out
+            assertion mean something."
+    (setup-xray-runtime!)
+    (let [toggles (atom 0)]
+      (with-redefs [mount/visible? (constantly false)
+                    mount/toggle!  (fn [] (swap! toggles inc) nil)]
+        (doseq [chord [{:key "k" :code "KeyK" :meta? true}
+                       {:key "k" :code "KeyK" :ctrl? true}]]
+          (reset! toggles 0)
+          (let [{:keys [event prevented]} (mk-shell-key-event chord)]
+            (handle-keydown-on popout-surface event)
+            (is (true? @prevented)
+                (str "pop-out " chord " is consumed — the palette opens here"))
+            (is (zero? @toggles)
+                (str "pop-out " chord " must NOT mount or reopen the opener's "
+                     "shell — that is the accident this bead names")))
+          (reset! toggles 0)
+          (let [{:keys [event]} (mk-shell-key-event chord)]
+            (handle-keydown-on opener-surface event)
+            (is (= 1 @toggles)
+                (str "control: the OPENER surface still shows its hidden "
+                     "shell before opening the palette on " chord))))))))
+
+(deftest popout-shell-toggle-chord-stays-opener-owned
+  (testing "rf2-61i5 — Ctrl+Shift+C shows/hides the opener's IN-APP shell,
+            a surface that does not exist in the pop-out document. Pressed
+            in the pop-out it must not reach across and toggle the opener's
+            shell, and must not be swallowed either (no preventDefault), so
+            it falls through to the browser like any unbound key."
+    (setup-xray-runtime!)
+    (let [toggles (atom 0)]
+      (with-redefs [mount/visible? (constantly true)
+                    mount/toggle!  (fn [] (swap! toggles inc) nil)]
+        (let [{:keys [event prevented stopped]}
+              (mk-shell-key-event {:key "C" :code "KeyC" :ctrl? true :shift? true})]
+          (handle-keydown-on popout-surface event)
+          (is (zero? @toggles) "pop-out Ctrl+Shift+C must not toggle the opener")
+          (is (false? @prevented) "and must not consume the key")
+          (is (false? @stopped)   "and must not stop propagation"))
+        (reset! toggles 0)
+        (let [{:keys [event prevented]}
+              (mk-shell-key-event {:key "C" :code "KeyC" :ctrl? true :shift? true})]
+          (handle-keydown-on opener-surface event)
+          (is (= 1 @toggles) "control: the opener surface still owns the chord")
+          (is (true? @prevented) "and still consumes it"))))))
+
+(deftest popout-mode-chord-routes-through-the-shared-map
+  (testing "rf2-61i5 — Cmd/Ctrl+Shift+M and `,` / s are NOT surface-
+            dependent: both surfaces route them identically through the one
+            keyboard map. Proves the pop-out reuses the canonical roster
+            rather than carrying a second table."
+    (setup-xray-runtime!)
+    (with-redefs [mount/visible? (constantly true)]
+      (doseq [chord [{:key "M" :code "KeyM" :ctrl? true :shift? true}
+                     {:key "," :code "Comma"}
+                     {:key "s" :code "KeyS"}]]
+        (let [popout (mk-shell-key-event chord)
+              opener (mk-shell-key-event chord)]
+          (handle-keydown-on popout-surface (:event popout))
+          (handle-keydown-on opener-surface (:event opener))
+          (is (= @(:prevented opener) @(:prevented popout))
+              (str "surfaces must agree on " chord))
+          (is (true? @(:prevented popout))
+              (str chord " is a live binding on both surfaces")))))))
+
+(deftest install-popout-keydown-owns-exactly-one-listener
+  (testing "rf2-61i5 — installing on a pop-out document adds exactly ONE
+            capture-phase keydown listener, and the returned disposer
+            removes that exact fn object (add/removeEventListener compare
+            by reference)."
+    (let [{:keys [doc listeners]} (mk-stub-document)
+          dispose (keybinding/install-popout-keydown! doc)]
+      (is (fn? dispose) "an installer that ran returns its disposer")
+      (is (= 1 (count @listeners)) "exactly one listener installed")
+      (let [{:keys [type use-capture]} (first @listeners)]
+        (is (= "keydown" type))
+        (is (true? use-capture) "capture phase, as on the opener document"))
+      (dispose)
+      (is (zero? (count @listeners))
+          "the disposer removed the exact listener it installed"))))
+
+(deftest popout-listeners-do-not-accumulate-across-windows
+  (testing "rf2-61i5 — each pop-out document gets its own listener and its
+            own disposer; disposing one must not disturb the other. This is
+            the reopen contract: `teardown-popout-state!` disposes, a later
+            `popout!` installs one fresh listener rather than stacking
+            handlers."
+    (let [a (mk-stub-document)
+          b (mk-stub-document)
+          dispose-a (keybinding/install-popout-keydown! (:doc a))
+          dispose-b (keybinding/install-popout-keydown! (:doc b))]
+      (is (= 1 (count @(:listeners a))))
+      (is (= 1 (count @(:listeners b))))
+      (is (not (identical? (:handler (first @(:listeners a)))
+                           (:handler (first @(:listeners b)))))
+          "a fresh closure per document — not one shared process-wide fn")
+      (dispose-a)
+      (is (zero? (count @(:listeners a))) "a disposed")
+      (is (= 1 (count @(:listeners b))) "b untouched by a's disposal")
+      (dispose-b)
+      (is (zero? (count @(:listeners b)))))))
+
+(deftest install-popout-keydown-honours-the-config-slot
+  (testing "rf2-61i5 — an embed host that cleared
+            :rf.xray/keybinding-enabled? gets no pop-out listener either.
+            The slot is read at INSTALL time, matching attach!'s posture."
+    (let [{:keys [doc listeners]} (mk-stub-document)]
+      (try
+        (config/set-keybinding-enabled! false)
+        (is (nil? (keybinding/install-popout-keydown! doc))
+            "declined — nil rather than a disposer")
+        (is (zero? (count @listeners)) "nothing installed")
+        (finally
+          (config/set-keybinding-enabled! true)))
+      ;; Control, sharing the shape: with the slot restored the SAME call on
+      ;; the SAME document installs — so the zero above is a refusal, not an
+      ;; installer that never works.
+      (let [dispose (keybinding/install-popout-keydown! doc)]
+        (is (= 1 (count @listeners)) "installs once the slot is back on")
+        (dispose)))))
+
+(deftest install-popout-keydown-refuses-a-nil-document
+  (testing "rf2-61i5 — a pop-out whose document is unreachable installs
+            nothing and returns nil rather than throwing; `popout!` stores
+            the nil and `teardown-popout-state!` skips disposal."
+    (is (nil? (keybinding/install-popout-keydown! nil)))))
+
+(deftest popout-installer-is-registered-with-mount
+  (testing "rf2-61i5 — the injection that closes the mount <-> keybinding
+            cycle. `mount/popout!` reaches keybinding ONLY through this
+            slot, so an unregistered installer means a keyboard-less
+            pop-out with nothing else failing."
+    (is (identical? keybinding/install-popout-keydown!
+                    @#'mount/popout-keydown-installer)
+        "keybinding registered its installer into mount at load time")))

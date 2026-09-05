@@ -84,8 +84,38 @@
   ;; opener runtime remains the source of truth. The `:overlay-node` slot holds
   ;; the opener-gone overlay element (sibling to the shell root) and
   ;; `:watchdog-id` holds the setInterval token that polls
-  ;; `window.opener.closed`.
+  ;; `window.opener.closed`. `:keydown-dispose` (rf2-61i5) holds the
+  ;; zero-arg disposer for this pop-out document's own keydown listener,
+  ;; or nil when none was installed.
   (atom nil))
+
+(defonce ^:private popout-keydown-installer
+  ;; rf2-61i5 — the seam that gives a pop-out document its keyboard.
+  ;;
+  ;; DOM key events do not cross realms, so the opener-document listener
+  ;; `keybinding/attach!` installs can never see a keypress made in the
+  ;; pop-out window. The pop-out therefore needs its own listener, but the
+  ;; require already runs `keybinding -> mount` (for `toggle!` / `visible?`),
+  ;; so mount cannot reach back for the keyboard map without a cycle.
+  ;;
+  ;; Instead keybinding INJECTS its installer here at load time. The slot
+  ;; holds `(fn [doc] -> disposer-fn-or-nil)`: mount hands over a document
+  ;; and gets back a zero-arg disposer it stores and later calls, without
+  ;; knowing what a chord is. nil when keybinding was never loaded (or the
+  ;; host disabled it), in which case a pop-out simply has no keyboard —
+  ;; exactly the behaviour that shipped before this bead.
+  (atom nil))
+
+(defn register-popout-keydown-installer!
+  "Register the fn that installs a pop-out document's keydown listener
+  (rf2-61i5). Called once by `day8.re-frame2-xray.keybinding` at load
+  time; see `popout-keydown-installer` for why the injection runs this
+  way round. `installer` takes the pop-out `document` and returns either
+  a zero-arg disposer that removes exactly the listener it installed, or
+  nil when it declined to install one."
+  [installer]
+  (reset! popout-keydown-installer installer)
+  nil)
 
 (defonce ^:private diagnostic-state
   (atom {:ok? true :reason nil}))
@@ -1032,10 +1062,20 @@
   swallow-errors guards — this is a last-chance cleanup (test
   fixture, opener-side unload), not a contract-checking call site."
   []
-  (when-let [{:keys [window unmount watchdog-id
+  (when-let [{:keys [window unmount watchdog-id keydown-dispose
                      opener-window opener-pagehide-handler]} @popout-state]
     (when watchdog-id
       (try (js/clearInterval watchdog-id) (catch :default _ nil)))
+    ;; rf2-61i5 — drop the pop-out document's keydown listener. This is the
+    ;; ONE disposal path for it: external close routes here via
+    ;; `register-popout-unload-cleanup!`, `teardown!` calls this directly,
+    ;; and `popout!` returns the existing state rather than re-opening, so
+    ;; listeners cannot accumulate across open/close cycles. The disposer
+    ;; removes the exact fn object that was added — `removeEventListener`
+    ;; compares by reference, and the handler is a fresh per-pop-out closure
+    ;; over that document.
+    (when keydown-dispose
+      (try (keydown-dispose) (catch :default _ nil)))
     ;; rf2-uong — drop the opener-side `pagehide` announcer. Unlike the
     ;; watchdog (a timer owned by this realm) the listener would otherwise
     ;; accumulate across repeated popout open/close cycles in ONE opener
@@ -1081,7 +1121,12 @@
 
   Production sessions never call `teardown!` so the listener-leak
   exposure is test-only — the convention is pinned in
-  `tools/xray/spec/Conventions.md` §Mount conventions."
+  `tools/xray/spec/Conventions.md` §Mount conventions.
+
+  That obligation is about the OPENER-document listener only. The
+  pop-out document's own listener (rf2-61i5) IS disposed from here, via
+  `teardown-popout-state!`, because mount owns its disposer rather than
+  having to reach into keybinding for it."
   []
   ;; Restore the host's inline `display` before clearing the snapshot —
   ;; teardown is the cleanest exit and must leave the host element in
@@ -1527,6 +1572,16 @@
                         ;; see, because the reload destroys the watchdog.
                         announcer    (register-opener-reload-announcer!
                                        js/window win overlay-node)
+                        ;; rf2-61i5 — the pop-out's OWN keydown listener.
+                        ;; Key events do not cross realms, so without this
+                        ;; the documented keyboard workflow (Cmd/Ctrl+K,
+                        ;; Cmd/Ctrl+Shift+M, Space / L / j / k / G, `,`/s)
+                        ;; is inert whenever focus is in this window.
+                        ;; `keydown-dispose` is nil when keybinding is not
+                        ;; loaded or the host disabled it.
+                        keydown-dispose (when-let [install @popout-keydown-installer]
+                                          (try (install doc)
+                                               (catch :default _ nil)))
                         state        {:ok?          true
                                       :window       win
                                       :node         node
@@ -1534,6 +1589,7 @@
                                       :mode         :popout
                                       :overlay-node overlay-node
                                       :watchdog-id  watchdog-id
+                                      :keydown-dispose         keydown-dispose
                                       :opener-window           js/window
                                       :opener-pagehide-handler announcer}]
                     (reset! popout-state state)

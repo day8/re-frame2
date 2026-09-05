@@ -581,6 +581,90 @@ async function assertDefaultInlineLaunchModes(page, state) {
     }
   });
 
+  // rf2-61i5 — the pop-out document's OWN keyboard.
+  //
+  // DOM key events do not cross realms, so a keydown made in the pop-out
+  // window can only be seen by a listener installed on the POP-OUT
+  // document. Dispatching into that document is therefore the one probe
+  // that distinguishes "Xray has a keyboard here" from "Xray has a
+  // keyboard in the opener" — the boundary the pre-existing pop-out
+  // coverage (root/shell presence, shared cascade rendering) never
+  // crossed, because it sent no key at all.
+  //
+  // The two assertions match the acceptance the bead names: a spine step
+  // key moves focus on the shared :rf/xray frame, and Cmd/Ctrl+K opens the
+  // palette in the pop-out WITHOUT disturbing the opener's inline shell.
+  const popoutKeyboard = await page.evaluate(() => {
+    const win = window.open('', 'rf-xray-popout');
+    const doc = win && win.document;
+    if (!doc) return { ok: false, reason: 'pop-out document unreachable' };
+
+    const shell = doc.querySelector('[data-testid="rf-xray-shell"]');
+    if (!shell) return { ok: false, reason: 'pop-out shell not rendered' };
+
+    // The opener's inline shell, whose mount state must not move.
+    const openerRootMode = () => {
+      const root = document.getElementById('rf-xray-root');
+      return root ? root.getAttribute('data-rf-xray-mode') : null;
+    };
+    const openerShellCount = () =>
+      document.querySelectorAll('[data-testid="rf-xray-shell"]').length;
+
+    const before = { rootMode: openerRootMode(), shells: openerShellCount() };
+
+    // KeyboardEvent must be constructed from the POP-OUT realm, or the
+    // capture listener there receives a foreign-realm object.
+    const send = (init) => {
+      const Ctor = win.KeyboardEvent || window.KeyboardEvent;
+      const ev = new Ctor('keydown', Object.assign(
+        { bubbles: true, cancelable: true, composed: true }, init));
+      shell.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+
+    // (a) a spine STEP key — j / k walk the event feed.
+    const stepPrevented = send({ key: 'j', code: 'KeyJ' });
+
+    // (b) the palette chord.
+    const palettePrevented = send({ key: 'k', code: 'KeyK', ctrlKey: true });
+
+    const after = { rootMode: openerRootMode(), shells: openerShellCount() };
+
+    return {
+      ok: true,
+      stepPrevented,
+      palettePrevented,
+      paletteInPopout: Boolean(doc.querySelector('[data-testid="rf-xray-palette-dialog"]')),
+      openerBefore: before,
+      openerAfter: after,
+    };
+  });
+
+  if (!popoutKeyboard.ok) {
+    failWithDetails('Pop-out keyboard probe could not run', { observed: popoutKeyboard });
+  }
+  if (!popoutKeyboard.stepPrevented) {
+    failWithDetails(
+      'Pop-out document has no Xray keydown listener: a spine step key was not consumed there (rf2-61i5)',
+      { observed: popoutKeyboard });
+  }
+  if (!popoutKeyboard.palettePrevented) {
+    failWithDetails(
+      'Cmd/Ctrl+K was not consumed in the pop-out document (rf2-61i5)',
+      { observed: popoutKeyboard });
+  }
+  if (!popoutKeyboard.paletteInPopout) {
+    failWithDetails(
+      'Cmd/Ctrl+K in the pop-out did not open the palette in that window (rf2-61i5)',
+      { observed: popoutKeyboard });
+  }
+  if (popoutKeyboard.openerBefore.rootMode !== popoutKeyboard.openerAfter.rootMode
+      || popoutKeyboard.openerBefore.shells !== popoutKeyboard.openerAfter.shells) {
+    failWithDetails(
+      "Keys pressed in the pop-out moved the OPENER's shell mount state (rf2-61i5)",
+      { observed: popoutKeyboard });
+  }
+
   state.launchModes = {
     inlineDefault: {
       rootMode: defaultInline.rootMode,
@@ -591,6 +675,7 @@ async function assertDefaultInlineLaunchModes(page, state) {
       normalFlowHost: true,
     },
     popout,
+    popoutKeyboard,
   };
   for (const [mode, record] of Object.entries({ popout })) {
     if (!record.implemented) {

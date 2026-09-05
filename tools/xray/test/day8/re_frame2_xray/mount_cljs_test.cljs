@@ -1341,14 +1341,17 @@
   of what `popout!` would install if it had a real browser window
   available. Returns the seeded state map so the test can assert
   against its slots."
-  [{:keys [window unmount-fn]}]
+  [{:keys [window unmount-fn keydown-dispose]}]
   (let [node    (mk-stub-node)
         unmount (or unmount-fn (fn [] nil))
-        state   {:ok? true
-                 :window  window
-                 :node    node
-                 :unmount unmount
-                 :mode    :popout}]
+        state   (cond-> {:ok? true
+                         :window  window
+                         :node    node
+                         :unmount unmount
+                         :mode    :popout}
+                  ;; rf2-61i5 — only seeded when a test asks for it, so the
+                  ;; existing tests keep exercising the nil-disposer path.
+                  keydown-dispose (assoc :keydown-dispose keydown-dispose))]
     (reset! @#'mount/popout-state state)
     state))
 
@@ -1411,6 +1414,80 @@
               "popout-state cleared despite the throw")
           (is (true? @closed?)
               "popout window still closed despite the throw"))))))
+
+;; ---- pop-out keydown listener lifecycle (rf2-61i5) -----------------------
+;;
+;; `popout!` renders a shell into a second document, and DOM key events do
+;; not cross realms — so the pop-out gets its OWN listener, installed
+;; through the slot `keybinding` injects and disposed by
+;; `teardown-popout-state!`. That one disposal path serves every exit:
+;; `teardown!`, and an external window close via the pagehide/unload
+;; handler. These pin the mount half; the routing half is in
+;; keybinding_cljs_test.cljs.
+
+(deftest teardown!-disposes-the-popout-keydown-listener
+  (testing "rf2-61i5 — teardown! must run the pop-out document's keydown
+            disposer, so a torn-down pop-out leaves no live handler."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window]} (mk-stub-popout-window)
+              disposals (atom 0)]
+          (seed-popout-state! {:window          window
+                               :keydown-dispose (fn []
+                                                  (swap! disposals inc)
+                                                  nil)})
+          (mount/teardown!)
+          (is (= 1 @disposals)
+              "the pop-out keydown disposer ran exactly once")
+          (is (nil? @@#'mount/popout-state)
+              "and the singleton still cleared"))))))
+
+;; (The external-close half of this contract needs
+;; `register-popout-cleanup!`, defined further down with the other
+;; pagehide/unload tests, so it lives beside them rather than here.)
+
+(deftest teardown!-swallows-a-throwing-keydown-disposer
+  (testing "rf2-61i5 — teardown is last-chance cleanup: a throwing disposer
+            must not strand the substrate unmount, the window close, or the
+            singleton. Same posture as the unmount guard above."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window closed?]} (mk-stub-popout-window)
+              unmount-calls (atom 0)]
+          (seed-popout-state!
+            {:window          window
+             :unmount-fn      (fn [] (swap! unmount-calls inc) nil)
+             :keydown-dispose (fn [] (throw (ex-info "disposer blew up"
+                                                     {:reason :test})))})
+          (is (nil? (mount/teardown!))
+              "teardown returns nil even when the disposer throws")
+          (is (nil? @@#'mount/popout-state) "singleton cleared despite the throw")
+          (is (= 1 @unmount-calls) "substrate unmount still ran")
+          (is (true? @closed?) "window still closed"))))))
+
+(deftest teardown!-tolerates-a-popout-with-no-keydown-disposer
+  (testing "rf2-61i5 — `install-popout-keydown!` returns nil when the host
+            disabled Xray's keyboard, so `:keydown-dispose` is legitimately
+            absent. Teardown must skip it rather than calling nil."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window closed?]} (mk-stub-popout-window)]
+          (seed-popout-state! {:window window})
+          (is (nil? (:keydown-dispose @@#'mount/popout-state))
+              "precondition: no disposer on this pop-out")
+          (is (nil? (mount/teardown!)))
+          (is (nil? @@#'mount/popout-state))
+          (is (true? @closed?)))))))
+
+(deftest popout-keydown-installer-slot-is-registered
+  (testing "rf2-61i5 — mount reaches the keyboard map only through this
+            injected slot (requiring keybinding from here would be a
+            cycle). An empty slot means a keyboard-less pop-out with
+            nothing else failing, so pin that it is populated."
+    (is (some? @#'mount/popout-keydown-installer)
+        "an installer is registered")
+    (is (fn? @@#'mount/popout-keydown-installer)
+        "and it is callable")))
 
 (deftest teardown!-clears-both-singletons-in-one-call
   (testing "rf2-yudol + rf2-sbfb7: a single teardown! call clears
@@ -1521,6 +1598,27 @@
               "popout-state cleared by the pagehide handler")
           (is (= 1 @unmount-calls)
               "substrate unmount fn invoked by the pagehide handler"))))))
+
+(deftest popout-external-close-disposes-the-keydown-listener
+  (testing "rf2-61i5 — the user closing the pop-out window is the common
+            exit, and it routes through the same disposal path as
+            teardown!. Without this the keydown handler outlives its own
+            document."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [window listeners]} (mk-stub-popout-window)
+              disposals (atom 0)]
+          (seed-popout-state! {:window          window
+                               :keydown-dispose (fn []
+                                                  (swap! disposals inc)
+                                                  nil)})
+          (register-popout-cleanup! window)
+          (let [pagehide-handler (first (get @listeners "pagehide"))]
+            (pagehide-handler (js-obj "type" "pagehide")))
+          (is (= 1 @disposals)
+              "pagehide disposed the pop-out keydown listener")
+          (is (nil? @@#'mount/popout-state)
+              "and cleared the singleton, as before"))))))
 
 (deftest popout-unload-handler-also-clears-popout-state
   (testing "rf2-yudol: the unload event is the older companion to
