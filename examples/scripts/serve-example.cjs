@@ -34,7 +34,9 @@
  *      bundle before printing the live URL (rf2-qwy3) — the freshly cleaned
  *      output dir has no `main.js` until it lands, so announcing the page any
  *      earlier advertises one that comes up blank. It says it is waiting
- *      meanwhile, so a slow cold compile never looks like a hung tool.
+ *      meanwhile, so a slow cold compile never looks like a hung tool — and
+ *      while that wait is pending ANY watcher exit ends the run with a direct
+ *      diagnostic, so the runner never waits on a compiler that has gone.
  *
  * The shared staging + harness helpers do the hardened work (cross-platform
  * shell-free spawning, process-tree teardown, port pre-flight); this script
@@ -124,6 +126,37 @@ function decideRunnerExit({ server = null, watch = null, interrupted = false } =
     return false; // code null + no signal => clean exit
   };
   return childFailed(server) || childFailed(watch) ? 1 : 0;
+}
+
+// Classify a `shadow-cljs watch` termination while the runner is still up
+// (rf2-qwy3). PURE — the same shape as decideRunnerExit above, so the branch is
+// exercisable without a watcher, a server or a compile.
+//
+// THE PHASE IS THE WHOLE DECISION. Before first-build readiness the watcher is
+// the ONLY thing that can produce the bundle the live banner promises, and the
+// wait below ends only when that bundle is served or this predicate aborts it.
+// So EVERY watcher termination the runner did not itself ask for is terminal
+// there — a CLEAN `code 0` exit included. Reading a clean exit as "nothing to
+// see" in that window leaves the server up, the abort flag false and the wait
+// polling for an entrypoint no process will ever write: the runner hangs
+// silently, forever, instead of reporting a first build that never happened.
+//
+// After readiness the bundle is served and the page boots, so only an
+// UNEXPECTED termination (non-zero code, or a signal kill we did not ask for)
+// tears the server down; a clean exit is an ordinary shutdown that
+// decideRunnerExit already grades 0.
+//
+// A user interrupt (Ctrl+C) is our own teardown in either phase, never a crash.
+function watchExitAbortsRun({
+  code = null,
+  signal = null,
+  interrupted = false,
+  firstBuildReady = false,
+} = {}) {
+  if (interrupted) return false; // our own teardown
+  if (!firstBuildReady) return true; // nothing else can publish the entrypoint
+  if (typeof code === 'number') return code !== 0;
+  return signal != null;
 }
 
 // The compiled entrypoint every example host page loads. Hardcoding the name is
@@ -302,11 +335,16 @@ async function main() {
   }
   let watchOutcome = null;
   let serverOutcome = null;
-  // Set true if the shadow-cljs watch dies unexpectedly, so the watch-exit
-  // handler below can abort the server readiness wait (the shared harness ORs
-  // this into its own server-exited abort). Declared before the watch handler
-  // so that listener can flip it.
+  // Set true if the shadow-cljs watch terminates while the runner still needs
+  // it, so the watch-exit handler below can abort the server + first-build
+  // readiness waits (the shared harness ORs this into its own server-exited
+  // abort). Declared before the watch handler so that listener can flip it.
   let watchDied = false;
+  // Flipped once this run's first bundle is provably served. It is what makes a
+  // clean `code 0` watcher exit terminal BEFORE that point and ordinary after
+  // it — see watchExitAbortsRun. Read inside the exit handler, so it must be
+  // declared before the listener is installed.
+  let firstBuildReady = false;
 
   if (watch) {
     const watchProc = cleanup.trackProcess(
@@ -315,21 +353,27 @@ async function main() {
         stdio: 'inherit',
       }),
     );
-    // A `shadow-cljs watch` that dies unexpectedly (compile loop crash, JVM
-    // OOM, killed) must NOT leave the runner happily serving a now-frozen
-    // bundle and exiting 0. Record its outcome, abort the readiness wait, and
-    // tear the tree down (stopping http-server, which resolves the main wait)
-    // so the runner returns non-zero via decideRunnerExit.
+    // A `shadow-cljs watch` that stops when the runner still needs it must NOT
+    // leave the runner happily serving a now-frozen bundle and exiting 0 — nor,
+    // before the first build, waiting forever for an entrypoint that is now
+    // nobody's job to write. Record its outcome, and where the exit ends the
+    // run (watchExitAbortsRun) abort the readiness waits and tear the tree down
+    // (stopping http-server, which resolves the main wait) so the runner
+    // reports the failure with a non-zero exit.
     watchProc.on('exit', (code, signal) => {
       watchOutcome = { code, signal };
-      if (!interrupted && !(typeof code === 'number' && code === 0)) {
-        console.error(`shadow-cljs watch exited unexpectedly (code=${code}, signal=${signal}).`);
-        watchDied = true; // abort the server readiness wait below if still pending
-        // Stop http-server too; the watch is the source of truth for a live
-        // build. cleanup() is idempotent and safe to call alongside the
-        // signal handlers.
-        cleanup.cleanup().catch(() => {});
-      }
+      if (!watchExitAbortsRun({ code, signal, interrupted, firstBuildReady })) return;
+      console.error(
+        firstBuildReady
+          ? `shadow-cljs watch exited unexpectedly (code=${code}, signal=${signal}).`
+          : `shadow-cljs watch exited (code=${code}, signal=${signal}) before its first ` +
+            `build published ${BUILD_ENTRYPOINT}; nothing can produce it now.`,
+      );
+      watchDied = true; // abort the readiness waits below if still pending
+      // Stop http-server too; the watch is the source of truth for a live
+      // build. cleanup() is idempotent and safe to call alongside the
+      // signal handlers.
+      cleanup.cleanup().catch(() => {});
     });
   }
 
@@ -380,11 +424,14 @@ async function main() {
       console.error(
         `\nserve-example: ${entry.build} — the first build never produced a served ` +
           `${BUILD_ENTRYPOINT}, so the example was never runnable. No URL was ` +
-          'advertised. See the shadow-cljs output above for the compile error.',
+          'advertised. See the shadow-cljs output above.',
       );
       await cleanup.cleanup().catch(() => {});
       return 1;
     }
+    // The bundle is provably served. From here a clean watcher exit is an
+    // ordinary shutdown rather than a run-ending one (watchExitAbortsRun).
+    firstBuildReady = true;
   }
 
   console.log(
@@ -433,4 +480,10 @@ async function cleanupAndExit(code) {
   process.exit(code == null ? 1 : code);
 }
 
-module.exports = { decideRunnerExit, parseArgs, waitForFirstBuild, BUILD_ENTRYPOINT };
+module.exports = {
+  decideRunnerExit,
+  parseArgs,
+  waitForFirstBuild,
+  watchExitAbortsRun,
+  BUILD_ENTRYPOINT,
+};
