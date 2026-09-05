@@ -162,6 +162,12 @@ jobs:
         if: steps.changed.outputs.files != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # THE REF TO DISPATCH AGAINST — a BRANCH OR TAG NAME, never a commit
+          # id. See the block above `gh workflow run` below for why, and for the
+          # semantics of dispatching at the tip. Through `env:`, never
+          # interpolated into the run body: the sibling step states that rule at
+          # its own `env:` and `_post-merge-sanity-base.test.cjs` pins it there.
+          DISPATCH_REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           # EXCLUDE list — see header comment for the policy.
@@ -186,9 +192,25 @@ jobs:
             done
             return 1
           }
+          failed=0
           for f in ${{ steps.changed.outputs.files }}; do
             if is_excluded "$f"; then
               echo "skip (excluded): $f"
+              continue
+            fi
+            # DELETED IN THIS PUSH. The diff reports a removed workflow as
+            # changed, and it was already skipped — but only as a side effect of
+            # `grep` exiting non-zero on a file it cannot open, which also put
+            # `No such file or directory` on stderr and then printed the WRONG
+            # reason ("no workflow_dispatch trigger") for the right outcome.
+            # Measured on runs 29638598700 (post-merge-playground-freshness.yml)
+            # and 31924373964 (freehand-bench.yml, freehand-conformance.yml).
+            # An accident is a poor thing to rest on once a dispatch failure is
+            # fatal, so the skip is stated rather than inferred. This is the one
+            # case the old `|| { echo WARN; }` could plausibly have been
+            # protecting; with it explicit here, that swallow protects nothing.
+            if [ ! -f ".github/workflows/$f" ]; then
+              echo "skip (deleted in this push): $f"
               continue
             fi
             # Only dispatch if the workflow declares workflow_dispatch.
@@ -196,8 +218,55 @@ jobs:
               echo "skip (no workflow_dispatch trigger): $f"
               continue
             fi
-            echo "dispatching: $f"
-            gh workflow run "$f" --ref "${{ github.sha }}" || {
-              echo "WARN: gh workflow run failed for $f (non-fatal)"
-            }
+            # --ref TAKES A BRANCH OR TAG NAME. The Actions "create a workflow
+            # dispatch event" endpoint resolves `ref` in the ref namespace, so a
+            # 40-character commit id — which is what `github.sha` always is —
+            # cannot resolve and the call returns HTTP 422 "No ref found for:
+            # <sha>". This is not a trade-off between two workable targets: the
+            # merge commit was never dispatchable.
+            #
+            # MEASURED (rf2-amh0). This step passed the `github.sha` context
+            # value as the ref from the file's first commit until this one — an
+            # expression not written out here, because Actions substitutes
+            # expressions everywhere in a `run:` body, comments included. Across
+            # the 155 runs whose logs are still readable (2026-06-08 to
+            # 2026-09-05), 26 reached a dispatch and made 27 attempts; ALL 27
+            # returned that same 422, and all 26 runs concluded `success`,
+            # because a `|| { echo WARN; }` swallow that this commit removes took
+            # every one of them. Zero dispatches have ever succeeded. The
+            # 19 older runs (2026-05-28 to 2026-06-05) have expired logs (HTTP
+            # 410) so they are unmeasured, not clean — the argument was identical
+            # in their revisions, so any attempt they made failed the same way.
+            #
+            # THE TIP, NOT THE MERGE COMMIT — deliberate. `github.ref_name` is
+            # the branch this event is on (`main` for the push trigger; whatever
+            # branch an operator chose under `workflow_dispatch`, which a literal
+            # `main` would get wrong). Two workflow-editing merges landing close
+            # together therefore share one dispatch of the later tip. That is the
+            # right target for the question this canary asks — "does the edited
+            # workflow still run?" — because the tip is exactly what the next
+            # cron tick will use, and `concurrency: cancel-in-progress` above
+            # already collapses back-to-back pushes onto the latest SHA.
+            #
+            # FAIL LOUD, NOT FAIL OPEN — the same call the base resolution makes
+            # above, for the same reason. Nothing consumes this canary's verdict,
+            # so a red costs one visible failure and blocks nobody, whereas a
+            # green that means "we tried" reads to every reader as "it ran" and
+            # is how a broken dispatcher survived 78 days. Every ordinary reason
+            # to skip is handled by the four guards above; what is left is
+            # exceptional. Failures are counted rather than aborting the loop, so
+            # one bad workflow cannot hide the fate of the others, and the
+            # `dispatched:` line makes a success provable from the log whatever
+            # `gh` prints for itself.
+            echo "dispatching: $f (ref $DISPATCH_REF)"
+            if gh workflow run "$f" --ref "$DISPATCH_REF"; then
+              echo "dispatched: $f (ref $DISPATCH_REF)"
+            else
+              echo "::error::post-merge workflow sanity could not dispatch $f at $DISPATCH_REF. The 24h feedback gap this canary exists to close is still OPEN for that workflow — its next verification is the cron tick."
+              failed=$((failed + 1))
+            fi
           done
+          if [ "$failed" -gt 0 ]; then
+            echo "$failed dispatch(es) failed; see the annotations above."
+            exit 1
+          fi
