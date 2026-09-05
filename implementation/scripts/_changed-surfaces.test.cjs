@@ -2438,6 +2438,12 @@ test('NON-preload re-frame2-pair skill file does NOT arm cljs_browser / mcp_live
 // `/` straight after `pair`, and `skills/re-frame2-pair-retro/...` has a `-`
 // there, so it never matches. The negative assertions pin that boundary from
 // the other side — retro paths must not arm the PAIR tree's expensive gates.
+//
+// rf2-z65e — `skills/re-frame2-improver/**` joins the roster, the THIRD tree
+// found arming nothing at all, and its near-miss is a different one:
+// `skills/re-frame2-implementor/` shares the prefix `skills/re-frame2-imp`,
+// carries no tests and has no arm, so the improver arm must name the tree in
+// full. The negative assertion for that boundary is below the loop.
 const SKILLS_STRUCTURAL_ONLY_FILES = pinnedRoster('SKILLS_STRUCTURAL_ONLY_FILES', [
   'skills/re-frame2-pair-retro/SKILL.md',
   'skills/re-frame2-pair-retro/tests/duplicate_search_test.clj',
@@ -2446,6 +2452,9 @@ const SKILLS_STRUCTURAL_ONLY_FILES = pinnedRoster('SKILLS_STRUCTURAL_ONLY_FILES'
   'skills/reagent-migration/references/procedure.md',
   'skills/reagent-migration/tests/fixture/test/reagent_migration/mig23_cold_start_test.cljs',
   'skills/reagent-migration/tests/fixture/shadow-cljs.edn',
+  'skills/re-frame2-improver/SKILL.md',
+  'skills/re-frame2-improver/tests/storage_materializer_test.clj',
+  'skills/re-frame2-improver/references/schemaless-events.md',
 ]);
 for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
   test(`${file} arms skills_structural (rf2-g1m2q)`, () => {
@@ -2472,6 +2481,29 @@ for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
     }
   });
 }
+
+// rf2-z65e — the improver arm's boundary, pinned from the other side. This
+// tree has no arm and no tests, and it is one `-` away from `improver` in a
+// shared `skills/re-frame2-imp` prefix — the pair / pair-retro trap wearing
+// different names. A pattern loosened to `skills/re-frame2-imp*` would pass
+// every assertion above and start scheduling a job with nothing to run; this
+// is the assertion that would catch it.
+//
+// It pins the CURRENT behaviour, which is that this tree still classifies to
+// nothing at all. That is a gap of its own — but an empty one: the package
+// carries no test file for any job to run, so wiring it would arm a tier over
+// prose. Should it gain a `tests/` directory, it needs an arm of its own and
+// this assertion is where the choice gets made rather than inherited.
+test('skills/re-frame2-implementor/ does not inherit the improver arm (rf2-z65e)', () => {
+  const result = classify('skills/re-frame2-implementor/SKILL.md');
+  assert.equal(
+    result.skills_structural,
+    'false',
+    'the implementor tree shares the prefix `skills/re-frame2-imp` with the ' +
+      'improver tree but carries no tests; an arm matching it would schedule ' +
+      'the skills-structural job for a tree with nothing to run.',
+  );
+});
 
 // rf2-bbe91 (audit reopen of PR #8868) — the REVERSE edge into the MIG-23 SSR
 // cold-start fixture. rf2-g1m2q above armed `skills_structural` from the SKILL
@@ -6423,7 +6455,16 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   skills: SKILLS_ALWAYS_ON,
   'skills/re-frame-migration': SKILLS_ALWAYS_ON,
   'skills/re-frame2-implementor': SKILLS_ALWAYS_ON,
-  'skills/re-frame2-improver': SKILLS_ALWAYS_ON,
+  // rf2-z65e — `skills/re-frame2-improver` is DELIBERATELY ABSENT for the same
+  // reason as the two trees named below, and it is the reason this bead could
+  // not be split: the tree gained an executable half
+  // (tests/storage_materializer_test.clj, looped by the improver step in the
+  // `skills-structural` job) and an arm to schedule it, so the declaration went
+  // stale in the same commit that armed it. Its neighbour one line up,
+  // `skills/re-frame2-implementor`, STAYS — that tree really does arm nothing,
+  // and the two names differ by four characters after a shared
+  // `skills/re-frame2-imp` prefix.
+  //
   // rf2-g1m2q — `skills/re-frame2-pair-retro` and `skills/reagent-migration`
   // are DELIBERATELY ABSENT from this table now. Both used to sit here as
   // SKILLS_ALWAYS_ON, which was true of them as pure prose trees; rf2-qad4l and

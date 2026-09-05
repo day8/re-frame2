@@ -5969,6 +5969,44 @@ jobs:
             bb "$test_file"
           done
 
+      # re-frame2-improver structural fixture (rf2-z65e).
+      # `tests/storage_materializer_test.clj` pins the canonical storage
+      # materializer in `references/schemaless-events.md` — it discriminates in
+      # both directions (restoring the direct `.getItem js/globalThis.localStorage`
+      # form fails it with 2 assertions, removing the decode catch fails it with
+      # 1). PR #9232 added it with `.github/workflows/**` fenced out, so it was
+      # local-only: the third skill test in a row to be written, proven, and then
+      # not run by anything. Loop every *_test.clj, as the two steps above do, so
+      # a future improver test is gated without another wiring PR.
+      #
+      # `skills/re-frame2-improver/*` arms `skills_structural` in
+      # `.github/scripts/report-changed-surfaces.sh` (rf2-z65e), so a diff
+      # confined to this tree schedules this step; the arm is pinned from both
+      # sides in `implementation/scripts/_changed-surfaces.test.cjs`
+      # (SKILLS_STRUCTURAL_ONLY_FILES), including the `implementor` / `improver`
+      # prefix boundary that is why the tree needs an arm of its own.
+      #
+      # A FOURTH NAMED STEP RATHER THAN A DERIVED LOOP, and the reason is
+      # measured rather than stylistic. The obvious generalisation — loop every
+      # package under skills/ that HAS a tests/ directory — is silently wrong
+      # for two of the four packages that have one: re-frame2-pair keeps its
+      # tests one level deeper (tests/prompts/, tests/runtime/), so a
+      # `tests/*_test.clj` glob matches NOTHING there, and reagent-migration's
+      # tests/ is a shadow-cljs fixture built by a different job entirely
+      # (reagent-migration-fixture-cold-start), not a bb suite. A derived loop
+      # would therefore report success having run nothing for the package with
+      # the most tests in it — the same fail-open shape this bead exists to
+      # close. The explicit list cannot do that: a package with no step visibly
+      # has no step.
+      - name: Run re-frame2-improver structural tests
+        working-directory: skills/re-frame2-improver
+        run: |
+          set -euo pipefail
+          for test_file in tests/*_test.clj; do
+            echo "== $test_file =="
+            bb "$test_file"
+          done
+
   # ---------------------------------------------------------------------------
   # re-frame2-pair SHIPPED-preload pure-core node-test (rf2-etsj8p / rf2-pxxbjk).
   #
