@@ -58,7 +58,7 @@ Compose `use-effect` with the standard outer/inner split: the outer `defui` read
         {:keys [dispatch]} (uix-adapter/use-frame)]   ;; frame api via hook — reads the surrounding provider
     (uix/use-effect
       (fn []
-        (let [el       (.-current ref)
+        (let [el       @ref   ;; deref — UIx's use-ref is atom-like; a .-current read is a lint error
               listener (fn [_evt] (dispatch [:tile/finished-merging tile-id]))]
           (.addEventListener el "animationend" listener)
           (fn cleanup []
