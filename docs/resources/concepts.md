@@ -245,8 +245,11 @@ commit the new identity, then replan. See
 | Explicit refetch | New generation; supersedes in-flight |
 | Cancel vs stale reply | Abort if possible; generation check always suppresses stale replies |
 
-Focus revalidation is opt-in: `(rf/install-revalidation-listeners! frame-id)` —
-refetches only entries that are **stale and still owned**.
+Focus revalidation is opt-in, and it is declared on the frame rather than
+called: `:revalidate-on #{:focus :reconnect}` in the frame's config map. The
+frame lifecycle installs the host listeners, reconciles them on
+re-registration and removes them on destroy. It refetches only entries that
+are **stale and still owned**.
 
 Polling is a registration key — owner-driven, pauses when the tab is hidden:
 

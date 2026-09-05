@@ -2923,31 +2923,48 @@
       {:recovery :use-rf-set-db
        :extra    {:initial-db (:initial-db config)}})))
 
+(def ^:private frame-registered-hook-keys
+  "The ORDERED roster of optional-artefact POST-(RE-)REGISTRATION hook keys
+  `fire-frame-registered-hook!` consults, in the order it consults them. A
+  literal vector, so the order is the contract rather than a map's accident.
+
+  Routing is FIRST and stays first: its body maintains the `:url-bound?`
+  exclusivity check + URL-ownership claim order, which anything reading URL
+  ownership downstream depends on. Resources is second — a frame's
+  `:revalidate-on` host focus/reconnect listeners are reconciled against the
+  frame's committed config (rf2-kuky.33)."
+  [:routing/on-frame-registered!
+   :resources/on-frame-registered!])
+
 (defn- fire-frame-registered-hook!
-  "Fire the routing artefact's POST-(RE-)REGISTRATION lifecycle extension
-  hook (rf2-g8pbwg), by key. No-op when `re-frame.routing` is not loaded (the
-  artefact is optional).
+  "Fire the optional artefacts' POST-(RE-)REGISTRATION lifecycle extension
+  hooks (rf2-g8pbwg), by key, in `frame-registered-hook-keys` order. Each is
+  a no-op when its artefact is not loaded (both are optional).
 
   Called at the END of BOTH `upsert-frame!` branches below — first
   registration (after `:initial-events` ran and `:rf.frame/created` emitted)
   and re-registration (after the surgical config update and
   `:rf.frame/re-registered` emitted) — so the frame container is always
-  guaranteed live by the time the hook fires. This is THE frame
+  guaranteed live by the time the hooks fire. This is THE frame
   (re-)registration lifecycle extension point: frames do not flow through
   `registrar/register!` (rf2-h1vqa4 — the frames registry is the one store),
   so there is no registrar registration hook for frames.
 
-  Currently consumed by routing (`:routing/on-frame-registered!` — maintains
-  the `:url-bound?` exclusivity check + URL-ownership claim order on BOTH
-  hosts, then installs/rewires the CLJS URL-change listener when the
-  (re-)registered frame is the resolved URL owner; a losing duplicate
-  `:url-bound? true` registration is a no-op). Not wrapped in
+  Consumed by routing (`:routing/on-frame-registered!` — maintains the
+  `:url-bound?` exclusivity check + URL-ownership claim order on BOTH hosts,
+  then installs/rewires the CLJS URL-change listener when the (re-)registered
+  frame is the resolved URL owner; a losing duplicate `:url-bound? true`
+  registration is a no-op) and by resources
+  (`:resources/on-frame-registered!` — reconciles the frame's
+  `:revalidate-on` host focus/reconnect listeners, replace-don't-stack, and
+  removes them when a re-registration drops the key). Not wrapped in
   `safe-call-hook!` (the teardown-specific accumulator/diagnostic pairing) —
   an extension hook here runs OUTSIDE any teardown, so a genuine failure
   propagates loudly rather than being swallowed."
   [id]
-  (when-let [on-registered! (rf.late-bind/get-fn :routing/on-frame-registered!)]
-    (on-registered! id)))
+  (doseq [hook-key frame-registered-hook-keys]
+    (when-let [on-registered! (rf.late-bind/get-fn hook-key)]
+      (on-registered! id))))
 
 (def ^:dynamic ^:no-doc *upsert-decide-probe*
   "JVM linearization TEST SEAM — `nil` in production (one `nil` check per
@@ -3245,6 +3262,28 @@
                                   "boot, BEFORE the frame is constructed, so the "
                                   "strategy can be validated at registration time.")
                              {:extra {:frame id}})))
+        ;; rf2-kuky.33: the resources-owned `:revalidate-on` frame-config key
+        ;; (the focus/reconnect host listeners the frame lifecycle installs) is
+        ;; honoured by `:resources/on-frame-registered!`. When the config
+        ;; declares it and the resources artefact is NOT loaded, fail loud HERE
+        ;; — same chokepoint, same zero-residue guarantee as the
+        ;; `:url-strategy`-without-routing rule above: storing a declaration
+        ;; nobody can honour would silently never revalidate, which is worse
+        ;; than a dependency error. Late-bound because core must not require the
+        ;; optional resources artefact (bundle isolation).
+        _              (when (and (contains? config :revalidate-on)
+                                  (nil? (rf.late-bind/get-fn
+                                          :resources/on-frame-registered!)))
+                         (rf.error/throw-error!
+                           :rf.error/resources-artefact-missing
+                           'rf/make-frame
+                           (str "this frame config declares :revalidate-on, which "
+                                "requires day8/re-frame2-resources on the classpath; "
+                                "add it to deps and require re-frame.resources at app "
+                                "boot, BEFORE the frame is constructed, so the frame "
+                                "lifecycle can install the host focus/reconnect "
+                                "listeners.")
+                           {:extra {:frame-id id}}))
         ;; One identity token per attempted config commit. Only a successful
         ;; create/re-register installs it. Auxiliary policy stores consult the
         ;; installed token inside their own atomic updates, so teardown and exact
