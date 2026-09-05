@@ -155,9 +155,10 @@
   "PRESENCE class: `true` emits the bare (lowercased) name, `false`
   omits it, and any other JAVASCRIPT-truthy value also emits the bare
   name (react-dom collapses `{:disabled \"yes\"}` to `disabled=\"\"`).
-  JS-falsey non-booleans — `\"\"` and `0`, both of which are logically
-  TRUE in ClojureScript — are omitted, as react-dom omits them; see
-  `presence-value-truthy?` (rf2-owml).
+  A JS-FALSEY non-boolean is omitted, as react-dom omits it, even though
+  every such value is logically TRUE in ClojureScript; the rule is
+  JavaScript's own coercion rather than a roster of the values it
+  accepts — see `presence-value-truthy?` (rf2-owml).
 
   Keyed on the LOWERCASE name so all three hiccup spellings of a
   camelCase attribute reach the same row — `:read-only`, `:readOnly`
@@ -706,21 +707,28 @@
   value as present (rf2-owml).
 
   react-dom collapses a presence attribute on JavaScript truthiness, so
-  `{:disabled \"\"}` and `{:disabled 0}` render NOTHING while
-  `{:disabled \"yes\"}` renders `disabled=\"\"`. ClojureScript disagrees:
-  `\"\"` and `0` are logically TRUE in CLJS, so the obvious `(when v ...)`
-  emits a bare `disabled` here where React emits no attribute at all.
+  `{:disabled \"\"}`, `{:disabled 0}` and `{:disabled (js/BigInt 0)}`
+  render NOTHING while `{:disabled \"yes\"}` renders `disabled=\"\"`.
+  ClojureScript disagrees: every one of those values is logically TRUE
+  in CLJS, so the obvious `(when v ...)` emits a bare `disabled` here
+  where React emits no attribute at all.
 
-  Only strings and numbers can be JS-falsey once `nil`, `false` and
-  `js/undefined` have been handled upstream — keywords, collections and
-  objects are all truthy — so the two cases are spelled out rather than
-  reaching for a `js*` truthiness cast. Note that the STRING `\"0\"` is
-  truthy (it is a non-empty string); only the NUMBER `0` is not."
+  ASK JAVASCRIPT rather than enumerate the values it calls falsey.
+  `js/Boolean` IS the coercion react-dom performs, so this states the
+  rule; a roster of the values that satisfy it does not, and cannot be
+  read to see whether it is complete. The earlier spelling here tested
+  `string?` and `number?` explicitly and returned `true` for everything
+  else — right for keywords, collections and JS objects, and silently
+  wrong for the one remaining JS primitive that can be falsey. A
+  `BigInt` zero is missed by `cljs.core/number?`, which compiles to
+  `typeof x === \"number\"`, so `{:disabled (js/BigInt 0)}` emitted a
+  bare `disabled` where react-dom 19.2 emits nothing (rf2-owml).
+
+  Note that the STRING `\"0\"` is truthy (a non-empty string) where the
+  NUMBER `0` is not, and that `nil`, `js/undefined` and `false` never
+  reach here — `emit-attribute` handles them first."
   [v]
-  (cond
-    (string? v) (not= "" v)
-    (number? v) (not (or (zero? v) (js/isNaN v)))
-    :else       true))
+  (js/Boolean v))
 
 (defn- emit-boolean-attribute
   "Emit one attribute whose VALUE is a boolean, per react-dom's three

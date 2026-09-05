@@ -216,31 +216,48 @@
     (let [[a b] (=parity [:input {:disabled false}])]
       (is (= a b)))))
 
-(deftest parity-presence-attr-js-falsey-values
-  (testing "rf2-owml: a presence attribute collapses on JS TRUTHINESS, so the
-            JS-falsey non-booleans are omitted like react-dom omits them.
-            `\"\"` and `0` are falsey in JavaScript and TRUTHY in ClojureScript,
-            so a `(when v ...)` written in CLJS emits a bare `disabled` where
-            react-dom emits nothing. Neither value is a boolean, so the
-            boolean-class probe in
-            `reagent2.dom.boolean-attr-react-parity-cljs-test` cannot see this
-            — it is pinned here, against the live react-dom reference."
-    (doseq [v ["" 0]]
+(def ^:private presence-value-corpus
+  "Non-boolean `:disabled` values, each labelled and paired with the bytes this
+  serializer must produce. The corpus spans the JS PRIMITIVE TYPES that can be
+  falsey rather than a list of remembered values, because that is the axis the
+  defect lives on: string, number and bigint each contribute a falsey member and
+  a truthy neighbour, and every falsey member here is logically TRUE in
+  ClojureScript — which is precisely why a `(when v ...)` written in CLJS
+  diverges from react-dom.
+
+  A bigint is the row worth stating plainly: `cljs.core/number?` compiles to
+  `typeof x === \"number\"`, so a partial falsey roster written in CLJS terms
+  cannot see `0n` at all (rf2-owml). None of these values is a boolean, so the
+  class probe in `reagent2.dom.boolean-attr-react-parity-cljs-test` cannot see
+  any of them either."
+  [["the empty string"      ""              "<button>x</button>"]
+   ["the number zero"       0               "<button>x</button>"]
+   ["a bigint zero"         (js/BigInt 0)   "<button>x</button>"]
+   ["a non-empty string"    "yes"           "<button disabled>x</button>"]
+   ;; falsey as a NUMBER, truthy as a STRING — the pair that catches a coercion
+   ;; applied to the wrong type.
+   ["the string \"0\""      "0"             "<button disabled>x</button>"]
+   ["a non-zero number"     1               "<button disabled>x</button>"]
+   ["a non-zero bigint"     (js/BigInt 1)   "<button disabled>x</button>"]])
+
+(deftest parity-presence-attr-collapses-on-js-truthiness
+  (testing "rf2-owml: a presence attribute collapses on JS TRUTHINESS, against
+            the live react-dom reference"
+    (doseq [[label v _] presence-value-corpus]
       (let [[a b] (=parity [:button {:disabled v} "x"])]
         (is (= a b)
-            (str "react-dom omits a presence attribute whose value is the "
-                 "JS-falsey " (pr-str v)))))
-    ;; The reference bytes, stated independently of react-dom so the intent
-    ;; survives a react-dom bump.
-    (is (= "<button>x</button>" (via-rewrite [:button {:disabled ""} "x"])))
-    (is (= "<button>x</button>" (via-rewrite [:button {:disabled 0} "x"]))))
-  (testing "the truthy neighbours must NOT move — including the string \"0\",
-            which is falsey as a number and truthy as a string"
-    (doseq [v ["yes" "0" 1]]
-      (let [[a b] (=parity [:button {:disabled v} "x"])]
-        (is (= a b) (str "react-dom collapses the truthy " (pr-str v)))))
-    (is (= "<button disabled>x</button>" (via-rewrite [:button {:disabled "0"} "x"])))
-    (is (= "<button disabled>x</button>" (via-rewrite [:button {:disabled "yes"} "x"])))))
+            (str "react-dom and this serializer must agree about " label)))))
+  (testing "…and the reference bytes, stated independently of react-dom so the
+            intent survives a react-dom bump"
+    (doseq [[label v expected] presence-value-corpus]
+      (is (= expected (via-rewrite [:button {:disabled v} "x"]))
+          (str "the emitted bytes for " label))))
+  (testing "NaN is JS-falsey too. It is asserted on this serializer's bytes
+            ALONE and deliberately kept out of the `=parity` loop above: React
+            logs a 'Received NaN for the disabled attribute' warning for it, and
+            a suite should not manufacture one to make a point the raw bytes
+            already make."
+    (is (= "<button>x</button>" (via-rewrite [:button {:disabled js/NaN} "x"])))))
 
 (deftest empty-value-on-an-ordinary-attribute-keeps-its-quotes
   (testing "rf2-owml: the canonicalisation above collapses `k=\"\"` to bare `k`
