@@ -258,6 +258,47 @@ const RENDER_THREW_REFUSAL =
   'sidecar\'s stderr for the operator.';
 
 /**
+ * What a caller is told when the isolate died under their render.
+ *
+ * THE SAME LAW AS `RENDER_THREW_REFUSAL`, STATED BY THE OTHER RECEIVER —
+ * and that there were two receivers is the whole of why this constant
+ * exists. `RENDER_THREW_REFUSAL` closes the throw `worker.cjs` is standing
+ * in front of: the module throws while the service is inside
+ * `await renderModule.render()`, so a `try` has it. A throw from a callback
+ * the render SCHEDULED has no `try` above it anywhere — a timer, an
+ * unhandled `.then`, an event listener — so it is an uncaught exception in
+ * the worker thread. Node terminates the thread and raises `'error'` on the
+ * parent's `Worker`, and `isolate.cjs` builds the refusal from an `Error`
+ * that came from the application.
+ *
+ * It carried `err.message` and `err.stack`. The message is the module's own
+ * wording, leaking for the reason `RENDER_THREW_REFUSAL` sets out at
+ * length; the stack is worse than the message, because on top of that
+ * wording it names every absolute path in the deployment's filesystem.
+ * Both were on the public `Refusal` and in the HTTP JSON body.
+ *
+ * THE CODE STAYS `ISOLATE_LOST` AND IS NOT SMOOTHED INTO `RENDER_THREW`.
+ * The two are different facts and the caller acts on the difference: a
+ * render that threw leaves a healthy isolate the pool may reuse, while this
+ * one is a dead thread the pool must replace. Closing the wording is not a
+ * licence to describe a crashed worker as a reusable one.
+ *
+ * The diagnosis is not lost. `isolate.cjs` writes the real exception, stack
+ * and all, to the sidecar's stderr under the prefix `bin/serve.cjs` already
+ * uses — and on this path that is not merely the better channel, it is the
+ * only one there has ever been: the worker never caught anything, so its
+ * own `reportRenderException` never ran. Before this, an operator's sole
+ * copy of the fault was the one the caller was wrongly being handed.
+ */
+const ISOLATE_LOST_REFUSAL =
+  'the isolate died while rendering. The exception belongs to the application, not to this ' +
+  'contract: its message and its stack are the module\'s own — and the stack names the ' +
+  'server\'s filesystem besides — so neither crosses this boundary, for the same reason a ' +
+  'render that threw inside the call does not carry its wording out. The render did not ' +
+  'finish and this isolate is not reusable; the pool replaces it. The full exception, with ' +
+  'its stack, is on the sidecar\'s stderr for the operator.';
+
+/**
  * Is this one of the refusal codes this service publishes?
  *
  * The family is closed — `CODE` is the whole of it — and this is the test
@@ -605,6 +646,7 @@ module.exports = {
   COMPLETE_FIELDS,
   MODULE_RETURN_REFUSAL,
   RENDER_THREW_REFUSAL,
+  ISOLATE_LOST_REFUSAL,
   isRefusalCode,
   Refusal,
   validateModule,

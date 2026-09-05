@@ -68,6 +68,29 @@
 // so an application render fault could present itself as a 400 the caller
 // blames itself for, a 503 a retry policy sleeps on, or a 504.
 //
+// ## AND THE THROWING DOOR HAS TWO SIDES, WHICH IS SECTION 5
+//
+// Section 4 closed the throw the SERVICE IS STANDING IN FRONT OF: the
+// module throws while `worker.cjs` is inside `await renderModule.render()`,
+// so its own try/catch has the stack. That is not the only way a render
+// exception escapes. A throw from a callback the render SCHEDULED — a
+// timer, an unhandled `.then`, an event listener — happens on a later tick
+// with no `try` anywhere above it, so it is an uncaught exception in the
+// worker thread; Node kills the thread and raises `'error'` on the parent's
+// `Worker`. That receiver is in `isolate.cjs`, it is a different piece of
+// code with its own refusal to build, and section 4's rows cannot reach it
+// because their fixture throws synchronously.
+//
+// So the same law was being stated by two receivers and only one of them
+// had been made to state it. The second put `err.message` on the refusal
+// and `err.stack` in its `detail` — the module's wording, and with it every
+// absolute path in the deployment's filesystem — under `isolate-lost`.
+// Section 5's fixture is a MATCHED PAIR for exactly this reason: the same
+// Error, built the same way, reaching the service down the two different
+// paths. Before the fix the awaited arm was clean and the scheduled one
+// leaked, which is what a hole in one of two receivers looks like from
+// outside.
+//
 // ## EVERY ROW HAS A CONTROL, AND THE CONTROLS ARE ORDINARY ROWS
 //
 // The suite-wide discipline (see the package README) applies here with
@@ -89,11 +112,13 @@ const {
   COMPLETE_FIELDS,
   MODULE_RETURN_REFUSAL,
   RENDER_THREW_REFUSAL,
+  ISOLATE_LOST_REFUSAL,
 } = require('../src/protocol.cjs');
 const { serve, statusFor } = require('../src/http.cjs');
 const LEAKY = require('./fixtures/leaky.cjs');
 const NULL_RETURN = require('./fixtures/null-return.cjs');
 const THROWS_DATA = require('./fixtures/throws-data.cjs');
+const THROWS_ASYNC = require('./fixtures/throws-async.cjs');
 
 // ---------------------------------------------------------------------------
 // The two checkers. Both are ordinary functions so a control can feed them
@@ -618,6 +643,243 @@ test('a streaming response torn by a throw is DESTROYED, not completed', async (
       assert.ok(
         !String(read.err).includes(THROW_SENTINELS[1]),
         'not even the transport error may carry the module’s wording',
+      );
+    } finally {
+      await http.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. The SECOND RECEIVER — an exception that escapes the render call
+//
+// See the header. Everything in section 4 throws while the service is
+// inside the awaited `render()`; these rows throw from a callback the
+// render scheduled, which no `try` in `worker.cjs` is standing in front of.
+// Node terminates the thread and the parent's `worker.on('error')` builds
+// the refusal instead — a different receiver stating the same law.
+// ---------------------------------------------------------------------------
+
+// One sentinel, from an allowlisted state key, on an Error the fixture
+// reaches by two different routes. Distinctive for the reason `SENTINELS`
+// gives: a value that could occur in framing or in a stack trace would
+// make a zero meaningless.
+const ASYNC_STATE = { ':for-uncaught': '"rf2-c38b-async-9f31c4"' };
+const ASYNC_SENTINEL = 'rf2-c38b-async-9f31c4';
+
+const asyncReq = (entry) => ({ protocol: 1, entry, state: ASYNC_STATE });
+
+/** The same reading as `refusalLeaks`, for this section's single sentinel. */
+const asyncLeaks = (err) => [
+  ...scanForEgress([err.toFrame('corr-async')], [ASYNC_SENTINEL]),
+  ...((err.stack ?? '').includes(ASYNC_SENTINEL)
+    ? [{ type: 'stack', sentinel: ASYNC_SENTINEL, in: err.stack }]
+    : []),
+];
+
+test('CONTROL — the scheduled callback really does throw the sentinel-bearing Error', () => {
+  // The control this section cannot do without, and it has to be built
+  // differently from section 4's: the whole point of this fixture is that
+  // its throw is UNCAUGHT, so calling `render` and letting the callback run
+  // would take down the test process rather than hand back an Error.
+  //
+  // So the callback is intercepted instead of allowed to fire.
+  // `setImmediate` is swapped for the duration of the call, which captures
+  // the exact function the worker thread would have run, and the row then
+  // throws it on purpose and reads what came out. That is a measurement of
+  // the real callback rather than of a fixture's promise about it.
+  const scheduled = [];
+  const realSetImmediate = globalThis.setImmediate;
+  globalThis.setImmediate = (fn) => {
+    scheduled.push(fn);
+    return { unref() {} };
+  };
+  try {
+    THROWS_ASYNC.render({ entry: 'app/uncaught', state: ASYNC_STATE }, () => {});
+  } finally {
+    globalThis.setImmediate = realSetImmediate;
+  }
+
+  assert.strictEqual(scheduled.length, 1, 'the render must schedule exactly one callback');
+  let thrown = null;
+  try {
+    scheduled[0]();
+  } catch (err) {
+    thrown = err;
+  }
+  assert.ok(thrown, 'the scheduled callback must actually throw');
+  assert.ok(thrown.message.includes(ASYNC_SENTINEL), 'and its message carries the sentinel');
+  assert.strictEqual(
+    thrown.code,
+    THROWS_ASYNC.SPOOFED_CODE,
+    'it also types a `code`, as a module with its own taxonomy would',
+  );
+  // Without this the status row below could go vacuous exactly the way
+  // section 4's could: rename a member of `CODE` and the fixture's
+  // hard-coded string stops being a spoof at all.
+  assert.ok(
+    new Set(Object.values(CODE)).has(THROWS_ASYNC.SPOOFED_CODE),
+    'the spoofed code must still be a real member of the family',
+  );
+});
+
+test('CONTROL — the AWAITED arm of the same fixture is refused by the other receiver', async () => {
+  // The discriminator, and the row that makes this a section rather than a
+  // repeat. `app/rejected` hands the identical Error back by rejecting the
+  // promise `render` returned, so `worker.cjs` catches it and section 4's
+  // door closes on it. A green here beside a green below is two receivers
+  // both holding the law; a green here beside a red below — which is what
+  // this file measured before the fix — is precisely one of them holding it.
+  await withService('throws-async', { isolates: 1 }, async (service) => {
+    const err = await refusalOf(() => collect(service, asyncReq('app/rejected')));
+    assert.ok(err, 'a rejected render must refuse');
+    assert.strictEqual(err.code, CODE.RENDER_THREW, 'the awaited door, and its code');
+    assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
+    assert.deepStrictEqual(asyncLeaks(err), [], 'the awaited arm leaked');
+  });
+});
+
+test('an exception that ESCAPES the render call carries nothing the module authored', async () => {
+  // The case. `render` returns a promise that never settles and throws from
+  // a scheduled callback, so nothing awaits the exception: the thread dies
+  // and `isolate.cjs`'s `worker.on('error')` is what answers the caller.
+  //
+  // It answered with `err.message` and `err.stack`, which is the module's
+  // own wording plus every absolute path in the deployment's filesystem,
+  // published on the in-process refusal and serialised over HTTP.
+  await withService('throws-async', { isolates: 1 }, async (service) => {
+    const err = await refusalOf(() => collect(service, asyncReq('app/uncaught')));
+    assert.ok(err, 'the render must not have succeeded');
+
+    // The isolate really is lost — the distinction is kept, not smoothed
+    // into `render-threw`. A crashed worker is not a reusable one, and the
+    // code is how the pool and the operator are told so.
+    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
+    assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
+    assert.deepStrictEqual(
+      Object.keys(err.detail).sort(),
+      ['isolate', 'threadId'],
+      'the detail is service-owned: which isolate died, and its thread',
+    );
+    assert.strictEqual(typeof err.detail.threadId, 'number');
+
+    assert.deepStrictEqual(
+      asyncLeaks(err),
+      [],
+      'the escaped exception reached the public refusal',
+    );
+    // The stack carried MORE than the sentinel, and this is that second
+    // half: it names the file the render came from, which is an absolute
+    // path in the deployment's filesystem. The key-list assertion above
+    // already says `detail.stack` is gone; this says what its going was
+    // worth, and it scans the serialised frame rather than the field, so a
+    // future `detail` member that reached for a path is caught too.
+    assert.ok(
+      !JSON.stringify(err.toFrame()).includes('throws-async.cjs'),
+      'a serialised stack names the server’s own filesystem',
+    );
+  });
+});
+
+test('and the OPERATOR still gets the exception, in full, on the sidecar stderr', async () => {
+  // The other half of closing a diagnostic, and the reason this row is not
+  // optional: before the fix the escaped exception reached NOBODY except
+  // through the refusal — the worker's own `reportRenderException` never
+  // runs, because the worker never caught anything. Closing the refusal
+  // without opening the operator's copy would have traded a leak for a
+  // silence, and "fail loudly" is a requirement rather than a preference.
+  //
+  // Not a new channel: `bin/serve.cjs` already writes `[rf.ssr-node] …` to
+  // stderr and this is that stream under that prefix. The write happens in
+  // the PARENT — which, in this suite, is this process — so the row can
+  // read it directly.
+  const captured = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk, ...rest) {
+    captured.push(String(chunk));
+    return realWrite.call(this, chunk, ...rest);
+  };
+  try {
+    await withService('throws-async', { isolates: 1 }, async (service) => {
+      await refusalOf(() => collect(service, asyncReq('app/uncaught')));
+    });
+  } finally {
+    process.stderr.write = realWrite;
+  }
+
+  const log = captured.join('');
+  // The prefix is on the FIRST line only — a stack is many lines and the
+  // rest of them are the stack's own — so the line filter establishes that
+  // the sidecar's own channel is what spoke, and the whole capture is what
+  // the content is then read from. Filtering the content by prefix would
+  // discard every frame and quietly turn the stack assertion below into a
+  // test of the first line.
+  assert.ok(
+    log.split('\n').some((line) => line.includes('[rf.ssr-node]')),
+    'the operator was told nothing at all',
+  );
+  assert.ok(log.includes(ASYNC_SENTINEL), 'the operator copy must be the REAL exception');
+  assert.ok(log.includes('throws-async.cjs'), 'and it must carry the stack, which is the point');
+});
+
+test('an escaped exception cannot choose the refusal header either', async () => {
+  // The transport corollary. `isolate-lost` and `render-threw` are both
+  // 500, so the status is not the spoof vector on this path — the HEADER
+  // is, and so is the code a JVM host branches on. The module typed a
+  // 400-mapped member of the family onto its Error; neither may move.
+  await withService('throws-async', { isolates: 1 }, async (service) => {
+    const http = await serve({ service, port: 0 });
+    try {
+      const res = await post(`http://127.0.0.1:${http.port}/render`, asyncReq('app/uncaught'));
+      assert.strictEqual(res.status, 500, 'the module chose its own HTTP status');
+      assert.notStrictEqual(
+        statusFor(THROWS_ASYNC.SPOOFED_CODE),
+        500,
+        'the spoofed code must map somewhere else, or there is nothing to spoof',
+      );
+      assert.strictEqual(
+        res.headers.get('x-rf-ssr-refusal'),
+        CODE.ISOLATE_LOST,
+        'the module chose its own refusal header',
+      );
+
+      const headers = JSON.stringify(Object.fromEntries(res.headers.entries()));
+      assert.ok(!res.text.includes(ASYNC_SENTINEL), 'the JSON body leaked the sentinel');
+      assert.ok(!headers.includes(ASYNC_SENTINEL), 'a header leaked the sentinel');
+      assert.strictEqual(
+        JSON.parse(res.text).message,
+        ISOLATE_LOST_REFUSAL,
+        'the body carries the contract wording',
+      );
+    } finally {
+      await http.close();
+    }
+  });
+});
+
+test('a stream torn by an ESCAPED exception is destroyed, and still says nothing', async () => {
+  // The post-emit arm, over the transport, for the second receiver. Bytes
+  // already left under a 200, so there is no status left to send and the
+  // socket is destroyed rather than the response completed — the caller
+  // must see a broken transfer, not a well-formed shorter page it would
+  // cache. Same requirement section 4 makes of the first receiver.
+  await withService('throws-async', { isolates: 1 }, async (service) => {
+    const http = await serve({ service, port: 0 });
+    try {
+      const res = await fetch(`http://127.0.0.1:${http.port}/render?stream=1`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(asyncReq('app/uncaught-torn')),
+      });
+      assert.strictEqual(res.status, 200, 'the first chunk really did go out');
+      const read = await res.text().then(
+        (text) => ({ ok: true, text }),
+        (err) => ({ ok: false, err }),
+      );
+      assert.strictEqual(read.ok, false, 'a torn stream must not read as a complete body');
+      assert.ok(
+        !String(read.err).includes(ASYNC_SENTINEL),
+        'not even the transport error may carry the module wording',
       );
     } finally {
       await http.close();

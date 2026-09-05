@@ -33,9 +33,39 @@
 
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
-const { CODE, Refusal, chunkFrame, isRefusalCode } = require('./protocol.cjs');
+const {
+  CODE,
+  Refusal,
+  chunkFrame,
+  isRefusalCode,
+  ISOLATE_LOST_REFUSAL,
+} = require('./protocol.cjs');
 
 const WORKER_PATH = path.join(__dirname, 'worker.cjs');
+
+/**
+ * The operator's copy of the fault that killed an isolate mid-render —
+ * everything the refusal deliberately does not carry.
+ *
+ * The counterpart of `worker.cjs`'s `reportRenderException`, on this side
+ * of the thread boundary and for the faults that side never sees: an
+ * exception thrown from a callback the render scheduled is never caught by
+ * anything in the worker, so its `try/catch` — and therefore its stderr
+ * write — never runs. This is the only place the exception exists.
+ *
+ * WHICH IS WHY THIS FUNCTION IS PART OF THE FIX RATHER THAN A COURTESY.
+ * Closing the refusal's wording without opening this would have traded a
+ * leak for a silence, and a failure nobody can diagnose is its own defect.
+ *
+ * NOT A NEW SUBSYSTEM and no flag, for the reasons `reportRenderException`
+ * gives: `bin/serve.cjs` already writes `[rf.ssr-node] …` here, so this is
+ * that stream under that prefix, and a diagnostic that can be switched off
+ * is off on the day it is wanted.
+ */
+function reportIsolateFault(isolateSeq, err) {
+  const trace = err && err.stack ? err.stack : String(err);
+  process.stderr.write(`[rf.ssr-node] isolate ${isolateSeq} died mid-render: ${trace}\n`);
+}
 
 let nextIsolateSeq = 0;
 
@@ -96,9 +126,43 @@ class Isolate {
       worker.on('message', handleBootMessage);
       worker.on('error', (err) => {
         clearTimeout(bootTimer);
+        // ONE HANDLER, TWO PHASES, AND THEY ARE NOT THE SAME AUDIENCE. It
+        // stays registered for the worker's whole life, so before boot
+        // resolves the `reject` below is live and `_failPendingRender` is a
+        // no-op; afterwards the promise is settled and it is the other way
+        // round. The two arms answer different people and that is why only
+        // one of them changed.
+        //
+        // THE RENDER ARM — a fault that reached a CALLER. `handleRender`'s
+        // own catch never saw this one: an exception thrown from a callback
+        // the render scheduled runs on a later tick with no `try` above it,
+        // so Node killed the thread and the `Error` arrived here instead.
+        // That made this the second receiver of the response law, and for a
+        // while the only one not stating it — `err.message` was the module's
+        // wording and `err.stack` was that wording plus every absolute path
+        // in the deployment, both published on the public `Refusal` and
+        // serialised into the HTTP body. So: the contract's wording, and a
+        // `detail` this file builds. `isolate` and `threadId` are the same
+        // two service-owned facts the deadline refusal above carries, and
+        // for the same reason — they name the thread an operator is about
+        // to go looking for, and neither originates in the module.
+        //
+        // The real exception goes to stderr first, and on this path that is
+        // the only copy that has ever existed; see `reportIsolateFault`.
+        if (this.pendingRender) reportIsolateFault(this.seq, err);
         this._failPendingRender(
-          new Refusal(CODE.ISOLATE_LOST, err.message, { stack: err.stack }),
+          new Refusal(CODE.ISOLATE_LOST, ISOLATE_LOST_REFUSAL, {
+            isolate: this.seq,
+            threadId: this.threadId,
+          }),
         );
+        // THE BOOT ARM — untouched, deliberately. Boot fails before the
+        // service listens, so this refusal is read by the operator standing
+        // at the process they just started rather than by a caller across a
+        // wire; `worker.cjs`'s boot post names this handler as where the
+        // real stack survives, and it is the diagnostic for a module that
+        // cannot be loaded at all. Two audiences, and this one is already
+        // the operator.
         reject(new Refusal(CODE.MALFORMED_MODULE, err.message, { stack: err.stack }));
       });
       worker.on('exit', () => {
