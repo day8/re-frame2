@@ -146,6 +146,63 @@
                       (live?))))))))
         true))))
 
+;; ---- who is running this pass --------------------------------------------
+;;
+;; The evaluator is shared: the router runs it over an event's PENDING db, and
+;; the out-of-drain settle below runs the SAME pass over the COMMITTED one.
+;; Everything about evaluation is identical across the two — same topological
+;; sort, same dirty check, same phases, same error id — so nothing here
+;; branches on the caller except the one thing that genuinely differs: what a
+;; failure LEAVES BEHIND, and therefore what the diagnostic may truthfully say
+;; about it.
+;;
+;; In a drain the pass output is a candidate `:db` the router discards on a
+;; throw, so the event aborts before the install and app-db is unchanged. In a
+;; direct `clear-flow`'s settle the deregistration and output-path vacation are
+;; ALREADY COMMITTED and intentionally stand (Spec 013 §The same boundary for a
+;; direct `clear-flow`, point 2); only the settle's candidate db is dropped.
+;; Reporting the drain's sentence to that caller states three things that are
+;; each false — that a drain ran, that an event aborted, and that app-db is
+;; unchanged — and sends the reader looking for an event that never existed.
+;;
+;; A dynamic var rather than an extra parameter: the pass's hot loop already
+;; carries seven arguments, this one is read at exactly ONE site on the failure
+;; path, and the settle is synchronous, so the binding cannot outlive its pass.
+
+(def ^:private ^:dynamic *pass-caller*
+  "Which caller's commit boundary the running flow pass belongs to — `:drain`
+  (the router, over a pending db) or `:direct-clear` (`settle-frame-flows!`,
+  over the committed one). Read only by [[flow-eval-failure!]]."
+  :drain)
+
+(defn- failure-site
+  "The clause naming WHERE the failing evaluation ran, for `*pass-caller*`."
+  []
+  (if (= :direct-clear *pass-caller*)
+    "during the settle a direct clear-flow runs before it returns"
+    "during the drain"))
+
+(defn- failure-aftermath
+  "The clause naming what the failure LEFT BEHIND, for `*pass-caller*`.
+
+  Both branches say the same operational thing — no partial output committed,
+  re-attempt next drain — about two different commit boundaries."
+  []
+  (if (= :direct-clear *pass-caller*)
+    (str "the clear itself stands (its flow is already deregistered and its "
+         "output leaf vacated — that is what the caller asked for), the "
+         "settle's candidate app-db is discarded unwritten (no partial commit, "
+         "no flow output changed) and the flow re-attempts on the next drain")
+    (str "the event aborts before the :db install (no partial commit, app-db "
+         "unchanged) and the flow re-attempts on the next drain")))
+
+(defn- failure-db-noun
+  "How to name the app-db the failing install could not write, for
+  `*pass-caller*`. The drain writes a PENDING db; the direct settle recomputes
+  against the committed one."
+  []
+  (if (= :direct-clear *pass-caller*) "app-db" "the pending app-db"))
+
 (defn- flow-eval-failure!
   "Report one flow-evaluation failure, attributed to the phase that actually
   threw, and re-raise it for the router.
@@ -167,7 +224,12 @@
   emits the per-flow `:rf.flow/failed` trace and throws the aggregate
   `:rf.error/flow-eval-exception`, carrying the phase on BOTH the dev trace and
   the thrown ex-data so the router can lift it onto the always-on production
-  error record."
+  error record.
+
+  The error id, the phase taxonomy, the trace tags and the thrown ex-data are
+  the same for every caller. Only the human `:reason` sentence varies, and only
+  in the two clauses that describe the CALLER's commit boundary — see
+  `*pass-caller*`."
   [frame-id owner-token exact-owner? flow new-inputs phase e]
   (if-not (owner-live? frame-id owner-token exact-owner?)
     stale-incarnation
@@ -191,21 +253,20 @@
           (if (= :derive phase)
             (str "a flow's :derive fn threw while recomputing flow "
                  (pr-str flow-id)
-                 " during the drain; the event aborts before the :db install "
-                 "(no partial commit, app-db unchanged) and the flow "
-                 "re-attempts on the next drain. Fix the :derive fn so it "
+                 " " (failure-site) "; " (failure-aftermath)
+                 ". Fix the :derive fn so it "
                  "does not throw on the inputs it is given.")
             (str "flow " (pr-str flow-id)
                  "'s :derive fn RETURNED normally, but re-frame could not "
                  "install that value at the flow's declared :output-path "
                  (pr-str output-path)
-                 " — the pending app-db holds a container at that path which "
+                 " — " (failure-db-noun) " holds a container at that path which "
                  "cannot accept it. The :derive fn did not throw; the failure "
-                 "is the framework's output write. The event aborts before the "
-                 ":db install (no partial commit, app-db unchanged) and the "
-                 "flow re-attempts on the next drain. Fix the :output-path, or "
-                 "the shape the app-db holds at its parent path — do not go "
-                 "looking in the :derive fn."))
+                 "is the framework's output write, " (failure-site) "; "
+                 (failure-aftermath)
+                 ". Fix the :output-path, or "
+                 "the shape " (failure-db-noun) " holds at its parent path — do "
+                 "not go looking in the :derive fn."))
           {:recovery :no-recovery
            :extra    {:rf.flow/failed-id    flow-id
                       :rf.flow/failed-phase phase
@@ -394,13 +455,20 @@
   installed. `run-flows-on-db` restores the dirty-check cache and pending
   vacations on that throw, so the next drain re-attempts normally.
 
+  The pass runs under `*pass-caller*` `:direct-clear` so that throw's human
+  `:reason` describes THIS boundary — the clear stands, the candidate is
+  dropped — rather than the drain's abort, which never happened here. The
+  binding wraps the whole pass because the throw is raised deep inside it, and
+  unwinds with it because the settle is synchronous.
+
   `registry/clear-flow` calls this through the seam it publishes; the
   `:require` runs the other way."
   [frame-id owner-token]
   (when-let [db (frame/frame-app-db-value frame-id)]
     (let [runtime-db (frame/frame-runtime-db-value frame-id)
-          settled    (run-flows-on-db frame-id db runtime-db
-                                      {:exact-owner-token owner-token})]
+          settled    (binding [*pass-caller* :direct-clear]
+                       (run-flows-on-db frame-id db runtime-db
+                                        {:exact-owner-token owner-token}))]
       (when-not (or (= stale-incarnation settled)
                     (identical? settled db))
         (frame/swap-frame-db-exact! frame-id owner-token (constantly settled)))))
