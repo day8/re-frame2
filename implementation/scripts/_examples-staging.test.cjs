@@ -998,11 +998,22 @@ itAsync('TEETH: a fake watcher that exits 0 before publishing aborts the wait ra
     }
   };
 
+  // The regression's SIGNATURE is an unbounded poll, so the witness bounds it:
+  // a misclassified exit must fail this test loudly rather than spin the suite
+  // until CI times out. (Measured — with the pre-audit classification planted,
+  // an unbounded version of this case hangs instead of reporting.)
   let probes = 0;
+  const PROBE_CEILING = 50;
   const result = await waitForFirstBuild({
     fetchBody: async () => {
       probes++;
       if (probes === 2) onWatchExit({ code: 0, signal: null }); // a clean early exit
+      if (probes > PROBE_CEILING) {
+        throw new Error(
+          `still polling after ${PROBE_CEILING} probes with the watcher already gone: ` +
+            'the runner hangs instead of reporting a first build that never happened',
+        );
+      }
       return null; // the entrypoint is never published
     },
     isAborted: () => watchDied,
@@ -1010,6 +1021,7 @@ itAsync('TEETH: a fake watcher that exits 0 before publishing aborts the wait ra
   });
 
   assert.ok(watchDied, 'the clean early exit must be classified as terminal');
+  assert.ok(probes <= 3, 'the wait must stop at the exit, not keep polling');
   assert.deepStrictEqual(
     result,
     { ok: false, reason: 'child-exited' },
