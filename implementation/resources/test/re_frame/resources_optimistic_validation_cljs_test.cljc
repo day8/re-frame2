@@ -781,8 +781,10 @@
 ;; unowned promoted record now ALSO reaches the browser console. It is a
 ;; fallback, not a channel, and none of its three conditions holds here — it
 ;; needs a dev build, a browser host (this is the Node lane, no `js/document`)
-;; and an EMPTY `:errors` registry, which the listener this suite installs
-;; fills. So the reading below is unchanged, and the always-on axis is still
+;; and nothing to have ROUTED the record, whereas the listener this suite
+;; installs owns it (rf2-kuky.18 added a second ownership arm — the record's
+;; frame routing it to a registered `:observability :errors` sink — which is
+;; equally absent here). So the reading below is unchanged, and the always-on axis is still
 ;; the one that holds in dev AND in prod.
 ;;
 ;; So this test asserts the readable half on the always-on `:errors` axis,
@@ -810,9 +812,10 @@
   AND in a production build, while a category that fans nothing is invisible
   everywhere. (Since PR #8108 there is ALSO a browser-console fallback, but it
   is not the always-on contract and cannot fire here: it needs a dev build, a
-  browser host — this suite is the Node lane, no `js/document` — and an EMPTY
-  `:errors` registry, which the listener below fills.) Sibling of the same-named
-  helper in `resources-mutation-cljs-test` (rf2-06lp)."
+  browser host — this suite is the Node lane, no `js/document` — and nothing to
+  have ROUTED the record, whereas the listener below owns it; since rf2-kuky.18
+  a frame's registered `:observability :errors` sink owns it too.) Sibling of the
+  same-named helper in `resources-mutation-cljs-test` (rf2-06lp)."
   [body-fn]
   (let [seen (atom [])
         k    ::error-record-recorder]

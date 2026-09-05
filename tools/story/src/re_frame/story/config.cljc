@@ -434,6 +434,24 @@
   [profile]
   (contains? egress-profiles profile))
 
+(def error-sink-id
+  "The `:observability :errors` sink id every Story-allocated frame names on
+  its frame config, and the id the mounted shell registers a concrete sink
+  fn against (rf2-kuky.18).
+
+  This is how Story OWNS the refusals its own deliberately-failing variants
+  produce. `re-frame.error-emit`'s dev console fallback prints a promoted
+  `:rf.error/*` record only when nothing routed it, so a Story frame's
+  refusal reaching this sink is what keeps the console quiet — for Story's
+  frames and no others. A host app's frames on the same page declare no
+  policy, route nowhere, and keep their console lines.
+
+  It lives here rather than beside the shell because three namespaces name
+  it and none of them may require the others: `frames` stamps it onto every
+  variant / inline frame config, `artifact` onto the replay frame, and
+  `ui.shell` registers and unregisters the sink across its own mount."
+  :rf.story/errors)
+
 (defonce
   ^{:doc "Atom holding Story's PER-FRAME local-render `:rf.egress/*` profile
          overrides — `{frame-id → profile}` (EP-0015 issue 7,

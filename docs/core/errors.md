@@ -239,9 +239,11 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     registered non-nilable over a slot nothing has written yet: the transaction was
     rejected, so nothing installed, and the next dispatch will be rejected the same
     way. Register the path as nilable, or seed it before the first write. The console
-    lines are the framework's fallback for an error *nothing owns*: they appear only
-    while no `:errors` listener is registered, so attaching one — in a dev build, for
-    any reason — takes ownership and they stop. A deliberate dev listener that wants
+    lines are the framework's fallback for an error *nothing routed*: they appear only
+    while nothing owns the record, so attaching an `:errors` listener — in a dev build,
+    for any reason — takes ownership and they stop, and so does wiring the frame's own
+    `[:observability :errors]` sink policy, which owns just that frame's records rather
+    than the whole page. A deliberate dev listener that wants
     to ignore rollbacks keys on `:rollback? true`. None of this reaches production,
     because the check itself does not.
 

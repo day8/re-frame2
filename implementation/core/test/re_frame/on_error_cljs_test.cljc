@@ -125,10 +125,13 @@
   ;; is PRINTED — the reason being the SETTLED rule now, not an open question.
   ;; rf2-fu75 / PR #8108 ruled it: an UNOWNED promoted error DOES additionally
   ;; reach `console.error` in a dev build — but only on a browser host, and
-  ;; only while the `:errors` listener registry is EMPTY
+  ;; only while nothing ROUTED the record
   ;; (`rf.error-emit/report-unowned-error!`). Registering ANY `:errors` listener
   ;; takes corpus-wide ownership and silences the fallback for every category,
-  ;; which is precisely what the recorder below does. So nothing this witness
+  ;; which is precisely what the recorder below does. (Since rf2-kuky.18 that is
+  ;; one of TWO ownership arms — the other is the record's frame having routed it
+  ;; to a registered `:observability :errors` sink — but the listener arm is
+  ;; unchanged and is the one this witness exercises.) So nothing this witness
   ;; raises is unowned, and this node lane has no `js/document` to print from
   ;; either — two independent reasons there is no fallback here for such an
   ;; assertion to observe. Whether some suite SHOULD pin that printing is a

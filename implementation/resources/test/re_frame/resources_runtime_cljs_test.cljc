@@ -121,8 +121,10 @@
   AND in a production build, while a category that fans nothing is invisible
   everywhere. (Since PR #8108 there is ALSO a browser-console fallback, but it
   is not the always-on contract and cannot fire here: it needs a dev build, a
-  browser host — this suite is the Node lane, no `js/document` — and an EMPTY
-  `:errors` registry, which the listener below fills.)
+  browser host — this suite is the Node lane, no `js/document` — and nothing to
+  have ROUTED the record, whereas the listener below owns it. Since rf2-kuky.18
+  a record its frame routed to a registered `:observability :errors` sink is
+  owned too; neither arm changes this Node-lane reading.)
   A refusal that reaches NO channel is indistinguishable from a
   silent no-op at the call site, which is exactly the gap rf2-06lp closed on
   the mutation path; this is the copy that lets the read path assert the same
@@ -547,7 +549,9 @@
         ;; §Observability channels a listener is the only ALWAYS-ON channel, so
         ;; this listener is where a refusal is legible in dev AND in prod. The
         ;; browser-dev console fallback (#8108) is not a second reading here —
-        ;; it needs an EMPTY registry, and this listener fills it.
+        ;; it needs nothing to have ROUTED the record, and this listener owns it
+        ;; (rf2-kuky.18: a frame's registered `:observability :errors` sink owns
+        ;; it too; neither arm fires here).
         ;; Without this half the two rows above are satisfied by a silent
         ;; no-op and the test cannot fail.
         (is (some? rec)
