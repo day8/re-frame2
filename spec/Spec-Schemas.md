@@ -1220,12 +1220,24 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; here because `:rf.error/frame-destroyed` is an `:error` envelope; `:op`'s
   ;; optionality is a per-emit-site axis, not a per-branch one).
   ;;
-  ;; rf2-g8ict — the payload slots below are reconciled against what the FOUR
-  ;; live emitters actually stamp. This schema previously declared `:rf.event/v`
-  ;; and `:rf.sub/query-v` as the payload pair; `:rf.event/v` was PHANTOM for
-  ;; this category (no emitter stamps it), while the slots three of the four
-  ;; emitters DO stamp — the bare `:event`, `:query-v`, `:reason`, `:where`,
-  ;; `:rf.sub/id` — were undeclared.
+  ;; rf2-g8ict (2026-07-19) — the payload slots below were reconciled against
+  ;; what the emitters live ON THAT DATE actually stamp. This schema previously
+  ;; declared `:rf.event/v` and `:rf.sub/query-v` as the payload pair;
+  ;; `:rf.event/v` was PHANTOM for this category (no emitter stamps it), while
+  ;; the slots those emitters DO stamp — the bare `:event`, `:query-v`,
+  ;; `:reason`, `:where`, `:rf.sub/id` — were undeclared.
+  ;;
+  ;; THAT RECONCILIATION COUNTED FOUR LIVE EMITTERS; TWO REMAIN. The paragraph
+  ;; above is left in its own terms because two of the five slots it names went
+  ;; with the pair that retired: `ui/frames/emit-and-throw-frame-destroyed!`,
+  ;; removed with `re-frame.ui` on 2026-08-16 (rf2-0yp7w — the ownership note
+  ;; below), and `substrate/observation/throw-frame-destroyed!`, removed with
+  ;; the internal observation port on 2026-08-21 (rf2-63t1i — the retirement
+  ;; that struck `:where` / `:rf.sub/id` / `:rf.sub/query-v` from the
+  ;; declaration, below). The survivors are `router/emit-frame-destroyed!` and
+  ;; `subs/emit-frame-destroyed-recovery!` — the only two sites in the corpus
+  ;; that build these tags — and between them they stamp every slot the `[:map]`
+  ;; still declares.
   ;;
   ;; The bare `:event` spelling is NOT an accident to be normalised away: it is
   ;; a first-class, classification-aware slot. `re-frame.classification/project-
@@ -1235,7 +1247,8 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; redaction chokepoint consults. `:rf.event/v` is the DISPATCH-PIPELINE
   ;; spelling (`:rf.event/run-start`, `:rf.event/dispatched`, …); the bare
   ;; `:event` is the ERROR-tag spelling. So the document was wrong, not the
-  ;; runtime, and the repair is here rather than at four emit sites.
+  ;; runtime, and the repair was here rather than at the emitters' own emit
+  ;; sites.
   ;;
   ;; `:recovery` is deliberately ABSENT: `trace/build-event` `dissoc`s it from
   ;; `:tags` on EVERY branch and hoists it to the envelope's top level, so a
