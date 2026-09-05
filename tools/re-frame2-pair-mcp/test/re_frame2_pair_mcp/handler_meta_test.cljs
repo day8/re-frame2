@@ -1,11 +1,13 @@
 (ns re-frame2-pair-mcp.handler-meta-test
   "Unit tests for the `handler-meta` + `list-handlers` MCP tools.
 
-  Both tools build a CLJS form that calls into the preloaded runtime
-  (`re-frame2-pair.runtime/registrar-describe` / `registrar-list` for
-  the ten registrar kinds; `re-frame.core/machine-meta` /
-  `re-frame.core/machines` for the `:machine` kind). Live end-to-end
-  coverage runs against a shadow-cljs runtime; these tests pin:
+  Both tools build a CLJS form that calls into the preloaded runtime,
+  and into NOTHING ELSE: `re-frame2-pair.runtime/registrar-describe` /
+  `registrar-list` for the fourteen registrar kinds,
+  `frame-registrar-describe` / `frame-registrar-list` for the
+  frame-targeted reads, and `machine-describe` / `machines-list` for the
+  virtual `:machine` kind. Live end-to-end coverage runs against a
+  shadow-cljs runtime; these tests pin:
 
     1. The descriptor wire-up — both tools surface on `tool-descriptors`
        and `tool-descriptors-js` with the right shape (required args,
@@ -14,16 +16,36 @@
        unknown / malformed values are rejected with structured envelopes;
        EDN-encoded ids round-trip cleanly.
     3. The form composition — given a valid (kind, id) pair the right
-       runtime fn is called (`registrar-describe` for the six registrar
-       kinds; `machine-meta` for `:machine`).
+       runtime fn is called (`registrar-describe` for the registrar
+       kinds; `machine-describe` for `:machine`).
     4. Error envelopes — missing / invalid kind / id arguments surface
-       structured `:reason` slots an agent can read."
+       structured `:reason` slots an agent can read.
+    5. THE RUNTIME DOOR (rf2-kuky.29) — every symbol an emitted form
+       names is a public top-level `defn` in the preload's own source,
+       and no emitted form names a framework var at all.
+
+  ## Why (5) reads another artefact's source
+
+  The coupling between these tools and the runtime they call is a
+  STRING interpolated into CLJS source and shipped over nREPL. There is
+  no `:require`, no classpath edge, and therefore no compiler error and
+  no static check in this build that can see it. Points (1)–(4) are the
+  emitter tested against itself: they stay green while the form names a
+  var that does not exist anywhere, which is exactly what happened — the
+  `:machine` branches named a `machines` and a `machine-meta` var on the
+  FACADE, where the machine query surface has never lived (it is
+  `re-frame.machines`, per spec/API.md's front-porch boundary), and both
+  `:machine` reads returned an eval error against every running app
+  while this suite passed. Point (5) is the both-sides witness that
+  closes it, in the shape `hicasso_wire_test.cljs` established for the
+  same class of string coupling."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [clojure.string :as str]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools :as tools]
+            [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.handler-meta :as hm]))
 
 ;; ---------------------------------------------------------------------------
@@ -426,8 +448,8 @@
 ;; `machine-form` would fail here. Each EP-0016 kind is driven through
 ;; the tool with a canned runtime response, asserting (a) the kind is
 ;; accepted (not :invalid-kind), (b) the emitted form routes through the
-;; registrar-describe / registrar-list path (never machine-meta /
-;; machines), and (c) the requested kind/id ride back stamped on the
+;; registrar-describe / registrar-list path (never machine-describe /
+;; machines-list), and (c) the requested kind/id ride back stamped on the
 ;; response.
 ;;
 ;; One focused test per (tool, kind) — the file's one-concern style.
@@ -476,7 +498,7 @@
 
 (defn- handler-meta-routes-through-registrar-test
   "Assert handler-meta for `kind-str` emits a registrar-describe form
-  (NOT machine-meta) carrying the kind keyword `kw-str`."
+  (NOT machine-describe) carrying the kind keyword `kw-str`."
   [kind-str kw-str done]
   (let [form   (atom nil)
         canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
@@ -486,23 +508,23 @@
                 (.then (fn [_]
                          (is (str/includes? @form "registrar-describe")
                              (str kind-str " routes through registrar-describe"))
-                         (is (not (str/includes? @form "machine-meta"))
-                             (str kind-str " is NOT mis-routed through the machine wrapper"))
+                         (is (not (str/includes? @form "machine-describe"))
+                             (str kind-str " is NOT mis-routed through the machine door"))
                          (is (str/includes? @form kw-str)
                              (str "the form carries the " kw-str " kind keyword")))))))
         (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))
 
 (deftest handler-meta-resource-routes-through-registrar
-  (testing "kind \"resource\" emits a registrar-describe form, never machine-meta"
+  (testing "kind \"resource\" emits a registrar-describe form, never machine-describe"
     (async done (handler-meta-routes-through-registrar-test "resource" ":resource" done))))
 
 (deftest handler-meta-mutation-routes-through-registrar
-  (testing "kind \"mutation\" emits a registrar-describe form, never machine-meta"
+  (testing "kind \"mutation\" emits a registrar-describe form, never machine-describe"
     (async done (handler-meta-routes-through-registrar-test "mutation" ":mutation" done))))
 
 (deftest handler-meta-resource-scope-routes-through-registrar
-  (testing "kind \"resource-scope\" emits a registrar-describe form, never machine-meta"
+  (testing "kind \"resource-scope\" emits a registrar-describe form, never machine-describe"
     (async done (handler-meta-routes-through-registrar-test "resource-scope" ":resource-scope" done))))
 
 (deftest handler-meta-resource-scope-surfaces-inputs-and-cost
@@ -579,7 +601,7 @@
                 (.then (fn [_]
                          (is (str/includes? @form "registrar-list")
                              (str kind-str " routes through registrar-list"))
-                         (is (not (str/includes? @form "re-frame.core/machines"))
+                         (is (not (str/includes? @form "machines-list"))
                              (str kind-str " is NOT mis-routed through the machines enumerator"))
                          (is (str/includes? @form kw-str)
                              (str "the form carries the " kw-str " kind keyword")))))))
@@ -703,3 +725,220 @@
             (str tool-name " exposes the optional :frame property"))
         (is (not (contains? (set required) "frame"))
             (str tool-name " does not require :frame (default registrar is the common case)"))))))
+
+;; ---------------------------------------------------------------------------
+;; The :machine kind — POSITIVE coverage for both tools (rf2-kuky.29).
+;;
+;; Every test above the machine kind was NEGATIVE ("this other kind is not
+;; mis-routed through the machine branch"), which is why the machine branch
+;; could name two vars that do not exist for as long as it did: nothing ever
+;; asserted what it DOES emit. These pin the door it routes through, the id it
+;; threads, and the miss envelope it hands back.
+;; ---------------------------------------------------------------------------
+
+(deftest handler-meta-machine-routes-through-the-runtime-door
+  (testing "kind \"machine\" emits (re-frame2-pair.runtime/machine-describe id) and names no framework var"
+    (async done
+      (let [form   (atom nil)
+            canned {:initial :idle :states {:idle {}} :guards {:can? :rf/fn}}]
+        (-> (with-form-capture! form canned
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind "machine"
+                                                        :id   ":auth/session"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (str/includes? @form "re-frame2-pair.runtime/machine-describe")
+                                   "the machine drill routes through the preload's machine door")
+                               (is (str/includes? @form ":auth/session")
+                                   "the requested id is threaded into the form")
+                               (is (not (str/includes? @form "re-frame.core/"))
+                                   "no facade var is named on this side of the wire")
+                               (is (not (str/includes? @form "re-frame.machines/"))
+                                   "no artefact var either — the preload is the only place one is spelled")
+                               (is (true? (:ok? edn)))
+                               (is (= :machine (:kind edn)))
+                               (is (= :auth/session (:id edn)))
+                               (is (= {:can? :rf/fn} (:guards edn))
+                                   "the door's stripped :guards ride through as readable EDN")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
+
+(deftest handler-meta-machine-miss-is-the-uniform-not-registered-envelope
+  (testing "the door's :not-a-machine is renamed to the one miss vocabulary the tool speaks"
+    (async done
+      ;; What `machine-describe` actually returns on a miss — the preload's
+      ;; own vocabulary, which `ops.md` documents and other consumers read.
+      (let [canned {:ok? false :reason :not-a-machine :id :nope/nothing}]
+        (-> (with-canned-eval! canned
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind "machine"
+                                                        :id   ":nope/nothing"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (false? (:ok? edn)))
+                               (is (= :not-registered (:reason edn))
+                                   "an agent branches on ONE miss reason across every kind")
+                               (is (= :machine (:kind edn)))
+                               (is (= :nope/nothing (:id edn)))))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
+
+(deftest list-handlers-machine-routes-through-the-runtime-door
+  (testing "kind \"machine\" emits (re-frame2-pair.runtime/machines-list) and names no framework var"
+    (async done
+      (let [form (atom nil)
+            ids  [:auth/session :cart/checkout]]
+        (-> (with-form-capture! form ids
+              (fn []
+                (-> (hm/list-handlers-tool nil (args-js {:kind "machine"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (str/includes? @form "re-frame2-pair.runtime/machines-list")
+                                   "the machine enumeration routes through the preload's list door")
+                               (is (not (str/includes? @form "re-frame.core/"))
+                                   "no facade var is named on this side of the wire")
+                               (is (not (str/includes? @form "re-frame.machines/"))
+                                   "no artefact var either")
+                               (is (true? (:ok? edn)))
+                               (is (= :machine (:kind edn)))
+                               (is (= ids (:ids edn)))
+                               (is (= 2 (:count edn)))))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; THE RUNTIME DOOR — the both-sides witness (rf2-kuky.29).
+;;
+;; See the ns docstring for why this reads another artefact's source. In one
+;; line: the coupling is a string, so nothing in this build can see it, and a
+;; suite that only reads the emitter back to itself stays green over a var that
+;; exists nowhere. `hicasso_wire_test.cljs` established the shape for the same
+;; class of coupling; this is its registry-introspection twin.
+;;
+;; The symbols are extracted from ACTUAL EMITTED FORMS rather than from a
+;; hand-written vector — a vector would prove only that two lists agree, and it
+;; is the string on the wire that has to resolve.
+;; ---------------------------------------------------------------------------
+
+(def ^:private fs (js/require "fs"))
+(def ^:private path (js/require "path"))
+
+(defn- repo-root
+  "Walk upward from the test process's cwd to the repository root — the first
+  directory holding both this artefact and the preload the emitted forms call.
+  Robust against the runner's working directory (`tools/re-frame2-pair-mcp` vs
+  repo root)."
+  []
+  (loop [d (.cwd js/process)]
+    (cond
+      (and (.existsSync fs (.join path d "tools/re-frame2-pair-mcp/src"))
+           (.existsSync fs (.join path d "skills/re-frame2-pair/preload")))
+      d
+
+      (= d (.dirname path d))
+      (throw (ex-info (str "Could not locate the repository root from cwd — the runtime-door "
+                           "witness needs both tools/re-frame2-pair-mcp/src and "
+                           "skills/re-frame2-pair/preload to compare the two sides.")
+                      {:cwd (.cwd js/process)}))
+
+      :else (recur (.dirname path d)))))
+
+(def ^:private preload-src
+  ;; CR stripped: the `\n(defn ` anchor below is line-start-anchored, and a
+  ;; CRLF checkout would otherwise fail every assertion for a reason that has
+  ;; nothing to do with the door.
+  (delay
+    (let [rel  "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs"
+          full (.join path (repo-root) rel)]
+      (when-not (.existsSync fs full)
+        (throw (ex-info (str "the runtime preload is missing: " rel
+                             " — every form these tools ship targets it by string, so its "
+                             "absence is the failure this witness exists to report.")
+                        {:path full})))
+      (str/replace (.toString (.readFileSync fs full)) "\r" ""))))
+
+(def ^:private door-cases
+  "Every branch of the two tools' form builders that reaches a runtime call.
+  `:machine` with a `:frame` is refused before a form is built (machines are
+  not in the image generation resolver), so it is not a case here.
+
+  `:canned` is the value the stubbed eval resolves with — a metadata map for
+  `handler-meta`, an id vector for `list-handlers`, so each tool's own
+  post-processing runs rather than throwing on the way to the assertion."
+  [{:tool hm/handler-meta-tool  :args {:kind "event"   :id ":a/b"}                      :canned {:ns 'a.b :line 1}}
+   {:tool hm/handler-meta-tool  :args {:kind "event"   :id ":a/b" :frame ":blue/main"}  :canned {:ns 'a.b :line 1}}
+   {:tool hm/handler-meta-tool  :args {:kind "machine" :id ":auth/session"}             :canned {:initial :idle}}
+   {:tool hm/list-handlers-tool :args {:kind "event"}                                   :canned [:a/b]}
+   {:tool hm/list-handlers-tool :args {:kind "event"   :frame ":blue/main"}             :canned [:a/b]}
+   {:tool hm/list-handlers-tool :args {:kind "machine"}                                 :canned [:auth/session]}])
+
+(defn- capture-emitted-forms
+  "Drive every `door-cases` entry through its tool with a capturing eval stub,
+  resolving with the vector of form strings the tools actually shipped. Serial
+  rather than parallel: the stub is installed by a bare `set!` on one var, so
+  two in flight would capture each other's forms."
+  []
+  (reduce
+    (fn [p {:keys [tool args canned]}]
+      (.then p (fn [acc]
+                 (let [form (atom nil)]
+                   (-> (with-form-capture! form canned
+                         (fn [] (tool nil (args-js args))))
+                       (.then (fn [_] (conj acc @form))))))))
+    (js/Promise.resolve [])
+    door-cases))
+
+(defn- runtime-symbols
+  "Every fn name a form resolves off the runtime preload, as a set. Parsed out
+  of the emitted source rather than read off the DSL, because the source string
+  is what crosses the wire."
+  [form]
+  (into #{}
+        (map second)
+        (re-seq (re-pattern (str "\\(" (str/replace ef/runtime-ns "." "\\.")
+                                 "/([^\\s)]+)"))
+                form)))
+
+(deftest every-emitted-runtime-symbol-is-published-by-the-preload
+  (async done
+    (-> (capture-emitted-forms)
+        (.then (fn [forms]
+                 (let [src  @preload-src
+                       syms (into #{} (mapcat runtime-symbols) forms)]
+                   (is (= (count door-cases) (count forms))
+                       "every door case emitted a form to check")
+                   (is (contains? syms "machine-describe")
+                       "the machine drill is among the captured symbols")
+                   (is (contains? syms "machines-list")
+                       "the machine enumeration is among the captured symbols")
+                   (doseq [s (sort syms)]
+                     ;; A PUBLIC `defn` at column 0. `defn-` would not match,
+                     ;; and must not: a private fn is unreachable from an eval
+                     ;; form even though the name is spelled identically.
+                     (is (str/includes? src (str "\n(defn " s "\n"))
+                         (str "re-frame2-pair.runtime must publish " s
+                              " — an emitted form calls it by name across a process "
+                              "boundary, so a rename on the preload is a runtime failure "
+                              "here and nowhere else"))))))
+        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
+
+(deftest no-emitted-form-names-a-framework-var
+  ;; The other half of the contract, and the one rf2-kuky.29 broke: the preload
+  ;; is the SINGLE place a framework symbol is spelled. A form that reaches
+  ;; past it compiles, passes every emitter test, and fails only in someone
+  ;; else's process — which is exactly what two hand-built `:machine` strings
+  ;; did for the whole life of that kind.
+  (async done
+    (-> (capture-emitted-forms)
+        (.then (fn [forms]
+                 (doseq [form forms]
+                   (doseq [ns-prefix ["re-frame.core/" "re-frame.machines/"
+                                      "re-frame.schemas/" "re-frame.routing/"
+                                      "re-frame.flows/"]]
+                     (is (not (str/includes? form ns-prefix))
+                         (str "an emitted form names " ns-prefix
+                              " directly — route it through the preload instead: "
+                              form))))))
+        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
