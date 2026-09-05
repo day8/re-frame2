@@ -2575,7 +2575,12 @@
                    :trace-buffer  {:events-retained 25}
                    :elision       {:rf.size/threshold-bytes 8192}})
 
-  The argument MUST be a map (a non-map arg fails loudly). A missing
+  The argument MUST be a map. A non-map argument — the RETIRED keyed
+  form `(configure! :trace-buffer {…})`, a vector, `nil` — throws
+  `:rf.error/configure-bad-arg`. That check is ALWAYS-ON: it is a plain
+  runtime guard, not an `assert`, so it survives a host build compiled
+  with assertions elided (CLJS `:elide-asserts true`, JVM `*assert*`
+  false) rather than degrading to a silent no-op there. A missing
   top-level key leaves that subsystem untouched; a present key delegates
   to that subsystem's configurator in API-table order
   (`:epoch-history`, `:trace-buffer`, `:elision`), preserving each one's
@@ -2592,8 +2597,44 @@
   sibling silently no-op on this key — the ring + listener machinery
   is DCE'd anyway."
   [config-map]
-  (assert (map? config-map)
-          "re-frame.core/configure! expects a single nested config map, e.g. (configure! {:epoch-history {:depth 100}})")
+  ;; ALWAYS-ON, not `assert` (rf2-xn13). The shape check used to be a language
+  ;; `(assert (map? config-map) …)`, which the host compiler is entitled to
+  ;; ELIDE: Clojure's `assert` macro emits nothing when `*assert*` is false, and
+  ;; the ClojureScript compiler binds `*assert*` false for `:elide-asserts true`
+  ;; — a legitimate, common consumer release setting. In such a build every
+  ;; non-map call — the RETIRED keyed form `(rf/configure! :trace-buffer)`, a
+  ;; vector, `nil` — returned `nil`, applied nothing, and emitted no diagnostic,
+  ;; so the programmer believed trace / epoch / elision configuration was
+  ;; installed when it had been silently dropped. The retired keyed arity is
+  ;; exactly the call migration produces, which is what made the silence
+  ;; expensive rather than merely untidy.
+  ;;
+  ;; A `when-not` + `throw-error!` pair carries no assertion machinery on either
+  ;; host, so the contract holds in EVERY build posture from ONE `.cljc` source.
+  ;; Mirrors `re-frame.live-frame/validate-opts!` (`:rf.error/make-frame-bad-opts`),
+  ;; the sibling public-boundary map guard in this artefact — same condition,
+  ;; same fail-loud-before-any-work posture, same canonical chokepoint.
+  ;;
+  ;; The guard is the TOP-LEVEL SHAPE ONLY. Unknown top-level keys stay silent
+  ;; no-ops (the closed-and-additive contract below) and nested subsystem opts
+  ;; stay each subsystem's business — this is one boundary check, not a
+  ;; validator framework.
+  (when-not (map? config-map)
+    (rf.error/throw-error!
+      :rf.error/configure-bad-arg
+      'rf/configure!
+      (str "rf/configure!: the config argument must be a MAP — got "
+           (:type (rf.error/diag-value-summary config-map))
+           ". Pass ONE nested config map, e.g. "
+           "(rf/configure! {:epoch-history {:depth 100} "
+           ":trace-buffer {:events-retained 25}}). The keyed arity "
+           "(rf/configure! :trace-buffer {…}) is RETIRED — put the subsystem "
+           "key INSIDE the map.")
+      ;; `diag-value-summary` is content-free BY CONSTRUCTION (a closed `:type`
+      ;; vocabulary + an integer count), so the offending argument's SHAPE
+      ;; travels off-box without echoing app-owned configuration.
+      {:recovery :pass-a-config-map
+       :extra    {:received (rf.error/diag-value-summary config-map)}}))
   (when-let [opts (:epoch-history config-map)]
     (when-let [f (rf.late-bind/get-fn :epoch/configure!)]
       (f opts)))

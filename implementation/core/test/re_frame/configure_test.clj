@@ -29,7 +29,9 @@
 
   The `:elision` knob is PRODUCTION STATE — `rf.elision/current-config` is not
   gated — and so are the closed-vocabulary rules: unknown keys return nil, a
-  non-map argument fails loud on an `assert`. Those run under
+  non-map argument fails loud on an ALWAYS-ON guard (rf2-xn13 — a plain
+  `when-not` + `throw-error!`, deliberately NOT an `assert`, so the
+  contract holds in an assertion-elided build too). Those run under
   `scripts/test-core-prod-gate.sh` unchanged and are the substance of
   \"closed and fixed-and-additive\".
 
@@ -53,6 +55,7 @@
   claim the `:trace-buffer` key still makes: the call is a silent no-op that
   returns nil and does not throw."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.repl :as repl]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -278,16 +281,114 @@
       (is (<= (count (rf/trace-buffer :rf/default)) 6)
           ":trace-buffer applied from the composite map; unknown keys ignored"))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-xn13 — the non-map guard, in BOTH assertion postures.
+;; ---------------------------------------------------------------------------
+
+(def ^:private non-map-args
+  "The three non-map arguments the contract names, worst first: the RETIRED
+  keyed-arity first arg (what a stale call site / a v1 migration actually
+  produces), a vector, and `nil`."
+  [:trace-buffer [:trace-buffer {:events-retained 3}] nil])
+
 (deftest configure-non-map-arg-fails-loud
-  (testing "rf2-dzxixe — configure! takes a SINGLE nested config map.
-            A non-map argument is a programmer error and fails loudly
-            (assert) rather than silently no-opping."
-    (is (thrown? AssertionError
-                 (rf/configure! :trace-buffer))
-        "a bare keyword (the retired keyed-arity first arg) fails loud")
-    (is (thrown? AssertionError
-                 (rf/configure! [:trace-buffer {:events-retained 3}]))
-        "a vector fails loud")
-    (is (thrown? AssertionError
-                 (rf/configure! nil))
-        "nil fails loud")))
+  (testing "rf2-dzxixe / rf2-xn13 — configure! takes a SINGLE nested config
+            map. A non-map argument is a programmer error and throws the
+            canonical structured error, NOT a bare AssertionError."
+    (doseq [bad non-map-args]
+      (let [ex (try (rf/configure! bad) nil
+                    (catch clojure.lang.ExceptionInfo e e))
+            d  (some-> ex ex-data)]
+        (is (some? ex)
+            (str "a non-map arg fails loud: " (pr-str bad)))
+        (is (= :rf.error/configure-bad-arg (:rf.error/id d))
+            "the canonical machine discriminator")
+        (is (= 'rf/configure! (:where d))
+            "the user-facing symbol that threw")
+        (is (= :pass-a-config-map (:recovery d))
+            "the recovery disposition names the fix")
+        (is (string? (:reason d))
+            "a one-sentence human diagnostic is present")
+        ;; The offending value is reported by SHAPE, never echoed: `configure!`
+        ;; is handed application configuration, so the ex-data must survive
+        ;; off-box capture. `diag-value-summary` is content-free by
+        ;; construction (a closed `:type` vocabulary + an integer count).
+        (is (contains? (:received d) :type)
+            ":received carries the content-free shape summary")
+        (is (not= bad (:received d))
+            ":received is a SHAPE summary, not the raw argument")))))
+
+;; The `configure!` guard must hold when the host compiler ELIDES assertions —
+;; CLJS `:elide-asserts true`, or a JVM load under `*assert*` false. That is the
+;; whole point of rf2-xn13: the previous `(assert (map? …))` compiled to NOTHING
+;; in such a build and every call below silently returned nil.
+;;
+;; A test that merely rebinds `*assert*` at CALL time proves nothing — `assert`
+;; is a MACRO, so the decision was already taken when `re-frame.core` was
+;; compiled. This harness therefore takes the ACTUAL source form of the ACTUAL
+;; public fn and RE-COMPILES it with `*assert*` false, which is a genuine
+;; compile-time control. It deliberately does NOT reload `re-frame.core`: the
+;; form is evaluated into a throwaway namespace carrying `re-frame.core`'s own
+;; aliases, so no global runtime state is disturbed for the rest of the suite.
+
+(def ^:private probe-ns-sym 're-frame.configure-elision-probe)
+
+(defn- eval-with-assertions-elided
+  "Compile `form` with `*assert*` FALSE in a throwaway namespace that carries
+  `re-frame.core`'s aliases, and return the resulting Var."
+  [form sym]
+  (remove-ns probe-ns-sym)
+  (let [probe (create-ns probe-ns-sym)]
+    (binding [*ns* probe]
+      (refer-clojure)
+      (doseq [[a n] (ns-aliases (find-ns 're-frame.core))]
+        (.addAlias ^clojure.lang.Namespace probe a n))
+      (binding [*assert* false]
+        (eval form)))
+    (ns-resolve probe sym)))
+
+(defn- configure!-source-form
+  "The `(defn configure! …)` form as it is WRITTEN in
+  `re_frame/core.cljc` — read from source, so this test cannot drift into
+  asserting over a copy of the guard."
+  []
+  (let [src (repl/source-fn 're-frame.core/configure!)]
+    (assert (string? src) "could not read re-frame.core/configure! source")
+    (read {:read-cond :allow}
+          (java.io.PushbackReader. (java.io.StringReader. src)))))
+
+(deftest configure-non-map-guard-survives-assertion-elision
+  (testing "rf2-xn13 — the harness really DOES elide assertions (anti-vacuity
+            control). Without this, every assertion below could pass because
+            nothing was elided at all."
+    (let [elided-assert-fn (eval-with-assertions-elided
+                             '(defn probe-fn [x] (assert (map? x)) :applied)
+                             'probe-fn)]
+      (is (= :applied (elided-assert-fn :not-a-map))
+          "a language `assert` compiled under *assert* false does NOT fire —
+           so this harness reproduces the defective posture faithfully")))
+
+  (testing "rf2-xn13 — configure!'s OWN source, recompiled with assertions
+            elided, still rejects every non-map argument with the SAME
+            canonical error. Against the previous `(assert (map? …))`
+            implementation each of these calls returned nil."
+    (let [elided-configure! (eval-with-assertions-elided
+                              (configure!-source-form) 'configure!)]
+      (doseq [bad non-map-args]
+        (let [ex (try (elided-configure! bad) nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex)
+              (str "assertion-elided build still fails loud on " (pr-str bad)))
+          (is (= :rf.error/configure-bad-arg (:rf.error/id (ex-data ex)))
+              "the SAME canonical id in both postures")))))
+
+  (testing "rf2-xn13 — the elided build still APPLIES a valid map, so the
+            guard did not turn configure! into a throw-everything stub."
+    (let [elided-configure! (eval-with-assertions-elided
+                              (configure!-source-form) 'configure!)]
+      (is (nil? (elided-configure! {:elision {:rf.size/threshold-bytes 4096}}))
+          "a valid map returns nil as documented")
+      (is (= 4096 (:rf.size/threshold-bytes (rf.elision/current-config)))
+          "and the known subsystem really was configured")
+      (is (nil? (elided-configure! {:no-such-key 1}))
+          "an unknown top-level key remains a silent nil-returning no-op"))))
