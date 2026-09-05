@@ -86,6 +86,30 @@
   [sym & args]
   (apply ef/rt-call sym (concat args [(ef/rt-raw resolved-frame-sym)])))
 
+(def resolved-frame-entry
+  "Map entry an inner form puts in its result map so the id it ACTUALLY
+  read against travels back to the tool body — read out with
+  [[resolved-frame]].
+
+  A PAGINATED tool needs this and a single-shot one does not. Page 1
+  normally arrives with neither a `frame` argument nor a cursor, so the
+  operating frame exists only as [[resolved-frame-sym]], browser-side.
+  A tool that built `:next-cursor` from what it ASKED for would store
+  nil — and page 2, carrying no frame either, re-resolves against
+  whatever the session says by then. Pin a second frame, or select a
+  different one, and the continuation silently walks a DIFFERENT ring:
+  the live `:after-id` isn't in it, so a healthy cursor is reported
+  aged-out (rf2-yo4s). Carrying the resolved id makes a cursor OWN its
+  frame from page 1, which is the same \"one resolution, one truth\"
+  this namespace already gives the read."
+  (str ":frame " resolved-frame-sym))
+
+(defn resolved-frame
+  "The frame id [[with-resolved-frame]] resolved, lifted off a successful
+  eval result whose inner form carried [[resolved-frame-entry]]."
+  [v]
+  (:frame v))
+
 (defn refusal?
   "True when a runtime eval result is a structured refusal rather than
   the payload the tool asked for — `{:ok? false ...}`, which under

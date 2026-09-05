@@ -40,7 +40,9 @@
      :until-ms <int-or-nil>          ; first-call clock; bounds the
                                      ; window so trace-window doesn't
                                      ; admit fresh epochs mid-page
-     :frame <keyword-or-nil>}
+     :frame <keyword-or-nil>}          ; the frame page 1 RESOLVED and
+                                       ; read, not the frame it was
+                                       ; asked for — see below
 
   ## Why `:after-id` is `:any`, not `string?`
 
@@ -73,6 +75,26 @@
   The runtime already surfaces `:id-aged-out? true` from `epochs-since`
   when the cursor's id can't be found — we lift that signal to a
   top-level error.
+
+  ## Cursor frame ownership
+
+  `:frame` carries the id page 1 RESOLVED and read against — lifted out
+  of the eval result, never the caller's argument. Both epoch tools
+  resolve the operating frame browser-side (explicit `frame` -> session
+  pin -> sole app frame; see
+  `re-frame2-pair-mcp.tools.frame-resolve`), and page 1 typically
+  supplies none of the first tier, so the argument is nil while the
+  read is not. A cursor built from the argument therefore stored nil,
+  and page 2 — which also names no frame — re-resolved against whatever
+  the session said by then.
+
+  That makes a pin change, or a second app frame registering
+  mid-pagination, silently redirect the continuation to a DIFFERENT
+  ring: the live `:after-id` is not in it, `epochs-since` answers
+  `:id-aged-out? true`, and a healthy cursor is reported stale. The
+  frame REFUSAL cannot cover this one — the newly-resolved frame is
+  perfectly unambiguous, it is just not the ring the agent was reading.
+  Only ownership from page 1 closes it (rf2-yo4s).
 
   ## Why opaque
 

@@ -34,7 +34,16 @@
   \"nothing happened\" in the same voice as a genuinely quiet window.
   The empty-result advisory above could not catch that: it read the
   SAME implicit-frame history, so both sides came back empty together
-  (rf2-yo4s)."
+  (rf2-yo4s).
+
+  The resolved id then rides BACK out of the eval and into
+  `:next-cursor`, so a cursor owns the frame it is iterating from page
+  1 — not from page 2, which is all a cursor built out of the caller's
+  ARGUMENTS could manage. Page 1 normally names no frame at all, so
+  that cursor stored nil and page 2 re-resolved against whatever the
+  session said by then: pin a second frame in between and the
+  continuation walked a different ring, where the live `:after-id` is
+  absent and the healthy cursor reads as stale (rf2-yo4s)."
   (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.frame-resolve :as fr]
@@ -145,6 +154,10 @@
                             " :head-id (some-> hist peek :epoch-id)"
                             " :next-id next-id"
                             " :history-count (count hist)"
+                            ;; The id this page was actually read
+                            ;; against, so `:next-cursor` can own it —
+                            ;; see `read-frame` below.
+                            " " fr/resolved-frame-entry
                             " :remaining (max 0 (- (count filtered) (count page)))}"))))
             ;; Resolve once, refuse at nil, THEN slice. The sticky frame
             ;; is the tier-1 override, so a cursor's frame outranks the
@@ -161,6 +174,17 @@
               (wire/err-text v)
               (let [v          (if (map? v) v {})
                     aged-out?  (:id-aged-out? v)
+                    ;; The frame this page was READ against, not the one
+                    ;; it was asked for. On page 1 those differ: the
+                    ;; caller normally names no frame and carries no
+                    ;; cursor, so `sticky-frame` is nil while the read
+                    ;; resolved a real id from the session pin or the
+                    ;; sole app frame. Stamping nil into `:next-cursor`
+                    ;; is what let page 2 re-resolve and walk a
+                    ;; DIFFERENT ring (rf2-yo4s). Falls back to
+                    ;; `sticky-frame` only for a blank runtime result,
+                    ;; where there is no page to continue anyway.
+                    read-frame (or (fr/resolved-frame v) sticky-frame)
                     raw-epochs (vec (:epochs v))]
                 (if aged-out?
                   (cursor/cursor-stale-result "trace-window"
@@ -180,7 +204,12 @@
                                          :after-id next-id
                                          :ms       window-ms
                                          :until-ms until-ms
-                                         :frame    sticky-frame}))
+                                         ;; The cursor OWNS its frame
+                                         ;; from page 1 onward, so a pin
+                                         ;; changed mid-pagination
+                                         ;; cannot move the ring under
+                                         ;; the agent.
+                                         :frame    read-frame}))
                         has-more?     (some? next-cursor)
                         remaining     (or (:remaining v) 0)
                         history-count (or (:history-count v) 0)
@@ -204,7 +233,13 @@
                         advisory      (when (and (zero? count)
                                                  (pos? history-count))
                                         {:reason            :window-excludes-history
-                                         :frame             sticky-frame
+                                         ;; Names the frame the count
+                                         ;; came from, which is the
+                                         ;; resolved one — an advisory
+                                         ;; reporting `:frame nil`
+                                         ;; describes a read that never
+                                         ;; happened.
+                                         :frame             read-frame
                                          :epochs-in-history history-count
                                          :window-ms         window-ms
                                          :hint              (str history-count
