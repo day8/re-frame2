@@ -523,7 +523,7 @@ For tooling, agents, story tools, 10x.
 | `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | tooling | ✓ | 002 |
 | `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | tooling | ✓ | 002 |
 | `app-db-value` | Fn | `(app-db-value frame-id)` → the **app-db** partition value (plain map) — the out-of-band value read. The front-porch read is `subscribe`; `app-db-value` is the non-reactive snapshot read for tools, tests, REPL, and fx/handler bodies. | v1 | advanced | ✓ | 002 |
-| `frame-state-value` | Fn | `(frame-state-value frame-id)` → the coherent **frame-state** projection `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. The full-frame read for SSR / epoch / time-travel / Xray (EP-0001). The runtime-db-only read (retired `runtime-db-value`, rf2-t3lftq — API-shrink #3) is `(:rf.db/runtime (frame-state-value frame-id))`. | v1 | tooling | 002 |
+| `frame-state-value` | Fn | `(frame-state-value frame-id)` → the coherent **frame-state** projection `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. The full-frame read for SSR / epoch / time-travel / Xray (EP-0001). The runtime-db-only read (retired `runtime-db-value`, rf2-t3lftq — API-shrink #3) is `(:rf.db/runtime (frame-state-value frame-id))`. | v1 | tooling | ✓ | 002 |
 
 The static subscription-topology query and the runtime sub-cache snapshot are **subscription-tooling** surfaces, not `re-frame.core` facade reads. Reach them through their owning namespace `re-frame.subs.tooling` — `(sub-topology)` (static dependency graph over the registrar) and `(sub-cache-snapshot frame-id)` (live cache state) — with `subs/sub-topology` / `subs/sub-cache-snapshot` as the JVM legacy aliases.
 

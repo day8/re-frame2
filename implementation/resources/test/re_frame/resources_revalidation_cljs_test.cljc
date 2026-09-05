@@ -614,17 +614,35 @@
          (binding [*dom-state* state]
            (try
              (testing "rf2-kuky.33 — N re-registrations with the SAME
-                       :revalidate-on leave the listener counts constant
-                       (replace-don't-stack; an ordinary repeated frame-root
-                       render causes no churn)"
+                       :revalidate-on leave the listener counts constant:
+                       replace-don't-stack, so nothing ever STACKS"
                (dotimes [_ 4]
-                 (rf/make-frame {:id :rv/churn :doc "churn-free frame"
+                 (rf/make-frame {:id :rv/churn :doc "replace-don't-stack frame"
                                  :revalidate-on #{:focus :reconnect}}))
                (is (= {:focus 1 :visibility 1 :online 1} (wiring state))
                    "four registrations, one listener each"))
+             ;; rf2-kuky.33 (merged-PR audit of #9305): the counts above prove
+             ;; NO STACKING. They do NOT prove "no churn", and the reconcile
+             ;; deliberately does not offer it — it is a REPLACE, not a diff.
+             ;; Pin that directly, so the contract is falsifiable in BOTH
+             ;; directions: were the reconcile ever changed to short-circuit on
+             ;; identical triggers (routing's `reconcile-url-listener!` shape),
+             ;; this goes red and the prose gets revisited with it.
+             (testing "rf2-kuky.33 — an identical-triggers re-registration
+                       REPLACES: the handler instance is a fresh closure, not
+                       the one already attached"
+               (let [before (first (get-in @state [:window :listeners "focus"]))]
+                 (is (some? before) "a focus handler is attached to start with")
+                 (rf/make-frame {:id :rv/churn :doc "replace-don't-stack frame"
+                                 :revalidate-on #{:focus :reconnect}})
+                 (let [after (first (get-in @state [:window :listeners "focus"]))]
+                   (is (= 1 (:focus (wiring state)))
+                       "still exactly one focus listener — no stacking")
+                   (is (not (identical? before after))
+                       "and it is a NEW handler: detach-then-reattach, every time"))))
              (testing "rf2-kuky.33 — a re-registration that CHANGES the subset
                        reconciles rather than accumulating"
-               (rf/make-frame {:id :rv/churn :doc "churn-free frame"
+               (rf/make-frame {:id :rv/churn :doc "replace-don't-stack frame"
                                :revalidate-on #{:reconnect}})
                (is (= {:focus 0 :visibility 0 :online 1} (wiring state))
                    "the focus half was detached, online kept at one")
