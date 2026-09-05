@@ -182,12 +182,14 @@
   successor, because both the request-index check and the actor-index removal
   match on `identical?` against THIS handle.
 
-  Residual, deliberately not closed here (rf2-ni74): the other door is blind
-  at that same midpoint — an `abort-on-actor-destroy` arriving between the two
-  swaps finds no actor slot and fires nothing, so the handle survives its
-  actor's destroy. That is a MISSED abort rather than an incoherent index, it
-  is swept by the later frame-destroy/epoch paths, and closing it needs
-  genuine cross-atom atomicity rather than a reconcile."
+  The OTHER door into the same midpoint is closed on the destroy side rather
+  than here (rf2-ni74). An `abort-on-actor-destroy` arriving between the two
+  swaps used to find no actor slot and fire nothing; it now also reads the
+  request index, where the handle already sits carrying its own `:frame` and
+  `:actor-id` stamps. That could not be a reconcile: a missed abort leaves
+  publication nothing to observe. The two halves compose — aborting a midpoint
+  handle drops its request slot, so the reconcile below then retracts the actor
+  slot publication is about to write, and the destroy leaves no ghost either."
   [request-id actor-id handle]
   (let [frame-id       (:frame handle)
         stamped-handle (cond-> handle
@@ -685,6 +687,36 @@
 ;; without aborting any HTTP (apps that don't issue managed-HTTP pay
 ;; nothing).
 
+(defn- midpoint-actor-handles
+  "The handles `frame-id`'s actor `actor-id` owns that the REQUEST index can
+  see but the actor-index slot cannot — the publication midpoint made reachable
+  (rf2-ni74). `indexed` is that slot's own contents, passed in so the identity
+  dedup costs no second read.
+
+  `record-in-flight!` stamps `:frame` and `:actor-id` onto the handle BEFORE
+  its first swap, so the copy sitting in `in-flight` between the two
+  publications already names its actor. The destroy simply had to look there as
+  well: cross-atom atomicity is not required to see a handle that is already
+  published, only the willingness to read both indexes.
+
+  FRAME-EXACT BY THE `:frame` FILTER, and that is load-bearing rather than
+  tidy. `in-flight` is keyed by request-id and holds EVERY frame's work, so a
+  sweep of it by actor address alone would abort a sibling frame's
+  identically-addressed actor — reintroducing, through this repair, exactly the
+  cross-frame reach rf2-o8ek's compound keys removed. Actor addresses are
+  frame-LOCAL and collide across frames by construction (identical spec,
+  per-frame spawn counter), so the filter is the whole of the isolation.
+
+  Eager, never lazy: the caller fires abort-fns that mutate `in-flight`, so a
+  lazy scan would observe the index it is already changing."
+  [frame-id actor-id indexed]
+  (into []
+        (filter (fn [handle]
+                  (and (= actor-id (:actor-id handle))
+                       (= frame-id (:frame handle))
+                       (not-any? #(identical? % handle) indexed))))
+        (vals @in-flight)))
+
 (defn abort-on-actor-destroy
   "Per Spec 014 §Abort on actor destroy (rf2-wvkn). Abort every in-flight
   `:rf.http/managed` request that was issued from inside spawned actor
@@ -696,6 +728,38 @@
   no-op. Tolerant of repeated invocations against the same actor —
   the actor-side slot is cleared atomically first so a re-entry sees
   an empty registry.
+
+  BOTH INDEXES ARE READ (rf2-ni74). The actor-index slot is this operation's
+  natural selector, but it is not the whole of the actor's in-flight work for
+  the duration of `record-in-flight!`: publication writes the request index
+  first and the actor index second, so between the two swaps an actor-owned
+  handle is fully published and abortable while owning no actor slot at all. A
+  destroy arriving there selected nothing and fired nothing, and publication
+  then completed and left the request live under a destroyed actor — measured
+  `{:case :actor-destroy-at-midpoint, :abort-fired? false,
+  :request-slot-present? true, :actor-slot-count 1}`.
+
+  That is a MISSED abort rather than an incoherent index, which is why
+  publication's trailing reconcile does not cover it: publication cannot retract
+  a handle nobody told it to retract, and the destroy leaves no trace for it to
+  observe. The fix belongs on THIS side — `midpoint-actor-handles` above reads
+  the request index for handles this frame's actor owns, which the handle's own
+  `:frame` / `:actor-id` stamps make exact. No lock, no tombstone, no
+  cross-atom atomicity: the handle was never invisible, only unlooked-for.
+
+  Reversing the publication order was the tempting alternative and is worse — it
+  would blind `:rf.http/managed-abort` by request-id, the primary app-facing
+  cancellation verb, at the same midpoint.
+
+  The two halves compose. Aborting a midpoint handle drops its request slot, so
+  when publication resumes and conj's it into the actor index, the reconcile
+  finds the slot no longer holding this handle and retracts it: the destroy
+  leaves no ghost either.
+
+  The slot is read AND cleared in ONE `swap-vals!`. The earlier shape read with
+  `get` and cleared with a separate `swap!`, so a handle published between the
+  two was dissoc'd from the index without ever being aborted — the same lost
+  abort as above, through a narrower door.
 
   Per rf2-plngk the per-handle request-id cleanup is owned by
   `clear-in-flight!` (called inside the abort-fn closure via
@@ -725,18 +789,30 @@
    (when actor-id
      ;; Snapshot the matching frames BEFORE aborting: each per-frame call
      ;; mutates `actor-in-flight`, and an abort-fn may mutate it re-entrantly.
-     (doseq [frame-id (->> @actor-in-flight
-                           keys
-                           (filter #(= actor-id (second %)))
-                           (mapv first))]
+     ;; Both indexes name frames, for the same reason the 2-arity reads both: a
+     ;; handle at the publication midpoint has a frame but no actor slot yet, so
+     ;; an actor-index-only scan would not even reach the arity that could abort
+     ;; it (rf2-ni74).
+     (doseq [frame-id (distinct
+                        (into (->> @actor-in-flight
+                                   keys
+                                   (filterv #(= actor-id (second %)))
+                                   (mapv first))
+                              (comp (filter #(= actor-id (:actor-id %)))
+                                    (map :frame))
+                              (vals @in-flight)))]
        (abort-on-actor-destroy frame-id actor-id)))
    nil)
   ([frame-id actor-id]
   (when actor-id
-    (let [k       (scoped-key frame-id actor-id)
-          handles (get @actor-in-flight k)]
-      ;; Atomically clear the slot first so a re-entry sees no handles.
-      (swap! actor-in-flight dissoc k)
+    (let [k        (scoped-key frame-id actor-id)
+          ;; Read AND clear in one step, so a handle publishing alongside this
+          ;; destroy cannot be dropped from the index unaborted. A re-entry
+          ;; still sees an empty slot, which is the idempotency guarantee.
+          [previous _] (swap-vals! actor-in-flight dissoc k)
+          indexed  (get previous k [])
+          handles  (into (vec indexed)
+                         (midpoint-actor-handles frame-id actor-id indexed))]
       (doseq [handle handles]
         (when rf.interop/debug-enabled?
           ;; rf2-bma05 — the handle carries the originating request's
