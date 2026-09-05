@@ -187,7 +187,14 @@ scoped to `skills/re-frame2-implementor` only):
      table naming the bare macro, stay legal), leaves an app-db-only
      `compute-sub` alone (it is the smaller correct form), and (9c)
      additionally anchors the canonical block itself so the recipe cannot
-     be reworded out of existence unnoticed.
+     be reworded out of existence unnoticed. 9a's exemption for a fence
+     that declares the macro ITSELF reads the actual import, not the
+     token `:refer` — the first cut skipped any fence in which that token
+     appeared at all, which meant an unrelated `(:require [cljs.test
+     :refer [is]])`, a `:refer-macros` of something else, or a comment
+     mentioning `:refer` waved the whole block through. That is the
+     ordinary test-namespace header, so the guard was fail-open on nearly
+     every realistic instance of the defect (rf2-u429 post-merge audit).
 
 WHAT THIS GUARD IS, AND IS NOT (read before trusting a green run):
     Rules 1-6 are *retrospective token patterns*. Each encodes one regression
@@ -1080,6 +1087,21 @@ def withframe_thunk_problems(text: str) -> list[tuple[int, str]]:
 #          code. A fence is what a reader copies. A block that establishes its
 #          own `:refer` is left alone - that is a lawful, if unusual, import.
 #
+#          THE EXEMPTION IS THE EXACT REFER, NOT THE TOKEN `:refer` (rf2-u429
+#          post-merge audit). The first cut tested the fence for `:refer\b`
+#          anywhere and skipped the WHOLE block on a hit, which made the guard
+#          fail open on the three commonest shapes in this corpus: an unrelated
+#          refer on another namespace - `(:require [cljs.test :refer [is]])`
+#          beside a plain `[re-frame.core :as rf]` is the ordinary test-ns
+#          header, so nearly every realistic fence carrying the defect was
+#          waved through; a `:refer-macros` of something else (the hyphen makes
+#          a word boundary, so `\b` matched); and a COMMENT that merely
+#          mentions `:refer`. None of those declares the macro. The exemption
+#          now requires what actually makes the bare spelling resolve: a
+#          `re-frame.core` require whose own `:refer` / `:refer-macros` vector
+#          names THAT macro. Line comments are stripped before the import is
+#          read, so a mention in a comment cannot grant it.
+#
 #     9b - AN APP-DB-ONLY READER HANDED TO `compute-sub` FOR A RUNTIME-BACKED
 #          GRAPH. `app-db-value` returns the app-db partition ALONE. Machine
 #          snapshots are durable RUNTIME-db state, and the framework subs that
@@ -1103,8 +1125,16 @@ def withframe_thunk_problems(text: str) -> list[tuple[int, str]]:
 #          "bounded authority" treatment Rule 6c gives the hooks blocks.
 
 FENCED_FRAME_MACRO_RE = re.compile(r"\((with-new-frame|with-frame)[\s\[]")
-# A block that establishes its own refer is lawfully using the bare spelling.
-FENCE_REFER_RE = re.compile(r":refer\b")
+# A block that establishes its own refer is lawfully using the bare spelling -
+# but only a `re-frame.core` require whose `:refer` / `:refer-macros` vector
+# names THAT macro does so. A bare `:refer` token anywhere in the fence does
+# not: see the rf2-u429 audit paragraph in the Rule 9a header above.
+REFRAME_CORE_REQUIRE_HEAD_RE = re.compile(r"\[\s*re-frame\.core\b")
+REFER_VECTOR_RE = re.compile(r":refer(?:-macros)?\s*\[([^\]]*)\]")
+# Stripped before the import is read so a comment mentioning `:refer` cannot
+# grant the exemption. Deliberately NOT applied to the macro-head scan: a
+# commented-out bad recipe is still a recipe a reader copies.
+CLOJURE_LINE_COMMENT_RE = re.compile(r";[^\n]*")
 
 UNQUALIFIED_FRAME_MACRO_MSG = (
     "UNQUALIFIED-FRAME-MACRO: this fenced recipe calls `({name} ...)` "
@@ -1118,8 +1148,42 @@ UNQUALIFIED_FRAME_MACRO_MSG = (
     "block throws a TypeError at run time having asserted nothing - the Rule 8 "
     "silent-skip class reached through the other frame macro. Spell it "
     "`rf/{name}`. A labelled 'not this' mention in PROSE is legal and this rule "
-    "does not read it; a fence is what a reader copies."
+    "does not read it; a fence is what a reader copies. The one exemption is a "
+    "`re-frame.core` require in this same fence whose `:refer` / "
+    "`:refer-macros` vector names `{name}` itself - an unrelated `:refer` on "
+    "another namespace, a `:refer-macros` of something else, or a comment "
+    "mentioning `:refer` declares nothing and does not earn it."
 )
+
+
+def fence_refers_frame_macro(body: str, name: str) -> bool:
+    """True when this fenced block establishes its own `re-frame.core` refer of
+    `name` - the one import under which the bare spelling lawfully resolves.
+
+    Walks each `[re-frame.core ...]` libspec to its matching close bracket and
+    reads every `:refer` / `:refer-macros` vector inside it, so a spec carrying
+    both (`[re-frame.core :as rf :refer [x] :refer-macros [with-new-frame]]`)
+    is read whole rather than only to its first vector. Line comments are
+    stripped first: a comment that mentions `:refer` declares nothing."""
+    code = CLOJURE_LINE_COMMENT_RE.sub("", body)
+    for head in REFRAME_CORE_REQUIRE_HEAD_RE.finditer(code):
+        depth = 0
+        end = len(code)
+        i = head.start()
+        while i < end:
+            ch = code[i]
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        libspec = code[head.start():i + 1]
+        for vec in REFER_VECTOR_RE.finditer(libspec):
+            if name in vec.group(1).split():
+                return True
+    return False
 
 COMPUTE_SUB_TOKEN_RE = re.compile(r"\bcompute-sub\b")
 APP_DB_VALUE_TOKEN_RE = re.compile(r"\bapp-db-value\b")
@@ -1147,15 +1211,20 @@ def unqualified_frame_macro_problems(text: str) -> list[tuple[int, str]]:
     """Rule 9a - a bare `with-new-frame` / `with-frame` head inside a code
     fence. Returns (lineno, message) tuples. Takes the whole file body so the
     self-test can pass a fenced fixture directly; prose mentions never enter a
-    fenced block, so a labelled 'not this' stays legal."""
+    fenced block, so a labelled 'not this' stays legal.
+
+    The exemption is per MACRO, not per fence: a block that refers
+    `with-new-frame` and then bare-calls `with-frame` is still flagged for the
+    one it never declared."""
     problems: list[tuple[int, str]] = []
     for block_start, body in fenced_blocks(text):
-        if FENCE_REFER_RE.search(body):
-            continue
         for m in FENCED_FRAME_MACRO_RE.finditer(body):
+            name = m.group(1)
+            if fence_refers_frame_macro(body, name):
+                continue
             lineno = block_start + 1 + body.count("\n", 0, m.start())
             problems.append(
-                (lineno, UNQUALIFIED_FRAME_MACRO_MSG.format(name=m.group(1)))
+                (lineno, UNQUALIFIED_FRAME_MACRO_MSG.format(name=name))
             )
     return problems
 
@@ -2394,6 +2463,70 @@ def _self_test() -> int:
         "  (rf/dispatch-sync [:go] {:frame f}))\n"
         "```\n",
         dirty=False, label="AA6 block establishing its own :refer is lawful",
+    )
+    # AA7-AA10: the exemption is the EXACT refer, not the token `:refer`
+    # (rf2-u429 post-merge audit). Each of these three shapes carries `:refer`
+    # somewhere in the fence and declares the macro NOWHERE, and each was
+    # accepted before the audit repair - AA7 being the ordinary test-namespace
+    # header, so it waved through nearly every realistic instance of the
+    # defect.
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n"
+        "(ns app.login-test\n"
+        "  (:require [cljs.test :refer [deftest is]]\n"
+        "            [re-frame.core :as rf]))\n"
+        "(with-new-frame [f (rf/make-frame {})]\n"
+        "  (rf/dispatch-sync [:go] {:frame f}))\n"
+        "```\n",
+        dirty=True,
+        label="AA7 an UNRELATED :refer (cljs.test) does not declare the macro",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n"
+        "(ns app.login-test\n"
+        "  (:require [re-frame.core :as rf])\n"
+        "  (:require-macros [app.helpers :refer-macros [with-fixture]]))\n"
+        "(with-new-frame [f (rf/make-frame {})]\n"
+        "  (rf/dispatch-sync [:go] {:frame f}))\n"
+        "```\n",
+        dirty=True,
+        label="AA8 a :refer-macros of another namespace does not declare it",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n"
+        ";; no :refer needed - the macro comes in with the alias\n"
+        "(with-new-frame [f (rf/make-frame {})]\n"
+        "  (rf/dispatch-sync [:go] {:frame f}))\n"
+        "```\n",
+        dirty=True,
+        label="AA9 a COMMENT mentioning :refer does not declare the macro",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n"
+        "(ns app.login-test\n"
+        "  (:require [re-frame.core :as rf :refer [with-new-frame]]))\n"
+        "(with-frame :app/test\n"
+        "  (fn [] (rf/dispatch-sync [:go])))\n"
+        "```\n",
+        dirty=True,
+        label="AA10 refer of the OTHER frame macro does not cover this one",
+    )
+    expect(
+        unqualified_frame_macro_problems,
+        "```clojure\n"
+        "(ns app.login-test\n"
+        "  (:require [cljs.test :refer [deftest is]]\n"
+        "            [re-frame.core :as rf :refer-macros [with-new-frame]]))\n"
+        "(with-new-frame [f (rf/make-frame {})]\n"
+        "  (rf/dispatch-sync [:go] {:frame f}))\n"
+        "```\n",
+        dirty=False,
+        label="AA11 an exact re-frame.core :refer-macros still exempts, even "
+              "beside an unrelated :refer",
     )
 
     # --- Rule 9b: an app-db-only reader for a runtime-db-backed graph.
