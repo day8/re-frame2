@@ -1605,6 +1605,107 @@ def _resolve_target(
     return candidates[-1] if candidates else None
 
 
+# rf2-nvbz — this repo's OWN GitHub URLs.
+#
+# A shipped skill doc may not reach outside its package by a relative link
+# (`check_skill_package_refs.py` makes that a finding), so it cites cross-tree
+# material as an absolute repository URL instead. That trade buys the packaged
+# reader a link that resolves and costs the monorepo reader rename-safety — a
+# relative target is checked below, an `https://` one used to be skipped
+# outright at the external-link guard. This unwraps the subset that is THIS
+# repo at `main` and validates it as a repo path: existence, blob-vs-tree kind,
+# and (for a `.md` blob) the anchor. Everything else stays external and stays
+# skipped: this is not, and must not become, a general URL checker.
+#
+# `main` only. A URL pinned to a tag or a commit sha is deliberately NOT
+# rename-tracked — it names a frozen tree, and validating it against the
+# working tree would report a difference that is the whole point of the pin.
+#
+# The base string is a deliberate TWIN of `GH_BLOB_BASE` in mkdocs_hooks.py
+# (which rewrites out-of-context references to GitHub URLs when a page leaves
+# its tree). It is not imported: the hook is a MkDocs plugin whose import pulls
+# the build machinery into a standalone link gate, and one shared literal is
+# not worth that. If the repository ever moves, both change together.
+IN_REPO_GH_URL_RE = re.compile(
+    r"^https://github\.com/day8/re-frame2/(blob|tree)/main/"
+    r"([^#?\s]*)(?:\?[^#\s]*)?(?:#(\S*))?$"
+)
+
+
+def _in_repo_github_url(dest: str) -> tuple[str, str, str] | None:
+    """`(kind, repo_rel, anchor)` for one of this repo's `blob/main` /
+    `tree/main` URLs, else None. `kind` is `"blob"` or `"tree"`."""
+    m = IN_REPO_GH_URL_RE.match(dest.strip())
+    if m is None:
+        return None
+    kind, rel, anchor = m.group(1), m.group(2), m.group(3) or ""
+    return kind, rel.rstrip("/"), urllib.parse.unquote(anchor).strip()
+
+
+def _github_slugs(path: Path) -> set[str]:
+    """The rendered fragment ids GitHub mints for `path`.
+
+    Delegates to `check_readme_links._slug_index`, which is already the
+    GitHub-side slug authority in this repo — same base slugifier as this
+    gate, different duplicate-heading rule (`-N`, not `_N`). Re-deriving it
+    here would be a second model of the same renderer, and the two would drift.
+
+    The import is deferred because `check_readme_links` imports THIS module at
+    module scope; by the time a link is being validated this module is fully
+    initialised, so the cycle never forms.
+    """
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from check_readme_links import _slug_index  # noqa: PLC0415 (deferred: see docstring)
+
+    return _slug_index(path)
+
+
+def _in_repo_github_url_problems(
+    repo_root: Path, kind: str, rel: str, anchor: str
+) -> list[str]:
+    """Validate one unwrapped in-repo GitHub URL. Empty list when it is sound.
+
+    Existence is checked for EVERY kind, not only `.md`: 18 of the links this
+    was built for name source files (`tools/xray/src/**`,
+    `examples/capabilities/ssr/ssr/core.cljc`), and a renamed source file is
+    exactly the drift the unwrap exists to catch. The non-`.md` skip that
+    applies to RELATIVE links stays where it is — it is about the slug-index
+    contract, which only `.md` targets have.
+    """
+    if not rel:
+        return []  # the repository root itself; nothing to resolve.
+    try:
+        target = (repo_root / rel).resolve()
+        target.relative_to(repo_root.resolve())
+    except (OSError, ValueError):
+        return [f"`{rel}` escapes the repository root"]
+    if not target.exists():
+        return [f"missing: {rel}"]
+    if kind == "blob" and target.is_dir():
+        return [
+            f"`{rel}` is a DIRECTORY but the URL says `blob/` — write "
+            "`tree/main/` for a directory"
+        ]
+    if kind == "tree" and target.is_file():
+        return [
+            f"`{rel}` is a FILE but the URL says `tree/` — write "
+            "`blob/main/` for a file"
+        ]
+    if not anchor:
+        return []
+    if kind == "tree":
+        return [f"a directory URL carries an anchor (`#{anchor}`)"]
+    if not rel.endswith(".md"):
+        # GitHub's fragments on a non-markdown blob are line references
+        # (`#L12-L20`), which name no heading and are not this gate's business.
+        return []
+    if anchor not in _github_slugs(target):
+        return [f"no heading in {rel} renders the anchor `#{anchor}` on GitHub"]
+    return []
+
+
 def _is_ai_findings_link(path_part: str) -> bool:
     """Return True if a link path resolves under the gitignored ai/findings/ tree.
 
@@ -2019,8 +2120,21 @@ def check(
     broken_anchor: list[tuple[Path, int, str, str]] = []
     broken_target: list[tuple[Path, int, str, str]] = []
     ai_findings: list[tuple[Path, int, str]] = []
+    gh_url_broken: list[tuple[Path, int, str, str]] = []
     for path in files:
         for line_no, dest in _extract_links(path):
+            # This repo's own blob/main | tree/main URLs are unwrapped to a
+            # repo path and validated (rf2-nvbz) — they are the spelling a
+            # shipped skill doc must use to cite anything outside its package,
+            # so they need the rename-safety a relative link gets. Checked
+            # BEFORE the external-link guard below, which would otherwise skip
+            # them along with every genuinely external URL.
+            gh = _in_repo_github_url(dest)
+            if gh is not None:
+                for problem in _in_repo_github_url_problems(repo_root, *gh):
+                    gh_url_broken.append((path, line_no, dest, problem))
+                continue
+
             # External / non-file references — out of scope.
             if dest.startswith(("http://", "https://", "mailto:", "tel:", "//")):
                 continue
@@ -2097,6 +2211,7 @@ def check(
     total = (
         len(broken_anchor)
         + len(broken_target)
+        + len(gh_url_broken)
         + len(ai_findings)
         + len(compat_missing)
         + len(compat_missing_pages)
@@ -2134,6 +2249,26 @@ def check(
         sys.stderr.write(
             "\nFix: confirm the heading still exists in the target file and "
             "update the link, or rename the heading and re-link.\n"
+        )
+
+    if gh_url_broken:
+        sys.stderr.write(
+            f"\n{len(gh_url_broken)} broken in-repo GitHub URL(s) found "
+            "(rf2-nvbz):\n\n"
+        )
+        for src, line_no, dest, problem in gh_url_broken:
+            rel = src.relative_to(repo_root)
+            sys.stderr.write(
+                f"  BROKEN IN-REPO URL: {rel}:{line_no} -> {dest}\n"
+                f"      ({problem})\n"
+            )
+        sys.stderr.write(
+            "\nFix: this is a URL into THIS repository at `main`, so it is "
+            "validated like a relative link — the target must exist, `blob/` "
+            "must name a file and `tree/` a directory, and a `.md` anchor must "
+            "be a heading GitHub actually renders. Repoint it, or (for a "
+            "target inside the linking doc's own package) write the relative "
+            "link, which is what a packaged reader resolves.\n"
         )
 
     if ai_findings:
@@ -2442,6 +2577,21 @@ def _run_self_tests(verbose: bool = False) -> int:
         # definition pointing at a missing file, which is a finding only for an
         # extractor that has stopped asking whether a link is emitted at all.
         ("reference_style_links",            2),
+        # rf2-nvbz — this repo's own blob/main | tree/main URLs, unwrapped to a
+        # repo path and validated. They are the spelling a shipped skill doc
+        # must use to cite anything outside its package, so they need the
+        # rename-safety a relative link already gets; before this they were
+        # skipped wholesale by the external-link guard. Both directions:
+        ("gh_url_ok",                        0),  # sound URLs stay silent
+        ("gh_url_missing",                   1),  # target does not exist
+        ("gh_url_kind_mismatch",             2),  # blob names a dir; tree a file
+        # 2 = a `.md` anchor that renders nowhere, and an anchor on a directory
+        # URL (which GitHub cannot resolve at all).
+        ("gh_url_broken_anchor",             2),
+        # `main` only — a tag- or sha-pinned URL names a frozen tree and is
+        # deliberately not rename-tracked. Both of its targets are missing, so
+        # this reads 2 the moment the unwrap stops binding `main`.
+        ("gh_url_pinned_ref_skipped",        0),
     ]
 
     failures = 0

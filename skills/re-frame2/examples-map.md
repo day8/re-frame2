@@ -7,7 +7,7 @@ re-frame2's examples are the canonical authoring substrate — per SKILL.md card
 
 A one-paragraph-per-example index: what each demonstrates and when to point at it, naming the *patterns and primitives* it exercises so a routing decision lands on the right directory in one hop. It does **not** explain internals — read the source.
 
-The full catalogue (with maturity, build ids, and end-to-end Playwright coverage) lives at [`examples/README.md`](../../examples/README.md). The substrate policy (Reagent is canonical; UIx ships a smoke-pair) lives at [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md).
+The full catalogue (with maturity, build ids, and end-to-end Playwright coverage) lives at [`examples/README.md`](https://github.com/day8/re-frame2/blob/main/examples/README.md). The substrate policy (Reagent is canonical; UIx ships a smoke-pair) lives at [`spec/Conventions.md` §Adapter shipping convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md).
 
 ## counter — `examples/core/counter/`
 
@@ -95,7 +95,7 @@ The canonical Pattern-LongRunningWork worked example — a `:work/flow` parent c
 
 ## ssr_streaming — `examples/capabilities/ssr/ssr_streaming/`
 
-The streaming-SSR worked example for [Spec 011 §Streaming](../../spec/011-SSR.md#streaming-ssr) — a dashboard with three slow cards where the page shell + header render immediately on the server, then each card streams its content as its own data fetch resolves. Demonstrates the `:rf/suspense-boundary` hiccup marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Point at this example when authoring streaming server-rendered views, suspense boundaries, or per-subtree hydration. Lives in a single `core.cljc` (cross-platform JVM/browser). Exercises 011 SSR §Streaming. The streaming complement to the minimal `ssr/` walkthrough.
+The streaming-SSR worked example for [Spec 011 §Streaming](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md#streaming-ssr) — a dashboard with three slow cards where the page shell + header render immediately on the server, then each card streams its content as its own data fetch resolves. Demonstrates the `:rf/suspense-boundary` hiccup marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Point at this example when authoring streaming server-rendered views, suspense boundaries, or per-subtree hydration. Lives in a single `core.cljc` (cross-platform JVM/browser). Exercises 011 SSR §Streaming. The streaming complement to the minimal `ssr/` walkthrough.
 
 ## notebook — `examples/core/notebook/`
 
@@ -103,9 +103,9 @@ The design-led Reagent example — a three-pane editorial layout (documents tree
 
 ## Adapter smoke-pairs
 
-Per [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention), the UIx substrate ships a curated set rather than a 1:1 mirror of the Reagent set: `examples/substrates/uix/counter/` and `examples/substrates/uix/login/` mirror their `core/` siblings, and `examples/substrates/uix/dashboard/` is the design-led multi-pane layout that shares the "Editorial Warm" identity with `core/notebook/`. Point at these only when authoring against UIx specifically. The dataflow is identical to the Reagent siblings; only the view layer differs (`defui` plus the `use-subscribe` hook).
+Per [`spec/Conventions.md` §Adapter shipping convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#adapter-shipping-convention), the UIx substrate ships a curated set rather than a 1:1 mirror of the Reagent set: `examples/substrates/uix/counter/` and `examples/substrates/uix/login/` mirror their `core/` siblings, and `examples/substrates/uix/dashboard/` is the design-led multi-pane layout that shares the "Editorial Warm" identity with `core/notebook/`. Point at these only when authoring against UIx specifically. The dataflow is identical to the Reagent siblings; only the view layer differs (`defui` plus the `use-subscribe` hook).
 
-The Hicasso substrate ships one: `examples/substrates/hicasso/login/` — the `core/login/` app over the identical `login.model`, with the views rewritten as `h/defview` boundaries that read with `h/sub` and state their handlers as data (`{:on-change [:auth.login/edit-field :email ::h/value]}`). Point at it to see what the same app looks like in re-frame2's own view layer. **Authoring Hicasso views is not this skill's surface** — the porting verbs and judgment calls live in the [`reagent-migration`](../reagent-migration) skill (see [`references/fundamentals/views.md`](references/fundamentals/views.md) §Hicasso).
+The Hicasso substrate ships one: `examples/substrates/hicasso/login/` — the `core/login/` app over the identical `login.model`, with the views rewritten as `h/defview` boundaries that read with `h/sub` and state their handlers as data (`{:on-change [:auth.login/edit-field :email ::h/value]}`). Point at it to see what the same app looks like in re-frame2's own view layer. **Authoring Hicasso views is not this skill's surface** — the porting verbs and judgment calls live in the [`reagent-migration`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration) skill (see [`references/fundamentals/views.md`](references/fundamentals/views.md) §Hicasso).
 
 ## How to use this map during an authoring task
 
@@ -118,8 +118,8 @@ The Hicasso substrate ships one: `examples/substrates/hicasso/login/` — the `c
 ## Cross-references
 
 - [`SKILL.md`](SKILL.md) — router skill; cardinal rules; loading map.
-- [`examples/README.md`](../../examples/README.md) — the full example catalogue with maturity, build ids, and end-to-end coverage.
-- [`spec/Conventions.md` §Adapter shipping convention](../../spec/Conventions.md) — Reagent-canonical / UIx-smoke-pair policy.
+- [`examples/README.md`](https://github.com/day8/re-frame2/blob/main/examples/README.md) — the full example catalogue with maturity, build ids, and end-to-end coverage.
+- [`spec/Conventions.md` §Adapter shipping convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md) — Reagent-canonical / UIx-smoke-pair policy.
 - [`patterns/`](patterns) — pattern leaves; each names the worked example for its pattern.
 
 ---

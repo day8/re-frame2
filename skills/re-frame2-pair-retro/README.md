@@ -1,8 +1,8 @@
 # re-frame2-pair-retro
 
-> ↑ [`skills/`](..) — index of all re-frame2 skills.
+> ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all re-frame2 skills.
 
-`re-frame2-pair-retro` is a Claude meta-skill for [`re-frame2-pair`](../re-frame2-pair). It reviews a user's `re-frame2-pair` session, identifies friction and wasted effort, and suggests how `re-frame2-pair` itself could be improved to become a better pair programmer.
+`re-frame2-pair-retro` is a Claude meta-skill for [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair). It reviews a user's `re-frame2-pair` session, identifies friction and wasted effort, and suggests how `re-frame2-pair` itself could be improved to become a better pair programmer.
 
 It is the re-frame2 sibling of [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver), which targets the v1 [`re-frame-pair`](https://github.com/day8/re-frame-pair) tool against [`re-frame`](https://github.com/day8/re-frame) v1.
 
@@ -53,7 +53,7 @@ A good run of the skill produces, in one response:
 
 `re-frame2-pair-retro` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` (`@day8/re-frame2-pair-retro`) and `.claude-plugin/plugin.json` packaging metadata for eventual Agent-Skill (`npx skills add`) and Claude-Code-Plugin distribution, but it is not published to npm or any plugin registry yet — the current install path is to link the skill from a full monorepo clone. Prefer linking over copying in any case: a `cp -r` copy snapshots the skill and silently drifts from the maintained source as the repo moves.
 
-Claude Code loads skills from `~/.claude/skills/<name>/`. The cross-platform installer at the repo root links every re-frame2 skill into place — see [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the canonical commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour. To link just this one skill:
+Claude Code loads skills from `~/.claude/skills/<name>/`. The cross-platform installer at the repo root links every re-frame2 skill into place — see [`skills/README.md` §Installing (link, never copy)](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the canonical commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour. To link just this one skill:
 
 ```bash
 git clone https://github.com/day8/re-frame2.git ~/src/re-frame2

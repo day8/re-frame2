@@ -49,8 +49,8 @@ fired this epoch?", "what guards passed / failed?"
 > Dynamic tab** — it lives under Static mode's Machines tab. There is no
 > standalone Dynamic "Machines Canvas" tab.
 
-Spec: [`021-Dynamic-Panel-Designs.md` §6](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
-+ [`003-Machine-Inspector.md`](../../../tools/xray/spec/003-Machine-Inspector.md).
+Spec: [`021-Dynamic-Panel-Designs.md` §6](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md)
++ [`003-Machine-Inspector.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/003-Machine-Inspector.md).
 
 ## Routes — what this event did to routing
 
@@ -77,5 +77,5 @@ route change this epoch?" To rank an arbitrary URL against every
 registered route, use the Simulate-URL input — promoted in **Static →
 Routes**.
 
-Spec: [`021-Dynamic-Panel-Designs.md` §7](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
-+ [`spec/012-Routing.md`](../../../spec/012-Routing.md).
+Spec: [`021-Dynamic-Panel-Designs.md` §7](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md)
++ [`spec/012-Routing.md`](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md).

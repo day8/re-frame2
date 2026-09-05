@@ -19,9 +19,9 @@ Retry policy is a **transport concern**, not a domain concern. Hand-rolled loops
 
 ## The canonical fix
 
-[`skills/re-frame2/patterns/managed-http.md`](../../re-frame2/patterns/managed-http.md) — the `:rf.http/managed` fx. Pass a `:retry` map declaring the failure categories that warrant retry, the maximum attempts, and the back-off curve. The runtime handles scheduling, abort, and reply-addressing.
+[`skills/re-frame2/patterns/managed-http.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/managed-http.md) — the `:rf.http/managed` fx. Pass a `:retry` map declaring the failure categories that warrant retry, the maximum attempts, and the back-off curve. The runtime handles scheduling, abort, and reply-addressing.
 
-Spec source: [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) and [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md).
+Spec source: [`spec/014-HTTPRequests.md`](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md) and [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md).
 
 ## Worked example
 

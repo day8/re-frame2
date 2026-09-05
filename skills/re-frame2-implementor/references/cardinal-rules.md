@@ -6,7 +6,7 @@ These hold across every phase of building a new re-frame2 implementation. Each r
 
 ## 1. The spec is the contract
 
-[`spec/`](../../../spec) is the source of truth. The CLJS implementation under `implementation/` is one worked example of how to realise the contract — not the contract itself. When the reference impl and the spec disagree, the spec wins; draft a GitHub issue against `day8/re-frame2` and ask the engineer to OK it before filing — see rule 9.
+[`spec/`](https://github.com/day8/re-frame2/tree/main/spec) is the source of truth. The CLJS implementation under `implementation/` is one worked example of how to realise the contract — not the contract itself. When the reference impl and the spec disagree, the spec wins; draft a GitHub issue against `day8/re-frame2` and ask the engineer to OK it before filing — see rule 9.
 
 **Pin the spec before reading it.** Phase 1 records a specific `day8/re-frame2` commit/tag in the port profile ([`phase-1-decisions.md`](phase-1-decisions.md)). Before reading the spec corpus, verify `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin **and** that the origin is `https://github.com/day8/re-frame2`. An unpinned or unverified checkout is not a contract — it's whatever happens to be on the filesystem.
 
@@ -34,7 +34,7 @@ Where the CLJS reference makes `compute-sub` and `machine-transition` pure-funct
 
 ## 7. Conformance corpus is the acceptance test
 
-[`spec/conformance/`](../../../spec/conformance) is the verification mechanism. Your port runs the fixtures whose capabilities are a subset of the claim; the score is `passed / claimed-applicable`. A fixture you cannot make pass without consulting outside sources is a **spec gap**, not an implementation gap — see rule 8.
+[`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance) is the verification mechanism. Your port runs the fixtures whose capabilities are a subset of the claim; the score is `passed / claimed-applicable`. A fixture you cannot make pass without consulting outside sources is a **spec gap**, not an implementation gap — see rule 8.
 
 **The claim is not a dial for making the score look better.** The four v1-required families (`:core/*`, `:identity/*`, `:flow/*`, `:data-classification/*`) are always claimed, so `claimed-applicable` can never be shrunk by declining one — the harness refuses a `known-skipped` entry naming a required capability. `passed / claimed-applicable` is only an honest number while the denominator is the whole required surface plus whatever was genuinely claimed on top.
 

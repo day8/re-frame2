@@ -45,7 +45,7 @@ Helps an author rewrite **Reagent view code into Hicasso** — `re-frame.hicasso
 
 **This skill is not on anyone's critical path, and the first thing it does is check whether it has a job.**
 
-re-frame2 ships **first-class, actively-supported adapters**. `day8/re-frame2-reagent` is the default browser substrate and the adapter the reference suite runs against; `day8/re-frame2-uix` is its peer. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter with `rf/init!`, and **keeps its view code**. That is a *finished* migration, not a half-finished one, and it is the [`re-frame-migration`](../re-frame-migration) skill's job.
+re-frame2 ships **first-class, actively-supported adapters**. `day8/re-frame2-reagent` is the default browser substrate and the adapter the reference suite runs against; `day8/re-frame2-uix` is its peer. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter with `rf/init!`, and **keeps its view code**. That is a *finished* migration, not a half-finished one, and it is the [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) skill's job.
 
 So rewriting views into Hicasso is a **separate, optional second step, and it is a rewrite rather than a respelling.** Views change shape: parameters become one props map, handlers become data, view-held state leaves the component. Nobody has to take that step to be on re-frame2, and taking it costs real work.
 
@@ -147,7 +147,7 @@ Hand off: *"Views rewritten into Hicasso where it made sense; the rest stay on R
 
 ## Anti-patterns
 
-- **Don't run this before the v1→v2 migration.** Hicasso is a re-frame2 view layer; it presupposes step 1 is done. → [`re-frame-migration`](../re-frame-migration).
+- **Don't run this before the v1→v2 migration.** Hicasso is a re-frame2 view layer; it presupposes step 1 is done. → [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration).
 - **Don't sell the rewrite as required.** The Reagent and UIx adapters are first-class homes for views indefinitely, and Hicasso has no published coordinate yet.
 - **Don't half-migrate a view** (cardinal rule 2) — coherence over coverage.
 - **Don't auto-spread a bare symbol child** (`[:li item]`) — it is content, not props.
@@ -158,4 +158,4 @@ Hand off: *"Views rewritten into Hicasso where it made sense; the rest stay on R
 
 ---
 
-*Hicasso's public door is [`implementation/hicasso/src/re_frame/hicasso.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/hicasso/src/re_frame/hicasso.cljc) — read it, not a design page, for what has shipped. Full skill-routing map: [`skills/README.md` §Skill routing](../README.md#skill-routing--single-source).*
+*Hicasso's public door is [`implementation/hicasso/src/re_frame/hicasso.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/hicasso/src/re_frame/hicasso.cljc) — read it, not a design page, for what has shipped. Full skill-routing map: [`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source).*

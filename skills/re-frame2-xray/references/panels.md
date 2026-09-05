@@ -9,9 +9,9 @@ Sources of truth: the live tab inventory is the set of
 `tools/xray/src/day8/re_frame2_xray/panels/` (Dynamic) and `.../static/`
 (Static), mirrored by `focus.cljc`'s `valid-panels`; the normative tab
 list is
-[`018-Event-Spine.md` §5](../../../tools/xray/spec/018-Event-Spine.md) +
-[`021-Dynamic-Panel-Designs.md` §9.1](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
-(Dynamic) + [`007-UX-IA.md` §Static mode](../../../tools/xray/spec/007-UX-IA.md)
+[`018-Event-Spine.md` §5](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/018-Event-Spine.md) +
+[`021-Dynamic-Panel-Designs.md` §9.1](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md)
+(Dynamic) + [`007-UX-IA.md` §Static mode](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md)
 (Static). The executable drift gate is
 `scripts/check_skill_xray_tab_inventory_drift.py`, which fails CI if this
 inventory's ids, labels, tooltip letters or order diverge from the shipped
@@ -72,7 +72,7 @@ meaning that mode's tab — `m` labels the Static **Machines** browse here
 and the Dynamic instance-inspector there. As above, they are tooltip
 letters, not keys: pressing one selects nothing, and the palette entry is
 "Open Machines (Static)". Order per
-[`007-UX-IA.md` §Static mode](../../../tools/xray/spec/007-UX-IA.md):
+[`007-UX-IA.md` §Static mode](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md):
 
 | Tab | Tooltip | Question it answers |
 |---|---|---|

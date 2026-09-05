@@ -84,7 +84,7 @@ The id-contract handles the *forward* direction (a consumer references an owner'
 
 Because the bridge lives in the owner's file and only *references* the public event id, the producer units never have to change — you retarget the flow entirely from your own side of the partition. That makes it the **general** partition-coordination tool, not just an async-flow detail: any time a unit needs to redirect traffic that originates in another unit's file, a bridge handler in the owning file does it without crossing the boundary.
 
-This idiom gets its full treatment — the producer-graph wiring pass, when to re-address vs. bridge, the silent-stuck-boot failure mode — in the O-16 corpus companion (routed via [`async-flow-to-machines.md`](async-flow-to-machines.md)); read it there and apply it generally: [`async-flow-fx-to-reg-machine.md` §Retarget the producers](../../../migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md#retarget-the-producers--the-1-silent-stall-hazard).
+This idiom gets its full treatment — the producer-graph wiring pass, when to re-address vs. bridge, the silent-stuck-boot failure mode — in the O-16 corpus companion (routed via [`async-flow-to-machines.md`](async-flow-to-machines.md)); read it there and apply it generally: [`async-flow-fx-to-reg-machine.md` §Retarget the producers](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md#retarget-the-producers--the-1-silent-stall-hazard).
 
 ## 4. Wave sequencing — foundations publish first, fan-out references after
 

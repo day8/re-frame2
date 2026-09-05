@@ -2,7 +2,7 @@
 
 Type B walkthroughs covering global interceptors, `reg-sub-raw`, the v1 signal-function `reg-sub` form (→ v2 `input-fn`s), opt-in map-payload migration, the surviving v1 interceptors (`on-changes` / `enrich` / `after`), the `:re-frame/lifecycle` annotation, and post-event callbacks. Each section gives the **identification**, the **risk explanation**, and the **decision shape**. The agent identifies and explains; the author decides; the agent then applies.
 
-For handler- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md); for the M-11 view conversion, see [`guided-views-m11.md`](guided-views-m11.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md).
+For handler- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md); for the M-11 view conversion, see [`guided-views-m11.md`](guided-views-m11.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 
 ## Contents
 
@@ -20,9 +20,9 @@ For handler- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-
 
 **Trigger**: only Type B when the codebase has more than one frame. Single-frame codebases hit the Type A rewrite (move to `:rf/default` `:interceptors`).
 
-> **Correctness trap — all global interceptors for a frame fold into ONE frame declaration.** Frame re-registration is a **complete replacement** of the config map's replaceable slots, not a merge — and `:interceptors` is one of those slots (per [`spec/002-Frames.md` §Re-registration — surgical update](../../../spec/002-Frames.md#re-registration--surgical-update): "the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge"). So you **cannot** translate N `reg-global-interceptor` calls into N separate `(rf/make-frame {:id :rf/default :interceptors [...]})` calls — the **last** call wins and silently wipes every earlier `:interceptors` vector. Fold ALL of a frame's global interceptors into a **single** frame declaration's `:interceptors` vector.
+> **Correctness trap — all global interceptors for a frame fold into ONE frame declaration.** Frame re-registration is a **complete replacement** of the config map's replaceable slots, not a merge — and `:interceptors` is one of those slots (per [`spec/002-Frames.md` §Re-registration — surgical update](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#re-registration--surgical-update): "the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge"). So you **cannot** translate N `reg-global-interceptor` calls into N separate `(rf/make-frame {:id :rf/default :interceptors [...]})` calls — the **last** call wins and silently wipes every earlier `:interceptors` vector. Fold ALL of a frame's global interceptors into a **single** frame declaration's `:interceptors` vector.
 >
-> The register-then-reference before/after is corpus M-17's Type-A block — [`MIGRATION.md` §M-17](../../../migration/from-re-frame-v1/README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) — read it with this trap in mind: **one** `make-frame`, every id in the **same** `:interceptors` vector. (That chain carries **references**, never inline values, per EP-0022; an inline value throws `:rf.error/inline-interceptor-removed`.)
+> The register-then-reference before/after is corpus M-17's Type-A block — [`MIGRATION.md` §M-17](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) — read it with this trap in mind: **one** `make-frame`, every id in the **same** `:interceptors` vector. (That chain carries **references**, never inline values, per EP-0022; an inline value throws `:rf.error/inline-interceptor-removed`.)
 >
 > This applies to the single-frame Type-A rewrite too (it's a correctness fact about re-registration, not a multi-frame concern) — but it's stated here because a multi-frame fold makes the trap easy to walk into when you're replicating "globals" across several frame declarations.
 
@@ -88,8 +88,8 @@ computation fn. The shape of the call site is the same; only what the first fn
 This is **intentionally breaking** vs v1, and it is the dedicated rule
 **M-71** — cite it as **M-71** in reports (it is *not* the `reg-sub-raw`
 removal, which is **M-18** above). The authoritative rule text + rationale is
-[`MIGRATION.md` §M-71](../../../migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors);
-the design rationale is the [Parametric Subscription Inputs spec](../../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
+[`MIGRATION.md` §M-71](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors);
+the design rationale is the [Parametric Subscription Inputs spec](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
 
 **The `input-fn` contract** (all four facts are the break — a v1 signal fn
 could violate every one):
@@ -162,7 +162,7 @@ Strip the `(rf/subscribe …)` wrappers; return the bare query vectors. The
 computation fn already destructures a vector of inputs in the same order — it is
 **unchanged**.
 
-Before/after: [`MIGRATION.md` §M-71 case 1](../../../migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
+Before/after: [`MIGRATION.md` §M-71 case 1](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
 
 ### 2. Map-returning — pick an EXPLICIT input order, switch to vector destructuring
 
@@ -176,7 +176,7 @@ v2 does **not** accept a map return. Choose an explicit input order, return a
 > computation fn's destructure. Reading the order off the source map's literal
 > key sequence is a latent bug.
 
-Before/after: [`MIGRATION.md` §M-71 case 2](../../../migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
+Before/after: [`MIGRATION.md` §M-71 case 2](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
 
 ### 3. Single-signal-returning — wrap in a vector of ONE query vector
 
@@ -225,7 +225,7 @@ A bad return signals `:rf.error/sub-input-fn-bad-return`; an `input-fn` that
 throws signals `:rf.error/sub-input-fn-exception`; a malformed `reg-sub`
 registration shape signals `:rf.error/reg-sub-bad-args` (see
 [`error-events.md`](error-events.md) →
-[Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)).
+[Spec 009 §Error event catalogue](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#error-event-catalogue)).
 
 ### `app-db`-reading signal fn — FLAG, don't auto-rewrite
 
@@ -244,7 +244,7 @@ call site** — so each concrete cache entry has stable dependencies:
 The graph stays dynamic at the view boundary (where React already manages
 subscription lifecycle), and each `[:article/page article-id]` cache entry has
 fixed inputs for its lifetime. See
-[Spec 006 §No app-db-dependent topology](../../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
+[Spec 006 §No app-db-dependent topology](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
 
 ### Other-substrate cases (non-app-db reactive source, lifecycle, side effects)
 
@@ -273,7 +273,7 @@ rewrite, and let the author confirm.
 
 **Decision shape** (per event-id): read the registration's positional destructure for the parameter names, rewrite every dispatch / subscribe call site for that id *and* the registration's destructure in **one atomic edit** — `(rf/dispatch [:user/login email password])` → `(rf/dispatch [:user/login {:email email :password password}])`.
 
-The per-event-id mechanics and the four cases the agent **flags rather than guesses** (anonymous destructure, dynamically-built event vectors, mixed-arity call sites, and trivial-/single-arg ids that stay as-is) are enumerated in [`MIGRATION.md` §M-19](../../../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) — work from there rather than from a second copy.
+The per-event-id mechanics and the four cases the agent **flags rather than guesses** (anonymous destructure, dynamically-built event vectors, mixed-arity call sites, and trivial-/single-arg ids that stay as-is) are enumerated in [`MIGRATION.md` §M-19](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) — work from there rather than from a second copy.
 
 `unwrap` users are pre-canonical at the call site; only the destructure may need a cleanup.
 
@@ -298,7 +298,7 @@ The per-event-id mechanics and the four cases the agent **flags rather than gues
   f)
 ```
 
-`reg-flow` is the **3-slot** form `(reg-flow flow-id metadata derive-fn)`: the id is **positional** (not an `:id` key), `metadata` carries `:inputs` / `:output-path` (both required), and the derive fn `f` is the third value slot — a `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`), per [`spec/API.md` §Registration](../../../spec/API.md#registration). The author picks the flow id; the agent asks, defaulting to a namespaced keyword derived from the call site — `:<user-ns>/<event-id>-flow` per [`MIGRATION.md` §M-21](../../../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors). Use the **project's own** prefix (M-10), never a `:legacy/` one. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`.
+`reg-flow` is the **3-slot** form `(reg-flow flow-id metadata derive-fn)`: the id is **positional** (not an `:id` key), `metadata` carries `:inputs` / `:output-path` (both required), and the derive fn `f` is the third value slot — a `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`), per [`spec/API.md` §Registration](https://github.com/day8/re-frame2/blob/main/spec/API.md#registration). The author picks the flow id; the agent asks, defaulting to a namespaced keyword derived from the call site — `:<user-ns>/<event-id>-flow` per [`MIGRATION.md` §M-21](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors). Use the **project's own** prefix (M-10), never a `:legacy/` one. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`.
 
 ### `enrich`
 
@@ -342,7 +342,7 @@ Read the body and propose; author confirms.
 
 **Decision shape**:
 
-1. **Observer-shaped callback**: convert to a listener. `(rf/register-listener! :trace key cb)` is **dev-only** (production-elided); if the callback must keep firing in production (off-box telemetry, error egress) use the always-on streams of the same verb — `(rf/register-listener! :events key cb)` / `(rf/register-listener! :errors key cb)` — instead — see [`error-events.md` §Production elision](error-events.md#production-elision--what-elides-and-what-stays-always-on). Listeners see every dispatched event; filter on `:operation` / `:op-type` for the equivalent. The closed catalogue of `:operation` keywords and `:op-type` values lives in [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) — see [`error-events.md`](error-events.md) for the pointer.
+1. **Observer-shaped callback**: convert to a listener. `(rf/register-listener! :trace key cb)` is **dev-only** (production-elided); if the callback must keep firing in production (off-box telemetry, error egress) use the always-on streams of the same verb — `(rf/register-listener! :events key cb)` / `(rf/register-listener! :errors key cb)` — instead — see [`error-events.md` §Production elision](error-events.md#production-elision--what-elides-and-what-stays-always-on). Listeners see every dispatched event; filter on `:operation` / `:op-type` for the equivalent. The closed catalogue of `:operation` keywords and `:op-type` values lives in [`spec/009-Instrumentation.md` §Error event catalogue](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#error-event-catalogue) — see [`error-events.md`](error-events.md) for the pointer.
 2. **Behaviour-modifying callback**: convert to a frame-level interceptor declared in the frame config.
 
 Read the callback body; categorise; propose; author confirms.

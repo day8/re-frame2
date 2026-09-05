@@ -224,6 +224,20 @@ Each skill subdir contains, at minimum:
   its documented install path needs them. `spec/` and `evals/` stay out
   of every skill's `files[]`.
 
+**The package boundary makes two promises, and links are how they are kept.**
+Anything a skill's normal operation must *read* either ships inside its own
+package (`files[]`) and is linked package-relative, or is read through the
+verified pinned local checkout that skill's own leaves name. Everything a
+shipped doc merely *cites* outside its package is spelled as an absolute
+repository URL — `https://github.com/day8/re-frame2/blob/main/<path>` for a
+file, `tree/main/<path>` for a directory. So **no relative link in a shipped
+skill doc may resolve outside its package**: each skill installs as its own
+package with no sibling skill beside it and no `spec/` above it, and a `../../`
+that resolves in this monorepo resolves nowhere for that reader.
+`scripts/check_skill_package_refs.py` makes an escaping relative link a
+finding, and `scripts/check_doc_slugs.py` validates the URLs' targets, kinds
+and anchors so the absolute form keeps the rename-safety the relative one had.
+
 Skills release through re-frame2's own pipeline (no skill-local CI
 workflows). Deterministic structural tests for
 `re-frame2-pair/`, `re-frame2-setup/`, `re-frame2-pair-retro/` and

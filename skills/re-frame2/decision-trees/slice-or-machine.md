@@ -21,7 +21,7 @@ Before walking the tree, rule out the cases where there is no state shape to cho
 
 1. **Is this a pure derivation?** If the value is a function of other values already in `app-db`, default to a `reg-sub`, not a slice — no state shape needed. *But* if the derived value is **part of the application's state** — it must survive SSR hydration / time-travel revert / `app-db` serialisation, OR be read by downstream event handlers, machine actions, schemas, or other derivations as plain `app-db` data — it is a **flow** (Spec 013), not a sub. Flows are rare; default to a sub unless one of those reasons forces the value into `app-db`. See [`../references/fundamentals/flows.md`](../references/fundamentals/flows.md) §Flow vs subscription.
 2. **Is this a host-fact input, not state?** A host fact read at dispatch time (current time, a generated id, a random choice) is an input, not a slice. **Which kind depends on where the value lands (EP-0017):** if it decides a **durable** write (app-db, runtime-db, a machine snapshot, a resource, a ledger row, a hydration payload), it must be a **recorded fact** — `:rf.cofx/requires [:rf/time-ms]` for durable time, the **event payload** for a caller-pinned id, or a **recordable** generator cofx whose captured value replays — never an ambient host read at the write site (it re-rolls on replay). If purely **diagnostic / host-transient** (a dev log, perf span, a side-table deciding no durable write), an ambient cofx is fine. (Avoid a framework-looking `:rf/now` — `:rf/*` is reserved; durable time is the built-in `:rf/time-ms`.) See [`../references/fundamentals/cofx.md`](../references/fundamentals/cofx.md) §The two grades.
-3. **Is this a machine's `:data`?** Per [`spec/005-StateMachines.md` §Naming](../../../spec/005-StateMachines.md), each machine carries its own private `:data` map distinct from `app-db`. Extended state local to a machine lives in `:data`, not in a slice.
+3. **Is this a machine's `:data`?** Per [`spec/005-StateMachines.md` §Naming](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md), each machine carries its own private `:data` map distinct from `app-db`. Extended state local to a machine lives in `:data`, not in a slice.
 
 If none of those apply, walk Step 1.
 
@@ -51,7 +51,7 @@ Examples:
 - A WebSocket reconnect-backoff timer that must not fire after the user manually re-connected.
 - A long-running batch job whose mid-flight chunks must stop processing when the user navigates away.
 
-If yes → **machine**. Machine snapshots advance `:rf/after-epoch` on every state entry; in-flight `:after` timers and `:spawn` replies carry the captured epoch and are dropped on mismatch (per [`spec/Pattern-StaleDetection.md`](../../../spec/Pattern-StaleDetection.md) and [`spec/005-StateMachines.md` §Epoch-based stale detection](../../../spec/005-StateMachines.md)). A slice cannot express the cancellation cascade without re-implementing the epoch idiom by hand — at which point you have built a machine in disguise.
+If yes → **machine**. Machine snapshots advance `:rf/after-epoch` on every state entry; in-flight `:after` timers and `:spawn` replies carry the captured epoch and are dropped on mismatch (per [`spec/Pattern-StaleDetection.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-StaleDetection.md) and [`spec/005-StateMachines.md` §Epoch-based stale detection](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)). A slice cannot express the cancellation cascade without re-implementing the epoch idiom by hand — at which point you have built a machine in disguise.
 
 ### Tell 3 — terminal-state matters
 
@@ -94,7 +94,7 @@ Rule of thumb: if removing the lifecycle would gut the parent feature, it is a r
 This question only applies after Step 1 picked slice.
 
 - **Pattern-slice?** If the slice is the canonical shape of a named pattern (RemoteData's 5-key slice; Forms' 7-key slice), use the pattern's canonical path convention. Pattern leaves name the slot.
-- **Feature-prefix?** Otherwise, the slice belongs at `[:<feature-prefix> ...]` per [`spec/Conventions.md` §Feature-modularity prefix convention](../../../spec/Conventions.md). Pick a feature keyword for the app's namespace; never start with `:rf/` (reserved).
+- **Feature-prefix?** Otherwise, the slice belongs at `[:<feature-prefix> ...]` per [`spec/Conventions.md` §Feature-modularity prefix convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md). Pick a feature keyword for the app's namespace; never start with `:rf/` (reserved).
 - **Schema?** Register a schema for the slice via `reg-app-schema` only if the slice crosses a trust boundary (incoming HTTP payload, persisted state on restore). Don't schema-fence every internal key (per SKILL.md cardinal rule 4). And note what that registration buys: it is a dev-build assertion, elided from production, so if the boundary needs to hold in the deployed bundle the ingesting handler also needs a `:rf.schema/at-boundary` ref — [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md).
 
 ## Step 4 — the prompt-language tie-breaker

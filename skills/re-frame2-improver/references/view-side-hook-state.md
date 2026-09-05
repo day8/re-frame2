@@ -27,9 +27,9 @@ A `reagent/atom` is legitimate when its state is **render-local** — a hovered-
 
 ## The canonical fix
 
-Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`; writes go through `reg-event`. See [`skills/re-frame2/references/fundamentals/subs.md`](../../re-frame2/references/fundamentals/subs.md) and [`skills/re-frame2/references/fundamentals/events.md`](../../re-frame2/references/fundamentals/events.md).
+Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`; writes go through `reg-event`. See [`skills/re-frame2/references/fundamentals/subs.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/subs.md) and [`skills/re-frame2/references/fundamentals/events.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/events.md).
 
-Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source of truth for application state) and [`spec/000-Vision.md` §Pointers to per-area Specs](../../../spec/000-Vision.md#pointers-to-per-area-specs) (views as pure projections).
+Spec source: [`spec/Principles.md`](https://github.com/day8/re-frame2/blob/main/spec/Principles.md) (single source of truth for application state) and [`spec/000-Vision.md` §Pointers to per-area Specs](https://github.com/day8/re-frame2/blob/main/spec/000-Vision.md#pointers-to-per-area-specs) (views as pure projections).
 
 ## Worked example
 
@@ -81,5 +81,5 @@ Both views register with `rf/reg-view`, which injects frame-bound `dispatch` / `
 
 - **Genuinely render-local UI** — hover state, focus-within bookkeeping, drag-and-drop in-flight offsets, transient animation values that no other component consults. These can stay as `reagent/atom` or `useState`.
 - **Performance-critical render-loop state** that would cause `app-db` churn at every frame (60fps animation cursors). Promote to `app-db` only when another part of the app needs to read it.
-- **Form-draft state in tightly-scoped one-shot forms** that don't need Xray/re-frame2-pair debugging or replay. Once the form gets non-trivial, move it to `app-db` behind a state machine — see [`skills/re-frame2/patterns/forms.md`](../../re-frame2/patterns/forms.md).
+- **Form-draft state in tightly-scoped one-shot forms** that don't need Xray/re-frame2-pair debugging or replay. Once the form gets non-trivial, move it to `app-db` behind a state machine — see [`skills/re-frame2/patterns/forms.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/forms.md).
 - **Component-local refs to DOM nodes** (`useRef`, a callback ref, `(react/createRef)`) — these hold a *handle*, not domain state. Not in scope.

@@ -1,6 +1,6 @@
 # sequencing
 
-The recommended order to walk the migration rules. Restated so a partial migration can resume cleanly without re-reading the full [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) ordering.
+The recommended order to walk the migration rules. Restated so a partial migration can resume cleanly without re-reading the full [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) ordering.
 
 ## Top-level shape
 
@@ -33,7 +33,7 @@ Phase 2 — Bump (M-0)
 
 **"All green" is not "clean compile."** Phase 4's done-bar is compile + tests + a clean **boot smoke-test** with live `app-db` introspection, with every Type B decision resolved — *not* a clean compile (see [`../SKILL.md`](../SKILL.md) Phase 4 + Done checklist, and [`runtime-smoke-test.md`](runtime-smoke-test.md)). v2 moves a large class of v1 failures from compile-time to **runtime**; a clean compile means "the rewrites parse," not "the app boots and runs."
 
-[`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) Part 2 §"Your task" makes the headline expectation explicit: *most codebases require no changes at all beyond M-0*. That holds for the **forced/loud** axis — but the silent-fail rules still need applying, so verify *and* run the smoke-test before calling it done.
+[`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) Part 2 §"Your task" makes the headline expectation explicit: *most codebases require no changes at all beyond M-0*. That holds for the **forced/loud** axis — but the silent-fail rules still need applying, so verify *and* run the smoke-test before calling it done.
 
 The sweep order below is for the failures a compile *surfaces*. Two classes of breakage are **not** in that bucket and must be carried in regardless of whether the compile fails:
 
@@ -46,7 +46,7 @@ Use the sweep order below for whatever the compile surfaces.
 
 ## When failures land — the sweep order
 
-The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) *is* the sweep order. Walk them low-to-high. Later rules sometimes depend on earlier ones being resolved (M-1 surfaces private-namespace requires; M-15's seeding rewrite assumes the M-1 fix has run; M-21's `on-changes` rewrite assumes the flows artefact M-30 has been added).
+The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) *is* the sweep order. Walk them low-to-high. Later rules sometimes depend on earlier ones being resolved (M-1 surfaces private-namespace requires; M-15's seeding rewrite assumes the M-1 fix has run; M-21's `on-changes` rewrite assumes the flows artefact M-30 has been added).
 
 **Large migrations front-load the mechanical globals as a pre-pass.** When the sweep is big enough to fan out, the dominantly-mechanical, high-frequency, context-independent global renames here (M-73, M-23, M-20, M-51) run first as one tree-wide commit, ahead of the file-partitioned fan-out, so they don't surface as scattered leftovers at the convergence gate — the per-rule order below is unchanged, only its *staging*. See [`orchestrating-a-large-migration.md` §Wave 0.5](orchestrating-a-large-migration.md#wave-05--the-mechanical-global-pre-pass).
 

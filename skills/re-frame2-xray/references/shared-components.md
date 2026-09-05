@@ -14,7 +14,7 @@ The single canonical data renderer — lazy collapsible tree + inline
 diff highlighting + keyword accent + clickable paths. The public entry
 point is the `render-node` fn in the
 `day8.re-frame2-xray.views.edn-inspector` namespace, which lives at
-[`tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs`](../../../tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs)
+[`tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs)
 per §021 §10. Every panel that shows data — app-db, Epoch coeffects /
 side-effect args / inline exception ex-data, Views sub values, Trace raw
 trace-event maps — goes through this renderer (§021 §10.6 — binding).
@@ -42,7 +42,7 @@ caller, and was deleted with its self-test by rf2-6r9j.16.
 
 Spine navigation belongs to the **L2 events list** and the chrome
 ribbon's `[◀ ▶ ⏭]` cluster, for every L4 panel without exception —
-see [`021-Dynamic-Panel-Designs.md` §5.5](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md).
+see [`021-Dynamic-Panel-Designs.md` §5.5](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md).
 The focus-gated `j` / `k` spine keys
 (`:rf.xray/focus-event-prev` / `-next`, per `keybinding.cljs`) remain
 the keyboard route; `keybinding.cljs` wires **no** `ArrowLeft` /
@@ -55,9 +55,9 @@ owner. Argue that first; do not reach for this section as precedent.
 ### `focus_resolver` + `find-epoch-record`
 
 Shared focus-resolution at
-[`tools/xray/src/day8/re_frame2_xray/panels/shared/focus_resolver.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/shared/focus_resolver.cljc).
+[`tools/xray/src/day8/re_frame2_xray/panels/shared/focus_resolver.cljc`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/panels/shared/focus_resolver.cljc).
 Resolves the focused epoch's record from `:rf.xray/focus` (per
-[`018-Event-Spine.md`](../../../tools/xray/spec/018-Event-Spine.md))
+[`018-Event-Spine.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/018-Event-Spine.md))
 with the **head-fallback contract** — when no historical epoch is
 focused, every L4 panel scopes to the most-recent epoch in the buffer
 (not "no data" — head IS a valid focus). Used by Epoch, Views,

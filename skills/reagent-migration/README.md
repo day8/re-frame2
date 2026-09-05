@@ -1,6 +1,6 @@
 # reagent-migration
 
-> ↑ [`skills/`](..) — index of all re-frame2 skills.
+> ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all re-frame2 skills.
 
 A `Skill` that helps `Claude Code` rewrite Reagent view code into Hicasso — `re-frame.hicasso`, aliased `h`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes an `h/defview` mounted in brackets, `@(subscribe …)` becomes `(h/sub …)`, `#(dispatch …)` handlers become event vectors the tree retains as data, and the state and lifecycle Reagent kept inside the component move to where re-frame can see them. The mechanical rewrites are applied directly; the judgment calls are reasoned; the cases Hicasso has no equivalent for are declined honestly ("keep this on Reagent").
 
@@ -8,7 +8,7 @@ A `Skill` that helps `Claude Code` rewrite Reagent view code into Hicasso — `r
 
 This skill's first job is to check whether it has a job.
 
-re-frame2 ships first-class, actively-supported adapters. `day8/re-frame2-reagent` is the default browser substrate and the adapter the reference suite runs against. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter, and keeps its view code — that is a finished migration, and it is the [`re-frame-migration`](../re-frame-migration) skill's job.
+re-frame2 ships first-class, actively-supported adapters. `day8/re-frame2-reagent` is the default browser substrate and the adapter the reference suite runs against. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter, and keeps its view code — that is a finished migration, and it is the [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) skill's job.
 
 Rewriting views into Hicasso is a separate, optional second step, and it is a rewrite rather than a respelling: views change shape, handlers become data, view-held state leaves the component. 2 facts frame the choice, and the skill states both before it starts:
 
@@ -19,7 +19,7 @@ When to reach for it (narrow): you are already on re-frame2, you know you don't 
 
 ## What it covers
 
-- A real tool, run first. [`migration/reagent-to-hicasso/codemod`](../../migration/reagent-to-hicasso/codemod) is a JVM source-text reporter that loads no re-frame2. Its report has 2 halves: a census of every Reagent API call site (the inventory that sizes the job) and a fixer for the `[:> …]` prop dialect at React crossings, 6 of whose rewrite families are decidable from source text. The view rewrite itself is judgment, not a codemod.
+- A real tool, run first. [`migration/reagent-to-hicasso/codemod`](https://github.com/day8/re-frame2/tree/main/migration/reagent-to-hicasso/codemod) is a JVM source-text reporter that loads no re-frame2. Its report has 2 halves: a census of every Reagent API call site (the inventory that sizes the job) and a fixer for the `[:> …]` prop dialect at React crossings, 6 of whose rewrite families are decidable from source text. The view rewrite itself is judgment, not a codemod.
 - The mental model — the shifts to internalise: a view is a declared React component you mount in brackets; subscriptions deref-drop to a value read that is ambient and edge-recording; handlers become data whose shape selects the behaviour (vector, key map, `h/event`, plain fn); and the view holds no state — there is no `local`, no `use-state`, no cell.
 - The transformation catalogue, organised by what you do with each rule (`MIG-NN` ids so an author can audit any change):
   - M-tier ("do this") — `h/defview` and the one-props-map law, deref-drop, dispatch-lifting with the 2 markers, `::h/prevent`, key-meta → `:key`, the prop dialect (mostly: leave it alone), root mounting, ns requires, keystroke handlers → an IME-gated key map.
@@ -30,10 +30,10 @@ When to reach for it (narrow): you are already on re-frame2, you know you don't 
 
 ## What it deliberately does not cover
 
-- the re-frame v1 → v2 migration (events / subs / `app-db` / effects / boot) — that is the [`re-frame-migration`](../re-frame-migration) skill, which completes the move to re-frame2 on its own
-- writing new re-frame2 code — that is the [`re-frame2`](../re-frame2) skill
-- greenfield setup — [`re-frame2-setup`](../re-frame2-setup)
-- live-runtime inspection — [`re-frame2-pair`](../re-frame2-pair)
+- the re-frame v1 → v2 migration (events / subs / `app-db` / effects / boot) — that is the [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) skill, which completes the move to re-frame2 on its own
+- writing new re-frame2 code — that is the [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) skill
+- greenfield setup — [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup)
+- live-runtime inspection — [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair)
 - the dataflow layer — the skill rewrites the view tier only; where a view forces a `reg-sub`/event change, it names it for the author, it does not make it
 - the interactive visual confirmation — booting the app and eyeballing the render — that is the programmer's. (The skill does run the project's own noninteractive compile/test gates as it goes.)
 

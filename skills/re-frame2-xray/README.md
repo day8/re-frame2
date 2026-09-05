@@ -1,6 +1,6 @@
 # re-frame2-xray
 
-> ↑ [`skills/`](..) — index of all re-frame2 skills.
+> ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all re-frame2 skills.
 
 `re-frame2-xray` is a Claude Code tour skill for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It is question-first: a concrete debugging question lands on the one visible mode/tab to open first, with the reason and the first interaction. It answers 3 questions, and only 3:
 
@@ -14,7 +14,7 @@ Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction
 
 An in-app true-inline devtools panel for re-frame2 applications, preloaded into dev builds via shadow-cljs `:preloads`. Xray consumes re-frame2's instrumentation surface (Spec 009 trace bus, Tool-Pair epoch history, the registrar query API) — it adds nothing the framework didn't already expose. The preload's `interop/debug-enabled?` gate is what keeps the surface out of production builds — it wraps the preload's boot block and nothing else. The programmatic `init!` path is not behind it, so a host that installs Xray from app code keeps the require out of its own release build.
 
-Xray is the human-facing panel; when the user asks an agent to inspect or change the running app — read-only included — that is [`re-frame2-pair`](../re-frame2-pair), the agent-facing runtime companion. The boundary is human panel vs agent runtime, not read vs write.
+Xray is the human-facing panel; when the user asks an agent to inspect or change the running app — read-only included — that is [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair), the agent-facing runtime companion. The boundary is human panel vs agent runtime, not read vs write.
 
 ## Repo contents
 
@@ -33,11 +33,11 @@ Xray is the human-facing panel; when the user asks an agent to inspect or change
 
 ## Relationship to other skills
 
-- [`re-frame2-pair`](../re-frame2-pair) — the agent-facing runtime companion: reads and drives the running app (read-sub, get-path, snapshots, trace/epoch reads, dispatch, hot-swap). Xray is the human's panel; Pair is the agent's runtime access, read or write.
-- [`re-frame2`](../re-frame2) — authors host application code. The host app provides the `[data-rf-xray-host]` column Xray mounts into.
-- [`re-frame2-setup`](../re-frame2-setup) — bootstraps a fresh re-frame2 project. The setup skill ensures the dev build is configured so Xray's `:preloads` entry can mount on first run.
+- [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) — the agent-facing runtime companion: reads and drives the running app (read-sub, get-path, snapshots, trace/epoch reads, dispatch, hot-swap). Xray is the human's panel; Pair is the agent's runtime access, read or write.
+- [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) — authors host application code. The host app provides the `[data-rf-xray-host]` column Xray mounts into.
+- [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) — bootstraps a fresh re-frame2 project. The setup skill ensures the dev build is configured so Xray's `:preloads` entry can mount on first run.
 
-This skill does not depend on or reference `re-frame-10x` — Xray is its structural successor (re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely; [`spec/Tool-Pair.md` §Implications for downstream tools](../../spec/Tool-Pair.md#implications-for-downstream-tools) owns that contract).
+This skill does not depend on or reference `re-frame-10x` — Xray is its structural successor (re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely; [`spec/Tool-Pair.md` §Implications for downstream tools](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md#implications-for-downstream-tools) owns that contract).
 
 ## Status
 
@@ -76,7 +76,7 @@ ln -s ~/src/re-frame2/skills/re-frame2-xray .claude/skills/re-frame2-xray   # ma
 New-Item -ItemType Junction -Path .claude\skills\re-frame2-xray -Target $HOME\src\re-frame2\skills\re-frame2-xray
 ```
 
-A symlink/junction is not committable in a portable way, so don't `git add` it; instead document the one-liner above in your project's README (or vendor with a deliberate update procedure — see below) so each teammate links on clone. This mirrors the central skill-install contract — see [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and the repo's `scripts/install-skills.sh` / `scripts/install-skills.ps1` installer, which links every skill in one idempotent pass.
+A symlink/junction is not committable in a portable way, so don't `git add` it; instead document the one-liner above in your project's README (or vendor with a deliberate update procedure — see below) so each teammate links on clone. This mirrors the central skill-install contract — see [`skills/README.md` §Installing (link, never copy)](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) and the repo's `scripts/install-skills.sh` / `scripts/install-skills.ps1` installer, which links every skill in one idempotent pass.
 
 If you must vendor a pinned copy (for example a fully offline team that can't reference the upstream clone), treat it as a deliberate pinned fork: `cp -r` the skill, record the upstream commit you copied from, and re-run the copy whenever you pull upstream fixes. Don't reach for `cp -r` as the default — it silently drifts.
 

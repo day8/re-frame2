@@ -45,7 +45,7 @@ This skill teaches **only re-frame2-specific wiring**. Assume the author knows `
 
 ## When NOT to use
 
-Not for: adding re-frame2 to an existing non-trivial app (authoring), writing application code on a working v2 project, live-app inspection, v1→v2 migration, or spec / architecture / porting questions about re-frame2 itself. Route any non-setup question to the right skill; don't improvise here. Full disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).
+Not for: adding re-frame2 to an existing non-trivial app (authoring), writing application code on a working v2 project, live-app inspection, v1→v2 migration, or spec / architecture / porting questions about re-frame2 itself. Route any non-setup question to the right skill; don't improvise here. Full disambiguation matrix: [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source).
 
 ## Cardinal rules
 

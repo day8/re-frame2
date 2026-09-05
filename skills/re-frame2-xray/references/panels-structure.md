@@ -48,8 +48,8 @@ Two caveats this leaf owns:
 derivation graph", "what's the dependency graph for this page?", "is
 this ephemeral or materialized, and who owns it?"
 
-Spec: [`spec/Derivations.md` §Graph inspection — internal but structured](../../../spec/Derivations.md)
-+ [`docs/EP/EP-0014-derivation-and-process-algebra.md`](../../../docs/EP/EP-0014-derivation-and-process-algebra.md).
+Spec: [`spec/Derivations.md` §Graph inspection — internal but structured](https://github.com/day8/re-frame2/blob/main/spec/Derivations.md)
++ [`docs/EP/EP-0014-derivation-and-process-algebra.md`](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0014-derivation-and-process-algebra.md).
 
 ## Frames — which image loaded which frame
 
@@ -78,7 +78,7 @@ browse**.
 **Open when:** "what frames exist, and which image loaded each?", "how
 does this frame resolve its registrations?"
 
-Spec: [`026-Module-View-Panel.md` §8](../../../tools/xray/spec/026-Module-View-Panel.md).
+Spec: [`026-Module-View-Panel.md` §8](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/026-Module-View-Panel.md).
 
 ## Hicasso — the view-layer evidence lens
 
@@ -123,5 +123,5 @@ no-evidence state, distinct from *running with nothing mounted*.
 `:cart/items`?", "why did this boundary re-render?", "which boundary is
 hot?", "walk this dispatch from event to paint".
 
-Spec: [`027-Hicasso-Evidence.md`](../../../tools/xray/spec/027-Hicasso-Evidence.md)
-+ [`028-Hicasso-Advisor.md`](../../../tools/xray/spec/028-Hicasso-Advisor.md).
+Spec: [`027-Hicasso-Evidence.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/027-Hicasso-Evidence.md)
++ [`028-Hicasso-Advisor.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/028-Hicasso-Advisor.md).

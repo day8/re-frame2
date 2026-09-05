@@ -104,7 +104,7 @@ No standalone example app — the per-adapter READMEs carry the worked spelling 
 
 ## Pointers
 
-- Spec: [`spec/Pattern-StatefulComponents.md`](../../../spec/Pattern-StatefulComponents.md) — the full outer/inner rationale, the per-adapter table, the animations-as-special-case discussion, the antipattern reasons.
+- Spec: [`spec/Pattern-StatefulComponents.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-StatefulComponents.md) — the full outer/inner rationale, the per-adapter table, the animations-as-special-case discussion, the antipattern reasons.
 - Substrate: `SKILL-REDIRECT.md` → *Pattern — Stateful components* §Animations Regime C; *EP — Frames (002)* (why `capture-frame` must be captured at render-time).
 - Compose: `patterns/reusable-components.md` (a `[customer-chart id]` is a reusable component that also wraps a library), `patterns/async-effect.md` (when the library exposes its own async callbacks, e.g. a tile-loaded event).
 

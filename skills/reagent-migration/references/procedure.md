@@ -11,7 +11,7 @@ Confirm all three, or stop:
 
 1. **The app is already on re-frame2.** Hicasso is a re-frame2 view layer. If
    the app is still on re-frame v1, the events/subs/db migration comes first —
-   route to [`re-frame-migration`](../../re-frame-migration), and note that it
+   route to [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration), and note that it
    *finishes*: it leaves the views on the first-class Reagent adapter and the
    app is fully migrated at that point.
 2. **The author specifically wants Hicasso, knowing they do not have to.** They

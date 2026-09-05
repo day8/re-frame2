@@ -56,7 +56,7 @@ way.
 **Open when:** "what did this event do?", "where did the cascade fail?",
 "what fx fired?", "did the flow recompute?"
 
-Spec: [`021-Dynamic-Panel-Designs.md` §9.1](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md).
+Spec: [`021-Dynamic-Panel-Designs.md` §9.1](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md).
 
 ### The EFFECT HANDLERS step — flat per-effect ledger
 
@@ -96,7 +96,7 @@ cascade's step model, so the two tabs tell one story. Two usage facts:
 **Open when:** "show me every raw op in this epoch", "is `:rf.fx/*`
 firing as expected?", "what order did these emit in?"
 
-Spec: [`023-Trace-Panel.md` §3](../../../tools/xray/spec/023-Trace-Panel.md).
+Spec: [`023-Trace-Panel.md` §3](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/023-Trace-Panel.md).
 
 ## The L2 timeline grammar
 

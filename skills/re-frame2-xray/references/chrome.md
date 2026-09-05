@@ -10,7 +10,7 @@ Settings popup.
 is the one-line router; load this when a chrome question needs more.
 
 Source of truth for chrome layout / tokens / animation:
-[`007-UX-IA.md`](../../../tools/xray/spec/007-UX-IA.md).
+[`007-UX-IA.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md).
 
 ## L1 frame picker
 
@@ -51,9 +51,9 @@ current-route slice; see [`panels.md` §Static mode](panels.md)).
 Canonical write is `:rf.xray/select-frame <frame-id>` (which re-seeds the
 spine's `:target-frame` + `:epoch-history`); the picker sub is
 `:rf.xray/current-frame`, the selectable set `:rf.xray/available-frames`.
-Spec [`007-UX-IA.md` §Frame slot contract](../../../tools/xray/spec/007-UX-IA.md)
+Spec [`007-UX-IA.md` §Frame slot contract](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md)
 + §Frame-observation isolation invariants; source
-[`frame_switcher.cljs`](../../../tools/xray/src/day8/re_frame2_xray/frame_switcher.cljs).
+[`frame_switcher.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/frame_switcher.cljs).
 
 ## LIVE vs RETRO spine
 
@@ -63,7 +63,7 @@ epoch). `Space` pauses/resumes LIVE; `L` snaps back to LIVE. There is **no
 mode pill and no animated head-row cue** — LIVE vs RETRO is conveyed by the
 `[◀ ▶ ⏭]` nav cluster plus the focused-row state (a background wash + a
 leading `>` caret on the focused row, which in LIVE tracks the head). Spec
-[`007-UX-IA.md` §L1](../../../tools/xray/spec/007-UX-IA.md).
+[`007-UX-IA.md` §L1](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md).
 
 ## Time-travel: passive inspect vs explicit rewind
 
@@ -83,8 +83,8 @@ failure (epoch aged out) it shows a brief inline flash, never a modal.
 This passive-inspect-by-default / rewind-opt-in posture is the load-bearing
 inversion from re-frame-10x, Xray's structural predecessor — the contract
 behind that succession is owned by
-[`spec/Tool-Pair.md` §Implications for downstream tools](../../../spec/Tool-Pair.md#implications-for-downstream-tools).
-Spec [`002-Time-Travel.md`](../../../tools/xray/spec/002-Time-Travel.md)
+[`spec/Tool-Pair.md` §Implications for downstream tools](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md#implications-for-downstream-tools).
+Spec [`002-Time-Travel.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/002-Time-Travel.md)
 catalogues a richer keymap — `r` rewind, `R` re-dispatch, `*` pin — that is
 **normative for the future, not yet wired**; the `Reset` button is what
 works today. Do not teach `r` / `R` / `*` as live keys.
@@ -102,7 +102,7 @@ indicator to open the mute manager, which offers per-row unmute and an
 `Unmute all` bulk action. Pills are transient and reset on load. Each
 pill is a typed predicate (`:event-id-pattern` /
 `:machine` / `:http-correlation` / `:fx`). Spec
-[`020-Filter-Predicates.md`](../../../tools/xray/spec/020-Filter-Predicates.md);
+[`020-Filter-Predicates.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/020-Filter-Predicates.md);
 source `src/filters/`. *(These are L1-ribbon filters — distinct from the
 Trace panel, which has no filtering.)*
 
@@ -115,7 +115,7 @@ poppable item. Command verbs include Clear trace buffer, Clear epoch
 history, Reset redacted-events counter, Snapshot app-db, Toggle theme,
 Cycle reduced-motion, Jump to Settings, Toggle mode, Open pop-out (Cycle
 display density rides the separate `settings` source). Source
-[`palette/sources.cljc`](../../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc).
+[`palette/sources.cljc`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/palette/sources.cljc).
 
 ## Settings popup (`,` / `s`)
 
@@ -152,7 +152,7 @@ no reload); for the slots the popup *does* expose (theme via the ribbon
 icon, epoch-history, buffer knobs) the popup is the **runtime
 user-mutable override** layer. Merge order is `defaults < configure! <
 Settings`. Source
-[`settings/view.cljs`](../../../tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
+[`settings/view.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
 
 ## Snapshot app-db (the on-box share helper)
 
@@ -169,7 +169,7 @@ the payload goes through Xray's panel-local safe-egress projection
 Xray off-box sink uses: `include-sensitive?` and `include-large?` both default
 **`false`**, so sensitive slots ship as `:rf/redacted` and large slots as
 `:rf.size/large-elided` (per
-[`egress.cljs`](../../../tools/xray/src/day8/re_frame2_xray/egress.cljs)
+[`egress.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/egress.cljs)
 `egress-value`).
 
 Do **not** tell a user this command drops the *raw* `app-db`, and do not
@@ -183,7 +183,7 @@ privacy vocabulary — the same `--allow-sensitive-reads` (default **OFF**)
 plus per-call `:include-sensitive true` posture the AI/MCP read surfaces use
 (the re-frame2-pair-mcp boundary; see `tools/re-frame2-pair-mcp/`), never the
 command's default. Source
-[`palette/sources.cljc`](../../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
+[`palette/sources.cljc`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
 (`:snapshot-app-db` command).
 
 ## Wired hotkeys
@@ -192,4 +192,4 @@ The keydown contract (the four wired hotkey families + guardrails) has a
 single home:
 [`launch-lifecycle.md` §Wired hotkeys](launch-lifecycle.md#wired-hotkeys). Source of
 truth
-[`keybinding.cljs`](../../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs).
+[`keybinding.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/keybinding.cljs).

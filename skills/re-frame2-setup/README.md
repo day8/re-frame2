@@ -1,41 +1,41 @@
 # re-frame2-setup
 
-> ↑ [`skills/`](..) — index of all re-frame2 skills.
+> ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all re-frame2 skills.
 
 A `Skill` that helps `Claude Code` scaffold a fresh [re-frame2](https://github.com/day8/re-frame2) ClojureScript project — from an empty directory to a working, mounted counter.
 
-This is the greenfield bootstrap companion to the main [`re-frame2`](../re-frame2) skill. The 2 split the work:
+This is the greenfield bootstrap companion to the main [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) skill. The 2 split the work:
 
 - the main `re-frame2` skill teaches the re-frame2 API — events, subs, machines, schemas, frames, fx, flows, routing, SSR
 - `re-frame2-setup` owns the bootstrap and the version-sensitive wiring — the artefact, shadow-cljs, and React pins that move release to release
 
-Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame2-pair`](../re-frame2-pair) (for live-runtime pair-programming).
+Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) (for live-runtime pair-programming).
 
 ## Relationship to the generator template
 
 re-frame2 also ships a one-command project generator —
 `day8/re-frame2-template`, a [deps-new](https://github.com/seancorfield/deps-new)
-template living under [`tools/template/`](../../tools/template) in
+template living under [`tools/template/`](https://github.com/day8/re-frame2/tree/main/tools/template) in
 the monorepo today (planned external home
 `github.com/day8/re-frame2-template` — see
-[`tools/template/spec/005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md)).
+[`tools/template/spec/005-Repo-Split.md`](https://github.com/day8/re-frame2/blob/main/tools/template/spec/005-Repo-Split.md)).
 Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`.
 
 > Pre-split / pre-release caveat: the standalone `day8/re-frame2-template`
-> repo isn't published yet (see [`005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md) §4),
+> repo isn't published yet (see [`005-Repo-Split.md`](https://github.com/day8/re-frame2/blob/main/tools/template/spec/005-Repo-Split.md) §4),
 > so the `io.github.day8/…` invocation above can't auto-resolve against a
 > released template today. Until the split lands, scaffold via the working
 > `:local/root` dev route against a checkout of this repo — see
 > [Running the generator pre-publish](#running-the-generator-pre-publish) below for the
 > exact command (or just follow this skill's manual 6-step path). The published
 > invocation is forward-correct and will work once the repo split and first
-> release land. See [`tools/template/README.md`](../../tools/template/README.md) for both routes.
+> release land. See [`tools/template/README.md`](https://github.com/day8/re-frame2/blob/main/tools/template/README.md) for both routes.
 
 The 2 routes are complementary, not redundant — and both are the skill's to execute: an unqualified request runs the manual scaffold (it writes the exact files), and when you ask for the generator route the skill runs the `clojure -Tnew create …` command itself (its `allowed-tools` cover it) — see [`SKILL.md` cardinal rule 4](SKILL.md). Both routes land on the same canonical scaffold: the manual route's twelve files are the template's own emission for its reference project `acme/my-app`, rendered into [`references/first-counter.md`](references/first-counter.md) by `tests/first_counter_derivation.clj` and drift-locked against the template in two test tiers.
 
 | Use the **template** when… | Use this **skill** when… |
 |---|---|
-| You're starting from an empty directory and want a working app in one command. | You're starting greenfield — a brand-new app, or an **empty** CLJS project (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — and want each step explained. (Adding re-frame2 to a **non-trivial** existing app — one with its own state management or substantial code — is an authoring task: route to [`re-frame2`](../re-frame2), not here. See [`skills/README.md` §Skill routing](../README.md#disqualifiers-vocabulary-alone-is-not-enough).) |
+| You're starting from an empty directory and want a working app in one command. | You're starting greenfield — a brand-new app, or an **empty** CLJS project (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — and want each step explained. (Adding re-frame2 to a **non-trivial** existing app — one with its own state management or substantial code — is an authoring task: route to [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2), not here. See [`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#disqualifiers-vocabulary-alone-is-not-enough).) |
 | You want canonical defaults baked in (Reagent + shadow-cljs + counter sample). | You want to understand each step the template performs, or deviate from it. |
 | You don't care to learn the wiring. | You want the wiring explained as you go, with citations into `spec/` and worked examples. |
 
@@ -179,7 +179,7 @@ git checkout <release-tag-or-commit>     # pin to a version you've reviewed
 # Review skills/re-frame2-setup/SKILL.md and references/*.md before the next line
 ```
 
-Then run the cross-platform installer. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour.
+Then run the cross-platform installer. See [`skills/README.md` §Installing (link, never copy)](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour.
 
 To upgrade: `git checkout` a newer reviewed tag in the same clone — the link follows it (so review the diff before bumping). For a team following along on one project, link from a shared reviewed checkout rather than committing a `cp -r` snapshot that will go stale.
 
