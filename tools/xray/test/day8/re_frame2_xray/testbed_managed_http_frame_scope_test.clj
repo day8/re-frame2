@@ -51,7 +51,15 @@
        any-frame seams (`clear-in-flight!` 1-arg, `abort-on-actor-destroy`
        1-arg), and a deferred `rf/dispatch` from inside an `:abort-fn` must
        carry `{:frame frame}` — by then there is no ambient frame, and in
-       re-frame2 frame identity is carried, not found."
+       re-frame2 frame identity is carried, not found.
+    3. Every recorded handle's `:abort-fn` must actually retire its OWN
+       request-id from the issuing frame. `abort-on-actor-destroy` clears
+       the ACTOR slot eagerly and then delegates the request-index half to
+       each handle's closure (registry.cljc: \"the per-handle request-id
+       cleanup is owned by `clear-in-flight!` ... called inside the
+       `abort-fn` closure\"), so a no-op closure leaves a GHOST — an
+       actor-destroy that empties the actor index while the request index
+       keeps entries for an actor that no longer exists."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -136,6 +144,15 @@
 ;; seeding fx inherit the guard instead of escaping it.
 (defn- records-handle? [form] (str/includes? form "record-in-flight!"))
 
+(defn- abort-fn-form
+  "The text of the closure a form hands `record-in-flight!` under
+  `:abort-fn` — the substring from the first `(` after the key to its
+  matching `)`. Returns nil when the key is absent or unbalanced."
+  [form]
+  (when-let [k (str/index-of form ":abort-fn")]
+    (when-let [open (str/index-of form "(" k)]
+      (balanced-form form open))))
+
 ;; ---- the extractor itself is under test ---------------------------------
 ;;
 ;; A source-text guard whose scanner silently returned nil would pass every
@@ -149,6 +166,15 @@
     (is (= "(a ; )\nb)"       (balanced-form "(a ; )\nb)" 0)))
     (is (= "(a \\) b)"        (balanced-form "(a \\) b)" 0)))
     (is (nil? (balanced-form "(a b" 0)) "unbalanced input returns nil")))
+
+(deftest abort-fn-extractor-works
+  (testing "the closure is lifted out of the handle map, not the whole map"
+    (is (= "(fn [r] (clear! r))"
+           (abort-fn-form "{:url u :abort-fn (fn [r] (clear! r)) :frame f}")))
+    (is (= "(fn [_reason] nil)"
+           (abort-fn-form "{:abort-fn (fn [_reason] nil) :frame frame}"))))
+  (testing "and a handle with no :abort-fn reports nil rather than passing"
+    (is (nil? (abort-fn-form "{:url u :frame f}")))))
 
 (deftest testbed-source-is-readable
   (testing "the testbed source is present and non-trivial"
@@ -206,3 +232,31 @@
     ;; banning every unscoped registry call.
     (is (str/includes? (fx-form ":managed-http/clear-registry")
                        "clear-all-in-flight!"))))
+
+;; ---- law 3: every handle's abort-fn retires its own request-id ----------
+;;
+;; `abort-on-actor-destroy` dissocs the ACTOR slot eagerly and then walks the
+;; handles calling `(:abort-fn handle)`. The request-index half of the
+;; cleanup is owned by that closure and by nothing else, so a handle whose
+;; abort-fn does nothing survives its own actor's destruction: the actor
+;; index empties, the request index does not, and the deck's registry strip
+;; shows request-ids belonging to an actor that is gone.
+;;
+;; Stated over EVERY recording form for the same reason laws 1 and 2 are: a
+;; new seeding fx must inherit the obligation rather than escape it.
+
+(deftest recorded-handles-retire-their-own-request-id
+  (doseq [form (filter records-handle? (fx-forms))]
+    (let [abort (abort-fn-form form)]
+      (testing "every recorded handle carries an :abort-fn closure"
+        (is (some? abort)
+            (str "a handle recorded with no `:abort-fn` can never be retired "
+                 "from the request index. Offending form:\n" form)))
+      (testing "and that closure clears its own request-id, frame-exactly"
+        (is (and (some? abort)
+                 (str/includes? abort "clear-in-flight-in-frame!"))
+            (str "`abort-on-actor-destroy` clears the ACTOR slot itself and "
+                 "delegates the REQUEST-id half to this closure, so a no-op "
+                 "abort-fn leaves a ghost handle in the request index after "
+                 "its actor is destroyed (rf2-s4dp). Offending closure:\n"
+                 (pr-str abort)))))))

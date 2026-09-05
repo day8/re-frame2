@@ -328,7 +328,21 @@
     (let [frame (:frame frame-ctx)]
       (rf.http.registry/record-in-flight!
         request-id actor-id
-        {:abort-fn (fn [_reason] nil)
+        {;; NOT a no-op. `abort-on-actor-destroy` dissocs the ACTOR slot
+         ;; itself and then delegates the REQUEST-id half of the cleanup to
+         ;; each handle's own closure — registry.cljc states the ownership:
+         ;; "the per-handle request-id cleanup is owned by `clear-in-flight!`
+         ;; (called inside the abort-fn closure)". So a closure that returns
+         ;; nil leaves this id live in the request index after step 7
+         ;; destroys its actor: the actor index empties while the request
+         ;; index keeps ghosts for an actor that no longer exists, and the
+         ;; registry strip below shows them (rf2-s4dp).
+         ;;
+         ;; Frame-EXACT for the same reason the seed fx's closure is: the
+         ;; one-arg `clear-in-flight!` is an ANY-FRAME sweep that would drop
+         ;; a sibling mount's live slot under the same id.
+         :abort-fn (fn [_reason]
+                     (rf.http.registry/clear-in-flight-in-frame! frame request-id))
          :frame    frame
          :url      pending-url}))
     nil))
@@ -432,7 +446,7 @@
     :watch "Actor-in-flight strip: actor-a now carries TWO pending entries, actor-b ONE (Spec 014 §Abort on actor destroy). Epoch: the fan-out cascade of three issue fxs."}
    {:label "Request outlives a frame teardown"
     :event [::actor-teardown]
-    :watch "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains."}])
+    :watch "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains. Request-id strip: BOTH actor-a ids are gone too and ::actor-b-1 remains — the actor slot is dropped by abort-on-actor-destroy itself, the request-ids by each handle's own abort-fn, so watch both strips to see the whole teardown (rf2-s4dp)."}])
 
 ;; ============================================================================
 ;; RUNNER WIRING — register the deck's run-step event
