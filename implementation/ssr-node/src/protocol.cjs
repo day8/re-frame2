@@ -299,6 +299,49 @@ const ISOLATE_LOST_REFUSAL =
   'its stack, is on the sidecar\'s stderr for the operator.';
 
 /**
+ * What a caller waiting for capacity is told when the pool could not
+ * replace a terminated isolate.
+ *
+ * THE SAME LAW AGAIN, STATED BY A THIRD RECEIVER — and this one exists
+ * because a refusal's AUDIENCE changed under it rather than because a new
+ * refusal was needed. `isolate.cjs` builds one refusal for every boot
+ * failure, and it carries the module's own `message` and `stack` on
+ * purpose: boot fails before the service listens, so its reader is the
+ * operator standing at the process they just started. That reasoning is
+ * sound for `Pool.start()` and false for `Pool._startReplacement()`. A
+ * replacement boots while the service is LIVE, and `Pool.release()` hands
+ * its failure to everyone queued in `acquire()` — a caller across a wire,
+ * reading a refusal written for somebody standing at a terminal.
+ *
+ * IT WAS THE WIDEST OF THE THREE LEAKS. The module's boot wording, the
+ * absolute module path this deployment was pointed at, and — because the
+ * boot receiver builds its `Refusal` straight from the posted `code`
+ * without consulting `isRefusalCode` — a code the MODULE chose, which is
+ * the spoof `RENDER_THREW_REFUSAL` closes on the render path arriving on
+ * the boot path instead. A module that types `:rf.ssr-node/service-
+ * saturated` onto its boot error turns its own broken bundle into the 503
+ * a caller's retry policy sleeps on.
+ *
+ * THE CODE STAYS `ISOLATE_LOST`, for the reason its own constant gives:
+ * an isolate really was lost and really was not replaced, and a caller
+ * acts on that rather than on why the boot failed.
+ *
+ * The diagnosis moves to the operator, and on this path that is a strict
+ * improvement rather than a trade. The handler's only statement used to be
+ * the loop over waiters, so a replacement that failed with NOBODY queued
+ * told no one at all: the pool shrank by an isolate in silence. The stderr
+ * write is therefore unconditional.
+ */
+const REPLACEMENT_FAILED_REFUSAL =
+  'the service could not replace a terminated isolate, so the capacity you were waiting for ' +
+  'will not arrive. Why the replacement would not boot belongs to the application and to this ' +
+  'deployment, not to this contract: the module\'s own message, the `code` it carried and the ' +
+  'path this service was pointed at do not cross this boundary — a module-chosen `code` would ' +
+  'let a broken bundle present itself as a caller fault, a saturation or a deadline, and the ' +
+  'path names the server\'s filesystem. The full failure, with its stack, is on the sidecar\'s ' +
+  'stderr for the operator.';
+
+/**
  * Is this one of the refusal codes this service publishes?
  *
  * The family is closed — `CODE` is the whole of it — and this is the test
@@ -647,6 +690,7 @@ module.exports = {
   MODULE_RETURN_REFUSAL,
   RENDER_THREW_REFUSAL,
   ISOLATE_LOST_REFUSAL,
+  REPLACEMENT_FAILED_REFUSAL,
   isRefusalCode,
   Refusal,
   validateModule,

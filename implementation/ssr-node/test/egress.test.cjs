@@ -113,6 +113,8 @@ const {
   MODULE_RETURN_REFUSAL,
   RENDER_THREW_REFUSAL,
   ISOLATE_LOST_REFUSAL,
+  REPLACEMENT_FAILED_REFUSAL,
+  isRefusalCode,
 } = require('../src/protocol.cjs');
 const { serve, statusFor } = require('../src/http.cjs');
 const LEAKY = require('./fixtures/leaky.cjs');
@@ -885,4 +887,290 @@ test('a stream torn by an ESCAPED exception is destroyed, and still says nothing
       await http.close();
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// 6. The THIRD RECEIVER — a REPLACEMENT isolate that cannot boot (rf2-2hmg)
+//
+// Sections 4 and 5 are both about a render. This one is about a BOOT, and
+// the reason a boot belongs in an egress file at all is that the audience
+// for a boot refusal is not fixed.
+//
+// `isolate.cjs` builds one refusal for every boot failure and says, in a
+// comment, why it may carry the module's own `message` and `stack`: boot
+// fails before the service listens, so the reader is the operator standing
+// at the process they just started rather than a caller across a wire.
+// That is true of `Pool.start()`. It is FALSE of `Pool._startReplacement()`
+// — a replacement boots while the service is live and serving, and
+// `Pool.release()` hands its failure straight to everyone queued in
+// `acquire()`. Same refusal, second audience, and the comment authorising
+// the wording was written about the first one.
+//
+// So this section is the same law as sections 4 and 5, stated by a third
+// receiver, and the leak it closes is the widest of the three: the module's
+// boot message, the absolute module path this deployment was pointed at,
+// AND a `code` the module chose — the spoof section 4 closed for a render
+// exception, still open on the boot path because a different piece of code
+// builds this refusal and it does not consult `isRefusalCode`.
+//
+// THE HALF THE PATTERN ALSO REQUIRES. Before this, a replacement failure
+// with NO waiter queued reached nobody at all: the handler's only statement
+// is the loop over `waiters`, so an empty queue discarded the error and the
+// pool silently shrank by an isolate. Closing the refusal without opening
+// the operator's copy would have made that the only outcome, which is the
+// trade PR #9278 named — a leak for a silence.
+// ---------------------------------------------------------------------------
+
+const FLAKY_BOOT = require('./fixtures/flaky-boot.cjs');
+const { FAIL_FLAG, BOOT_SENTINEL, BOOT_SPOOF_CODE } = FLAKY_BOOT;
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+/**
+ * Drive one replacement-boot failure and report everything it produced.
+ *
+ * The shape is forced by the path. A replacement is only ever spawned by
+ * `release()` seeing a DEAD isolate, and the only way to kill one from
+ * outside is the deadline — so the scenario is: hang the single isolate,
+ * queue a second caller behind it, arm the fixture's boot failure while
+ * both are in flight, and read what the QUEUED caller is handed when the
+ * pool tries to restore capacity and cannot.
+ *
+ * `admissionTimeoutMs` is far above the deadline on purpose: the waiter
+ * must still be waiting when the replacement fails, or the row measures an
+ * ordinary saturation refusal instead of the one it came for.
+ */
+async function replacementBootFailure() {
+  const captured = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk, ...rest) {
+    captured.push(String(chunk));
+    return realWrite.call(this, chunk, ...rest);
+  };
+  try {
+    return await withService(
+      'flaky-boot',
+      { isolates: 1, admissionTimeoutMs: 5000, defaultTimeoutMs: 300, maxTimeoutMs: 5000 },
+      async (service) => {
+        const hung = refusalOf(() => collect(service, { protocol: 1, entry: 'app/hang' }));
+        await tick();
+        await tick();
+        const queued = refusalOf(() => collect(service, { protocol: 1, entry: 'app/root' }));
+        await tick();
+        await tick();
+        const statsWhileQueued = service.stats();
+        // Armed only now: the isolates already running took their copy of
+        // `process.env` when they were constructed, so this reaches the
+        // replacement and nothing else.
+        process.env[FAIL_FLAG] = '1';
+        const [hungRefusal, queuedRefusal] = await Promise.all([hung, queued]);
+        return {
+          hungRefusal,
+          queuedRefusal,
+          statsWhileQueued,
+          statsAfter: service.stats(),
+          stderr: captured.join(''),
+        };
+      },
+    );
+  } finally {
+    delete process.env[FAIL_FLAG];
+    process.stderr.write = realWrite;
+  }
+}
+
+test('CONTROL — the flaky fixture really does refuse to boot, with all three payloads', () => {
+  // The fixture measured directly rather than trusted. A fixture that had
+  // quietly stopped throwing — or that threw without the `code`, which is
+  // the half the boot receiver does not check — would make every row below
+  // pass while hunting nothing.
+  const modulePath = require.resolve('./fixtures/flaky-boot.cjs');
+  process.env[FAIL_FLAG] = '1';
+  delete require.cache[modulePath];
+  let thrown = null;
+  try {
+    require('./fixtures/flaky-boot.cjs');
+  } catch (err) {
+    thrown = err;
+  } finally {
+    delete process.env[FAIL_FLAG];
+    delete require.cache[modulePath];
+    require('./fixtures/flaky-boot.cjs'); // leave the cache holding the good one
+  }
+  assert.ok(thrown, 'the fixture must actually throw when the flag is armed');
+  assert.ok(thrown.message.includes(BOOT_SENTINEL), 'and carry the sentinel on its message');
+  assert.strictEqual(thrown.code, BOOT_SPOOF_CODE, 'and carry the spoofed code');
+  assert.ok(isRefusalCode(BOOT_SPOOF_CODE), 'which must be a real member, or nothing is spoofed');
+});
+
+test('CONTROL — a caller really is QUEUED when the replacement is attempted', async () => {
+  // The discriminator. Every assertion in this section is about what a
+  // WAITER receives, so a run in which nobody was waiting — or in which the
+  // pool never tried to replace anything — would be green about a path it
+  // never took. Both halves are read from the service's own counters.
+  const run = await replacementBootFailure();
+  assert.strictEqual(run.statsWhileQueued.waiting, 1, 'a caller must be queued in acquire()');
+  assert.strictEqual(run.statsWhileQueued.busy, 1, 'and the only isolate must be held by the hang');
+  assert.strictEqual(run.hungRefusal.code, CODE.RENDER_TIMEOUT, 'the deadline is what kills it');
+  assert.strictEqual(run.statsAfter.replacements, 1, 'and the pool must have tried to replace it');
+  assert.ok(run.queuedRefusal, 'the queued caller must have been refused, not served');
+});
+
+test('a WAITING CALLER is told nothing the module or the deployment authored', async () => {
+  const run = await replacementBootFailure();
+  const frame = run.queuedRefusal.toFrame('corr-boot');
+  const text = JSON.stringify(frame);
+
+  assert.ok(
+    !text.includes(BOOT_SENTINEL),
+    'the module\'s boot wording must not cross to a caller',
+  );
+  assert.ok(
+    !/[A-Za-z]:[\\/]|\/(?:home|srv|usr|opt)\//.test(text),
+    `no absolute deployment path may cross either; got ${text}`,
+  );
+  assert.strictEqual(
+    run.queuedRefusal.message,
+    REPLACEMENT_FAILED_REFUSAL,
+    'the wording is this contract\'s',
+  );
+  assert.strictEqual(run.queuedRefusal.code, CODE.ISOLATE_LOST, 'an isolate was lost and not replaced');
+  assert.ok(isRefusalCode(frame.code), 'and the code is a member of the closed family');
+  assert.strictEqual(
+    statusFor(frame.code),
+    500,
+    'so the module cannot turn its own boot failure into a 503 a retry policy sleeps on',
+  );
+});
+
+test('and the OPERATOR gets the boot failure, in full, on the sidecar stderr', async () => {
+  // The other half, and not optional for the reason section 5 gives. On
+  // this path the operator's position is worse than it was there: with no
+  // waiter queued the handler said nothing to ANYONE, so a pool could
+  // shrink to nothing in silence. The write is therefore unconditional —
+  // it is not guarded on there being a waiter to have leaked to.
+  const run = await replacementBootFailure();
+  assert.ok(
+    run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
+    'the operator was told nothing at all',
+  );
+  assert.ok(run.stderr.includes(BOOT_SENTINEL), 'the operator copy must be the REAL failure');
+  assert.ok(
+    run.stderr.includes('flaky-boot.cjs'),
+    'and must name the module that would not load, which is the first thing to go look at',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 7. The FOURTH RECEIVER — a rejection that is not a `Refusal` at all
+//
+// `service.renderFrames` wraps the render's rejection in a last-resort arm
+// for anything that did not arrive as a `Refusal`. It was reported as
+// unreachable — every `isolate.render()` path was believed to reject with a
+// `Refusal` — and as harmless if reached, on the ground that it could only
+// carry this package's own error text. Both halves are false, and the row
+// below is the measurement rather than the argument.
+//
+// THE ROUTE IS AN ORDINARY IN-PROCESS CALL, with no internals stubbed.
+// `validatePartition` returns the CALLER'S OWN partition object rather than
+// a copy, so the object the validator reads and the object `postMessage`
+// structured-clones are the same live object, read twice. Anything with an
+// accessor on it — a getter, a Proxy, a lazily-materialised row from a
+// serializer — can therefore satisfy `typeof value === 'string'` on the
+// first read and hand back something unclonable on the second.
+// `postMessage` then throws `DataCloneError` synchronously inside
+// `render()`'s promise executor, which is not a `Refusal` and never passed
+// through a receiver that could have made it one.
+//
+// AND THE TEXT IT CARRIES IS THE CALLER'S. A `DataCloneError` names the
+// value it choked on, so the caller's own value is interpolated into the
+// message and published on the public refusal frame — the same egress
+// sections 4 and 5 refuse, arriving through the one door still open.
+// ---------------------------------------------------------------------------
+
+const CLONE_SENTINEL = 'rf2-2hmg-caller-7c19ab';
+
+/**
+ * A `state` partition whose one value is a string when the validator reads
+ * it and an unclonable, sentinel-bearing `Symbol` when the clone does.
+ *
+ * A `Symbol` rather than a function on purpose: `DataCloneError` renders a
+ * function as its source text, which would carry nothing the caller chose,
+ * while a symbol renders its DESCRIPTION — so this is the shape that shows
+ * whether caller-authored text crosses, which is the claim being tested.
+ */
+function twoFacedState() {
+  const state = {};
+  let reads = 0;
+  Object.defineProperty(state, ':route', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      reads += 1;
+      return reads === 1 ? '{:name :ok}' : Symbol(CLONE_SENTINEL);
+    },
+  });
+  return { state, reads: () => reads };
+}
+
+/** Drive one such request, capturing the sidecar's stderr alongside. */
+async function uncontractedRejection() {
+  const captured = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk, ...rest) {
+    captured.push(String(chunk));
+    return realWrite.call(this, chunk, ...rest);
+  };
+  try {
+    const twoFaced = twoFacedState();
+    const refusal = await withService('reference', { isolates: 1 }, (service) =>
+      refusalOf(() => collect(service, { protocol: 1, entry: 'app/root', state: twoFaced.state })),
+    );
+    return { refusal, reads: twoFaced.reads(), stderr: captured.join('') };
+  } finally {
+    process.stderr.write = realWrite;
+  }
+}
+
+test('CONTROL — the request really does pass validation and then fail the CLONE', async () => {
+  // Without this the section could be green about a request that never got
+  // past `validateRequest` — a caller-fault refusal looks nothing like the
+  // one being hunted, but "no sentinel in the frame" is true of it too.
+  const run = await uncontractedRejection();
+  assert.strictEqual(run.reads, 2, 'the partition value must be read by the validator AND the clone');
+  assert.ok(run.refusal, 'the call must be refused');
+  assert.notStrictEqual(
+    run.refusal.code,
+    CODE.BAD_REQUEST_FIELD,
+    'and refused past validation, not by it — this row is about the clone',
+  );
+  assert.ok(
+    run.stderr.includes('DataCloneError'),
+    'and the fault really is the structured clone, which is what makes it uncontracted',
+  );
+});
+
+test('a rejection that is not a Refusal carries nothing the CALLER authored', async () => {
+  const run = await uncontractedRejection();
+  const frame = run.refusal.toFrame('corr-clone');
+  assert.ok(
+    !JSON.stringify(frame).includes(CLONE_SENTINEL),
+    'the caller\'s own value must not be reflected back on a public refusal',
+  );
+  assert.strictEqual(run.refusal.message, RENDER_THREW_REFUSAL, 'the wording is this contract\'s');
+  assert.ok(isRefusalCode(frame.code), 'and the code is a member of the closed family');
+});
+
+test('and the OPERATOR gets the uncontracted fault, because nothing else would', async () => {
+  // A fault here is a fault in the SIDECAR rather than in the application:
+  // a render rejected with something the package's own contract does not
+  // describe. Nothing upstream logged it — the worker never saw it and the
+  // isolate never built a refusal for it — so before this the leaked
+  // wording was, once again, the only copy in existence.
+  const run = await uncontractedRejection();
+  assert.ok(
+    run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
+    'the operator was told nothing at all',
+  );
+  assert.ok(run.stderr.includes(CLONE_SENTINEL), 'the operator copy must be the REAL fault');
 });
