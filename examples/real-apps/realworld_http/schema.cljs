@@ -55,12 +55,13 @@
    left can't overwrite the current one's data, status, error, timestamp or
    machine presentation. Same law as `:slug`, different route param.
 
-   `:follow-pending?` is the follow/unfollow latch. Only `:profile` carries it
-   — it is the one slice with a mutation of its own — and the toggle is
-   serialised on it: while it is set both handlers refuse a second intent and
-   the button disables itself, so a rapid Follow→Unfollow can never leave two
-   settles for the SAME profile racing, which the username correlation cannot
-   tell apart. See SERIALISING THE TOGGLE in profile.cljs."
+   What is NOT here is the follow/unfollow latch. It used to ride on
+   `:profile` as a `:follow-pending?` boolean, which meant it died whenever
+   `:profile/load` rebuilt that slice for a new username — so a walk away and
+   back returned an unlatched profile with its mutation still in flight. The
+   latch belongs to the MUTATION rather than to the screen, so it lives in its
+   own top-level `:profile.follow-pending` slice, keyed by username. See
+   SERIALISING THE TOGGLE in profile.cljs."
   [:map
    [:status         [:enum :idle :loading :fetching :loaded :error]]
    [:data           {:default nil} :any]
@@ -70,7 +71,6 @@
    [:articles-count {:optional true} :int]
    [:slug           {:optional true} [:maybe :string]]
    [:username       {:optional true} [:maybe :string]]
-   [:follow-pending? {:optional true} :boolean]
    [:stale-after-ms {:optional true} [:maybe :int]]])
 
 (def AuthSlice
@@ -245,6 +245,11 @@
    [:profile.articles :data]        [:maybe [:vector ws/Article]]
    [:profile.favorites]             [:maybe RequestSlice]
    [:profile.favorites :data]       [:maybe [:vector ws/Article]]
+   ;; Not a RequestSlice — the profiles with a follow/unfollow in flight. Its
+   ;; `:maybe` is load-bearing beyond the boot window the note above describes:
+   ;; hydration replaces app-db with the SSR payload, which deliberately omits
+   ;; this one (profile.cljs, SERIALISING THE TOGGLE).
+   [:profile.follow-pending]        [:maybe [:set :string]]
    [:comments]                      [:maybe RequestSlice]
    [:comments :data]                [:maybe [:vector ws/Comment]]
    [:feed]                          [:maybe RequestSlice]
