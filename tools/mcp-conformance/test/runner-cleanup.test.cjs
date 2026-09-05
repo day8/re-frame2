@@ -676,6 +676,159 @@ test('an UNDATED root row fails CLOSED: not killed, and not graded clean (rf2-kz
   assert.equal(sentinel, null, 'and emit no pass sentinel');
 });
 
+// ---- and the PPID LINK is fenced too (rf2-kzbf audit of PR #9247) ---------
+//
+// Fencing the root ROW answered "may we kill the row wearing our number?".
+// It left the other half unanswered — "may we kill the rows that NAME our
+// number as their parent?" — and the walk ran regardless, so a root we had
+// just declared unkillable still handed us its children to kill. These pin
+// the second half to the same standard: no positive ownership evidence, no
+// kill, and no clean grade either.
+
+test('an UNPROVABLE root does not hand us its CHILDREN either (rf2-kzbf audit of PR #9247, AC2)', () => {
+  // The audit's deterministic probe. Pre-fix `owned` was [200] — the child of
+  // a row we had just refused to kill because we could not prove it ours.
+  const table = [
+    { pid: 100, ppid: 1, createdMs: 0 },      // wears our number; undatable
+    { pid: 200, ppid: 100, createdMs: 6000 }, // its child — but whose child?
+  ];
+  assert.deepEqual(
+    ownedDescendants(table, 100, 5000),
+    [],
+    'if the root row may be a stranger, that is the stranger\'s child',
+  );
+});
+
+test('makeShadowTreeReaper kills NOTHING through an unprovable root (rf2-kzbf audit of PR #9247, AC2/AC3)', async () => {
+  // Pre-fix: `treeKill(200)` ran, and only THEN did the dirty error come back.
+  // Reporting dirty after the kill is not fail-closed.
+  const killed = [];
+  const reap = makeShadowTreeReaper({
+    rootPid: 100,
+    spawnedAtMs: 5000,
+    platform: 'win32',
+    readTable: () => [
+      { pid: 100, ppid: 1, createdMs: 0 },
+      { pid: 200, ppid: 100, createdMs: 6000 },
+    ],
+    treeKill: (pid) => killed.push(pid),
+    isAlive: () => true,
+    graceMs: 20,
+    pollMs: 5,
+    log: () => {},
+    logErr: () => {},
+  });
+  const out = await reap();
+  assert.deepEqual(killed, [], 'nothing may be killed through a root we cannot prove ours');
+  assert.deepEqual(out.owned, []);
+  assert.match(out.error, /cannot be proven ours/);
+
+  const report = await makeCleanup({
+    getBrowser: () => null,
+    getShadow: () => null,
+    hasShadowExited: () => true,
+    reapShadowTree: reap,
+    log: () => {},
+    logErr: () => {},
+  })();
+  assert.equal(report.clean, false);
+  let sentinel = null;
+  assert.equal(
+    finalizeConformance(report, {
+      emitPass: (l) => { sentinel = l; }, log: () => {}, logErr: () => {}, flush: () => {}, count: 0,
+    }),
+    2,
+  );
+  assert.equal(sentinel, null);
+});
+
+test('a stranger that took our number, forked and EXITED does not lend us its child (rf2-kzbf audit of PR #9247, AC2)', () => {
+  // Nothing wears our number now, so there is no stranger ROW whose creation
+  // instant could bound the walk — the case where `strangerCeilingMs` was
+  // Infinity and every ppid claimant above the spawn floor was swept up.
+  // The bound that remains is the instant OUR wrapper exited: a DIRECT child
+  // of that wrapper had to exist before the wrapper died.
+  const table = [
+    { pid: 200, ppid: 100, createdMs: 5500 }, // our orphan — before the exit
+    { pid: 300, ppid: 100, createdMs: 7000 }, // the stranger's child — after it
+    { pid: 400, ppid: 200, createdMs: 7500 }, // our orphan's OWN later child
+  ];
+  const owned = ownedDescendants(table, 100, 5000, {
+    rootExited: true,
+    rootExitedAtMs: 6000,
+  });
+  assert.ok(
+    !owned.includes(300),
+    'a process parented by our number AFTER our wrapper died is not ours: ' + JSON.stringify(owned),
+  );
+  assert.deepEqual(
+    owned.sort((a, b) => a - b),
+    [200, 400],
+    'while our orphan is still found, and the bound applies only to the ROOT\'s direct ' +
+      'children — a grandchild our own JVM forked later is still ours',
+  );
+});
+
+test('no dated stranger and no observed exit instant means orphan discovery is UNBOUNDED — refuse (rf2-kzbf audit of PR #9247, AC2/AC3)', async () => {
+  // A boolean "our wrapper exited" cannot separate our orphan from a
+  // stranger's. Without the instant there is no positive evidence at all, so
+  // the answer is to kill nothing and grade dirty — never to guess.
+  const killed = [];
+  const reap = makeShadowTreeReaper({
+    rootPid: 100,
+    spawnedAtMs: 5000,
+    platform: 'win32',
+    rootExited: () => true,
+    readTable: () => [{ pid: 200, ppid: 100, createdMs: 6000 }],
+    treeKill: (pid) => killed.push(pid),
+    isAlive: () => true,
+    graceMs: 20,
+    pollMs: 5,
+    log: () => {},
+    logErr: () => {},
+  });
+  const out = await reap();
+  assert.deepEqual(killed, []);
+  assert.deepEqual(out.owned, []);
+  assert.match(out.error, /could not be bounded/);
+});
+
+test('an UNDATED direct child of a dead root is not swept up on the ppid link alone (rf2-kzbf audit of PR #9247, AC2)', () => {
+  // Same hole one row down: once the root row is gone, the ppid link is the
+  // only claim a direct child has on us, and an undatable row cannot be held
+  // against the ceiling at all.
+  const table = [
+    { pid: 200, ppid: 100, createdMs: 0 },    // undatable — ours, or not?
+    { pid: 201, ppid: 100, createdMs: 5500 }, // provably ours
+  ];
+  assert.deepEqual(
+    ownedDescendants(table, 100, 5000, { rootExited: true, rootExitedAtMs: 6000 }),
+    [201],
+    'the provable orphan is still reaped; the unprovable row is left alone',
+  );
+});
+
+test('an already-empty tree stays CLEAN whether or not an exit instant was recorded (rf2-kzbf audit of PR #9247 — no false RED)', async () => {
+  for (const extra of [{}, { rootExited: () => true, rootExitedAtMs: () => 6000 }]) {
+    const reap = makeShadowTreeReaper({
+      rootPid: 100,
+      spawnedAtMs: 5000,
+      platform: 'win32',
+      readTable: () => [{ pid: 999, ppid: 1, createdMs: 7000 }],
+      treeKill: () => { throw new Error('nothing to kill'); },
+      isAlive: () => false,
+      graceMs: 20,
+      pollMs: 5,
+      log: () => {},
+      logErr: () => {},
+      ...extra,
+    });
+    const out = await reap();
+    assert.deepEqual(out.owned, []);
+    assert.equal(out.error, null, 'an empty tree is a reaped tree, not an unproven one');
+  }
+});
+
 // ---- the reaper's own outcome grading -------------------------------------
 
 test('makeShadowTreeReaper reports SURVIVORS when the kill removes nothing (rf2-kzbf)', async () => {
