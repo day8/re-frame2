@@ -4,8 +4,9 @@
 # ONE marker block.
 #
 #   rf2-2e8f — refuses a commit message carrying AI ATTRIBUTION: a
-#              `Co-Authored-By:` naming the assistant, a `Claude-Session:`
-#              trailer, or a generated-with marker.
+#              `Co-Authored-By:` whose address is the assistant's, a
+#              `Claude-Session:` trailer, a generated-with marker, or a bare
+#              session URL.
 #
 # WHY A HOOK AT ALL. CLAUDE.md > Git Conventions has forbidden these since the
 # project began, and three commits carrying them still reached main —

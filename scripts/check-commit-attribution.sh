@@ -2,12 +2,12 @@
 # scripts/check-commit-attribution.sh
 #
 # CI arm of the AI-ATTRIBUTION guard (rf2-2e8f). Fails a pull request whose OWN
-# commits carry AI attribution in their messages — the `Co-Authored-By:` /
-# `Claude-Session:` / generated-with trailers CLAUDE.md > Git Conventions
-# forbids. See scripts/git-hooks/lib/check-commit-attribution.sh for the
-# diagnosis and the matched set; this script only chooses WHICH COMMITS to
-# grade. Both arms share one detector so the local hook and the CI gate can
-# never drift apart.
+# COMMITS carry AI attribution in their messages, or whose BODY carries it —
+# the `Co-Authored-By:` / `Claude-Session:` / generated-with / bare session-URL
+# shapes CLAUDE.md > Git Conventions forbids. See
+# scripts/git-hooks/lib/check-commit-attribution.sh for the diagnosis and the
+# matched set; this script only chooses WHICH TEXT to grade. Every arm shares
+# one detector so the local hook and the CI gate can never drift apart.
 #
 # THE RANGE, WHICH IS THE ONLY REAL DESIGN QUESTION HERE
 #
@@ -58,10 +58,14 @@
 #
 # Usage:
 #   sh scripts/check-commit-attribution.sh [BASE_REF]
+#   sh scripts/check-commit-attribution.sh --pr-body   < body
 #
 #   BASE_REF resolution: argument, else $COMMIT_ATTRIBUTION_BASE_REF. Run it
 #   locally to pre-flight a branch:
 #     sh scripts/check-commit-attribution.sh origin/main
+#
+#   `--pr-body` grades a PULL REQUEST BODY read from stdin instead of a commit
+#   range — the surface a git hook cannot see. See its block below.
 #
 # Cross-platform: POSIX sh. Runs identically on the ubuntu CI runner, on
 # macOS, and under Git Bash on Windows. No bashisms.
@@ -83,6 +87,33 @@ if [ "$EVENT" != "pull_request" ]; then
   printf 'Event is "%s", not a pull request: the attribution guard is not enforced here.\n' "$EVENT"
   printf 'Commits already on a branch history are an operator rewrite decision, not a gate.\n'
   exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# The PR-BODY arm: `sh scripts/check-commit-attribution.sh --pr-body`, body on
+# stdin. No range, no git — the body is just text, and the detector grades
+# lines rather than commits.
+#
+# WHY IT NEEDS AN ARM AT ALL. CLAUDE.md forbids the trailers in "commits or
+# PRs", and a git hook cannot see a body; nothing graded one until now. The two
+# shapes the harness writes there are the generated-with marker and a BARE
+# session URL — the exact pair edited out of #9255 and #9256 by hand.
+#
+# THE BODY IS DATA, NEVER TEXT. The workflow puts it in an `env:` value and
+# pipes that value in. `${{ github.event.pull_request.body }}` is expanded by
+# the workflow renderer BEFORE any shell sees the script, so interpolating it
+# into a `run:` body would splice author-controlled prose into the source.
+#
+# AN EMPTY BODY PASSES, and that is not a hole in the fail-closed policy above.
+# A missing RANGE makes the commit arm inspect nothing while reporting the same
+# silent zero as a clean branch; a missing BODY genuinely contains nothing to
+# grade, and refusing one would red every pull request opened without prose.
+if [ "${1:-}" = "--pr-body" ]; then
+  if check_commit_attribution pr; then
+    printf 'No AI attribution in the pull request body.\n'
+    exit 0
+  fi
+  exit 1
 fi
 
 BASE="${1:-${COMMIT_ATTRIBUTION_BASE_REF:-}}"
