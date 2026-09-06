@@ -139,17 +139,16 @@
       (is (true? (:app/booted? db)) "chained-events boot reached :app/ready")
       (is (= {:loaded? true} (:config db)))))
   (testing "machine boot — :configuring → :loading → :ready"
-    (rf/reg-event :app/boot
-      (rf.machines/make-machine-handler
-        {:initial :configuring
-         :data    {:config nil}
-         :actions {:record-config (fn [{data :data [_ c] :event}]
-                                    {:data (assoc data :config c)})}
-         :states
-         {:configuring {:on {:configured {:target :loading
-                                          :action :record-config}}}
-          :loading     {:on {:loaded     {:target :ready}}}
-          :ready       {}}}))
+    (rf/reg-machine :app/boot
+      {:initial :configuring
+       :data    {:config nil}
+       :actions {:record-config (fn [{data :data [_ c] :event}]
+                                  {:data (assoc data :config c)})}
+       :states
+       {:configuring {:on {:configured {:target :loading
+                                        :action :record-config}}}
+        :loading     {:on {:loaded     {:target :ready}}}
+        :ready       {}}})
     ;; :initial-events kick the boot machine; subsequent dispatched lifecycle
     ;; events drive the documented progression to :ready.
     (let [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/boot [:configured {:url "/api"}]]]})]
