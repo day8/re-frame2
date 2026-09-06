@@ -475,7 +475,7 @@ The Epoch panel (L4 when active) is the OTHER home for the dropped detail. The t
 | **Click row** | `:rf.xray/focus-event <id>` + flip `:mode → :retro`; detail panel updates per active tab |
 | **Double-click row** | Focus + pivot L3 to Epoch panel (= click row then press `e`) |
 | **`o` while row focused** | Open source coord in editor (per [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol matrix) |
-| **`Ctrl+click` row** | Copy cascade-id to clipboard |
+| **`Ctrl+click` row** | Copy cascade-id to clipboard — **designed, not built** (2026-09-06, rf2-mv9e). Nothing in `tools/xray/src` writes a cascade-id to the clipboard, and the Epoch panel's row handlers carry no `Ctrl` branch. Value-free (an id, not a value), so it is not an egress site and is not covered by the B.9 lock — it is simply unbuilt. |
 | **Right-click row** | Context menu (see [§7 Filter system — right-click context menu](#7-filter-system)) |
 | **Hover badge** | Category tooltip (see Row badges table) |
 | **Click badge** | Category action (see Row badges table) |
@@ -943,6 +943,18 @@ classification sentinels render per §12.
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+> **`[Copy path]` is designed, not built (2026-09-06, rf2-mv9e).** The control drawn in the
+> mockup above — and the `Copy path` gesture named under **Path navigator** below — have no
+> implementation: nothing under `tools/xray/src` copies a path, and the two copy events that
+> once existed (`:rf.xray/copy-value-to-clipboard`, `:rf.xray/copy-path-to-clipboard`) were
+> retired with the universal EDN-widget copy affordance on 2026-09-04 under rf2-6r9j.24,
+> having never had a dispatcher. Copy-path on the canonical edn-inspector renderer is
+> explicitly OUT under the B.9 lock
+> ([`021-Dynamic-Panel-Designs.md` §10.1](021-Dynamic-Panel-Designs.md#101-capabilities-locked-per-b9-super-prompt)
+> and [§10.5](021-Dynamic-Panel-Designs.md#105-interaction-model)). Whether a breadcrumb
+> control in panel chrome *above* that renderer sits inside the same lock is an open reading,
+> not settled here. So: nothing is built, and this spec promises nothing.
+
 **Default disclosure:** changed slices only. Full-tree behind `[Show full tree ▾]`.
 
 **Clickable path segments (rf2-e9tb0):** every segment of every diff path is independently clickable; clicking opens a segment-inspector popup at that path-prefix. The popup renders the value at the inspected path via Xray's data-inspector primitive. The canonical contract lives in [`004-App-DB-Diff.md`](004-App-DB-Diff.md) §Clickable path segments. (The pinned-watches strip that earlier drafts described was dropped when clickable path segments landed — the diff already identifies changes surgically, and any prefix of any diff path can be inspected with one click on its breadcrumb segment.)
@@ -969,7 +981,7 @@ when handler + downstream flow touch overlapping paths.
 
 **Per-leaf classification rendering:** see §12.
 
-**Path navigator:** breadcrumb above the diff (visible always). Click any path segment in the body → breadcrumb updates + scrolls. `Copy path` copies Clojure form (`[:cart :orders 0]`).
+**Path navigator:** breadcrumb above the diff (visible always). Click any path segment in the body → breadcrumb updates + scrolls. `Copy path` would copy the Clojure form (`[:cart :orders 0]`) — **designed, not built** (2026-09-06, rf2-mv9e); see the note under the §5.2 mockup above.
 
 **Full-tree disclosure:** `[Show full tree ▾]` expands an `inspect`-rendered full app-db tree below the changed slices. Same renderer (so classification sentinels render uniformly). Default-collapsed nested maps; expand carets per node. Slow for huge databases — the renderer auto-collapses per node via the inspector's depth/width heuristics (`:default-expanded-depth`, default 8; `:max-depth`, default 16; `:max-inline-width`, default 60) rather than a single branch-factor threshold.
 
