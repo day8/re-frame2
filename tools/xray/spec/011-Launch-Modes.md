@@ -807,9 +807,12 @@ terminal `:halted-destroy`). The collector therefore reconciles on
 `:epoch-id`; it does NOT treat each invocation as a distinct event.
 
 **What the callback does.** On every invocation the callback MUST
-re-enter the runtime under the `:rf/xray` frame binding (via
-`rf/with-frame`) and dispatch
-`[:rf.xray/epoch-recorded (:frame record)]`. The event handler is
+note the record's `:frame` and request a **task-coalesced** drain,
+which re-enters the runtime under the `:rf/xray` frame binding (via
+`rf/with-frame`) and dispatches
+`[:rf.xray/epoch-recorded <frame-id>]` **once per DISTINCT frame that
+recorded since the last drain** (rf2-chs7 — see §Coalescing below).
+The event handler is
 registered against `:rf/xray` (per
 [`014-Registry-Catalogue.md` §Shared infrastructure](./014-Registry-Catalogue.md#shared-infrastructure))
 and is responsible for the no-op-vs-update decision: when the
@@ -848,8 +851,8 @@ with the dispatch's effective frame binding (`:rf/xray`).
 
 **Backpressure.** None. The collector body is fire-and-forget per
 [Spec 009 §Listener invocation rules](../../../spec/009-Instrumentation.md#listener-invocation-rules)
-— the dispatched event enters the `:rf/xray` frame's event queue
-and the callback returns immediately. The framework's emit path
+— the callback returns immediately, and the coalesced dispatch enters
+the `:rf/xray` frame's event queue on a later task. The framework's emit path
 MUST NOT block on Xray's dispatch draining. If the `:rf/xray`
 queue is busy when an epoch settles, the new dispatch enqueues
 behind the existing work and the framework moves on. Xray MUST
@@ -859,10 +862,29 @@ back-pressure attempt would violate
 [`Principles.md`](./Principles.md) §Observation only — no new
 runtime surfaces.
 
+**Coalescing (rf2-chs7).** Every settle fires the callback, and the
+callback observes every one of them — but consecutive notes for the
+same frame collapse into ONE dispatch per `next-tick` task, exactly as
+the trace mirror's `request-mirror-sync!` collapses a same-tick trace
+burst (rf2-wq6gx). Xray MUST coalesce this way rather than dispatching
+per settle. The un-coalesced form was measured overflowing `:rf/xray`'s
+OWN event queue past the router's depth-100 cap under a 20-event host
+burst, at which point the router discards events with `:recovery
+:no-recovery` — and what it discarded was whatever sat behind the
+flood, including Xray's own chrome events. A pump that costs the
+inspector its UI is worse than one that merges redundant refreshes.
+
+Coalescing loses no information, because the dispatch is a **trigger,
+not a payload**: the handler re-reads `(rf/epoch-history target)`, so a
+merged burst of N settles on one frame yields exactly the snapshot the
+N-th dispatch would have written. The arg keeps its meaning ("this
+frame recorded"), and the handler keeps its target comparison
+unchanged.
+
 **No drop semantics.** Unlike the trace bus's bounded ring (per
 [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Eviction policy), the
-epoch pump does **not** drop callbacks under load. Every settle
-fires the callback; every callback dispatches into `:rf/xray`.
+epoch pump does **not** drop callbacks under load — coalescing is not
+dropping, and no settle goes unobserved.
 The framework's own `epoch-history` ring buffer is the only
 lossy substrate in this chain — when its depth (default 50, per
 [Tool-Pair](../../../spec/Tool-Pair.md)) is exceeded the oldest
@@ -875,8 +897,8 @@ Xray's cache is a pure mirror.
 body MUST be caught by the framework's epoch-cb fan-out (per
 [Spec 009 §`register-epoch-listener!` invocation rules](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener))
 and MUST NOT propagate to the framework or to other registered
-epoch listeners. Xray's collector body is small (it only wraps a
-dispatch); the realistic failure mode is the dispatched event
+epoch listeners. Xray's collector body is small (it notes a frame-id
+and schedules a task); the realistic failure mode is the dispatched event
 handler throwing, and that runs inside the `:rf/xray` frame's
 own drain — its exception is the responsibility of the
 re-frame2 error catalogue, not the epoch-cb surface.

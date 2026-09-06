@@ -218,8 +218,21 @@
   inspected target is never absence-repaired to the ordinary
   `:rf/default` id (Spec 002 §Frame target resolution).
 
+  ## Correct at boot instant (rf2-88f1)
+
+  Seats `:rf/xray` before dispatching. `:rf/xray` is normally seated by
+  the preload's readiness loop (rf2-avi7), but that loop polls on a
+  50ms tick and a host whose boot re-orients the target on the same
+  turn as `rf/init!` reaches this fn INSIDE the poll window — the
+  dispatch then landed in a frame that did not exist yet and the host
+  got `:rf.error/frame-destroyed` instead of the target it asked for.
+  Seating here is idempotent and is a no-op until the runtime is ready,
+  so it costs a live host nothing and makes the facade correct for
+  every host rather than for the ones that dispatch late enough.
+
   Returns nothing."
   [frame-id]
+  (mount/ensure-seated!)
   (rf/with-frame :rf/xray
     (rf/dispatch [:rf.xray/set-target-frame frame-id]))
   nil)

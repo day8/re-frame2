@@ -304,7 +304,7 @@ the time-travel scrubber, and the per-frame target selection.
 
 | Event | Vector shape | Returns | Notes |
 |---|---|---|---|
-| `:rf.xray/epoch-recorded` | `[_ frame-id]` | `{:db ...}` | Pumped from the epoch-cb registered in `preload.cljs` on every settled epoch. Re-reads `rf/epoch-history` to keep the cached snapshot consistent. No-ops when `frame-id` ≠ the current target. |
+| `:rf.xray/epoch-recorded` | `[_ frame-id]` | `{:db ...}` | Pumped from the epoch-cb registered in `install.cljs` (re-exported by `preload.cljs`), **task-coalesced to one dispatch per distinct frame per tick** rather than one per settled epoch (rf2-chs7). Re-reads `rf/epoch-history` to keep the cached snapshot consistent — a trigger, not a payload, so a coalesced burst writes the same snapshot the last un-coalesced dispatch would have. No-ops when `frame-id` ≠ the current target. |
 | `:rf.xray/note-sensitive-suppressed` | `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — bumps `[:suppressed-counters (or frame-id :global)]` in Xray's app-db. Dispatched from `trace-collector/collect-trace!` (CLJS) when the privacy gate drops a `:sensitive? true` event. Drives the `:rf.xray/suppressed-sensitive-count` sub reactively. |
 | `:rf.xray/reset-suppressed-counters` | `[_]` or `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — clears all buckets (no arg) or just the named bucket. Dispatched from `trace-collector/retroactive-scrub!` (CLJS) — the wholesale clear (privacy toggle-off, Settings clear, palette clear) drops the `[● REDACTED N]` indicator state alongside the rings. |
 | `:rf.xray/clear-trace-buffer` | `[_]` | `{:db ...}` | `:rf.trace/no-emit? true`. Drops the `:trace-buffer` slot. Dispatched from `trace-collector/retroactive-scrub!` (CLJS) when the user clears the rings or the privacy gate transitions true → false. |
@@ -320,7 +320,7 @@ discipline as the rest of the registry.
 | Id | Surface | Behaviour |
 |---|---|---|
 | `:rf.xray/trace-collector` | `re-frame.trace.tooling/register-listener!` | Xray's trace consumer listener. Drops self-noise (`:frame :rf/xray`), applies the privacy gate, pushes frameless events into Xray's secondary ring, and requests a coalesced task sync into `:rf/xray`'s `:trace-buffer` slot — the framework's per-frame rings own the frame-bound data plane (per rf2-43koh). Idempotent per preload installation. |
-| `:rf.xray/epoch-collector` | `re-frame.epoch/register-epoch-listener!` | Xray's epoch-settle pump. Dispatches `:rf.xray/epoch-recorded` per settled epoch so the cached `:rf.xray/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Xray is not mounted. |
+| `:rf.xray/epoch-collector` | `re-frame.epoch/register-epoch-listener!` | Xray's epoch-settle pump. Notes the settled epoch's frame and requests a task-coalesced drain, which dispatches `:rf.xray/epoch-recorded` once per distinct frame per tick (rf2-chs7 — the per-settle form overflowed `:rf/xray`'s own queue past the router's depth cap under load), so the cached `:rf.xray/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Xray is not mounted. |
 
 Both collectors attach via the per-stream **home-namespace verbs**, not the `rf/register-listener!` facade — Xray is a canonical devtool, and a dev-only preload MUST NOT require `re-frame.core` into a production build (bundle isolation / DCE). See [Spec Tool-Pair §Facade vs home-namespace verb — the DCE tier rule](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule) (rf2-rfid2x).
 

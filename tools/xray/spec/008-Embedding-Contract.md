@@ -370,6 +370,22 @@ becomes selected only by one of the three sources above:
   resolution); it is **unique resolution, not synthesis** — when no
   focusable cascade exists the target stays UNSELECTED.
 
+`set-target-frame!` **seats `:rf/xray` before it dispatches** (rf2-88f1).
+The own-frame singleton is normally seated the moment the host runtime is
+ready, from the preload's readiness loop (rf2-avi7) — but that loop polls
+on a 50ms tick, and a host whose boot calls `rf/init!` and re-orients the
+target on the same turn reaches the facade inside that window. Without the
+seat the gesture dispatched into a frame that did not exist yet and the
+host got `:rf.error/frame-destroyed` instead of the target it asked for.
+The seat is idempotent and is itself a no-op until a substrate adapter is
+installed, so it costs a live host nothing. It is the SEAT only — the
+first-mount seed/hydrate fan-out stays at first open, where it can still
+harvest the pre-open trace and epoch rings. A host MUST NOT reach for
+`:rf/xray` itself: dispatching `[:rf.xray/set-target-frame …]` under
+`(rf/with-frame :rf/xray …)` reimplements this fn without its seat, and
+knowing that `:rf/xray` is Xray's frame — or that its lifecycle is tied to
+adapter readiness — is not the host's business.
+
 When the target is unselected (`:rf.xray/target-frame` → `nil`,
 `:rf.xray/observed-frame` → `nil`), the panels read `nil`'s app-db
 (itself `nil`) and render their unselected-target state; the frame

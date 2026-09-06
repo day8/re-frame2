@@ -12,6 +12,7 @@
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             ;; Listener registration uses each stream's home namespace so
             ;; the dev-only tooling surface remains independently elidable.
             [re-frame.trace.tooling :as rf.trace.tooling]
@@ -46,47 +47,133 @@
                                       trace-collector/collect-trace!))
   nil)
 
+;; ---- task-coalesced epoch pump (rf2-chs7) --------------------------------
+;;
+;; The framework records an epoch per event run-to-completion, on EVERY
+;; frame. Pre-rf2-chs7 each one cost a full dispatch round-trip into
+;; `:rf/xray`, and the handler it reaches is a cheap conditional re-read
+;; — so for every frame that is not the current target the round-trip
+;; computed the same db value it already had.
+;;
+;; Under load that is not merely wasteful, it is destructive. A host
+;; burst produces epochs faster than `:rf/xray`'s own drain settles, so
+;; the queue passes the depth-100 cap and the router DROPS events with
+;; `:recovery :no-recovery`. The events it drops are whatever happens to
+;; be behind the flood: measured on the Story feature-load gate, an
+;; unrelated Xray chrome event (`:rf.xray.edn-inspector/clear-width`)
+;; was the casualty. The flood costs Xray its OWN UI events.
+;;
+;; The remedy is the one already in the sibling stream:
+;; `trace-collector/request-mirror-sync!` (rf2-wq6gx) coalesces the
+;; trace mirror onto a single `next-tick` task "so the sub fires on
+;; every push without one dispatch per trace event". `epoch-recorded`
+;; never got the same treatment; it does now, with the same primitive
+;; and the same two-atom shape.
+;;
+;; What coalescing preserves: the pending set is keyed by FRAME-ID, and
+;; the drain dispatches one `:rf.xray/epoch-recorded` per DISTINCT
+;; frame. So the event's arg keeps its meaning ("this frame recorded"),
+;; the handler keeps its target comparison, and a burst of N epochs on
+;; one frame collapses to one dispatch instead of N. Frame count is
+;; small and bounded where epoch count is neither.
+;;
+;; `rf.interop/next-tick` runs the drain asynchronously AS A TASK —
+;; never a microtask, never inline. Coalescing is correct on every task
+;; mechanism Closure may pick: a later boundary merges MORE records,
+;; never fewer.
+
+(defonce ^:private pending-epoch-frames
+  ;; Frame-ids that have recorded an epoch since the last drain. A SET,
+  ;; which is the whole coalescing mechanism.
+  (atom #{}))
+
+(defonce ^:private epoch-sync-scheduled?
+  ;; `compare-and-set!` sentinel — `true` while a drain task is queued
+  ;; and not yet run; reset to `false` immediately before the task reads
+  ;; the pending set, so a record arriving after the read enqueues a
+  ;; fresh task rather than merging silently into one already in flight.
+  ;; Mirrors `trace-collector/mirror-sync-scheduled?`.
+  (atom false))
+
+(defn drain-epoch-frames!
+  "Dispatch one `:rf.xray/epoch-recorded` per DISTINCT frame-id that has
+  recorded an epoch since the last drain, then clear the pending set.
+
+  PRE-MOUNT / POST-TEARDOWN NO-OP: when the `:rf/xray` frame is not
+  registered the pending set is cleared and nothing is dispatched —
+  first mount seeds history from the framework ring, so records produced
+  during that window are still visible. The liveness check is taken HERE,
+  at the instant of dispatch, rather than when the record arrived: the
+  frame can be seated or torn down in between, and the dispatch is what
+  cares. Resolved against the framework's frame registry (NOT a
+  Xray-side flag) so a teardown / re-register cycle stays correctly
+  tracked without our needing extra state.
+
+  Returns the set of frame-ids dispatched (empty on a no-op). Public so
+  tests can drive the drain deterministically without waiting on
+  `next-tick` — the same posture `trace-collector/refresh-trace-rings!`
+  keeps for the trace mirror."
+  []
+  (let [frames (first (reset-vals! pending-epoch-frames #{}))]
+    (if (rf.frame/frame defaults/default-frame-id)
+      (do
+        ;; Wrap the dispatch in the Xray shell frame so the registry's
+        ;; handler writes to Xray's app-db, not the host's.
+        (rf/with-frame defaults/default-frame-id
+          (doseq [frame-id frames]
+            (rf/dispatch [:rf.xray/epoch-recorded frame-id])))
+        frames)
+      #{})))
+
+(defn note-epoch-recorded!
+  "Record that `frame-id` produced an epoch, and schedule the coalesced
+  drain if one is not already queued. The epoch-listener body, lifted to
+  a named fn so tests drive the coalescing seam directly rather than
+  reaching into the framework's epoch-listener registry.
+
+  Returns nothing."
+  [frame-id]
+  (swap! pending-epoch-frames conj frame-id)
+  (when (compare-and-set! epoch-sync-scheduled? false true)
+    (rf.interop/next-tick
+      (fn []
+        (reset! epoch-sync-scheduled? false)
+        (drain-epoch-frames!))))
+  nil)
+
 (defn register-epoch-collector!
   "Register Xray's epoch-settle pump under `:rf.xray/epoch-collector`.
 
   On every dequeued event's settle the framework's epoch artefact fires
   this callback with the assembled `:rf/epoch-record` (one record per
-  event's run-to-completion, not per drain-settle); the cb dispatches
-  `:rf.xray/epoch-recorded` into the `:rf/xray` frame so the
-  registry's event handler re-reads `rf/epoch-history` and pumps the
-  fresh snapshot into Xray's app-db. The scrubber's
-  `:rf.xray/epoch-history` sub then re-fires off the standard
-  app-db-write reactive path.
+  event's run-to-completion, not per drain-settle). The cb notes the
+  record's frame and requests a task-coalesced drain, which dispatches
+  `:rf.xray/epoch-recorded` into the `:rf/xray` frame so the registry's
+  event handler re-reads `rf/epoch-history` and pumps the fresh snapshot
+  into Xray's app-db. The scrubber's `:rf.xray/epoch-history` sub then
+  re-fires off the standard app-db-write reactive path.
 
-  Before the `:rf/xray` frame is mounted, the callback deliberately does
-  nothing. First mount seeds history from the framework ring, so records
-  produced during that window are still visible. Idempotent via the
-  `epoch-cb-registered?` sentinel."
+  ONE DISPATCH PER FRAME PER TASK, not one per epoch (rf2-chs7) — see
+  the §task-coalesced epoch pump block above for why the un-coalesced
+  form overflowed `:rf/xray`'s own queue.
+
+  Idempotent via the `epoch-cb-registered?` sentinel."
   []
   (when (compare-and-set! epoch-cb-registered? false true)
     (rf.epoch/register-epoch-listener! :rf.xray/epoch-collector
       (fn [record]
-        ;; Pre-mount no-op — see the docstring's §Pre-mount guard.
-        ;; Resolved against the framework's frame registry (NOT a
-        ;; Xray-side flag) so a teardown / re-register cycle stays
-        ;; correctly tracked without our needing extra state.
-        (when (rf.frame/frame defaults/default-frame-id)
-          ;; Wrap the dispatch in the Xray shell frame so the registry's
-          ;; handler writes to Xray's app-db, not the host's. The cb's
-          ;; record carries :frame — pass it as the dispatch arg so
-          ;; the handler can compare against its target-frame and
-          ;; skip updates for non-target frames.
-          (rf/with-frame defaults/default-frame-id
-            (rf/dispatch [:rf.xray/epoch-recorded (:frame record)]))))))
+        (note-epoch-recorded! (:frame record)))))
   nil)
 
 (defn reset-for-test!
-  "Reset the install helpers' idempotency sentinels so test fixtures can
-  drive multiple load cycles. Test-only — never call from production
-  code."
+  "Reset the install helpers' idempotency sentinels + the epoch
+  coalescer's pending state so test fixtures can drive multiple load
+  cycles. Test-only — never call from production code."
   []
   (reset! trace-cb-registered? false)
   (reset! epoch-cb-registered? false)
+  (reset! pending-epoch-frames #{})
+  (reset! epoch-sync-scheduled? false)
   nil)
 
 ;; ---- public browser API exports -----------------------------------------

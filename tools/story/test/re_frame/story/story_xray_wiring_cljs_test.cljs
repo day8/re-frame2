@@ -53,6 +53,7 @@
   Sub-second; node CLJS."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.story :as rf.story]
@@ -108,6 +109,28 @@
 
 ;; Variant-id IS the frame-id per `re-frame.story.frames`.
 (def ^:private variant-id :story.counter/loaded)
+
+(def ^:private error-capture-id ::error-capture)
+
+(defn- capture-errors!
+  "Attach an always-on `:errors` listener collecting records into an atom."
+  []
+  (let [seen (atom [])]
+    (rf/register-listener! :errors error-capture-id (fn [r] (swap! seen conj r)))
+    seen))
+
+(defn- frame-destroyed-records [seen]
+  (rf/unregister-listener! :errors error-capture-id)
+  (filterv #(= :rf.error/frame-destroyed (:error %)) @seen))
+
+(defn- flush-xray-queue!
+  "Drain whatever `:rf/xray`'s router is holding without waiting on the host
+  task scheduler. `dispatch-sync!` seeds at the FRONT of the queue and then
+  runs the drain loop to fixed point, so a benign chrome event flushes an
+  async dispatch already enqueued behind it."
+  []
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/clear-reset-flash])))
 
 (defn- register-counter-story! []
   (register-counter-host!)
@@ -220,5 +243,49 @@
                 "the second variant's `[:counter/seed-ten]` cascade is
                  observable in Xray after the switch — the buffer
                  re-seeds on every selection edge, not just the first."))
+          (finally
+            (remove-selection-watcher!)))))))
+
+;; ---- the boot race (rf2-88f1) -------------------------------------------
+
+(deftest a-selection-edge-with-xrays-frame-absent-still-lands
+  (testing "rf2-88f1 — the shell's re-orientation goes through Xray's
+            host-facing facade (`core/set-target-frame!`), which SEATS
+            `:rf/xray` before it dispatches. So a selection edge that lands
+            while Xray's frame is absent still lands its intent.
+
+            That window is not hypothetical. Xray seats `:rf/xray` from its
+            preload's readiness loop on a bounded 50ms poll (rf2-avi7), and
+            Story's boot runs `rf/init!`, mounts the shell and selects a
+            variant before the next tick — so the very first selection of
+            every page fell inside it. Pre-fix the shell hand-rolled
+            `(rf/with-frame :rf/xray (rf/dispatch-sync
+            [:rf.xray/set-target-frame now]))`, which recovered-but-emitted
+            `:rf.error/frame-destroyed` and dropped the re-orientation
+            entirely: measured twice per Story feature-load page.
+
+            Destroying the frame the harness seated reproduces exactly the
+            state that window leaves — Xray addressable but not writable —
+            without needing the poll."
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
+      {:register-stories register-counter-story!}
+      (fn []
+        (install-selection-watcher!)
+        (try
+          (rf/destroy-frame! :rf/xray)
+          (is (nil? (rf.frame/frame :rf/xray))
+              "precondition: Xray's frame is gone, as it is before the
+               preload's seat poll fires")
+          (let [seen (capture-errors!)]
+            (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
+            (is (some? (rf.frame/frame :rf/xray))
+                "the selection edge seated Xray's frame through the facade")
+            (flush-xray-queue!)
+            (is (empty? (frame-destroyed-records seen))
+                "and nothing recovered-but-emitted — this is the pair of
+                 console errors the Story feature-load gate was carrying"))
+          (rf/with-frame :rf/xray
+            (is (= variant-id @(rf/subscribe [:rf.xray/target-frame]))
+                "the re-orientation landed rather than being dropped"))
           (finally
             (remove-selection-watcher!)))))))
