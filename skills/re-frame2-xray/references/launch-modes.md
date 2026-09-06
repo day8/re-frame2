@@ -59,11 +59,12 @@ The preload runs five foundation side-effects (per
 matching the `init!` docstring's enumeration in `core.cljs`):
 
 1. Register `:rf.xray/*` handlers against the `:rf/xray` frame.
-2. Register the trace collector via `register-listener!` under
- `:rf.xray/trace-collector`.
-3. Register the epoch collector via `register-epoch-listener!` under
- `:rf.xray/epoch-collector` (no-op when the
- `day8/re-frame2-epoch` artefact is absent).
+2. Register the trace collector via `(rf/register-listener! :trace …)`
+ under `:rf.xray/trace-collector`.
+3. Register the epoch collector via `(rf/register-listener! :epoch …)`
+ under `:rf.xray/epoch-collector`. `install.cljs` carries a bare
+ `[re-frame.epoch]` require, so the producer is loaded on every startup
+ path and the facade's absent-artefact no-op cannot arise here.
 4. Install the `window.day8.re_frame2_xray.*` browser-API exports
  (`install-browser-api-exports!`) — the console verbs `open_BANG_` /
  `open_overlay_BANG_` / `popout_BANG_` the devtools paths below invoke.

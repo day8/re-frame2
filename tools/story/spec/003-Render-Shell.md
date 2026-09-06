@@ -617,7 +617,7 @@ Each variant's frame gets a trace callback registered at variant-mount
 into a per-variant ring buffer (`re-frame.story.ui.trace-buffer`):
 
 ```clojure
-(rf/register-listener! variant-id
+(rf/register-listener! :trace variant-id
   (fn [trace-event]
     (swap! (variant-trace-buffer variant-id) conj trace-event)))
 ```
@@ -625,7 +625,7 @@ into a per-variant ring buffer (`re-frame.story.ui.trace-buffer`):
 The buffer is consumed by the schema-validation panel (rf2-dvue) to
 project Spec 010 validation failures. Xray, embedded in the RHS,
 maintains its own trace history through its own preload-time
-`re-frame.trace.tooling/register-listener!` registration — the two
+`(rf/register-listener! :trace …)` registration — the two
 are independent listeners on the framework trace bus.
 
 The six-domino cascade projection (`re-frame.trace.projection/

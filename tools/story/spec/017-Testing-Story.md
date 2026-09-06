@@ -2774,7 +2774,7 @@ well-formed here?". Authors MAY express an invariant as:
 ```
 
 `with-invariants` registers ONE epoch listener (via
-`re-frame.core/register-epoch-listener!`) before `body` runs, checks
+`(rf/register-listener! :epoch …)`) before `body` runs, checks
 every invariant after EACH committed epoch, and on exit unregisters the
 listener — even if `body` throws. It:
 
@@ -2789,7 +2789,7 @@ listener — even if `body` throws. It:
   green sentinel is visible rather than silent;
 - **NEVER throws from the epoch listener**: a violated OR a broken
   (throwing) predicate is caught and reported, and the run continues.
-  Isolation is twofold — `register-epoch-listener!` already isolates
+  Isolation is twofold — the `:epoch` stream already isolates
   listener exceptions (Spec 009 §`register-epoch-listener!`), and the
   per-epoch check itself catches predicate exceptions and reports them
   as violations carrying the isolated `:error`.

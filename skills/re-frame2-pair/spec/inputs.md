@@ -10,7 +10,7 @@ Path: `spec/Tool-Pair.md` (the contract specification) + `spec/009-Instrumentati
 
 **This is the source of truth.** Every op the skill teaches is a structured call against one of the Tool-Pair surfaces:
 
-- `(re-frame.trace.tooling/register-listener! id cb)` / `(re-frame.trace.tooling/trace-buffer frame-id)` — the trace stream. (The facade form is the stream-parameterized `(rf/register-listener! :trace id cb)` — a stream-dispatching wrapper, not a same-signature re-export of this 2-arg tooling fn. `trace-buffer` IS a same-signature `rf/` re-export and exists on both platforms; an `eval-cljs` form spells whichever home fully qualified — frame-id first, `(trace-buffer frame-id opts)` for filters.)
+- `(rf/register-listener! :trace id cb)` / `(re-frame.trace.tooling/trace-buffer frame-id)` — the trace stream. (Listeners attach through the stream-parameterized facade verb; the 2-arg `re-frame.trace.tooling` fn behind it is an implementation seam. `trace-buffer` IS a same-signature `rf/` re-export and exists on both platforms; an `eval-cljs` form spells whichever home fully qualified — frame-id first, `(trace-buffer frame-id opts)` for filters.)
 - `(rf/register-listener! :epoch id cb)` / `(rf/epoch-history frame-id)` — the assembled epoch stream and per-frame ring.
 - `(rf/restore-epoch! ...)` — first-class time-travel.
 - `(rf/frame-ids)` / `(rf/frame-meta id)` — multi-frame inspection.
