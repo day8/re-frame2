@@ -29,7 +29,7 @@ Two equivalent surfaces register a machine; CP-5-generated scaffolds default to 
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact). The `reg-machine` / `defmachine` **macros** are re-exported on the `re-frame.core` façade (they capture call-site source-coords); the plain-fn `reg-machine*` is **not** re-exported — reach it through `re-frame.machines/reg-machine*` (front-porch shrink: the non-registration / plain-fn machine surface stays in its owning namespace). See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
 
-The `reg-event + make-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
+Beneath both sits `make-machine-handler`, the pure factory that turns a spec into the handler fn. The bare `reg-event` + factory composition reaches the *same* registry slot but does not stamp the registration metadata, so it is the composition seam for callers that must build a handler *without* registering one — code-gen and loader pipelines minting handlers for computed ids — and not the authoring surface. See [005 §`make-machine-handler` is a pure factory](005-StateMachines.md#make-machine-handler-is-a-pure-factory).
 
 ## The inline-fn escape hatch
 
@@ -119,38 +119,36 @@ The media-player example uses two genuinely independent regions (audio and video
 ```clojure
 ;; ---- region 1: audio playback state ---------------------------------------
 
-(rf/reg-event :media/audio
+(rf/reg-machine :media/audio
   {:doc "Audio region — playing / paused."}
-  (rf.machines/make-machine-handler
-    {:initial :paused
-     :data    {:position 0}
-     :states
-     {:paused
-      {:on {:media/play  {:target :playing
-                          :action :media.audio/start}}}
+  {:initial :paused
+   :data    {:position 0}
+   :states
+   {:paused
+    {:on {:media/play  {:target :playing
+                        :action :media.audio/start}}}
 
-      :playing
-      {:on {:media/pause {:target :paused
-                          :action :media.audio/stop}
-            :media/stop  {:target :paused
-                          :action :media.audio/reset}}}}}))
+    :playing
+    {:on {:media/pause {:target :paused
+                        :action :media.audio/stop}
+          :media/stop  {:target :paused
+                        :action :media.audio/reset}}}}})
 
 ;; ---- region 2: video visibility state -------------------------------------
 
-(rf/reg-event :media/video
+(rf/reg-machine :media/video
   {:doc "Video region — visible / hidden."}
-  (rf.machines/make-machine-handler
-    {:initial :hidden
-     :data    {}
-     :states
-     {:hidden
-      {:on {:media/play  {:target :visible
-                          :action :media.video/show}}}
+  {:initial :hidden
+   :data    {}
+   :states
+   {:hidden
+    {:on {:media/play  {:target :visible
+                        :action :media.video/show}}}
 
-      :visible
-      {:on {:media/pause {}                                 ;; pausing leaves the frame visible
-            :media/stop  {:target :hidden
-                          :action :media.video/hide}}}}}))
+    :visible
+    {:on {:media/pause {}                                 ;; pausing leaves the frame visible
+          :media/stop  {:target :hidden
+                        :action :media.video/hide}}}}})
 
 ;; ---- coordinator event — fans out to both regions atomically -------------
 
@@ -224,7 +222,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | `:context` for extended state | `:data` | Avoid the triply-overloaded "context" name; align with `gen_statem` vocabulary |
 | Compound guards as `{and: [...]}` data | One fn or one named registered compound | Imperative composition is fns; named compounds carry semantic content |
 | Action-vector `[a1 a2 a3]` per slot | One fn or one named registered compound | Same reason as guards |
-| `setup({actors, guards, actions})` per-machine bundle | Per-machine `:guards` / `:actions` maps inside the `make-machine-handler` spec | Convergence: machine-scoped declaration (not globally-registered). Each machine has its own guard/action namespace, validated at registration time; cross-machine reuse is via Clojure vars |
+| `setup({actors, guards, actions})` per-machine bundle | Per-machine `:guards` / `:actions` maps inside the machine spec | Convergence: machine-scoped declaration (not globally-registered). Each machine has its own guard/action namespace, validated at registration time; cross-machine reuse is via Clojure vars |
 | `[:assign {...}]` action data form | Action returns `{:data {...}}` | Symmetric with `reg-event`'s `{:db :fx}`; one fewer DSL to parse |
 | `invoke` (state-node spawn key) | `:spawn` (and `:spawn-all` for parallel-fanout-and-join) | Deliberate name divergence. Convergence is high enough on other keys (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`) that AI agents trained on xstate would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the most semantically-loaded slot breaks the convergence trap and aligns the declarative key with the existing imperative `:rf.machine/spawn` fx. See [005 §Deliberate name divergence — `:spawn`](005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke). |
 | v4 `internal: true` (opt OUT of external default) → **v5 `reenter: true`** (opt IN to external; internal is the default) | `:reenter?` boolean — internal self/ancestor transitions by default; `:reenter? true` makes them external | **Convergence with XState v5, not a divergence.** re-frame2 follows the v5 default: a self / proper-ancestor `:target` is internal (no exit/entry, no `:after`/`:spawn` restart) unless `:reenter? true`. This is a deliberate divergence *from SCXML / XState v4* (whose targeted transitions are external by default) and an alignment *to* the v5 gold standard. An author trained on XState v5 ports their `reenter` intuition directly. See [005 §Self-transitions](005-StateMachines.md#self-transitions--internal-default-vs-external-reenter). |
