@@ -1281,6 +1281,28 @@ jobs:
           # had touched it, reddening branches for a file they never edited.
           sh scripts/check-beads-pr-boundary.sh "origin/${GITHUB_BASE_REF}"
 
+      # The AI-attribution guard's CI arm (rf2-2e8f) — a STEP in this job, not
+      # a job of its own, so it adds nothing to any PR's check rollup and the
+      # required-check band the merge criterion is measured against does not
+      # move.
+      #
+      # IT LIVES HERE FOR THE `fetch-depth: 0` ABOVE. The script grades
+      # `merge-base(BASE, HEAD)..HEAD` — the commits the branch introduces —
+      # and fails CLOSED when it cannot resolve a branch point. In a shallow
+      # checkout it would therefore red every PR, and relaxing it to pass on a
+      # missing range would make it a checker that inspects nothing and reports
+      # the same silent zero as a clean branch. That is why it is NOT in
+      # `verify-skill-mcp-drift` with the other repo invariants, whose checkout
+      # is deliberately the cheap shallow one. This job already resolves a
+      # branch point for exactly the same reason, from exactly this checkout.
+      #
+      # ONE LINE, no event branch: unlike the step above, this script's event
+      # policy lives entirely in the script, which checks `GITHUB_EVENT_NAME`
+      # BEFORE it looks at the base ref — so on a push it exits 0 with its own
+      # explanatory line and never evaluates the empty `origin/`.
+      - name: Enforce the no-AI-attribution rule (rf2-2e8f)
+        run: sh scripts/check-commit-attribution.sh "origin/${GITHUB_BASE_REF}"
+
   jvm-core:
     name: JVM core (clojure -M:test)
     # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:

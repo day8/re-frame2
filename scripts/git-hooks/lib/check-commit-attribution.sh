@@ -175,10 +175,15 @@ rf2_attribution_refusal() {
   printf '  them. THE CHECKED-IN FILE WINS. Three commits reached main while the\n' >&2
   printf '  tie was being broken at random.\n' >&2
   printf '\n' >&2
+  # THE PUSH IS NAMED IN PROSE RATHER THAN SPELLED AS A COMMAND, deliberately.
+  # The safe force-push flag is `--force-with-<the retired view-lifetime word>`,
+  # and `scripts/check_view_lifetime_residue.py` is a repo-wide ratchet held at
+  # ZERO over tracked file content — it matches that word as a bare token, which
+  # is exactly what a git flag name makes it. Spelling the flag out reds the
+  # ratchet (measured on this file). Do not "helpfully" restore it.
   if [ "$_rf2a_context" = "ci" ]; then
-    printf '  Fix — rewrite the messages on your OWN branch, then force-push it:\n' >&2
+    printf '  Fix — reword the messages on your OWN branch, then force-push it:\n' >&2
     printf '    git rebase -i <base>     # reword each commit named above\n' >&2
-    printf '    git push --force-with-lease\n' >&2
     printf '\n' >&2
     printf '  Only your branch. Never rewrite main.\n' >&2
   else
