@@ -13,7 +13,7 @@
      - `:dashboard/visible-metrics` — one derived sub fed by three
        inputs, re-running whenever a control moves
      - the derivation graph — base subs read app-db, derived subs read
-       other subs (that's the `:<-` syntax), views sit at the leaves
+       other subs (that's the `:inputs` declaration), views sit at the leaves
      - UIx views (`defui`) pulling subscriptions in through `use-subscribe`
      - sparklines drawn as inline SVG from plain CLJS arithmetic — no
        chart library
@@ -110,11 +110,12 @@
 (rf/reg-sub :dashboard/range
   (fn [db _] (:dashboard/range db)))
 
-;; Our first derived sub, and the place to meet `:<-`. It declares this
+;; Our first derived sub, and the place to meet `:inputs`. It declares this
 ;; sub's input as ANOTHER sub rather than app-db. The base subs above read
-;; app-db directly; from here on, subs read other subs. This one's job is
-;; small: take the stored range id and look up its full record (label,
-;; point count).
+;; app-db directly; from here on, subs read other subs. A declared input list
+;; always reaches the body as a VECTOR — at one input as much as at three —
+;; which is why the body destructures `[range-id]`. This one's job is small:
+;; take the stored range id and look up its full record (label, point count).
 (rf/reg-sub :dashboard/selected-range
   {:inputs [[:dashboard/range]]}
   (fn [[range-id] _]

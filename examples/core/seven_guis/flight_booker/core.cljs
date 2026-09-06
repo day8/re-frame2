@@ -19,7 +19,7 @@
    Demonstrates:
    - A schema-bound app-db slice
    - One event per distinct user intent
-   - Layered subs built with :<- chains
+   - Layered subs built from declared :inputs
    - UI state driven by sub return values"
   (:require [re-frame.core :as rf]
             ;; Loading re-frame.schemas registers its late-bind hooks, which
@@ -113,9 +113,9 @@
 ;;
 ;; The base layer (`:flight/trip-type`, `:flight/start-text`,
 ;; `:flight/return-text`) just reads the slice. Each sub above it asks one
-;; sharper question by `:<-` chaining off the answers below: is the start date
-;; valid, does return need validating at all, do the two dates make sense
-;; together. `:flight/book-enabled?` sits at the top and ANDs the lot.
+;; sharper question by declaring the answers below as its `:inputs`: is the
+;; start date valid, does return need validating at all, do the two dates make
+;; sense together. `:flight/book-enabled?` sits at the top and ANDs the lot.
 ;;
 ;; The payoff: the button's enabled-ness is a pure function of state that
 ;; recomputes itself. Nothing in the event handlers has to remember to keep it

@@ -351,13 +351,13 @@
 ;; Want to compute something *over* a resource's data? There's no resource-local
 ;; select — you just layer an ordinary sub on top of the passive
 ;; `[:rf.resource/data …]` sub, exactly as you'd layer any sub on any other.
-;; The input-fn is a pure `(fn [query-v])` returning a vector of query vectors
-;; (never a deref'd subscribe), and the compute fn then gets the resolved inputs
-;; back positionally: `[[articles] _]`.
+;; Dependencies are declared once, under `:inputs` in the metadata map — a
+;; literal vector of query vectors (never a deref'd subscribe), since this one
+;; needs nothing from the outer query-v. The compute fn then gets the resolved
+;; inputs back as a vector: `[[articles] _]`.
 ;; See ../../../../docs/core/glossary.md#subscription
 (rf/reg-sub :resources.app/first-slug
-  (fn [_query-v]
-    [[:rf.resource/data {:resource :articles/list :params {}}]])
+  {:inputs [[:rf.resource/data {:resource :articles/list :params {}}]]}
   (fn [[articles] _query-v]
     (:slug (first articles))))
 

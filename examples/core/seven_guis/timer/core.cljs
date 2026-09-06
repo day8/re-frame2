@@ -205,7 +205,7 @@
 ;;
 ;; The two base subs just read raw numbers out of app-db. The ones above them
 ;; build on those — seconds and percentage are *derived*, never stored. The
-;; `:<-` arrows wire each sub to its inputs, so it recomputes only when an
+;; `:inputs` slot wires each sub to its inputs, so it recomputes only when an
 ;; input actually changes. The view asks for the polished values and stays out
 ;; of the arithmetic. Subscriptions: docs/core/subscriptions.md.
 
