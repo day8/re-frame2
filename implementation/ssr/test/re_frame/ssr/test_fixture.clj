@@ -8,8 +8,8 @@
   ssr_source_coord_test, ssr_teardown_load_test, ssr_conformance_test).
   Each copy reset the same registrar / frame / flows / schemas /
   side-channel atoms and reloaded the same `routing` / `ssr` /
-  `machines` namespaces. Drifting copies (one resets `head-snapshots`,
-  another doesn't; one declares the fn `^:private`, another doesn't)
+  `machines` namespaces. Drifting copies (one resets an atom another
+  doesn't; one declares the fn `^:private`, another doesn't)
   invited the kind of cross-test-bleed that the side-channel atoms
   exist to prevent.
 
@@ -32,7 +32,6 @@
     - `re-frame.ssr.response/response-slots`      — the HTTP response accumulator
     - `re-frame.ssr.error-listener/pending-error-traces`
                                                   — per-frame buffer of error trace events
-    - `re-frame.ssr.head/head-snapshots`          — per-frame head-model snapshot
 
   Adapter — `(rf/init! ssr/adapter)` installs the SSR-aware adapter map.
 
@@ -59,7 +58,6 @@
             [re-frame.schemas :as schemas]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.head :as head]
             [re-frame.ssr.install :as install]
             [re-frame.ssr.request :as request]
             [re-frame.ssr.response :as response]))
@@ -82,7 +80,6 @@
   (reset! request/request-slots {})
   (reset! response/response-slots {})
   (reset! error-listener/pending-error-traces {})
-  (reset! head/head-snapshots {})
   ;; S5 — the hydration-payload install ledger. Keyed by payload id (a
   ;; frame id), so a claim left by a prior test would make the next test's
   ;; first hydrate look like a sibling root's second one.

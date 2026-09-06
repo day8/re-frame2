@@ -28,10 +28,8 @@
   bundle that doesn't pull in re-frame.ssr.head); destroy still completes
   (test 4)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
             [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.head :as head]
+            [re-frame.ssr.install :as install]
             [re-frame.ssr.request :as request]
             [re-frame.ssr.response :as response]
             [re-frame.ssr.test-fixture :as tf]))
@@ -39,42 +37,40 @@
 (use-fixtures :each tf/reset-runtime)
 
 ;; ===========================================================================
-;; Composition — one destroy clears all four side-channels
+;; Composition — one destroy clears every side-channel
 ;; ===========================================================================
 
-(deftest on-frame-destroyed-clears-all-four-side-channels-in-one-call
+(deftest on-frame-destroyed-clears-every-side-channel-in-one-call
   (testing "rf2-u91hb: a single destroy call against a frame whose
-            request-slot, response-slot, pending-error-trace buffer,
-            AND head-snapshot are ALL populated MUST clear every one
-            of them. The pre-rf2-fcj33 / rf2-jbcmt teardown only
-            cleared a subset (or none); the post-fix contract pins
-            the all-four-in-one-call composition that the four
-            individual tests don't exercise together."
-    (rf/reg-head :head/composition-test (fn [_ _] {:title "composition"}))
+            request-slot, response-slot, pending-error-trace buffer AND
+            hydration-payload claim are ALL populated MUST clear every
+            one of them. The pre-rf2-fcj33 / rf2-jbcmt teardown only
+            cleared a subset (or none); the post-fix contract pins the
+            all-in-one-call composition that the individual tests don't
+            exercise together. (Head reads keep NO per-frame state —
+            `render-head` returns its model and records nothing — so
+            there is no fourth head channel to clear.)"
     (let [fid :rf.test/composition-target]
-      ;; Populate all four side-channel slots for fid.
+      ;; Populate every side-channel slot for fid.
       (request/set-request! fid {:uri "/comp" :request-method :get})
       (response/swap-response! fid (fn [r] (assoc r :status 200)))
       ;; Plant a synthetic pending error trace.
       (swap! error-listener/pending-error-traces
              update fid (fnil conj [])
              {:op-type :error :operation :rf.error/composition-probe})
-      ;; Make-frame + render-head to populate head-snapshot.
-      (rf/make-frame {:id fid :doc       "composition test"
-                      :platform  :server
-                      :initial-events [[:rf.test.composition/noop]]})
-      (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
-      (rf/render-head :head/composition-test {:frame fid})
+      ;; Plant a hydration-payload install claim under the frame's id
+      ;; (payload ids ARE frame ids, 004C §6).
+      (swap! install/installed-payloads
+             assoc fid (install/claim-record "digest-probe" :rf.test/root))
 
-      ;; All four populated — sanity.
       (is (some? (request/get-request fid))
           "request-slot populated (sanity)")
       (is (contains? @response/response-slots fid)
           "response-slot populated (sanity)")
       (is (contains? @error-listener/pending-error-traces fid)
           "pending-error-traces populated (sanity)")
-      (is (seq (head/head-snapshot fid))
-          "head-snapshot populated (sanity)")
+      (is (some? (install/installed-payload fid))
+          "payload claim populated (sanity)")
 
       ;; Drive the destroy hook directly — this is the single call the
       ;; spec contract pins as the load-bearing release point.
@@ -86,9 +82,8 @@
           "response-slot released by on-frame-destroyed!")
       (is (not (contains? @error-listener/pending-error-traces fid))
           "pending-error-traces released by on-frame-destroyed!")
-      (is (= {} (head/head-snapshot fid))
-          "head-snapshot released by on-frame-destroyed! (via the
-           :ssr/head-on-frame-destroyed late-bind hook chain)"))))
+      (is (nil? (install/installed-payload fid))
+          "payload claim released by on-frame-destroyed!"))))
 
 ;; ===========================================================================
 ;; Idempotence — second destroy is a no-op
@@ -101,20 +96,16 @@
             promise — a host adapter that mistakenly invokes the hook
             twice (e.g. via a defensive try/destroy AND a finally
             destroy) MUST NOT throw or corrupt state."
-    (rf/reg-head :head/idempotence (fn [_ _] {:title "idem"}))
     (let [fid :rf.test/idempotence-target]
       (request/set-request! fid {:uri "/i" :request-method :get})
       (response/swap-response! fid (fn [r] (assoc r :status 201)))
-      (rf/make-frame {:id fid :doc       "idempotence test"
-                      :platform  :server
-                      :initial-events [[:rf.test.composition/noop]]})
-      (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
-      (rf/render-head :head/idempotence {:frame fid})
+      (swap! install/installed-payloads
+             assoc fid (install/claim-record "digest-idem" :rf.test/root))
 
       ;; First destroy releases everything.
       (request/on-frame-destroyed! fid)
       (is (nil? (request/get-request fid)))
-      (is (= {} (head/head-snapshot fid)))
+      (is (nil? (install/installed-payload fid)))
 
       ;; Second destroy MUST be a no-op — no throw, no spurious state
       ;; change, no extra trace emission.
@@ -122,8 +113,8 @@
           "second destroy returns nil cleanly")
       (is (nil? (request/get-request fid))
           "request-slot still empty after second destroy")
-      (is (= {} (head/head-snapshot fid))
-          "head-snapshot still empty after second destroy"))))
+      (is (nil? (install/installed-payload fid))
+          "payload claim still released after second destroy"))))
 
 ;; ===========================================================================
 ;; Cross-frame isolation — destroying A leaves B intact
@@ -133,11 +124,10 @@
   (testing "rf2-u91hb: destroying frame A MUST NOT touch frame B's
             slots. Per Spec 011 §Request/Response storage substrate —
             'two simultaneous per-request frames carry independent
-            slots that cannot bleed into each other'. The four side-
+            slots that cannot bleed into each other'. The side-
             channel atoms are keyed by frame-id; the contract is that
             the destroy hook touches ONLY the keyed entry, not any
             other frame's entries."
-    (rf/reg-head :head/iso (fn [_ _] {:title "iso"}))
     (let [fid-a :rf.test/iso-frame-a
           fid-b :rf.test/iso-frame-b]
       ;; Populate both frames identically.
@@ -148,11 +138,8 @@
         (swap! error-listener/pending-error-traces
                update fid (fnil conj [])
                {:op-type :error :operation :rf.error/iso-probe})
-        (rf/make-frame {:id fid :doc       (str "iso " (name fid))
-                        :platform  :server
-                        :initial-events [[:rf.test.composition/noop]]})
-        (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
-        (rf/render-head :head/iso {:frame fid}))
+        (swap! install/installed-payloads
+               assoc fid (install/claim-record "digest-iso" :rf.test/root)))
 
       ;; Destroy ONLY fid-a.
       (request/on-frame-destroyed! fid-a)
@@ -161,7 +148,7 @@
       (is (nil? (request/get-request fid-a)))
       (is (not (contains? @response/response-slots fid-a)))
       (is (not (contains? @error-listener/pending-error-traces fid-a)))
-      (is (= {} (head/head-snapshot fid-a)))
+      (is (nil? (install/installed-payload fid-a)))
 
       ;; fid-b untouched.
       (is (some? (request/get-request fid-b))
@@ -170,52 +157,5 @@
           "fid-b's response-slot survived fid-a's destroy")
       (is (contains? @error-listener/pending-error-traces fid-b)
           "fid-b's pending-error-traces survived fid-a's destroy")
-      (is (seq (head/head-snapshot fid-b))
-          "fid-b's head-snapshot survived fid-a's destroy"))))
-
-;; ===========================================================================
-;; Missing-hook tolerance — the head-cleanup hook can be absent
-;; ===========================================================================
-
-(deftest on-frame-destroyed-tolerates-missing-head-hook
-  (testing "rf2-u91hb: the :ssr/head-on-frame-destroyed late-bind hook
-            is OPTIONAL — re-frame.ssr.head publishes it at ns-load,
-            but a deployment that wires its own head substitute (or
-            wires NO head at all) leaves the hook unregistered.
-            on-frame-destroyed! MUST tolerate the absence — late-bind
-            lookup returns nil and the destroy completes."
-    (let [fid :rf.test/no-head-hook
-          prior-hook (late-bind/get-fn :ssr/head-on-frame-destroyed)]
-      ;; Populate the OTHER three slots (no head — that's the point).
-      (request/set-request! fid {:uri "/no-head" :request-method :get})
-      (response/swap-response! fid (fn [r] (assoc r :status 200)))
-      (swap! error-listener/pending-error-traces
-             update fid (fnil conj [])
-             {:op-type :error :operation :rf.error/no-head-probe})
-
-      (try
-        ;; Remove the head-cleanup hook by dropping it from the
-        ;; late-bind table — same shape as a deployment that never
-        ;; loaded re-frame.ssr.head.
-        (swap! late-bind/hooks dissoc :ssr/head-on-frame-destroyed)
-        (is (nil? (late-bind/get-fn :ssr/head-on-frame-destroyed))
-            "the hook is now absent (sanity)")
-
-        ;; Drive destroy. MUST NOT throw on the missing-hook path.
-        (is (nil? (request/on-frame-destroyed! fid))
-            "on-frame-destroyed! completes without throwing — the
-             when-let on the absent hook short-circuits to nil")
-
-        (is (nil? (request/get-request fid))
-            "the other three side-channels were still cleared
-             (request-slot)")
-        (is (not (contains? @response/response-slots fid))
-            "response-slot cleared")
-        (is (not (contains? @error-listener/pending-error-traces fid))
-            "pending-error-traces cleared")
-
-        (finally
-          ;; Restore the prior hook so subsequent tests see normal
-          ;; behaviour.
-          (when prior-hook
-            (late-bind/set-fn! :ssr/head-on-frame-destroyed prior-hook)))))))
+      (is (some? (install/installed-payload fid-b))
+          "fid-b's payload claim survived fid-a's destroy"))))

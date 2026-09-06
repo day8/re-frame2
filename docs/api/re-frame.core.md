@@ -1444,7 +1444,7 @@ Malli schemas attached to `app-db` paths; validated on writes in dev, elided in 
 
 ### SSR → [re-frame.ssr.md](re-frame.ssr.md)
 
-Server-side rendering is the same framework server-side. A curated set of rendering and head primitives is re-exported here as **late-bound wrappers**. Each wrapper resolves to the `re-frame.ssr` implementation when the `day8/re-frame2-ssr` artefact is on the classpath, and throws a clear "SSR not loaded" error otherwise. The host-adapter surface ([re-frame.ssr.ring.md](re-frame.ssr.ring.md)) and the per-request `:rf.server/*` fx are **not** re-exported. Standard SSR events (`:rf/server-init`, `:rf/hydrate`) and the server-only fx live in the SSR doc. SSR registers **no subscriptions** — `:rf/head` and `:rf/public-error` name data shapes, not registry entries, and are read through `active-head` / `render-head` / `head-snapshot` and `project-error` respectively ([re-frame.ssr.md](re-frame.ssr.md#subscriptions--there-are-none)).
+Server-side rendering is the same framework server-side. A curated set of rendering and head primitives is re-exported here as **late-bound wrappers**. Each wrapper resolves to the `re-frame.ssr` implementation when the `day8/re-frame2-ssr` artefact is on the classpath, and throws a clear "SSR not loaded" error otherwise. The host-adapter surface ([re-frame.ssr.ring.md](re-frame.ssr.ring.md)) and the per-request `:rf.server/*` fx are **not** re-exported. Standard SSR events (`:rf/server-init`, `:rf/hydrate`) and the server-only fx live in the SSR doc. SSR registers **no subscriptions** — `:rf/head` and `:rf/public-error` name data shapes, not registry entries, and are read through `active-head` / `render-head` and `project-error` respectively ([re-frame.ssr.md](re-frame.ssr.md#subscriptions--there-are-none)).
 
 #### `reg-head`
 
@@ -1501,12 +1501,6 @@ Server-side rendering is the same framework server-side. A curated set of render
   (head-model->html head-model {:wrap? bool})
   ```
 - Render a head-model to its inner-head HTML string (`:wrap?` controls whether `<head>` tags are emitted; default false). Full contract in [re-frame.ssr.md](re-frame.ssr.md).
-
-#### `head-snapshot`
-
-- **Kind**: function
-- **Signature**: `(head-snapshot frame-id) → {head-id → :rf/head-model}`
-- Read the per-frame snapshot of last-produced head-models (`{}` for a frame that has never seen a `render-head` call). Full contract in [re-frame.ssr.md](re-frame.ssr.md).
 
 ### HTTP → [re-frame.http.md](re-frame.http.md)
 
