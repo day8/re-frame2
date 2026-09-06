@@ -140,7 +140,7 @@ The per-frame bucket rides the frame config (two of its keys — `:fx-overrides`
    :observability  {:errors [{:sink :my-app.sinks/sentry}]}})
 ```
 
-An `:observability` entry names a user- or library-owned `:sink` keyword (you register the sink; the framework routes pre-redacted records to it), with an optional `:rf.egress/profile` and `:opts` map. The two collections it accepts are `:handled-events` and `:errors` — the production read of the event-emit and error-emit streams, declared once on the frame rather than wired imperatively. ([Report errors in production](report-errors-in-production.md))
+An `:observability` entry names a user- or library-owned `:sink` keyword (you register the sink; the framework routes pre-redacted records to it), with an optional `:rf.egress/profile`. The entry is a closed map — those two keys and no others; anything else fails loud at `make-frame`, and vendor configuration belongs in the sink fn you register, which closes over it. The two collections it accepts are `:handled-events` and `:errors` — the production read of the event-emit and error-emit streams, declared once on the frame rather than wired imperatively. ([Report errors in production](report-errors-in-production.md))
 
 Its safety-relevant knob is `:drain-depth`, which comes up next in the guardrails.
 

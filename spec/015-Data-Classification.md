@@ -203,7 +203,7 @@ This Spec follows the configuration convention in [Conventions §Reserved namesp
 1. **Closed local grammar keys stay bare.** The four commit-plane effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`), the registration-metadata classification keys (`:sensitive` / `:large` on a `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` map and on subsystem registrations), the `:rf.http/managed` `reg-fx` `:carriers` block, and the frame `:observability` policy stay unqualified — they are read only inside their owning grammar and do not travel.
 2. **Cross-surface framework policy keys are namespaced.** Egress-profile keys live under `:rf.egress/*` (the slot `:rf.egress/profile` + its closed value enum); observation-record kinds under `:rf.observe/*` (e.g. `:rf.observe/handled-event`); the low-level walker flags under `:rf.size/*` (`:rf.size/include-sensitive?`, `:rf.size/include-large?`, `:rf.size/include-digests?`); the size marker under `:rf.size/large-elided`; its re-fetch handle under `:rf.elision/at`.
 3. **Framework-owned discriminator values are namespaced too.** Egress profiles are *values* under `:rf.egress/*` (e.g. `:rf.egress/off-box-observability`); observation record kinds are values under `:rf.observe/*`.
-4. **User / library-owned ids stay outside the framework namespace.** A Datadog sink id is the app's — `:my-app.sinks/datadog`, never `:datadog` or `:rf.sink/datadog` unless the framework ships that sink. Vendor-specific sink fields live under a local `:opts` map so the framework never appears to own their vocabulary.
+4. **User / library-owned ids stay outside the framework namespace.** A Datadog sink id is the app's — `:my-app.sinks/datadog`, never `:datadog` or `:rf.sink/datadog` unless the framework ships that sink. Vendor-specific configuration is not a frame-config field at all: the registered sink fn closes over it, so the framework never appears to own that vocabulary and never carries a slot it does not deliver.
 
 Wherever a surface uses paths (the four effects, registration marks, subsystem declarations, SSR allowlists), the path grammar is **[EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md)'s `:rf/path` vocabulary** — no fourth ad-hoc path notation.
 
@@ -278,15 +278,15 @@ Production observability sink policy belongs on the frame, under the `:observabi
   {:id :app/main
    :observability
    {:handled-events [{:sink :my-app.sinks/datadog
-                      :rf.egress/profile :rf.egress/off-box-observability
-                      :opts {:service "checkout-spa" :env "prod"}}]
+                      :rf.egress/profile :rf.egress/off-box-observability}]
     :errors         [{:sink :my-app.sinks/sentry
-                      :rf.egress/profile :rf.egress/off-box-observability
-                      :opts {:service "checkout-spa" :env "prod"}}]}
+                      :rf.egress/profile :rf.egress/off-box-observability}]}
    :initial-events [[:app/init]]})
 ```
 
-Two streams are routed: `:handled-events` (one production-safe observation record per re-frame event processed by this frame — **not** the dev trace stream's fine-grained events) and `:errors` (production-survivable error records, per [EP-0008](../docs/EP/EP-0008-production-observability-channels.md)'s always-on error axis). Shape validation **fails loud** on a non-map entry, a non-keyword `:sink`, a `:rf.egress/profile` outside the closed enum, or a non-map `:opts` — a typo'd profile is a registration-time error, never a silent install. The candidate record kinds are `:rf.observe/handled-event` and `:rf.observe/error`; the off-box default record omits the `:event` args slot entirely and carries only summary fields (frame, event id, status, elapsed, effect keys, work / correlation ids).
+A sink entry is a **closed map**: `:sink`, plus the optional `:rf.egress/profile`, and nothing else. Vendor configuration (`{:service "checkout-spa" :env "prod"}`) is the registered sink fn's own — it closes over it — and per-frame branching reads the projected record's `:frame` slot, which every record carries.
+
+Two streams are routed: `:handled-events` (one production-safe observation record per re-frame event processed by this frame — **not** the dev trace stream's fine-grained events) and `:errors` (production-survivable error records, per [EP-0008](../docs/EP/EP-0008-production-observability-channels.md)'s always-on error axis). Shape validation **fails loud** on a non-map entry, a non-keyword `:sink`, a `:rf.egress/profile` outside the closed enum, or any key beyond `:sink` / `:rf.egress/profile` — a typo'd profile is a registration-time error, never a silent install, and a slot the routing seam would not read is refused rather than accepted and dropped. The candidate record kinds are `:rf.observe/handled-event` and `:rf.observe/error`; the off-box default record omits the `:event` args slot entirely and carries only summary fields (frame, event id, status, elapsed, effect keys, work / correlation ids).
 
 The sink consumes the **already-projected** record — the framework projects under the owning frame's classification and the entry's `:rf.egress/profile`, the sink does no redaction:
 

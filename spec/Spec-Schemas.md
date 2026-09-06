@@ -4341,15 +4341,16 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
    :rf.egress/ssr-hydration                                                ;; projection AFTER the §14 allowlist; defence-in-depth
    :rf.egress/public-error])                                               ;; client-safe error projection; never internal raw values
 
-;; Production observation sink policy. Each entry names a user/library-owned
-;; `:sink` keyword id; `:rf.egress/profile` and `:opts` are optional. The
-;; sink ids are NOT framework-claimed (EP-0015 §2). Routing records through
-;; the sinks is the EP-0015 observability slice.
+;; Production observation sink policy. Each entry is a CLOSED map naming a
+;; user/library-owned `:sink` keyword id, with an optional
+;; `:rf.egress/profile`; there is no third key, and an unrecognised one
+;; fails loud at `make-frame`. Vendor configuration is closed over by the
+;; registered sink fn. The sink ids are NOT framework-claimed (EP-0015 §2).
+;; Routing records through the sinks is the EP-0015 observability slice.
 (def FrameSinkEntry
-  [:map
+  [:map {:closed true}                                                     ;; CLOSED: routing reads these two keys and no other
    [:sink :keyword]                                                        ;; user/library-owned sink id, e.g. :my-app.sinks/datadog
-   [:rf.egress/profile {:optional true} EgressProfile]                     ;; the closed six-member egress-profile enum
-   [:opts {:optional true} [:map-of :keyword :any]]])                      ;; vendor-specific, framework does not own the vocabulary
+   [:rf.egress/profile {:optional true} EgressProfile]])                   ;; the closed six-member egress-profile enum
 
 (def FrameObservability
   [:map

@@ -243,25 +243,23 @@ Three durable owners, no overlap. When you have a secret, this is the table to w
 
 ## Wire an off-box shipper
 
-Now send the production records off-box — to Datadog, Sentry, wherever you watch prod. You set this up per frame, under an `:observability` key. There are **two** streams you can route: `:handled-events` (one production-safe record per event processed) and `:errors` (production-survivable [error records](../glossary.md#error-record)). For each, you name a **sink** (an id for the destination), the **profile** (which boundary it's crossing — more on profiles just below), then register the concrete function that does the sending:
+Now send the production records off-box — to Datadog, Sentry, wherever you watch prod. You set this up per frame, under an `:observability` key. There are **two** streams you can route: `:handled-events` (one production-safe record per event processed) and `:errors` (production-survivable [error records](../glossary.md#error-record)). For each, you name a **sink** (an id for the destination) and the **profile** (which boundary it's crossing — more on profiles just below), then register the concrete function that does the sending. The entry carries those two keys and nothing else — vendor tags like a service name live in the function you register, which closes over them:
 
 ```clojure
 (rf/make-frame
   {:id :app/main
    :observability {:handled-events
                    [{:sink :my-app.sinks/datadog
-                     :rf.egress/profile :rf.egress/off-box-observability
-                     :opts {:service "checkout-spa" :env "prod"}}]
+                     :rf.egress/profile :rf.egress/off-box-observability}]
                    :errors
                    [{:sink :my-app.sinks/sentry
-                     :rf.egress/profile :rf.egress/off-box-observability
-                     :opts {:service "checkout-spa" :env "prod"}}]}
+                     :rf.egress/profile :rf.egress/off-box-observability}]}
    :initial-events [[:auth/init]]})         ;; classifies [:auth :token]
 
 (rf/register-observability-sink! :my-app.sinks/datadog
   (fn [projected-record]
     ;; Already projected. No sink-local redaction.
-    (datadog/send projected-record)))
+    (datadog/send projected-record {:service "checkout-spa" :env "prod"})))
 
 (rf/register-observability-sink! :my-app.sinks/sentry
   (fn [projected-record] (sentry/capture projected-record)))
