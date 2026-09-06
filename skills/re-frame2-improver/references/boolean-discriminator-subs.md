@@ -59,8 +59,8 @@ Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/b
 (rf/reg-sub :article (fn [db _] (:article db)))
 
 (rf/reg-sub :article/render                        ;; ONE derivation, not four probes
-  :<- [:article]
-  (fn [{:keys [status data]} _]
+  {:inputs [[:article]]}
+  (fn [[{:keys [status data]}] _]
     (case status
       :loading :loading
       :error   :error
@@ -93,8 +93,8 @@ Four subs become one, the view derefs once, and the mutual exclusion is a single
    {:tag :article/loaded  :render :loaded}])
 
 (rf/reg-sub :article/render
-  :<- [:rf/machine :article]
-  (fn [snap _]
+  {:inputs [[:rf/machine :article]]}
+  (fn [[snap] _]
     (or (some (fn [{:keys [tag render]}] (when (contains? (:tags snap) tag) render))
               render-priority)
         :uninitialised)))                                     ;; snapshot may be nil before first run

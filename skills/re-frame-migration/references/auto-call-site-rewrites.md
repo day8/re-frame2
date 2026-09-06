@@ -142,7 +142,7 @@ Same for the `uix` variant.
 (sub {:re-frame/q ::id :param 1})    → (subscribe [::id 1])   ; vectorize the query-map
 ```
 
-**Signal-fn carve-out → M-71** (mirrors the M-73 cross-refs on the `:event-*` rows above): the `(sub <vector>) → (subscribe <vector>)` row holds at ordinary call sites, but **not inside a `reg-sub` signal/input fn** — the two-trailing-fns form with no `:<-` between them, `(reg-sub :id (fn [q] …) (fn [inputs q] …))`. In that first fn a v2 `input-fn` must **return a vector of query vectors** (`[[:x id] [:y]]`), not call `subscribe`; there the alpha `(sub [:x id])` becomes the bare query **vector** `[:x id]` (inside the returned vector), not a `(subscribe [:x id])` call. A `subscribe`-bearing input-fn registers clean and then throws `:rf.error/sub-input-fn-bad-return` at first materialization. Reshape per **M-71** — see [`guided-interceptors-subs.md` §M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns). (A v1 `reg-sub` that used alpha-`sub` in its signal fn lands here: the alpha namespace removal is M-23, but the signal-fn body is M-71's reshape, not a uniform `subscribe` swap.)
+**Signal-fn carve-out → M-71** (mirrors the M-73 cross-refs on the `:event-*` rows above): the `(sub <vector>) → (subscribe <vector>)` row holds at ordinary call sites, but **not inside a `reg-sub` signal/input fn** — the two-trailing-fns form with no `:<-` between them, `(reg-sub :id (fn [q] …) (fn [inputs q] …))`. That first fn becomes a v2 **`:inputs` producer**, moved into the registration metadata map (`{:inputs (fn [q] …)}`) and required to **return a vector of query vectors** (`[[:x id] [:y]]`) rather than call `subscribe`; there the alpha `(sub [:x id])` becomes the bare query **vector** `[:x id]` (inside the returned vector), not a `(subscribe [:x id])` call. A `subscribe`-bearing input-fn registers clean and then throws `:rf.error/sub-input-fn-bad-return` at first materialization. Reshape per **M-71** — see [`guided-interceptors-subs.md` §M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns). (A v1 `reg-sub` that used alpha-`sub` in its signal fn lands here: the alpha namespace removal is M-23, but the signal-fn body is M-71's reshape, not a uniform `subscribe` swap.)
 
 **Edge case → Type B**: any `:re-frame/lifecycle` annotation in the original — drop the annotation; if the user explicitly wanted non-default lifecycle, flag it (and, with their approval, file a GitHub issue against `day8/re-frame2` per the [`issue-filing.md`](issue-filing.md) recipe). See [`guided-interceptors-subs.md` §M-23](guided-interceptors-subs.md#m-23--re-framelifecycle-annotation-drop).
 
@@ -308,9 +308,9 @@ Later re-frame v1 releases' `reg-sub` accept two **flat-sub sugar** markers — 
 - `(reg-sub :id :<- [:a] :<- [:b] :-> f)` — `f` is applied to the **vector** of upstream values `[a b]`.
 - `:=>` is the same family but **also passes the query vector** (spread) into `f`.
 
-**re-frame2's `reg-sub` DROPPED both markers.** The sub parser (`implementation/core/src/re_frame/subs.cljc`) recognises **only** `:<-` chains, the two-trailing-fn parametric form, and a single trailing computation fn — there is no `:->` / `:=>` handling and no desugaring macro. So a `:->` / `:=>` registration falls through the parser's `:else` arm and throws **`:rf.error/reg-sub-bad-args`** (`:recovery :no-recovery` — the registration is rejected) at **registration / ns-load**. This is **loud-at-registration, not loud-at-compile** and not a silent miss: like the retired event registrars (M-73) and the bad interceptor-chain shapes (M-70), the throw **aborts the rest of that namespace's load** — every later `reg-event` / `reg-machine` (and any top-level `make-frame`) in the same ns never runs, so a boot that depends on them hangs. `:->` / `:=>` are high-frequency in later-v1 / alpha apps, so expect many sites; grep them up front (see [`inventory-and-plan.md`](inventory-and-plan.md) Phase 0a) rather than marching the wall.
+**re-frame2's `reg-sub` DROPPED both markers.** The sub parser (`implementation/core/src/re_frame/subs.cljc`) takes the dependency declaration from **`:inputs` in the metadata map** and then exactly one trailing computation fn — there is no `:->` / `:=>` handling and no desugaring macro. So a `:->` / `:=>` registration falls through the parser's `:else` arm and throws **`:rf.error/reg-sub-bad-args`** (`:recovery :no-recovery` — the registration is rejected) at **registration / ns-load**. This is **loud-at-registration, not loud-at-compile** and not a silent miss: like the retired event registrars (M-73) and the bad interceptor-chain shapes (M-70), the throw **aborts the rest of that namespace's load** — every later `reg-event` / `reg-machine` (and any top-level `make-frame`) in the same ns never runs, so a boot that depends on them hangs. `:->` / `:=>` are high-frequency in later-v1 / alpha apps, so expect many sites; grep them up front (see [`inventory-and-plan.md`](inventory-and-plan.md) Phase 0a) rather than marching the wall.
 
-**The rewrite — desugar to the explicit computation fn**, matching re-frame v1's documented sugar semantics. The v2 computation fn shape is `(fn [input query-v] …)`, where `input` is exactly what the sugar's `f` was fed: app-db with no `:<-`, the single value with one `:<-`, the vector with several.
+**The rewrite — desugar to the explicit computation fn**, matching re-frame v1's documented sugar semantics. The v2 computation fn shape is `(fn [input query-v] …)`. Mind the delivery difference while you desugar: v1 fed `f` **app-db** with no upstream, the **bare** value with one, and the **vector** with several — whereas a v2 `:inputs` declaration always delivers a **vector**, so the one-upstream wrapper destructures `[in]` where v1's `f` saw `in`. With no upstream at all the body is the layer-1 reader and its first arg is still `db`.
 
 **`:->` — drop the query vector.** `:->` applies `f` to the input(s) **only**; the query vector is discarded. The wrapper is uniform — ignore the query arg, pass the input straight to `f`:
 
@@ -321,9 +321,9 @@ Later re-frame v1 releases' `reg-sub` accept two **flat-sub sugar** markers — 
 (reg-sub :id :<- [:a] :<- [:b] :-> f)     ; input = the vector [a b]
 
 ;; REWRITE — wrap f as a 2-arg computation fn that ignores the query vector
-(reg-sub :id (fn [db _] (f db)))
-(reg-sub :id :<- [:a] (fn [in _] (f in)))
-(reg-sub :id :<- [:a] :<- [:b] (fn [in _] (f in)))
+(reg-sub :id (fn [db _] (f db)))                        ; no :inputs — layer-1 reader
+(reg-sub :id {:inputs [[:a]]} (fn [[in] _] (f in)))     ; one upstream — f still sees the bare value
+(reg-sub :id {:inputs [[:a] [:b]]} (fn [in _] (f in)))  ; several — f saw the vector under v1 too
 ```
 
 **`:=>` — pass the query vector, spread.** v1's `:=>` feeds `f` the input(s) as the **first** argument, then **spreads the query vector's positional args** (everything *after* the query-id) as the remaining arguments; a **map-shaped** query is passed through whole. (Note: it is the *query vector* that spreads, not the input — the input stays a single first arg.) Desugar faithfully:
@@ -333,8 +333,8 @@ Later re-frame v1 releases' `reg-sub` accept two **flat-sub sugar** markers — 
 (reg-sub :id :<- [:a] :=> f)
 
 ;; REWRITE — input first, then the query args after the query-id, spread
-(reg-sub :id :<- [:a]
-  (fn [in q]
+(reg-sub :id {:inputs [[:a]]}
+  (fn [[in] q]
     (if (map? q)
       (f in q)                                ; map query → passed whole
       (let [[_ & qs] q] (apply f in qs)))))   ; vector query → drop the id, spread the rest

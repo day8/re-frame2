@@ -1003,8 +1003,8 @@
    subscription's input topology PER LIVE CACHE ENTRY — the realized
    counterpart to the static `sub-topology`. `:input-kind` is `:db` /
    `:static` / `:parametric`; `:realized-inputs` is the REALIZED input
-   query-vectors for the concrete outer query-v (the literal `:<-` list
-   for `:static`, the `(input-fn query-v)` result for `:parametric`,
+   query-vectors for the concrete outer query-v (the literal `:inputs`
+   vector for `:static`, the `(input-fn query-v)` result for `:parametric`,
    `[]` for layer-1). These are query-vectors (sub-id + args), NOT
    computed values, so they ride raw — the egress redaction in the
    `list-subscriptions` tool elides only the `:value` slot.

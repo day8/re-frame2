@@ -107,20 +107,20 @@ The dominant shape. Lifted from `spec/Pattern-Forms.md`; the mirrors are under Â
         {:db (assoc-in db' [:auth :login :errors] errors)}))))
 
 (rf/reg-sub :form.login/field-error
-  :<- [:form.login/errors]
-  :<- [:form.login/touched]
-  :<- [:form.login/submit-attempted?]
+  {:inputs [[:form.login/errors]
+            [:form.login/touched]
+            [:form.login/submit-attempted?]]}
   (fn [[errs touched submit-attempted?] [_ field-id]]
     (when (or submit-attempted? (touched field-id))
       (first (get errs field-id)))))
 
 (rf/reg-sub :form.login/form-errors    ;; reserved :_form key â€” always visible
-  :<- [:form.login/errors]
-  (fn [errs _] (get errs :_form)))
+  {:inputs [[:form.login/errors]]}
+  (fn [[errs] _] (get errs :_form)))
 
 (rf/reg-sub :form.login/dirty?
-  :<- [:form.login]
-  (fn [{:keys [draft submitted]} _]
+  {:inputs [[:form.login]]}
+  (fn [[{:keys [draft submitted]}] _]
     (not= draft (or submitted login-form-defaults))))
 ```
 

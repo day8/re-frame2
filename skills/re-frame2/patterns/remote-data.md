@@ -91,10 +91,10 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
 (rf/reg-sub :articles            (fn [db _] (get db :articles)))
 ;; computation fn is (fn [input query-v] value) — a bare keyword in fn position
 ;; is rejected at registration (:rf.error/reg-sub-bad-args)
-(rf/reg-sub :articles/status     :<- [:articles] (fn [articles _] (:status articles)))
-(rf/reg-sub :articles/data       :<- [:articles] (fn [articles _] (:data articles)))
-(rf/reg-sub :articles/loading?   :<- [:articles/status] (fn [status _] (= status :loading)))
-(rf/reg-sub :articles/fetching?  :<- [:articles/status] (fn [status _] (contains? #{:loading :fetching} status)))
+(rf/reg-sub :articles/status     {:inputs [[:articles]]} (fn [[articles] _] (:status articles)))
+(rf/reg-sub :articles/data       {:inputs [[:articles]]} (fn [[articles] _] (:data articles)))
+(rf/reg-sub :articles/loading?   {:inputs [[:articles/status]]} (fn [[status] _] (= status :loading)))
+(rf/reg-sub :articles/fetching?  {:inputs [[:articles/status]]} (fn [[status] _] (contains? #{:loading :fetching} status)))
 ```
 
 ## Canonical declaration — `:data-region` machine form

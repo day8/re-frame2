@@ -139,8 +139,8 @@ Each link is a Pattern-AsyncEffect interaction. Past three links, scatter wins; 
 **Boot UI — single signal.** The snapshot lives in the **runtime-db** partition, so derive from the framework `:rf/machine` sub (which reads runtime-db) rather than reaching into a partition layer-1 subs don't see:
 
 ```clojure
-(rf/reg-sub :app.boot/phase :<- [:rf/machine :app/boot] (fn [snap _] (get-in snap [:data :phase])))
-(rf/reg-sub :app.boot/state :<- [:rf/machine :app/boot] (fn [snap _] (:state snap)))
+(rf/reg-sub :app.boot/phase {:inputs [[:rf/machine :app/boot]]} (fn [[snap] _] (get-in snap [:data :phase])))
+(rf/reg-sub :app.boot/state {:inputs [[:rf/machine :app/boot]]} (fn [[snap] _] (:state snap)))
 ```
 
 No parallel `:loading?` flag — the machine's state IS the UI signal.

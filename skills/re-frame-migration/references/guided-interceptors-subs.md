@@ -70,19 +70,24 @@ Present the categorisation per call site with the proposed rewrite; the author c
 **Mental model — v1 *signal function* → v2 *`input-fn`*.** v1's two-function
 `reg-sub` form took a **signal function**: a fn from the outer query vector to
 **live `subscribe` reactions** that the runtime then deref'd for the
-computation fn. re-frame2 keeps the two-function form but redefines that first
-fn as an **`input-fn`**: a pure fn from the outer query vector to a **vector of
-query vectors** (plain data — *not* reactions). The runtime resolves those
-query vectors in the same frame and hands the resolved **values** to the
-computation fn. The shape of the call site is the same; only what the first fn
-*returns* changes — reactions become query-vector data.
+computation fn. re-frame2 keeps that capability but moves the fn
+into the registration metadata map under **`:inputs`**, and redefines it as a
+pure **producer**: a fn from the outer query vector to a **vector of query
+vectors** (plain data — *not* reactions). The runtime resolves those query
+vectors in the same frame and hands the resolved **values** to the computation
+fn, always as a vector. Two things move: where the fn *sits*, and what it
+*returns* — reactions become query-vector data.
 
 ```clojure
-;; v1 signal fn — returns live reactions
-(fn [[_ id]] [(rf/subscribe [:x id]) (rf/subscribe [:y])])
+;; v1 — a positional signal fn returning live reactions
+(rf/reg-sub :id
+  (fn [[_ id]] [(rf/subscribe [:x id]) (rf/subscribe [:y])])
+  (fn [[x y] _] …))
 
-;; v2 input-fn — returns query vectors (data)
-(fn [[_ id]] [[:x id] [:y]])
+;; v2 — an :inputs producer returning query vectors (data)
+(rf/reg-sub :id
+  {:inputs (fn [[_ id]] [[:x id] [:y]])}
+  (fn [[x y] _] …))
 ```
 
 This is **intentionally breaking** vs v1, and it is the dedicated rule
@@ -91,8 +96,8 @@ removal, which is **M-18** above). The authoritative rule text + rationale is
 [`MIGRATION.md` §M-71](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors);
 the design rationale is the [Parametric Subscription Inputs spec](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
 
-**The `input-fn` contract** (all four facts are the break — a v1 signal fn
-could violate every one):
+**The `:inputs` producer contract** (all four facts are the break — a v1 signal
+fn could violate every one):
 
 - It **receives only the outer query vector** — no `db` arg, no extra args. (v1
   signal fns sometimes took extra args; v2 `input-fn`s do not.)
@@ -107,8 +112,10 @@ could violate every one):
 **Identify:** every `reg-sub` call with **two trailing fn forms and no `:<-`
 between them** — `(rf/reg-sub :id (fn [q] …) (fn [inputs q] …))`. The first fn
 is the v1 signal fn. (A single trailing fn is the unchanged layer-1
-`(fn [db q] …)` app-db reader; a `:<- [q] :<- [q]` chain is the unchanged
-static form — neither trips M-71.)
+`(fn [db q] …)` app-db reader — it does not trip M-71. A `:<- [q] :<- [q]`
+chain is a *static* input list and does not trip M-71 either, but it is no
+longer unchanged: it is **M-75**'s mechanical Type A rewrite to
+`{:inputs [q q]}`.)
 
 > **A signal fn coming from `re-frame.alpha` lands here too.** An alpha-namespace
 > `reg-sub` whose signal fn called `(sub [:x id])` is removed by **M-23** at the
@@ -122,8 +129,8 @@ static form — neither trips M-71.)
 
 **Why it is silent at compile — and where it actually fails.** The two-function
 shape *parses* fine, so the compiler says nothing. It also **registers** fine:
-the v2 runtime reads `(reg-sub :id (fn …) (fn …))` (two trailing fns, no `:<-`)
-as a **valid `:parametric` registration** — both trailing args are functions, so
+the v2 runtime still reads `(reg-sub :id (fn …) (fn …))` (two trailing fns, no
+declaration between them) as a **valid `:parametric` registration** — both trailing args are functions, so
 there is **no `:rf.error/reg-sub-bad-args` at registration / namespace load**.
 The break surfaces later, at the **first `subscribe` / materialization**: the v1
 signal fn returns live reactions (or a bare reaction), which are not query
@@ -132,28 +139,28 @@ vectors, so the runtime throws `:rf.error/sub-input-fn-bad-return` and the sub
 no-inputs — the error rides the always-on error listener + the dev trace). Under
 M-71 the same shape becomes **valid** once you swap the reactions for query
 vectors. `:rf.error/reg-sub-bad-args` is reserved for a genuinely unparseable
-registration *shape* (e.g. three trailing fns, or a leading `:<-` with no query
-vector) — **not** for a v1-style signal-fn body. Either way the compiler is no
+registration *shape* (e.g. three trailing fns, or an `:inputs` literal that is
+not a vector of query vectors) — **not** for a v1-style signal-fn body. Either way the compiler is no
 help — grep every signal-fn site exhaustively up front (this is a silent-fail
 rule; see
 [`breaking-changes.md` §silent-fail register](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)),
 never march-the-wall.
 
-**Decision-shape — first prefer `:<-` for static inputs.** If the signal fn's
+**Decision-shape — first prefer a literal `:inputs` vector.** If the signal fn's
 inputs do **not** depend on the outer query vector, the inputs are static —
-prefer a `:<-` chain, the same as v1's preferred static form. `:<-` is sugar
-for a constant `input-fn`; it is the best style whenever it applies.
+list them literally, the same as v1's preferred static form. A literal is
+exactly a constant producer, it is the form a tool can read as a static edge,
+and it is the best style whenever it applies.
 
 ```clojure
 (rf/reg-sub :dashboard
-  :<- [:totals]
-  :<- [:alerts]
+  {:inputs [[:totals] [:alerts]]}
   (fn [[totals alerts] _]
     {:totals totals :alerts alerts}))
 ```
 
-When the inputs **do** depend on the outer query vector, rewrite the signal fn
-to an `input-fn`. **Classify by what the v1 signal fn returns** — the three
+When the inputs **do** depend on the outer query vector, give `:inputs` a
+producer fn instead. **Classify by what the v1 signal fn returns** — the three
 v1 return shapes each rewrite differently:
 
 ### 1. Vector-returning (the common case) — drop the `subscribe`, return query vectors
@@ -181,9 +188,9 @@ Before/after: [`MIGRATION.md` §M-71 case 2](https://github.com/day8/re-frame2/b
 ### 3. Single-signal-returning — wrap in a vector of ONE query vector
 
 v2 has **no scalar single-input form**. A v1 signal fn that returned one bare
-reaction becomes an `input-fn` returning `[[:item/by-id id]]` — a **vector of
-one query vector**, not the bare query vector. The computation fn destructures
-a one-element vector: `(fn [[item] _] …)`.
+reaction becomes an `:inputs` producer returning `[[:item/by-id id]]` — a
+**vector of one query vector**, not the bare query vector. The computation fn
+destructures a one-element vector: `(fn [[item] _] …)`.
 
 ```clojure
 ;; v1 — signal fn returns ONE bare reaction
