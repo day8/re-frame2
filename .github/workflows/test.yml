@@ -1296,12 +1296,21 @@ jobs:
       # is deliberately the cheap shallow one. This job already resolves a
       # branch point for exactly the same reason, from exactly this checkout.
       #
-      # ONE LINE, no event branch: unlike the step above, this script's event
+      # ONE COMMAND, no event branch: unlike the step above, this script's event
       # policy lives entirely in the script, which checks `GITHUB_EVENT_NAME`
       # BEFORE it looks at the base ref — so on a push it exits 0 with its own
       # explanatory line and never evaluates the empty `origin/`.
+      #
+      # A BLOCK SCALAR (`run: |`), NOT A PLAIN ONE, and that is load-bearing
+      # rather than style. `implementation/scripts/_release-dag-policy.test.cjs`
+      # parses these workflows with a hand-rolled reader that rejects a `{` in a
+      # plain scalar as an unsupported flow mapping — so `${GITHUB_BASE_REF}` on
+      # the `run:` line itself reds the `js-harness-self-tests` job, while the
+      # identical text one step above passes because it sits inside a block
+      # scalar. Measured on this step. Keep the pipe.
       - name: Enforce the no-AI-attribution rule (rf2-2e8f)
-        run: sh scripts/check-commit-attribution.sh "origin/${GITHUB_BASE_REF}"
+        run: |
+          sh scripts/check-commit-attribution.sh "origin/${GITHUB_BASE_REF}"
 
   jvm-core:
     name: JVM core (clojure -M:test)
