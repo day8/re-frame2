@@ -15,7 +15,7 @@
   <!--
     SERVER-RENDERED markup. Per Spec 011 §The render-tree → HTML emitter,
     this is the bytes the JVM-side `(rf/render-to-string ((rf/view
-    :ssr-basic.core/root)) {:doctype? true :emit-hash? true})` would have
+    :ssr-basic.core/root)) {:doctype? true :render-hash h})` would have
     produced if a Clojure server were sitting in front. The companion
     `<script id="__rf_payload">` below carries the serialised app-db +
     metadata so the client-side `run` can `:rf/hydrate` against the same

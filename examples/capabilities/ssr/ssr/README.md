@@ -96,7 +96,7 @@ client picking it up:
   state, so "replace" is the honest semantics — a defaulting merge
   would bury "which side won?" bugs at every key.
 - `data-rf-render-hash` turns the classic SSR bug into a located
-  one. With `:emit-hash?`, `render-to-string` stamps a structural
+  one. Given `:render-hash`, `render-to-string` stamps that structural
   hash of the render-tree on the root element. After first render the client
   recomputes it. On disagreement the runtime emits
   `:rf.ssr/hydration-mismatch` — telling you not just that the renders

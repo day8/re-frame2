@@ -43,7 +43,7 @@
     is attribute-free.
 
     The data-rf-render-hash attribute would normally be emitted by
-    render-to-string with :emit-hash? true, and the matching :rf/render-hash
+    render-to-string given a :render-hash, and the matching :rf/render-hash
     would ride the payload below; we omit BOTH from this static page because
     we don't recompute the FNV-1a hash here. The client `run` still calls
     `ssr/hydrate!` with a `:render-tree-fn`, so the verify step runs — but

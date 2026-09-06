@@ -633,8 +633,9 @@
           "hash is 8-char lowercase hex (FNV-1a 32-bit)"))))
 
 (deftest render-to-string-emits-hash
-  (testing ":emit-hash? opts adds data-rf-render-hash on the root element"
-    (let [out (rf/render-to-string [:div [:p "hi"]] {:emit-hash? true})]
+  (testing ":render-hash opts adds data-rf-render-hash on the root element"
+    (let [tree [:div [:p "hi"]]
+          out  (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)})]
       (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
           "root element carries the data-rf-render-hash attribute"))))
 
