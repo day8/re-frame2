@@ -31,6 +31,11 @@
 #                 it. Neither of the two blocks above could see the failure:
 #                 an empty export reached main twice from the MAYOR
 #                 checkout, by plain `git add`, where they no-op.
+#   - commit-msg  (rf2-2e8f) refuses a commit MESSAGE carrying AI attribution
+#                 (`Co-Authored-By:` naming the assistant, `Claude-Session:`,
+#                 a generated-with marker). Every block above grades staged
+#                 PATHS; the message is a surface none of them can see, and
+#                 three such commits reached main while nothing checked.
 #
 # Usage:
 #   scripts/install-git-hooks.sh           # install/refresh
@@ -75,6 +80,9 @@ block_spec() {
       ;;
     beads-truncation-floor)
       printf 'pre-commit\t# --- BEGIN re-frame2 beads truncation floor (rf2-or8te) ---\t# --- END re-frame2 beads truncation floor (rf2-or8te) ---\n'
+      ;;
+    commit-attribution)
+      printf 'commit-msg\t# --- BEGIN re-frame2 commit attribution guard (rf2-2e8f) ---\t# --- END re-frame2 commit attribution guard (rf2-2e8f) ---\n'
       ;;
     *)
       printf 'install-git-hooks: unknown block id: %s\n' "$1" >&2
@@ -245,6 +253,7 @@ install_block hook-staleness-rebase || rc=$?
 install_block mayor-commit-boundary || rc=$?
 install_block worker-beads-boundary || rc=$?
 install_block beads-truncation-floor || rc=$?
+install_block commit-attribution || rc=$?
 install_mayor_marker || rc=$?
 
 if [ "$MODE" = "check" ] && [ "$rc" -ne 0 ]; then
