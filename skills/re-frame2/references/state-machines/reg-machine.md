@@ -171,8 +171,8 @@ Project off the snapshot with ordinary `reg-sub`:
 
 ```clojure
 (rf/reg-sub :feature/data
-  :<- [:rf/machine :my/feature]
-  (fn sub-data [snap _] (get-in snap [:data :result])))
+  {:inputs [[:rf/machine :my/feature]]}
+  (fn sub-data [[snap] _] (get-in snap [:data :result])))
 ```
 
 ## Driving a machine as a discrete event-driven flow

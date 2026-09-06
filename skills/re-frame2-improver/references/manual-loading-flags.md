@@ -71,9 +71,9 @@ Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/b
 
 ;; Convenience booleans are DERIVED from the status, never stored:
 (rf/reg-sub :items           (fn [db _] (:items db)))
-(rf/reg-sub :items/status    :<- [:items] (fn [items _] (:status items)))
-(rf/reg-sub :items/data      :<- [:items] (fn [items _] (:data items)))
-(rf/reg-sub :items/fetching? :<- [:items/status] (fn [status _] (contains? #{:loading :fetching} status)))
+(rf/reg-sub :items/status    {:inputs [[:items]]} (fn [[items] _] (:status items)))
+(rf/reg-sub :items/data      {:inputs [[:items]]} (fn [[items] _] (:data items)))
+(rf/reg-sub :items/fetching? {:inputs [[:items/status]]} (fn [[status] _] (contains? #{:loading :fetching} status)))
 ```
 
 Forgetting a terminator is now *visible* rather than silent: the status simply stays `:loading`, and there is no second key that could disagree with it.

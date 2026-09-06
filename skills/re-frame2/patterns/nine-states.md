@@ -84,8 +84,8 @@ The render-priority table and selector sub:
    {:tag :data/too-many :render :too-many}])
 
 (rf/reg-sub :ui/render
-  :<- [:rf/machine :ui/nine-states]
-  (fn [snap _]
+  {:inputs [[:rf/machine :ui/nine-states]]}
+  (fn [[snap] _]
     (let [tags (:tags snap)]
       (some (fn [{:keys [tag render]}]
               (when (contains? tags tag) render))

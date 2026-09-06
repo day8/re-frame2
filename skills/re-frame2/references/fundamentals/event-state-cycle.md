@@ -78,9 +78,8 @@ From `examples/core/todomvc/events.cljs`, one dispatch exercises the whole cycle
   (fn [_ctx todos] (persist-to-local-storage! todos)))
 
 ;; (10) the sub recomputes; view re-renders
-(rf/reg-sub :todo/todos
-  :<- [:todo/sorted-todos]
-  (fn [sorted-todos _] (vals sorted-todos)))
+(rf/reg-sub :todo/todos {:inputs [[:todo/sorted-todos]]}
+  (fn [[sorted-todos] _] (vals sorted-todos)))
 ```
 
 After this single dispatch:

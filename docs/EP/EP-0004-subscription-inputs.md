@@ -81,13 +81,12 @@ reactions is incompatible with that contract.
 So the query-vector-returning design is not merely cleaner. It is the only
 design that fits the existing re-frame2 testing and substrate model.
 
-Static `:<-` chains cover fixed dependency lists:
+A literal dependency list covers fixed inputs:
 
 ```clojure
 (rf/reg-sub
   :visible-items
-  :<- [:items]
-  :<- [:filter]
+  {:inputs [[:items] [:filter]]}
   (fn [[items filter] _]
     (filter-items items filter)))
 ```
@@ -107,7 +106,7 @@ programmers, Xray, tests, and AI agents.
 ## Goals
 
 - Restore the query-parametric `reg-sub` capability.
-- Preserve `:<-` as the preferred syntax for static inputs.
+- Preserve a literal declaration as the preferred syntax for static inputs.
 - Require input functions to return vectors of query vectors, not live
   reactions.
 - Keep `compute-sub` pure and JVM-runnable.
@@ -134,8 +133,8 @@ This is a Reactive Substrate proposal that other view-model EPs build on:
 - **Resolves before resource/route/Hasura subscription view-models.** This EP
   should be resolved before the [Resource Queries EP](EP-0003-resource-queries.md), the
   route-model helpers, or Hasura helpers lean on parameterized subscription view
-  models, because it determines whether those helpers use static `:<-`,
-  vector-of-query-vectors input functions, or broader app-db reads. Downstream
+  models, because it determines whether those helpers use a literal input
+  declaration, vector-of-query-vectors input functions, or broader app-db reads. Downstream
   view-model surfaces should not commit a subscription-input shape until this EP
   is resolved.
 - **Composes with explicit frame target resolution.** Input query vectors are
@@ -153,13 +152,14 @@ This is a Reactive Substrate proposal that other view-model EPs build on:
 | Mode | Form | Meaning |
 |---|---|---|
 | App-db reader | `(reg-sub id computation-fn)` | No upstream subscriptions. The computation fn receives app-db and query-v. |
-| Static inputs | `(reg-sub id :<- q1 :<- q2 computation-fn)` | Inputs are literal query vectors known at registration. |
-| Parametric inputs | `(reg-sub id input-fn computation-fn)` | Inputs are computed from the outer query-v when a concrete cache entry is materialized. |
+| Static inputs | `(reg-sub id {:inputs [q1 q2]} computation-fn)` | Inputs are literal query vectors known at registration. |
+| Parametric inputs | `(reg-sub id {:inputs producer-fn} computation-fn)` | Inputs are computed from the outer query-v when a concrete cache entry is materialized. |
 
 The unifying model is:
 
-> A subscription has an input query-vector producer. Layer-1 has no producer,
-> `:<-` is the literal producer, and `input-fn` is the query-parametric
+> A subscription has an input query-vector producer, declared ONCE under
+> `:inputs`. Layer-1 omits `:inputs` and has no producer; a literal `:inputs`
+> vector is the literal producer; an `:inputs` fn is the query-parametric
 > producer.
 
 ### Input grammar
@@ -311,7 +311,7 @@ For `(subscribe [:article/page :a1])`:
 1. Resolve `:article/page` in the registrar.
 2. Produce input query vectors:
    - no query vectors for a layer-1 app-db reader;
-   - literal query vectors for `:<-`;
+   - literal query vectors for a literal `:inputs`;
    - `(input-fn [:article/page :a1])` for the parametric form.
 3. Validate that the result is a vector of query vectors.
 4. Subscribe to each input query vector in the same frame.
@@ -348,7 +348,7 @@ and sub id, and do not silently treat a bad input return as no inputs.
 
 ## Tooling
 
-Static topology remains precise for `:<-`:
+Static topology remains precise for a literal `:inputs`:
 
 ```clojure
 {:visible-items
@@ -373,7 +373,7 @@ Parametric topology is two-level:
                     [:viewer/current]]}}
 ```
 
-Xray should render static edges from `:<-` in static topology views and render
+Xray should render static edges from a literal `:inputs` in static topology views and render
 realized parametric edges in live/cache views. It should not pretend that every
 possible parametric edge is enumerable before concrete query vectors exist.
 
@@ -397,8 +397,11 @@ v2 input functions:
 - cannot return maps or bare keywords;
 - cannot choose dependency topology from app-db.
 
-The static `:<-` form remains preserved. The layer-1 `(fn [db query-v] ...)`
-form remains preserved.
+The static declaration and the layer-1 `(fn [db query-v] ...)` form both remain
+preserved as *capabilities*. Their SPELLING moved: the static form is now
+`{:inputs [q1 q2]}` in the registration metadata map, and the layer-1 reader is
+what you get by omitting `:inputs`. See [§Literal `:inputs`](#literal-inputs)
+above for the delivery-rule reversal that came with it.
 
 ## Migration
 
@@ -513,7 +516,7 @@ never rewrites it.
 
 ## Test Plan
 
-- Static `:<-` behavior remains unchanged.
+- Static (literal `:inputs`) behavior remains unchanged.
 - Parametric input function receives the full outer query vector.
 - Parametric vector-of-query-vectors input returns resolve to vectors of input
   values, including the single-input case.

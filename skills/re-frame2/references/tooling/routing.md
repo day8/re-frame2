@@ -138,8 +138,8 @@ A route may declare a leave-guard sub. The sub returns `true` when leaving is OK
   "/editor/articles/:id")
 
 (rf/reg-sub :editor/can-leave?
-  :<- [:editor/dirty?]
-  (fn [dirty? _] (not dirty?)))              ;; true means "OK to leave"
+  {:inputs [[:editor/dirty?]]}
+  (fn [[dirty?] _] (not dirty?)))            ;; true means "OK to leave"
 ```
 
 `:can-enter` is the entry guard, declared on the **target** route, and it runs in the one planning pipeline — so it covers every door (programmatic navigate, link click, URL bar, Back/Forward, initial load, SSR) with no per-door plumbing. A hand-rolled interceptor attached only to `:rf.route/navigate` fails OPEN through the other two; prefer `:can-enter` for a per-route gate and reach for an interceptor only when one policy genuinely spans many routes.
