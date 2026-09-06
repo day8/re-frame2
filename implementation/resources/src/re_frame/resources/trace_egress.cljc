@@ -366,8 +366,8 @@
   (`resource-family-op?` is operation-agnostic). This docstring is the ROSTER of
   the other row types that stamp a resolved CONCRETE scope under a free `:scope`
   tag — `:rf.resource/invalidated`, `:rf.resource/refetch-decision`,
-  `:rf.resource/removed`, `:rf.warning/resource-clear-scope-unresolved`,
-  `:rf.mutation/started` and `:rf.mutation/optimistic-applied`. The sibling never
+  `:rf.resource/removed`, `:rf.mutation/started` and
+  `:rf.mutation/optimistic-applied`. The sibling never
   ran on any of them, so a pass-through here meant `:scope` was classified by
   NOBODY and the resolver's IDENTITY MAP (`[:rf.scope/session {:username …}]`)
   egressed off-box raw. `:rf.resource/refetch-decision` carried the same scope

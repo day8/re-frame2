@@ -597,7 +597,7 @@ Resource events take a **map payload**, not a positional argument vector. The re
 - **Payload**: a closed union — scoped `{:scope :tags :cause?}` OR cross-scope `{:cross-scope? true :tags :cause}` (no `:scope`).
 - **Description**: Mark every entry whose tags intersect `:tags` as stale. Entries with active owners are refetched. Inactive entries stay stale or become GC-eligible.
   - **Scoped by default** — a scoped invalidation with no `:scope` raises `:rf.error/resource-invalidate-scope-required` (never a silent nil-scope match).
-  - **`:scope` is a ScopeInput** — a concrete scope OR a `{:from-db <id>}` named-resolver reference, resolved at use time against the handler's app-db coeffect, **symmetric with `ensure` / `clear-scope`**. A reference that resolves nil is fail-closed with `:rf.error/resource-scope-unresolved-reference` (invalidate is scope-requiring like ensure). No in-handler resolve needed — pass the reference directly.
+  - **`:scope` is a ScopeInput** — a concrete scope OR a `{:from-db <id>}` named-resolver reference, resolved at use time against the handler's app-db coeffect, **symmetric with `ensure`**. A reference that resolves nil is fail-closed with `:rf.error/resource-scope-unresolved-reference` (invalidate is scope-requiring like ensure). No in-handler resolve needed — pass the reference directly.
   - A cross-scope invalidation opts in explicitly with `:cross-scope? true` and carries **no `:scope`** (it is scope-agnostic). It ignores the scope filter, is visible in Xray, and MUST carry `:cause` — omitting one raises `:rf.error/resource-cross-scope-cause-required`; supplying a `:scope` alongside `:cross-scope? true` raises `:rf.error/resource-cross-scope-scope-conflict`.
   - On a successful load an entry's tags are *replaced* with the new data's tags.
 
@@ -625,7 +625,7 @@ Resource events take a **map payload**, not a positional argument vector. The re
 #### `[:rf.resource/clear-scope {…}]`
 
 - **Kind**: event
-- **Payload**: `{:scope :cause}`
+- **Payload**: `{:scope :cause}` — `:scope` is a **concrete** scope, never a `{:from-db <id>}` reference
 - **Description**: Causal scope teardown. It:
   - removes (or marks unusable) every entry in the scope
   - releases owners
@@ -634,6 +634,9 @@ Resource events take a **map payload**, not a positional argument vector. The re
   - emits explanatory trace rows
 
   Required on logout / account / tenant / permission / locale / impersonation change.
+
+  - **`:scope` is concrete, and this is the one event where that differs from `ensure` / `invalidate-tags`.** Those resolve a `{:from-db …}` reference against their own handler's db, which is the right world for them. `clear-scope` is dispatched from a logout handler's `:fx`, so it runs in the *next* event — against the **post**-logout db, where the resolver's inputs are already gone. Resolve in the handler instead, with the pure [`resolve-resource-scope`](#resolve-resource-scope) helper over its coeffect `db`, and pass the concrete result.
+  - A `{:from-db …}` map on the payload is **refused loud** (`:rf.error/resource-invalid-scope`, `:recovery :fix-scope`) before anything is cleared — not ignored, because a map is a valid *literal* scope and would otherwise key nothing and clear nothing silently.
 
 ```clojure
 ;; logout / tenant-switch — drop a whole scope's cache so the next principal

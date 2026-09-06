@@ -1073,7 +1073,6 @@
 ;;   :rf.resource/invalidated                       (events.cljc:1811)
 ;;   :rf.resource/refetch-decision                  (events.cljc:1828)
 ;;   :rf.resource/removed                           (events.cljc:2069)
-;;   :rf.warning/resource-clear-scope-unresolved    (events.cljc:2138)
 ;;   :rf.mutation/started                           (mutation_events.cljc:1403)
 ;;   :rf.mutation/optimistic-applied                (mutation_events.cljc:1390)
 ;;
@@ -1227,36 +1226,7 @@
           "NO raw identity survives anywhere in the projected record"))))
 
 ;; ---------------------------------------------------------------------------
-;; (4) :rf.warning/resource-clear-scope-unresolved — events.cljc:2138
-;; ---------------------------------------------------------------------------
-
-(deftest off-box-redacts-clear-scope-unresolved-warning-scope
-  (testing "rf2-1zc33 — the clear-scope fail-closed diagnostic rides the
-            `:rf.warning/resource-*` namespace, so `resource-family-op?` routes
-            it to the family projector while the sibling never sees it. Its
-            `:scope` is the UNRESOLVED `{:from-db …}` reference (the emit is
-            guarded on `from-db?`), so the shape default's MAP arm tokenizes it
-            whole — and the resolver-id attribution survives verbatim on the
-            row's sibling `:from-db` scalar tag."
-    (let [record    (record-with
-                      [(event :rf.warning/resource-clear-scope-unresolved
-                              {:rf.frame/id :test/rt
-                               :scope       {:from-db :rt/session}
-                               :from-db     :rt/session
-                               :cause       [:logout]
-                               :recovery    :fix-scope})])
-          projected (epoch/projected-record record)
-          tags      (:tags (first (:trace-events projected)))]
-      (is (redacted-component? (:scope tags))
-          "the reference map is tokenized by the shape default's map arm")
-      (is (= :rt/session (:from-db tags))
-          "the RESOLVER ID survives verbatim on the sibling tag — full
-           attribution, nothing a reader needs is lost")
-      (is (= :fix-scope (:recovery tags)) "the recovery hint rides verbatim")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?"))))
-
-;; ---------------------------------------------------------------------------
-;; (5) :rf.mutation/started + :rf.mutation/optimistic-applied
+;; (4) :rf.mutation/started + :rf.mutation/optimistic-applied
 ;;     — mutation_events.cljc:1390, 1403
 ;; ---------------------------------------------------------------------------
 
@@ -1311,7 +1281,7 @@
           "NO raw identity survives anywhere in the projected record"))))
 
 ;; ---------------------------------------------------------------------------
-;; (6) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
+;; (5) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-keeps-global-scope-and-plain-owner-key-verbatim
@@ -1397,7 +1367,7 @@
            two sessions apart"))))
 
 ;; ---------------------------------------------------------------------------
-;; (7) the SIBLING still owns its own row — nothing changes on scope-resolved
+;; (6) the SIBLING still owns its own row — nothing changes on scope-resolved
 ;; ---------------------------------------------------------------------------
 
 (deftest scope-resolved-row-scope-still-owned-by-the-sibling
@@ -1434,7 +1404,7 @@
           "NO raw identity survives anywhere in the projected record"))))
 
 ;; ---------------------------------------------------------------------------
-;; (8) the trusted-local boundary — the redaction is the off-box DEFAULT
+;; (7) the trusted-local boundary — the redaction is the off-box DEFAULT
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-free-scope
@@ -1449,8 +1419,6 @@
                               {:rf.frame/id :test/rt :scope session-scope})
                        (event :rf.resource/removed
                               {:rf.frame/id :test/rt :scope session-scope})
-                       (event :rf.warning/resource-clear-scope-unresolved
-                              {:rf.frame/id :test/rt :scope {:from-db :rt/session}})
                        (event :rf.mutation/started
                               {:rf.frame/id :test/rt :scope session-scope})
                        (event :rf.mutation/optimistic-applied
@@ -1458,7 +1426,6 @@
           projected (epoch/projected-record record {:include-sensitive? true})
           scopes    (mapv #(:scope (:tags %)) (:trace-events projected))]
       (is (= [session-scope session-scope session-scope
-              {:from-db :rt/session}
               session-scope session-scope]
              scopes)
           "every row's raw :scope rides with :include-sensitive?"))))

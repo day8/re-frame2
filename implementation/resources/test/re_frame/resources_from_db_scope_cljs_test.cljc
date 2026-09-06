@@ -266,71 +266,59 @@
       (is (= {:for "abel"} (:data @sub)) "the sub now reads abel's data"))))
 
 ;; ===========================================================================
-;; 5. rf2-mfnc5i — {:from-db} on a CLEAR-SCOPE payload resolves at use time;
-;;    a nil-resolving reference is a loud warning + fail-closed (never a
-;;    silent no-op). Slice-3 wired event/route/sub/remove but missed
-;;    clear-scope. Spec 016 §clear-scope is causal.
+;; 5. rf2-kuky.79 — clear-scope takes a CONCRETE scope only. A `{:from-db …}`
+;;    map on a clear-scope payload is REFUSED LOUD at the concrete-scope
+;;    boundary (`:rf.error/resource-invalid-scope`), before any cache state
+;;    changes. Spec 016 §clear-scope takes a concrete scope.
+;;
+;;    This is the FAIL-OPEN trap the reduction had to close, not an incidental
+;;    validation: a map is a perfectly valid LITERAL scope value, so once the
+;;    reference arm is deleted a `{:from-db :t/session}` payload would
+;;    canonicalize as a literal map scope, key nothing, and clear nothing —
+;;    silently. The refusal lives in the SHARED concrete-scope guard
+;;    (`state/canonicalize-scope`), so every concrete-scope boundary inherits
+;;    it, not clear-scope alone.
 ;; ===========================================================================
 
-(defn- record-clear-scope-warnings!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  `:rf.warning/resource-clear-scope-unresolved` event emitted during it (in
-  capture order). The listener is unregistered in a `finally`."
-  [body-fn]
-  (let [seen (atom [])
-        k    ::clear-scope-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev]
-          (when (= :rf.warning/resource-clear-scope-unresolved (:operation ev))
-            (swap! seen conj ev))))
-    (try (body-fn)
-         (finally (rf.trace.tooling/unregister-listener! k)))
-    @seen))
-
-(deftest clear-scope-from-db-resolves-and-clears-the-resolved-scope
+(deftest clear-scope-refuses-a-from-db-reference-map-loud
   (rf/dispatch-sync [:t/login "jake"])
   ;; ensure + load jake's feed under the db-derived session scope
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
                                           :owner [:app :c 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   (is (some? (entry (session-key "jake" 1))) "jake's entry loaded")
-  (testing "a {:from-db …} clear-scope payload RESOLVES against app-db at use
-            time and clears the resolved session scope (never the literal
-            reference map, which would match nothing — the silent no-op the
-            spec prohibits)"
+  (testing "a {:from-db …} clear-scope payload is REFUSED with
+            :rf.error/resource-invalid-scope — the reference form no longer
+            exists, and a map that merely LOOKS like one must not be accepted
+            as a literal map scope (which would key nothing and clear nothing,
+            silently)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+          (rf.resources.events/clear-scope-handler
+            {:rf.db/runtime {} :rf.frame/id :rf/default :db {} :rf/time-ms 1}
+            [:rf.resource/clear-scope {:scope {:from-db :t/session}
+                                       :cause :logout}]))))
+  (testing "the refusal happens BEFORE any cache state changes — dispatched
+            through the event, the runtime error path leaves every entry
+            exactly as it was (not a silent no-op that merely looks the same:
+            the throw above is what distinguishes them)"
     (rf/dispatch-sync [:rf.resource/clear-scope
                        {:scope {:from-db :t/session} :cause :logout}])
+    (is (some? (entry (session-key "jake" 1)))
+        "jake's entry is untouched by the refused clear-scope")
+    (is (= 1 (count (entries))) "no entry was removed"))
+  (testing "the CONCRETE scope the caller must pre-resolve still clears — this
+            is the supported idiom (`rf/resolve-resource-scope` over the
+            handler's own db, the pure helper), and it proves the refusal above
+            is about the reference SHAPE, not about clear-scope being broken"
+    (let [concrete (rf/resolve-resource-scope {:auth {:user {:username "jake"}}}
+                                              :t/session)]
+      (is (= [:rf.scope/session {:username "jake"}] concrete)
+          "the pure helper yields the concrete scope a logout handler passes")
+      (rf/dispatch-sync [:rf.resource/clear-scope {:scope concrete :cause :logout}]))
     (is (nil? (entry (session-key "jake" 1)))
-        "jake's session-scoped entry was cleared via the resolved {:from-db} scope")
-    (is (empty? (entries)) "no entry survives the resolved-scope clear")))
-
-(deftest clear-scope-from-db-nil-warns-and-clears-nothing
-  ;; jake is logged in with a loaded entry; we clear-scope with a {:from-db}
-  ;; reference AFTER logout (the resolver's :inputs are gone → resolves nil).
-  (rf/dispatch-sync [:t/login "jake"])
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:app :c 1]}])
-  (settle-loaded! (session-key "jake" 1) {:for "jake"})
-  (rf/dispatch-sync [:t/logout])
-  (testing "rf2-mfnc5i / Spec 016 §clear-scope is causal — a {:from-db …}
-            clear-scope reference that resolves NIL (no logged-in user) emits a
-            loud :rf.warning/resource-clear-scope-unresolved diagnostic and
-            clears NOTHING — never a silent no-op, never a fall-through to
-            clearing global"
-    (let [warns (record-clear-scope-warnings!
-                  (fn []
-                    (rf/dispatch-sync [:rf.resource/clear-scope
-                                       {:scope {:from-db :t/session}
-                                        :cause :logout}])))]
-      (is (= 1 (count warns)) "exactly one unresolved warning fired")
-      (let [w (first warns)]
-        (is (= :rf.warning/resource-clear-scope-unresolved (:operation w)))
-        (is (= :t/session (-> w :tags :from-db)) "names the unresolved resolver id"))
-      ;; jake's entry is UNTOUCHED — the nil-resolving reference cleared nothing
-      ;; (the entry would only be reachable under the resolved session scope,
-      ;; which is exactly what failed to resolve here)
-      (is (some? (entry (session-key "jake" 1)))
-          "the nil-resolving clear-scope cleared NOTHING (fail-closed, not silent)"))))
+        "the pre-resolved concrete scope cleared jake's entry")
+    (is (empty? (entries)) "no entry survives the concrete-scope clear")))
 
 ;; ===========================================================================
 ;; rf2-fi6tda.4 finding 2 — pin the runtime :rf.resource/scope-resolved trace
