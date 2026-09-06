@@ -449,7 +449,7 @@ EP-0026 standardizes only the inline kinds with a concrete parser:
 | map key | kind | tuple body |
 | --- | --- | --- |
 | `:reg-event` | `:event` | event handler body accepted by the event registrar |
-| `:reg-sub` | `:sub` | simple db-reader subscription body |
+| `:reg-sub` | `:sub` | subscription computation body; dependencies in the entry's metadata under `:inputs` |
 | `:reg-fx` | `:fx` | effect handler function |
 | `:reg-cofx` | `:cofx` | coeffect handler function |
 
@@ -458,8 +458,15 @@ inline contract is exactly the registrar's contract — neither a looser superse
 nor a stricter subset, and the EP invents no parallel grammar. Two constraints are
 pinned now:
 
-- inline `:reg-sub` accepts **only the layer-1 db-reader form** `(fn [db query] …)`;
-  static `:<-` and parametric input-fn subscriptions stay namespace-authored;
+- inline `:reg-sub` accepts **derived subscriptions as well as the layer-1
+  db-reader form**. This constraint used to read "only the layer-1 db-reader
+  form", and the reason was positional: the inline tuple carries one body and no
+  argument positions, so there was nowhere to put a dependency chain. Since
+  rf2-kuky.45 a subscription declares its dependencies under `:inputs` in the
+  metadata map — a slot the 3-tuple already carries — so a `:static` or
+  `:parametric` inline sub lowers through the same seam the public registrar
+  uses, and a malformed `:inputs` raises the same `:rf.error/reg-sub-bad-args`.
+  Nothing about the inline grammar had to widen to allow it;
 - inline `:reg-cofx` carries the coeffect's grade (recordable / provided) exactly
   as `reg-cofx` does, including a generator-less provided/recordable entry where
   the registrar allows it.

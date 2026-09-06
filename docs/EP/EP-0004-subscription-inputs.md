@@ -232,15 +232,15 @@ Example:
      :can-edit? (:edit? viewer)}))
 ```
 
-### Static `:<-` sugar
+### Literal `:inputs`
 
-`:<-` remains the best form when inputs are literal:
+A literal vector is the best form when the inputs do not depend on the outer
+query vector:
 
 ```clojure
 (rf/reg-sub
   :visible-items
-  :<- [:items]
-  :<- [:filter]
+  {:inputs [[:items] [:filter]]}
   (fn [[items filter] _]
     (filter-items items filter)))
 ```
@@ -250,20 +250,24 @@ It is equivalent to a constant input producer:
 ```clojure
 (rf/reg-sub
   :visible-items
-  (fn [_] [[:items] [:filter]])
+  {:inputs (fn [_] [[:items] [:filter]])}
   (fn [[items filter] _]
     (filter-items items filter)))
 ```
 
-That equivalence is about producing input query vectors. The existing static
-`:<-` handler delivery convention is preserved: a single static `:<-` input is
-delivered as the bare value, while multiple static `:<-` inputs are delivered as
-a vector. Parametric `input-fn` subscriptions are different: their computation
-function always receives a vector of resolved input values, even when the
-`input-fn` returns exactly one query vector.
+The equivalence is total, and that is the point: it holds for **producing** the
+input query vectors AND for **delivering** them. A declared dependency list
+reaches the computation function as a vector in either spelling, at one input as
+at several, so the two forms above differ only in when the edges are known.
 
-Use `:<-` for static inputs. Use `input-fn` only when the upstream query
-vectors need values from the outer query vector.
+> **Superseded (rf2-kuky.45, 2026-09-06).** This section previously said the
+> opposite — that a single static input was delivered as the bare value while a
+> parametric one was always delivered as a vector, so the body's shape depended
+> on which form you had chosen and on how many inputs you had. That count- and
+> form-dependent rule is retired along with the `:<-` spelling it belonged to.
+
+Write the literal whenever you can; reach for a producer fn only when the
+upstream query vectors need values from the outer query vector.
 
 ### No app-db-dependent topology
 
@@ -472,11 +476,15 @@ v2:
 ```clojure
 (rf/reg-sub
   :item/title
-  (fn [[_ id]]
-    [[:item/by-id id]])
+  {:inputs (fn [[_ id]] [[:item/by-id id]])}
   (fn [[item] _]
     (:title item)))
 ```
+
+The body destructures `[item]` because a declared input list is always a vector.
+That is the same body it would carry under a literal `{:inputs [[:item/by-id]]}`
+— the single-input case is not a special case, and moving between the two forms
+never rewrites it.
 
 ## Reference Implementation
 
