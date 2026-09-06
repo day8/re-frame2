@@ -30,9 +30,8 @@ The [snapshot](glossary.md#snapshot) is `nil` before the first event addressed t
 For views, prefer projection subscriptions:
 
 ```clojure
-(rf/reg-sub :auth.login/error
-  :<- [:rf/machine :auth.login/flow]
-  (fn [m _]
+(rf/reg-sub :auth.login/error {:inputs [[:rf/machine :auth.login/flow]]}
+  (fn [[m] _]
     (get-in m [:data :error])))
 ```
 

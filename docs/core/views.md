@@ -353,9 +353,8 @@ And the *after*, with the derivation pushed up into a
 
 ```clojure
 ;; After — the sub computes once per change to :cart/items; the view renders.
-(rf/reg-sub :cart/lines-display
-  :<- [:cart/items]
-  (fn [items _]
+(rf/reg-sub :cart/lines-display {:inputs [[:cart/items]]}
+  (fn [[items] _]
     (->> items
          (map #(update % :price (fn [n] (.toFixed n 2))))
          (sort-by :name))))

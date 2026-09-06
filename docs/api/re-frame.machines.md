@@ -416,7 +416,7 @@ The shipped machine-tooling exports are `re-frame.machines` aliases over `re-fra
   ```clojure
   (re-frame.machines/machine-selector? sub-id) → boolean
   ```
-- **Description**: True iff the subscription registered under `sub-id` is a machine selector: an ordinary `reg-sub` whose static `:<-` inputs include a `[:rf/machine …]` (or `[:rf.machine/has-tag? …]`) query vector. Machine selectors stay ordinary ephemeral `:derivation` subscription nodes, not a second subscription system. This recognizer lets a graph tool flag the ones that read a machine. JVM-only.
+- **Description**: True iff the subscription registered under `sub-id` is a machine selector: an ordinary `reg-sub` whose literal `:inputs` include a `[:rf/machine …]` (or `[:rf.machine/has-tag? …]`) query vector. Machine selectors stay ordinary ephemeral `:derivation` subscription nodes, not a second subscription system. This recognizer lets a graph tool flag the ones that read a machine. JVM-only.
 - **Example**:
   ```clojure
   (machines/machine-selector? :session/summary)  ;; => true / false
@@ -429,7 +429,7 @@ The shipped machine-tooling exports are `re-frame.machines` aliases over `re-fra
   ```clojure
   (re-frame.machines/machine-selector-targets sub-id) → #{machine-id …}
   ```
-- **Description**: The set of machine ids the subscription registered under `sub-id` reads as a machine selector. Each id is the second element of an accepted `[:rf/machine machine-id …]` / `[:rf.machine/has-tag? machine-id …]` static `:<-` input. Where `machine-selector?` answers only the boolean, this returns the actual target machine ids a graph tool needs to draw the edge. JVM-only.
+- **Description**: The set of machine ids the subscription registered under `sub-id` reads as a machine selector. Each id is the second element of an accepted `[:rf/machine machine-id …]` / `[:rf.machine/has-tag? machine-id …]` literal `:inputs` entry. Where `machine-selector?` answers only the boolean, this returns the actual target machine ids a graph tool needs to draw the edge. JVM-only.
 - **Example**:
   ```clojure
   (machines/machine-selector-targets :session/summary)  ;; => #{:session}

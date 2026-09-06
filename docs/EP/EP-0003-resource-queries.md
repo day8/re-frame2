@@ -344,8 +344,8 @@ dependencies.
   and §Write authority is by convention therein.
 - **Builds on parametric subscription inputs (final).** Resource subscription
   view-models use the resolved input shape of the [Parametric Subscription Inputs
-  EP](EP-0004-subscription-inputs.md): static `:<-` sugar plus input functions
-  that return a vector of query vectors. These resource helpers compose over that
+  EP](EP-0004-subscription-inputs.md): a literal `:inputs` vector plus input
+  functions that return a vector of query vectors. These resource helpers compose over that
   final grammar rather than waiting on it. See
   [`spec/006-ReactiveSubstrate.md` §Subscription input producers](../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
 

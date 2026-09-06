@@ -514,7 +514,7 @@ prefer partition-specific inputs.
 Graph inspection has two modes:
 
 - A **static graph** is derived from registrations and source forms. It can show
-  literal `:<-` subscription edges, flow input paths, resource declarations,
+  literal `:inputs` subscription edges, flow input paths, resource declarations,
   route metadata, and machine declarations.
 - A **live graph** is derived from a frame at a point in time. It can include
   concrete subscription query vectors, realized parametric input edges, active
@@ -771,8 +771,7 @@ Existing static-input subscription:
 ```clojure
 (rf/reg-sub
   :cart/total
-  :<- [:cart/items]
-  :<- [:pricing/discounts]
+  {:inputs [[:cart/items] [:pricing/discounts]]}
   (fn [[items discounts] _query-v]
     (sum-cart items discounts)))
 ```
@@ -1139,8 +1138,8 @@ Selector source:
 ```clojure
 (rf/reg-sub
   :upload/progress
-  :<- [:rf/machine :upload/main]
-  (fn [snapshot _]
+  {:inputs [[:rf/machine :upload/main]]}
+  (fn [[snapshot] _]
     (get-in snapshot [:data :progress] 0)))
 ```
 
@@ -1299,9 +1298,9 @@ re-frame2 source forms remain valid unless their owning specs change them.
 
 - layer-1 subs become ephemeral, on-demand derivations over the app-db
   projection;
-- static `:<-` subs become ephemeral, on-demand derivations over declared
-  subscription inputs;
-- input-function subs become parametric derivations whose realized edges appear
+- subs with a literal `:inputs` vector become ephemeral, on-demand derivations
+  over declared subscription inputs;
+- subs with an `:inputs` producer fn become parametric derivations whose realized edges appear
   in the live graph per concrete query vector.
 
 Mechanical migration from re-frame v1 is strongest for the common shapes:
@@ -1375,9 +1374,9 @@ in machine definitions; selectors and view-models become graph-visible facts.
 1. Add the derivation/process vocabulary to the normative specs: fact,
    derivation, process, declared input, output, storage class, evaluation
    policy, lifecycle, owner, materialized output, and ephemeral output.
-2. Extend subscription registration metadata so `reg-sub`, static `:<-`, input
-   functions, runtime subscriptions, and live sub-cache entries expose algebra
-   views.
+2. Extend subscription registration metadata so `reg-sub`, literal `:inputs`,
+   `:inputs` producer fns, runtime subscriptions, and live sub-cache entries
+   expose algebra views.
 3. Extend flow metadata so `reg-flow` exposes inputs, output path, storage,
    evaluation policy, lifecycle, and source coordinates through the algebra
    view.

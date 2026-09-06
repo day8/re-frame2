@@ -27,9 +27,8 @@ or another update- or commit-phase path) must read the answer as plain app-db da
 The fastest way to *see* a flow is to take a derivation you already understand and move its answer from the view-cache into app-db. [Subscriptions](subscriptions.md) derived the counter's odd/even label as a formula cell over the `:value` fact:
 
 ```clojure
-(rf/reg-sub :parity
-  :<- [:value]
-  (fn [n _query] (if (odd? n) :odd :even)))
+(rf/reg-sub :parity {:inputs [[:value]]}
+  (fn [[n] _query] (if (odd? n) :odd :even)))
 ```
 
 Here is the *same* label as a flow. Same pure function, no new domain:

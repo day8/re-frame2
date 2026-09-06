@@ -115,17 +115,15 @@ Two subscriptions earn their keep on almost every form:
 
 ```clojure
 ;; can-submit? — no outstanding errors AND not mid-flight. Drive the button's :disabled with it.
-(rf/reg-sub :auth.login-form/can-submit?
-  :<- [:auth.login-form/slice]
-  (fn [{:keys [errors status]} _]
+(rf/reg-sub :auth.login-form/can-submit? {:inputs [[:auth.login-form/slice]]}
+  (fn [[{:keys [errors status]}] _]
     (and (empty? errors) (not= status :submitting))))
 
 ;; dirty? — has the draft diverged from the last durable point? The pattern's single rule:
 ;; compare against :submitted when it exists, otherwise against the form's defaults.
 ;; Use it to enable a "discard changes?" prompt, or a :can-leave guard (below).
-(rf/reg-sub :auth.login-form/dirty?
-  :<- [:auth.login-form/slice]
-  (fn [{:keys [draft submitted]} _]
+(rf/reg-sub :auth.login-form/dirty? {:inputs [[:auth.login-form/slice]]}
+  (fn [[{:keys [draft submitted]}] _]
     (not= draft (or submitted {:email "" :password ""}))))
 ```
 
@@ -141,15 +139,13 @@ The rule lives in one place, a [subscription](../../core/glossary.md#subscriptio
 (rf/reg-sub :auth.login-form/slice
   (fn [db _] (get-in db [:auth :login-form])))
 
-(rf/reg-sub :auth.login-form/field-error
-  :<- [:auth.login-form/slice]
-  (fn [{:keys [errors touched submit-attempted?]} [_ field]]
+(rf/reg-sub :auth.login-form/field-error {:inputs [[:auth.login-form/slice]]}
+  (fn [[{:keys [errors touched submit-attempted?]}] [_ field]]
     (when (or submit-attempted? (contains? touched field))
       (first (get errors field)))))
 
-(rf/reg-sub :auth.login-form/form-errors
-  :<- [:auth.login-form/slice]
-  (fn [slice _] (get-in slice [:errors :_form])))
+(rf/reg-sub :auth.login-form/form-errors {:inputs [[:auth.login-form/slice]]}
+  (fn [[slice] _] (get-in slice [:errors :_form])))
 ```
 
 Because the rule lives in the subscription and not in the view, every field renders its error the same way — `(when email-err …)` — and none of them carry the "should I show this yet?" logic. Change the rule once and every field obeys.
@@ -498,9 +494,9 @@ Extend Part 1's registrations with the guard (and, while we're here, a tag — f
   "/settings")
 
 (rf/reg-sub :conduit/signed-in?
-  {:doc "The :can-enter auth guard: true when a user is signed in."}
-  :<- [:auth/user]
-  (fn [user _] (some? user)))                ;; true → OK to enter
+  {:doc "The :can-enter auth guard: true when a user is signed in."
+   :inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))               ;; true → OK to enter
 ```
 
 That is the whole gate. There is no normaliser to write, because there is nothing to normalise.
@@ -574,8 +570,8 @@ Then watch the harder one. Signed in, reload directly on `/settings`. The ledger
 
 ```clojure
 (rf/reg-sub :editor/can-leave?
-  :<- [:auth.article-form/dirty?]            ;; the dirty? sub from earlier, on the editor's slice
-  (fn [dirty? _] (not dirty?)))              ;; clean draft → leave freely; dirty → block
+  {:inputs [[:auth.article-form/dirty?]]}     ;; the dirty? sub from earlier, on the editor's slice
+  (fn [[dirty?] _] (not dirty?)))            ;; clean draft → leave freely; dirty → block
 
 (rf/reg-route :conduit.editor/new
   {:can-leave [:editor/can-leave?]

@@ -123,9 +123,8 @@ Here's the mental shift, and it's the whole numbered-pages trick: **changing pag
     {:fx [[:dispatch [:rf.route/navigate {:to :app/home
                                           :query (if (> page 1) {:page page} {})}]]]}))
 
-(rf/reg-sub :home/page
-  :<- [:rf.route/query]
-  (fn [q _] (or (:page q) 1)))
+(rf/reg-sub :home/page {:inputs [[:rf.route/query]]}
+  (fn [[q] _] (or (:page q) 1)))
 ```
 
 Notice the event has *no fetch in it* — no HTTP, no resource call. It just navigates. The route declaration from step 2 turns that navigation into the right `ensure`. That's the split doing its job, and it's why the [event handler](../../core/glossary.md#event-handler) stays a pure function returning a tiny [effect map](../../core/glossary.md#effect-map).

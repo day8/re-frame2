@@ -496,9 +496,8 @@ One gap is left. Write half an article, click the site logo, and the draft silen
     (let [{:keys [draft baseline]} (:editor db)]
       (not= draft baseline))))
 
-(rf/reg-sub :editor/can-leave?
-  :<- [:editor/dirty?]
-  (fn [dirty? _] (not dirty?)))
+(rf/reg-sub :editor/can-leave? {:inputs [[:editor/dirty?]]}
+  (fn [[dirty?] _] (not dirty?)))
 
 ;; src/conduit/routing.cljs — a new route for the editor, with the guard.
 (rf/reg-route :conduit.editor/new

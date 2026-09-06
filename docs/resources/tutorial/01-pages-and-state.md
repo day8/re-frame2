@@ -117,17 +117,15 @@ Views never reach into app-db directly. (If they did, every view would need to k
 (rf/reg-sub :articles/slice
   (fn [db _] (:articles db)))
 
-(rf/reg-sub :articles/data
-  :<- [:articles/slice]
-  (fn [slice _] (:data slice)))
+(rf/reg-sub :articles/data {:inputs [[:articles/slice]]}
+  (fn [[slice] _] (:data slice)))
 
-(rf/reg-sub :articles/by-slug
-  :<- [:articles/data]
-  (fn [articles [_ slug]]
+(rf/reg-sub :articles/by-slug {:inputs [[:articles/data]]}
+  (fn [[articles] [_ slug]]
     (first (filter #(= slug (:slug %)) articles))))
 ```
 
-The first reads straight from app-db. The other two use `:<-` to declare an *input subscription*: `:articles/data` derives from `:articles/slice`, and `:articles/by-slug` derives from `:articles/data`. Subscriptions form a graph — [the derivation graph](../../core/glossary.md#the-derivation-graph) — and that graph is exactly what makes them cheap. A sub recomputes only when an input it actually reads produces a *new* value (compared by `=`), and a view re-renders only when the sub it reads produces a new value. Nothing recomputes "just in case."
+The first reads straight from app-db — it declares no `:inputs`, so its first argument *is* `db`. The other two declare an `:inputs` vector, and their bodies receive the resolved values as a vector (`[slice]`, `[articles]`) — always a vector, at one input as at several: `:articles/data` derives from `:articles/slice`, and `:articles/by-slug` derives from `:articles/data`. Subscriptions form a graph — [the derivation graph](../../core/glossary.md#the-derivation-graph) — and that graph is exactly what makes them cheap. A sub recomputes only when an input it actually reads produces a *new* value (compared by `=`), and a view re-renders only when the sub it reads produces a new value. Nothing recomputes "just in case."
 
 `:articles/by-slug` takes an argument. A view asks for a subscription with a [**query vector**](../../core/glossary.md#query-vector) — a sub-id followed by any arguments, the very same shape an event has — so to ask for one article it writes `[:articles/by-slug "welcome-to-conduit"]`. The computation function receives that whole vector, destructured here as `[_ slug]`: the first element is the sub-id itself (`:articles/by-slug`), discarded as `_` because the function already knows which sub it is, and everything after it is your argument.
 

@@ -20,9 +20,8 @@ Full auth system (form, token, logout): [Add authentication](../../core/how-to/a
   {:can-enter [:auth/signed-in?]}
   "/settings")
 
-(rf/reg-sub :auth/signed-in?
-  :<- [:auth/user]
-  (fn [user _] (some? user)))          ;; true → OK to enter
+(rf/reg-sub :auth/signed-in? {:inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))        ;; true → OK to enter
 ```
 
 `true` allows entry; `false` refuses it. The contract is closed — a non-boolean

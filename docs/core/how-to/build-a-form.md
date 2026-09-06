@@ -298,19 +298,16 @@ This rule kills the two classic failure modes. The first is every field shouting
 ```clojure
 (rf/reg-sub :form.login (fn [db _] (get-in db [:auth :login])))
 
-(rf/reg-sub :form.login/field-error
-  :<- [:form.login]
-  (fn [{:keys [errors touched submit-attempted?]} [_ field]]
+(rf/reg-sub :form.login/field-error {:inputs [[:form.login]]}
+  (fn [[{:keys [errors touched submit-attempted?]}] [_ field]]
     (when (or submit-attempted? (contains? touched field))
       (first (get errors field)))))
 
-(rf/reg-sub :form.login/form-errors
-  :<- [:form.login]
-  (fn [{:keys [errors]} _] (:_form errors)))
+(rf/reg-sub :form.login/form-errors {:inputs [[:form.login]]}
+  (fn [[{:keys [errors]}] _] (:_form errors)))
 
-(rf/reg-sub :form.login/can-submit?
-  :<- [:form.login]
-  (fn [{:keys [errors status]} _]
+(rf/reg-sub :form.login/can-submit? {:inputs [[:form.login]]}
+  (fn [[{:keys [errors status]}] _]
     (and (empty? errors) (not= status :submitting))))
 ```
 
@@ -323,12 +320,11 @@ The condition `(or submit-attempted? (contains? touched field))` is the entire v
 Now add the thin one-liners the rest of the app reads. `:dirty?` compares the draft against `:submitted` when it's non-nil, and falls back to the defaults otherwise:
 
 ```clojure
-(rf/reg-sub :form.login/draft        :<- [:form.login] (fn [s _] (:draft s)))
-(rf/reg-sub :form.login/status       :<- [:form.login] (fn [s _] (:status s)))
-(rf/reg-sub :form.login/submit-error :<- [:form.login] (fn [s _] (:submit-error s)))
-(rf/reg-sub :form.login/dirty?
-  :<- [:form.login]
-  (fn [{:keys [draft submitted]} _]
+(rf/reg-sub :form.login/draft        {:inputs [[:form.login]]} (fn [[s] _] (:draft s)))
+(rf/reg-sub :form.login/status       {:inputs [[:form.login]]} (fn [[s] _] (:status s)))
+(rf/reg-sub :form.login/submit-error {:inputs [[:form.login]]} (fn [[s] _] (:submit-error s)))
+(rf/reg-sub :form.login/dirty? {:inputs [[:form.login]]}
+  (fn [[{:keys [draft submitted]}] _]
     (not= draft (or submitted login-defaults))))
 ```
 

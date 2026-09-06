@@ -42,9 +42,8 @@ The fastest way to feel the four questions is to follow a single value as a feat
 The cart total is the sum of the line items' prices, and the items already live in `app-db`. So you can compute the total every time from state you already have, storing nothing extra — and that is *exactly* what a [subscription](glossary.md#subscription) is.
 
 ```clojure
-(rf/reg-sub :cart/total
-  :<- [:cart/items]
-  (fn [items _]
+(rf/reg-sub :cart/total {:inputs [[:cart/items]]}
+  (fn [[items] _]
     (reduce + (map :price items))))
 ```
 
@@ -52,7 +51,7 @@ The total is never wrong. There's no second copy, so there is nothing to drift. 
 
 ??? info "Coming from Redux?"
 
-    This is a reselect selector — a memoised derivation over store state — and `:<- [:cart/items]` is its input-signal vector, the moral equivalent of the selectors you'd thread into `createSelector`. The difference: in re-frame2 the dependency wiring is explicit *data*, not a closure you assemble by hand, so the framework can draw the [derivation graph](glossary.md#the-derivation-graph) for you.
+    This is a reselect selector — a memoised derivation over store state — and `{:inputs [[:cart/items]]}` is its input declaration, the moral equivalent of the selectors you'd thread into `createSelector`. The difference: in re-frame2 the dependency wiring is explicit *data*, not a closure you assemble by hand, so the framework can draw the [derivation graph](glossary.md#the-derivation-graph) for you.
 
 One rule keeps this home standing: **a subscription must stay pure.** It is a *read* — same inputs, same output, no reaching into the world. The moment it fetches, writes `localStorage`, or reads the clock, it has stopped being a derivation and become a question the wrong home is trying to answer. (That smell — and where the value should go instead — is the first row of [the wrong-home table](#signs-you-picked-the-wrong-home) below.)
 
@@ -64,9 +63,8 @@ This is the moment the value wants to be *part of the application's state*. That
 
 ```clojure
 ;; BEFORE — the subscription from question 1. View-side; gone after the render.
-(rf/reg-sub :cart/total
-  :<- [:cart/items]
-  (fn [items _] (reduce + (map :price items))))
+(rf/reg-sub :cart/total {:inputs [[:cart/items]]}
+  (fn [[items] _] (reduce + (map :price items))))
 
 ;; AFTER — a flow. Same formula, but the result is WRITTEN into app-db,
 ;; where handlers read it as plain data and your schema can cover it.
