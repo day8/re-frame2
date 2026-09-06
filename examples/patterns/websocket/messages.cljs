@@ -607,16 +607,16 @@
     (fn [db _] (:messages db)))
 
   (rf/reg-sub :messages/draft
-    :<- [:messages/slice]
-    (fn [m _] (:draft m)))
+    {:inputs [[:messages/slice]]}
+    (fn [[m] _] (:draft m)))
 
   (rf/reg-sub :messages/received
-    :<- [:messages/slice]
-    (fn [m _] (:received m)))
+    {:inputs [[:messages/slice]]}
+    (fn [[m] _] (:received m)))
 
   (rf/reg-sub :messages/last-reply
-    :<- [:messages/slice]
-    (fn [m _] (:last-reply m))))
+    {:inputs [[:messages/slice]]}
+    (fn [[m] _] (:last-reply m))))
 
 ;; Loading this namespace registers it — the production-app idiom.
 (register!)

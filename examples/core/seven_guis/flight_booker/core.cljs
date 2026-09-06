@@ -149,25 +149,25 @@
                (= d (.getUTCDate dt))))))))
 
 (rf/reg-sub :flight/return-enabled?
-  :<- [:flight/trip-type]
-  (fn sub-flight-return-enabled? [trip-type _]
+  {:inputs [[:flight/trip-type]]}
+  (fn sub-flight-return-enabled? [[trip-type] _]
     (= trip-type :return)))
 
 (rf/reg-sub :flight/start-valid?
-  :<- [:flight/start-text]
-  (fn [s _] (valid-date? s)))
+  {:inputs [[:flight/start-text]]}
+  (fn [[s] _] (valid-date? s)))
 
 (rf/reg-sub :flight/return-valid?
-  :<- [:flight/return-text]
-  :<- [:flight/return-enabled?]
+  {:inputs [[:flight/return-text]
+            [:flight/return-enabled?]]}
   (fn [[s enabled?] _]
     ;; If return isn't enabled, it doesn't need to be valid.
     (or (not enabled?) (valid-date? s))))
 
 (rf/reg-sub :flight/dates-coherent?
-  :<- [:flight/trip-type]
-  :<- [:flight/start-text]
-  :<- [:flight/return-text]
+  {:inputs [[:flight/trip-type]
+            [:flight/start-text]
+            [:flight/return-text]]}
   (fn [[trip-type s r] _]
     (case trip-type
       :one-way true
@@ -182,10 +182,10 @@
 (rf/reg-sub :flight/book-enabled?
   {:doc "The keystone sub: Book is clickable only when the start date is
          valid, the return date is valid (or unused), and the two are in a
-         sensible order. Three smaller answers, ANDed into one."}
-  :<- [:flight/start-valid?]
-  :<- [:flight/return-valid?]
-  :<- [:flight/dates-coherent?]
+         sensible order. Three smaller answers, ANDed into one."
+   :inputs [[:flight/start-valid?]
+            [:flight/return-valid?]
+            [:flight/dates-coherent?]]}
   (fn [[ok-s ok-r ok-c] _]
     (and ok-s ok-r ok-c)))
 

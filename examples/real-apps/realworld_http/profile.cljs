@@ -606,8 +606,8 @@
 ;; ============================================================================
 
 (rf/reg-sub :profile/slice   (fn [db _] (:profile db)))
-(rf/reg-sub :profile/data    :<- [:profile/slice] (fn [s _] (:data s)))
-(rf/reg-sub :profile/error   :<- [:profile/slice] (fn [s _] (:error s)))
+(rf/reg-sub :profile/data    {:inputs [[:profile/slice]]} (fn [[s] _] (:data s)))
+(rf/reg-sub :profile/error   {:inputs [[:profile/slice]]} (fn [[s] _] (:error s)))
 
 (rf/reg-sub :profile/follow-pending?
   {:doc "Is a follow/unfollow mutation in flight for the profile ON SCREEN? The
@@ -674,9 +674,9 @@
 (rf/reg-sub :profile/render
   {:doc "Reduce the `:ui/profile` machine's active tags to one render keyword,
          via the render-priority table. The root view's `case` on it is the
-         only branch site."}
-  :<- [:rf/machine :ui/profile]
-  (fn sub-profile-render [snap _]
+         only branch site."
+   :inputs [[:rf/machine :ui/profile]]}
+  (fn sub-profile-render [[snap] _]
     (let [tags (:tags snap)]
       (some (fn [{:keys [tag render]}]
               (when (contains? tags tag) render))
@@ -684,10 +684,10 @@
 
 (rf/reg-sub :profile/current-articles
   {:doc "Whichever article list the active tab calls for: the `:tab` region's
-         state picks the app-db slice — favorited vs authored."}
-  :<- [:rf/machine :ui/profile]
-  :<- [:profile.articles/data]
-  :<- [:profile.favorites/data]
+         state picks the app-db slice — favorited vs authored."
+   :inputs [[:rf/machine :ui/profile]
+            [:profile.articles/data]
+            [:profile.favorites/data]]}
   (fn sub-current-articles [[snap authored favorited] _]
     (case (get-in snap [:state :tab])
       :favorites (or favorited [])
@@ -703,10 +703,10 @@
 
 (rf/reg-sub :profile/current-count
   {:doc "Grand article count for the active profile tab — drives the page
-         count for the tab's `?page=` control."}
-  :<- [:rf/machine :ui/profile]
-  :<- [:profile.articles/count]
-  :<- [:profile.favorites/count]
+         count for the tab's `?page=` control."
+   :inputs [[:rf/machine :ui/profile]
+            [:profile.articles/count]
+            [:profile.favorites/count]]}
   (fn sub-current-count [[snap authored-count favorited-count] _]
     (case (get-in snap [:state :tab])
       :favorites (or favorited-count 0)
@@ -714,16 +714,16 @@
 
 (rf/reg-sub :profile/current-page
   {:doc "The 1-indexed current page for the active profile tab, read off the
-         route query (`?page=`; defaulted to 1 by `:query-defaults`)."}
-  :<- [:rf.route/query]
-  (fn sub-profile-page [query _]
+         route query (`?page=`; defaulted to 1 by `:query-defaults`)."
+   :inputs [[:rf.route/query]]}
+  (fn sub-profile-page [[query] _]
     (or (:page query) 1)))
 
 (rf/reg-sub :profile/page-count
   {:doc "Total pages for the active profile tab — `(ceil count / page-size)`,
-         never below 1."}
-  :<- [:profile/current-count]
-  (fn sub-profile-page-count [total _]
+         never below 1."
+   :inputs [[:profile/current-count]]}
+  (fn sub-profile-page-count [[total] _]
     (rh/page-count total)))
 
 (rf/reg-event :profile/show-page

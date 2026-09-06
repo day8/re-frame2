@@ -215,12 +215,12 @@
 (rf/reg-sub :drawer/slice (fn [db _] (:drawer db)))
 
 (rf/reg-sub :drawer/circles
-  :<- [:drawer/slice]
-  (fn [drawer _] (:circles drawer)))
+  {:inputs [[:drawer/slice]]}
+  (fn [[drawer] _] (:circles drawer)))
 
 (rf/reg-sub :drawer/dialog
-  :<- [:drawer/slice]
-  (fn [drawer _] (:dialog drawer)))
+  {:inputs [[:drawer/slice]]}
+  (fn [[drawer] _] (:dialog drawer)))
 
 ;; The circles the CANVAS renders: the durable `:circles`, but with the resize
 ;; dialog's live `:draft-radius` overlaid onto the circle being edited. This is
@@ -232,8 +232,8 @@
 ;; open → drag → close still collapses into one tidy undo step. Live preview up
 ;; top, clean history underneath — the derivation is where the two meet.
 (rf/reg-sub :drawer/display-circles
-  :<- [:drawer/circles]
-  :<- [:drawer/dialog]
+  {:inputs [[:drawer/circles]
+            [:drawer/dialog]]}
   (fn [[circles dialog] _]
     (if-let [{:keys [circle-id draft-radius]} dialog]
       (mapv #(if (= circle-id (:id %))
@@ -243,12 +243,12 @@
       circles)))
 
 (rf/reg-sub :drawer/can-undo?
-  :<- [:drawer/slice]
-  (fn [drawer _] (seq (:undo drawer))))
+  {:inputs [[:drawer/slice]]}
+  (fn [[drawer] _] (seq (:undo drawer))))
 
 (rf/reg-sub :drawer/can-redo?
-  :<- [:drawer/slice]
-  (fn [drawer _] (seq (:redo drawer))))
+  {:inputs [[:drawer/slice]]}
+  (fn [[drawer] _] (seq (:redo drawer))))
 
 ;; ============================================================================
 ;; VIEW

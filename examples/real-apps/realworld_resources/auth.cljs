@@ -669,24 +669,24 @@
 (rf/reg-sub :auth/user  (fn [db _] (get-in db [:auth :user])))
 
 (rf/reg-sub :auth/flow-state
-  :<- [:rf/machine :auth/flow]
-  (fn [snapshot _] snapshot))
+  {:inputs [[:rf/machine :auth/flow]]}
+  (fn [[snapshot] _] snapshot))
 
 (rf/reg-sub :auth/state
-  :<- [:auth/flow-state]
-  (fn [snapshot _] (:state snapshot)))
+  {:inputs [[:auth/flow-state]]}
+  (fn [[snapshot] _] (:state snapshot)))
 
 (rf/reg-sub :auth/error
-  :<- [:auth/flow-state]
-  (fn [snapshot _] (get-in snapshot [:data :error])))
+  {:inputs [[:auth/flow-state]]}
+  (fn [[snapshot] _] (get-in snapshot [:data :error])))
 
 (rf/reg-sub :auth/authenticated?
-  :<- [:auth/state]
-  (fn [state _] (= state :authed)))
+  {:inputs [[:auth/state]]}
+  (fn [[state] _] (= state :authed)))
 
 (rf/reg-sub :auth/submitting?
-  :<- [:auth/state]
-  (fn [state _] (or (= state :submitting) (= state :restoring))))
+  {:inputs [[:auth/state]]}
+  (fn [[state] _] (or (= state :submitting) (= state :restoring))))
 
 (rf/reg-sub :auth/viewer-resolving?
   {:doc "True during the ONE window where the viewer is genuinely unknown: a saved

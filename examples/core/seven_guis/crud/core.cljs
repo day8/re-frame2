@@ -151,9 +151,9 @@
 (rf/reg-sub :crud/draft-surname (fn [db _] (get-in db [:crud :draft :surname])))
 
 (rf/reg-sub :crud/filtered-people
-  {:doc "People whose surname starts with the filter prefix (case-insensitive)."}
-  :<- [:crud/people]
-  :<- [:crud/filter-text]
+  {:doc "People whose surname starts with the filter prefix (case-insensitive)."
+   :inputs [[:crud/people]
+            [:crud/filter-text]]}
   (fn sub-crud-filtered-people [[people prefix] _]
     (let [pfx (str/lower-case (or prefix ""))]
       (if (str/blank? pfx)
@@ -167,9 +167,9 @@
          see. We don't drop the selection when the filter hides it, though — we
          just ask the *filtered* list whether the selection is in it. Clear the
          filter and the row reappears, and the buttons light back up on their
-         own."}
-  :<- [:crud/selected-id]
-  :<- [:crud/filtered-people]
+         own."
+   :inputs [[:crud/selected-id]
+            [:crud/filtered-people]]}
   (fn sub-crud-can-update? [[id visible-people] _]
     (boolean (and id (some #(= id (:id %)) visible-people)))))
 

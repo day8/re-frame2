@@ -90,9 +90,9 @@
                       (> page 1) (assoc :page page))]
           {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home :query query}]]]})))))
 
-(rf/reg-sub :home/selected-tag :<- [:rf.route/params] (fn [p _] (:tag p)))
-(rf/reg-sub :home/your-feed?   :<- [:rf.route/query]  (fn [q _] (= following-feed-token (:feed q))))
-(rf/reg-sub :home/page         :<- [:rf.route/query]  (fn [q _] (or (:page q) 1)))
+(rf/reg-sub :home/selected-tag {:inputs [[:rf.route/params]]} (fn [[p] _] (:tag p)))
+(rf/reg-sub :home/your-feed?   {:inputs [[:rf.route/query]]}  (fn [[q] _] (= following-feed-token (:feed q))))
+(rf/reg-sub :home/page         {:inputs [[:rf.route/query]]}  (fn [[q] _] (or (:page q) 1)))
 
 ;; ============================================================================
 ;; FAVORITE / FOLLOW — fire a mutation, watch its instance
@@ -590,10 +590,10 @@
 ;; all. The view reads the route id to choose which list resource to subscribe to,
 ;; and reads the page off the route query.
 
-(rf/reg-sub :profile/favorites-tab? :<- [:rf.route/id]
-  (fn [id _] (= id :realworld.profile/favorites)))
-(rf/reg-sub :profile/page :<- [:rf.route/query]
-  (fn [q _] (or (:page q) 1)))
+(rf/reg-sub :profile/favorites-tab? {:inputs [[:rf.route/id]]}
+  (fn [[id] _] (= id :realworld.profile/favorites)))
+(rf/reg-sub :profile/page {:inputs [[:rf.route/query]]}
+  (fn [[q] _] (or (:page q) 1)))
 
 ;; Paging within a profile tab keeps the current route and username and swaps only
 ;; `?page=`. Page 1 drops the param — the canonical first-page URL.

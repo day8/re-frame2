@@ -204,15 +204,15 @@
 ;;     @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/in-flight])   ;; in-flight, loading OR fetching
 
 (rf/reg-sub :tags/data
-  {:doc "The popular-tags items, read out of the machine's :data."}
-  :<- [:rf/machine :realworld/tags]
-  (fn sub-tags-data [snap _]
+  {:doc "The popular-tags items, read out of the machine's :data."
+   :inputs [[:rf/machine :realworld/tags]]}
+  (fn sub-tags-data [[snap] _]
     (get-in snap [:data :tags])))
 
 (rf/reg-sub :tags/error
-  {:doc "The latest tags-fetch error, read out of the machine's :data."}
-  :<- [:rf/machine :realworld/tags]
-  (fn sub-tags-error [snap _]
+  {:doc "The latest tags-fetch error, read out of the machine's :data."
+   :inputs [[:rf/machine :realworld/tags]]}
+  (fn sub-tags-error [[snap] _]
     (get-in snap [:data :error])))
 
 ;; ============================================================================
@@ -322,11 +322,11 @@
 
 (rf/reg-sub :home/selected-tag
   {:doc "The active tag — read from the `/tag/:tag` route's PATH params, since
-         that's where it lives (a path param, not a `?tag=` query)."}
-  :<- [:rf.route/params]
-  (fn [params _] (:tag params)))
+         that's where it lives (a path param, not a `?tag=` query)."
+   :inputs [[:rf.route/params]]}
+  (fn [[params] _] (:tag params)))
 
 (rf/reg-sub :home/page
-  {:doc "The 1-indexed home/tag page, straight off the route query (`?page=`)."}
-  :<- [:rf.route/query]
-  (fn [query _] (or (:page query) 1)))
+  {:doc "The 1-indexed home/tag page, straight off the route query (`?page=`)."
+   :inputs [[:rf.route/query]]}
+  (fn [[query] _] (or (:page query) 1)))

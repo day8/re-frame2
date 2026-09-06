@@ -214,14 +214,14 @@
 
 ;; Elapsed milliseconds, dressed up as seconds with one decimal for display.
 (rf/reg-sub :timer/elapsed-seconds
-  :<- [:timer/elapsed-ms]
-  (fn [ms _] (.toFixed (/ ms 1000.0) 1)))
+  {:inputs [[:timer/elapsed-ms]]}
+  (fn [[ms] _] (.toFixed (/ ms 1000.0) 1)))
 
 (rf/reg-sub :timer/progress-pct
   {:doc "How far along we are, 0 to 100. A zero duration counts as full —
-         otherwise we'd be dividing by zero, and nobody enjoys that."}
-  :<- [:timer/elapsed-ms]
-  :<- [:timer/duration-ms]
+         otherwise we'd be dividing by zero, and nobody enjoys that."
+   :inputs [[:timer/elapsed-ms]
+            [:timer/duration-ms]]}
   (fn [[e d] _]
     (cond
       (zero? d) 100

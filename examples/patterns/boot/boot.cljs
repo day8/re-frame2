@@ -390,24 +390,24 @@
 ;; framework's `:rf/machine` sub (docs/machines/glossary.md#snapshot). The
 ;; small subs below are just convenient slices off that one snapshot.
 (rf/reg-sub :app.boot/snapshot
-  :<- [:rf/machine :app/boot]
-  (fn [snapshot _] snapshot))
+  {:inputs [[:rf/machine :app/boot]]}
+  (fn [[snapshot] _] snapshot))
 
 (rf/reg-sub :app.boot/state
-  :<- [:app.boot/snapshot]
-  (fn [snap _] (:state snap)))
+  {:inputs [[:app.boot/snapshot]]}
+  (fn [[snap] _] (:state snap)))
 
 (rf/reg-sub :app.boot/error
-  :<- [:app.boot/snapshot]
-  (fn [snap _] (get-in snap [:data :error])))
+  {:inputs [[:app.boot/snapshot]]}
+  (fn [[snap] _] (get-in snap [:data :error])))
 
 (rf/reg-sub :app.boot/ready?
-  :<- [:app.boot/state]
-  (fn [state _] (= state :ready)))
+  {:inputs [[:app.boot/state]]}
+  (fn [[state] _] (= state :ready)))
 
 (rf/reg-sub :app.boot/failed?
-  :<- [:app.boot/state]
-  (fn [state _] (= state :failed)))
+  {:inputs [[:app.boot/state]]}
+  (fn [[state] _] (= state :failed)))
 
 (rf/reg-sub :app/config (fn [db _] (:config db)))
 (rf/reg-sub :app/flags  (fn [db _] (:flags db)))

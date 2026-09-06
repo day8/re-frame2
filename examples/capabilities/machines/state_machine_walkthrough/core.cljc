@@ -265,12 +265,12 @@
   (fn [db _] (get-in db [:auth :login-form :draft])))
 
 (rf/reg-sub :walkthrough.login/state
-  :<- [:rf/machine :walkthrough.login/flow]
-  (fn [machine _] (:state machine)))
+  {:inputs [[:rf/machine :walkthrough.login/flow]]}
+  (fn [[machine] _] (:state machine)))
 
 (rf/reg-sub :walkthrough.login/error
-  :<- [:rf/machine :walkthrough.login/flow]
-  (fn [machine _] (get-in machine [:data :error])))
+  {:inputs [[:rf/machine :walkthrough.login/flow]]}
+  (fn [[machine] _] (get-in machine [:data :error])))
 
 ;; And here's where the purity pays off. Because the table is plain data and
 ;; `machines/machine-transition` is a pure fn over (table, snapshot, event), the
