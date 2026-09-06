@@ -122,441 +122,440 @@ The connection machine composes the locked substrate:
                                           (local-failure rid :ws/connection-lost))])))
                (:in-flight data))})
 
-(rf/reg-event :ws/connection
+(rf/reg-machine :ws/connection
   {:doc "WebSocket connection lifecycle: disconnected → active{:connecting →
          :authenticating → :connected} → reconnecting (with backoff) → failed."}
-  (rf.machines/make-machine-handler
-    {:initial :disconnected
-     :data    {:url            nil               ;; supplied by :ws/connect
-               :cred-ref       nil               ;; OPAQUE credential reference — never the bearer itself (see §Parameters)
-               :retries        0
-               :max-retries    8
-               :base-ms        1000              ;; initial backoff
-               :max-backoff-ms 30000
-               ;; No :socket-id field: the live socket's id lives in the
-               ;; runtime-maintained :rf/spawned slot (read via `socket-id`),
-               ;; which the runtime keeps current and clears on teardown.
-               :subscriptions  #{}               ;; topics to (re-)subscribe on :connected entry
-               :queue          []                ;; whole inbound events buffered while disconnected
-               :in-flight      {}                ;; {request-id → {:reply-event ... :timeout-ms ... :token ...}}
-               :next-token     0                 ;; ticking source for each registration's :token (see :register-request)
-               :error          nil}
+  {:initial :disconnected
+   :data    {:url            nil               ;; supplied by :ws/connect
+             :cred-ref       nil               ;; OPAQUE credential reference — never the bearer itself (see §Parameters)
+             :retries        0
+             :max-retries    8
+             :base-ms        1000              ;; initial backoff
+             :max-backoff-ms 30000
+             ;; No :socket-id field: the live socket's id lives in the
+             ;; runtime-maintained :rf/spawned slot (read via `socket-id`),
+             ;; which the runtime keeps current and clears on teardown.
+             :subscriptions  #{}               ;; topics to (re-)subscribe on :connected entry
+             :queue          []                ;; whole inbound events buffered while disconnected
+             :in-flight      {}                ;; {request-id → {:reply-event ... :timeout-ms ... :token ...}}
+             :next-token     0                 ;; ticking source for each registration's :token (see :register-request)
+             :error          nil}
 
-     :guards
-     {:max-retries-exceeded?
-      (fn [{:keys [data]}]
-        (>= (:retries data) (:max-retries data)))
+   :guards
+   {:max-retries-exceeded?
+    (fn [{:keys [data]}]
+      (>= (:retries data) (:max-retries data)))
 
-      :has-queued-messages?
-      (fn [{:keys [data]}]
-        (seq (:queue data)))
+    :has-queued-messages?
+    (fn [{:keys [data]}]
+      (seq (:queue data)))
 
-      :current-socket?
-      ;; The connection-epoch check (Pattern-StaleDetection): is this event
-      ;; from the socket this machine owns RIGHT NOW? Every inbound socket
-      ;; event stamps the id of the socket it came from (`:source-socket-id`,
-      ;; the actor's `:rf/self-id`); we let it through only if that matches the
-      ;; live id read from `:rf/spawned`. A torn-down socket reads as nil, so
-      ;; every straggler from a replaced connection is dropped for free.
-      (fn [{:keys [data] [_ {:keys [source-socket-id]}] :event}]
-        (current-socket? data source-socket-id))
+    :current-socket?
+    ;; The connection-epoch check (Pattern-StaleDetection): is this event
+    ;; from the socket this machine owns RIGHT NOW? Every inbound socket
+    ;; event stamps the id of the socket it came from (`:source-socket-id`,
+    ;; the actor's `:rf/self-id`); we let it through only if that matches the
+    ;; live id read from `:rf/spawned`. A torn-down socket reads as nil, so
+    ;; every straggler from a replaced connection is dropped for free.
+    (fn [{:keys [data] [_ {:keys [source-socket-id]}] :event}]
+      (current-socket? data source-socket-id))
 
-      :own-request-timeout?
-      ;; The deadline gate, and like `:trusted-frame?` it asks BOTH questions a
-      ;; `:ws/request-timeout` must answer before it may settle anything: is it
-      ;; from the socket we own right now, and is it the timer the registration
-      ;; CURRENTLY in that slot armed?
-      ;;
-      ;; The epoch check alone rejects timers from an old CONNECTION; it says
-      ;; nothing about an old REGISTRATION on the same live socket, and that gap
-      ;; needs no reconnect to open. A `:request-id` is the app's own value and
-      ;; the app is invited to reuse one (see §Message correlation), so on one
-      ;; long-lived socket the same id can be registered, settled, and
-      ;; registered again well inside the first request's timeout window. The
-      ;; first timer is still armed and still stamped with the live socket, so
-      ;; it passes the epoch check, names an id the SECOND request now holds,
-      ;; and settles a request whose deadline has not elapsed.
-      ;;
-      ;; So `:register-request` stamps each registration with a `:token` and
-      ;; schedules the timeout carrying it. This is also what makes shipping no
-      ;; timer-cancellation facility safe: an obsolete timer is not cancelled,
-      ;; it is inert — it fires, fails this guard, and is dropped like any other
-      ;; straggler.
-      (fn [{:keys [data] [_ {:keys [source-socket-id request-id token]}] :event}]
-        (and (current-socket? data source-socket-id)
-             (when-let [entry (get-in data [:in-flight request-id])]
-               (= token (:token entry)))))
+    :own-request-timeout?
+    ;; The deadline gate, and like `:trusted-frame?` it asks BOTH questions a
+    ;; `:ws/request-timeout` must answer before it may settle anything: is it
+    ;; from the socket we own right now, and is it the timer the registration
+    ;; CURRENTLY in that slot armed?
+    ;;
+    ;; The epoch check alone rejects timers from an old CONNECTION; it says
+    ;; nothing about an old REGISTRATION on the same live socket, and that gap
+    ;; needs no reconnect to open. A `:request-id` is the app's own value and
+    ;; the app is invited to reuse one (see §Message correlation), so on one
+    ;; long-lived socket the same id can be registered, settled, and
+    ;; registered again well inside the first request's timeout window. The
+    ;; first timer is still armed and still stamped with the live socket, so
+    ;; it passes the epoch check, names an id the SECOND request now holds,
+    ;; and settles a request whose deadline has not elapsed.
+    ;;
+    ;; So `:register-request` stamps each registration with a `:token` and
+    ;; schedules the timeout carrying it. This is also what makes shipping no
+    ;; timer-cancellation facility safe: an obsolete timer is not cancelled,
+    ;; it is inert — it fires, fails this guard, and is dropped like any other
+    ;; straggler.
+    (fn [{:keys [data] [_ {:keys [source-socket-id request-id token]}] :event}]
+      (and (current-socket? data source-socket-id)
+           (when-let [entry (get-in data [:in-flight request-id])]
+             (= token (:token entry)))))
 
-      :trusted-frame?
-      ;; The inbound gate. Vouching for the SENDER is not vouching for the
-      ;; BYTES, and `:receive-message` clears an `:in-flight` slot the frame
-      ;; itself names — so the frame is held to the closed `InboundMessage`
-      ;; contract here, before any branching or state change. See §Vet the
-      ;; frame before the machine acts on it. One named guard rather than an
-      ;; `:and` of two — 005 ships no guard combinator data form; compound
-      ;; logic goes in one guard whose NAME carries the meaning.
-      (fn [{:keys [data] [_ {:keys [source-socket-id body]}] :event}]
-        (and (current-socket? data source-socket-id)
-             (valid-inbound-frame? body)))}      ;; a compiled InboundMessage validator
+    :trusted-frame?
+    ;; The inbound gate. Vouching for the SENDER is not vouching for the
+    ;; BYTES, and `:receive-message` clears an `:in-flight` slot the frame
+    ;; itself names — so the frame is held to the closed `InboundMessage`
+    ;; contract here, before any branching or state change. See §Vet the
+    ;; frame before the machine acts on it. One named guard rather than an
+    ;; `:and` of two — 005 ships no guard combinator data form; compound
+    ;; logic goes in one guard whose NAME carries the meaning.
+    (fn [{:keys [data] [_ {:keys [source-socket-id body]}] :event}]
+      (and (current-socket? data source-socket-id)
+           (valid-inbound-frame? body)))}      ;; a compiled InboundMessage validator
 
-     :actions
-     {:record-connection-opts
-      ;; Caller passes the URL + an OPAQUE credential reference on
-      ;; :ws/connect; opts land in :data and every subsequent reconnect
-      ;; re-reads them via :spawn's :data fn. Never the bearer itself —
-      ;; see §Parameters.
-      (fn [{:keys [data] [_ {:keys [url cred-ref]}] :event}]
-        {:data (assoc data :url url :cred-ref cred-ref)})
+   :actions
+   {:record-connection-opts
+    ;; Caller passes the URL + an OPAQUE credential reference on
+    ;; :ws/connect; opts land in :data and every subsequent reconnect
+    ;; re-reads them via :spawn's :data fn. Never the bearer itself —
+    ;; see §Parameters.
+    (fn [{:keys [data] [_ {:keys [url cred-ref]}] :event}]
+      {:data (assoc data :url url :cred-ref cred-ref)})
 
-      :rotate-cred
-      ;; The auth machine calls this after an out-of-band credential
-      ;; rotation; only the new opaque reference crosses the dispatch
-      ;; boundary, and the next :active entry's :spawn :data fn picks it up.
-      (fn [{:keys [data] [_ new-cred-ref] :event}]
-        {:data (assoc data :cred-ref new-cred-ref)})
+    :rotate-cred
+    ;; The auth machine calls this after an out-of-band credential
+    ;; rotation; only the new opaque reference crosses the dispatch
+    ;; boundary, and the next :active entry's :spawn :data fn picks it up.
+    (fn [{:keys [data] [_ new-cred-ref] :event}]
+      {:data (assoc data :cred-ref new-cred-ref)})
 
-      :on-socket-lost
-      ;; The live socket dropped (a :ws/closed that passed :current-socket?).
-      ;; Heading for :reconnecting, two things happen:
-      ;;   1. Bump the retry counter — it drives the :after backoff and the
-      ;;      :max-retries-exceeded? guard.
-      ;;   2. FAIL every in-flight request, through the shared `fail-in-flight`
-      ;;      helper above — the same half of the job the clean-disconnect and
-      ;;      fatal doors do. Each waiting :reply-event fires with
-      ;;      {:origin :ws/local :ok false :error :ws/connection-lost} so the
-      ;;      caller learns the outcome instead of hanging forever. See the
-      ;;      helper for the full leak/replay story.
-      (fn [{:keys [data]}]
-        (-> (fail-in-flight data)
-            (update :data update :retries inc)))
+    :on-socket-lost
+    ;; The live socket dropped (a :ws/closed that passed :current-socket?).
+    ;; Heading for :reconnecting, two things happen:
+    ;;   1. Bump the retry counter — it drives the :after backoff and the
+    ;;      :max-retries-exceeded? guard.
+    ;;   2. FAIL every in-flight request, through the shared `fail-in-flight`
+    ;;      helper above — the same half of the job the clean-disconnect and
+    ;;      fatal doors do. Each waiting :reply-event fires with
+    ;;      {:origin :ws/local :ok false :error :ws/connection-lost} so the
+    ;;      caller learns the outcome instead of hanging forever. See the
+    ;;      helper for the full leak/replay story.
+    (fn [{:keys [data]}]
+      (-> (fail-in-flight data)
+          (update :data update :retries inc)))
 
-      :fail-in-flight
-      ;; The clean door. A :ws/disconnect out of :active destroys the socket
-      ;; just as surely as a drop does, so the SAME invariant applies: every
-      ;; request accepted into :in-flight settles exactly once on the way out.
-      ;; Unlike :on-socket-lost there is no retry bump — the app asked for this
-      ;; disconnect, so it is not a connection failure; only the requests still
-      ;; riding the wire fail, with the same documented body.
-      (fn [{:keys [data]}]
-        (fail-in-flight data))
+    :fail-in-flight
+    ;; The clean door. A :ws/disconnect out of :active destroys the socket
+    ;; just as surely as a drop does, so the SAME invariant applies: every
+    ;; request accepted into :in-flight settles exactly once on the way out.
+    ;; Unlike :on-socket-lost there is no retry bump — the app asked for this
+    ;; disconnect, so it is not a connection failure; only the requests still
+    ;; riding the wire fail, with the same documented body.
+    (fn [{:keys [data]}]
+      (fail-in-flight data))
 
-      :on-fatal-error
-      ;; :ws/fatal is the app-level escape hatch out of :active — the app
-      ;; itself declaring the connection unrecoverable (a protocol violation, a
-      ;; server telling us not to come back) and going straight to :failed
-      ;; without retrying. It leaves :active, so the runtime destroys the
-      ;; socket just as surely as a drop or a clean disconnect does, and
-      ;; recording the error is only HALF the job: without the fail-in-flight
-      ;; half the slot and its waiting :reply-event survive teardown forever,
-      ;; because the scheduled timeout carries the destroyed socket's id and
-      ;; :current-socket? rejects it once the socket is gone. That leak
-      ;; outlives a later manual :ws/connect out of :failed too, so the caller
-      ;; never learns anything. No retry bump: we are giving up, not retrying.
-      (fn [{:keys [data] [_ {:keys [error]}] :event}]
-        (-> (fail-in-flight data)
-            (update :data assoc :error error)))
+    :on-fatal-error
+    ;; :ws/fatal is the app-level escape hatch out of :active — the app
+    ;; itself declaring the connection unrecoverable (a protocol violation, a
+    ;; server telling us not to come back) and going straight to :failed
+    ;; without retrying. It leaves :active, so the runtime destroys the
+    ;; socket just as surely as a drop or a clean disconnect does, and
+    ;; recording the error is only HALF the job: without the fail-in-flight
+    ;; half the slot and its waiting :reply-event survive teardown forever,
+    ;; because the scheduled timeout carries the destroyed socket's id and
+    ;; :current-socket? rejects it once the socket is gone. That leak
+    ;; outlives a later manual :ws/connect out of :failed too, so the caller
+    ;; never learns anything. No retry bump: we are giving up, not retrying.
+    (fn [{:keys [data] [_ {:keys [error]}] :event}]
+      (-> (fail-in-flight data)
+          (update :data assoc :error error)))
 
-      :send-auth
-      ;; Route an :auth message into the live socket actor. NO token in
-      ;; the payload: the actor resolved the bearer from :cred-ref inside
-      ;; its own host closure at socket-open and attaches it to the wire
-      ;; frame itself — the credential never rides a dispatch.
-      (fn [{:keys [data]}]
-        {:fx [[:dispatch [(socket-id data) [:send {:type :auth}]]]]})
+    :send-auth
+    ;; Route an :auth message into the live socket actor. NO token in
+    ;; the payload: the actor resolved the bearer from :cred-ref inside
+    ;; its own host closure at socket-open and attaches it to the wire
+    ;; frame itself — the credential never rides a dispatch.
+    (fn [{:keys [data]}]
+      {:fx [[:dispatch [(socket-id data) [:send {:type :auth}]]]]})
 
-      :on-connected
-      ;; Compound entry action for :connected — reset the retry counter (we
-      ;; made it) and re-issue a subscribe for every tracked topic, so
-      ;; subscriptions survive the reconnect. The queued-message flush is the
-      ;; separate :always step below; this action leaves :queue for it to find.
-      ;; (Per [005 §State nodes] :entry takes one fn or one registered id,
-      ;; never a vector.)
-      (fn [{:keys [data]}]
-        {:data (assoc data :retries 0)
-         :fx   (mapv (fn [topic]
-                       [:dispatch [(socket-id data)
-                                   [:send {:type :subscribe :topic topic}]]])
-                     (:subscriptions data))})
+    :on-connected
+    ;; Compound entry action for :connected — reset the retry counter (we
+    ;; made it) and re-issue a subscribe for every tracked topic, so
+    ;; subscriptions survive the reconnect. The queued-message flush is the
+    ;; separate :always step below; this action leaves :queue for it to find.
+    ;; (Per [005 §State nodes] :entry takes one fn or one registered id,
+    ;; never a vector.)
+    (fn [{:keys [data]}]
+      {:data (assoc data :retries 0)
+       :fx   (mapv (fn [topic]
+                     [:dispatch [(socket-id data)
+                                 [:send {:type :subscribe :topic topic}]]])
+                   (:subscriptions data))})
 
-      :flush-queue
-      ;; The :always step on :connected: replay everything buffered while off
-      ;; connection. Each queued item is the ORIGINAL inbound event, so
-      ;; re-dispatch it INTO the connection machine — now :connected, so a
-      ;; :ws/send takes :send-now and a :ws/request takes :register-request
-      ;; (in-flight slot + correlation + timeout), exactly as if issued while
-      ;; connected. Clearing :queue first stops the replay re-enqueuing.
-      (fn [{:keys [data]}]
-        {:data (assoc data :queue [])
-         :fx   (mapv (fn [event] [:dispatch [:ws/connection event]])
-                     (:queue data))})
+    :flush-queue
+    ;; The :always step on :connected: replay everything buffered while off
+    ;; connection. Each queued item is the ORIGINAL inbound event, so
+    ;; re-dispatch it INTO the connection machine — now :connected, so a
+    ;; :ws/send takes :send-now and a :ws/request takes :register-request
+    ;; (in-flight slot + correlation + timeout), exactly as if issued while
+    ;; connected. Clearing :queue first stops the replay re-enqueuing.
+    (fn [{:keys [data]}]
+      {:data (assoc data :queue [])
+       :fx   (mapv (fn [event] [:dispatch [:ws/connection event]])
+                   (:queue data))})
 
-      :enqueue-message
-      ;; Off connection there's no socket to send on, so buffer the WHOLE
-      ;; inbound event ([:ws/send …] or [:ws/request …]), not just its body.
-      ;; :flush-queue re-dispatches each verbatim on the next :connected entry,
-      ;; so a queued request rejoins :register-request and gets correlated.
-      ;; (Buffering a bare body instead would put a request's whole envelope on
-      ;; the wire as the payload — uncorrelated, never answered.)
-      (fn [{:keys [data] event :event}]
-        {:data (update data :queue conj event)})
+    :enqueue-message
+    ;; Off connection there's no socket to send on, so buffer the WHOLE
+    ;; inbound event ([:ws/send …] or [:ws/request …]), not just its body.
+    ;; :flush-queue re-dispatches each verbatim on the next :connected entry,
+    ;; so a queued request rejoins :register-request and gets correlated.
+    ;; (Buffering a bare body instead would put a request's whole envelope on
+    ;; the wire as the payload — uncorrelated, never answered.)
+    (fn [{:keys [data] event :event}]
+      {:data (update data :queue conj event)})
 
-      :register-request
-      ;; Caller: [:ws/request {:request-id ..., :body ..., :reply ...}].
-      ;; Record the in-flight entry, forward to the socket, schedule a timeout.
-      ;;
-      ;; Three details here are about the correlation id being the APP's, and
-      ;; therefore reusable. (1) The registration takes the next `:token`, which
-      ;; goes into the slot AND onto the scheduled timeout, so that timer can
-      ;; only ever settle THIS registration — see `:own-request-timeout?`.
-      ;; (2) The same token goes ON THE WIRE as `:request-token`, and the
-      ;; `ReplyMessage` arm of the inbound contract requires it back, so a
-      ;; server reply can name the registration it answers rather than only the
-      ;; slot it was filed under — see item 6 below.
-      ;; (3) Re-registering an id that is still in flight SUPERSEDES: the
-      ;; displaced caller is settled with `:ws/superseded` before the new
-      ;; request goes out, so it is never stranded. See item 6 below.
-      (fn [{:keys [data] [_ {:keys [request-id body reply timeout-ms]
-                             :or   {timeout-ms 30000}}] :event}]
-        (let [token     (:next-token data)
-              displaced (:reply-event (get-in data [:in-flight request-id]))
-              send+arm  [[:dispatch [(socket-id data)
-                                     [:send (assoc body
-                                                   :request-id    request-id
-                                                   :request-token token)]]]
-                         ;; The timeout event carries the live socket-id too, so
-                         ;; the same epoch check quietly discards a timeout left
-                         ;; over from a connection we've already moved past.
-                         [:dispatch-later
-                          {:ms    timeout-ms
-                           :event [:ws/connection
-                                   [:ws/request-timeout
-                                    {:request-id       request-id
-                                     :token            token
-                                     :source-socket-id (socket-id data)}]]}]]]
-          {:data (-> data
-                     (assoc :next-token (inc token))
-                     (assoc-in [:in-flight request-id]
-                               {:reply-event reply
-                                :timeout-ms  timeout-ms
-                                :token       token}))
-           ;; Settle the displaced caller FIRST — it is done either way, and it
-           ;; should learn that before the wire moves on.
-           :fx   (if displaced
-                   (into [[:dispatch (conj displaced
-                                           (local-failure request-id :ws/superseded))]]
-                         send+arm)
-                   send+arm)}))
-
-      :clear-request
-      ;; A request's deadline fired — a `:ws/request-timeout` that passed
-      ;; `:own-request-timeout?`, so the socket is still live, the slot is still
-      ;; occupied, and THIS registration is the one that armed the timer, but
-      ;; the reply never came. FAIL the request, don't just forget it: clear the
-      ;; in-flight slot AND fire the waiting `:reply-event` with a timeout body, so a
-      ;; request that times out on a live socket learns its outcome instead of
-      ;; hanging forever. This is `fail-in-flight`'s per-request twin — same
-      ;; local-failure shape, scoped to the single request whose timer elapsed
-      ;; rather than the whole in-flight set. (A request registered without a
-      ;; `:reply` has a nil `:reply-event`, so the dispatch is guarded.)
-      (fn [{:keys [data] [_ {:keys [request-id]}] :event}]
-        (let [{:keys [reply-event]} (get-in data [:in-flight request-id])]
-          {:data (update data :in-flight dissoc request-id)
-           :fx   (cond-> []
-                   reply-event (conj [:dispatch
-                                      (conj reply-event
-                                            (local-failure request-id
-                                                           :ws/timeout))]))}))
-
-      :record-and-reset
-      ;; Compound action — record fresh opts AND reset the retry counter.
-      ;; Used on manual :ws/connect from :reconnecting / :failed (the
-      ;; running app has rotated its credential; reconnect immediately).
-      (fn [{:keys [data] [_ {:keys [url cred-ref]}] :event}]
+    :register-request
+    ;; Caller: [:ws/request {:request-id ..., :body ..., :reply ...}].
+    ;; Record the in-flight entry, forward to the socket, schedule a timeout.
+    ;;
+    ;; Three details here are about the correlation id being the APP's, and
+    ;; therefore reusable. (1) The registration takes the next `:token`, which
+    ;; goes into the slot AND onto the scheduled timeout, so that timer can
+    ;; only ever settle THIS registration — see `:own-request-timeout?`.
+    ;; (2) The same token goes ON THE WIRE as `:request-token`, and the
+    ;; `ReplyMessage` arm of the inbound contract requires it back, so a
+    ;; server reply can name the registration it answers rather than only the
+    ;; slot it was filed under — see item 6 below.
+    ;; (3) Re-registering an id that is still in flight SUPERSEDES: the
+    ;; displaced caller is settled with `:ws/superseded` before the new
+    ;; request goes out, so it is never stranded. See item 6 below.
+    (fn [{:keys [data] [_ {:keys [request-id body reply timeout-ms]
+                           :or   {timeout-ms 30000}}] :event}]
+      (let [token     (:next-token data)
+            displaced (:reply-event (get-in data [:in-flight request-id]))
+            send+arm  [[:dispatch [(socket-id data)
+                                   [:send (assoc body
+                                                 :request-id    request-id
+                                                 :request-token token)]]]
+                       ;; The timeout event carries the live socket-id too, so
+                       ;; the same epoch check quietly discards a timeout left
+                       ;; over from a connection we've already moved past.
+                       [:dispatch-later
+                        {:ms    timeout-ms
+                         :event [:ws/connection
+                                 [:ws/request-timeout
+                                  {:request-id       request-id
+                                   :token            token
+                                   :source-socket-id (socket-id data)}]]}]]]
         {:data (-> data
-                   (assoc :url url :cred-ref cred-ref)
-                   (assoc :retries 0))})
+                   (assoc :next-token (inc token))
+                   (assoc-in [:in-flight request-id]
+                             {:reply-event reply
+                              :timeout-ms  timeout-ms
+                              :token       token}))
+         ;; Settle the displaced caller FIRST — it is done either way, and it
+         ;; should learn that before the wire moves on.
+         :fx   (if displaced
+                 (into [[:dispatch (conj displaced
+                                         (local-failure request-id :ws/superseded))]]
+                       send+arm)
+                 send+arm)}))
 
-      :record-error
-      ;; Socket-sourced error events carry a map payload — {:source-socket-id
-      ;; … :error …} — so the :error rides alongside the id the guards read.
-      (fn [{:keys [data] [_ {:keys [error]}] :event}] {:data (assoc data :error error)})}
+    :clear-request
+    ;; A request's deadline fired — a `:ws/request-timeout` that passed
+    ;; `:own-request-timeout?`, so the socket is still live, the slot is still
+    ;; occupied, and THIS registration is the one that armed the timer, but
+    ;; the reply never came. FAIL the request, don't just forget it: clear the
+    ;; in-flight slot AND fire the waiting `:reply-event` with a timeout body, so a
+    ;; request that times out on a live socket learns its outcome instead of
+    ;; hanging forever. This is `fail-in-flight`'s per-request twin — same
+    ;; local-failure shape, scoped to the single request whose timer elapsed
+    ;; rather than the whole in-flight set. (A request registered without a
+    ;; `:reply` has a nil `:reply-event`, so the dispatch is guarded.)
+    (fn [{:keys [data] [_ {:keys [request-id]}] :event}]
+      (let [{:keys [reply-event]} (get-in data [:in-flight request-id])]
+        {:data (update data :in-flight dissoc request-id)
+         :fx   (cond-> []
+                 reply-event (conj [:dispatch
+                                    (conj reply-event
+                                          (local-failure request-id
+                                                         :ws/timeout))]))}))
+
+    :record-and-reset
+    ;; Compound action — record fresh opts AND reset the retry counter.
+    ;; Used on manual :ws/connect from :reconnecting / :failed (the
+    ;; running app has rotated its credential; reconnect immediately).
+    (fn [{:keys [data] [_ {:keys [url cred-ref]}] :event}]
+      {:data (-> data
+                 (assoc :url url :cred-ref cred-ref)
+                 (assoc :retries 0))})
+
+    :record-error
+    ;; Socket-sourced error events carry a map payload — {:source-socket-id
+    ;; … :error …} — so the :error rides alongside the id the guards read.
+    (fn [{:keys [data] [_ {:keys [error]}] :event}] {:data (assoc data :error error)})}
+
+   :states
+   {:disconnected
+    {:on {:ws/connect {:target [:active]
+                       :action :record-connection-opts}
+          :ws/send    {:action :enqueue-message}
+          :ws/request {:action :enqueue-message}}}
+
+    :active
+    {;; The socket actor is invoked at the parent level — its lifetime
+     ;; spans :connecting, :authenticating, and :connected. Any transition
+     ;; that exits :active (to :reconnecting, :failed, or :disconnected)
+     ;; destroys it and clears its id from :rf/spawned; re-entering :active
+     ;; spawns a fresh one.
+     :spawn {:machine-id :websocket/socket
+              ;; Mechanism 2 from Pattern-AsyncEffect §Parameter passing
+              ;; across the boundary — the child reads URL + the opaque
+              ;; :cred-ref from the parent's :data at spawn time (the
+              ;; child resolves the reference to the real bearer inside
+              ;; its own host closure — see §Parameters). Every re-entry
+              ;; to :active picks up whatever the parent's :data currently
+              ;; holds, so a :rotate-cred between reconnects flows in
+              ;; without any extra wiring.
+              :data       (fn [{snap :snapshot}]
+                            {:url      (-> snap :data :url)
+                             :cred-ref (-> snap :data :cred-ref)})}
+              ;; Recording the socket-id needs no :on-spawn write and no
+              ;; :exit cleanup: on every declarative :spawn the runtime binds
+              ;; the newborn actor's id into THIS machine's :data under
+              ;; :rf/spawned, keyed by the :spawn-bearing state's path
+              ;; ([:active]) — read it via the `socket-id` helper above — and
+              ;; CLEARS it automatically when the actor is torn down. First-
+              ;; class :rf/spawned idiom (005 §Recording the spawned id
+              ;; user-side), preferred over the older carry-the-id-back
+              ;; self-dispatch.
+
+     ;; Parent-level transitions inherited by every leaf
+     ;; (per [005 §Transition resolution]). Any transport-level close during
+     ;; :connecting / :authenticating / :connected routes through here.
+     ;; :ws/closed is epoch-guarded like every socket-sourced event, so a
+     ;; close from a socket we've already replaced can't tear down the live
+     ;; connection; :on-socket-lost bumps the retry counter AND fails every
+     ;; in-flight request (see above).
+     :on    {:ws/closed   {:guard  :current-socket?
+                           :target :reconnecting
+                           :action :on-socket-lost}
+             ;; The app-level escape hatch. It leaves :active, so it kills
+             ;; the wire — and therefore settles the in-flight set on the way
+             ;; out as well as recording the error (see :on-fatal-error).
+             :ws/fatal    {:target :failed
+                           :action :on-fatal-error}
+             ;; The clean door out. It kills the wire too, so it settles the
+             ;; in-flight set on the way out (see :fail-in-flight). Every
+             ;; door out of :active reachable from :connected — this one, the
+             ;; guarded :ws/closed drop and :ws/fatal — settles :in-flight
+             ;; exactly once.
+             :ws/disconnect {:target :disconnected
+                             :action :fail-in-flight}
+             :ws/send     {:action :enqueue-message}
+             :ws/rotate-cred {:action :rotate-cred}
+             ;; A request issued before the connection is :connected is
+             ;; queued like any other send (the whole event is buffered, so
+             ;; its :request-id survives); the :connected leaf overrides
+             ;; below.
+             :ws/request  {:action :enqueue-message}}
+
+     :initial :connecting
 
      :states
-     {:disconnected
-      {:on {:ws/connect {:target [:active]
-                         :action :record-connection-opts}
-            :ws/send    {:action :enqueue-message}
-            :ws/request {:action :enqueue-message}}}
+     {:connecting
+      ;; Guarded like every socket-sourced lifecycle event: an :ws/opened
+      ;; from a socket we've already replaced (a slow open landing after a
+      ;; disconnect+reconnect) must not advance THIS connection.
+      {:on {:ws/opened {:guard  :current-socket?
+                        :target :authenticating}}}
 
-      :active
-      {;; The socket actor is invoked at the parent level — its lifetime
-       ;; spans :connecting, :authenticating, and :connected. Any transition
-       ;; that exits :active (to :reconnecting, :failed, or :disconnected)
-       ;; destroys it and clears its id from :rf/spawned; re-entering :active
-       ;; spawns a fresh one.
-       :spawn {:machine-id :websocket/socket
-                ;; Mechanism 2 from Pattern-AsyncEffect §Parameter passing
-                ;; across the boundary — the child reads URL + the opaque
-                ;; :cred-ref from the parent's :data at spawn time (the
-                ;; child resolves the reference to the real bearer inside
-                ;; its own host closure — see §Parameters). Every re-entry
-                ;; to :active picks up whatever the parent's :data currently
-                ;; holds, so a :rotate-cred between reconnects flows in
-                ;; without any extra wiring.
-                :data       (fn [{snap :snapshot}]
-                              {:url      (-> snap :data :url)
-                               :cred-ref (-> snap :data :cred-ref)})}
-                ;; Recording the socket-id needs no :on-spawn write and no
-                ;; :exit cleanup: on every declarative :spawn the runtime binds
-                ;; the newborn actor's id into THIS machine's :data under
-                ;; :rf/spawned, keyed by the :spawn-bearing state's path
-                ;; ([:active]) — read it via the `socket-id` helper above — and
-                ;; CLEARS it automatically when the actor is torn down. First-
-                ;; class :rf/spawned idiom (005 §Recording the spawned id
-                ;; user-side), preferred over the older carry-the-id-back
-                ;; self-dispatch.
+      :authenticating
+      {:entry :send-auth
+       ;; Both auth outcomes are epoch-guarded: a straggler :ws/auth-ok from
+       ;; a replaced socket must not prematurely mark us :connected, and a
+       ;; straggler :ws/auth-failed must not tear a fresh attempt to :failed.
+       :on    {:ws/auth-ok     {:guard  :current-socket?
+                                :target :connected}
+               ;; This door leaves :active too, but it needs no in-flight
+               ;; settlement — plain :record-error is correct here, not an
+               ;; oversight. :register-request is the only writer into
+               ;; :in-flight and it is bound only on :connected, so reaching
+               ;; :authenticating means :in-flight is provably empty.
+               :ws/auth-failed {:guard  :current-socket?
+                                :target [:failed]
+                                :action :record-error}}}
 
-       ;; Parent-level transitions inherited by every leaf
-       ;; (per [005 §Transition resolution]). Any transport-level close during
-       ;; :connecting / :authenticating / :connected routes through here.
-       ;; :ws/closed is epoch-guarded like every socket-sourced event, so a
-       ;; close from a socket we've already replaced can't tear down the live
-       ;; connection; :on-socket-lost bumps the retry counter AND fails every
-       ;; in-flight request (see above).
-       :on    {:ws/closed   {:guard  :current-socket?
-                             :target :reconnecting
-                             :action :on-socket-lost}
-               ;; The app-level escape hatch. It leaves :active, so it kills
-               ;; the wire — and therefore settles the in-flight set on the way
-               ;; out as well as recording the error (see :on-fatal-error).
-               :ws/fatal    {:target :failed
-                             :action :on-fatal-error}
-               ;; The clean door out. It kills the wire too, so it settles the
-               ;; in-flight set on the way out (see :fail-in-flight). Every
-               ;; door out of :active reachable from :connected — this one, the
-               ;; guarded :ws/closed drop and :ws/fatal — settles :in-flight
-               ;; exactly once.
-               :ws/disconnect {:target :disconnected
-                               :action :fail-in-flight}
-               :ws/send     {:action :enqueue-message}
-               :ws/rotate-cred {:action :rotate-cred}
-               ;; A request issued before the connection is :connected is
-               ;; queued like any other send (the whole event is buffered, so
-               ;; its :request-id survives); the :connected leaf overrides
-               ;; below.
-               :ws/request  {:action :enqueue-message}}
+      :connected
+      {:entry  :on-connected
+       :always [{:guard :has-queued-messages? :action :flush-queue}]
+       :on     {;; Inbound frame. TWO candidates, first-match-wins: a frame
+                ;; must clear both halves of the gate — :current-socket?
+                ;; (not a straggler from a socket we have replaced) AND the
+                ;; closed InboundMessage wire contract — before this machine
+                ;; acts on it. See §Vet the frame before the machine acts on
+                ;; it for why the app-db ingress check downstream is not
+                ;; sufficient on its own.
+                :ws/received [{:guard  :trusted-frame?
+                               :action (fn [{:keys [data] [_ {:keys [body]}] :event}]
+                                         ;; Branch on the VETTED :type, not on
+                                         ;; "is there a :request-id?". Then
+                                         ;; correlate on the REGISTRATION: the
+                                         ;; echoed :request-token must still be
+                                         ;; the one in the slot, or this reply
+                                         ;; answers a registration that is no
+                                         ;; longer there (item 6).
+                                         (if (= :reply (:type body))
+                                           (let [rid   (:request-id body)
+                                                 entry (when-let [e (get-in data [:in-flight rid])]
+                                                         (when (= (:request-token body) (:token e)) e))]
+                                             (cond-> {:fx [[:dispatch [:ws/handle-message body]]]}
+                                               entry
+                                               (assoc :data (update data :in-flight dissoc rid))
+                                               (:reply-event entry)
+                                               ;; :origin is the machine's own
+                                               ;; stamp — see §Message correlation.
+                                               (update :fx conj
+                                                       [:dispatch (conj (:reply-event entry)
+                                                                        (assoc body :origin :ws/server))])))
+                                           ;; Server push — translate to a
+                                           ;; named running-app event.
+                                           {:fx [[:dispatch [:ws/handle-message body]]]}))}
+                              ;; Failed the wire contract: hand it to the
+                              ;; ingress, which owns refusal, and change
+                              ;; nothing. Note the absent :data key.
+                              {:guard  :current-socket?
+                               :action (fn [{[_ {:keys [body]}] :event}]
+                                         {:fx [[:dispatch [:ws/handle-message body]]]})}]
 
-       :initial :connecting
+                ;; Override the parent's :ws/send: while :connected the
+                ;; message goes straight to the wire instead of queueing.
+                :ws/send    {:action (fn [{:keys [data] [_ msg] :event}]
+                                       {:fx [[:dispatch [(socket-id data)
+                                                         [:send msg]]]]})}
 
-       :states
-       {:connecting
-        ;; Guarded like every socket-sourced lifecycle event: an :ws/opened
-        ;; from a socket we've already replaced (a slow open landing after a
-        ;; disconnect+reconnect) must not advance THIS connection.
-        {:on {:ws/opened {:guard  :current-socket?
-                          :target :authenticating}}}
+                ;; Override the parent's :ws/request: while :connected
+                ;; the request is registered + sent immediately.
+                :ws/request {:action :register-request}
 
-        :authenticating
-        {:entry :send-auth
-         ;; Both auth outcomes are epoch-guarded: a straggler :ws/auth-ok from
-         ;; a replaced socket must not prematurely mark us :connected, and a
-         ;; straggler :ws/auth-failed must not tear a fresh attempt to :failed.
-         :on    {:ws/auth-ok     {:guard  :current-socket?
-                                  :target :connected}
-                 ;; This door leaves :active too, but it needs no in-flight
-                 ;; settlement — plain :record-error is correct here, not an
-                 ;; oversight. :register-request is the only writer into
-                 ;; :in-flight and it is bound only on :connected, so reaching
-                 ;; :authenticating means :in-flight is provably empty.
-                 :ws/auth-failed {:guard  :current-socket?
-                                  :target [:failed]
-                                  :action :record-error}}}
+                ;; A deadline elapsed. Two questions, one guard: is the socket
+                ;; still ours, and is this the timer the registration
+                ;; currently in the slot armed? See :own-request-timeout?.
+                :ws/request-timeout
+                {:guard  :own-request-timeout?
+                 :action :clear-request}}}}}
 
-        :connected
-        {:entry  :on-connected
-         :always [{:guard :has-queued-messages? :action :flush-queue}]
-         :on     {;; Inbound frame. TWO candidates, first-match-wins: a frame
-                  ;; must clear both halves of the gate — :current-socket?
-                  ;; (not a straggler from a socket we have replaced) AND the
-                  ;; closed InboundMessage wire contract — before this machine
-                  ;; acts on it. See §Vet the frame before the machine acts on
-                  ;; it for why the app-db ingress check downstream is not
-                  ;; sufficient on its own.
-                  :ws/received [{:guard  :trusted-frame?
-                                 :action (fn [{:keys [data] [_ {:keys [body]}] :event}]
-                                           ;; Branch on the VETTED :type, not on
-                                           ;; "is there a :request-id?". Then
-                                           ;; correlate on the REGISTRATION: the
-                                           ;; echoed :request-token must still be
-                                           ;; the one in the slot, or this reply
-                                           ;; answers a registration that is no
-                                           ;; longer there (item 6).
-                                           (if (= :reply (:type body))
-                                             (let [rid   (:request-id body)
-                                                   entry (when-let [e (get-in data [:in-flight rid])]
-                                                           (when (= (:request-token body) (:token e)) e))]
-                                               (cond-> {:fx [[:dispatch [:ws/handle-message body]]]}
-                                                 entry
-                                                 (assoc :data (update data :in-flight dissoc rid))
-                                                 (:reply-event entry)
-                                                 ;; :origin is the machine's own
-                                                 ;; stamp — see §Message correlation.
-                                                 (update :fx conj
-                                                         [:dispatch (conj (:reply-event entry)
-                                                                          (assoc body :origin :ws/server))])))
-                                             ;; Server push — translate to a
-                                             ;; named running-app event.
-                                             {:fx [[:dispatch [:ws/handle-message body]]]}))}
-                                ;; Failed the wire contract: hand it to the
-                                ;; ingress, which owns refusal, and change
-                                ;; nothing. Note the absent :data key.
-                                {:guard  :current-socket?
-                                 :action (fn [{[_ {:keys [body]}] :event}]
-                                           {:fx [[:dispatch [:ws/handle-message body]]]})}]
+    :reconnecting
+    {:always [{:guard :max-retries-exceeded? :target :failed}]
+     ;; Exponential backoff, computed at state entry from the current
+     ;; retry count. Per [005 §Value shape] the fn-form delay is called
+     ;; once at entry against the entering snapshot; the :after epoch
+     ;; carries through the synthetic timer event so a transition out
+     ;; of :reconnecting (e.g., a manual :ws/connect) makes the in-flight
+     ;; backoff timer stale. Add a jitter term in production.
+     :after  {(fn [{:keys [snapshot]}]
+                (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
+                  (min (* base-ms (Math/pow 2 retries))
+                       max-backoff-ms)))
+              {:target [:active]}}
+     :on     {;; Manual reconnect (e.g., after the auth machine rotates
+              ;; the credential) — short-circuit the backoff, record fresh
+              ;; opts, zero the retry counter, re-enter :active.
+              :ws/connect {:target [:active]
+                           :action :record-and-reset}
+              :ws/send    {:action :enqueue-message}
+              :ws/request {:action :enqueue-message}
+              :ws/rotate-cred {:action :rotate-cred}}}
 
-                  ;; Override the parent's :ws/send: while :connected the
-                  ;; message goes straight to the wire instead of queueing.
-                  :ws/send    {:action (fn [{:keys [data] [_ msg] :event}]
-                                         {:fx [[:dispatch [(socket-id data)
-                                                           [:send msg]]]]})}
-
-                  ;; Override the parent's :ws/request: while :connected
-                  ;; the request is registered + sent immediately.
-                  :ws/request {:action :register-request}
-
-                  ;; A deadline elapsed. Two questions, one guard: is the socket
-                  ;; still ours, and is this the timer the registration
-                  ;; currently in the slot armed? See :own-request-timeout?.
-                  :ws/request-timeout
-                  {:guard  :own-request-timeout?
-                   :action :clear-request}}}}}
-
-      :reconnecting
-      {:always [{:guard :max-retries-exceeded? :target :failed}]
-       ;; Exponential backoff, computed at state entry from the current
-       ;; retry count. Per [005 §Value shape] the fn-form delay is called
-       ;; once at entry against the entering snapshot; the :after epoch
-       ;; carries through the synthetic timer event so a transition out
-       ;; of :reconnecting (e.g., a manual :ws/connect) makes the in-flight
-       ;; backoff timer stale. Add a jitter term in production.
-       :after  {(fn [{:keys [snapshot]}]
-                  (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
-                    (min (* base-ms (Math/pow 2 retries))
-                         max-backoff-ms)))
-                {:target [:active]}}
-       :on     {;; Manual reconnect (e.g., after the auth machine rotates
-                ;; the credential) — short-circuit the backoff, record fresh
-                ;; opts, zero the retry counter, re-enter :active.
-                :ws/connect {:target [:active]
-                             :action :record-and-reset}
-                :ws/send    {:action :enqueue-message}
-                :ws/request {:action :enqueue-message}
-                :ws/rotate-cred {:action :rotate-cred}}}
-
-      :failed
-      {:on {:ws/connect     {:target [:active]
-                             :action :record-and-reset}
-            :ws/rotate-cred {:action :rotate-cred}}}}}))
+    :failed
+    {:on {:ws/connect     {:target [:active]
+                           :action :record-and-reset}
+          :ws/rotate-cred {:action :rotate-cred}}}}})
 ```
 
 The `:websocket/socket` invoked actor is itself a small machine (or fx-backed event handler) that owns the JS `WebSocket` instance and translates `:open`, `:message`, `:error`, `:close` events into dispatches back to the parent connection machine. It is also where the opaque `:cred-ref` becomes a real credential: the actor resolves the reference inside its own host closure **at the auth write**, attaches the bearer to that wire frame, and lets it go out of scope in the same expression — the bearer never enters machine `:data` or a dispatch (see §Parameters). Resolve it in the enclosing scope instead and the socket handle, which is retained for the socket's whole life, closes over the bearer for just as long: a live credential parked host-side that no snapshot sweep can see. Every outgoing dispatch carries `:source-socket-id` (the actor's `:rf/self-id`, per [005 §Runtime stamps on the spawned actor's `:data`](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data)) so the parent's `:current-socket?` guard can suppress messages from a prior socket if one happens to dispatch in flight as the cascade tears it down. The actor's lifetime is bound to `:active` — leaving `:active` (whether to `:reconnecting` on error or `:failed` fatally) destroys it; re-entering `:active` creates a fresh socket.

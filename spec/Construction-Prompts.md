@@ -354,9 +354,9 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **When to use this prompt:** the user describes a multi-step interaction with discrete, named states — a login flow, a checkout wizard, a video player, a modal lifecycle, a websocket connection. If you can list the states and the events that move between them, you have a machine.
 
-**Key idea: the machine IS the event handler.** A machine is registered as one `reg-event` whose body comes from `make-machine-handler`. Sub-events route in: `(rf/dispatch [:my/machine [:my-input arg ...]])`.
+**Key idea: the machine IS the event handler.** A machine is registered as one event handler with `reg-machine`, whose body interprets the transition table. Sub-events route in: `(rf/dispatch [:my/machine [:my-input arg ...]])`. See [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface).
 
-**Default form: named guards and actions in the machine's `:guards` / `:actions` maps.** The transition table references guards and actions by **keyword** (`:under-retry-limit`, `:clear-error`); the bodies live in the machine's own `:guards` / `:actions` maps inside `make-machine-handler`. This is the **default** because the named id is a **name** that is **reusable, addressable, and clearer for humans, tools, and AIs** — visualisers label arrows with the id, AIs and conformance fixtures resolve the id against the machine's `:guards` / `:actions` map, and tests stub by id. (The rationale is *not* source visibility: an inline fn's `:source-code` text is co-located on its enclosing node in dev, per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping), so an inline body is inspectable — it just has no public name to address.) Inline fns are an **escape hatch for trivial logic** (one-liners with no branching), not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias). **Resolution is machine-local** — there is no global `:machine-guard` / `:machine-action` registry; cross-machine reuse is via Clojure vars referenced from each machine's map.
+**Default form: named guards and actions in the machine's `:guards` / `:actions` maps.** The transition table references guards and actions by **keyword** (`:under-retry-limit`, `:clear-error`); the bodies live in the machine's own `:guards` / `:actions` maps inside the machine spec. This is the **default** because the named id is a **name** that is **reusable, addressable, and clearer for humans, tools, and AIs** — visualisers label arrows with the id, AIs and conformance fixtures resolve the id against the machine's `:guards` / `:actions` map, and tests stub by id. (The rationale is *not* source visibility: an inline fn's `:source-code` text is co-located on its enclosing node in dev, per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping), so an inline body is inspectable — it just has no public name to address.) Inline fns are an **escape hatch for trivial logic** (one-liners with no branching), not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias). **Resolution is machine-local** — there is no global `:machine-guard` / `:machine-action` registry; cross-machine reuse is via Clojure vars referenced from each machine's map.
 
 **Pre-flight checks:**
 
@@ -366,7 +366,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
 5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
 
-**Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf.runtime/machines :snapshots <machine-id>]` in the frame's **runtime-db** partition (not app-db). For id `:auth.login/flow`, the snapshot is at `[:rf.runtime/machines :snapshots :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `make-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own runtime-db and thus its own `[:rf.runtime/machines :snapshots]` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
+**Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf.runtime/machines :snapshots <machine-id>]` in the frame's **runtime-db** partition (not app-db). For id `:auth.login/flow`, the snapshot is at `[:rf.runtime/machines :snapshots :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — the machine spec has no `:path` key. Per-frame isolation is automatic: each frame has its own runtime-db and thus its own `[:rf.runtime/machines :snapshots]` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
 **Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/subscribe [:rf/machine :auth.login/flow])` returns the snapshot — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub `:<- [:rf/machine <id>]` for projections. See [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
 
@@ -380,80 +380,79 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 ;; machine-local: the runtime calls (get-in spec [:guards :under-retry-limit])
 ;; etc. There is no global :machine-guard / :machine-action registry.
 
-(rf/reg-event :auth.login/flow
+(rf/reg-machine :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
-  (rf.machines/make-machine-handler
-    {:initial :idle
-     :data    {:attempts 0 :error nil}
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
 
-     :guards
-     {:under-retry-limit
-      ;; Has this login had fewer than 3 prior attempts?
-      (fn [{:keys [data]}]
-        (< (:attempts data) 3))}
+   :guards
+   {:under-retry-limit
+    ;; Has this login had fewer than 3 prior attempts?
+    (fn [{:keys [data]}]
+      (< (:attempts data) 3))}
 
-     :actions
-     {:begin-submit
-      ;; Clear the prior error and emit the HTTP request for credential check.
-      ;; Destructure the credentials out of the :event vector.
-      (fn [{[_ creds] :event}]
-        {:data {:error nil}
-         :fx   [[:http {:method     :post
-                        :url        "/api/login"
-                        :body       creds
-                        :on-success [:auth.login/flow [:succeeded]]
-                        :on-error   [:auth.login/flow [:failed]]}]]})
+   :actions
+   {:begin-submit
+    ;; Clear the prior error and emit the HTTP request for credential check.
+    ;; Destructure the credentials out of the :event vector.
+    (fn [{[_ creds] :event}]
+      {:data {:error nil}
+       :fx   [[:http {:method     :post
+                      :url        "/api/login"
+                      :body       creds
+                      :on-success [:auth.login/flow [:succeeded]]
+                      :on-error   [:auth.login/flow [:failed]]}]]})
 
-      :record-failure
-      ;; Bump the attempts counter and surface a credentials error.
-      (fn [{:keys [data]}]
-        {:data {:attempts (inc (:attempts data))
-                :error    :credentials}})
+    :record-failure
+    ;; Bump the attempts counter and surface a credentials error.
+    (fn [{:keys [data]}]
+      {:data {:attempts (inc (:attempts data))
+              :error    :credentials}})
 
-      :lock-out
-      ;; Lock the account after exceeding the retry limit.
-      (fn [_ctx]
-        {:data {:error :locked}})
+    :lock-out
+    ;; Lock the account after exceeding the retry limit.
+    (fn [_ctx]
+      {:data {:error :locked}})
 
-      :clear-error
-      ;; Reset the error before re-submitting.
-      (fn [_ctx]
-        {:data {:error nil}})
+    :clear-error
+    ;; Reset the error before re-submitting.
+    (fn [_ctx]
+      {:data {:error nil}})
 
-      :clear-and-record-success
-      ;; On successful auth, clear any residual error state.
-      (fn [_ctx]
-        {:data {:error nil}})}
+    :clear-and-record-success
+    ;; On successful auth, clear any residual error state.
+    (fn [_ctx]
+      {:data {:error nil}})}
 
-     :states
-     {:idle
-      {:on
-       {:submit
-        {:target :submitting
-         :action :begin-submit}}}                            ;; resolves to :actions :begin-submit
+   :states
+   {:idle
+    {:on
+     {:submit
+      {:target :submitting
+       :action :begin-submit}}}                            ;; resolves to :actions :begin-submit
 
-      :submitting
-      {:on
-       {:succeeded
-        {:target :authed
-         :action :clear-and-record-success}
+    :submitting
+    {:on
+     {:succeeded
+      {:target :authed
+       :action :clear-and-record-success}
 
-        :failed
-        ;; multiple candidates with guards — first match wins
-        [{:target :error-shown
-          :guard  :under-retry-limit                         ;; resolves to :guards :under-retry-limit
-          :action :record-failure}
-         {:target :locked-out
-          :action :lock-out}]}}
+      :failed
+      ;; multiple candidates with guards — first match wins
+      [{:target :error-shown
+        :guard  :under-retry-limit                         ;; resolves to :guards :under-retry-limit
+        :action :record-failure}
+       {:target :locked-out
+        :action :lock-out}]}}
 
-      :error-shown
-      {:on
-       {:dismiss {:target :idle}
-        :submit  {:target :submitting
-                  :action :clear-error}}}
+    :error-shown
+    {:on
+     {:dismiss {:target :idle}
+      :submit  {:target :submitting
+                :action :clear-error}}}
 
-      :authed     {:meta {:terminal? true}}
-      :locked-out {:meta {:terminal? true}}}}))
+    :authed     {:meta {:terminal? true}}
+    :locked-out {:meta {:terminal? true}}}})
 ```
 
 **What "named in `:guards` / `:actions` by default" buys:**
@@ -597,7 +596,7 @@ For projections, compose against `:rf/machine` via `:<-`:
 
 **AI-first checklist:**
 
-- Machine id is namespaced; registered via `reg-event` + `make-machine-handler`.
+- Machine id is namespaced; registered with `reg-machine`.
 - No `:path` key in the machine spec — the runtime stores snapshots at `[:rf.runtime/machines :snapshots <id>]` in runtime-db.
 - All states are listed in `:states`; no string-based or computed state names.
 - Every input the machine listens to is in some state's `:on` map.

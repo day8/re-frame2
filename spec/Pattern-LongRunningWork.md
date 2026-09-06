@@ -40,56 +40,55 @@ A state machine that processes one batch per state transition, yields to the bro
 ### Worked example — process N items in chunks of 100
 
 ```clojure
-(rf/reg-event :compute/batch-job
+(rf/reg-machine :compute/batch-job
   {:doc "Long-running batch processing with progress reporting and cancel support."}
-  (rf.machines/make-machine-handler
-    {:initial :idle
-     :data    {:total       0
-               :processed   0
-               :chunk-size  100
-               :input       nil
-               :result      []}
-     :guards
-     {:done?      (fn [{:keys [data]}] (>= (:processed data) (:total data)))
-      :more-work? (fn [{:keys [data]}] (<  (:processed data) (:total data)))}
+  {:initial :idle
+   :data    {:total       0
+             :processed   0
+             :chunk-size  100
+             :input       nil
+             :result      []}
+   :guards
+   {:done?      (fn [{:keys [data]}] (>= (:processed data) (:total data)))
+    :more-work? (fn [{:keys [data]}] (<  (:processed data) (:total data)))}
 
-     :actions
-     {:start-job
-      ;; opts is an optional map; :chunk-size falls back to the default declared in :data above.
-      (fn [{[_ input opts] :event}]
-        {:data {:total      (count input)
-                :input      input
-                :chunk-size (:chunk-size opts 100)
-                :processed  0
-                :result     []}})
+   :actions
+   {:start-job
+    ;; opts is an optional map; :chunk-size falls back to the default declared in :data above.
+    (fn [{[_ input opts] :event}]
+      {:data {:total      (count input)
+              :input      input
+              :chunk-size (:chunk-size opts 100)
+              :processed  0
+              :result     []}})
 
-      :process-chunk
-      (fn [{:keys [data]}]
-        (let [{:keys [input chunk-size processed result]} data
-              chunk    (subvec input processed (min (+ processed chunk-size) (count input)))
-              outputs  (mapv expensive-fn chunk)]
-          {:data {:processed (+ processed (count chunk))
-                  :result    (into result outputs)}}))}
+    :process-chunk
+    (fn [{:keys [data]}]
+      (let [{:keys [input chunk-size processed result]} data
+            chunk    (subvec input processed (min (+ processed chunk-size) (count input)))
+            outputs  (mapv expensive-fn chunk)]
+        {:data {:processed (+ processed (count chunk))
+                :result    (into result outputs)}}))}
 
-     :states
-     {:idle
-      {:on {:start    {:target :processing
-                       :action :start-job}}}
+   :states
+   {:idle
+    {:on {:start    {:target :processing
+                     :action :start-job}}}
 
-      :processing
-      {:entry  :process-chunk
-       :always [{:target :checking-done}]}    ;; immediately re-evaluate
+    :processing
+    {:entry  :process-chunk
+     :always [{:target :checking-done}]}    ;; immediately re-evaluate
 
-      :checking-done
-      {:always [{:guard :done?      :target :complete}
-                {:guard :more-work? :target :yielding}]}
+    :checking-done
+    {:always [{:guard :done?      :target :complete}
+              {:guard :more-work? :target :yielding}]}
 
-      :yielding
-      {:after {0 :processing}                 ;; one browser tick, then next chunk
-       :on    {:cancel :cancelled}}           ;; cancel only meaningful while yielding
+    :yielding
+    {:after {0 :processing}                 ;; one browser tick, then next chunk
+     :on    {:cancel :cancelled}}           ;; cancel only meaningful while yielding
 
-      :complete   {:on {:reset :idle}}
-      :cancelled  {:on {:reset :idle}}}}))
+    :complete   {:on {:reset :idle}}
+    :cancelled  {:on {:reset :idle}}}})
 ```
 
 Walk-through for a 1000-item job with chunk-size 100:
