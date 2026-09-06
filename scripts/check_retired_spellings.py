@@ -248,16 +248,26 @@ retired SHAPES:
       rather than red, and silent is the worse shape.
 
       PROSE — the same token inside a ``` FENCED CODE BLOCK under `spec/`,
-      `skills/` and `migration/`. This is the carrier a source rule cannot see,
-      and the one the retirement was found in last: rf2-kuky.49 fixed nine
-      teaching sites that no arrow census had flagged, two of them blocks where
-      an earlier PR had corrected the RULE while leaving the FORM. Fenced-only
-      is the whole prose defence, since Markdown gets no masking: a retirement
-      NOTE — the Spec 009 error-catalogue row, the API manifest's
-      justification, the EP's record — is prose, and prose is not read. `docs/`
-      is off this roster for the reason SCAN SURFACE gives generally (mkdocs
-      stages `spec/` and `migration/` into it, so a built checkout would
-      double-report) and because `docs/design/**` is a dated design record.
+      `skills/`, `migration/` and `docs/`. This is the carrier a source rule
+      cannot see, and the one the retirement was found in last: rf2-kuky.49
+      fixed nine teaching sites that no arrow census had flagged, two of them
+      blocks where an earlier PR had corrected the RULE while leaving the FORM.
+      Fenced-only is the whole prose defence, since Markdown gets no masking: a
+      retirement NOTE — the Spec 009 error-catalogue row, the API manifest's
+      justification, the EP's record — is prose, and prose is not read.
+
+      `docs/` is on the roster and SUBTRACTED FROM, rather than left off. It
+      was left off originally, and that traded one true reason for a wider
+      exclusion than the reason carries: mkdocs stages `spec/` and `migration/`
+      into `docs/spec/` and `docs/migration/`, so scanning THOSE TWO would
+      double-report — and would report at a path that does not exist in version
+      control, since both staged copies are gitignored. That argument reaches
+      the staged copies and nothing else. Dropping all of `docs/` also dropped
+      the independent authored pages beside them — `docs/core/`, `docs/api/`,
+      the per-capability guides — which are sources, not copies, and are
+      exactly where a reader COPIES a sample from. So the roster names `docs/`
+      and `ARROW_PROSE_EXCLUDE_PATHS` subtracts the two staged trees plus
+      `docs/design/`, the dated design records. See those constants.
 
       TWO ALLOW-LISTS, BOTH CLOSED BY CONSTRUCTION — which is what makes them
       different from the one rule (d) rejected as "an allow-list that a correct
@@ -400,9 +410,13 @@ Dependency-light — Python stdlib only.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import os
 import re
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable, NamedTuple
 
@@ -523,11 +537,41 @@ ARROW_SOURCE_ALLOWLIST = (
 )
 
 # Rule (f)'s PROSE surface: the teaching corpus, inside fenced code blocks
-# only. `docs/` is absent for the reason SCAN SURFACE gives for every rule —
-# mkdocs stages `spec/` and `migration/` into `docs/spec/` and `docs/migration/`
-# at build time, so a built checkout would double-report — and `docs/design/**`
-# is a dated design record besides.
-ARROW_PROSE_SCAN_DIRS = ("spec", "skills", "migration")
+# only — INCLUDING the authored public docs corpus. `docs/core/subscriptions.md`
+# and `docs/api/re-frame.core.md` are the pages a reader copies a `reg-sub` out
+# of, and a copied v1 registration there now THROWS at namespace load, so a
+# retirement gate that cannot see them is missing the surface with the shortest
+# path from sample to breakage.
+ARROW_PROSE_SCAN_DIRS = ("spec", "skills", "migration", "docs")
+
+# ...minus three subtrees, subtracted EXPLICITLY rather than by leaving `docs/`
+# off the roster wholesale. Matched on the repo-relative TAIL like
+# `COORD_EXCLUDE_PATHS`, so the same roster holds under the real checkout and
+# under a synthetic tree handed in by the self-test — and, unlike a roster
+# entry, an exclusion is NOT required to exist: `docs/spec/` and
+# `docs/migration/` are absent from a clean checkout by design.
+#
+#   * `docs/spec` and `docs/migration` are STAGED COPIES, not sources.
+#     `mkdocs_hooks.py`'s `on_pre_build` mirrors `spec/` and `migration/` into
+#     them before MkDocs scans a file, and both are gitignored (.gitignore
+#     `/docs/spec/`, `/docs/migration/`). The roster already scans the two
+#     SOURCE trees, so scanning the copies would report every finding twice —
+#     the second time at a path that exists in no checkout git knows about,
+#     which is a fix hint pointing at a file the author cannot edit.
+#   * `docs/design` is the dated design record: `docs/design/hicasso/studio/`
+#     and its siblings are measurement write-ups pinned to the day they were
+#     taken, and a design record quoting the shape it decided against is doing
+#     its job. This is the audit's stated intent and it is DELIBERATELY not
+#     `mkdocs.yml`'s `exclude_docs` roster, which names only three of the
+#     design subtrees and names them for a different reason (what the built
+#     site publishes, not what is authored prose). Excluding the tree by
+#     authorship rather than by build membership keeps the two rosters from
+#     having to agree.
+ARROW_PROSE_EXCLUDE_PATHS = (
+    "docs/spec",
+    "docs/migration",
+    "docs/design",
+)
 
 # The migration corpus, which quotes v1 spelling ON PURPOSE. This allow-list is
 # CLOSED BY CONSTRUCTION and that is what distinguishes it from the one rule (d)
@@ -1143,6 +1187,18 @@ def _scan_arrow_source(path: Path, text: str) -> list[Finding]:
     return findings
 
 
+def _arrow_prose_excluded(path: Path) -> bool:
+    """True when `path` sits inside an `ARROW_PROSE_EXCLUDE_PATHS` subtree.
+
+    Every ANCESTOR is tested, not just the immediate parent: the excluded trees
+    are roots, and `docs/design/hicasso/studio/x.md` is as excluded as
+    `docs/design/x.md`. The walk in `scan_arrow_prose` gets this by pruning at
+    the exclusion root; direct-file mode has no walk, so it asks here.
+    """
+    return any(_allowlisted(parent, ARROW_PROSE_EXCLUDE_PATHS)
+               for parent in path.parents)
+
+
 def _scan_arrow_prose(path: Path, text: str) -> list[Finding]:
     """Rule (f) over a Markdown page's FENCED code blocks only."""
     if _allowlisted(path, ARROW_PROSE_ALLOWLIST):
@@ -1167,15 +1223,26 @@ def scan_arrow(scan_root: Path, include_tests: bool = False) -> list[Finding]:
 
 
 def scan_arrow_prose(scan_root: Path) -> list[Finding]:
-    """Scan rule (f)'s PROSE surface (fenced samples) under scan_root."""
+    """Scan rule (f)'s PROSE surface (fenced samples) under scan_root.
+
+    `ARROW_PROSE_EXCLUDE_PATHS` is subtracted, on the repo-relative tail, the
+    way `_iter_coordinate_files` subtracts `COORD_EXCLUDE_PATHS`. In direct-file
+    mode the same subtraction applies, so a self-test that hands in an excluded
+    page gets the same answer the walk would give it.
+    """
     if scan_root.is_file():
         paths: Iterable[Path] = (
-            [scan_root] if scan_root.suffix == ".md" else []
+            [scan_root]
+            if scan_root.suffix == ".md" and not _arrow_prose_excluded(scan_root)
+            else []
         )
     else:
         matches: list[Path] = []
         for dirpath, dirnames, filenames in os.walk(scan_root):
             dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIR_NAMES]
+            if _allowlisted(Path(dirpath), ARROW_PROSE_EXCLUDE_PATHS):
+                dirnames[:] = []
+                continue
             for name in filenames:
                 if name.endswith(".md"):
                     matches.append(Path(dirpath) / name)
@@ -1413,6 +1480,7 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(
             f"scanning {a} source file(s) under {', '.join(ARROW_SCAN_DIRS)} "
             f"and the fenced samples under {', '.join(ARROW_PROSE_SCAN_DIRS)} "
+            f"(minus {', '.join(ARROW_PROSE_EXCLUDE_PATHS)}) "
             "for the retired `reg-sub` arrow...\n"
         )
 
@@ -1591,6 +1659,56 @@ _ARROW_ALLOWLIST_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
      "      (some #{:<-} tail)", 1),
 )
 
+# Rule (f)'s PROSE ROSTER, exercised through `main` rather than through
+# `scan_arrow_prose`. This phase exists because a direct-scanner test cannot
+# see the defect it is here to catch: rule (f) shipped with a correct scanner
+# and a roster that omitted `docs/`, so every direct `_scan_arrow_prose` case
+# passed while the real invocation never opened the authored docs corpus at
+# all. The surface a gate SCANS is a different claim from the shape it MATCHES,
+# and only the CLI route asserts the first one.
+#
+# Each case is (repo-relative path for the planted sample, expected exit).
+# The planted content is the phase-6 positive fixture itself, so the three
+# exclusion cases are not a weaker sample failing to fire — they are the SAME
+# sample proved inert by its path alone, which is the discrimination
+# `_ARROW_ALLOWLIST_SELF_TEST_CASES` makes for the source allow-list.
+#
+# `docs/core/` and `docs/api/` are named as real repo paths on purpose: a
+# roster that narrowed back to (spec, skills, migration) reds here.
+_ARROW_PROSE_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
+    # --- the authored public docs corpus MUST be reached ---
+    ("docs/core/subscriptions.md",   1),
+    ("docs/api/re-frame.core.md",    1),
+    # --- and so must every tree the roster already carried ---
+    ("spec/audit-subscriptions.md",  1),
+    ("skills/audit-subscriptions.md", 1),
+    # --- the staged copies and the dated design records MUST NOT be ---
+    ("docs/spec/002-Frames.md",                      0),
+    ("docs/migration/from-re-frame-v1/README.md",    0),
+    ("docs/design/hicasso/studio/measurement.md",    0),
+)
+
+
+def _build_synthetic_repo(root: Path) -> None:
+    """Populate `root` with the minimum a `main --repo-root` run demands.
+
+    Every rostered directory is created FROM the rosters rather than from a
+    hand-written list, so a roster that grows grows this tree with it. `main`
+    refuses a root whose rostered trees are missing (that refusal is itself a
+    ratchet — see the `missing` check), and it refuses a root with no
+    `mkdocs.yml`, so both are provided.
+    """
+    (root / "mkdocs.yml").write_text("docs_dir: docs\n", encoding="utf-8")
+    for rel in set(DEFAULT_SCAN_DIRS) | set(ARROW_SCAN_DIRS) | set(ARROW_PROSE_SCAN_DIRS):
+        (root / rel).mkdir(parents=True, exist_ok=True)
+    for rel in COORD_SCAN_PATHS:
+        target = root / rel
+        if Path(rel).suffix:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("", encoding="utf-8")
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+
 
 def _run_self_tests(verbose: bool = False) -> int:
     """Scan each fixture file and assert the expected finding count.
@@ -1617,6 +1735,11 @@ def _run_self_tests(verbose: bool = False) -> int:
     verbatim from the shipped hicasso corpus, so a future widening of the rule
     that would red real files fails here first, in this repo, rather than in
     someone else's PR.
+
+    The LAST phase is the only one that does not test a scanner. It drives
+    `main --repo-root` over a synthetic repo to assert what rule (f)'s prose
+    roster REACHES — the claim every direct-scanner phase above takes for
+    granted, and the one that was wrong when rule (f) shipped.
     """
     cases: list[tuple[str, int]] = [
         # (fixture-file relative to fixture-root, expected finding count)
@@ -1776,6 +1899,47 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # Phase 8: rule (f)'s PROSE ROSTER, through `main --repo-root`. See the
+    # case table for why this cannot be a `scan_arrow_prose` case.
+    sample = _SELF_TEST_FIXTURE_ROOT / "arrow" / "positive" / "fenced_sample.md"
+    if not sample.is_file():
+        sys.stderr.write(
+            f"self-test FAIL: fixture 'arrow/positive/fenced_sample.md' "
+            f"missing at {sample}\n"
+        )
+        failures += 1
+    else:
+        for rel, expected in _ARROW_PROSE_ROSTER_SELF_TEST_CASES:
+            # A case that fires reports its finding the way any red run does.
+            # That is correct behaviour under test and pure noise on a PASS —
+            # a `--self-test` that prints "1 retired spelling(s) found" three
+            # times and then exits 0 reads as a failure in a CI log. So the
+            # run's own output is captured and replayed only on a FAILURE,
+            # where it is the diagnostic.
+            captured = io.StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _build_synthetic_repo(root)
+                planted = root / rel
+                planted.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(sample, planted)
+                with contextlib.redirect_stderr(captured):
+                    got = main(["--repo-root", str(root)])
+            if got == expected:
+                if verbose:
+                    sys.stderr.write(
+                        f"self-test PASS: prose roster {rel} (exit={got})\n"
+                    )
+            else:
+                sys.stderr.write(
+                    f"self-test FAIL: prose roster {rel} expected exit="
+                    f"{expected}, got {got}. The retired arrow was planted at "
+                    "that path and the default roster did not reach it "
+                    "(or reached a path it must not).\n"
+                )
+                sys.stderr.write(captured.getvalue())
+                failures += 1
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
@@ -1785,7 +1949,8 @@ def _run_self_tests(verbose: bool = False) -> int:
                  + len(_COORD_SELF_TEST_CASES)
                  + len(_ARROW_SOURCE_SELF_TEST_CASES)
                  + len(_ARROW_PROSE_SELF_TEST_CASES)
-                 + len(_ARROW_ALLOWLIST_SELF_TEST_CASES))
+                 + len(_ARROW_ALLOWLIST_SELF_TEST_CASES)
+                 + len(_ARROW_PROSE_ROSTER_SELF_TEST_CASES))
         sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
 
