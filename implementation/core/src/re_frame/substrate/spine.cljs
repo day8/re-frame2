@@ -1008,6 +1008,57 @@
       (swap! active-roots-cell disj root)
       (unmount-op root))))
 
+(defn make-client-root-fns
+  "Build the `client-root` / `render!` / `unmount!` trio of Spec 006 §The
+  client root over one spine's own mount path (rf2-k5r9t, generalised to
+  every React-family spine by rf2-kuky.56).
+
+  `mount-client-root!` is the spine-specific half — `(fn [render-tree
+  mount-point opts])` returning the LIVE-ROOT map this factory drives:
+
+      {:live?    (fn [] boolean)   ;; is the Root still in the active set?
+       :update!  (fn [tree])       ;; render a new tree into the SAME Root
+       :unmount! (fn [])}          ;; the tracked, idempotent unmount thunk
+
+  Everything else — the handle protocol, the create-once/update-later
+  branch, unmount idempotence, and the mount-afresh-after-release
+  behaviour — is substrate-agnostic and lives here, so the ratom family
+  and the React-hook family cannot drift.
+
+  A handle is an atom: nil while inert, and the live-root map once the
+  first `render!` through it has created or hydrated a Root. The raw Root
+  is reachable through none of the three closures, so it stays private to
+  the spine that minted it.
+
+  LIVENESS IS READ OFF THE ACTIVE SET, never kept in the handle. That is
+  what lets the `dispose-adapter!` drain release a still-live handle's
+  Root exactly once, a later `unmount!` on it find nothing left to do, and
+  a later `render!` on it mount afresh — the ownership rule Spec 006
+  §`render` states as a property of the root's ownership rather than of
+  the thunk alone."
+  [mount-client-root!]
+  {:client-root
+   (fn client-root [] (atom nil))
+   :render-client-root!
+   (fn render-client-root!
+     ([handle render-tree mount-point]
+      (render-client-root! handle render-tree mount-point nil))
+     ([handle render-tree mount-point opts]
+      (let [live @handle]
+        (if (and live ((:live? live)))
+          ;; Later renders update the same Root — created or hydrated —
+          ;; through the plain render op: never a second constructor,
+          ;; never a second hydration.
+          ((:update! live) render-tree)
+          (reset! handle (mount-client-root! render-tree mount-point opts))))
+      nil))
+   :unmount-client-root!
+   (fn unmount-client-root! [handle]
+     (when-let [live @handle]
+       (reset! handle nil)
+       ((:unmount! live)))
+     nil)})
+
 ;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) ----------
 ;;
 ;; A native UIx root is a React-ELEMENT root: it has no hashable client
@@ -1155,7 +1206,7 @@
   map — none of which an ELEMENT-shaped render slot can mount
   (rf2-p6f6u (c)). React treats a CLJS persistent collection as an
   opaque object and sprays one cryptic \"Objects are not valid as a
-  React child\" error per child; the guard in `make-render` raises ONE
+  React child\" error per child; `assert-element-render-tree!` raises ONE
   structured diagnostic instead. Legal React nodes pass untouched:
   elements (`React/createElement` output), strings, numbers, `nil`, and
   JS arrays are none of these three CLJS shapes."
@@ -1164,13 +1215,47 @@
       (seq? render-tree)
       (map? render-tree)))
 
-(defn make-render
-  "Build a `render` fn that registers every mounted React root in
-  `active-roots-cell` and returns an unmount thunk that removes the
-  root from the cell before calling `.unmount`.
+(defn- assert-element-render-tree!
+  "Fail-loud element-slot guard (rf2-p6f6u (c)). Throws
+  `:rf.error/hiccup-on-element-render-slot` when `render-tree` is CLJS
+  data. EP-0015: the ex-data carries a SHAPE summary of the tree, never
+  the raw tree (hiccup can carry app-owned sensitive/large values;
+  mirrors `make-render-to-string`'s rf2-uwqale treatment).
 
-  FAIL-LOUD ELEMENT-SLOT GUARD (rf2-p6f6u (c)). The returned `render`'s
-  `render-tree` slot is ELEMENT-shaped (Spec 006 §`render` — this spine
+  Called on EVERY tree this spine mounts or updates — the one-shot
+  `render` slot, the first `render!` through a client-root handle, and
+  every LATER `render!` through it (rf2-kuky.56), so the update path
+  cannot become a hole in the guard."
+  [render-tree]
+  (when (cljs-data-render-tree? render-tree)
+    (rf.error/throw-error!
+      :rf.error/hiccup-on-element-render-slot
+      'rf/render
+      (str "this substrate's render slot takes a React ELEMENT, but "
+           "received CLJS data (a hiccup vector / seq / map); build the "
+           "tree with this substrate's element macro (e.g. uix.core/$) — "
+           "hiccup mounts only on the ratom-family (Reagent) substrates")
+      {:extra {:render-tree/summary (rf.error/diag-value-summary render-tree)}})))
+
+(defn make-mount-client-root!
+  "Build the ONE create-or-hydrate path for this React-hook spine: a fn
+  `(render-tree mount-point opts)` that registers the mounted React root
+  in `active-roots-cell` and returns the live-root map
+  `make-client-root-fns` drives — `{:live? :update! :unmount!}`.
+
+  rf2-kuky.56: the one-shot contract `render` (`make-render` below) and
+  the reusable client-root trio both ride this, exactly as the ratom
+  spine's `mount-root!` serves both there. So the handle adds no second
+  lifecycle — every Root either door produces is tracked in
+  `active-roots-cell`, drained by `dispose-adapter!`, and released at
+  most once.
+
+  `:update!` re-renders through the SAME Fragment wrapper the mount used
+  (see below), so a later render reconciles against the same top element
+  rather than remounting the subtree under a shifted child position.
+
+  FAIL-LOUD ELEMENT-SLOT GUARD (rf2-p6f6u (c)). The `render-tree` slot is
+  ELEMENT-shaped (Spec 006 §`render` — this spine
   serves the React-hook substrates, whose trees are built with the
   substrate's element macro, e.g. UIx `$`). Hiccup handed here — a CLJS
   vector / seq / map — is a programmer error that React otherwise
@@ -1210,20 +1295,9 @@
   renderer directly (`uix.dom/hydrate-root`, react-dom `hydrateRoot`) bypasses it
   and gets React's default (silent) mismatch handling."
   [active-roots-cell after-render-sentinel-cmp]
-  (fn render [render-tree mount-point opts]
+  (fn mount-client-root! [render-tree mount-point opts]
     ;; Fail-loud element-slot guard (rf2-p6f6u (c)) — see the docstring.
-    ;; EP-0015: the ex-data carries a SHAPE summary of the tree, never
-    ;; the raw tree (hiccup can carry app-owned sensitive/large values;
-    ;; mirrors `make-render-to-string`'s rf2-uwqale treatment).
-    (when (cljs-data-render-tree? render-tree)
-      (rf.error/throw-error!
-        :rf.error/hiccup-on-element-render-slot
-        'rf/render
-        (str "this substrate's render slot takes a React ELEMENT, but "
-             "received CLJS data (a hiccup vector / seq / map); build the "
-             "tree with this substrate's element macro (e.g. uix.core/$) — "
-             "hiccup mounts only on the ratom-family (Reagent) substrates")
-        {:extra {:render-tree/summary (rf.error/diag-value-summary render-tree)}}))
+    (assert-element-render-tree! render-tree)
     ;; Spec 006 §`render` types `:hydrate?` as a boolean; non-bool
     ;; truthy values are undefined-behaviour (no defensive coercion).
     (let [hydrate?     (:hydrate? opts)
@@ -1232,31 +1306,66 @@
           ;; AND debug off — production zero-cost); non-hydrating mounts get none.
           adoption-ref (when hydrate? #js {:adopting true})
           ropts        (when hydrate? (hydrate-root-options opts adoption-ref))
-          wrapped-tree (React/createElement
-                         (.-Fragment React)
-                         nil
-                         (React/createElement after-render-sentinel-cmp nil)
-                         ;; The window-closer rides ONLY when a reporter is
-                         ;; installed: it clears `adoption-ref` on the hydration
-                         ;; commit, closing the window so a later recoverable error
-                         ;; is not mislabelled a mismatch. Renders nil (no DOM), so
-                         ;; it adds nothing to hydrate and cannot itself mismatch.
-                         (when ropts
-                           (React/createElement adoption-window-closer
-                                                #js {:rfAdoption adoption-ref}))
-                         render-tree)
+          ;; rf2-kuky.56: the wrap is a CLOSURE rather than a one-off value, so
+          ;; every later `render!` through a client-root handle reconciles against
+          ;; the IDENTICAL Fragment shape — same child arity, same child positions.
+          ;; A bare tree where the Fragment stood, or a dropped closer slot, would
+          ;; shift the user's subtree one index and remount it.
+          wrap         (fn wrap [tree]
+                         (React/createElement
+                           (.-Fragment React)
+                           nil
+                           (React/createElement after-render-sentinel-cmp nil)
+                           ;; The window-closer rides ONLY when a reporter is
+                           ;; installed: it clears `adoption-ref` on the hydration
+                           ;; commit, closing the window so a later recoverable error
+                           ;; is not mislabelled a mismatch. Renders nil (no DOM), so
+                           ;; it adds nothing to hydrate and cannot itself mismatch.
+                           ;; Its effect deps are `#js []`, so re-rendering it on an
+                           ;; update is inert — the window stays closed.
+                           (when ropts
+                             (React/createElement adoption-window-closer
+                                                  #js {:rfAdoption adoption-ref}))
+                           tree))
           root         (if hydrate?
                          ;; rf2-qfz65 — a hydrating native root adopts the server
                          ;; DOM; install the composed onRecoverableError reporter
                          ;; when warranted (host callback or debug), else no opts.
                          (if ropts
-                           (react-dom-client/hydrateRoot mount-point wrapped-tree ropts)
-                           (react-dom-client/hydrateRoot mount-point wrapped-tree))
+                           (react-dom-client/hydrateRoot mount-point (wrap render-tree) ropts)
+                           (react-dom-client/hydrateRoot mount-point (wrap render-tree)))
                          (let [r (react-dom-client/createRoot mount-point)]
-                           (.render r wrapped-tree)
-                           r))]
-      ;; rf2-w1g0d2: shared track-and-unmount tail (unmount-op = .unmount).
-      (track-active-root! active-roots-cell (fn [r] (.unmount r)) root))))
+                           (.render r (wrap render-tree))
+                           r))
+          ;; rf2-w1g0d2: shared track-and-unmount tail (unmount-op = .unmount).
+          unmount      (track-active-root! active-roots-cell (fn [r] (.unmount r)) root)]
+      {:live?    (fn live? [] (contains? @active-roots-cell root))
+       ;; A hydrated Root is UPDATED with the plain render op, never hydrated
+       ;; again, whatever `opts` later calls carry (Spec 006 §The client root).
+       :update!  (fn update! [tree]
+                   (assert-element-render-tree! tree)
+                   (.render root (wrap tree))
+                   nil)
+       :unmount! unmount})))
+
+(defn make-render
+  "Build the Spec 006 §`render` one-shot slot for this React-hook spine:
+  `(render-tree mount-point opts) → unmount-fn`. A thin projection of
+  `make-mount-client-root!` — the create-or-hydrate path, the Fragment +
+  after-render-sentinel wrap, the element-slot guard and the active-root
+  tracking all live there, and this door simply keeps the unmount thunk
+  and discards the rest of the live-root map (rf2-kuky.56).
+
+  Callers who need to re-render through the Root they mounted want the
+  client-root trio (`make-client-root-fns`) instead; this slot is
+  one-shot by contract.
+
+  Takes the spine's ONE `mount-client-root!` (from
+  `make-mount-client-root!`) so both doors share a single mount path
+  rather than each closing over its own."
+  [mount-client-root!]
+  (fn render [render-tree mount-point opts]
+    (:unmount! (mount-client-root! render-tree mount-point opts))))
 
 ;; ---- after-render --------------------------------------------------------
 ;;
@@ -2771,6 +2880,9 @@
        :subscribe-container        …
        :make-derived-value         …
        :render                     …
+       :client-root                …
+       :render-client-root!        …
+       :unmount-client-root!       …
        :render-to-string           …
        :dispose-adapter!           …
        :set-hiccup-emitter!        …
@@ -2855,7 +2967,14 @@
         ;; component head. The adapter marks the shell this returns with its
         ;; own substrate's component marker before publishing it.
         componentize-fn    (make-componentize-view)
-        render-fn          (make-render active-roots-cell after-render-sentinel)
+        ;; rf2-kuky.56 — the ONE create-or-hydrate path; the one-shot `render`
+        ;; slot and the reusable client-root trio are both projections of it,
+        ;; exactly as the ratom spine's `mount-root!` serves both there.
+        mount-client-root! (make-mount-client-root! active-roots-cell
+                                                    after-render-sentinel)
+        render-fn          (make-render mount-client-root!)
+        {:keys [client-root render-client-root! unmount-client-root!]}
+        (make-client-root-fns mount-client-root!)
         dispose-fn         (make-dispose-adapter!
                              {:active-roots-cell active-roots-cell
                               :warn-cache        warn-cache
@@ -3389,6 +3508,13 @@
      :subscribe-container         subscribe-cont
      :make-derived-value          make-derived
      :render                      render-fn
+     ;; rf2-kuky.56 — Spec 006 §The client root, the same trio the ratom
+     ;; spine publishes. Riding the same `mount-client-root!` as `:render`
+     ;; above, so every Root either door produces is in `active-roots-cell`
+     ;; and `dispose-adapter!` releases it exactly once.
+     :client-root                 client-root
+     :render-client-root!         render-client-root!
+     :unmount-client-root!        unmount-client-root!
      :render-to-string            (make-render-to-string emitter-cell)
      :dispose-adapter!            dispose-fn
      :set-hiccup-emitter!         (fn set-it! [f]
@@ -3778,42 +3904,20 @@
         (fn render [render-tree mount-point opts]
           (second (mount-root! render-tree mount-point opts)))
         ;; rf2-k5r9t — the reusable client root behind each ratom adapter
-        ;; ns's `client-root` / `render!` / `unmount!` trio. A handle is an
-        ;; atom: nil while inert, and once the first `render!` has created
-        ;; or hydrated a Root, a map of three closures over that Root —
-        ;; `:live?` (still in the active set?), `:update!` (render a new
-        ;; tree into the same Root) and `:unmount!` (the tracked thunk).
-        ;; The raw Root is reachable through none of them, so it stays
-        ;; private to the spine. Liveness is READ off `active-roots-cell`
-        ;; rather than kept in the handle: that is what lets the
-        ;; `dispose-adapter!` drain release a still-live handle's Root
-        ;; exactly once, a later `unmount!` on it find nothing left to do,
-        ;; and a later `render!` on it mount afresh.
-        client-root
-        (fn client-root [] (atom nil))
-        render-client-root!
-        (fn render-client-root!
-          ([handle render-tree mount-point]
-           (render-client-root! handle render-tree mount-point nil))
-          ([handle render-tree mount-point opts]
-           (let [live @handle]
-             (if (and live ((:live? live)))
-               ;; Later renders update the same Root — created or hydrated
-               ;; — through the plain render op: never a second
-               ;; constructor, never a second hydration.
-               ((:update! live) render-tree)
-               (let [[root unmount] (mount-root! render-tree mount-point opts)]
-                 (reset! handle
-                         {:live?    (fn live? [] (contains? @active-roots-cell root))
-                          :update!  (fn update! [tree] (render-root root tree))
-                          :unmount! unmount}))))
-           nil))
-        unmount-client-root!
-        (fn unmount-client-root! [handle]
-          (when-let [live @handle]
-            (reset! handle nil)
-            ((:unmount! live)))
-          nil)
+        ;; ns's `client-root` / `render!` / `unmount!` trio. The handle
+        ;; protocol, the create-once/update-later branch and the
+        ;; idempotence rules are substrate-agnostic and live in
+        ;; `make-client-root-fns` (rf2-kuky.56 lifted them there so the
+        ;; React-hook spine publishes the same trio and the two cannot
+        ;; drift); the ratom-specific half is this mount fn, which turns
+        ;; `mount-root!`'s `[root unmount]` into the live-root map.
+        {:keys [client-root render-client-root! unmount-client-root!]}
+        (make-client-root-fns
+          (fn mount-client-root! [render-tree mount-point opts]
+            (let [[root unmount] (mount-root! render-tree mount-point opts)]
+              {:live?    (fn live? [] (contains? @active-roots-cell root))
+               :update!  (fn update! [tree] (render-root root tree))
+               :unmount! unmount})))
         ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq,
         ;; rf2-jcjul, rf2-7v82h). The four-MUST list:
         ;;   1. Cancel in-flight reactive subscriptions — walk every live

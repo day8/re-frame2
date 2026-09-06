@@ -180,6 +180,72 @@
   `dispatch-sync` handler (rf2-0c23j)."
   (:flush-views! spine-fns))
 
+;; ---- the client root ------------------------------------------------------
+;;
+;; rf2-kuky.56 (the trio itself: rf2-k5r9t). A browser boot needs one React
+;; Root for the life of the page: created (or hydrated) once, re-rendered on
+;; every hot reload, released on teardown. `client-root` + `render!` +
+;; `unmount!` give it that without a caller-owned raw Root, a create/hydrate
+;; branch, or a `com.pitch/uix.dom` dependency in the shipping app — the Root
+;; is minted by the shared React spine through `react-dom/client`, and is
+;; tracked by the SAME active-root ownership as the one-shot substrate
+;; `render` slot, so `rf/destroy-adapter!` releases it too. Same three names,
+;; same shapes and same semantics as `re-frame.adapter.reagent`; the ONE
+;; difference is the tree, which is a React ELEMENT here (`uix.core/$`) rather
+;; than hiccup.
+
+(def client-root
+  "Allocate an inert client-root handle. No DOM work — safe at namespace
+  load under a `defonce`, in tests, and on Node. The React Root is created
+  (or hydrated) by the first `render!` through it:
+
+      (defonce app-root (uix-adapter/client-root))
+
+      (defn ^:dev/after-load mount! []
+        (when-let [el (js/document.getElementById \"app\")]
+          (uix-adapter/render! app-root
+            ($ uix-adapter/frame-root {:id :rf/default
+                                       :initial-events [[:app/initialise]]}
+               ($ app-view))
+            el)))
+
+  The handle is opaque: hold it, hand it to `render!` and `unmount!`, and
+  nothing else. Returns the handle."
+  (:client-root spine-fns))
+
+(def render!
+  "Render `element` (a React element, built with `uix.core/$`) through the
+  client-root `handle` at the DOM element `mount-point`. Returns nil.
+
+      (render! handle element mount-point)
+      (render! handle element mount-point {:hydrate? true})
+
+  The first call creates the React Root at `mount-point` and renders into
+  it — or, with `{:hydrate? true}`, hydrates the server-rendered markup
+  already inside `mount-point` (once; Spec 011). Every later call updates
+  that same Root with the new element: no second `createRoot`, no second
+  hydration. That is what makes the one call both the boot path and the
+  `^:dev/after-load` hook. `mount-point` is read on the first call only.
+
+  `opts` is the map the substrate `render` slot takes — `:hydrate?`, and
+  `:on-recoverable-error`, over which the hydration-mismatch reporter is
+  composed. There are no UIx-only keys.
+
+  CLJS data in the element slot — a hiccup vector, seq or map — raises
+  `:rf.error/hiccup-on-element-render-slot`, on the first render and on
+  every later one alike: hiccup mounts only on the ratom-family adapters.
+
+  Backed by the adapter's active-root ownership: `rf/destroy-adapter!`
+  releases a Root this handle still holds, exactly once, and a `render!`
+  after that mounts afresh."
+  (:render-client-root! spine-fns))
+
+(def unmount!
+  "Unmount the React Root `handle` holds and return the handle to inert.
+  Idempotent: a second call, or a call after `rf/destroy-adapter!` has
+  already released the Root, does nothing. Returns nil."
+  (:unmount-client-root! spine-fns))
+
 (def wrap-view
   "Wrap a UIx-shape user component in a function component that injects
   `data-rf2-source-coord` on the rendered root DOM element (when
