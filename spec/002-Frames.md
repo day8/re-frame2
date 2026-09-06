@@ -1556,15 +1556,14 @@ All three (`capture-frame`, `:dispatch`, `:dispatch-later`) share the same shape
 
 `reg-sub` is the **only** sub-registration form in v2. The v1 `reg-sub-raw` escape hatch is not shipped (per [MIGRATION §M-18](../migration/from-re-frame-v1/README.md)); the use cases it covered now have explicit answers in the architecture: non-app-db sources route through Pattern-AsyncEffect and registered fx, lifecycle-bearing reactive computations become state machines (per [005](005-StateMachines.md)), and bridging external reactive sources is the [006](006-ReactiveSubstrate.md) adapter contract's job.
 
-Subs can compose via `:<-`. All composition stays within a single frame's sub-cache and `app-db`:
+Subs compose by DECLARING their dependencies under `:inputs`. All composition stays within a single frame's sub-cache and `app-db`:
 
 ```clojure
 (rf/reg-sub :all-todos
   (fn [db _] (:items db)))
 
-(rf/reg-sub :pending
-  :<- [:all-todos]
-  (fn [items _] (filter pending? items)))
+(rf/reg-sub :pending {:inputs [[:all-todos]]}
+  (fn [[items] _] (filter pending? items)))
 ```
 
 When a view in frame `:todo` derefs `[:pending]`:

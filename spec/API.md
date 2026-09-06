@@ -92,7 +92,7 @@ Neither is rowed in this projection. Applications and tools MUST NOT depend on t
 | API | M/Fn | Signature | Status | Tier | Spec | Notes |
 |---|---|---|---|---|---|---|
 | `reg-event` | M | `(reg-event id ?metadata handler)` | EP-0018 | front-porch | 002 | The ONE public event form — a two-arg `(fn [coeffects event-vec] effect-map)` handler, coeffects in, a closed **seven-key** effects map out — `#{:db :rf.db/runtime :fx}` plus the four commit-plane classification effects `#{:sensitive :large :clear-sensitive :clear-large}` (see [§Effect-map shape](#effect-map-shape)) — or `nil` no-op. The db write is an explicit `{:db …}` effect; there is no db-only return shape. Coeffects declared uniformly via `:rf.cofx/requires`. Full-context work is expressed with a registered interceptor (`reg-interceptor`, referenced by id). Metadata-map superset middle slot carries the reserved `:interceptors` key (a vector of interceptor **refs**). There is no `reg-event-db`/`reg-event-fx`, and `reg-event-ctx` is a framework-internal primitive — calling any of the retired names is a hard error (see [§The retired event-registration names](001-Registration.md#the-retired-event-registration-names) + the [Removed §](#removed--not-shipped)). |
-| `reg-sub` | M | `(reg-sub id ?metadata input-fn? computation-fn)` | v1 (preserved + extended) | front-porch | 002 | The only sub-registration form in v2. Three input-production modes (app-db reader / static `:<-` / parametric `input-fn`) — see [§`reg-sub` input-production modes](#reg-sub-input-production-modes). The optional first fn is a v2 **`input-fn`** (`query-v → vector-of-query-vectors`), NOT a v1 reaction-returning signal fn. `:<-` sugar preserved. |
+| `reg-sub` | M | `(reg-sub id ?metadata computation-fn)` | v1 name; grammar changed to `:inputs` | front-porch | 002 | The only sub-registration form in v2. Dependencies are DECLARED under `:inputs` in the metadata map — a literal vector of query vectors (`:static`) or a producer fn of the query vector (`:parametric`) — and declared inputs always reach the body as a VECTOR. See [§`reg-sub` input-production modes](#reg-sub-input-production-modes). Omitting `:inputs` is the layer-1 app-db reader. |
 | `reg-fx` | M | `(reg-fx id ?metadata handler)` | v1 (preserved + extended) | front-porch | 002 | The handler is **binary, context-first**: `(fn [ctx args])` per [002 §The binary fx-handler signature](002-Frames.md#the-binary-fx-handler-signature). `ctx` is a small map carrying `:frame` (the active frame id), `:event` (the originating event vector), and a runtime-internal `:envelope`; `args` is the value the event handler placed beside the fx-id in its `:fx` vector. A unary `(fn [args])` handler survives on CLJS only via JS argument-dropping — it is not the blessed contract. `:platforms` metadata (a set of `:server` / `:client`) gates execution by active platform (default universal). |
 | `reg-cofx` | M | `(reg-cofx id ?metadata supplier)` | v1 (changed, EP-0017) | front-porch | 001, 002 | Register a coeffect id with a **value-returning supplier** (`(fn [] v)` / `(fn [arg] v)`) and a registration grade — ambient (default) or recordable (`:recordable? true`, optionally `:provided? true`). A handler takes delivery by declaring `:rf.cofx/requires` (the value arrives FLAT under the id; [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)). `:rf/time-ms` is the framework's one provided recordable registration. The ctx→ctx handler shape and `inject-cofx` are retired (no alias). See [§Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded). |
 | `reg-interceptor` | M | `(reg-interceptor id ?metadata descriptor)` | EP-0022 | front-porch | 001, 002 | The public application-authoring form for an interceptor — a first-class registered program member (registrar kind `:interceptor`). `descriptor` is one of `{:before f}` / `{:after f}` / `{:before f :after f}` (static) or `{:factory f}` (a parameterized family; the factory takes ONE arg and is the mechanism the standard `[:rf.interceptor/path …]` rides). Event/frame `:interceptors` chains reference registered interceptors by id (bare keyword) or `[id arg]`, never inline values. Captures source coords; surfaces via `handler-meta :interceptor`. A migration value carrying an `:id` is accepted at this boundary only (the id must match). Replaces `->interceptor` as the public authoring surface. See [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) + [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar). |
@@ -112,32 +112,42 @@ Neither is rowed in this projection. Applications and tools MUST NOT depend on t
 
 ### `reg-sub` input-production modes
 
-`reg-sub` supports **three input-production modes**. Every subscription has an *input query-vector producer*: layer-1 has no producer; `:<-` is the literal producer; `input-fn` is the query-parametric producer.
+`reg-sub` supports **three input-production modes**. Every subscription has an *input query-vector producer*, and it is declared ONCE — under `:inputs` in the metadata map, the same slot `reg-flow` uses. Layer-1 has no producer; a literal `:inputs` vector is the static producer; an `:inputs` fn is the query-parametric producer.
 
 | Mode | Form | Meaning |
 |---|---|---|
-| App-db reader | `(reg-sub id computation-fn)` | No upstream subscriptions. The computation fn receives `app-db` and the outer `query-v`. |
-| Static inputs | `(reg-sub id :<- q1 :<- q2 computation-fn)` | Inputs are literal query vectors known at registration. |
-| Parametric inputs | `(reg-sub id input-fn computation-fn)` | Inputs are computed from the outer `query-v` when a concrete cache entry is materialized. |
+| App-db reader | `(reg-sub id computation-fn)` | `:inputs` OMITTED. No upstream subscriptions. The computation fn receives `app-db` and the outer `query-v`. |
+| Static inputs | `(reg-sub id {:inputs [q1 q2]} computation-fn)` | Inputs are literal query vectors known — and shape-checked — at registration. |
+| Parametric inputs | `(reg-sub id {:inputs producer-fn} computation-fn)` | Inputs are computed from the outer `query-v` when a concrete cache entry is materialized. |
 
-The two-function form's first fn is a v2 **`input-fn`** — a **pure** function from the outer `query-v` to a vector of input query vectors. It is **not** a v1 signal function: it must not call `subscribe`, deref `app-db`, dispatch, mutate, or perform IO; it receives only the outer `query-v`; and it must not return live reactions. The `computation-fn` receives the vector of resolved input values (in the same order) and the outer `query-v`.
+**Declared inputs always arrive as a vector.** At zero, one or many, the computation fn receives `[v0 v1 …]` in declaration order. Moving a dependency between the literal and the producer form never changes the body, and adding a second input never turns a scalar argument into a vector. An explicit `{:inputs []}` declares no dependencies and delivers `[]`; OMITTING `:inputs` is the layer-1 reader, which receives `app-db` itself. The two are distinct by design.
+
+```clojure
+(rf/reg-sub :cart/by-price {:inputs [[:cart/items]]}
+  (fn [[items] _] (sort-by :price items)))
+
+(rf/reg-sub :cart/visible {:inputs [[:cart/by-price] [:cart/filter]]}
+  (fn [[items f] _] (filter f items)))
+```
+
+An `:inputs` **producer fn** is a **pure** function from the outer `query-v` to a vector of input query vectors. It is **not** a v1 signal function: it must not call `subscribe`, deref `app-db`, dispatch, mutate, or perform IO; it receives only the outer `query-v`; and it must not return live reactions. It is never executed at registration — only at materialization.
 
 ```clojure
 (rf/reg-sub
   :article/page
-  (fn input-fn [[_ article-id]]
-    [[:article/by-id article-id]
-     [:comments/for-article article-id]
-     [:viewer/current]])
+  {:inputs (fn [[_ article-id]]
+             [[:article/by-id article-id]
+              [:comments/for-article article-id]
+              [:viewer/current]])}
   (fn computation-fn [[article comments viewer] [_ article-id]]
     {:id article-id :article article :comments comments
      :can-edit? (:edit? viewer)}))
 ```
 
-**Input grammar.** An `input-fn` MUST return a vector, and every element of that vector MUST be a query vector (a vector whose first element is a keyword):
+**Input grammar.** A literal `:inputs` MUST be a vector, and every element MUST be a query vector (a vector whose first element is a keyword); a producer fn MUST **return** that same shape:
 
 ```clojure
-input-return := [query-vector*]      ;; query-vector := vector with a keyword head
+inputs := [query-vector*]      ;; query-vector := vector with a keyword head
 ```
 
 ```clojure
@@ -146,14 +156,16 @@ input-return := [query-vector*]      ;; query-vector := vector with a keyword he
 [[:item/by-id id]]                        ;; single input — still a vector OF query vectors
 []                                        ;; no inputs (unusual but valid)
 
-;; Rejected — see :rf.error/sub-input-fn-bad-return
+;; Rejected
 :viewer/current                           ;; bare keyword
 [:article/by-id id]                       ;; scalar query vector (ambiguous: arg vs two inputs)
 [[:article/by-id id] :viewer]             ;; mixed vector + bare keyword
 {:article [:article/by-id id]}            ;; map return
 ```
 
-The scalar query-vector rejection is deliberate: `[:x :y]` is ambiguous at this boundary (one query with argument `:y`, vs two inputs). The only accepted single-query spelling is `[[:x :y]]`. No bare keyword shorthand, no map return, no reaction/derefable. Use `:<-` for static inputs; reach for `input-fn` **only** when the upstream query vectors need values from the outer `query-v`. The static `:<-` form is exactly a constant `input-fn` (`(fn [_] [[:items] [:filter]])`). Per [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn), [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm), and [Conventions §`reg-sub` input grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors). Registration-shape and input-return errors signal loudly via `:rf.error/reg-sub-bad-args`, `:rf.error/sub-input-fn-exception`, and `:rf.error/sub-input-fn-bad-return` (catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+The scalar query-vector rejection is deliberate: `[:x :y]` is ambiguous at this boundary (one query with argument `:y`, vs two inputs). The only accepted single-query spelling is `[[:x :y]]`. No bare keyword shorthand, no map return, no reaction/derefable. A **literal** `:inputs` is checked at registration (`:rf.error/reg-sub-bad-args`) against the same grammar a **producer's return** is checked against at materialization (`:rf.error/sub-input-fn-bad-return`) — one grammar, two moments. An explicit `{:inputs nil}` is refused: `nil` is not "absent". The literal check is SHAPE-only and never a registry lookup, so `{:inputs [[:a]]}` may be registered before `:a` exists. Reach for a producer fn **only** when the upstream query vectors need values from the outer `query-v`; a literal vector is exactly a constant producer, and it is the form a tool can read as a static edge. Per [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn), [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm), and [Conventions §`reg-sub` input grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors). Registration-shape and input-return errors signal loudly via `:rf.error/reg-sub-bad-args`, `:rf.error/sub-input-fn-exception`, and `:rf.error/sub-input-fn-bad-return` (catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+
+`:inputs` is a **vector** here, and whether the family should instead take a **named map** is an open question shared with `reg-flow` — see [013 §Map-keyed `:inputs` instead of vector](013-Flows.md#map-keyed-inputs-instead-of-vector). It will be ruled ONCE, for `reg-flow` and `reg-sub` together; until then both ship the vector.
 
 ### Clearing registrations
 
