@@ -125,14 +125,13 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 
 | Surface | Shape |
 |---|---|
-| `rf/render-to-string` | `(tree)` / `(tree opts)` — opts: `:doctype?` `:emit-hash?` |
+| `rf/render-to-string` | `(tree)` / `(tree opts)` — opts: `:doctype?`, `:render-hash`. `:render-hash` takes the **hash string** `rf/render-tree-hash` returns (not a boolean) and stamps it as `data-rf-render-hash` on the root element; hash once and spend it on both the markup and the payload. Unknown opts are ignored silently |
 | `rf/render-tree-hash` | `(tree)` → `"fnv1a-32bit-hex"` |
 | `rf/project-error` | `(frame-id trace-event)` → public-error-map |
 | `rf/reg-head` | `(id metadata? (fn [db route] head-model))` — register a head-fragment producer; routes name a head via `:head` route metadata |
 | `rf/render-head` | `(head-id frame-id)` / `(head-id {:frame :route})` → produced `:rf/head-model` for a frame's app-db + active route |
 | `rf/active-head` | `(frame-id)` → the active route's `:head` model (or the default head when none configured). Frame is **carried, not ambient** — the no-arg form was removed (EP-0002); a `nil` frame raises `:rf.error/no-frame-context` |
 | `rf/head-model->html` | `(head-model)` → inner-head HTML fragment in canonical order |
-| `rf/head-snapshot` | `(frame-id)` → `{head-id → last-produced head-model}` (`{}` if none); tests / tools |
 
 ## Schemas — `day8/re-frame2-schemas`
 
