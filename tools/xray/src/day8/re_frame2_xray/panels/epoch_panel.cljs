@@ -174,8 +174,7 @@
   ;; The view branches on `:status` for the empty-state lines and
   ;; renders `:steps` when present.
   (rf/reg-sub :rf.xray/epoch-pipeline
-    :<- [:rf.xray/focus]
-    :<- [:rf.xray/epoch-history]
+    {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
     (fn [[focus epoch-history] _query]
       (let [focus-epoch-id (:epoch-id focus)
             status         (focus/resolve-focus-status focus-epoch-id

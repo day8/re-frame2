@@ -455,7 +455,8 @@
   Called from `registry/register-xray-handlers!` after `spine/install!`
   so the canonical event-fx's `[:dispatch [:rf.xray/set-frame ...]]`
   resolves at install time. The sub/event sub-graph itself doesn't
-  require any specific install order — re-frame resolves `:<-` lazily.
+  require any specific install order — re-frame resolves declared `:inputs`
+  lazily.
 
   ## Why event-fx (not event-db)
 
@@ -508,9 +509,9 @@
   ;; fixed at the VIEW layer instead (rf2-v8bule — see `frame-switcher-view`
   ;; where the pinned frame is surfaced as its own `<option>`).
   (rf/reg-sub :rf.xray/view-scope-frame
-    :<- [:rf.xray/view-scope-frame-slot]
-    :<- [:rf.xray/target-frame-slot]
-    :<- [:rf.xray/event-bundles]
+    {:inputs [[:rf.xray/view-scope-frame-slot]
+              [:rf.xray/target-frame-slot]
+              [:rf.xray/event-bundles]]}
     (fn [[slot target-slot event-bundles] _query]
       (or slot target-slot (head-frame event-bundles))))
 
@@ -533,21 +534,21 @@
   ;; reflects the single defaulted view scope, decoupled from the
   ;; spine's auto-tracking `[:focus :frame]`.
   (rf/reg-sub :rf.xray/current-frame
-    :<- [:rf.xray/view-scope-frame]
-    (fn [view-scope-frame _query]
+    {:inputs [[:rf.xray/view-scope-frame]]}
+    (fn [[view-scope-frame] _query]
       view-scope-frame))
 
   ;; `:rf.xray/available-frames` is the canonical 'which frames is it
   ;; meaningful to pick right now' list. Composes off `:rf.xray/
   ;; event-bundles` so it re-fires as new frames appear in the trace
   ;; stream. The `show-tool-frames?` toggle isn't a sub yet — when the
-  ;; Settings UI for it lands (follow-on), this sub will :<- onto the
-  ;; toggle's slot. Today the parameter is hardcoded to `false` to
+  ;; Settings UI for it lands (follow-on), this sub will declare the
+  ;; toggle's slot in its `:inputs`. Today the parameter is hardcoded to `false` to
   ;; match the pre-bead picker behaviour.
 
   (rf/reg-sub :rf.xray/available-frames
-    :<- [:rf.xray/event-bundles]
-    (fn [event-bundles _query]
+    {:inputs [[:rf.xray/event-bundles]]}
+    (fn [[event-bundles] _query]
       ;; show-tool-frames? hardcoded false — see ns docstring.
       (distinct-frames event-bundles false)))
 

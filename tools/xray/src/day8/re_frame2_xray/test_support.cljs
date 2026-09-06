@@ -188,7 +188,7 @@
        override read on top (`(or override (real …))`).
 
   Idempotent (re-frame's registrar replaces in place). Order-independent
-  — re-frame resolves `:<-` chains lazily. **Test-only — never call from
+  — re-frame resolves declared `:inputs` lazily. **Test-only — never call from
   production code.** Returns nil."
   []
   (routing/install-test-overrides!)

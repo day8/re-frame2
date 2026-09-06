@@ -149,7 +149,7 @@
   (rf/reg-event :ab/init   (fn [_ _] {:db {:a 0 :b 0}}))
   (rf/reg-event :ab/bump-b (fn [{:keys [db]} _] {:db (update db :b inc)}))
   (rf/reg-sub :ab/read-a (fn [db _] (:a db)))
-  (rf/reg-sub :ab/derived-a :<- [:ab/read-a] (fn [a _] (* 10 a)))
+  (rf/reg-sub :ab/derived-a {:inputs [[:ab/read-a]]} (fn [[a] _] (* 10 a)))
   (rf/dispatch-sync [:ab/init])
   nil)
 

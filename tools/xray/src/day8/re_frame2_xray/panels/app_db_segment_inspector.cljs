@@ -65,13 +65,13 @@
       (get db :segment-inspector)))
 
   (rf/reg-sub :rf.xray/segment-inspector-open?
-    :<- [:rf.xray/segment-inspector-slot]
-    (fn [slot _]
+    {:inputs [[:rf.xray/segment-inspector-slot]]}
+    (fn [[slot] _]
       (some? slot)))
 
   (rf/reg-sub :rf.xray/segment-inspector-path
-    :<- [:rf.xray/segment-inspector-slot]
-    (fn [slot _]
+    {:inputs [[:rf.xray/segment-inspector-slot]]}
+    (fn [[slot] _]
       (:path slot)))
 
   ;; Resolve the value at the inspected path against the FOCUSED epoch's
@@ -93,8 +93,7 @@
   ;; the body's empty-state). Empty path returns the whole value (the
   ;; inspector renders the root map).
   (rf/reg-sub :rf.xray/segment-inspector-value
-    :<- [:rf.xray/segment-inspector-path]
-    :<- [:rf.xray/app-db-current+diff]
+    {:inputs [[:rf.xray/segment-inspector-path] [:rf.xray/app-db-current+diff]]}
     (fn [[path {:keys [value]}] _]
       (if (seq path)
         (get-in value path)

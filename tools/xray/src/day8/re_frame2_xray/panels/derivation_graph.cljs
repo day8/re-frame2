@@ -425,16 +425,14 @@
 
   ;; ---- assembled graph --------------------------------------------------
   (rf/reg-sub :rf.xray/derivation-graph
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/derivation-graph-mode]
-    :<- [:rf.xray/target-frame]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray/derivation-graph-mode] [:rf.xray/target-frame]]}
     (fn [[_buffer mode target-frame] _]
       (derivation-graph-value mode target-frame)))
 
   ;; ---- view-facing composite -------------------------------------------
   (rf/reg-sub :rf.xray/derivation-graph-tab-data
-    :<- [:rf.xray/derivation-graph]
-    (fn [graph _]
+    {:inputs [[:rf.xray/derivation-graph]]}
+    (fn [[graph] _]
       (let [summarized (h/summarize-graph graph)]
         {:mode      (:mode graph)
          :silent?   (h/empty-graph? graph)
@@ -473,10 +471,10 @@
     (fn [db _] (get db :derivation-graph-override)))
 
   (rf/reg-sub :rf.xray/derivation-graph
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/derivation-graph-mode]
-    :<- [:rf.xray/target-frame]
-    :<- [:rf.xray/derivation-graph-override]
+    {:inputs [[:rf.xray/trace-buffer]
+              [:rf.xray/derivation-graph-mode]
+              [:rf.xray/target-frame]
+              [:rf.xray/derivation-graph-override]]}
     (fn [[_buffer mode target-frame override] _]
       (if (some? override)
         override

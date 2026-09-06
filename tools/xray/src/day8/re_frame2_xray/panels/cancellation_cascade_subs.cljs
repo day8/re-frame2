@@ -49,8 +49,7 @@
   ;; cleanly.
 
   (rf/reg-sub :rf.xray/cancellation-cascade-for-focused-machine
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/selected-machine-id]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray/selected-machine-id]]}
     (fn [[buffer machine-id] _query]
       (h/extract-cascade buffer
                          (when machine-id
@@ -65,9 +64,9 @@
   ;; cancellation for the current focus' subscribe stays useful.
 
   (rf/reg-sub :rf.xray/cancellation-cascade-for-focused-event
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/cancellation-cascade-popover-focus]
-    :<- [:rf.xray/focus]
+    {:inputs [[:rf.xray/trace-buffer]
+              [:rf.xray/cancellation-cascade-popover-focus]
+              [:rf.xray/focus]]}
     (fn [[buffer popover-focus spine-focus] _query]
       (let [focus (or popover-focus
                       (when-let [d (:dispatch-id spine-focus)]

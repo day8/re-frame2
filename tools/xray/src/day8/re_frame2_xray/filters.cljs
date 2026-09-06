@@ -240,12 +240,12 @@
   ;; tagged `:rf.xray/filter-bypassed?` for the row's filter-bypass cue. Gated
   ;; on `:rf.xray/filters-auto-hide-error-overrides?` (default true).
   (rf/reg-sub :rf.xray/filtered-event-bundles
-    :<- [:rf.xray/event-bundles]
-    :<- [:rf.xray/active-filters]
-    :<- [:rf.xray/view-scope-frame]
-    :<- [:rf.xray/muted-event-ids]
-    :<- [:rf.xray/show-ungrouped?]
-    :<- [:rf.xray/filters-auto-hide-error-overrides?]
+    {:inputs [[:rf.xray/event-bundles]
+              [:rf.xray/active-filters]
+              [:rf.xray/view-scope-frame]
+              [:rf.xray/muted-event-ids]
+              [:rf.xray/show-ungrouped?]
+              [:rf.xray/filters-auto-hide-error-overrides?]]}
     (fn [[event-bundles filters view-scope-frame muted show-ungrouped?
           error-overrides?] _query]
       (let [scoped   (cond-> event-bundles
@@ -271,12 +271,12 @@
   ;; carries no `:frame` cause; only pill/mute suppression is the cause
   ;; and the count.
   (rf/reg-sub :rf.xray/hidden-by-filters
-    :<- [:rf.xray/event-bundles]
-    :<- [:rf.xray/filtered-event-bundles]
-    :<- [:rf.xray/active-filters]
-    :<- [:rf.xray/view-scope-frame]
-    :<- [:rf.xray/muted-event-ids]
-    :<- [:rf.xray/show-ungrouped?]
+    {:inputs [[:rf.xray/event-bundles]
+              [:rf.xray/filtered-event-bundles]
+              [:rf.xray/active-filters]
+              [:rf.xray/view-scope-frame]
+              [:rf.xray/muted-event-ids]
+              [:rf.xray/show-ungrouped?]]}
     (fn [[raw filtered filters view-scope-frame muted show-ungrouped?] _query]
       (let [;; Scope the raw baseline to the VIEW-SCOPE frame so frame
             ;; selection is a view scope, not counted as suppression.

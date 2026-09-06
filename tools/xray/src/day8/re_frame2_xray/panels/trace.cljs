@@ -859,8 +859,7 @@
   ;;      :epoch-id   <int-or-nil>  ;; the focused epoch's id
   ;;      :empty-kind <:no-events / :no-focus / :epoch-evicted / nil>}
   (rf/reg-sub :rf.xray/trace-feed
-    :<- [:rf.xray/focus]
-    :<- [:rf.xray/epoch-history]
+    {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
     (fn [[focus epoch-history] _query]
       (let [focus-epoch-id (:epoch-id focus)
             focus-status   (focus/resolve-focus-status focus-epoch-id
@@ -891,8 +890,7 @@
   ;; reg-sub de-dupes the underlying signal so subscribing here costs
   ;; nothing extra.
   (rf/reg-sub :rf.xray.trace/focused-event-bundle
-    :<- [:rf.xray/event-bundles]
-    :<- [:rf.xray/focus]
+    {:inputs [[:rf.xray/event-bundles] [:rf.xray/focus]]}
     (fn [[event-bundles focus] _query]
       ;; rf2-bz7flo — resolve frame-strictly. Dispatch ids are unique only
       ;; within a frame, so a same-id event-bundle from a foreign frame could be

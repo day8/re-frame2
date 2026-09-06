@@ -384,12 +384,12 @@
   ;; re-fire: app-db schemas via the `re-frame.schemas` façade
   ;; (`rf/frame-ids` + `rf.schemas/app-schemas` + `rf.schemas/app-schema-meta-
   ;; at`) and event / sub specs via `(rf/registrations <kind>)`.
-  ;; `:<-`-composes against the trace buffer so the sub is reactive
+  ;; Declares the trace buffer in its `:inputs` so the sub is reactive
   ;; against the same "something changed" pulse the other Static-mode
   ;; subs ride.
   (rf/reg-sub :rf.xray.static.schemas/registry
-    :<- [:rf.xray/trace-buffer]
-    (fn [_buffer _query]
+    {:inputs [[:rf.xray/trace-buffer]]}
+    (fn [[_buffer] _query]
       (registry-value)))
 
   ;; ---- view-facing composite -------------------------------------------
@@ -401,9 +401,9 @@
   ;; list. Event + sub specs are process-global (Spec 001) and stay
   ;; cross-frame regardless of the picker.
   (rf/reg-sub :rf.xray.static.schemas/tab-data
-    :<- [:rf.xray.static.schemas/registry]
-    :<- [:rf.xray/observed-frame]
-    :<- [:rf.xray.static.schemas/query]
+    {:inputs [[:rf.xray.static.schemas/registry]
+              [:rf.xray/observed-frame]
+              [:rf.xray.static.schemas/query]]}
     (fn [[{:keys [schemas-by-frame events subs]} observed-frame query] _query]
       (project-data schemas-by-frame events subs observed-frame query)))
 
@@ -438,8 +438,7 @@
       (get db :rf.xray.static.schemas/registry-override)))
 
   (rf/reg-sub :rf.xray.static.schemas/registry
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray.static.schemas/registry-override]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray.static.schemas/registry-override]]}
     (fn [[_buffer override] _query]
       (or override (registry-value))))
   nil)

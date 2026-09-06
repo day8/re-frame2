@@ -48,7 +48,7 @@
                                         unmount) and a `reason`
 
   The sub-level partition uses `re-frame.subs.tooling/sub-topology` —
-  the static `:<-` dependency graph (`{sub-id {:inputs [...] :ns :line
+  the static declared-input dependency graph (`{sub-id {:inputs [...] :ns :line
   :file}}`). `:inputs []` is Level 1 (reads app-db directly); non-empty
   is Level 2+. Topology also supplies the `:ns/:line/:file` source coord
   for the `code` column's jump-to-source chip and the input-sub names
@@ -441,7 +441,7 @@
   (rf2-e3acps): `:db` is Level 1 (reads app-db directly), `:static` /
   `:parametric` are Level 2+. The Level 2 `:inputs` slot carries the
   upstream SUB-IDs (the flow-graph's edge-endpoint key space): the
-  static `:<-` heads for a `:static` sub, and `[]` for a `:parametric`
+  statically declared input heads for a `:static` sub, and `[]` for a `:parametric`
   sub — whose realized edges are per-concrete-query-v runtime state, NOT
   statically enumerable, so the STATIC partition draws no edges for them
   (the EP §Tooling: don't fabricate un-materialized parametric edges).
@@ -507,7 +507,7 @@
   recompute (`re-frame.subs.memo/emit-sub-skip!`). Each op's tags carry
   `:rf.sub/id` / `:rf.sub/query-v` / `:rf.sub/reason` (`:input-value-equal`)
   / `:rf.sub/input-paths-unchanged` (`[]` for a layer-1 sub; the upstream
-  `:<-` query-vectors for a layer-n sub).
+  declared-input query-vectors for a layer-n sub).
 
   Each projected row `{:sub-id _ :query-v _ :reason _ :input-paths-unchanged
   [...]}`. De-duplicated + cross-excluded by CONCRETE QUERY-V identity
@@ -661,10 +661,10 @@
   ;; a pure reactive function of app-db — flipping either axis recomputes
   ;; the composite and re-renders the panel.
   (rf/reg-sub :rf.xray/reactive-data
-    :<- [:rf.xray/focus]
-    :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/reactive-show-unchanged?]
-    :<- [:rf.xray/setting :general :show-unchanged-subs?]
+    {:inputs [[:rf.xray/focus]
+              [:rf.xray/epoch-history]
+              [:rf.xray/reactive-show-unchanged?]
+              [:rf.xray/setting :general :show-unchanged-subs?]]}
     (fn [[focus history panel-unchanged? config-unchanged?] _query]
       (let [record   (focused-epoch-record history (:epoch-id focus))
             ;; Static topology snapshot — read once per event-bundle. Free
@@ -702,8 +702,7 @@
   production. Returns nil."
   []
   (rf/reg-sub :rf.xray/reactive-data
-    :<- [:rf.xray/focus]
-    :<- [:rf.xray/epoch-history]
+    {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
     (fn [[focus history] _query]
       (let [record   (focused-epoch-record history (:epoch-id focus))
             topology (try (rf.subs.tooling/sub-topology) (catch :default _ nil))

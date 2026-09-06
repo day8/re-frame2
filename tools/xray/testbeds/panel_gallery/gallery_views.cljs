@@ -73,7 +73,7 @@
   emits (`re-frame.subs.memo/emit-sub-skip!`) — the canonical evidence the
   Reactive panel's 'unchanged subs' disclosure (spec/021 §3.4) reads off
   `:trace-events`. `input-paths-unchanged` is `[]` for a layer-1 sub, the
-  upstream `:<-` query-vectors for a layer-n sub."
+  upstream declared-input query-vectors for a layer-n sub."
   ([sub-id] (skip-ev sub-id []))
   ([sub-id input-paths-unchanged]
    {:operation :rf.sub/skip

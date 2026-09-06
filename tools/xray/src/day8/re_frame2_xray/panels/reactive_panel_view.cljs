@@ -16,7 +16,7 @@
 
       app-db        a single source node at the far left
       Level-1 subs  extractors (read app-db) — plain fan-out from app-db
-      Level-2+ subs derived (`:<-` composition; OPTIONAL layer)
+      Level-2+ subs derived (`:inputs` composition; OPTIONAL layer)
       views         the right-most focus; each (rerendered)
 
   Node + edge encoding (colour/edge first per spec/022 — NOT glyphs):

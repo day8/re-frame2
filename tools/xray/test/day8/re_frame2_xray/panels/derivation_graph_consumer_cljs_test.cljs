@@ -77,11 +77,11 @@
 ;; ---- host-app registrations (the composer's subject) --------------------
 
 (defn- register-host-subs! []
-  ;; a static `:<-` derivation chain — the :input edge source.
+  ;; a static `:inputs` derivation chain — the :input edge source.
   (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
   (rf/reg-sub :cart/total
-              :<- [:cart/items]
-              (fn [items _] (count items))))
+              {:inputs [[:cart/items]]}
+              (fn [[items] _] (count items))))
 
 (defn- register-machine+selector! []
   ;; a machine process node + an ordinary sub that READS it (the selector).
@@ -91,8 +91,8 @@
                    :states  {:idle      {:on {:upload/start {:target :uploading}}}
                              :uploading {:on {:upload/done {:target :idle}}}}})
   (rf/reg-sub :upload/progress
-              :<- [:rf/machine :upload/main]
-              (fn [snapshot _] (get-in snapshot [:data :progress] 0))))
+              {:inputs [[:rf/machine :upload/main]]}
+              (fn [[snapshot] _] (get-in snapshot [:data :progress] 0))))
 
 ;; ---- (1) static mode consumes the shared composer -----------------------
 
@@ -113,7 +113,7 @@
                        :to   [:sub :cart/total]
                        :role :input})
                 (:edges graph))
-          "the static :<- input edge the composer derives is present")))
+          "the static declared-input edge the composer derives is present")))
   (testing "tab-data summarizes the composer graph for the view (mode / counts / grouping / roles)"
     (setup-xray!)
     (register-host-subs!)
@@ -151,8 +151,8 @@
                      :states {:idle {:on {:download/start {:target :fetching}}}
                               :fetching {:on {:download/done {:target :idle}}}}})
     (rf/reg-sub :upload/progress
-                :<- [:rf/machine :upload/main]
-                (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+                {:inputs [[:rf/machine :upload/main]]}
+                (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
     ;; Scope the assertion to OUR selector (the consolidated node-test build's
     ;; shared registrar carries machines/selectors from sibling namespaces;
     ;; precise targeting is a property of each edge, not the global count).

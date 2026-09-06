@@ -137,9 +137,7 @@
   ;; Returns a vector of timer records — `:armed` for live rings +
   ;; `:cancelled` for the fading-out + crossed-out rings.
   (rf/reg-sub :rf.xray/active-timers-for-focused-machine
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/machine-inspector-data]
-    :<- [:rf.xray/now-ms]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray/machine-inspector-data] [:rf.xray/now-ms]]}
     (fn [[buffer mi-data now] _query]
       (let [machine-id (:selected-id mi-data)]
         (rings-h/active-timers-for-machine buffer machine-id now))))

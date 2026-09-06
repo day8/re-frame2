@@ -1617,7 +1617,7 @@
                      "Returns `{:ok? true :frame <id> :count N :subs [<query-v> ...]}` (query-vectors only, sorted, stable across calls); "
                      "with `:include-values true` each entry becomes `{:query-v <v> :value <current-deref> :ref-count <n> :input-kind <:db|:static|:parametric> :realized-inputs [<query-v> ...]}`. "
                      ":input-kind + :realized-inputs (rf2-e3acps) are the live counterpart to the static sub-topology: :realized-inputs are the REALIZED input query-vectors for the concrete outer query-v "
-                     "(the literal :<- list for a :static sub, the (input-fn query-v) result for a :parametric sub, [] for a layer-1 :db reader — query-vectors, not values, so they ride raw). "
+                     "(the literal :inputs list for a :static sub, the (input-fn query-v) result for a :parametric sub, [] for a layer-1 :db reader — query-vectors, not values, so they ride raw). "
                      "Empty `:subs` vector when nothing is subscribed in the frame. "
                      "Frame resolution mirrors snapshot/get-path: omit `:frame` to use the operating frame; a multi-frame session "
                      "with no selection returns {:ok? false :reason :ambiguous-frame}. "

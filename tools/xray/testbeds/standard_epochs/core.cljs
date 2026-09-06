@@ -507,12 +507,12 @@
   (fn [db _] (get-in db [:views :chain-input])))
 
 (rf/reg-sub :standard-epochs/chain-doubled         ;; L2
-  :<- [:standard-epochs/chain-root]
-  (fn [root _] (* 2 root)))
+  {:inputs [[:standard-epochs/chain-root]]}
+  (fn [[root] _] (* 2 root)))
 
 (rf/reg-sub :standard-epochs/chain-labelled        ;; L3
-  :<- [:standard-epochs/chain-doubled]
-  (fn [doubled _] (str "2×input = " doubled)))
+  {:inputs [[:standard-epochs/chain-doubled]]}
+  (fn [[doubled] _] (str "2×input = " doubled)))
 
 ;; DYNAMIC, parameterised by the threshold N carried in the query
 ;; vector: `[:standard-epochs/greater-than? n]`. It cascades from the chain
@@ -521,8 +521,8 @@
 ;; same registration — button #7 (5 → 10) creates a new [:gt? 10]
 ;; entry alongside the original [:gt? 5].
 (rf/reg-sub :standard-epochs/greater-than?
-  :<- [:standard-epochs/chain-root]
-  (fn [root [_ threshold]] (> root threshold)))
+  {:inputs [[:standard-epochs/chain-root]]}
+  (fn [[root] [_ threshold]] (> root threshold)))
 
 ;; ============================================================================
 ;; DIAMOND — redundant-recompute probe
@@ -541,9 +541,9 @@
 ;;
 ;;        :diamond-root          (L1 — reads :views/diamond-root)
 ;;          /        \
-;;   :diamond-a    :diamond-b    (L2 — each :<- root)
+;;   :diamond-a    :diamond-b    (L2 — each takes root as input)
 ;;          \        /
-;;        :diamond-c             (the JOINING sub :<- a,b)
+;;        :diamond-c             (the JOINING sub — inputs a,b)
 ;;
 ;; Button #20 bumps the root ONCE. The join sub `:diamond-c` increments the
 ;; counter each time its compute fn RUNS. Press once: the counter should rise
@@ -558,16 +558,15 @@
   (fn [db _] (get-in db [:views :diamond-root])))
 
 (rf/reg-sub :standard-epochs/diamond-a             ;; L2 — left arm
-  :<- [:standard-epochs/diamond-root]
-  (fn [root _] (* 10 (or root 0))))
+  {:inputs [[:standard-epochs/diamond-root]]}
+  (fn [[root] _] (* 10 (or root 0))))
 
 (rf/reg-sub :standard-epochs/diamond-b             ;; L2 — right arm
-  :<- [:standard-epochs/diamond-root]
-  (fn [root _] (inc (or root 0))))
+  {:inputs [[:standard-epochs/diamond-root]]}
+  (fn [[root] _] (inc (or root 0))))
 
 (rf/reg-sub :standard-epochs/diamond-c             ;; join — c = a + b
-  :<- [:standard-epochs/diamond-a]
-  :<- [:standard-epochs/diamond-b]
+  {:inputs [[:standard-epochs/diamond-a] [:standard-epochs/diamond-b]]}
   (fn [[a b] _]
     (swap! diamond-c-runs inc)
     (+ a b)))

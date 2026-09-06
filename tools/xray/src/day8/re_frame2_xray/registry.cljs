@@ -29,7 +29,7 @@
   panel's own ns under `(defn install! [] ...)` so each
   panel owns its subs / events / fxs colocated with the view that
   reads them. Sub-registration order is purely cosmetic — re-frame
-  resolves `:<-` chains lazily at subscribe time, not register time."
+  resolves declared `:inputs` lazily at subscribe time, not register time."
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
@@ -738,7 +738,7 @@
     ;; composites all consume `projection/group-by-event` over the same
     ;; trace-buffer; routing them through one intermediate sub collapses
     ;; multiple O(buffer) passes per push to one. Each downstream
-    ;; composite declares the dependency via `:<-` so the reactive graph
+    ;; composite declares the dependency in its `:inputs` so the reactive graph
     ;; stays correct (and idle composites still don't pay for the
     ;; projection).
     ;;
@@ -756,8 +756,8 @@
     ;; forcing every call site to thread `:frame`. Pre-alpha posture:
     ;; no opt-out toggle — Xray's internals are not user-facing.
     (rf/reg-sub :rf.xray/event-bundles
-      :<- [:rf.xray/trace-buffer]
-      (fn [buffer _query]
+      {:inputs [[:rf.xray/trace-buffer]]}
+      (fn [[buffer] _query]
         (self-noise/filtered-event-bundles buffer)))
 
     ;; ---- Focused-event-bundle composite -------------------------------
@@ -779,8 +779,7 @@
     ;; recent ROUTED event-bundle so the default-focus never lands on the
     ;; projection's internal bucket.
     (rf/reg-sub :rf.xray/focused-event-bundle-detail
-      :<- [:rf.xray/event-bundles]
-      :<- [:rf.xray/focus]
+      {:inputs [[:rf.xray/event-bundles] [:rf.xray/focus]]}
       (fn [[event-bundles focus] _query]
         (let [focus-id       (:dispatch-id focus)
               focus-frame    (:frame focus)
@@ -877,8 +876,8 @@
     ;; carries a `:dispatched :time` — the view's render-time fallback
     ;; (`(interop/now-ms)`) covers that edge.
     (rf/reg-sub :rf.xray/relative-time-now-ms
-      :<- [:rf.xray/event-bundles]
-      (fn [event-bundles _query]
+      {:inputs [[:rf.xray/event-bundles]]}
+      (fn [[event-bundles] _query]
         (let [times (into []
                           (keep #(get-in % [:dispatched :time]))
                           event-bundles)]
@@ -933,8 +932,7 @@
     ;; focused / evicted; head-fallback), looks up the epoch
     ;; record, and threads it through `project-feed`.
     (rf/reg-sub :rf.xray/issues-ribbon
-      :<- [:rf.xray/focus]
-      :<- [:rf.xray/epoch-history]
+      {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
       (fn [[focus epoch-history] _query]
         (let [focus-epoch-id (:epoch-id focus)
               focus-status   (issues-helpers/resolve-focus-status focus-epoch-id
@@ -1155,7 +1153,7 @@
     ;;
     ;; Each panel owns its own subs / events / fxs in
     ;; `panels/<panel>.cljs` under `(defn install! [] ...)`. Order is
-    ;; alphabetised — re-frame resolves `:<-` chains lazily at
+    ;; alphabetised — re-frame resolves declared `:inputs` lazily at
     ;; subscribe time so registration order is purely cosmetic.
     ;;
     ;; The open-in-editor install is cross-panel — its
@@ -1166,10 +1164,10 @@
     ;; per-panel pattern.
 
     ;; Cross-cutting epoch primitives. MUST install before app-db-diff +
-    ;; views + machine-inspector — their composites :<- onto
-    ;; `:rf.xray/epoch-history` / `:rf.xray/target-frame` (and pivot on
+    ;; views + machine-inspector — their composites declare
+    ;; `:rf.xray/epoch-history` / `:rf.xray/target-frame` as `:inputs` (and pivot on
     ;; the spine focus epoch via `:rf.xray/focus-epoch-id`). Registration
-    ;; order is cosmetic (re-frame resolves :<- lazily), but the top-down
+    ;; order is cosmetic (re-frame resolves declared inputs lazily), but the top-down
     ;; dependency read is clearer.
     (epoch/install!)
     (open-in-editor/install!)
@@ -1243,7 +1241,7 @@
     ;; after `app-db-diff` so the segment-inspector's
     ;; `:rf.xray/segment-inspector-value` sub can chain off
     ;; `:rf.xray/target-frame-db` (registered by app-db-diff's subs).
-    ;; Registration order is cosmetic — re-frame resolves `:<-` lazily;
+    ;; Registration order is cosmetic — re-frame resolves declared `:inputs` lazily;
     ;; the top-down dependency reading is the rationale.
     (app-db-segment-inspector/install!)
     ;; Cancellation-cascade visualiser — installs the
@@ -1251,7 +1249,7 @@
     ;; popover. The view-side `reg-view`s are picked up at ns-load.
     ;; Order: registers AFTER spine + event-bundles (composes against
     ;; `:rf.xray/focus` + `:rf.xray/trace-buffer`); registry order is
-    ;; cosmetic since re-frame resolves `:<-` chains lazily.
+    ;; cosmetic since re-frame resolves declared `:inputs` lazily.
     (cancellation-cascade/install!)
     ;; Epoch panel — the canonical "what happened in this
     ;; epoch" surface; numbered event-bundle of every pipeline step. Reads
@@ -1266,10 +1264,10 @@
     ;; Static Machines sub-tab — browses every registered
     ;; machine + Topology + JUMP-to-Dynamic + Cascade-dimmed surfaces.
     ;; Installs AFTER `machine-inspector/install!` so the static-machines
-    ;; sub graph can :<- onto the existing `:rf.xray/registered-machines`,
+    ;; sub graph can declare the existing `:rf.xray/registered-machines`,
     ;; `:rf.xray/machine-definitions`, and `:rf.xray/machine-snapshots`
-    ;; subs without redeclaring them. Registration order is purely
-    ;; cosmetic (re-frame resolves `:<-` chains lazily); the top-down
+    ;; subs as `:inputs` without redeclaring them. Registration order is purely
+    ;; cosmetic (re-frame resolves declared `:inputs` lazily); the top-down
     ;; dependency read is clearer.
     (static-machines-panel/install!)
     ;; Managed-fx wire-boundary diff template — installs the
@@ -1284,7 +1282,7 @@
     ;; routes / current-route-slice / routing-tab-data subs +
     ;; test-only overrides. Composes against `:rf.xray/target-frame-db`
     ;; (registered by `app-db-diff/install!` above) so the install
-    ;; order is intentional, though re-frame's `:<-` resolution is
+    ;; order is intentional, though re-frame's `:inputs` resolution is
     ;; lazy and the order is purely cosmetic.
     (routing/install!)
     ;; Resources tab (Spec 016 §Xray and AI tooling) — Dynamic L3 tab
@@ -1335,7 +1333,7 @@
     ;; `:rf.xray.static.routes/*` + the `:rf.xray.static.routes/
     ;; tab-data` composite. Reads `:rf.xray/registered-routes` (just
     ;; registered above) — order is cosmetic since re-frame resolves
-    ;; `:<-` chains lazily.
+    ;; declared `:inputs` lazily.
     (static-routes-panel/install!)
     ;; Static Schemas sub-tab — browse every registered
     ;; Malli schema across app-db slots + events + subs. Reads the

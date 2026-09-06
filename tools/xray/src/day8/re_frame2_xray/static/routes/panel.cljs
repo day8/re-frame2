@@ -192,9 +192,9 @@
   ;; ---- view-facing composite -------------------------------------------
 
   (rf/reg-sub :rf.xray.static.routes/tab-data
-    :<- [:rf.xray/registered-routes]
-    :<- [:rf.xray.static.routes/query]
-    :<- [:rf.xray.static.routes/sim-url]
+    {:inputs [[:rf.xray/registered-routes]
+              [:rf.xray.static.routes/query]
+              [:rf.xray.static.routes/sim-url]]}
     (fn [[routes-map query sim-url] _query]
       (h/project-static-data routes-map query sim-url)))
 

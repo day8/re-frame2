@@ -134,8 +134,8 @@
   ;; Effective sub-mode for a machine. Default :topology when the
   ;; machine has no stored choice.
   (rf/reg-sub :rf.xray.static.machines/sub-mode
-    :<- [:rf.xray.static.machines/sub-mode-by-id]
-    (fn [by-id [_ machine-id]]
+    {:inputs [[:rf.xray.static.machines/sub-mode-by-id]]}
+    (fn [[by-id] [_ machine-id]]
       (h/normalise-sub-mode
         (get by-id machine-id h/default-sub-mode))))
 
@@ -158,24 +158,24 @@
   ;; Composite — feeds the browse-list + detail header. Reads the
   ;; existing :rf.xray/registered-machines + machine-definitions +
   ;; machine-snapshots subs registered by panels.machine-inspector
-  ;; (install order is purely cosmetic — re-frame resolves :<- lazily).
+  ;; (install order is purely cosmetic — re-frame resolves declared inputs lazily).
   ;; The `:rf.xray/machine-snapshots-override` test-seam composes on top
   ;; of the live snapshots in `install-test-overrides!` —
   ;; production registration carries no override branch.
   (rf/reg-sub :rf.xray.static.machines/rows
-    :<- [:rf.xray/registered-machines]
-    :<- [:rf.xray/machine-definitions]
-    :<- [:rf.xray/machine-snapshots]
+    {:inputs [[:rf.xray/registered-machines]
+              [:rf.xray/machine-definitions]
+              [:rf.xray/machine-snapshots]]}
     (fn [[machines definitions live-snapshots] _query]
       (h/project-rows machines definitions (or live-snapshots {}))))
 
   (rf/reg-sub :rf.xray.static.machines/data
-    :<- [:rf.xray/registered-machines]
-    :<- [:rf.xray/machine-definitions]
-    :<- [:rf.xray/machine-snapshots]
-    :<- [:rf.xray.static.machines/search]
-    :<- [:rf.xray.static.machines/sort-key]
-    :<- [:rf.xray.static.machines/selected-id]
+    {:inputs [[:rf.xray/registered-machines]
+              [:rf.xray/machine-definitions]
+              [:rf.xray/machine-snapshots]
+              [:rf.xray.static.machines/search]
+              [:rf.xray.static.machines/sort-key]
+              [:rf.xray.static.machines/selected-id]]}
     (fn [[machines definitions live-snapshots query sort-key selected-id] _query]
       (h/project-browse-list machines definitions (or live-snapshots {})
                              query sort-key selected-id)))
@@ -348,22 +348,22 @@
   `register-xray-handlers!`. **Test-only — never call from production.**"
   []
   (rf/reg-sub :rf.xray.static.machines/rows
-    :<- [:rf.xray/registered-machines]
-    :<- [:rf.xray/machine-definitions]
-    :<- [:rf.xray/machine-snapshots]
-    :<- [:rf.xray/machine-snapshots-override]
+    {:inputs [[:rf.xray/registered-machines]
+              [:rf.xray/machine-definitions]
+              [:rf.xray/machine-snapshots]
+              [:rf.xray/machine-snapshots-override]]}
     (fn [[machines definitions live-snapshots snapshots-override] _query]
       (h/project-rows machines definitions
                       (or snapshots-override live-snapshots {}))))
 
   (rf/reg-sub :rf.xray.static.machines/data
-    :<- [:rf.xray/registered-machines]
-    :<- [:rf.xray/machine-definitions]
-    :<- [:rf.xray/machine-snapshots]
-    :<- [:rf.xray/machine-snapshots-override]
-    :<- [:rf.xray.static.machines/search]
-    :<- [:rf.xray.static.machines/sort-key]
-    :<- [:rf.xray.static.machines/selected-id]
+    {:inputs [[:rf.xray/registered-machines]
+              [:rf.xray/machine-definitions]
+              [:rf.xray/machine-snapshots]
+              [:rf.xray/machine-snapshots-override]
+              [:rf.xray.static.machines/search]
+              [:rf.xray.static.machines/sort-key]
+              [:rf.xray.static.machines/selected-id]]}
     (fn [[machines definitions live-snapshots snapshots-override
           query sort-key selected-id] _query]
       (h/project-browse-list machines definitions
