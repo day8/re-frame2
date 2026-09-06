@@ -51,7 +51,6 @@
 ;; which consumes hiccup and renders it (calls views, resolves subs).
 ;; Per Spec 004B §The SSR consumption boundary (rf2-3omxp).
 (def emit-ui-tree                    ui-tree/emit-ui-tree)
-(def install-render-to-string!       emit/install-render-to-string!)
 ;; rf2-8vi4q — `format-view-source-coord` (and its emitter-side companion
 ;; `inject-coord-on-root-hiccup`) are deleted: dev-mode view annotation
 ;; now lives at the reg-view registration boundary
@@ -120,9 +119,9 @@
 ;; boundary` keyword it expands to on the server is internal wire syntax
 ;; between the component and the shell walker, not something an author
 ;; writes (a keyword head is an HTML element on every client substrate).
-;; The server-side machinery below ships through these façade fns; host
-;; adapters (ssr-ring/streaming) consume them via the late-bind hooks the
-;; streaming ns publishes.
+;; The server-side machinery below ships through these façade fns; the
+;; Ring adapter requires `re-frame.ssr.streaming` directly, and a host
+;; adapter does the same.
 
 ;; The cross-host suspense boundary component:
 ;;
@@ -422,9 +421,8 @@ explicitly."
 ;; destroyed frame.
 (late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
 
-;; `re-frame.ssr.head` is required above so its late-bind hooks (`:ssr/reg-head`, `:ssr/render-head`,
-;; `:ssr/active-head`, `:ssr/head-snapshot`, `:ssr/head-model-html`) AND
-;; the per-frame head-snapshot cleanup hook
-;; (`:ssr.head/on-frame-destroyed`) land at ssr-ns load time on both JVM
-;; and CLJS. `on-frame-destroyed!` above invokes the head cleanup hook
-;; by key — load order between this ns and head.cljc is symmetric.
+;; `re-frame.ssr.head` is required above so its late-bind hooks
+;; (`:ssr/reg-head`, `:ssr/render-head`, `:ssr/active-head`,
+;; `:ssr/head-model-html`) land at ssr-ns load time on both JVM and
+;; CLJS. Reading a head is a pure read, so the head ns keeps no
+;; per-frame bookkeeping and teardown has nothing to release for it.

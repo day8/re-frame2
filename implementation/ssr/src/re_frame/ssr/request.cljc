@@ -9,13 +9,11 @@
 
   The slots live outside app-db so concurrent frames remain isolated and host
   request data cannot enter the hydration payload. Frame teardown clears the
-  request, response, pending-error, and head-snapshot side channels."
+  request, response and pending-error side channels."
   (:require [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.install :as install]
-            [re-frame.ssr.response :as response]
-            [re-frame.trace :as trace]))
+            [re-frame.ssr.response :as response]))
 
 (defonce
   ^{:doc "Per-frame storage for the active HTTP request. Keys are
@@ -92,13 +90,9 @@
   second call against the same frame-id sees the atoms already cleared
   and does nothing.
 
-  Also invokes any
-  registered `:ssr/head-on-frame-destroyed` hook so `re-frame.ssr.head`
-  can release its per-frame head-snapshot bookkeeping. Hook lookup is
-  late-bound so the call is a no-op when the head ns is absent.
-
-  Head-cleanup throws are surfaced on the trace bus while the remaining frame
-  teardown continues."
+  Reading a head is a pure read (`render-head` / `active-head` RETURN
+  the model), so the head namespace keeps no per-frame bookkeeping and
+  there is nothing here to release on its behalf."
   [frame-id]
   (error-listener/clear-pending-error-traces! frame-id)
   (clear-request! frame-id)
@@ -109,19 +103,6 @@
   ;; phantom `:rf.error/frame-payload-conflict` raised by a lifetime that
   ;; no longer exists.
   (install/release-payload! frame-id)
-  (when-let [head-cleanup! (late-bind/get-fn :ssr/head-on-frame-destroyed)]
-    (try (head-cleanup! frame-id)
-         (catch #?(:clj Throwable :cljs :default) t
-           (trace/emit! :warning :rf.ssr.head/cleanup-failed
-                        {:frame    frame-id
-                         :hook     :ssr/head-on-frame-destroyed
-                         :reason   (or #?(:clj  (.getMessage ^Throwable t)
-                                          :cljs (.-message t))
-                                       (str t))
-                         :ex-class #?(:clj  (.getName (class t))
-                                      :cljs (.-name (type t)))
-                         :recovery :warned-and-skipped})
-           nil)))
   nil)
 
 (defn request-cofx

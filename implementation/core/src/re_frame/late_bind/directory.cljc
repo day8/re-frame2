@@ -746,7 +746,7 @@
    {:key         :ssr/on-frame-destroyed
     :producer-ns 're-frame.ssr
     :design-bead "rf2-fcj33"
-    :description "Clear the SSR side-channel atoms (pending-error-traces, request-slots, response-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. The response-slots entry joined under rf2-jbcmt when the `:rf/response` accumulator moved off `app-db` to plug a hydration-payload leak + per-fx full-app-db swap. Also invokes `:ssr/head-on-frame-destroyed` (if registered) so the head ns can release per-frame snapshot bookkeeping (rf2-4dra9)."}
+    :description "Clear the SSR side-channel atoms (pending-error-traces, request-slots, response-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. The response-slots entry joined under rf2-jbcmt when the `:rf/response` accumulator moved off `app-db` to plug a hydration-payload leak + per-fx full-app-db swap."}
 
    ;; ---- re-frame.ssr.manifest (Root Manifest v1 discovery) -----------------
    {:key         :ssr/discover-root-manifest
@@ -767,35 +767,10 @@
     :producer-ns 're-frame.ssr.head
     :design-bead "rf2-4dra9"
     :description "Look up the active route's `:head` metadata; if set, call `render-head` and return the model. Otherwise return the default head per Spec 011 §Default head."}
-   {:key         :ssr/head-snapshot
-    :producer-ns 're-frame.ssr.head
-    :design-bead "rf2-4dra9"
-    :description "Read the per-frame `{head-id → last-produced head-model}` snapshot. Cleared on frame destroy via the `:ssr.head/on-frame-destroyed` hook chained from re-frame.ssr's teardown."}
    {:key         :ssr/head-model-html
     :producer-ns 're-frame.ssr.head
     :design-bead "rf2-4dra9"
     :description "Render a `:rf/head-model` map to its inner-head HTML fragment in canonical order: title → meta → link → script → JSON-LD."}
-   {:key         :ssr/head-on-frame-destroyed
-    :producer-ns 're-frame.ssr.head
-    :design-bead "rf2-4dra9"
-    :description "Clear the per-frame head-snapshot entry on destroy. `re-frame.ssr/on-frame-destroyed!` invokes this hook by key after clearing its own side-channel atoms."}
-
-   ;; ---- re-frame.ssr.streaming (chunked SSR) -------------------------------
-   ;; Three keys host adapters (e.g. ssr-ring/streaming) call to drive
-   ;; the chunked-rendering pipeline.
-   {:key         :ssr.streaming/render-shell!
-    :producer-ns 're-frame.ssr.streaming
-    :design-bead "rf2-ojakd"
-    :description "Render the initial SSR shell HTML chunk for a frame and stash the in-flight render context."}
-   {:key         :ssr.streaming/render-continuation!
-    :producer-ns 're-frame.ssr.streaming
-    :design-bead "rf2-ojakd"
-    :description "Render a continuation chunk (resolved-suspense fragment) for an in-flight streaming render. Returns {:id :html :delta :failed? :continuations} — :continuations are nested boundaries discovered during this render that the host appends at the tail of its FIFO drain queue (rf2-sgvn6)."}
-   {:key         :ssr.streaming/build-final-payload
-    :producer-ns 're-frame.ssr.streaming
-    :design-bead "rf2-ojakd"
-    :description "Build the final hydration payload after every streaming chunk has been emitted."}
-
    ;; ---- re-frame.epoch (Tool-Pair surface) ---------------------------------
    {:key         :epoch/settle!
     :producer-ns 're-frame.epoch

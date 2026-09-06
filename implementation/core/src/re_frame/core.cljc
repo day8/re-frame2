@@ -882,7 +882,7 @@
 (def ^{:doc "Render a hiccup tree to an HTML string. Per Spec 011 §The
   render-tree → HTML emitter. Delegates to the installed substrate
   adapter's `:render-to-string` slot; `opts` may carry `:doctype?` and
-  `:emit-hash?`. Implementation ships in `day8/re-frame2-ssr`. Late-bound
+  `:render-hash`. Implementation ships in `day8/re-frame2-ssr`. Late-bound
   via `:ssr/render-to-string`."}
   render-to-string rf.core-ssr/render-to-string)
 
@@ -915,15 +915,6 @@
   in canonical order. Per Spec 011 §Default flow step 4. Implementation
   ships in `day8/re-frame2-ssr`. Late-bound via `:ssr/head-model-html`."}
   head-model->html rf.core-ssr/head-model->html)
-
-(def ^{:doc "Read the per-frame `{head-id → last-produced head-model}`
-  snapshot for `frame-id`. Returns `{}` for a frame that has never
-  seen a `render-head` call (or whose snapshot has been cleared via
-  per-request frame teardown). Useful for tests, introspection, and
-  tools (Xray, MCP). Per Spec 011 §Head/meta contract.
-  Implementation ships in `day8/re-frame2-ssr`. Late-bound via
-  `:ssr/head-snapshot`."}
-  head-snapshot    rf.core-ssr/head-snapshot)
 
 ;; ---- images (EP-0023) ----------------------------------------------------
 
