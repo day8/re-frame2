@@ -1340,9 +1340,6 @@
   ["re-frame.core" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"
                                                     :action :keep
                                                     :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Serialises what active-head returns, on the same request; no rowed re-frame.ssr peer exists."}
-  ["re-frame.core" "head-snapshot"]                 {:tier :advanced :owner "011" :status "v1"
-                                                    :action :keep
-                                                    :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The per-frame head snapshot read that accompanies render-head; no rowed re-frame.ssr peer exists."}
   ;; Routing re-exports. rf2-wad2fl (front-porch shrink): the URL-codec +
   ;; lifecycle QUERY helpers `match-url` / `route-url` / `current-url` /
   ;; `clear-route` are no longer façade exports — reach them through
@@ -1922,7 +1919,6 @@
   ["re-frame.ssr" "streaming-build-final-payload"] {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "reg-error-projector"]           {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "adapter"]                       {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr" "install-render-to-string!"]     {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "hydrate!"]                      {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "hydrate-page!"]                 {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "verify-hydration!"]             {:tier :implementation :owner "011" :status "v1"}

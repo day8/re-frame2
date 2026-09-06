@@ -7,8 +7,7 @@
     - render-head invokes the registered fn against db + route
     - active-head reads the active route's :head metadata and dispatches
     - default-head fires when no route declares :head
-    - head-snapshot records last-produced fragments per frame
-    - per-request frame teardown clears head bookkeeping
+    - render-head RETURNS the produced model (a pure read; nothing is recorded)
     - head-model->html emits canonical-ordered tags
     - :rf.error/no-such-head raised for unregistered ids
     - reg-head is idempotent — re-registering replaces the slot
@@ -29,19 +28,14 @@
   arity, storing a working `:handler-fn` under the id — is asserted outside
   it, and a `when-not` arm pins the elision itself under the real gate.
 
-  `head-cleanup-throw-emits-warning-trace` asserted the
-  `:rf.ssr.head/cleanup-failed` warning, which is emitted through the gated
-  trace bus. Kept verbatim in a dev arm. Its production-real half — that the
-  destroy COMPLETES rather than propagating the hook's throw — was previously
-  witnessed only by an `(is false …)` in a catch, which contributes no
-  assertion at all on the happy path; it now has a positive flag witness that
-  the throwing path could never set."
+  (`head-cleanup-throw-emits-warning-trace` covered the head-cleanup
+  teardown hook and went with it — head reads keep no per-frame state, so
+  there is no cleanup hook left to throw.)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.head :as head]
@@ -169,18 +163,19 @@
           (is (= :rf.error/no-such-head (:rf.error/id (ex-data e))))
           (is (= :head/nope (:head-id (ex-data e)))))))))
 
-(deftest render-head-records-fragment-in-snapshot
-  (testing "every render-head call records the produced model under (frame,
-            head-id) so head-snapshot reflects the latest output"
+(deftest render-head-returns-each-head-model
+  (testing "each render-head call RETURNS the model its registered fn
+            produced — successive calls on one frame are independent reads,
+            and the second call's return is the second head's model"
     (rf/reg-head :head/a (fn [_ _] {:title "A"}))
     (rf/reg-head :head/b (fn [_ _] {:title "B"}))
-    (let [f (frame/make-anon-frame-record! {:doc "snapshot frame" :platform :server})]
-      (rf/render-head :head/a {:frame f})
-      (rf/render-head :head/b {:frame f})
-      (let [snap (head/head-snapshot f)]
-        (is (= 2 (count snap)))
-        (is (= {:title "A"} (snap :head/a)))
-        (is (= {:title "B"} (snap :head/b)))))))
+    (let [f (frame/make-anon-frame-record! {:doc "render-head frame" :platform :server})]
+      (is (= {:title "A"} (rf/render-head :head/a {:frame f}))
+          "the first call returns the first head's model")
+      (is (= {:title "B"} (rf/render-head :head/b {:frame f}))
+          "the second call returns the SECOND head's model, not the first's")
+      (is (= {:title "A"} (rf/render-head :head/a {:frame f}))
+          "re-reading the first head returns its model again — the read is pure"))))
 
 ;; ===========================================================================
 ;; active-head — resolves via :head route metadata
@@ -543,67 +538,6 @@
       (is (str/includes? html "<title>Hi</title>")))))
 
 ;; ===========================================================================
-;; per-request frame teardown — head bookkeeping cleared on destroy
-;; ===========================================================================
-
-(deftest head-snapshot-cleared-on-frame-destroy
-  (testing "destroying a per-request frame drops its head-snapshot entry —
-            head bookkeeping must not leak across requests, per Spec 011
-            §Per-request frame teardown and rf2-fcj33"
-    (rf/reg-head :head/leaktest (fn [_ _] {:title "snapshot-A"}))
-    (let [f (frame/make-anon-frame-record! {:doc "teardown frame" :platform :server})]
-      (rf/render-head :head/leaktest {:frame f})
-      (is (= {:title "snapshot-A"}
-             (get (head/head-snapshot f) :head/leaktest))
-          "snapshot present pre-destroy")
-      (rf/destroy-frame! f)
-      (is (= {} (head/head-snapshot f))
-          "snapshot cleared post-destroy"))))
-
-(deftest head-snapshot-isolated-across-frames
-  (testing "two frames carry independent head-snapshots — destroying one
-            doesn't touch the other"
-    (rf/reg-head :head/iso (fn [_ _] {:title "x"}))
-    (let [f1 (frame/make-anon-frame-record! {:doc "frame-1" :platform :server})
-          f2 (frame/make-anon-frame-record! {:doc "frame-2" :platform :server})]
-      (rf/render-head :head/iso {:frame f1})
-      (rf/render-head :head/iso {:frame f2})
-      (is (seq (head/head-snapshot f1)))
-      (is (seq (head/head-snapshot f2)))
-      (rf/destroy-frame! f1)
-      (is (= {} (head/head-snapshot f1)))
-      (is (seq (head/head-snapshot f2))
-          "destroying f1 did not clear f2's bookkeeping"))))
-
-;; ===========================================================================
-;; rf/head-snapshot — public re-export (rf2-p1frh, parent rf2-ip6ol)
-;; ===========================================================================
-
-(deftest rf-head-snapshot-resolves
-  (testing "rf/head-snapshot is a public-Var on re-frame.core (rf2-p1frh)"
-    (let [v (resolve 're-frame.core/head-snapshot)]
-      (is (some? v) "rf/head-snapshot resolves to a Var")
-      (is (fn? @v)  "rf/head-snapshot is callable"))))
-
-(deftest rf-head-snapshot-returns-per-frame-map
-  (testing "rf/head-snapshot returns the per-frame
-            {head-id → last-produced head-model} snapshot — the same data
-            the internal re-frame.ssr.head/head-snapshot returns"
-    (rf/reg-head :head/pub-a (fn [_ _] {:title "Pub-A"}))
-    (rf/reg-head :head/pub-b (fn [_ _] {:title "Pub-B"}))
-    (let [f (frame/make-anon-frame-record! {:doc "rf/head-snapshot frame" :platform :server})]
-      (is (= {} (rf/head-snapshot f))
-          "empty pre-render")
-      (rf/render-head :head/pub-a {:frame f})
-      (rf/render-head :head/pub-b {:frame f})
-      (let [snap (rf/head-snapshot f)]
-        (is (= 2 (count snap)))
-        (is (= {:title "Pub-A"} (snap :head/pub-a)))
-        (is (= {:title "Pub-B"} (snap :head/pub-b)))
-        (is (= snap (head/head-snapshot f))
-            "rf/head-snapshot agrees with the internal snapshot reader")))))
-
-;; ===========================================================================
 ;; full integration — reg-head + reg-route + active-head + html emission
 ;; ===========================================================================
 
@@ -701,70 +635,3 @@
       (is (not (str/includes? html "page-x"))
           "head-model->html does not stamp :body-attrs anywhere in its output"))))
 
-;; ===========================================================================
-;; rf2-j54ee CQ-2 — destroy-time trace symmetry on head cleanup hook
-;; ===========================================================================
-;;
-;; Per request.cljc's `on-frame-destroyed!`: a head-cleanup throw must
-;; surface on the trace bus rather than vanishing silently. Mirrors the
-;; pattern shipped at `ssr-ring/lifecycle/destroy-frame-quietly!`
-;; (audit R6 / cluster rf2-sljs1).
-
-(deftest head-cleanup-throw-emits-warning-trace
-  (testing "if the :ssr/head-on-frame-destroyed hook throws, the destroy
-            still completes AND a :rf.ssr.head/cleanup-failed warning trace
-            surfaces (audit rf2-cegm7 CQ-2 / rf2-j54ee)"
-    (let [prior-hook (late-bind/get-fn :ssr/head-on-frame-destroyed)
-          traces     (atom [])
-          ssr-request (requiring-resolve 're-frame.ssr.request/on-frame-destroyed!)]
-      ;; Install a head-cleanup hook that throws — vanity exception
-      ;; so the catch path runs.
-      (late-bind/set-fn! :ssr/head-on-frame-destroyed
-        (fn [_frame-id] (throw (ex-info "boom from head cleanup" {:reason :test}))))
-      (try
-        (rf/register-listener! :trace ::head-clean (fn [ev] (swap! traces conj ev)))
-        ;; Drive the destroy hook directly — that's the path Mark-3
-        ;; teardown takes per the late-bind chaining.
-        ;;
-        ;; SEMANTIC, posture-independent (rf2-lwtlk): the `:warned-and-skipped`
-        ;; policy's PRODUCTION half is that teardown continues — the trace is
-        ;; only how a developer finds out. The `(is false …)` below fires only
-        ;; on the failing path, i.e. contributes no assertion when the code is
-        ;; correct, so the completion is witnessed positively by a flag the
-        ;; throwing path can never reach.
-        (let [completed? (atom false)]
-          (try (ssr-request :test/frame-id)
-               (reset! completed? true)
-               (catch Throwable _
-                 ;; The hook must NOT propagate the exception — fail the
-                 ;; test if it does.
-                 (is false "on-frame-destroyed! must catch head-cleanup throws")))
-          (is (true? @completed?)
-              "on-frame-destroyed! returned normally despite the head-cleanup
-               hook throwing — the destroy completed"))
-        (rf/unregister-listener! :trace ::head-clean)
-
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
-          (let [hits (filterv #(= :rf.ssr.head/cleanup-failed (:operation %)) @traces)]
-            (is (= 1 (count hits))
-                (str "expected one :rf.ssr.head/cleanup-failed trace; saw: "
-                     (pr-str (mapv :operation @traces))))
-            (when (seq hits)
-              (let [ev (first hits)]
-                (is (= :warning (:op-type ev)))
-                (is (= :test/frame-id (-> ev :tags :frame))
-                    ":frame tag identifies which frame's cleanup failed")
-                (is (= :ssr/head-on-frame-destroyed (-> ev :tags :hook))
-                    ":hook tag identifies which hook misbehaved")
-                (is (string? (-> ev :tags :reason))
-                    ":reason carries the throwable's message")
-                (is (string? (-> ev :tags :ex-class))
-                    ":ex-class carries the throwable's class name")
-                (is (= :warned-and-skipped (:recovery ev))
-                    ":recovery names the policy — observed and continued")))))
-        (finally
-          ;; Restore the prior hook so subsequent tests see normal behaviour.
-          (if prior-hook
-            (late-bind/set-fn! :ssr/head-on-frame-destroyed prior-hook)
-            (swap! late-bind/hooks dissoc :ssr/head-on-frame-destroyed)))))))

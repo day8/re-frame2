@@ -28,7 +28,6 @@
   (:require [ring.adapter.jetty :as jetty]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.head :as head]
             [re-frame.ssr.request :as request]
             [re-frame.ssr.response :as response]
             [re-frame.test-support :as test-support])
@@ -55,7 +54,6 @@
        - `request/request-slots`               — the active HTTP request
        - `response/response-slots`             — the HTTP response accumulator
        - `error-listener/pending-error-traces` — per-frame error-trace buffer
-       - `head/head-snapshots`                 — per-frame head-model snapshot
 
      These atoms ship in `re-frame.ssr.*` production source, reached
      directly (the same atoms the private façade aliases hold) — no
@@ -77,7 +75,6 @@
   (reset! request/request-slots {})
   (reset! response/response-slots {})
   (reset! error-listener/pending-error-traces {})
-  (reset! head/head-snapshots {})
   (require 're-frame.routing  :reload)
   (require 're-frame.ssr      :reload)
   (require 're-frame.ssr.head :reload)
