@@ -318,9 +318,9 @@
 ;; ============================================================================
 
 (rf/reg-sub :articles/slice      (fn [db _] (:articles db)))
-(rf/reg-sub :articles/data       :<- [:articles/slice] (fn [s _] (:data s)))
-(rf/reg-sub :articles/error      :<- [:articles/slice] (fn [s _] (:error s)))
-(rf/reg-sub :articles/count      :<- [:articles/slice] (fn [s _] (:articles-count s 0)))
+(rf/reg-sub :articles/data       {:inputs [[:articles/slice]]} (fn [[s] _] (:data s)))
+(rf/reg-sub :articles/error      {:inputs [[:articles/slice]]} (fn [[s] _] (:error s)))
+(rf/reg-sub :articles/count      {:inputs [[:articles/slice]]} (fn [[s] _] (:articles-count s 0)))
 
 ;; The `:tags/data` sub is defined in `realworld-http.tags`, where the
 ;; popular-tags lifecycle lives entirely in a machine: items are read off
@@ -353,9 +353,9 @@
 (rf/reg-sub :articles.home/render
   {:doc "Boil the machine's active tags down to a single render keyword, by
          running them past the render-priority table. The home view's `case`
-         on this keyword is the one and only branch site."}
-  :<- [:rf/machine :realworld/articles-home]
-  (fn sub-articles-home-render [snap _]
+         on this keyword is the one and only branch site."
+   :inputs [[:rf/machine :realworld/articles-home]]}
+  (fn sub-articles-home-render [[snap] _]
     (let [tags (:tags snap)]
       (some (fn [{:keys [tag render]}]
               (when (contains? tags tag) render))
@@ -364,10 +364,10 @@
 (rf/reg-sub :articles.home/active-articles
   {:doc "Whichever article list the home view should be showing right now. The
          `:feed` region's active state decides which app-db slice to pull from
-         — `:feed` for your-feed, `:articles` for everything else."}
-  :<- [:rf/machine :realworld/articles-home]
-  :<- [:articles/data]
-  :<- [:feed/data]
+         — `:feed` for your-feed, `:articles` for everything else."
+   :inputs [[:rf/machine :realworld/articles-home]
+            [:articles/data]
+            [:feed/data]]}
   (fn sub-active-articles [[snap global-items feed-items] _]
     (case (get-in snap [:state :feed])
       :user-feed (or feed-items [])
@@ -383,10 +383,10 @@
 (rf/reg-sub :articles.home/articles-count
   {:doc "Grand article count for the active home feed (global / user-feed),
          from whichever slice the `:feed` region is rendering. Drives the
-         page count."}
-  :<- [:rf/machine :realworld/articles-home]
-  :<- [:articles/count]
-  :<- [:feed/count]
+         page count."
+   :inputs [[:rf/machine :realworld/articles-home]
+            [:articles/count]
+            [:feed/count]]}
   (fn sub-home-count [[snap global-count feed-count] _]
     (case (get-in snap [:state :feed])
       :user-feed (or feed-count 0)
@@ -395,16 +395,16 @@
 (rf/reg-sub :articles.home/current-page
   {:doc "The 1-indexed current page for the home feed, read off the route
          query (`?page=`; `:query-defaults {:page 1}` fills it when absent).
-         Composes off `:home/page` (tags.cljs)."}
-  :<- [:home/page]
-  (fn sub-home-page [page _]
+         Composes off `:home/page` (tags.cljs)."
+   :inputs [[:home/page]]}
+  (fn sub-home-page [[page] _]
     (or page 1)))
 
 (rf/reg-sub :articles.home/page-count
   {:doc "Total number of pages for the active home feed —
-         `(ceil articles-count / page-size)`, never below 1."}
-  :<- [:articles.home/articles-count]
-  (fn sub-home-page-count [total _]
+         `(ceil articles-count / page-size)`, never below 1."
+   :inputs [[:articles.home/articles-count]]}
+  (fn sub-home-page-count [[total] _]
     (rh/page-count total)))
 
 ;; ============================================================================

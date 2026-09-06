@@ -285,9 +285,9 @@
 ;; HANDLER below is where "no user YET" is told apart from "no user, full stop".
 (rf/reg-sub :realworld-resources.routing/authed?
   {:doc "The :can-enter auth guard: true when a user is signed in. Read by the
-         :requires-auth routes' :can-enter slot."}
-  :<- [:auth/user]
-  (fn [user _] (some? user)))
+         :requires-auth routes' :can-enter slot."
+   :inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))
 
 ;; The denial handler — the FRESH-RETURN recipe (Spec 012 §Entry is terminal).
 ;; Entry denial is TERMINAL: the runtime commits nothing and parks nothing (no

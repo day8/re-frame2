@@ -659,14 +659,14 @@
 ;; ============================================================================
 
 (rf/reg-sub :article/slice (fn [db _] (:article db)))
-(rf/reg-sub :article/data :<- [:article/slice] (fn [slice _] (:data slice)))
-(rf/reg-sub :article/status :<- [:article/slice] (fn [slice _] (:status slice)))
-(rf/reg-sub :article/error :<- [:article/slice] (fn [slice _] (:error slice)))
+(rf/reg-sub :article/data {:inputs [[:article/slice]]} (fn [[slice] _] (:data slice)))
+(rf/reg-sub :article/status {:inputs [[:article/slice]]} (fn [[slice] _] (:status slice)))
+(rf/reg-sub :article/error {:inputs [[:article/slice]]} (fn [[slice] _] (:error slice)))
 
 (rf/reg-sub :article/author
-  {:doc "The current article's author profile (username, image, following)."}
-  :<- [:article/data]
-  (fn [article _] (:author article)))
+  {:doc "The current article's author profile (username, image, following)."
+   :inputs [[:article/data]]}
+  (fn [[article] _] (:author article)))
 
 (rf/reg-sub :article/own?
   {:doc "Is this the reader's own article? True when the signed-in user is the
@@ -677,9 +677,9 @@
       (and me (= me (get-in db [:article :data :author :username]))))))
 
 (rf/reg-sub :comments/slice (fn [db _] (:comments db)))
-(rf/reg-sub :comments/data :<- [:comments/slice] (fn [slice _] (:data slice)))
-(rf/reg-sub :comments/status :<- [:comments/slice] (fn [slice _] (:status slice)))
-(rf/reg-sub :comments/error :<- [:comments/slice] (fn [slice _] (:error slice)))
+(rf/reg-sub :comments/data {:inputs [[:comments/slice]]} (fn [[slice] _] (:data slice)))
+(rf/reg-sub :comments/status {:inputs [[:comments/slice]]} (fn [[slice] _] (:status slice)))
+(rf/reg-sub :comments/error {:inputs [[:comments/slice]]} (fn [[slice] _] (:error slice)))
 
 (rf/reg-sub :comment-form/draft
   (fn [db _] (get-in db [:comment-form :draft])))
@@ -697,9 +697,9 @@
   {:doc "The validation error for one comment-form field, or nil while we stay
          quiet. Same courtesy as the other forms: no error shown until the
          field is touched or the user has tried to submit. See the forms
-         how-to: ../../../docs/core/how-to/build-a-form.md"}
-  :<- [:comment-form/slice]
-  (fn [form [_ field]]
+         how-to: ../../../docs/core/how-to/build-a-form.md"
+   :inputs [[:comment-form/slice]]}
+  (fn [[form] [_ field]]
     (when (or (:submit-attempted? form)
               (contains? (:touched form) field))
       (get-in form [:errors field]))))

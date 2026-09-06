@@ -116,8 +116,8 @@
 ;; small: take the stored range id and look up its full record (label,
 ;; point count).
 (rf/reg-sub :dashboard/selected-range
-  :<- [:dashboard/range]
-  (fn [range-id _]
+  {:inputs [[:dashboard/range]]}
+  (fn [[range-id] _]
     (some #(when (= range-id (:id %)) %) ranges)))
 
 ;; This is the heart of the example — the one function the whole UI reads to
@@ -127,9 +127,9 @@
 ;; control and the framework re-runs this — and only this, plus whatever
 ;; downstream actually changed. One pure function, one source of truth.
 (rf/reg-sub :dashboard/visible-metrics
-  :<- [:dashboard/metrics]
-  :<- [:dashboard/active-tags]
-  :<- [:dashboard/selected-range]
+  {:inputs [[:dashboard/metrics]
+            [:dashboard/active-tags]
+            [:dashboard/selected-range]]}
   (fn [[metrics active-tags {:keys [points]}] _]
     (->> metrics
          (filter #(contains? active-tags (:tag %)))

@@ -650,31 +650,31 @@
          handler has a db value but no subs."}
   (fn [db _] (restoring-session? db)))
 
+;; Snapshots live in runtime-db, but you don't go digging for them by path
+;; — `:rf/machine` is the front door. Read through it.
 (rf/reg-sub :auth/flow-state
-  {:doc "The current auth machine snapshot."}
-  ;; Snapshots live in runtime-db, but you don't go digging for them by path
-  ;; — `:rf/machine` is the front door. Read through it.
-  :<- [:rf/machine :auth/flow]
-  (fn [snapshot _] snapshot))
+  {:doc "The current auth machine snapshot."
+   :inputs [[:rf/machine :auth/flow]]}
+  (fn [[snapshot] _] snapshot))
 
 (rf/reg-sub :auth/state
-  :<- [:auth/flow-state]
-  (fn [snapshot _]
+  {:inputs [[:auth/flow-state]]}
+  (fn [[snapshot] _]
     (:state snapshot)))
 
 (rf/reg-sub :auth/error
-  :<- [:auth/flow-state]
-  (fn [snapshot _]
+  {:inputs [[:auth/flow-state]]}
+  (fn [[snapshot] _]
     (get-in snapshot [:data :error])))
 
 (rf/reg-sub :auth/authenticated?
-  :<- [:auth/state]
-  (fn [state _]
+  {:inputs [[:auth/state]]}
+  (fn [[state] _]
     (= state :authed)))
 
 (rf/reg-sub :auth/submitting?
-  :<- [:auth/state]
-  (fn [state _]
+  {:inputs [[:auth/state]]}
+  (fn [[state] _]
     (or (= state :submitting) (= state :restoring))))
 
 (rf/reg-sub :auth.login-form/draft
@@ -687,9 +687,9 @@
   {:doc "The validation error for one login-form field — or nil while we're
          keeping quiet. The rule of politeness: don't nag about a field until
          the user has either touched it or hit submit at least once. See the
-         forms how-to: ../../../docs/core/how-to/build-a-form.md"}
-  :<- [:auth.login-form/slice]
-  (fn [form [_ field]]
+         forms how-to: ../../../docs/core/how-to/build-a-form.md"
+   :inputs [[:auth.login-form/slice]]}
+  (fn [[form] [_ field]]
     (when (or (:submit-attempted? form)
               (contains? (:touched form) field))
       (get-in form [:errors field]))))
@@ -704,9 +704,9 @@
   {:doc "The validation error for one register-form field, or nil while we
          hold our tongue. Same rule as the login form: stay quiet until the
          field is touched or the user has tried to submit. See the forms
-         how-to: ../../../docs/core/how-to/build-a-form.md"}
-  :<- [:auth.register-form/slice]
-  (fn [form [_ field]]
+         how-to: ../../../docs/core/how-to/build-a-form.md"
+   :inputs [[:auth.register-form/slice]]}
+  (fn [[form] [_ field]]
     (when (or (:submit-attempted? form)
               (contains? (:touched form) field))
       (get-in form [:errors field]))))

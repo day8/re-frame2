@@ -762,12 +762,12 @@
   ;; through the framework `:rf/machine` sub rather than poking at app-db.
   ;; See docs/machines/glossary.md#snapshot.
   (rf/reg-sub :ws/snapshot
-    :<- [:rf/machine :ws/connection]
-    (fn [snapshot _] snapshot))
+    {:inputs [[:rf/machine :ws/connection]]}
+    (fn [[snapshot] _] snapshot))
 
   (rf/reg-sub :ws/state
-    :<- [:ws/snapshot]
-    (fn [snap _] (:state snap)))
+    {:inputs [[:ws/snapshot]]}
+    (fn [[snap] _] (:state snap)))
 
   ;; One little yes/no sub per tag. Each chains off the FRAMEWORK sub
   ;; `:rf.machine/has-tag?`, which returns the snapshot's tag-containment bit
@@ -776,36 +776,36 @@
   ;; itself.
   ;; See docs/machines/glossary.md#state-tag.
   (rf/reg-sub :ws/connecting?
-    :<- [:rf.machine/has-tag? :ws/connection :websocket/connecting]
-    (fn [has-tag? _] has-tag?))
+    {:inputs [[:rf.machine/has-tag? :ws/connection :websocket/connecting]]}
+    (fn [[has-tag?] _] has-tag?))
 
   (rf/reg-sub :ws/authenticating?
-    :<- [:rf.machine/has-tag? :ws/connection :websocket/authenticating]
-    (fn [has-tag? _] has-tag?))
+    {:inputs [[:rf.machine/has-tag? :ws/connection :websocket/authenticating]]}
+    (fn [[has-tag?] _] has-tag?))
 
   (rf/reg-sub :ws/connected?
-    :<- [:rf.machine/has-tag? :ws/connection :websocket/connected]
-    (fn [has-tag? _] has-tag?))
+    {:inputs [[:rf.machine/has-tag? :ws/connection :websocket/connected]]}
+    (fn [[has-tag?] _] has-tag?))
 
   (rf/reg-sub :ws/reconnecting?
-    :<- [:rf.machine/has-tag? :ws/connection :websocket/reconnecting]
-    (fn [has-tag? _] has-tag?))
+    {:inputs [[:rf.machine/has-tag? :ws/connection :websocket/reconnecting]]}
+    (fn [[has-tag?] _] has-tag?))
 
   (rf/reg-sub :ws/failed?
-    :<- [:rf.machine/has-tag? :ws/connection :websocket/failed]
-    (fn [has-tag? _] has-tag?))
+    {:inputs [[:rf.machine/has-tag? :ws/connection :websocket/failed]]}
+    (fn [[has-tag?] _] has-tag?))
 
   (rf/reg-sub :ws/queue-depth
-    :<- [:ws/snapshot]
-    (fn [snap _] (count (get-in snap [:data :queue]))))
+    {:inputs [[:ws/snapshot]]}
+    (fn [[snap] _] (count (get-in snap [:data :queue]))))
 
   (rf/reg-sub :ws/retries
-    :<- [:ws/snapshot]
-    (fn [snap _] (get-in snap [:data :retries])))
+    {:inputs [[:ws/snapshot]]}
+    (fn [[snap] _] (get-in snap [:data :retries])))
 
   (rf/reg-sub :ws/error
-    :<- [:ws/snapshot]
-    (fn [snap _] (get-in snap [:data :error])))
+    {:inputs [[:ws/snapshot]]}
+    (fn [[snap] _] (get-in snap [:data :error])))
 
   ;; --- init event -------------------------------------------------------
   (rf/reg-event :ws.connection/initialise

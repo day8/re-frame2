@@ -87,8 +87,8 @@
   (fn [db _] (:routing.app/articles-list db)))
 
 (rf/reg-sub :routing.app/article-by-id
-  :<- [:routing.app/articles-list]
-  (fn [articles [_ id]]
+  {:inputs [[:routing.app/articles-list]]}
+  (fn [[articles] [_ id]]
     (first (filter #(= id (:id %)) articles))))
 
 ;; ============================================================================

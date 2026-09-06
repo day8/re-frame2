@@ -377,23 +377,23 @@
 ;; to the view as a plain boolean — the machine-ness stays behind the curtain.
 
 (rf/reg-sub :settings/draft
-  {:doc "The settings-form draft, read out of the machine's :data."}
-  :<- [:rf/machine :settings/form]
-  (fn sub-settings-draft [snap _]
+  {:doc "The settings-form draft, read out of the machine's :data."
+   :inputs [[:rf/machine :settings/form]]}
+  (fn sub-settings-draft [[snap] _]
     (get-in snap [:data :draft])))
 
 (rf/reg-sub :settings/submit-error
-  {:doc "The latest settings-submit error, read out of the machine's :data."}
-  :<- [:rf/machine :settings/form]
-  (fn sub-settings-submit-error [snap _]
+  {:doc "The latest settings-submit error, read out of the machine's :data."
+   :inputs [[:rf/machine :settings/form]]}
+  (fn sub-settings-submit-error [[snap] _]
     (get-in snap [:data :submit-error])))
 
 (rf/reg-sub :settings/submitting?
   {:doc "Is a save in flight? A tag-shaped read of the form's in-flight intent —
          the machine-form stand-in for a slice's `(= :submitting status)`. Views
-         just see a boolean."}
-  :<- [:rf.machine/has-tag? :settings/form :settings/in-flight]
-  (fn sub-settings-submitting? [in-flight? _]
+         just see a boolean."
+   :inputs [[:rf.machine/has-tag? :settings/form :settings/in-flight]]}
+  (fn sub-settings-submitting? [[in-flight?] _]
     (boolean in-flight?)))
 
 ;; ============================================================================

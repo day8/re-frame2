@@ -701,15 +701,15 @@
 ;; sub — the public doorway to a machine's live value
 ;; (docs/machines/glossary.md#snapshot).
 (rf/reg-sub :auth.login/state
-  {:doc "Current state of the login flow."}
-  :<- [:rf/machine :auth.login/flow]
-  (fn sub-auth-login-state [snapshot _]
+  {:doc "Current state of the login flow."
+   :inputs [[:rf/machine :auth.login/flow]]}
+  (fn sub-auth-login-state [[snapshot] _]
     (:state snapshot)))
 
 (rf/reg-sub :auth.login/error
-  {:doc "Current error message, if any."}
-  :<- [:rf/machine :auth.login/flow]
-  (fn sub-auth-login-error [snapshot _]
+  {:doc "Current error message, if any."
+   :inputs [[:rf/machine :auth.login/flow]]}
+  (fn sub-auth-login-error [[snapshot] _]
     (get-in snapshot [:data :error])))
 
 ;; --- Form-slice subs --------------------------------------------------------
@@ -727,17 +727,17 @@
 
 (rf/reg-sub :auth.login/draft
   {:doc "The login-form draft — what the user has currently typed. Each input
-         binds its :value to a field of this map (controlled inputs)."}
-  :<- [:auth.login/form-slice]
-  (fn sub-auth-login-draft [slice _]
+         binds its :value to a field of this map (controlled inputs)."
+   :inputs [[:auth.login/form-slice]]}
+  (fn sub-auth-login-draft [[slice] _]
     (:draft slice)))
 
 (rf/reg-sub :auth.login/field-error
   {:doc "Per-field validation error for the login form. Reveal a field's
          error once it is :touched OR once the form has had its first
-         submit click (docs/core/how-to/build-a-form.md)."}
-  :<- [:auth.login/form-slice]
-  (fn sub-auth-login-field-error [slice [_ field]]
+         submit click (docs/core/how-to/build-a-form.md)."
+   :inputs [[:auth.login/form-slice]]}
+  (fn sub-auth-login-field-error [[slice] [_ field]]
     (when (or (:submit-attempted? slice)
               (contains? (:touched slice) field))
       (first (get-in slice [:errors field])))))

@@ -489,32 +489,32 @@
 (rf/reg-sub :editor/slice
   (fn [db _] (:editor db)))
 
-(rf/reg-sub :editor/draft :<- [:editor/slice] (fn [editor _] (:draft editor)))
-(rf/reg-sub :editor/errors :<- [:editor/slice] (fn [editor _] (:errors editor)))
-(rf/reg-sub :editor/submit-error :<- [:editor/slice]
-  (fn [editor _] (:submit-error editor)))
+(rf/reg-sub :editor/draft {:inputs [[:editor/slice]]} (fn [[editor] _] (:draft editor)))
+(rf/reg-sub :editor/errors {:inputs [[:editor/slice]]} (fn [[editor] _] (:errors editor)))
+(rf/reg-sub :editor/submit-error {:inputs [[:editor/slice]]}
+  (fn [[editor] _] (:submit-error editor)))
 
 (rf/reg-sub :editor/field-error
   {:doc "The validation error for one field, or nil while we keep mum. Same
          courtesy as every other form here: nothing shown until the field is
          touched or the user has tried to submit. See the forms how-to:
-         ../../../docs/core/how-to/build-a-form.md"}
-  :<- [:editor/slice]
-  (fn [editor [_ field]]
+         ../../../docs/core/how-to/build-a-form.md"
+   :inputs [[:editor/slice]]}
+  (fn [[editor] [_ field]]
     (when (or (:submit-attempted? editor)
               (contains? (:touched editor) field))
       (get-in editor [:errors field]))))
 
 (rf/reg-sub :editor/form-error
   {:doc "The one-line, whole-form nudge (the :_form key under :errors) —
-         set when a submit attempt tripped client-side validation."}
-  :<- [:editor/slice]
-  (fn [editor _]
+         set when a submit attempt tripped client-side validation."
+   :inputs [[:editor/slice]]}
+  (fn [[editor] _]
     (when (:submit-attempted? editor)
       (get-in editor [:errors :_form]))))
 (rf/reg-sub :editor/dirty?
-  :<- [:editor/slice]
-  (fn [editor _]
+  {:inputs [[:editor/slice]]}
+  (fn [[editor] _]
     (not= (:draft editor) (:baseline editor))))
 
 (rf/reg-sub :editor/can-submit?
@@ -528,8 +528,8 @@
     (boolean (get-in db [:editor :can-submit?]))))
 
 (rf/reg-sub :editor/can-leave?
-  :<- [:editor/dirty?]
-  (fn [dirty? _]
+  {:inputs [[:editor/dirty?]]}
+  (fn [[dirty?] _]
     (not dirty?)))
 
 ;; ---- render-priority + :article-editor/render selector ----
@@ -556,9 +556,9 @@
 (rf/reg-sub :article-editor/render
   {:doc "Reduce the `:ui/article-editor` machine's active tags to a single
          render keyword, via the render-priority table. The root view's `case`
-         on it is the one and only branch site."}
-  :<- [:rf/machine :ui/article-editor]
-  (fn sub-editor-render [snap _]
+         on it is the one and only branch site."
+   :inputs [[:rf/machine :ui/article-editor]]}
+  (fn sub-editor-render [[snap] _]
     (let [tags (:tags snap)]
       (some (fn [{:keys [tag render]}]
               (when (contains? tags tag) render))

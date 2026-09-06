@@ -158,9 +158,9 @@
 ;; user, full stop".
 (rf/reg-sub :realworld.routing/authed?
   {:doc "The :can-enter auth guard: true when a user is signed in. Read by the
-         :requires-auth routes' :can-enter slot."}
-  :<- [:auth/user]
-  (fn [user _] (some? user)))
+         :requires-auth routes' :can-enter slot."
+   :inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))
 
 ;; The denial handler — the FRESH-RETURN recipe (Spec 012 §Entry is terminal).
 ;; Entry denial is TERMINAL: the runtime commits nothing and parks nothing, so
@@ -229,9 +229,9 @@
 (rf/reg-sub :realworld.routing/deferred-entry?
   {:doc "True while a protected deep link is parked waiting on a cold-boot
          session restore: identity unknown AND no route committed. The app shell
-         (core.cljs) reads it to show a brief 'restoring your session' state."}
-  :<- [:auth/restoring-session?]
-  :<- [:rf.route/id]
+         (core.cljs) reads it to show a brief 'restoring your session' state."
+   :inputs [[:auth/restoring-session?]
+            [:rf.route/id]]}
   (fn [[restoring? route-id] _]
     (and restoring? (nil? route-id))))
 

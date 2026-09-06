@@ -134,10 +134,10 @@
 
 (rf/reg-sub :temp/celsius-text
   {:doc "What the Celsius box shows: raw keystrokes while it's the active box,
-         otherwise the canonical value formatted to two places."}
-  :<- [:temp/active]
-  :<- [:temp/typing]
-  :<- [:temp/canonical-celsius]
+         otherwise the canonical value formatted to two places."
+   :inputs [[:temp/active]
+            [:temp/typing]
+            [:temp/canonical-celsius]]}
   (fn sub-temp-celsius-text [[active typing c] _]
     (case active
       :celsius     typing
@@ -145,10 +145,10 @@
 
 (rf/reg-sub :temp/fahrenheit-text
   {:doc "What the Fahrenheit box shows: raw keystrokes while it's the active
-         box, otherwise the canonical Celsius converted to °F, two places."}
-  :<- [:temp/active]
-  :<- [:temp/typing]
-  :<- [:temp/canonical-celsius]
+         box, otherwise the canonical Celsius converted to °F, two places."
+   :inputs [[:temp/active]
+            [:temp/typing]
+            [:temp/canonical-celsius]]}
   (fn sub-temp-fahrenheit-text [[active typing c] _]
     (case active
       :fahrenheit  typing

@@ -360,48 +360,48 @@
 ;; only from the layer above — the usual subscription-graph shape.
 
 (rf/reg-sub :work/flow-snapshot
-  :<- [:rf/machine :work/flow]
-  (fn [snap _] snap))
+  {:inputs [[:rf/machine :work/flow]]}
+  (fn [[snap] _] snap))
 
 (rf/reg-sub :work/flow-state
-  :<- [:work/flow-snapshot]
-  (fn [snap _] (:state snap)))
+  {:inputs [[:work/flow-snapshot]]}
+  (fn [[snap] _] (:state snap)))
 
 (rf/reg-sub :work/flow-data
-  :<- [:work/flow-snapshot]
-  (fn [snap _] (:data snap)))
+  {:inputs [[:work/flow-snapshot]]}
+  (fn [[snap] _] (:data snap)))
 
 (rf/reg-sub :work/progress-map
-  :<- [:work/flow-data]
-  (fn [data _] (:progress data {})))
+  {:inputs [[:work/flow-data]]}
+  (fn [[data] _] (:progress data {})))
 
 (rf/reg-sub :work/total-items
-  :<- [:work/flow-data]
-  (fn [data _]
+  {:inputs [[:work/flow-data]]}
+  (fn [[data] _]
     (* (count (:shards data)) (:total data 0))))
 
 (rf/reg-sub :work/items-done
-  :<- [:work/progress-map]
-  (fn [progress _]
+  {:inputs [[:work/progress-map]]}
+  (fn [[progress] _]
     (reduce + 0 (vals progress))))
 
 (rf/reg-sub :work/progress-fraction
   {:doc "How far along, all up — a number from 0.0 to 1.0. The progress
-         bar multiplies by 100 to turn it into a width."}
-  :<- [:work/items-done]
-  :<- [:work/total-items]
+         bar multiplies by 100 to turn it into a width."
+   :inputs [[:work/items-done]
+            [:work/total-items]]}
   (fn [[done total] _]
     (if (pos? total)
       (/ done total)
       0)))
 
 (rf/reg-sub :work/outcome
-  :<- [:work/flow-data]
-  (fn [data _] (:outcome data)))
+  {:inputs [[:work/flow-data]]}
+  (fn [[data] _] (:outcome data)))
 
 (rf/reg-sub :work/running?
-  :<- [:work/flow-state]
-  (fn [state _] (= state :working)))
+  {:inputs [[:work/flow-state]]}
+  (fn [[state] _] (= state :working)))
 
 ;; ============================================================================
 ;; INITIALISATION

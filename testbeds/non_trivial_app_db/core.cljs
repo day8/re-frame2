@@ -216,8 +216,12 @@
 ;; the whole snapshot in one slot (e.g. snapshot identity verification).
 
 (rf/reg-sub :app-db-snapshot
-  :<- [:user] :<- [:settings] :<- [:cart] :<- [:catalog]
-  :<- [:session] :<- [:metrics]
+  {:inputs [[:user]
+            [:settings]
+            [:cart]
+            [:catalog]
+            [:session]
+            [:metrics]]}
   (fn [[user settings cart catalog session metrics] _]
     {:user user :settings settings :cart cart
      :catalog catalog :session session :metrics metrics}))

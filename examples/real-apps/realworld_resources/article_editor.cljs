@@ -455,14 +455,14 @@
 ;; ============================================================================
 
 (rf/reg-sub :editor/slice (fn [db _] (:editor db)))
-(rf/reg-sub :editor/draft :<- [:editor/slice] (fn [e _] (:draft e)))
-(rf/reg-sub :editor/slug  :<- [:editor/slice] (fn [e _] (:slug e)))
+(rf/reg-sub :editor/draft {:inputs [[:editor/slice]]} (fn [[e] _] (:draft e)))
+(rf/reg-sub :editor/slug  {:inputs [[:editor/slice]]} (fn [[e] _] (:slug e)))
 
 (rf/reg-sub :editor/field-error
   {:doc "Per-field validation error — held back until either the first submit
-         attempt or the moment the field is touched, whichever comes first."}
-  :<- [:editor/slice]
-  (fn [e [_ field]]
+         attempt or the moment the field is touched, whichever comes first."
+   :inputs [[:editor/slice]]}
+  (fn [[e] [_ field]]
     (when (or (:submit-attempted? e) (contains? (:touched e) field))
       (get-in e [:errors field]))))
 
@@ -475,16 +475,16 @@
     (boolean (get-in db [:editor :can-submit?]))))
 
 (rf/reg-sub :editor/dirty?
-  :<- [:editor/slice]
-  (fn [e _] (not= (:draft e) (:baseline e))))
+  {:inputs [[:editor/slice]]}
+  (fn [[e] _] (not= (:draft e) (:baseline e))))
 
 (rf/reg-sub :editor/can-leave?
   {:doc "The route `:can-leave` guard query. A clean (or just-saved) draft leaves
          freely; a dirty one blocks, and the app shell shows the confirm dialog off
          `:rf/pending-navigation`. See route guard:
-         ../../../docs/routing/glossary.md#route-guard."}
-  :<- [:editor/dirty?]
-  (fn [dirty? _] (not dirty?)))
+         ../../../docs/routing/glossary.md#route-guard."
+   :inputs [[:editor/dirty?]]}
+  (fn [[dirty?] _] (not dirty?)))
 
 ;; ============================================================================
 ;; VIEW  (a pure Form-1 render — no lifecycle, because the view holds no owner)

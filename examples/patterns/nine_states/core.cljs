@@ -635,29 +635,29 @@
 (rf/reg-sub :new-todo/slice
   (fn sub-new-todo [db _] (get db :new-todo)))
 
-(rf/reg-sub :new-todo/draft   :<- [:new-todo/slice] (fn [s _] (:draft s)))
-(rf/reg-sub :new-todo/errors  :<- [:new-todo/slice] (fn [s _] (:errors s)))
-(rf/reg-sub :new-todo/touched :<- [:new-todo/slice] (fn [s _] (:touched s)))
+(rf/reg-sub :new-todo/draft   {:inputs [[:new-todo/slice]]} (fn [[s] _] (:draft s)))
+(rf/reg-sub :new-todo/errors  {:inputs [[:new-todo/slice]]} (fn [[s] _] (:errors s)))
+(rf/reg-sub :new-todo/touched {:inputs [[:new-todo/slice]]} (fn [[s] _] (:touched s)))
 
 (rf/reg-sub :new-todo/field-error
   {:doc "The error for one field — but only once the user has actually
          touched it. Nobody likes a form that scolds you for leaving a
-         field blank before you've even reached it."}
-  :<- [:new-todo/errors]
-  :<- [:new-todo/touched]
+         field blank before you've even reached it."
+   :inputs [[:new-todo/errors]
+            [:new-todo/touched]]}
   (fn sub-new-todo-field-error [[errs touched] [_ field-id]]
     (when (touched field-id)
       (first (get errs field-id)))))
 
 ;; The todos themselves — read straight off the machine's snapshot.
 (rf/reg-sub :todos/items
-  :<- [:rf/machine :ui/nine-states]
-  (fn sub-todos-items [snap _]
+  {:inputs [[:rf/machine :ui/nine-states]]}
+  (fn sub-todos-items [[snap] _]
     (get-in snap [:data :items])))
 
 (rf/reg-sub :todos/error
-  :<- [:rf/machine :ui/nine-states]
-  (fn sub-todos-error [snap _]
+  {:inputs [[:rf/machine :ui/nine-states]]}
+  (fn sub-todos-error [[snap] _]
     (get-in snap [:data :error])))
 
 ;; ---- render-priority + :ui/render selector ----
@@ -698,9 +698,9 @@
   {:doc "Boil the whole page down to one keyword: walk the render-priority
          table against the machine's tag union and return the first match.
          This sub feeds the root view's `case` — the one and only place the
-         UI branches. Everything else just asks the tags directly."}
-  :<- [:rf/machine :ui/nine-states]
-  (fn sub-ui-render [snap _]
+         UI branches. Everything else just asks the tags directly."
+   :inputs [[:rf/machine :ui/nine-states]]}
+  (fn sub-ui-render [[snap] _]
     (let [tags (:tags snap)]
       (some (fn [{:keys [tag render]}]
               (when (contains? tags tag) render))

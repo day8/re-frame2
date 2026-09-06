@@ -307,28 +307,28 @@
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-sub :work-state
-  :<- [:rf/machine :deep/main]
-  (fn [snap _]
+  {:inputs [[:rf/machine :deep/main]]}
+  (fn [[snap] _]
     (get-in snap [:state :work])))
 
 (rf/reg-sub :health-state
-  :<- [:rf/machine :deep/main]
-  (fn [snap _]
+  {:inputs [[:rf/machine :deep/main]]}
+  (fn [[snap] _]
     (get-in snap [:state :health])))
 
 (rf/reg-sub :tags
-  :<- [:rf/machine :deep/main]
-  (fn [snap _]
+  {:inputs [[:rf/machine :deep/main]]}
+  (fn [[snap] _]
     (:tags snap)))
 
 (rf/reg-sub :tick-count
-  :<- [:rf/machine :deep/main]
-  (fn [snap _]
+  {:inputs [[:rf/machine :deep/main]]}
+  (fn [[snap] _]
     (get-in snap [:data :tick-count])))
 
 (rf/reg-sub :phase-b-all-finished?
-  :<- [:rf/machine :deep/main]
-  (fn [snap _]
+  {:inputs [[:rf/machine :deep/main]]}
+  (fn [[snap] _]
     (get-in snap [:data :phase-b-all-finished?])))
 
 (reg-view buttons []

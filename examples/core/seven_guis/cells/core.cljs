@@ -376,18 +376,18 @@
   (fn sub-cells-all-cells [db _] (get-in db [:cells :cells])))
 
 (rf/reg-sub :cells/raw
-  {:doc "Raw text the user typed into cell `id` (empty string if untouched)."}
-  :<- [:cells/all-cells]
-  (fn sub-cells-raw [cells [_ id]] (get-in cells [id :raw] "")))
+  {:doc "Raw text the user typed into cell `id` (empty string if untouched)."
+   :inputs [[:cells/all-cells]]}
+  (fn sub-cells-raw [[cells] [_ id]] (get-in cells [id :raw] "")))
 
 (rf/reg-sub :cells/value
   {:doc "Display value of cell `id` — a pure derivation over the whole cell map.
          The evaluator already turns bad input into typed error markers, so this
          try/catch is belt-and-suspenders: if some unforeseen input ever slips
          through and throws, one cell shows #EVAL instead of taking the entire
-         grid's render down with it."}
-  :<- [:cells/all-cells]
-  (fn sub-cells-value [cells [_ id]]
+         grid's render down with it."
+   :inputs [[:cells/all-cells]]}
+  (fn sub-cells-value [[cells] [_ id]]
     (try
       (evaluate-cell id cells #{})
       (catch :default _ :error/eval))))

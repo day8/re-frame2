@@ -122,14 +122,14 @@
 ;; `-hiccup`) chain off this one in the same way. A little graph of pure
 ;; derivations. See docs/core/subscriptions.md.
 (rf/reg-sub :notebook/selected
-  :<- [:notebook/documents]
-  :<- [:notebook/selected-id]
+  {:inputs [[:notebook/documents]
+            [:notebook/selected-id]]}
   (fn [[docs id] _]
     (first (filter #(= (:id %) id) docs))))
 
 (rf/reg-sub :notebook/selected-body
-  :<- [:notebook/selected]
-  (fn [doc _] (or (:body doc) "")))
+  {:inputs [[:notebook/selected]]}
+  (fn [[doc] _] (or (:body doc) "")))
 
 ;; ============================================================================
 ;; MARKDOWN — tiny pure parser → hiccup
@@ -298,8 +298,8 @@
         blocks))))
 
 (rf/reg-sub :notebook/selected-hiccup
-  :<- [:notebook/selected-body]
-  (fn [body _] (markdown->hiccup body)))
+  {:inputs [[:notebook/selected-body]]}
+  (fn [[body] _] (markdown->hiccup body)))
 
 ;; ============================================================================
 ;; VIEWS — shared 'Editorial Warm' palette
