@@ -22,7 +22,7 @@
   "bench"                                 0
   "docs"                                  0
   "examples"                              0
-  "implementation/adapters"               2
+  "implementation/adapters"               0
   "implementation/core"                   0
   "implementation/derivation-conformance" 0
   "implementation/epoch"                  0

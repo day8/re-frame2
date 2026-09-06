@@ -12,8 +12,8 @@
             [uix.core :refer [$ defui]]
             [uix.dom :as uix-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.test-support :as ts]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; -- The app under test ------------------------------------------------------
 ;; In your project these live in your events / subs / views namespaces —
@@ -30,8 +30,8 @@
   (fn [db _] (:recipe.counter/value db)))
 
 (defui counter []
-  (let [n                  (uix-adapter/use-subscribe [:recipe.counter/value])
-        {:keys [dispatch]} (uix-adapter/use-frame)]
+  (let [n                  (rf.adapter.uix/use-subscribe [:recipe.counter/value])
+        {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div
        ($ :span {:data-testid "counter-value"} n)
        ($ :button {:data-testid "counter-inc"
@@ -45,8 +45,8 @@
 ;; `(async done …)` test requires.
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      :init-fn #(rf/dispatch-sync [:recipe.counter/init])
      :async?  true}))
 
@@ -68,7 +68,7 @@
    rejects with `:rf.error/poll-until-timeout` when it never does."
   [pred label]
   (act-environment! false)
-  (.finally (ts/poll-until pred {:label label})
+  (.finally (rf.test-support/poll-until pred {:label label})
             #(act-environment! true)))
 
 (defn- mount!
@@ -84,9 +84,9 @@
     (.appendChild js/document.body node)
     (try
       (act-environment! true)
-      (uix-adapter/flush-views!
+      (rf.adapter.uix/flush-views!
         #(uix-dom/render-root
-           ($ uix-adapter/frame-provider {:frame :rf/default} element)
+           ($ rf.adapter.uix/frame-provider {:frame :rf/default} element)
            root))
       {:node node :root root :act-prev act-prev}
       (catch :default e
@@ -96,7 +96,7 @@
 
 (defn- unmount! [{:keys [node root act-prev]}]
   (try
-    (uix-adapter/flush-views! #(uix-dom/unmount-root root))
+    (rf.adapter.uix/flush-views! #(uix-dom/unmount-root root))
     (finally
       ;; Even when React's unmount or an effect cleanup throws, the node
       ;; leaves the page and the act flag goes back to what `mount!` found.
@@ -120,7 +120,7 @@
         ;; Drive the dataflow and settle React in one step: `dispatch-sync`
         ;; runs the event now, and act() commits the re-render before
         ;; `flush-views!` returns.
-        (uix-adapter/flush-views! #(rf/dispatch-sync [:recipe.counter/inc]))
+        (rf.adapter.uix/flush-views! #(rf/dispatch-sync [:recipe.counter/inc]))
         (is (= "1" (text node "counter-value")))
         (finally
           (unmount! mounted))))))
