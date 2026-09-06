@@ -12,8 +12,7 @@
  {:event {:cart/init {:doc "Seed an empty cart."}
           :cart/break {:doc "Set :items to a non-collection value."}}
   :sub   {:cart/items {:doc "All items in the cart."}
-          :cart/count {:doc "Item count — throws if :items is not countable."
-                       :inputs [:cart/items]}}}
+          :cart/count {:doc "Item count over :cart/items — throws if :items is not countable."}}}
 
  :fixture/handlers
  {:event {:cart/init  [[:set [:cart] {:items []}]]

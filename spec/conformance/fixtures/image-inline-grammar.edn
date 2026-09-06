@@ -29,7 +29,7 @@
 {:fixture/id           :image/inline-grammar
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/image}
- :fixture/doc          "EP-0026 inline grammar: the four supported kinds (:reg-event / :reg-sub / :reg-fx / :reg-cofx) lower from [id body] and [id metadata body] tuples; metadata rides on the descriptor. An unsupported inline section, a metadata-only [id metadata] tuple, a too-short tuple, and a too-long tuple all fail loud with :rf.error/invalid-image."
+ :fixture/doc          "EP-0026 inline grammar: the four supported kinds (:reg-event / :reg-sub / :reg-fx / :reg-cofx) lower from [id body] and [id metadata body] tuples; metadata rides on the descriptor. An inline :reg-sub declaring {:inputs [[...]]} lowers to a DERIVED sub through the same seam the public registrar uses, and a malformed :inputs fails loud with :rf.error/reg-sub-bad-args. An unsupported inline section, a metadata-only [id metadata] tuple, a too-short tuple, and a too-long tuple all fail loud with :rf.error/invalid-image."
 
  :fixture/registry {}
  :fixture/handlers {}
@@ -89,4 +89,32 @@
   {:call :assemble-image
    :pool []
    :images [{:id :i :registrations {:reg-event [[:counter/inc {} :body :extra]]}}]
-   :expect-error :rf.error/invalid-image}]}
+   :expect-error :rf.error/invalid-image}
+
+  ;; (7) An inline `:reg-sub` may DECLARE ITS DEPENDENCIES. The inline tuple
+  ;; carries one body and no argument positions, so a derived sub used to be
+  ;; inexpressible inline; `:inputs` lives in the metadata map, which the
+  ;; 3-tuple already carries, so a `:static` (literal) and a `:parametric`
+  ;; (producer fn) inline sub both lower through the SAME seam the public
+  ;; `reg-sub` uses. Here the literal form — it resolves with its inline
+  ;; coordinate exactly as the layer-1 form does.
+  {:call :assemble-image
+   :pool []
+   :images [{:id :cart/inline
+             :registrations
+             {:reg-sub [[:cart/items :items-body]
+                        [:cart/by-price {:doc    "Derived inline — sorts :cart/items."
+                                         :inputs [[:cart/items]]} :sorted-body]]}}]
+   :expect-resolves [{:kind :sub :id :cart/by-price
+                      :coordinate {:image :cart/inline :inline [:reg-sub :cart/by-price]}}]
+   :expect-present [[:sub :cart/items] [:sub :cart/by-price]]
+   :expect-kinds #{:sub}}
+
+  ;; (8) A MALFORMED inline `:inputs` fails loud at assembly with the same
+  ;; registration-time error the public registrar raises — the inline path is
+  ;; neither looser nor stricter. `[:a :b]` is the scalar spelling the input
+  ;; grammar rejects; a single input is `[[:a :b]]`.
+  {:call :assemble-image
+   :pool []
+   :images [{:id :i :registrations {:reg-sub [[:bad {:inputs [:cart/items]} :body]]}}]
+   :expect-error :rf.error/reg-sub-bad-args}]}

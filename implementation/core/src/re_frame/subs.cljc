@@ -2662,12 +2662,13 @@
   (let [normalized (normalize-sub-metadata 'rf/reg-sub id metadata)
         slots      (if (contains? normalized :inputs)
                      (declared-inputs->slots id (:inputs normalized))
-                     {:input-kind :db :input-signals []})
-        ;; `:inputs` is the USER key; it lifts into the runtime-owned slots
-        ;; and is not carried a second time — on the descriptor's top level
-        ;; or in its nested `:metadata`.
-        normalized (dissoc normalized :inputs)]
-    (cond-> (merge normalized {:handler-fn impl} slots)
+                     {:input-kind :db :input-signals []})]
+    ;; `:inputs` is the USER key. The descriptor's TOP LEVEL is the
+    ;; registration shape, so it carries the lifted runtime-owned slots and
+    ;; not `:inputs`; the nested `:metadata` is the AUTHORED provenance copy
+    ;; and keeps it, exactly as it keeps an authored `:input-kind` the
+    ;; runtime overrode.
+    (cond-> (merge (dissoc normalized :inputs) {:handler-fn impl} slots)
       (seq normalized) (assoc :metadata normalized))))
 
 (rf.late-bind/set-fn! :image/lower-inline-sub lower-inline-sub)

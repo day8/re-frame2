@@ -55,8 +55,7 @@
  :fixture/registry
  {:event {:set-n {:doc "Seed :n with a non-empty seq (so :reduce-input has something to walk)."}}
   :sub   {:n-value       {:doc "Layer-1 sub reading [:n] — the input the :doubled sub composes over."}
-          :sub-id/doubled {:doc "Layer-2 sub. v1 body: (reduce + (map (* 2) input)) so for input [k] returns 2k. v2 body: triple, returns 3k."
-                            :inputs [:n-value]}}}
+          :sub-id/doubled {:doc "Layer-2 sub over :n-value. v1 body: (reduce + (map (* 2) input)) so for input [k] returns 2k. v2 body: triple, returns 3k."}}}
 
  :fixture/handlers
  {:event {:set-n [[:set [:n] [:event-arg 1]]]}
