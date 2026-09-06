@@ -200,11 +200,11 @@ destructures a one-element vector: `(fn [[item] _] …)`.
   (fn [item _]
     (:title item)))
 
-;; v2 — input-fn returns a vector of ONE query vector
+;; v2 — an :inputs producer returning a vector of ONE query vector
 (rf/reg-sub :item/title
-  (fn [[_ id]]
-    [[:item/by-id id]])
-  (fn [[item] _]                            ;; destructure the one-element vector
+  {:inputs (fn [[_ id]]
+             [[:item/by-id id]])}
+  (fn [[item] _]                            ;; the declared list always arrives as a vector
     (:title item)))
 ```
 

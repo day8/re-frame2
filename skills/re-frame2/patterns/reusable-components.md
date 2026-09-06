@@ -19,12 +19,12 @@ The whole pattern is **identity-as-argument** — the slice lookup happens *insi
   (fn [db [_ id]]
     (get-in db [:customers id])))
 
-;; Derived: the id flows through the input fn. EP-0004 — the input fn takes the
-;; query vector and returns a *vector of query vectors*; the runtime resolves
+;; Derived: the id flows through an :inputs producer. EP-0004 — the producer takes
+;; the query vector and returns a *vector of query vectors*; the runtime resolves
 ;; each in the outer sub's frame and hands the compute fn the resolved values.
 (rf/reg-sub :customer/display-name
-  (fn [[_ id]] [[:customer id]])                ;; input fn → vector of query vectors
-  (fn [[customer] _]                            ;; compute fn → one-element input vector
+  {:inputs (fn [[_ id]] [[:customer id]])}      ;; producer → vector of query vectors
+  (fn [[customer] _]                            ;; compute fn → the resolved-input vector
     (str (:first-name customer) " " (:last-name customer))))
 ```
 

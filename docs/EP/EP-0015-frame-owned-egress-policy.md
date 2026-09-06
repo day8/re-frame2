@@ -906,7 +906,7 @@ Example:
   {:inputs [[:auth :token]]
    ;; Candidate spelling only: this EP rejects overloading :sensitive false.
    :rf.egress/output-sensitivity :rf.egress.sensitivity/public}
-  (fn [token _]
+  (fn [[token] _]
     (subs token 0 4)))
 ```
 

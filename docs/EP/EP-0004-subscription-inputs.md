@@ -21,8 +21,8 @@ This proposal restores a disciplined version of re-frame v1's two-function
 ```clojure
 (rf/reg-sub
   :id
-  (fn input-fn [query-v]
-    [[:x] [:y]])
+  {:inputs (fn input-fn [query-v]
+             [[:x] [:y]])}
   (fn computation-fn [[x y] query-v]
     ...))
 ```
@@ -221,10 +221,10 @@ Example:
 ```clojure
 (rf/reg-sub
   :article/page
-  (fn [[_ article-id]]
-    [[:article/by-id article-id]
-     [:comments/for-article article-id]
-     [:viewer/current]])
+  {:inputs (fn [[_ article-id]]
+             [[:article/by-id article-id]
+              [:comments/for-article article-id]
+              [:viewer/current]])}
   (fn [[article comments viewer] [_ article-id]]
     {:id article-id
      :article article
@@ -424,9 +424,9 @@ v2:
 ```clojure
 (rf/reg-sub
   :item/detail
-  (fn [[_ id]]
-    [[:item/by-id id]
-     [:selection/current]])
+  {:inputs (fn [[_ id]]
+             [[:item/by-id id]
+              [:selection/current]])}
   (fn [[item selected] [_ id]]
     (assoc item :selected? (= selected id))))
 ```
@@ -451,9 +451,9 @@ function to vector destructuring:
 ```clojure
 (rf/reg-sub
   :item/detail
-  (fn [[_ id]]
-    [[:item/by-id id]
-     [:selection/current]])
+  {:inputs (fn [[_ id]]
+             [[:item/by-id id]
+              [:selection/current]])}
   (fn [[item selected] [_ id]]
     (assoc item :selected? (= selected id))))
 ```
