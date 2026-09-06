@@ -4304,6 +4304,14 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:interceptors {:optional true} [:vector [:ref :rf/interceptor-ref]]]  ;; same ref-chain shape as reg-event metadata
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
+    ;; Focus/reconnect revalidation is a FRAME PROPERTY, not a call: the frame
+    ;; lifecycle installs exactly the declared subset on creation, reconciles it
+    ;; replace-don't-stack on re-registration (dropping the key relinquishes),
+    ;; and removes it on destroy. An absent key or an explicit `#{}` installs
+    ;; nothing; declaring the key without the resources artefact on the
+    ;; classpath fails loud with `:rf.error/resources-artefact-missing`.
+    ;; Per [016-Resources.md](016-Resources.md).
+    [:revalidate-on {:optional true} [:set [:enum :focus :reconnect]]]
     [:platform     {:optional true} :keyword]                              ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
     ;; Frame-owned data classification (EP-0015 §9; the model is normative in
     ;; [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)).

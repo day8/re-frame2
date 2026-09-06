@@ -1265,14 +1265,17 @@ The law is a **closed verb vocabulary**. Each verb owns one shape of operation; 
 | Verb | Owns | Mechanism (the discriminator) |
 |---|---|---|
 | `clear-*` | Drop registrations or caches. | Removes id(s) from a registry the process owns, or drops a process-local cache / buffer outright. Symmetric inverse of `reg-*`. Detail at [§Tear-down verb axis](#tear-down-verb-axis--clear--vs-destroy-). |
-| `unregister-*` | Remove **one** thing by id. | Single-id removal from a global listener-style table where `clear-*` would read as "drop the whole registry". Used where the registration is a hook, not a registrar entry (`unregister-listener!`). |
+| `register-*` / `unregister-*` | Add or replace, and remove, **one** callback or implementation by id. | A hook table the runtime owns, not a registrar entry: the framework invokes the registered fn from arbitrary call sites, re-registering the same id **replaces in place** (so a repeat registration is reload-safe and never stacks), and removal is single-id — where `clear-*` would read as "drop the whole registry". `register-listener!` / `unregister-listener!`, `register-observability-sink!` / `unregister-observability-sink!`, `re-frame.story/register-substrate!`. Distinct from a declarative `reg-*` registrar entry ([§Naming](#naming-when-does-a-surface-carry-) bucket 1, no bang) and from `attach!` (a host surface — below). `!` per [§Naming](#naming-when-does-a-surface-carry-) bucket 2. |
+| `install-*` | Wire a runtime capability, or seat the registrations that support it. | Process-level mutation outside the registrar — [§Naming](#naming-when-does-a-surface-carry-) bucket 3 is what gives it the `!`. An installer need **not** expose a destroy twin nor promise single-install semantics: only the substrate adapter carries a generation contract, where a second `re-frame.substrate.adapter/install-adapter!` without an intervening teardown raises `:rf.error/adapter-already-installed` and the public teardown twin is `rf/destroy-adapter!` (most apps reach the adapter through `rf/init!` rather than installing it themselves). `re-frame.story/install-canonical-vocabulary!` is a facade instance; `re-frame.machines/install-machine-runtime!` (idempotent re-registration) is an owning-namespace one. `destroy-*` keeps its stronger instance-and-owned-resources meaning in its own row — cross-reference the two, do not merge them. |
 | `destroy-*` | Tear down an **instance** plus the resources it owns. | The target has **identity and a creation moment**; teardown invalidates downstream consumers and releases per-instance machinery (`destroy-frame!`, `destroy-adapter!`). Lifecycle symmetry with the creating call. Detail at [§Tear-down verb axis](#tear-down-verb-axis--clear--vs-destroy-). |
 | `reset-*` | Keep identity, return to baseline. | The instance survives; its state is wound back to initial. Distinct from `destroy-*` (identity is **retained**, not removed). The facade currently has no dedicated `reset-*` occurrence: the former `reset-app-db!` (app-db partition → `{}` while frame identity, runtime-db, sub-cache, and queue survive) was consolidated into `replace-frame-state!`'s partial-map contract — `(replace-frame-state! id {:rf.db/app {}})` (rf2-t3lftq, API-shrink #3) — because a single-purpose reset call carried no mechanism distinct enough from "replace this partition with an empty map" to earn a dedicated verb, mirroring the reasoning that already retired the compound `reset-frame!`. A WHOLE-FRAME reset is a **named composition**, not a single verb — `destroy-frame!` then re-`make-frame` under the same id (rf2-lxwpob retired the compound `reset-frame!` that used to spell this: a composition with no atomicity contract of its own does not earn a dedicated verb). |
 | `unsubscribe` | Release one ref-count. | Decrements a live ref-count on a cache entry (the inverse of `subscribe`, **not** of `reg-sub`). A carved-out singleton — `un-` is a one-element set, not a generalisable prefix. Detail at [§Carve-out: `unsubscribe`](#carve-out-unsubscribe). |
 | `watch-*` | Start observing; **return a 0-arity stop fn**. | Begins an observation that runs until stopped; the **return value is the stop handle** — `(let [stop (watch-x …)] … (stop))`. There is **no `unwatch-*`** verb: the stop fn closes over exactly what it must tear down, so a separate id-keyed unregister surface is redundant. |
-| `attach!` / `detach!` | Add / remove a **listener** to an existing thing. | A listener bound to a host or framework surface, paired symmetrically. The `!` marks the process-level mutation per [§Naming](#naming-when-does-a-surface-carry-). |
+| `attach!` / `detach!` | Bind / unbind a listener on a **host surface**. | A `window` / `document` / host-event listener held outside any framework table, paired symmetrically — Xray's `keybinding/attach!` / `detach!` on the global `keydown` is the shape. If the fn lands in a framework table keyed by id, it is `register-*` instead. The `!` marks the process-level mutation per [§Naming](#naming-when-does-a-surface-carry-). The row is kept with no facade instance on purpose: a verb earns its row from the question recurring, not from an occurrence count. |
 | `mount!` / `unmount!` | Put a UI shell **into / out of the DOM**. | A DOM or render-shell lifecycle — the component or panel enters / leaves the document. Paired; `!` per [§Naming](#naming-when-does-a-surface-carry-). |
 | `open!` / `close!` | Toggle **visibility**, not lifecycle. | Shows / hides an already-mounted surface. **Not** a teardown verb: `close!` leaves the instance alive and re-`open!`-able; a closed panel still exists. Reach for `destroy-*` / `unmount!` when the thing actually goes away. |
+
+**What the roster governs.** The closed choices above bind the operation **families** the table names — registration, installation, cleanup and teardown, observation, UI lifecycle, visibility, and configuration — not every verb on every facade. A row is naming guidance *for its family*; it is not authority to add a missing inverse or a read helper, which is why `clear-*` has no setup twin, `watch-*` hands back a stop fn instead of growing an `unwatch-*`, and `close!` deliberately preserves the instance. Imperative operations **outside** those families — `set-*!`, `validate-*!`, `render!`, `hydrate!`, `flush-*!`, `load-*!` — take a descriptive name of their own and get their `!`, or not, from [§Naming](#naming-when-does-a-surface-carry-). So reaching the end of the table without a match is two different findings, and only one of them is a gap: a **family** with no verb is the missing-verb case the closure sentence below sends to a bead, while an operation outside every family was never the roster's to name and needs no row added for it.
 
 **The boundaries that earn their keep.** Three pairs of verbs sit close enough to be confused; the law fixes which is which:
 
@@ -1296,12 +1299,13 @@ The law extends to the **configuration surface**, and in doing so resolves an in
 
 Ask, in order:
 
-1. Does it **drop registrations / a cache**? → `clear-*`. **Remove one hook by id**? → `unregister-*`.
-2. Does it **tear down an instance + its owned resources** (identity goes away)? → `destroy-*`. **Wind an instance back to baseline** (identity stays)? → `reset-*`.
-3. Does it **release one ref-count** on a cache entry? → `unsubscribe` (the carve-out — do not coin a new `un-*`).
-4. Does it **start an observation**? → `watch-*`, **returning a 0-arity stop fn** (never an `unwatch-*`).
-5. Is it a **listener** add/remove? → `attach!` / `detach!`. A **DOM/shell** in/out? → `mount!` / `unmount!`. A **visibility** toggle? → `open!` / `close!`.
-6. Is it **config mutation**? → `configure!`. A **config read**? → `describe-config` (shape) / `current-config` (live values).
+1. Does it **add or replace one callback by id in a hook table**? → `register-*`. **Remove one hook by id**? → `unregister-*`. **Drop registrations / a cache** wholesale? → `clear-*`.
+2. Does it **wire a runtime capability, or seat the registrations that support it**? → `install-*`.
+3. Does it **tear down an instance + its owned resources** (identity goes away)? → `destroy-*`. **Wind an instance back to baseline** (identity stays)? → `reset-*`.
+4. Does it **release one ref-count** on a cache entry? → `unsubscribe` (the carve-out — do not coin a new `un-*`).
+5. Does it **start an observation**? → `watch-*`, **returning a 0-arity stop fn** (never an `unwatch-*`).
+6. Is it a listener on a **host surface** — window, document, host events, outside any framework table? → `attach!` / `detach!`. A **DOM/shell** in/out? → `mount!` / `unmount!`. A **visibility** toggle? → `open!` / `close!`.
+7. Is it **config mutation**? → `configure!`. A **config read**? → `describe-config` (shape) / `current-config` (live values).
 
 The roster is **closed**: a surface that fits none of these is evidence the law is missing a verb — file a bead against this section rather than coining `dispose-` / `teardown-` / `shutdown-` / a fresh `un-*`. Adding a verb is a Spec change to this table, not a per-author call.
 
@@ -1333,15 +1337,15 @@ The caller hands a fn to a global hook the framework will invoke from arbitrary 
 - `register-observability-sink!`, `unregister-observability-sink!` (runtime sink/listener installation — NOT a declarative `reg-*` registrar entry)
 
 ```clojure
-(rf/register-listener! ::audit  (fn [event] ...))           ;; bang — hooks a global
-(rf/unregister-listener!   ::audit)
+(rf/register-listener!   :events ::audit (fn [event] ...))  ;; bang — hooks a global
+(rf/unregister-listener! :events ::audit)
 ```
 
 ### 3. Adapter / platform installation — **bang**
 
 Process-level state mutation outside the registrar — installing or tearing down the runtime's substrate adapter, swapping in a different schema validator, dropping the subscription cache. These surfaces touch implementation-defined slots that have nothing to do with the per-frame registries.
 
-- `install-adapter!`, `dispose-adapter!`
+- `install-adapter!`, `destroy-adapter!`
 - `set-schema-validator!`, `set-schema-explainer!`
 - `clear-sub-cache!`
 
