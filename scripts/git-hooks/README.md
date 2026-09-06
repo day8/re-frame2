@@ -16,18 +16,21 @@ disturbing beads-managed segments (`bd hooks install`).
 | `pre-commit` | Refuse commits in the MAYOR checkout that touch worker-tracked surfaces. **rf2-ydl2p.** |
 | `pre-commit` | Refuse commits in a WORKER worktree that touch the beads DATABASE. **rf2-ia8o7.** |
 | `pre-commit` | Refuse a commit from ANY worktree that would empty `.beads/issues.jsonl` or lose more than a tenth of it. **rf2-or8te.** |
+| `commit-msg` | Refuse a commit MESSAGE carrying AI attribution. **rf2-2e8f.** |
 | `lib/check-stale-mcp-binary.sh` | POSIX-sh library used by `post-merge`. |
 | `lib/check-hook-install-staleness.sh` | POSIX-sh library used by `post-merge` **and** `post-rewrite` (rf2-zt65l) — one advisory, one home. |
 | `lib/check-mayor-commit-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ydl2p). |
 | `lib/check-beads-boundary.sh` | POSIX-sh library carrying two checks over one file: `check_beads_boundary` (rf2-ia8o7), used by `pre-commit` **and** by `scripts/check-beads-pr-boundary.sh`, the CI arm; and `check_beads_truncation` (rf2-or8te), used by `pre-commit` alone. |
-| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for all three pre-commit blocks, the CI arm, the installer, real pulls of both shapes, and the checkpoint helper. |
+| `lib/check-commit-attribution.sh` | POSIX-sh library used by `commit-msg` **and** by `scripts/check-commit-attribution.sh`, its CI arm (rf2-2e8f) — one detector, two arms. |
+| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for all three pre-commit blocks and the commit-msg block, both CI arms, the installer, real pulls of both shapes, and the checkpoint helper. |
 
 The unit of installation is a marker block, not a hook: `pre-commit`
 carries three of them. The installers key their registries on block id
 (`mayor-commit-boundary`, `worker-beads-boundary`, `beads-truncation-floor`,
-`mcp-staleness`, `hook-staleness`, `hook-staleness-rebase`) so a hook can grow
-another block — or the set can grow another hook — without either installer
-changing shape.
+`commit-attribution`, `mcp-staleness`, `hook-staleness`, `hook-staleness-rebase`)
+so a hook can grow another block — or the set can grow another hook — without
+either installer changing shape. `commit-msg` (rf2-2e8f) is the set growing
+another hook, and neither installer changed shape to take it.
 
 Hook sources carry no `.sh` extension, so `.gitattributes` pins each of them to
 `eol=lf` by name. A new hook here needs a line there too, or a Windows checkout
@@ -340,6 +343,96 @@ loop tick, every branch older than the last checkpoint would be blamed for
 contamination it never committed. An unresolvable merge base — usually a
 shallow clone that lacks the branch point — fails closed too.
 
+## The AI-attribution guard (rf2-2e8f)
+
+Every block above grades staged **paths**. The commit **message** is a surface
+none of them can see, and three commits carrying AI-attribution trailers
+reached main through it — `04230d0d33`, `e1b07cf184`, `e71c404c9b`, each with a
+co-author line naming the assistant *and* a session-URL trailer.
+
+### Why it recurs without a guard
+
+`CLAUDE.md` > Git Conventions has forbidden these since the project began. The
+rule was not broken by carelessness; it was broken by a **live conflict between
+two instruction sources**. The agent harness injects a session-level reminder
+telling agents to end every commit message with exactly those trailers. The
+checked-in `CLAUDE.md` forbids them. Both reach every worker, they contradict
+flatly, and nothing resolved the tie — so it was broken **both ways by capable
+agents in the same wave**: one worker declined the trailers citing `CLAUDE.md`
+while two siblings followed the harness. That is a coin-flip, not a convention,
+and the trunk said nothing either way because nothing checked.
+
+### What it matches, and what it deliberately does not
+
+Three shapes, case-insensitive, all anchored at **column 0**:
+
+| Shape | Example |
+|-------|---------|
+| the session trailer | a `Claude-Session:` line |
+| the co-author trailer, *when the value names the assistant* | a `Co-Authored-By:` line whose value carries `claude` or `anthropic` |
+| the generated-with marker | a `Generated with …` line naming either |
+
+That is the whole set. This is **not** a commit-message linter: it does not
+grade subject length, mood or trailer hygiene, and a `Co-Authored-By:` naming a
+human colleague is ordinary git and stays permitted. Only AI attribution, which
+is the only thing the convention forbids.
+
+**Column 0 is the escape hatch, and it is load-bearing.** A line indented by
+even one space is exempt, so a commit message may quote the forbidden trailers
+— which any commit documenting the rule, or citing one of the three above, has
+to do. Without that carve-out the guard would refuse the very commit that
+introduces it, which is the fastest route to `--no-verify` becoming habit. It
+also buys two free immunities: `git commit`'s own `#`-prefixed template
+comments, and the `+`/`-` diff body `git commit -v` appends, can never trip it.
+
+### Why `commit-msg` and not `pre-commit`
+
+`pre-commit` runs before the message exists — it sees staged paths and nothing
+else. `commit-msg` is git's hook for the message itself and receives its file as
+`$1`. Unlike the two boundary blocks this one activates **everywhere**, mayor
+checkout included: the rule is about how the repository's history reads, and
+history has no per-worktree half.
+
+A rebase does not invoke `commit-msg`, so replaying an already-authored commit
+is not re-graded. That is correct — the message was graded when it was written
+and again on the pull request, and grading a replay would refuse a rebase over
+history nobody in that shell authored.
+
+### The CI arm, and the range it grades
+
+`scripts/check-commit-attribution.sh` shares the same detector, so the local
+hook and the CI gate cannot drift:
+
+```sh
+sh scripts/check-commit-attribution.sh origin/main   # pre-flight a branch
+```
+
+It grades **`git merge-base BASE HEAD`..HEAD — the commits the branch
+introduced**, and the range is the only real design question here. Grading all
+of history is not an option: the three commits above are already ancestors of
+main, whether to rewrite them is an operator call that has not been made
+(rewriting published trunk history means a force-push across every live
+worktree), and a gate that graded history would red every pull request in the
+repository for ever. The branch delta grades exactly the commits their author
+can still fix, and the three sit behind every merge base — so the trunk stays
+green with no allow-list, no baseline file, and nothing to trim later. Layer 10k
+of the test harness pins that property by planting an offender on the base.
+
+A missing base ref, an unresolvable one, or no merge base — usually a **shallow
+clone** lacking the branch point — all **fail closed**, like the beads CI arm.
+A commit-message gate is unusually exposed to the alternative: with no range it
+inspects nothing, finds nothing, and reports the same silent zero as a clean
+branch. That vacuous pass is the thing this guard exists to end, so it must run
+in a job checked out with `fetch-depth: 0`.
+
+Enforcement is `pull_request` only. On a push the commits are already history,
+and refusing one there blocks the trunk over a rewrite decision the gate does
+not own.
+
+**Scope: commit messages.** The convention also covers PR descriptions; a git
+hook cannot see one and neither arm here reads one. Left unbuilt rather than
+half-built.
+
 ## Testing
 
 ```sh
@@ -418,6 +511,25 @@ the checkout both incidents came from, and the one every layer above no-ops in:
 28. A tracker over a 0-row HEAD, and a commit that stages no tracker path at
     all, are both untouched
 
+From rf2-2e8f, the first block here to grade the MESSAGE rather than the staged
+paths — every case paired in both directions, because a detector that matches
+nothing passes a "there must be none here" clause vacuously and silently:
+
+29. Each of the three forbidden shapes is refused, and the refusal quotes the
+    offending line
+30. A `Co-Authored-By:` naming a human colleague passes — same trailer key,
+    same column, only the value differs
+31. The same forbidden line INDENTED is permitted (the escape hatch), as are
+    git's own `#` template comments and the `git commit -v` diff body
+32. A real `git commit` carrying a trailer is refused, quoting the line and
+    citing the rule; an ordinary one is untouched; `--no-verify` lands a
+    deliberate override
+33. The CI arm refuses a branch that introduces one and names the commit,
+    passes a clean branch, and — the range property — stays green when the
+    BASE itself carries an offender
+34. No base ref, and an unresolvable one, both fail closed; a non-`pull_request`
+    event passes with an explanatory line
+
 ## Discovery context
 
 The pre-commit hook landed in response to rf2-oswhk (#2136),
@@ -453,6 +565,12 @@ channel, the mayor's pre-commit will refuse the commit.
   the last export-commit missed, and a checkpoint that trusts the working file
   writes the revert back. The helper re-exports from the database instead, and
   `--pre-pull` says whether clearing `.beads` is safe yet.
+- rf2-2e8f — three commits carrying AI-attribution trailers reached main
+  because two instruction sources contradict and nothing checked. Source of the
+  `commit-msg` block and `scripts/check-commit-attribution.sh`. Whether to
+  rewrite those three is a separate, unmade operator decision; this guard only
+  closes the source.
+- `CLAUDE.md` > Git Conventions — the rule the `commit-msg` block enforces.
 - `CLAUDE.md` > Beads durability — the operator-facing rules,
   including the merge-side rule (never `--theirs`/`--ours` on `.beads`;
   resolve then regenerate).

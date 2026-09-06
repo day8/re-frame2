@@ -5,14 +5,16 @@
 # checked-out list for a Windows (core.autocrlf=true) checkout to
 # CRLF-normalise and no EOL pin to carry here.
 
-# The git-hook sources (post-merge, post-rewrite, pre-commit) are POSIX sh but
-# carry no .sh extension, so the rule above misses them. Pin them to LF so the
-# checked-out source matches the LF-normalised installed hook byte-for-byte
-# on the line-ending axis, and so the `sh -n` parse / `dash` checks never see
-# a stray CR on a Windows (core.autocrlf=true) checkout (rf2-ujhpf).
+# The git-hook sources (post-merge, post-rewrite, pre-commit, commit-msg) are
+# POSIX sh but carry no .sh extension, so the rule above misses them. Pin them
+# to LF so the checked-out source matches the LF-normalised installed hook
+# byte-for-byte on the line-ending axis, and so the `sh -n` parse / `dash`
+# checks never see a stray CR on a Windows (core.autocrlf=true) checkout
+# (rf2-ujhpf).
 scripts/git-hooks/post-merge text eol=lf
 scripts/git-hooks/post-rewrite text eol=lf
 scripts/git-hooks/pre-commit text eol=lf
+scripts/git-hooks/commit-msg text eol=lf
 
 # The docs/cljs playground BOOTSTRAP bundles are committed, vendored prebuilts
 # that esbuild emits with LF endings (rf2-ee38b.22). Pin LF so a Windows

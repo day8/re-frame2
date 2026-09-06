@@ -1,0 +1,70 @@
+#!/usr/bin/env sh
+# .git/hooks/commit-msg (re-frame2-managed segments)
+#
+# ONE marker block.
+#
+#   rf2-2e8f — refuses a commit message carrying AI ATTRIBUTION: a
+#              `Co-Authored-By:` naming the assistant, a `Claude-Session:`
+#              trailer, or a generated-with marker.
+#
+# WHY A HOOK AT ALL. CLAUDE.md > Git Conventions has forbidden these since the
+# project began, and three commits carrying them still reached main —
+# 04230d0d33, e1b07cf184, e71c404c9b — because the agent harness injects a
+# session-level reminder telling agents to add exactly those trailers, and
+# NOTHING CHECKED. Two instruction sources contradicting, a tie broken at
+# random, and a silent trunk. This block makes the local half loud; the CI arm
+# (scripts/check-commit-attribution.sh) catches the case where nobody ran the
+# installer.
+#
+# WHY `commit-msg` AND NOT `pre-commit`. `pre-commit` runs before the message
+# exists — it can see the staged paths and nothing else. `commit-msg` is git's
+# hook for the message itself and receives its file as `$1`, which is the only
+# place this rule can be enforced locally at all.
+#
+# NOT WORKTREE-SCOPED. Unlike the two pre-commit boundary blocks, this one
+# activates EVERYWHERE — mayor checkout and worker worktrees alike. The rule is
+# about how the repository's history reads, and history has no per-worktree
+# half.
+#
+# WHAT IT DELIBERATELY MISSES. A rebase does not run `commit-msg`, so replaying
+# an already-authored commit is not re-graded. That is correct: the message was
+# graded when it was written and again on the pull request, and grading a
+# replay would refuse a rebase over history nobody in that shell authored.
+#
+# `git commit --no-verify` bypasses this hook (standard git behaviour; reserved
+# for genuine operator overrides). The CI arm still grades the branch.
+#
+# Installed by scripts/install-git-hooks.sh (POSIX) or .ps1 (Windows).
+# Source of truth: scripts/git-hooks/commit-msg.
+#
+# Cross-platform: runs under Git Bash on Windows, macOS, Linux. POSIX sh.
+
+# --- BEGIN re-frame2 commit attribution guard (rf2-2e8f) ---
+# Managed by scripts/install-git-hooks.sh. Do not edit between markers.
+{
+  # `$1` is the path to the file holding the proposed message. Git passes it
+  # relative to the worktree root and invokes the hook from there, but resolve
+  # against the toplevel anyway so a wrapper that changed the working directory
+  # cannot silently turn this guard into a no-op.
+  _rf2c_msg="${1:-}"
+  _rf2c_top=$(git rev-parse --show-toplevel 2>/dev/null) || _rf2c_top=""
+
+  if [ -n "$_rf2c_msg" ] && [ ! -f "$_rf2c_msg" ] && [ -n "$_rf2c_top" ]; then
+    _rf2c_msg="$_rf2c_top/$_rf2c_msg"
+  fi
+
+  if [ -n "$_rf2c_top" ] && [ -n "$_rf2c_msg" ] && [ -f "$_rf2c_msg" ]; then
+    _rf2c_lib="$_rf2c_top/scripts/git-hooks/lib/check-commit-attribution.sh"
+    if [ -f "$_rf2c_lib" ]; then
+      # shellcheck source=lib/check-commit-attribution.sh
+      . "$_rf2c_lib"
+      if ! check_commit_attribution commit < "$_rf2c_msg"; then
+        unset _rf2c_msg _rf2c_top _rf2c_lib
+        exit 1
+      fi
+    fi
+  fi
+
+  unset _rf2c_msg _rf2c_top _rf2c_lib
+} || true
+# --- END re-frame2 commit attribution guard (rf2-2e8f) ---

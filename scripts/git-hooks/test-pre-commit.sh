@@ -6,13 +6,15 @@
 # (rf2-ia8o7). They are mirror images, so one harness covers both.
 #
 # The harness has since grown to cover the whole local-durability surface those
-# two blocks belong to — NINE layers. Layers 1-4 are the pre-commit hook
+# two blocks belong to — TEN layers. Layers 1-4 are the pre-commit hook
 # itself; 5 is the CI arm that shares its classifier; 6-7 are the installer
 # that puts the hooks on disk and the advisory that notices when they go stale;
 # 8 is the checkpoint helper on the other side of the same boundary; 9 is the
 # truncation floor the hook grew after that helper's guard was routed around
-# twice. It keeps its name because `.github/workflows/test.yml` runs it by name,
-# unconditionally, on every pull request.
+# twice; 10 is the commit-msg guard, the first block here to grade the message
+# rather than the staged paths. It keeps its name because
+# `.github/workflows/test.yml` runs it by name, unconditionally, on every pull
+# request — which is also why layer 10's guard reaches CI without a new job.
 #
 #   1. Library unit tests — invoke
 #      scripts/git-hooks/lib/check-mayor-commit-boundary.sh directly with
@@ -66,6 +68,13 @@
 #      commit that emptied the tracker was a plain `git add` from the MAYOR
 #      checkout and never went through the helper. Driven in the layer-2
 #      sandbox's PRIMARY worktree, which is where both incidents happened.
+#
+#  10. The AI-ATTRIBUTION guard (rf2-2e8f) — the commit MESSAGE, the one
+#      surface no layer above can see. Library units in BOTH directions, the
+#      `commit-msg` hook driven by real `git commit`s, and the CI arm's RANGE:
+#      an offending commit on the BASE must not red a clean branch, because
+#      three such commits are already on main and whether to rewrite them is
+#      an unmade operator call.
 #
 # Usage:
 #   sh scripts/git-hooks/test-pre-commit.sh
@@ -843,7 +852,7 @@ INSTALLER="$REPO_ROOT/scripts/install-git-hooks.sh"
   # named whichever installer had written it.
   [ -f "$REPO_ROOT/scripts/install-git-hooks.ps1" ] \
     && cp "$REPO_ROOT/scripts/install-git-hooks.ps1" scripts/
-  for h in post-merge post-rewrite pre-commit; do
+  for h in post-merge post-rewrite pre-commit commit-msg; do
     [ -f "$REPO_ROOT/scripts/git-hooks/$h" ] \
       && cp "$REPO_ROOT/scripts/git-hooks/$h" scripts/git-hooks/
   done
@@ -881,7 +890,8 @@ for spec in \
   "pre-commit:# --- BEGIN re-frame2 beads truncation floor (rf2-or8te) ---" \
   "post-merge:# --- BEGIN re-frame2 MCP-staleness check (rf2-6jj3r) ---" \
   "post-merge:# --- BEGIN re-frame2 hook-install staleness check (rf2-zt65l) ---" \
-  "post-rewrite:# --- BEGIN re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---"; do
+  "post-rewrite:# --- BEGIN re-frame2 hook-install staleness check, rebase path (rf2-zt65l) ---" \
+  "commit-msg:# --- BEGIN re-frame2 commit attribution guard (rf2-2e8f) ---"; do
   hook_file="$IREPO/.git/hooks/${spec%%:*}"
   marker="${spec#*:}"
   if ! grep -Fq "$marker" "$hook_file" 2>/dev/null; then
@@ -1049,7 +1059,7 @@ RCL="$RBOX/clone"
   git config user.name 'hookpull-test'
   git config commit.gpgsign false
   cp "$INSTALLER" scripts/
-  for h in post-merge post-rewrite pre-commit; do
+  for h in post-merge post-rewrite pre-commit commit-msg; do
     [ -f "$REPO_ROOT/scripts/git-hooks/$h" ] \
       && cp "$REPO_ROOT/scripts/git-hooks/$h" scripts/git-hooks/
   done
@@ -1910,6 +1920,301 @@ else
   cat "$TERR" >&2
 fi
 rm -f "$rc_t" "$TERR"
+
+# ----------------------------------------------------------------------------
+# Layer 10: the AI-ATTRIBUTION guard, both arms (rf2-2e8f).
+#
+# Every layer above grades staged PATHS. The commit MESSAGE is a surface none
+# of them can see, and three commits carrying AI-attribution trailers reached
+# main through it — 04230d0d33, e1b07cf184, e71c404c9b — because the agent
+# harness injects a reminder telling agents to add exactly those trailers while
+# CLAUDE.md forbids them, and NOTHING CHECKED. Same shape as rf2-zt65l: a rule
+# that was documented, agreed, and unenforced.
+#
+# THE TWO DIRECTIONS ARE BOTH LOAD-BEARING, and the second is the one that gets
+# skipped. A detector that matches NOTHING passes every "there must be none
+# here" clause silently and vacuously, and reads exactly like a clean tree —
+# PR #9307 disarmed a checker that way and nothing on screen said so. So every
+# permitted case below is paired with an offending one of the SAME SHAPE:
+# `Co-Authored-By:` naming a colleague against one naming the assistant, an
+# indented quotation against the same line at column 0.
+#
+# AND THE RANGE IS TESTED, NOT JUST THE DETECTOR (10k). The CI arm grades the
+# branch delta, so an offending commit sitting on the BASE must not red a clean
+# branch. That is not a nicety: three such commits ARE on main, whether to
+# rewrite them is an unmade operator call, and a gate that graded all of
+# history would red every pull request in the repository for ever.
+# ----------------------------------------------------------------------------
+
+printf '\n[10] AI-attribution guard: the message surface (rf2-2e8f)\n'
+
+ATTR_LIB="$REPO_ROOT/scripts/git-hooks/lib/check-commit-attribution.sh"
+ATTR_HOOK="$REPO_ROOT/scripts/git-hooks/commit-msg"
+ATTR_CI="$REPO_ROOT/scripts/check-commit-attribution.sh"
+
+AERR=/tmp/rf2-attr-test.err
+
+# The three forbidden shapes, built at runtime so the generated-with marker
+# carries its real leading emoji without putting a non-ASCII byte in this file.
+TRAILER_COAUTHOR='Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>'
+TRAILER_SESSION='Claude-Session: https://claude.ai/session/0000'
+TRAILER_GENWITH=$(printf '\360\237\244\226 Generated with [Claude Code](https://claude.com/claude-code)')
+
+run_attr_lib() {
+  # stdin: a commit message. Echoes EXIT=<n>; the refusal block lands on
+  # stderr. `set +e` is load-bearing for the same dash-vs-bash reason spelled
+  # out at layer 1's run_lib.
+  (
+    set +e
+    . "$ATTR_LIB"
+    check_commit_attribution "${1:-commit}"
+    echo "EXIT=$?"
+  )
+}
+
+# 10a: each forbidden shape is refused, and the refusal QUOTES the line.
+for t in "$TRAILER_COAUTHOR" "$TRAILER_SESSION" "$TRAILER_GENWITH"; do
+  key=$(printf '%s' "$t" | cut -c1-24)
+  out=$(printf 'fix(thing): a real change\n\n%s\n' "$t" | run_attr_lib 2>"$AERR") || true
+  case "$out" in
+    *EXIT=1*)
+      if grep -Fq "$t" "$AERR" && grep -q 'AI attribution' "$AERR"; then
+        pass "(10a) refused and quoted: $key..."
+      else
+        fail "(10a) refused but the diagnostic never quoted the line: $key..."
+        cat "$AERR" >&2
+      fi
+      ;;
+    *) fail "(10a) FALSE GREEN: attribution line not detected: $key... ($out)" ;;
+  esac
+done
+
+# 10b: a HUMAN co-author is ordinary git and stays permitted. Paired with 10a's
+# first case: same trailer key, same column, only the value differs — so this
+# passing does not merely say "the detector is asleep".
+out=$(printf 'fix(thing): a real change\n\nCo-Authored-By: Mike Thompson <mike@example.invalid>\n' \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*)
+    if [ ! -s "$AERR" ]; then
+      pass "(10b) Co-Authored-By naming a colleague passes, silently"
+    else
+      fail "(10b) a human co-author produced diagnostics"
+      cat "$AERR" >&2
+    fi
+    ;;
+  *) fail "(10b) FALSE POSITIVE: a human co-author was refused ($out)" ;;
+esac
+
+# 10c: THE ESCAPE HATCH. The same line, indented by one space, is permitted —
+# which is what lets a commit message document the rule or cite an offending
+# commit. Without this the guard would refuse the commit that introduces it.
+out=$(printf 'docs: record the attribution rule\n\n %s\n' "$TRAILER_COAUTHOR" \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10c) an INDENTED quotation of the trailer is permitted" ;;
+  *) fail "(10c) the escape hatch is closed: an indented quotation was refused ($out)"
+     cat "$AERR" >&2 ;;
+esac
+
+# 10d: git's own furniture cannot trip it — `#` comment lines from the editor
+# template, and the `+` diff body `git commit -v` appends.
+out=$(printf 'feat: thing\n\n# %s\n+%s\n' "$TRAILER_COAUTHOR" "$TRAILER_SESSION" \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10d) comment lines and diff-body lines are permitted" ;;
+  *) fail "(10d) FALSE POSITIVE: git's own message furniture was refused ($out)"
+     cat "$AERR" >&2 ;;
+esac
+
+# 10e: an ordinary message is clean and silent.
+out=$(printf 'fix(ssr-ring): a Node 200 that names no build is refused\n\nBody text.\n' \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*)
+    if [ ! -s "$AERR" ]; then
+      pass "(10e) an ordinary commit message passes, silently"
+    else
+      fail "(10e) an ordinary message produced diagnostics"; cat "$AERR" >&2
+    fi
+    ;;
+  *) fail "(10e) FALSE POSITIVE: an ordinary message was refused ($out)" ;;
+esac
+
+# --- End-to-end: the hook, driven by real `git commit` -----------------------
+
+ABOX=$(mktemp -d "${TMPDIR:-/tmp}/rf2-attr-sandbox-XXXXXX")
+AREPO="$ABOX/repo"
+
+(
+  mkdir -p "$AREPO/scripts/git-hooks/lib"
+  cd "$AREPO"
+  git init -q -b main
+  git config user.email 'attr-test@example.invalid'
+  git config user.name 'attr-test'
+  git config commit.gpgsign false
+  cp "$ATTR_LIB" scripts/git-hooks/lib/
+  echo seed > seed.txt
+  git add .
+  git commit -q -m 'seed'
+) >/dev/null 2>&1
+
+ACOMMON=$(git -C "$AREPO" rev-parse --git-common-dir)
+case "$ACOMMON" in /*|[A-Za-z]:[\\/]*) ;; *) ACOMMON="$AREPO/$ACOMMON" ;; esac
+mkdir -p "$ACOMMON/hooks"
+cp "$ATTR_HOOK" "$ACOMMON/hooks/commit-msg"
+chmod +x "$ACOMMON/hooks/commit-msg"
+
+# attr_commit MSGFILE_CONTENT [--no-verify] — commit in the sandbox with the
+# given message; echoes EXIT=<n>, stderr to $AERR.
+attr_commit() {
+  _msg="$1"; shift
+  printf '%s\n' "$_msg" > "$ABOX/msg.txt"
+  (
+    cd "$AREPO"
+    date +%s%N > churn.txt 2>/dev/null || echo churn > churn.txt
+    git add churn.txt
+    git commit "$@" -q -F "$ABOX/msg.txt"
+  ) >/dev/null 2>"$AERR" && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+# 10f: THE BITE. A real `git commit` carrying the trailer is refused, and the
+# message names the offending line and points at the rule.
+out=$(attr_commit "$(printf 'fix: something\n\n%s\n%s\n' "$TRAILER_COAUTHOR" "$TRAILER_SESSION")")
+case "$out" in
+  EXIT=0) fail "(10f) FALSE GREEN: git commit with AI attribution was allowed" ;;
+  *)
+    if grep -Fq "$TRAILER_SESSION" "$AERR" && grep -q 'CLAUDE.md' "$AERR"; then
+      pass "(10f) commit-msg hook BITES: refused, quotes the line, cites the rule"
+    else
+      fail "(10f) refused, but the diagnostic is missing the line or the rule"
+      cat "$AERR" >&2
+    fi
+    ;;
+esac
+
+# 10g: NO FALSE POSITIVE. An ordinary commit in the same repo is untouched.
+out=$(attr_commit 'fix: an ordinary change')
+case "$out" in
+  EXIT=0) pass "(10g) an ordinary commit passes with the hook installed" ;;
+  *) fail "(10g) FALSE POSITIVE: an ordinary commit was refused ($out)"; cat "$AERR" >&2 ;;
+esac
+
+# 10h: `--no-verify` is the operator escape, and it works. A guard whose escape
+# does not work gets removed rather than bypassed. It is also how 10k plants
+# an offending commit on the base below.
+out=$(attr_commit "$(printf 'chore: deliberate override\n\n%s\n' "$TRAILER_COAUTHOR")" --no-verify)
+case "$out" in
+  EXIT=0) pass "(10h) --no-verify lands a deliberate override" ;;
+  *) fail "(10h) the documented escape does not work ($out)"; cat "$AERR" >&2 ;;
+esac
+
+# --- The CI arm --------------------------------------------------------------
+#
+# Invoked at its real path, against the sandbox repo as the working directory:
+# the script resolves its detector library beside itself and its COMMITS from
+# the current repository, which is exactly how CI runs it.
+
+run_attr_ci() {
+  ( cd "$AREPO" && GITHUB_EVENT_NAME="${ATTR_EVENT:-pull_request}" \
+      sh "$ATTR_CI" "$@" ) >/dev/null 2>"$AERR" && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+# The base now carries an offending commit (10h landed one with --no-verify) —
+# which is the trunk's real situation. Mark it as the base and branch from it.
+git -C "$AREPO" branch -f base main >/dev/null 2>&1
+
+# 10i: a branch that INTRODUCES an offending commit is refused, and the report
+# names the commit.
+git -C "$AREPO" checkout -q -b feature/dirty base >/dev/null 2>&1
+out=$(attr_commit "$(printf 'feat: branch work\n\n%s\n' "$TRAILER_SESSION")" --no-verify)
+case "$out" in
+  EXIT=0) : ;;
+  *) fail "(10i-setup) could not plant the offending commit ($out)"; cat "$AERR" >&2 ;;
+esac
+dirty_sha=$(git -C "$AREPO" rev-parse --short=10 HEAD)
+out=$(run_attr_ci base)
+case "$out" in
+  EXIT=0) fail "(10i) FALSE GREEN: the CI arm passed a branch carrying attribution" ;;
+  *)
+    if grep -Fq "$dirty_sha" "$AERR" && grep -Fq "$TRAILER_SESSION" "$AERR"; then
+      pass "(10i) CI arm refuses the branch and names the commit ($dirty_sha)"
+    else
+      fail "(10i) refused, but the report names neither the sha nor the line"
+      cat "$AERR" >&2
+    fi
+    ;;
+esac
+
+# 10j: a clean branch off the same base passes.
+git -C "$AREPO" checkout -q -b feature/clean base >/dev/null 2>&1
+out=$(attr_commit 'feat: clean branch work')
+case "$out" in
+  EXIT=0) : ;;
+  *) fail "(10j-setup) could not make the clean commit ($out)"; cat "$AERR" >&2 ;;
+esac
+out=$(run_attr_ci base)
+case "$out" in
+  EXIT=0) pass "(10j) CI arm passes a clean branch" ;;
+  *) fail "(10j) FALSE POSITIVE: a clean branch was refused ($out)"; cat "$AERR" >&2 ;;
+esac
+
+# 10k: THE RANGE. The base carries an offending commit of its own (10h), and
+# this branch is still green — because the gate grades the branch delta, not
+# all of history. Without this the three commits already on main would red
+# every pull request in the repository, for ever.
+base_offender=$(git -C "$AREPO" log base --format='%H' -1)
+if git -C "$AREPO" log -1 --format=%B "$base_offender" \
+     | grep -Fq "$TRAILER_COAUTHOR"; then
+  out=$(run_attr_ci base)
+  case "$out" in
+    EXIT=0) pass "(10k) an offending commit on the BASE does not red a clean branch" ;;
+    *) fail "(10k) the gate graded history behind the merge base ($out)"
+       cat "$AERR" >&2 ;;
+  esac
+else
+  fail "(10k-setup) the base does not carry the planted offender — test is vacuous"
+fi
+
+# 10l: no base ref -> FAILS CLOSED. With no range the gate inspects nothing,
+# finds nothing, and would otherwise report the same silent zero as a clean
+# branch: the vacuous pass this whole guard exists to end.
+out=$(run_attr_ci)
+case "$out" in
+  EXIT=0) fail "(10l) FALSE GREEN: the CI arm passed with no base ref" ;;
+  *)
+    if grep -q 'certifies nothing' "$AERR"; then
+      pass "(10l) no base ref -> fails closed and says why"
+    else
+      fail "(10l) failed, but not with the fail-closed diagnostic"; cat "$AERR" >&2
+    fi
+    ;;
+esac
+
+# 10m: an unresolvable base ref -> fails closed too (the shallow-clone shape).
+out=$(run_attr_ci no/such/ref)
+case "$out" in
+  EXIT=0) fail "(10m) FALSE GREEN: the CI arm passed on an unresolvable base" ;;
+  *) pass "(10m) an unresolvable base ref -> fails closed" ;;
+esac
+
+# 10n: enforcement is pull_request only. On any other event the commits are
+# already history, and rewriting published history is an operator decision
+# rather than a gate's.
+#
+# A prefix assignment on a FUNCTION call persists after it returns in some
+# shells and not others, so the variable is set and cleared explicitly.
+ATTR_EVENT=push
+out=$(run_attr_ci base)
+ATTR_EVENT=pull_request
+case "$out" in
+  EXIT=0) pass "(10n) a non-pull_request event passes with an explanatory line" ;;
+  *) fail "(10n) the guard enforced outside a pull request ($out)"; cat "$AERR" >&2 ;;
+esac
+
+git -C "$AREPO" checkout -q main >/dev/null 2>&1 || true
+rm -rf "$ABOX"
+rm -f "$AERR"
 
 # ----------------------------------------------------------------------------
 # Summary

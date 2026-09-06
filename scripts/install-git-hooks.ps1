@@ -36,6 +36,12 @@
 #                       failure: an empty export reached main twice from
 #                       the MAYOR checkout, by plain `git add`, where they
 #                       no-op.
+#   - commit-msg       (rf2-2e8f) refuses a commit MESSAGE carrying AI
+#                       attribution (`Co-Authored-By:` naming the assistant,
+#                       `Claude-Session:`, a generated-with marker). Every
+#                       block above grades staged PATHS; the message is a
+#                       surface none of them can see, and three such commits
+#                       reached main while nothing checked.
 #   - mayor-marker     (rf2-ydl2p) sentinel at <common-dir>/mayor-marker;
 #                       hook activation gate. Worker worktrees have a
 #                       distinct per-worktree git dir, so they never see
@@ -95,6 +101,11 @@ $hookBlocks = @{
         'pre-commit',
         '# --- BEGIN re-frame2 beads truncation floor (rf2-or8te) ---',
         '# --- END re-frame2 beads truncation floor (rf2-or8te) ---'
+    )
+    'commit-attribution' = @(
+        'commit-msg',
+        '# --- BEGIN re-frame2 commit attribution guard (rf2-2e8f) ---',
+        '# --- END re-frame2 commit attribution guard (rf2-2e8f) ---'
     )
 }
 
@@ -268,6 +279,7 @@ try {
     Install-Block -BlockId 'mayor-commit-boundary'
     Install-Block -BlockId 'worker-beads-boundary'
     Install-Block -BlockId 'beads-truncation-floor'
+    Install-Block -BlockId 'commit-attribution'
     Install-MayorMarker
 }
 catch {
