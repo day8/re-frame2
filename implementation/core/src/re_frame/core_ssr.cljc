@@ -18,7 +18,7 @@
   :render-to-string slot — for the plain-atom adapter (JVM/SSR) that
   routes through re-frame.ssr; for Reagent it can route through
   reagent.dom.server. opts may carry :doctype? to prepend '<!DOCTYPE html>'
-  and :emit-hash? to inject data-rf-render-hash on the root element.
+  and :render-hash to inject data-rf-render-hash on the root element.
   Late-bound via :ssr/render-to-string."
   {:hook :ssr/render-to-string :artefact ssr-artefact :on-absent :throw}
   ([render-tree]      [render-tree {}])
@@ -110,13 +110,3 @@
   ([head-model]      [head-model {}])
   ([head-model opts] :delegate))
 
-(defwrapper head-snapshot
-  "Read the per-frame `{head-id → last-produced head-model}` snapshot
-  for `frame-id`. Returns `{}` for a frame that has never seen a
-  `render-head` call (or whose snapshot has been cleared via the
-  per-request frame teardown hook). Useful for tests, introspection,
-  and tools (Xray, MCP). Per Spec 011 §Head/meta contract (rf2-4dra9).
-  Late-bound via :ssr/head-snapshot."
-  {:hook :ssr/head-snapshot :artefact ssr-artefact :on-absent :throw
-   :ex-data {:frame frame-id}}
-  ([frame-id] :delegate))

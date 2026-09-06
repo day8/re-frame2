@@ -63,9 +63,8 @@
   All three are pure-ish helper fns; the host adapter (`ssr-ring/streaming`)
   owns the chunked-HTTP wiring and threading.
 
-  Host adapters consume these surfaces via late-bind hooks
-  (`:ssr.streaming/render-shell!`, `:ssr.streaming/render-continuation!`,
-  `:ssr.streaming/build-final-payload`) registered at namespace load."
+  A host adapter reaches these surfaces by requiring this namespace
+  directly, as the bundled Ring adapter does."
   (:require [clojure.data]
             [clojure.string]
             [re-frame.error :as error]
@@ -74,7 +73,6 @@
             ;; with the walker's keyword-view branch (registry lookup +
             ;; debug-gated source-coord injection). The shell walk no longer
             ;; consults the registry to decide what a head means.
-            [re-frame.late-bind :as late-bind]
             ;; The suspense COMPONENT's reserved runtime-db slot. `boundary`
             ;; depends on core only (frame + error), never on this ns, so the
             ;; require is acyclic: the component expands TO the marker this
@@ -798,11 +796,3 @@
        render-hash
        (assoc policy-opts :runtime-db nil)))))
 
-;; ---- late-bind hook registration -----------------------------------------
-;;
-;; Per Spec 011 §Late-bind hook surface — host adapters call these by
-;; key. The chunked-Ring adapter (ssr-ring/streaming) consumes all three.
-
-(late-bind/set-fn! :ssr.streaming/render-shell!         render-shell)
-(late-bind/set-fn! :ssr.streaming/render-continuation!  render-continuation)
-(late-bind/set-fn! :ssr.streaming/build-final-payload   build-final-payload)

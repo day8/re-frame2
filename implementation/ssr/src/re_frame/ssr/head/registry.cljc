@@ -1,70 +1,24 @@
 (ns re-frame.ssr.head.registry
-  "Head/meta registry, rendering, defaults, and per-frame snapshots.
+  "Head/meta registry, rendering, and defaults.
 
   Public surface (re-exported from the `re-frame.ssr.head` façade):
 
     `reg-head`          — register a head-fragment producer
                           `(fn [db route] head-model)` keyed by id.
     `render-head`       — invoke a registered head fn against a frame's
-                          app-db + active route, record the produced
-                          model in the per-frame snapshot, return it.
+                          app-db + active route and return the produced
+                          model.
     `active-head`       — sugar — look up the active route's `:head`
                           metadata; render or fall back to `default-head`.
     `default-head`      — fallback head-model per Spec 011 §Default head.
-    `head-snapshot`     — read the per-frame `{head-id → head-model}`
-                          snapshot.
-    `head-snapshots`    — the side-channel atom (consumed by the
-                          test-fixture reset).
-    `on-frame-destroyed!` — clear the per-frame snapshot entry. Wired
-                          into the `:ssr.head/on-frame-destroyed` hook
-                          chained from `re-frame.ssr`'s teardown."
+
+  Reading a head is a pure read: the model a caller wants is the value
+  `render-head` / `active-head` returned. There is no side-channel
+  register, so there is nothing to clear on frame teardown."
   (:require [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]))
-
-;; ---- per-frame snapshot ---------------------------------------------------
-;;
-;; A side-channel atom keyed by frame-id, mapping `head-id → last-produced
-;; head-model`. Cleared on per-request frame destroy via the
-;; `:ssr/on-frame-destroyed` hook. Storage shape mirrors the
-;; pattern used by `re-frame.ssr/pending-error-traces` and
-;; `re-frame.ssr/request-slots` — the data is per-request bookkeeping
-;; that has no place in app-db (and must not ride the hydration payload
-;; to the client).
-
-(defonce
-  ^{:doc "Per-frame head snapshot. Keys are frame-ids; values are
-  `{head-id → head-model}` maps recording each render-head call's
-  output. Cleared on frame destroy. Inspectable via `head-snapshot`."}
-  head-snapshots
-  (atom {}))
-
-(defn- record-head-model!
-  "Stash the just-produced head-model under (frame-address, head-id) so
-  `head-snapshot` reflects the most recent render-head output. Keyed by the
-  process-local frame address shared by all SSR side channels."
-  [frame-id head-id head-model]
-  (when frame-id
-    (swap! head-snapshots assoc-in [(frame/frame-address frame-id) head-id]
-           head-model))
-  head-model)
-
-(defn head-snapshot
-  "Read the per-frame `{head-id → last-produced head-model}` snapshot.
-  Useful for tests and introspection. Returns `{}` for a frame that has
-  never seen a `render-head` call (or whose snapshot has been cleared
-  via the per-request frame teardown hook)."
-  [frame-id]
-  (get @head-snapshots (frame/frame-address frame-id) {}))
-
-(defn on-frame-destroyed!
-  "Clear the head-snapshot entry for `frame-id`. Wired into the
-  `:ssr/on-frame-destroyed` late-bind hook chain so per-request frames
-  release their head bookkeeping on destroy. Idempotent."
-  [frame-id]
-  (swap! head-snapshots dissoc (frame/frame-address frame-id))
-  nil)
 
 ;; ---- reg-head -------------------------------------------------------------
 
@@ -169,7 +123,6 @@
           ;; above), so the app-db read is unconditional.
           app-db     (frame/frame-app-db-value frame)
           head-model (head-fn app-db route)]
-      (record-head-model! frame head-id head-model)
       head-model)))
 
 (defn render-head
@@ -190,9 +143,8 @@
   `[:rf.runtime/routing :current]`) is read from the frame's runtime-db
   (via `frame-current-route` → `frame-runtime-db-value`; the head fn itself
   reads the frame's app-db for its model, but the route slice is a
-  runtime-db read). The produced head model is recorded in
-  the per-frame snapshot so `head-snapshot` reflects the most recent
-  render-head output.
+  runtime-db read). The produced head model is the RETURN VALUE and is
+  recorded nowhere — this is a pure read.
 
   Raises `:rf.error/no-such-head` when `head-id` is not registered.
   Per Spec 011 §`render-head`."

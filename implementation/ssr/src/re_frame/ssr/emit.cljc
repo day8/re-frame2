@@ -842,43 +842,47 @@
 
   Implements HTML5 void elements, :tag#id.cls parsing, boolean attrs,
   text/attr escaping, registered-view resolution, var-reference
-  resolution, :doctype? prefix, and :emit-hash? root-element hash
+  resolution, :doctype? prefix, and :render-hash root-element hash
   injection for client-side mismatch detection.
 
-  Per rf2-lxwse: when `:emit-hash?` is true, `data-rf-render-hash` is
-  threaded as `root-attrs` through `emit-element` and merged onto the
+  Per rf2-lxwse: when `:render-hash` is supplied, `data-rf-render-hash`
+  is threaded as `root-attrs` through `emit-element` and merged onto the
   first DOM-tag element of the rendered tree — past view-refs, fragments,
   Reagent-native heads, and fn-headed components on the root path. This
   replaces the prior post-emit regex-on-string injection: structural,
   composes with the source-coord annotation, and silently no-ops for
   non-DOM-rooted trees (matching the source-coord exemption).
 
-  Per rf2-atmvj / rf2-i15nh: callers that also need the structural hash
-  for the payload (e.g. the ssr-ring pipeline's `:rf/render-hash`) MUST
-  pass it in via `:render-hash` — that single hash then drives BOTH the
-  root-element `data-rf-render-hash` injection AND the caller's payload
-  slot. Without the opt, `:emit-hash? true` falls back to computing the
-  hash internally (one extra canonical-EDN walk over the tree); a caller
-  that ALSO calls `ssr/render-tree-hash` separately pays a second walk.
-  The opt eliminates the duplicate without changing the byte-identity
-  contract — `:render-hash` is just a pass-through to the root-attrs
-  stamper. Spec 011's hash/emit separation is preserved (no combined
-  walker)."
-  [render-tree opts]
-  ;; Per rf2-ezdwh — bind the per-render parse-tag-name memo so
-  ;; repeated heads (`:div`, `:span`, `:p`, …) parse once instead of
-  ;; once per emission. Cache lives only for the duration of this
-  ;; render call.
-  (binding [*tag-name-cache* (volatile! {})]
-    (let [supplied-hash (:render-hash opts)
-          root-attrs    (cond
-                          supplied-hash {:data-rf-render-hash supplied-hash}
-                          (:emit-hash? opts)
-                          {:data-rf-render-hash (hash/render-tree-hash render-tree)})
-          body          (emit-element render-tree root-attrs)]
-      (if (:doctype? opts)
-        (str "<!DOCTYPE html>" body)
-        body))))
+  Per rf2-atmvj / rf2-i15nh: `:render-hash` is the ONE marker spelling.
+  A caller that wants the marker computes the structural hash itself and
+  passes it in — that single hash then drives BOTH the root-element
+  `data-rf-render-hash` injection AND the caller's own payload slot
+  (e.g. the ssr-ring pipeline's `:rf/render-hash`), so the tree is
+  walked once rather than twice:
+
+      (let [h (ssr/render-tree-hash tree)]
+        {:html (ssr/render-to-string tree {:render-hash h})
+         :rf/render-hash h})
+
+  `:render-hash` is a pure pass-through to the root-attrs stamper, so
+  Spec 011's hash/emit separation is preserved (no combined walker).
+  The 1-arity is `(render-to-string tree {})` — no doctype, no marker.
+
+  Unknown opts are ignored; the emitter does not validate its opts map."
+  ([render-tree] (render-to-string render-tree nil))
+  ([render-tree opts]
+   ;; Per rf2-ezdwh — bind the per-render parse-tag-name memo so
+   ;; repeated heads (`:div`, `:span`, `:p`, …) parse once instead of
+   ;; once per emission. Cache lives only for the duration of this
+   ;; render call.
+   (binding [*tag-name-cache* (volatile! {})]
+     (let [supplied-hash (:render-hash opts)
+           root-attrs    (when supplied-hash
+                           {:data-rf-render-hash supplied-hash})
+           body          (emit-element render-tree root-attrs)]
+       (if (:doctype? opts)
+         (str "<!DOCTYPE html>" body)
+         body)))))
 
 ;; Wire render-to-string into the plain-atom adapter so callers using
 ;; rf/render-to-string (delegating through the substrate adapter) get
@@ -918,16 +922,3 @@
 ;; the publications above — whichever of ssr / adapter loads last, the durable
 ;; slot plus the install replay converge on the same armed state.
 (late-bind/set-fn! :ssr/current-hiccup-emitter render-to-string)
-
-(defn install-render-to-string!
-  "Install this ns's render-to-string into a substrate adapter's
-  :render-to-string slot. Called by adapter namespaces that ship in
-  their own artefact for hosts that wire a custom adapter directly.
-  Per Spec 006 §Adapter shipping convention (rf2-0hxm).
-
-  The bundled Reagent adapter wires itself via the
-  `:reagent/set-hiccup-emitter!` late-bind hook (rf2-uo7v) — this fn
-  remains as a public surface for non-bundled adapters."
-  [set-hiccup-emitter!-fn]
-  (set-hiccup-emitter!-fn render-to-string)
-  nil)
