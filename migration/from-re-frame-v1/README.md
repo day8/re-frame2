@@ -1439,7 +1439,7 @@ The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http.m
 **What to look for** in your codebase:
 
 - Any test namespace that uses `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (or `…canned-failure`) on `dispatch-sync`.
-- Any test namespace that resolves the stub via `(registrar/handler :fx :rf.http/managed-canned-success)` for direct invocation.
+- Any test namespace that resolves the stub via `(rf.registrar/handler :fx :rf.http/managed-canned-success)` for direct invocation.
 - Any test namespace that uses the `:test` or `:story` frame preset (per Spec 002 §Frame presets — both presets expand into `{:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}`).
 - Any conformance-fixture runner that drives Spec 014 fixtures (the corpus references the canned-stub fx ids by id).
 - Any dev-only example / testbed / story that wires its own per-URL stub fx that delegates to the canned-stub fxs (for example realworld, boot, login, ssr, nine-states, managed-http-counter, the http-toggle testbed).
@@ -1452,7 +1452,7 @@ The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http.m
             [re-frame.http.test-support])) ;; canned-stub fx registrations
 ```
 
-Test fixtures that `(registrar/clear-all!)` between tests and `(require 're-frame.http.managed :reload)` to re-seat the production-eligible fxs SHOULD also `(require 're-frame.http.test-support :reload)` to re-seat the canned-stub registrations — without the reload, only one test sees the stubs registered and subsequent tests fail with `:rf.error/no-such-fx` for `:rf.http/managed-canned-*`.
+Test fixtures that `(rf.registrar/clear-all!)` between tests and `(require 're-frame.http.managed :reload)` to re-seat the production-eligible fxs SHOULD also `(require 're-frame.http.test-support :reload)` to re-seat the canned-stub registrations — without the reload, only one test sees the stubs registered and subsequent tests fail with `:rf.error/no-such-fx` for `:rf.http/managed-canned-*`.
 
 The stub macros / fns (`with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`) also live in `re-frame.http.test-support` (per rf2-lwmgw, audit-of-audits #15 — see M-65 below) and register their own `:rf.http/managed-test-stub` fx at user invocation time, independent of the canned-stub fx ids. Code that uses them needs the same `re-frame.http.test-support` require as above.
 
@@ -2066,7 +2066,7 @@ v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim"
 
 ;; after — body is hoisted; per-test fixture handles registrar isolation
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (ts/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest legacy-flow
   (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -2555,11 +2555,11 @@ Per audit-of-audits testing #14, the per-test fixture builder is renamed from `r
 ```clojure
 ;; before
 (use-fixtures :each
-  (ts/reset-runtime-fixture-factory {:adapter reagent-adapter/adapter}))
+  (ts/reset-runtime-fixture-factory {:adapter rf.adapter.reagent/adapter}))
 
 ;; after
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter reagent-adapter/adapter}))
+  (ts/make-reset-runtime-fixture {:adapter rf.adapter.reagent/adapter}))
 ```
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
@@ -3114,11 +3114,11 @@ re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagen
 - **Dependencies.** Drop `day8/re-frame2-reagent` and add `day8/re-frame2-uix` (lockstep version with core).
 - **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.uix :as rf.adapter.uix]`, then pass that adapter to `init!`: `(rf/init! rf.adapter.uix/adapter)`. The `:require` registers nothing — there is no default-adapter registry, `init!` takes the adapter spec map directly, and the no-arg call `(rf/init!)` is an `ArityException` at the call site. An app already booting Reagent explicitly as `(rf/init! rf.adapter.reagent/adapter)` therefore **swaps the Var; it does not drop the argument**. Per [M-40](#m-40-rfinit-requires-an-explicit-adapter-spec-map) and [Spec 006 §Adapter selection at boot](../../spec/006-ReactiveSubstrate.md#adapter-selection-at-boot).
 - **View registration.** `reg-view` (the macro) stays Reagent-only per Spec 006 Decision 4. Rewrite each `(reg-view foo [args] body)` as a UIx `(defui foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
-- **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(uix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work; only the view-layer reactive read shape changes.
+- **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(rf.adapter.uix/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work; only the view-layer reactive read shape changes.
 - **Dispatch.** Same as before — `(rf/dispatch [...])` / `(:dispatch (rf/capture-frame))`. No change.
 - **Local component state.** `(reagent.core/atom ...)` and Form-2 closures become `(uix.core/use-state ...)` / `use-reducer` / `use-ref`. This is the largest mechanical change in a typical view body. **This is a substrate rehome, not a placement decision:** the mechanical 1:1 map preserves *where* the value lived (view-local), it does not decide *where it should* live. Apply the placement rule to each value: anything a handler, sub, schema, or tool reads belongs in `app-db` (rewrite it to events + subs, not a hook); only the render-mechanical tier (uncommitted IME composition, transient focus/hover, animation interpolation) stays substrate-local as `use-state` / `use-ref`.
-- **Frame boundaries.** `[rf/frame-provider {:frame :session} children…]` becomes the UIx adapter's `($ uix-adapter/frame-provider {:frame :session} children…)`, and the ENSURE sibling `[rf/frame-root {:id :session …}]` becomes `($ uix-adapter/frame-root {:id :session …} children…)` — *roots ensure; providers scope*. Both adapters consume the same underlying React Context object (Decision 2), so a tree containing both works during a phased migration.
-- **Test flush.** Reagent tests calling `r/flush` become UIx tests calling `(uix-adapter/flush-views!)` — wraps React's `act()`.
+- **Frame boundaries.** `[rf/frame-provider {:frame :session} children…]` becomes the UIx adapter's `($ rf.adapter.uix/frame-provider {:frame :session} children…)`, and the ENSURE sibling `[rf/frame-root {:id :session …}]` becomes `($ rf.adapter.uix/frame-root {:id :session …} children…)` — *roots ensure; providers scope*. Both adapters consume the same underlying React Context object (Decision 2), so a tree containing both works during a phased migration.
+- **Test flush.** Reagent tests calling `r/flush` become UIx tests calling `(rf.adapter.uix/flush-views!)` — wraps React's `act()`.
 
 **What stays the same.** The events, subs, fx, machines, schemas, routing, flows, http-managed, ssr, and trace surfaces are substrate-agnostic per [Spec 006 §The boundary](../../spec/006-ReactiveSubstrate.md#the-boundary). Migration cost lives entirely in the view layer.
 

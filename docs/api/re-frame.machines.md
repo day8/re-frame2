@@ -387,8 +387,8 @@ The shipped machine-tooling exports are `re-frame.machines` aliases over `re-fra
 - **Example**:
   ```clojure
   ;; The whole registry, keyed by machine-id — or one node (nil if unregistered).
-  (machines/machine-algebra-view)
-  (machines/machine-algebra-view :upload/main)
+  (rf.machines/machine-algebra-view)
+  (rf.machines/machine-algebra-view :upload/main)
   ```
 
 ### `re-frame.machines/machine-instance-algebra-view`
@@ -406,7 +406,7 @@ The shipped machine-tooling exports are `re-frame.machines` aliases over `re-fra
 - **Example**:
   ```clojure
   ;; Live nodes — one per machine snapshot in the frame (singletons + spawned actors).
-  (machines/machine-instance-algebra-view :rf/default)
+  (rf.machines/machine-instance-algebra-view :rf/default)
   ```
 
 ### `re-frame.machines/machine-selector?`
@@ -419,7 +419,7 @@ The shipped machine-tooling exports are `re-frame.machines` aliases over `re-fra
 - **Description**: True iff the subscription registered under `sub-id` is a machine selector: an ordinary `reg-sub` whose literal `:inputs` include a `[:rf/machine …]` (or `[:rf.machine/has-tag? …]`) query vector. Machine selectors stay ordinary ephemeral `:derivation` subscription nodes, not a second subscription system. This recognizer lets a graph tool flag the ones that read a machine. JVM-only.
 - **Example**:
   ```clojure
-  (machines/machine-selector? :session/summary)  ;; => true / false
+  (rf.machines/machine-selector? :session/summary)  ;; => true / false
   ```
 
 ### `re-frame.machines/machine-selector-targets`
@@ -432,7 +432,7 @@ The shipped machine-tooling exports are `re-frame.machines` aliases over `re-fra
 - **Description**: The set of machine ids the subscription registered under `sub-id` reads as a machine selector. Each id is the second element of an accepted `[:rf/machine machine-id …]` / `[:rf.machine/has-tag? machine-id …]` literal `:inputs` entry. Where `machine-selector?` answers only the boolean, this returns the actual target machine ids a graph tool needs to draw the edge. JVM-only.
 - **Example**:
   ```clojure
-  (machines/machine-selector-targets :session/summary)  ;; => #{:session}
+  (rf.machines/machine-selector-targets :session/summary)  ;; => #{:session}
   ```
 
 ## Implementation-tier effect handlers
