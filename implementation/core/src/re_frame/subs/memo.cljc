@@ -245,13 +245,16 @@
   ;; always-on readers — the EP-0027 `make-frame`-in-handler guard and the
   ;; `:dispatch-id` correlation reads — are untouched.
   ;;
-  ;; `vector-inputs?`: when true, the body ALWAYS receives the
-  ;; resolved inputs as a VECTOR (in producer order) — the contract for a
-  ;; PARAMETRIC `input-fn` sub, whose computation fn destructures `[[a] q]`
-  ;; even for a single input (Spec 006 §Subscription input producers
-  ;; §Single input). When false (the static `:<-` path) the v1
-  ;; convention holds: a single `:<-` input is delivered as the bare value,
-  ;; ≥2 inputs as a vector. The layer-1 / single-`:<-` wrappers pass false.
+  ;; `vector-inputs?`: when true, the body ALWAYS receives the resolved
+  ;; inputs as a VECTOR (in producer order) at every count — `[]`, `[v]`,
+  ;; `[a b]`. That is the contract for DECLARED dependencies, whether the
+  ;; declaration is a literal `{:inputs [[:a]]}` or a producer fn (Spec 006
+  ;; §Subscription input producers; ruled on rf2-kuky.45). When false — the
+  ;; TRANSITIONAL `:<-` chain, deleted by rf2-kuky.50 — the v1 convention
+  ;; holds: a single `:<-` input is delivered as the bare value, ≥2 as a
+  ;; vector. The layer-1 wrapper passes false: a single-source reader
+  ;; (`:db` / `:runtime-db` / `:frame-state`) has no declared dependencies
+  ;; and its body receives the CONTAINER VALUE, never a vector.
   (rf.trace/with-handler-scope
     sub-scope
     (try
@@ -265,15 +268,16 @@
       (let [t0        (when rf.interop/debug-enabled? (rf.interop/now-ms))
             computed (rf.performance/mark-and-measure :sub query-id
                       (cond
-                        ;; Parametric sub — always a vector of input values
-                        ;; (producer order), even for one input.
+                        ;; DECLARED dependencies — always a vector of input
+                        ;; values (producer order), at every count.
                         vector-inputs?
                         (body-fn (vec in-vals) query-v)
 
+                        ;; Single-source reader: the lone container value.
                         (empty? input-signals)
                         (body-fn (first in-vals) query-v)
 
-                        ;; Static `:<-`: single input → bare value;
+                        ;; TRANSITIONAL `:<-`: single input → bare value;
                         ;; ≥2 inputs → vector (the v1 convention).
                         (= 1 (count input-signals))
                         (body-fn (first in-vals) query-v)
@@ -629,7 +633,7 @@
             computed))))))
 
 (defn make-layer-n-single-input-memoised-body
-  "Specialised memo wrapper for layer-2 subs with a single `:<-` input
+  "Specialised memo wrapper for layer-2 subs with a SINGLE declared input
   (the dominant layer-2 shape).
   Fixed-arity-1 — avoids the varargs-seq allocation that a
   `(fn [& in-vals])` form would force on every reaction recompute, and
@@ -644,15 +648,22 @@
   recomputes (the sentinel is never `=` to any input value).
 
   `validate-and-trace` receives `in-vals` as a singleton list — the
-  same shape the varargs wrapper would have produced for arity-1 —
-  preserving the `(body-fn (first in-vals) query-v)` invocation path
-  inside the validate/trace bracket.
+  same shape the varargs wrapper would have produced for arity-1 — so the
+  invocation path inside the validate/trace bracket is the varargs one.
+
+  `vector-inputs?` decides ONLY the body's argument: `[v0]` when the sub
+  DECLARED its dependency under `:inputs`, the bare `v0` for the
+  transitional `:<-` chain (rf2-kuky.50 deletes that half with the arrow
+  grammar). It does not touch the memo cells — the wrapper compares the
+  upstream value either way, so both spellings share this arm's allocation
+  profile and its memo-hit structure identically.
 
   `source-container` is the reaction's LONE signal source — here the
   upstream sub's own derived container — used only to resolve the movement
   witness once at construction (§The movement-witness short-circuit above).
-  Pre-alpha posture: a plain positional parameter, no compatibility arity."
-  [body-fn query-id query-v frame-id input-signals sub-meta source-container]
+  Pre-alpha posture: plain positional parameters, no compatibility arity."
+  [body-fn query-id query-v frame-id input-signals sub-meta source-container
+   vector-inputs?]
   (let [last-v0     (volatile! ::unset)
         last-result (volatile! nil)
         sub-scope   (rf.trace/handler-scope-from-meta :sub query-id sub-meta)
@@ -693,7 +704,7 @@
                 computed     (validate-and-trace
                                body-fn (list v0) query-id query-v
                                frame-id input-signals sub-meta sub-scope
-                               prev-result prev-in-vals false)]
+                               prev-result prev-in-vals vector-inputs?)]
             (vreset! last-v0 v0)
             (vreset! last-result computed)
             computed))))))
@@ -709,14 +720,14 @@
   yields nil on every call without touching the memo cells.
 
   `vector-inputs?` (optional — defaults false): forwarded to
-  `validate-and-trace`. True for a parametric `input-fn` sub so the body
-  always receives a VECTOR of input values (producer order) even at one
-  input — the Spec 006 §Single input contract (`(fn [[a] q] ...)`). False
-  (or omitted) for a static `:<-` multi-input sub so the v1
-  convention holds.
+  `validate-and-trace`. True for DECLARED dependencies (`{:inputs …}`,
+  literal or producer) and for the transitional two-fn parametric tail, so
+  the body always receives a VECTOR of input values in producer order at
+  every count — `[]`, `[v]`, `[a b]`. False (or omitted) for a
+  transitional `:<-` multi-input sub, where the v1 convention holds.
 
   See `make-layer-1-memoised-body` for the layer-1 specialisation and
-  `make-layer-n-single-input-memoised-body` for the static single-`:<-`
+  `make-layer-n-single-input-memoised-body` for the single-declared-input
   specialisation."
   ([body-fn query-id query-v frame-id input-signals sub-meta]
    (make-layer-n-memoised-body

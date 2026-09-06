@@ -65,7 +65,13 @@
   key outside a kind's set (and not in `retired-bare-keys`) is an unknown key —
   a likely typo — and warns. Namespaced keys are never checked against this set."
   {:event       (into base-bare-keys (conj classification-bare-keys :interceptors))
-   :sub         (into base-bare-keys classification-bare-keys)
+   ;; `:inputs` is `reg-sub`'s DEPENDENCY DECLARATION (Spec 006
+   ;; §Subscription input producers) — the same slot `reg-flow` uses. The
+   ;; parser lifts it into the runtime-owned `:input-kind` /
+   ;; `:input-signals` / `:input-fn` slots and it never rides the
+   ;; registration, but it must be a KNOWN key or an author writing the
+   ;; canonical grammar would be warned for a typo.
+   :sub         (into base-bare-keys (conj classification-bare-keys :inputs))
    :fx          (into base-bare-keys classification-bare-keys)
    :cofx        (into base-bare-keys (into classification-bare-keys [:recordable? :provided?]))
    :interceptor base-bare-keys})
