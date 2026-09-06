@@ -378,11 +378,13 @@
                  ;; `<div id='app'>`, so it must NOT prepend its own doctype:
                  ;; `:doctype? true` here would nest a second `<!DOCTYPE html>`
                  ;; inside `#app`, and the response would be malformed HTML that
-                 ;; only survives via browser parser recovery. Keep
-                 ;; `:emit-hash? true` — the hydration hash the client verifies
-                 ;; still belongs on the fragment's root element.
-                 html          (rf/render-to-string hiccup {:emit-hash? true})
+                 ;; only survives via browser parser recovery. Keep the
+                 ;; `:render-hash` stamp — the hydration hash the client
+                 ;; verifies still belongs on the fragment's root element.
+                 ;; Hash ONCE and spend it on both channels: the emitter takes
+                 ;; the hash rather than computing a second walk of its own.
                  render-hash   (rf/render-tree-hash hiccup)
+                 html          (rf/render-to-string hiccup {:render-hash render-hash})
                  ;; (2) Build the payload exactly the way the Ring host does:
                  ;; the app-db slice through the fail-closed allowlist, and the
                  ;; runtime-db through the SSR projection (the allowed resource

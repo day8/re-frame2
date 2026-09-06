@@ -20,7 +20,7 @@
 
     1. `re-frame.ssr.emit/render-to-string` — the public non-streaming
        emitter, including the void-element branch, the registered-view
-       branch, fragments, and the root-attrs (`:emit-hash?`) injection.
+       branch, fragments, and the root-attrs (`:render-hash`) injection.
     2. `re-frame.ssr.streaming/render-shell` — the streaming shell walk,
        whose `walk-dom-tag` re-derives attrs via `emit/attr-string`.
 
@@ -182,13 +182,13 @@
 
 (deftest render-to-string-strips-props-when-root-attrs-injected
   (testing "rf2-usio0 — the strip survives the rf2-lxwse root-attrs
-            (`:emit-hash?`) injection path. The injected
+            (`:render-hash`) injection path. The injected
             `data-rf-render-hash` lands while the user's hostile handler
             on the SAME root element is dropped — `merge-root-attrs`
             feeds into the same `attr-string` strip."
     (let [html (emit/render-to-string
                  [:div {:onClick "alert(1)" :id "root"} [:p "x"]]
-                 {:emit-hash? true})]
+                 {:render-hash "deadbeef"})]
       (is (str/includes? html "data-rf-render-hash=")
           "the render-hash root attr was injected")
       (is (str/includes? html "id=\"root\"")
@@ -490,12 +490,8 @@
             fragment branch dropped root-attrs, so a fragment-rooted SSR
             tree lost the `data-rf-render-hash` the emitter docstring
             promises (and that the emitter/Ring hash contract depends on)."
-    (testing ":emit-hash? lands data-rf-render-hash on the fragment's first child"
-      (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">x</div>"
-                      (emit/render-to-string [:<> [:div "x"]] {:emit-hash? true}))
-          "single-child fragment root gets the marker on the div"))
     (testing "the marker lands on the FIRST DOM child only, not every child"
-      (let [html (emit/render-to-string [:<> [:div "a"] [:div "b"]] {:emit-hash? true})]
+      (let [html (emit/render-to-string [:<> [:div "a"] [:div "b"]] {:render-hash "deadbeef"})]
         (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">a</div><div>b</div>"
                         html)
             (str "exactly one data-rf-render-hash, on the first div; got: " html))
@@ -507,12 +503,12 @@
           "the supplied hash drives the root-attr marker through the fragment"))
     (testing "nested fragments keep threading the marker down to the first DOM tag"
       (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">y</div>"
-                      (emit/render-to-string [:<> [:<> [:div "y"]]] {:emit-hash? true}))
+                      (emit/render-to-string [:<> [:<> [:div "y"]]] {:render-hash "deadbeef"}))
           "a fragment whose first child is a fragment still places the marker"))
     (testing "no opts → no marker (fragment branch unchanged when root-attrs nil)"
       (is (= "<div>x</div>"
              (emit/render-to-string [:<> [:div "x"]] {}))
-          "without :emit-hash?/:render-hash the fragment root emits no marker"))))
+          "without :render-hash the fragment root emits no marker"))))
 
 (deftest render-hash-threads-through-lazy-seq-root
   (testing "rf2-a73idu — root-attrs (the render-hash marker) thread through a
@@ -522,16 +518,12 @@
             `(sequential? el)` branch used plain `emit-children`, DROPPING
             root-attrs, so a lazy-seq-rooted tree silently lost its
             data-rf-render-hash marker."
-    (testing ":emit-hash? lands the marker on a (list …) root's first DOM child"
-      (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">x</div>"
-                      (emit/render-to-string (list [:div "x"]) {:emit-hash? true}))
-          "single-child list root gets the marker on the div"))
-    (testing ":emit-hash? lands the marker on a (map …) lazy-seq root"
+    (testing "the marker lands on a (map …) lazy-seq root"
       (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">1</div>"
-                      (emit/render-to-string (map (fn [i] [:div i]) [1]) {:emit-hash? true}))
+                      (emit/render-to-string (map (fn [i] [:div i]) [1]) {:render-hash "deadbeef"}))
           "a lazy-seq produced by map gets the marker on its first DOM child"))
     (testing "the marker lands on the FIRST DOM child only across a multi-child seq"
-      (let [html (emit/render-to-string (for [i [1 2]] [:p i]) {:emit-hash? true})]
+      (let [html (emit/render-to-string (for [i [1 2]] [:p i]) {:render-hash "deadbeef"})]
         (is (re-matches #"<p data-rf-render-hash=\"[0-9a-f]+\">1</p><p>2</p>" html)
             (str "exactly one marker, on the first <p>; got: " html))
         (is (= 1 (count (re-seq #"data-rf-render-hash=" html)))
@@ -543,7 +535,7 @@
     (testing "no opts → no marker (seq branch unchanged when root-attrs nil)"
       (is (= "<div>x</div>"
              (emit/render-to-string (list [:div "x"]) {}))
-          "without :emit-hash?/:render-hash the lazy-seq root emits no marker"))))
+          "without :render-hash the lazy-seq root emits no marker"))))
 
 ;; ===========================================================================
 ;; rf2-bee5i — :rf/suspense-boundary is a streaming-only marker. The standard
@@ -766,7 +758,7 @@
              (emit/render-to-string [:ul [#'var-component "a"] [#'var-component "b"]] {}))
           "Var-heads in child position resolve via emit-children → emit-element"))
     (testing "root render-hash threads through the Var head onto the resolved DOM root"
-      (let [html (emit/render-to-string [#'var-component "ok"] {:emit-hash? true})]
+      (let [html (emit/render-to-string [#'var-component "ok"] {:render-hash "deadbeef"})]
         (is (re-find #"<span [^>]*data-rf-render-hash=\"[^\"]+\">ok</span>" html)
             (str "the root data-rf-render-hash lands on the Var head's resolved"
                  " <span> root; got: " html))))))
@@ -785,7 +777,7 @@
           (str "the Var head resolved to <span>v</span> (NOT EDN text); "
                "got: " html)))
     (testing "render-hash threads through the Var-headed view root onto the resolved DOM root"
-      (let [html (emit/render-to-string [(rf/view :rf.ssr-emit-test/var-view)] {:emit-hash? true})]
+      (let [html (emit/render-to-string [(rf/view :rf.ssr-emit-test/var-view)] {:render-hash "deadbeef"})]
         (is (re-find #"<span [^>]*data-rf-render-hash=\"[^\"]+\">v</span>" html)
             (str "the root data-rf-render-hash threads through the view-ref AND "
                  "the Var head onto the resolved <span> root; got: " html))))))

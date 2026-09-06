@@ -152,8 +152,9 @@
                       {:uri            (str "/load/" i)
                        :request-method :get
                        :headers        {"user-agent" "load-test"}})
-    (let [html (rf/with-frame server-frame
-                 (rf/render-to-string [(rf/view :load-test/page)] {:emit-hash? true}))]
+    (let [tree [(rf/view :load-test/page)]
+          html (rf/with-frame server-frame
+                 (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)}))]
       ;; Step 4 — flush the response accumulator (also triggers any
       ;; pending-error-trace drain).
       (ssr/get-response server-frame)

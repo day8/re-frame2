@@ -1466,7 +1466,7 @@ Server-side rendering is the same framework server-side. A curated set of render
   (render-to-string view-or-hiccup) → HTML string
   (render-to-string view-or-hiccup opts) → HTML string
   ```
-- The canonical server-side render: it walks the hiccup tree once and emits a string. `opts` may carry `:doctype?` and `:emit-hash?`. JVM-runnable; pure. Full contract in [re-frame.ssr.md](re-frame.ssr.md).
+- The canonical server-side render: it walks the hiccup tree once and emits a string. `opts` may carry `:doctype?` and `:render-hash`. JVM-runnable; pure. Full contract in [re-frame.ssr.md](re-frame.ssr.md).
 
 #### `render-tree-hash`
 

@@ -196,9 +196,10 @@
           ;; *current-frame* across that walk so the sub reads from f
           ;; and not from :rf/default.
           hiccup      ((rf/view :app/root))
+          ;; One walk, two channels — the shape the example itself uses.
+          render-hash (rf/render-tree-hash hiccup)
           html        (rf/with-frame f
-                        (rf/render-to-string hiccup {:emit-hash? true}))
-          render-hash (rf/render-tree-hash hiccup)]
+                        (rf/render-to-string hiccup {:render-hash render-hash}))]
       ;; State was loaded.
       (is (= 2 (count (:articles final-db))))
       ;; HTML contains the article titles.
@@ -730,7 +731,7 @@
         (is (clojure.string/includes? body "<div id='app'><div class=\"page\"")
             "the first child of #app is the page root element (fragment, not a nested doc)")
         (is (clojure.string/includes? body "data-rf-render-hash=")
-            "the fragment root carries data-rf-render-hash (`:emit-hash? true` retained)")
+            "the fragment root carries data-rf-render-hash (`:render-hash` retained)")
         (is (clojure.string/includes? body "<title>Resources SSR demo</title>")
             "envelope head metadata preserved")
         (is (clojure.string/includes? body "id='__rf_payload'")

@@ -635,7 +635,7 @@
          ;; / `:render-hash` marker) MUST thread through a fragment root
          ;; onto the first DOM-tag child, exactly once. The prior plain
          ;; `emit-children` dropped them, so `[:<> [:div "x"]]` with
-         ;; `{:emit-hash? true}` lost its `data-rf-render-hash` even though
+         ;; a supplied `:render-hash` lost its `data-rf-render-hash` even though
          ;; the docstring promises threading "past … fragments". Thread
          ;; onto the first child only; nested fragments / fn-heads /
          ;; view-refs keep threading down their own root path.

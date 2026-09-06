@@ -292,7 +292,12 @@
            (let [final-db      (rf/app-db-value f)        ;; the app-db partition
                  final-runtime (:rf.db/runtime (rf/frame-state-value f))    ;; the runtime-db partition (serializable)
                  hiccup   ((rf/view :app/root))
-                 ;; `:emit-hash?` stamps data-rf-render-hash="<hex>" onto the
+                 ;; Hash the tree ONCE, then spend that one hash on both
+                 ;; channels below. `render-tree-hash` is a full walk of the
+                 ;; tree, so computing it here rather than letting the emitter
+                 ;; do its own is the difference between one walk and two.
+                 render-hash (rf/render-tree-hash hiccup)
+                 ;; `:render-hash` stamps data-rf-render-hash="<hex>" onto the
                  ;; root element. That hex string is the tripwire: the client
                  ;; recomputes the hash after its first render, and if the two
                  ;; don't match, the runtime raises :rf.ssr/hydration-mismatch
@@ -304,12 +309,11 @@
                  ;; renders the whole `[:html …]` document; asking for it here
                  ;; would prefix a *second* doctype onto the fragment and nest
                  ;; it inside `<div id='app'>`.
-                 html     (rf/render-to-string hiccup
-                                               {:emit-hash? true})
-                 ;; The same hash also rides in the payload, so something
+                 ;; The same hash rides in the payload too, so something
                  ;; without a DOM to parse — a server log line, a CDN cache key
                  ;; — can read it straight.
-                 render-hash (rf/render-tree-hash hiccup)
+                 html     (rf/render-to-string hiccup
+                                               {:render-hash render-hash})
                  ;; You'll notice the payload carries no `:rf/frame-id`, and
                  ;; that's the intended shape. The server rendered under a
                  ;; throwaway per-request gensym (`f`); the client hydrates its

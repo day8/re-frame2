@@ -814,7 +814,7 @@
             finding 1). When the client render-tree hash != the server hash
             carried on the payload, :rf.ssr/hydration-mismatch fires — the
             boot helper wires mismatch detection symmetric with the
-            server's :emit-hash? marker."
+            server's :render-hash marker."
     (register-baseline-handlers!)
     (rf/reg-view* ::boot-root (fn [] [:div.app [:span "client-render"]]))
     (let [client-frame (frame/make-anon-frame-record! {:doc "boot-helper verify frame"

@@ -146,11 +146,12 @@ The HTML alone isn't enough. When the browser's JavaScript boots, it needs the *
 ;;  and #?(:clj [re-frame.ssr.payload-policy :as payload-policy]) for the version constant)
 (rf/with-frame fid
   (let [hiccup  ((rf/view :app/root))
-        page    (ssr/render-to-string hiccup {:emit-hash? true})
+        rhash   (ssr/render-tree-hash hiccup)                ;; hash ONCE …
+        page    (ssr/render-to-string hiccup {:render-hash rhash})  ;; … stamp it here …
         payload {:rf/version     payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a hand-pinned literal
                  :rf/app-db      (rf/app-db-value fid)       ;; your state
                  :rf/runtime-db  (:rf.db/runtime (rf/frame-state-value fid))   ;; the framework's (route, machines)
-                 :rf/render-hash (ssr/render-tree-hash hiccup)}]  ;; Step 5's tripwire
+                 :rf/render-hash rhash}]                     ;; … and again here — Step 5's tripwire
     {:status  200
      :headers {"Content-Type" "text/html"}
      :body    (str "<!DOCTYPE html><html><head><meta charset='utf-8'/></head><body>"
@@ -175,7 +176,7 @@ Three things to note:
 
 - **The payload is EDN in a `<script>` tag** with the pinned id `__rf_payload` — that id is how the client finds it in Step 4.
 - **It goes through an escaper** (`re-frame.ssr.html-helpers/escape-edn-script-body`). If an article body contained the literal text `</script>`, writing it raw would close the script element early and eat the rest of your state; the escaper rewrites `<` inside EDN strings so the payload survives and still reads back byte-for-byte.
-- **`:rf/render-hash` is a structural fingerprint of the render tree**, and `:emit-hash?` stamps the same hash onto the root element as a `data-rf-render-hash` attribute. Both fingerprint the *called* tree held in the `let` — the exact tree the client will be checked against. Hold that thought until Step 5.
+- **`:rf/render-hash` is a structural fingerprint of the render tree.** You compute it once with `render-tree-hash` and spend it twice: `:render-hash` stamps it onto the root element as a `data-rf-render-hash` attribute, and the payload carries the same string. Both fingerprint the *called* tree held in the `let` — the exact tree the client will be checked against — and hashing once keeps the emitter from walking the tree a second time. Hold that thought until Step 5.
 
 (You may spot `:doctype? true` in the worked example's render call. That opt prefixes `<!DOCTYPE html>` onto the emitted string itself — for when your root view renders the whole `[:html …]` document. This handler wraps a fragment in its own envelope, doctype included, so the render call shouldn't add another.)
 

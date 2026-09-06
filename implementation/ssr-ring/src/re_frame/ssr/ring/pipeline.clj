@@ -342,7 +342,7 @@
   produce wire bytes.
 
   Built as hiccup and rendered via
-  `ssr/render-to-string` (with `:doctype? true`, `:emit-hash? false`)
+  `ssr/render-to-string` (with `:doctype? true` and no `:render-hash`)
   so the public-error map flows through position-appropriate escaping
   the emitter already owns — the same path as a caller-supplied error view.
 
@@ -366,7 +366,7 @@
                      (str "Error code: " error-code
                           " (status " error-status ")")])]]]
     (ssr/render-to-string error-document
-                          {:doctype? true :emit-hash? false})))
+                          {:doctype? true})))
 
 (defn ^:private emit-error-view-failed!
   "Emit the recoverable-degradation `:rf.error/ssr-ring-error-view-failed`
@@ -476,7 +476,7 @@
             error-view-html
             (rf/with-frame frame-id
               (ssr/render-to-string error-view-hiccup
-                                    {:doctype? false :emit-hash? false}))]
+                                    {:doctype? false}))]
         ;; Open-proof containment (rf2-oytx7j): a reactive sub inside the
         ;; error view that recovered-to-nil buffered a fail-closed projection
         ;; without throwing. Detect it (pure peek), fall back ONCE to the
@@ -548,7 +548,8 @@
   "The DEFAULT `:renderer` — the JVM-local render body `build-full-response*`
   ran inline before the render-body seam existed (rf2-8arzr.1). Resolves
   the handler's `:root-view`, hashes the resolved tree, and renders it with
-  the wire `data-rf-render-hash` marker gated by `:emit-hash?`.
+  the wire `data-rf-render-hash` marker gated by the construction-level
+  `:emit-hash?` opt.
 
   Renderer contract (Spec 011 §HTTP response contract):
 
@@ -566,11 +567,12 @@
   `:rf/render-hash`; nil OMITS the key, exactly the unresolved-root
   behaviour (rf2-q1b96).
 
-  This default reads `:root-view` and `:emit-hash?` from `opts`. A nil
-  hash (the unresolved root form) must ALSO drop `:emit-hash?`:
-  `render-to-string` treats a true `:emit-hash?` with no `:render-hash` as
-  \"compute it yourself\" (rf2-atmvj), which would re-stamp the very
-  constant that root is being spared."
+  This default reads `:root-view` and `:emit-hash?` from `opts`.
+  `:emit-hash?` is the HOST's \"stamp hydration markers at all?\" switch,
+  not an emitter opt: the emitter takes only `:render-hash`, so this fn
+  passes the computed hash when the host asked for markers and omits the
+  key otherwise. A nil hash (the unresolved root form) omits it too —
+  that root gets no marker on either channel (rf2-q1b96)."
   [{:keys [opts]}]
   (let [{:keys [root-view emit-hash?]} opts
         resolved-root (lifecycle/resolve-root-view root-view)
@@ -581,7 +583,6 @@
     {:body-html   (ssr/render-to-string
                      resolved-root
                      {:doctype?    false
-                      :emit-hash?  (and emit-hash? (some? render-hash))
                       :render-hash (when emit-hash? render-hash)})
      :render-hash render-hash}))
 

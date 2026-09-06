@@ -403,7 +403,7 @@
             (if-not (frame/frame-incarnation-live? frame incarnation)
               (install/release-claim! frame claim)
               ;; HOT PATH — post-render hash-mismatch detection. Symmetric with
-              ;; the server's `:emit-hash?`-stamped `data-rf-render-hash` marker.
+              ;; the server's `:render-hash`-stamped `data-rf-render-hash` marker.
               ;; Runs only on a landed seed: verifying a client tree against a
               ;; server hash the frame never received compares nothing.
               ;;

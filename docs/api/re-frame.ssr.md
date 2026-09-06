@@ -29,8 +29,7 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
   - Ordinary inline `<script>` / `<style>` string content is HTML **raw text**: emitted verbatim with only React's context-safe closing-sequence rewrite (an embedded `</script>` / `</style>` breakout is respelled so the parser cannot terminate the element early), never entity-escaped and never refused. This is byte-identical across `render-to-string`, the streaming shell walk, and `emit-ui-tree`. Structured data belongs on its own channel: JSON-LD / head content via `reg-head` (which applies the stricter `<`→`<` data escape), the hydration payload via the `__rf_payload` wire.
   - `opts` keys (all optional):
     - `:doctype?` — prefixes `<!DOCTYPE html>`.
-    - `:emit-hash?` — injects `data-rf-render-hash` on the tree's first DOM-tag element, for client-side mismatch detection.
-    - `:render-hash` — supplies a precomputed hash to stamp instead, avoiding a second canonical-EDN walk.
+    - `:render-hash` — the hash to stamp as `data-rf-render-hash` on the tree's first DOM-tag element, for client-side mismatch detection. Compute it with `render-tree-hash` and spend the one hash on both the marker and your payload's `:rf/render-hash`; omit the key for no marker.
   - Raises:
     - `:rf.error/invalid-tag-name` — malformed tag name.
     - `:rf.error/ssr-invalid-attribute-name` — malformed attribute key.
@@ -80,15 +79,6 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
         render-hash (rf/render-tree-hash hiccup)]
     {:rf/render-hash render-hash})
   ```
-
-### `install-render-to-string!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (install-render-to-string! set-hiccup-emitter!-fn)
-  ```
-- **Description**: Install this namespace's `render-to-string` into a substrate adapter's `:render-to-string` slot. Use it when wiring a custom (non-bundled) adapter directly. The bundled Reagent adapter wires itself via the `:reagent/set-hiccup-emitter!` late-bind hook, so app code rarely calls this.
 
 ### `adapter`
 

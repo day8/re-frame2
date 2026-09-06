@@ -193,7 +193,9 @@
       ;; ---- (4) render against the registered root view -------------------
       (let [render-tree   [(rf/view :pages/articles)]
             html          (rf/with-frame server-frame
-                            (rf/render-to-string render-tree {:emit-hash? true}))
+                            (rf/render-to-string
+                              render-tree
+                              {:render-hash (rf/render-tree-hash render-tree)}))
             ;; The data-rf-render-hash embedded on the wire is the input-
             ;; tree hash (per render-to-string in ssr.cljc) — stable across
             ;; renders of the same view-ref. The hydration payload below
@@ -3202,7 +3204,8 @@
 
     ;; Server flow: dispatch the seed event, render the root, capture hash.
     (rf/dispatch-sync [:articles/seed])
-    (let [html (rf/render-to-string [(rf/view :pages/articles)] {:emit-hash? true})]
+    (let [tree [(rf/view :pages/articles)]
+          html (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)})]
       (is (str/includes? html "Article A")
           "rendered HTML contains the title from app-db")
       (is (str/includes? html "Article B"))
@@ -3211,7 +3214,7 @@
           "root <div> carries a data-rf-render-hash attribute")
       ;; The hash is reproducible: re-render the same tree, same hash.
       (let [h1 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html)
-            html-2 (rf/render-to-string [(rf/view :pages/articles)] {:emit-hash? true})
+            html-2 (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)})
             h2 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html-2)]
         (is (= (second h1) (second h2))
             "re-rendering the same view+state yields the same hash")))))
