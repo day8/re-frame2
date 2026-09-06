@@ -4,6 +4,7 @@ The UIx adapter connects re-frame2's substrate-agnostic core to UIx, a hooks-fir
 
 - the hooks `use-subscribe`, `use-frame`, and `use-current-frame`;
 - the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
+- the `client-root` / `render!` / `unmount!` root trio your entry namespace mounts through;
 - the `adapter` spec map you pass to `init!`;
 - adapter seams for tests, SSR, and code-gen.
 
@@ -181,6 +182,75 @@ Three things hold for that head, and they are the point of using the registry ra
   ;; reuse (no re-seed) on hot-reload re-mount.
   ($ uix-adapter/frame-root {:id :app :initial-events [[:counter/initialise]]}
      ($ counter-app))
+  ```
+
+## The client root
+
+A browser app needs one React Root for the life of the page: created once, re-rendered on every hot reload, released on teardown. These three functions own that Root so your entry namespace does not have to. Allocate the handle under a `defonce`, render through it from the `^:dev/after-load` hook, and never mint a `uix.dom` root yourself. The whole recipe is in [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md).
+
+```clojure
+(defonce app-root (uix-adapter/client-root))
+
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (uix-adapter/render! app-root
+      ($ uix-adapter/frame-root {:id :rf/default :initial-events [[:app/initialise]]}
+         ($ app-view))
+      el)))
+```
+
+Same three names, same shapes and same semantics as [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md#the-client-root) — both ride one shared factory in the substrate spine, so the two adapters cannot drift. The one substrate difference is the tree: `render!` takes a React **element** built with `uix.core/$`, not hiccup.
+
+The Root these functions manage is minted by the shared React spine through `react-dom/client`, so a shipping app needs no `com.pitch/uix.dom` dependency for its mount. It is tracked by the same active-root ownership as the adapter's one-shot `render` slot, so `rf/destroy-adapter!` releases it too — exactly once. The raw React Root is never exposed.
+
+### `client-root`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (client-root)
+  ```
+- **Description**: Allocate an inert client-root handle and return it. Does no DOM work, so it is safe at namespace load under a `defonce`, in tests, and on Node. The React Root is created (or hydrated) by the first `render!` through the handle.
+  - The handle is opaque: hold it, hand it to `render!` and `unmount!`, and nothing else.
+- **Example**:
+  ```clojure
+  (defonce app-root (uix-adapter/client-root))   ;; inert until the first render!
+  ```
+
+### `render!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (render! handle element mount-point)
+  (render! handle element mount-point opts)
+  ```
+- **Description**: Render `element` — a React element built with `uix.core/$` — through the client-root `handle` at the DOM element `mount-point`. Returns nil.
+  - The first call creates the React Root at `mount-point` and renders into it. With `{:hydrate? true}` it hydrates the server-rendered markup already inside `mount-point` instead (once; see [`re-frame.ssr`](re-frame.ssr.md)).
+  - Every later call updates that same Root with the new element: no second `createRoot`, no second hydration. That is what makes one call both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
+  - `opts` is the map the substrate `render` slot takes — `:hydrate?`, and `:on-recoverable-error`, over which the hydration-mismatch reporter is composed. There are no UIx-only keys.
+  - CLJS data in the element slot — a hiccup vector, seq or map — raises `:rf.error/hiccup-on-element-render-slot`, on the first render and on every later one alike. Hiccup mounts only on the ratom-family adapters.
+  - After `unmount!`, or after `rf/destroy-adapter!` has released the Root, the next `render!` mounts afresh.
+- **Example**:
+  ```clojure
+  (uix-adapter/render! app-root ($ app-view) el)                   ;; first call: create + render
+  (uix-adapter/render! app-root ($ app-view) el)                   ;; later calls: update the same Root
+  (uix-adapter/render! app-root ($ app-view) el {:hydrate? true})  ;; SSR page: hydrate once, then update
+  ```
+
+### `unmount!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (unmount! handle)
+  ```
+- **Description**: Unmount the React Root `handle` holds and return the handle to inert. Returns nil.
+  - Idempotent: a second call, or a call after `rf/destroy-adapter!` has already released the Root, does nothing.
+- **Example**:
+  ```clojure
+  (uix-adapter/unmount! app-root)   ;; releases the Root; a repeat call is a no-op
   ```
 
 ## Adapter seams
