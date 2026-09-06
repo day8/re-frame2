@@ -108,8 +108,11 @@
                          :frame     frame
                          :hint      (str "restore-epoch returned false — the epoch-id is not in the "
                                          "ring, or a drain is in flight. Read the structured reason "
-                                         "with (re-frame.trace.tooling/trace-buffer {:op-type :error}) "
-                                         "filtered to :rf.epoch/*.")})]
+                                         "with (re-frame.core/trace-buffer " (pr-str frame)
+                                         " {:flat true :op-type :error}) "
+                                         "filtered to :rf.epoch/*. Frame-id is the first positional "
+                                         "arg and :op-type is a :flat-only filter, so both are "
+                                         "required — an opts map as the sole arg returns [].")})]
                   ;; A soft failure (the bare `false` reject
                   ;; OR a structured `{:ok? false ...}` envelope) is NOT a
                   ;; terminal-empty outcome: the write did

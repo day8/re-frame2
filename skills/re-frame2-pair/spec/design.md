@@ -28,7 +28,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 Agency runs through three primitives, all in re-frame2's Tool-Pair contract:
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime.
-2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live events; `(re-frame.trace.tooling/trace-buffer frame-id)` for the retain-N ring. (The facade form is the stream-parameterized `(rf/register-listener! :trace id cb)` — a stream-dispatching wrapper, not a same-signature re-export of the 2-arg tooling fn; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form — frame-id first, `(trace-buffer frame-id opts)` for filters.)
+2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live events; `(re-frame.trace.tooling/trace-buffer frame-id)` for the retain-N ring. (The facade form is the stream-parameterized `(rf/register-listener! :trace id cb)` — a stream-dispatching wrapper, not a same-signature re-export of the 2-arg tooling fn. `trace-buffer` IS a same-signature `rf/` re-export and exists on both platforms; an `eval-cljs` form spells whichever home fully qualified — frame-id first, `(trace-buffer frame-id opts)` for filters.)
 3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-listener! :epoch id cb)`, and `(rf/restore-epoch! ...)`.
 
 Every op the skill teaches eventually becomes a ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame2-pair.runtime` namespace the consumer app preloads via shadow-cljs `:devtools :preloads` (see `SKILL.md` §Setup).

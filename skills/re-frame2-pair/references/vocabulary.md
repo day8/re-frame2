@@ -35,9 +35,9 @@ If you arrived here from a source-only / spec-only question, you're in the wrong
   `handler-meta`.
 - **trace-buffer** / **register-listener!** — the raw trace stream's retain-N
   ring and its listener registration (Spec 009). Both live in
-  `re-frame.trace.tooling`; `register-listener!` is re-exported on `rf/`,
-  `trace-buffer` is a JVM-only `rf/` alias (CLJS callers use the
-  `re-frame.trace.tooling` form).
+  `re-frame.trace.tooling`; both are re-exported on `rf/`, and
+  `trace-buffer` names the same fn on both platforms (an `eval-cljs` form
+  spells whichever home fully qualified).
 - **register-listener! :epoch** / **epoch-history** / **restore-epoch** — the
   assembled-stream listener (the `:epoch` stream of `register-listener!`), the
   per-frame ring of epoch records, and the time-travel entry point.
@@ -97,7 +97,7 @@ drops entirely. Net: structured reads are safe to fire by default.
 **default-ON** (governed only by the independent `--no-eval` opt-out,
 never `--allow-sensitive-reads`) and returns the form's value **without
 the elision walker**. So a raw `(re-frame2-pair.runtime/snapshot)` / `(…/sub-cache)` /
-`(re-frame.trace.tooling/trace-buffer)` / `(rf/epoch-history …)` eval can return
+`(re-frame.trace.tooling/trace-buffer frame-id)` / `(rf/epoch-history …)` eval can return
 verbatim app-db, sub-cache, trace-buffer, or epoch-history — passwords, tokens, PII —
 to the AI host even with `--allow-sensitive-reads` OFF.
 

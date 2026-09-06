@@ -1012,7 +1012,6 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   ```
 - **Description**: Read the named frame's dev-only, event-keyed ring non-destructively. By default it returns one bundle per retained pipeline run; `{:flat true}` returns the raw trace events instead.
   - Returns `[]` for a destroyed / never-registered frame, and `[]` in production (the ring is never allocated).
-  - On the `re-frame.core` facade this is a **JVM-only** alias — CLJS callers use `re-frame.trace.tooling/trace-buffer` directly.
   - The retained event-slot count is the `(rf/configure! {:trace-buffer {:events-retained N}})` knob.
 - **Example**:
   ```clojure
@@ -1027,7 +1026,7 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   ```clojure
   (clear-trace-buffer! frame-id) → nil
   ```
-- **Description**: Empty the named frame's ring. No-op for an unknown frame, no-op in production. On the `re-frame.core` facade this is a **JVM-only** alias — CLJS callers use `re-frame.trace.tooling/clear-trace-buffer!` directly.
+- **Description**: Empty the named frame's ring. No-op for an unknown frame, no-op in production.
 - **Example**:
   ```clojure
   (rf/clear-trace-buffer! :app/main)   ;; empty one frame's ring (e.g. between tool sessions)
