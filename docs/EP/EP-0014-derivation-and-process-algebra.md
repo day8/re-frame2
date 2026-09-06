@@ -825,9 +825,9 @@ Existing source:
 ```clojure
 (rf/reg-sub
   :article/page
-  (fn [[_ slug]]
-    [[:article/by-slug slug]
-     [:comments/for-article slug]])
+  {:inputs (fn [[_ slug]]
+             [[:article/by-slug slug]
+              [:comments/for-article slug]])}
   (fn [[article comments] [_ slug]]
     {:slug slug
      :article article
@@ -1076,11 +1076,11 @@ state dependency is declared by its input producer:
 ```clojure
 (rf/reg-sub
   :article/view-model
-  (fn [[_ slug scope]]
-    [[:rf.resource/state
-      {:resource :article/by-slug
-       :scope scope
-       :params {:slug slug}}]])
+  {:inputs (fn [[_ slug scope]]
+             [[:rf.resource/state
+               {:resource :article/by-slug
+                :scope scope
+                :params {:slug slug}}]])}
   (fn [[state] [_ slug _scope]]
     {:slug slug
      :state state}))
@@ -1316,14 +1316,15 @@ Mechanical migration from re-frame v1 is strongest for the common shapes:
     ...))
 ```
 
-becomes the v2 input-producer shape:
+becomes the v2 input-producer shape — the producer moves into the registration
+metadata map under `:inputs`:
 
 ```clojure
 (rf/reg-sub
   :article/page
-  (fn [[_ id]]
-    [[:article/by-id id]
-     [:comments/for-article id]])
+  {:inputs (fn [[_ id]]
+             [[:article/by-id id]
+              [:comments/for-article id]])}
   (fn [[article comments] [_ id]]
     ...))
 ```
