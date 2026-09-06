@@ -681,16 +681,6 @@
   [frame-id]
   (profile-includes-sensitive? (resolve-egress-profile frame-id)))
 
-(defn sensitive-event?
-  "True iff the trace event `ev` carries `:sensitive? true` at the top
-  level. Thin alias over the framework-published `re-frame.privacy/sensitive?`
-  predicate (re-exported as `re-frame.core/sensitive?`) — every consumer
-  of `:sensitive?` (Xray, Story, story-mcp, re-frame2-pair-mcp) composes
-  against ONE framework primitive rather than reimplementing the
-  five-token check. Per Spec 009 §Privacy."
-  [ev]
-  (rf.privacy/sensitive? ev))
-
 (defn event-frame
   "Return the frame a RAW trace event targets — its `[:tags :frame]` slot
   — or nil for a frameless emit (registration-time, outermost-dispatch
@@ -725,7 +715,7 @@
   re-implemented boolean."
   ([ev] (suppress-sensitive? ev (event-frame ev)))
   ([ev frame-id]
-   (and (sensitive-event? ev)
+   (and (rf.privacy/sensitive? ev)
         (not (include-sensitive? frame-id)))))
 
 ;; ---- *suppressed-counters* (UI redaction indicator) --------------------

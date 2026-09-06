@@ -201,19 +201,19 @@ follows:
   `:large` `:app-db` elision policy (`re-frame.elision`, sourced from
   `make-frame`), passed as the explicit `:frame` opt so the named frame's
   policy applies, never a borrowed or ambient one;
-- **fail-closed** — when the named frame is **not** a live frame (nil id, a
-  destroyed / never-registered frame), the projection stamps a **dead-frame
-  sentinel** as the `:frame` opt — a non-nil id that can never resolve — so
-  `rf/elide-wire-value` takes its unresolvable-frame fail-closed branch and
-  redacts the whole value to the `:rf/redacted` sentinel rather than ship it
-  raw under no policy. It must **not** leave the `:frame` opt nil/absent:
-  `rf/elide-wire-value` resolves its frame as `(or (:frame opts)
-  (frame/resolve-current-frame))`, so a nil/absent `:frame` would fall
-  through to the **ambient** dynamically-bound frame and ship value-bearing
+- **fail-closed** — the observed frame-id is **stamped verbatim**, whatever
+  it is. `rf/elide-wire-value` reads its `:frame` opt by **key presence**, so
+  a nil id, a destroyed frame and a never-registered one all take its
+  unresolvable-frame fail-closed branch and redact the whole value to the
+  `:rf/redacted` sentinel rather than ship it raw under no policy. What the
+  projection must **not** do is OMIT the `:frame` key: an absent key falls
+  through to the **ambient** dynamically-bound frame and ships value-bearing
   fields **raw** under that borrowed frame's (possibly empty) policy — the
-  ambient-borrow leak this contract abolishes (rf2-udkj69). A
-  sensitive-declared value → `:rf/redacted`; a large-declared value → the
-  `:rf.size/large-elided` marker.
+  ambient-borrow leak this contract abolishes (rf2-udkj69). This once
+  required minting a **dead-frame sentinel** — a fake non-nil id — because
+  the walker read a nil `:frame` as absence; it now believes the nil, so the
+  sentinel is gone (rf2-kuky.5). A sensitive-declared value → `:rf/redacted`;
+  a large-declared value → the `:rf.size/large-elided` marker.
 
 **Redaction MUST NOT lose graph structure** (the headline guarantee — a
 redacted param/value is still an edge): the node is still present and still

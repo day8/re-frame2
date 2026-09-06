@@ -8,10 +8,13 @@
   the flag at the top level of every emitted trace event; the
   forwarder's job is to gate egress on it.
 
-  These tests pin `sensitive-event?` / `sensitive-epoch?` /
-  `strip-sensitive` / `scrub-snapshot-sensitive` directly from
+  These tests pin `sensitive-epoch?` / `strip-sensitive` /
+  `scrub-snapshot-sensitive` directly from
   `re-frame2-pair-mcp.tools.sensitive` — a rename or signature change
-  surfaces as a failing test rather than a silent contract drift.
+  surfaces as a failing test rather than a silent contract drift. The
+  trace-event predicate is `re-frame.mcp-base.sensitive/sensitive-event?`,
+  called directly since rf2-kuky.8 retired this namespace's one-line alias
+  over it.
 
   The `wire-pipeline-epoch-vector-*` deftests at the foot drive the
   `:epoch-vector` arm of `run-wire-pipeline` — the SAME call site
@@ -19,6 +22,7 @@
   through — so the `sensitive-epoch?` predicate cannot be bypassed by
   the tool response path."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
@@ -27,14 +31,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-event-true-stamp-detected
-  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? true})))
+  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? true})))
 
 (deftest sensitive-event-false-stamp-passes
-  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false}))))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false}))))
 
 (deftest sensitive-event-absent-stamp-passes
   ;; Per spec/009: "Consumers treat absent as `false`."
-  (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
 
 (deftest sensitive-event-non-true-truthy-drops-fail-closed
   ;; Fail-closed: the literal `true` drops AND any non-boolean truthy
@@ -42,19 +46,20 @@
   ;; as a boolean; a string `"true"` or keyword `:yes` is a contract
   ;; violation that means an upstream serialisation bug has coerced the
   ;; boolean into the wrong shape. A fail-OPEN posture would silently
-  ;; leak sensitive events on such drift. re-frame2-pair-mcp delegates
-  ;; to `re-frame.mcp-base.sensitive/sensitive-event?` so the contract
-  ;; is byte-identical across the MCP triplet.
+  ;; leak sensitive events on such drift. re-frame2-pair-mcp calls
+  ;; `re-frame.mcp-base.sensitive/sensitive-event?` directly so the
+  ;; contract is byte-identical across the MCP triplet (rf2-kuky.8
+  ;; retired the one-line alias this file used to reach it through).
   (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the contract-drift warning
-    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
-    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
-    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
-    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]}))))
+    (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
+    (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
+    (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
+    (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]}))))
 
 (deftest sensitive-event-non-map-input-passes
-  (is (not (sensitive/sensitive-event? nil)))
-  (is (not (sensitive/sensitive-event? [:sensitive? true])))
-  (is (not (sensitive/sensitive-event? "anything"))))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? nil)))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? [:sensitive? true])))
+  (is (not (rf.mcp-base.sensitive/sensitive-event? "anything"))))
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive — the default-suppress filter applied per batch.

@@ -141,7 +141,7 @@ Several surfaces are **publicly visible** in the CLJS source but explicitly *not
 
 - **`config.cljc` atom handles.** Every state setter writes to a `defonce` atom (`auto-open?`, `editor`, `keybinding-enabled?`, …); the atoms are reachable as `@day8.re-frame2-xray.config/<atom>` due to CLJS-default-public visibility. The setters are the canonical write path, the getters are the canonical read path. Reaching for the atom directly is reading an internal seam.
 - **Internal `mount-<panel>!` aggregators.** The shell composer calls these to mount individual panels; they're not part of the host-facing embed contract. Full-shell embedding lives at [`008-Embedding-Contract.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/008-Embedding-Contract.md).
-- **Predicate / mutation helpers.** `sensitive-event?`, `suppress-sensitive?`, `note-suppressed!`, `clamp-panel-width-px`, `editor-uri` — thin wrappers Xray's own modules consume.
+- **Predicate / mutation helpers.** `suppress-sensitive?`, `note-suppressed!`, `clamp-panel-width-px`, `editor-uri` — thin wrappers Xray's own modules consume. (The `:sensitive?` stamp predicate itself is the framework's `rf/sensitive?`, called directly.)
 - **`register-toggle-off-callback!` / `unregister-toggle-off-callback!`.** Internal — Xray modules wire their buffer-clear hooks here. Host applications should NOT register.
 
 If you find yourself reading source for a Xray-internal symbol because the chapters don't list it, the answer is almost always: the spec considers that surface internal, and a future minor release may rename or `^:private`-mark it. Reach for the documented surfaces in the chapters above instead.

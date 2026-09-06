@@ -167,3 +167,41 @@
   (is (false? (rf/sensitive? {})))
   (is (false? (rf/sensitive? nil)))
   (is (identical? rf/sensitive? rf.privacy/sensitive?)))
+
+(deftest sensitive-predicate-fails-closed-on-a-malformed-stamp
+  ;; rf2-kuky.8 — the `:rf/trace-event` schema types `:sensitive?` as a
+  ;; boolean, so a string / keyword / number stamp is a contract violation:
+  ;; some producer has coerced the boolean into the wrong shape. The only
+  ;; safe reading of a violation on THIS axis is the conservative one.
+  ;;
+  ;; This was `(true? (:sensitive? ev))`, which read every one of these as
+  ;; NOT sensitive and forwarded the event — fail-OPEN in exactly the case
+  ;; where the producer has already proved unreliable. The MCP wire
+  ;; (`re-frame.mcp-base.sensitive/sensitive-stamp?`) had ruled the other
+  ;; way; the framework predicate now matches it.
+  (testing "a non-boolean truthy stamp counts as SENSITIVE"
+    (is (true? (rf/sensitive? {:sensitive? "true"})))
+    (is (true? (rf/sensitive? {:sensitive? "false"}))
+        "even a string that LOOKS false — the shape is what is wrong")
+    (is (true? (rf/sensitive? {:sensitive? :yes})))
+    (is (true? (rf/sensitive? {:sensitive? 1})))
+    (is (true? (rf/sensitive? {:sensitive? 0}))
+        "0 is truthy in Clojure — a numeric stamp is malformed either way")
+    (is (true? (rf/sensitive? {:sensitive? ["any" "truthy"]}))))
+
+  (testing "only the two genuinely falsy values, and absence, pass"
+    (is (false? (rf/sensitive? {:sensitive? false})))
+    (is (false? (rf/sensitive? {:sensitive? nil})))
+    (is (false? (rf/sensitive? {:other :key}))))
+
+  (testing "non-map inputs are tolerated and non-sensitive"
+    (is (false? (rf/sensitive? nil)))
+    (is (false? (rf/sensitive? "anything")))
+    (is (false? (rf/sensitive? [:sensitive? true])))
+    (is (false? (rf/sensitive? 42))))
+
+  (testing "the predicate returns a BOOLEAN, never the stamp value — callers
+            compose it with `and` / `some` and a leaked payload would be a
+            second way to ship the very value being classified"
+    (is (boolean? (rf/sensitive? {:sensitive? "super-secret-token"})))
+    (is (boolean? (rf/sensitive? nil)))))

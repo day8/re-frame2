@@ -1361,48 +1361,48 @@
         (is (= :derivation (:kind sub)) "the sub node is still present + classified")
         (is (not (contains-secret? redacted)))))))
 
-(deftest g-graph-egress-nil-frame-fails-closed-under-sentinel-id-collision
-  ;; rf2-g1vu — the fail-closed stamp `project-graph` applies when the
-  ;; governing frame is nil / unreachable must be a value NO app can register
-  ;; a frame under. It was `::no-egress-frame`, i.e. the ordinary public
-  ;; keyword `:re-frame.derivation.egress/no-egress-frame`: `make-frame`
-  ;; validates no `:id` type and the registry is keyed by whatever id it is
-  ;; handed, so an app registering a live frame under that literal turned the
-  ;; fail-CLOSED stamp into a live-frame walk under that frame's (empty)
-  ;; declaration registry, and the graph's value-bearing fields shipped RAW.
+(deftest g-graph-egress-nil-frame-is-unregistrable-and-fails-closed
+  ;; rf2-g1vu, retargeted by rf2-kuky.5. The fail-closed stamp `project-graph`
+  ;; applies when the governing frame is nil / unreachable had to be a value NO
+  ;; app could register a frame under, and three passes across two namespaces
+  ;; failed to find one: a `::`-namespaced keyword expands to an ordinary
+  ;; public keyword, and `make-frame` validates no `:id` type, so registering a
+  ;; live frame under the literal turned the fail-CLOSED stamp into a
+  ;; live-frame walk under that frame's (empty) declaration registry and the
+  ;; graph's value-bearing fields shipped RAW.
   ;;
-  ;; Same defect class as Xray's `::no-frame`, fixed by the rf2-7htk7 third
-  ;; pass (commit 449bfd21c7) with the collision regression this arm mirrors:
-  ;; register a live frame under the literal id, leave the governing frame
-  ;; unselected, assert `:rf/redacted`.
+  ;; `project-graph` no longer mints a substitute: it stamps the observed
+  ;; frame-id verbatim, and `elide-wire-value` reads `:frame` by KEY PRESENCE.
+  ;; `nil` is the value no app can register at, structurally — the walker
+  ;; guards its live-frame arm with `(some? frame-id)`, so an explicit nil can
+  ;; never take the live branch however the registry is populated. This arm
+  ;; pins that, under a bound ambient frame so a pass cannot be an accident of
+  ;; there being nothing to borrow.
   (rf/make-frame {:id egress-frame})
   (classify-egress-frame-sensitive!)
-  ;; The colliding frame: an ordinary public keyword any app can spell, and
-  ;; deliberately with no classification of its own — an empty declaration
-  ;; registry is what makes the leak observable.
-  (rf/make-frame {:id :re-frame.derivation.egress/no-egress-frame})
-  (try
-    (let [raw (rf.derivation.graph/live-derivation-graph egress-frame
-                                           (egress-sensitive-value-contributors))]
-      (is (contains-secret? raw)
-          "the raw graph carries the secret in value and identity positions")
-      ;; An ambient frame is bound as well, so a pass here cannot be an
-      ;; accident of there being nothing to borrow.
-      (rf/with-frame :rf/default
-        (is (some? (rf.frame/resolve-current-frame))
-            "an ambient frame is bound, making policy borrowing observable")
-        (let [redacted (rf.derivation.egress/project-graph raw nil)
-              sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
-          (is (= rf.privacy/redacted-sentinel (:value sub))
-              "a nil governing frame must redact the whole value-bearing field
-               even with a live frame registered under the dead-frame
-               sentinel's former keyword id")
-          (is (not (contains-secret? redacted))
-              "no raw secret survives a nil-frame egress while a frame is live
-               under the dead-frame sentinel's former keyword id (rf2-g1vu)"))))
-    (finally
-      ;; Never leave the colliding id live for a sibling test.
-      (rf/destroy-frame! :re-frame.derivation.egress/no-egress-frame))))
+  ;; Attempt the registration every earlier collision turned on, now aimed at
+  ;; nil itself. A runtime that refuses a nil id is fine — the assertion below
+  ;; must hold either way.
+  (let [registered? (try (rf/make-frame {:id nil}) true
+                         (catch #?(:clj Throwable :cljs :default) _ false))]
+    (try
+      (let [raw (rf.derivation.graph/live-derivation-graph egress-frame
+                                             (egress-sensitive-value-contributors))]
+        (is (contains-secret? raw)
+            "the raw graph carries the secret in value and identity positions")
+        (rf/with-frame :rf/default
+          (is (some? (rf.frame/resolve-current-frame))
+              "an ambient frame is bound, making policy borrowing observable")
+          (let [redacted (rf.derivation.egress/project-graph raw nil)
+                sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
+            (is (= rf.privacy/redacted-sentinel (:value sub))
+                "a nil governing frame must redact the whole value-bearing field")
+            (is (not (contains-secret? redacted))
+                "no raw secret survives a nil-frame egress (rf2-g1vu, rf2-kuky.5)"))))
+      (finally
+        (when registered?
+          (try (rf/destroy-frame! nil)
+               (catch #?(:clj Throwable :cljs :default) _ nil)))))))
 
 (deftest g-graph-egress-is-idempotent
   ;; Forwarders may project the same graph more than once. Full graph equality

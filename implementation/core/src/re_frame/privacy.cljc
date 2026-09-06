@@ -36,9 +36,33 @@
   :rf/redacted)
 
 (defn sensitive?
+  "Does `trace-event` carry the top-level `:sensitive?` stamp? THE
+  framework-published predicate every forwarder composes against, so the
+  five-token check is written once (Spec 009 §Privacy).
+
+  FAIL-CLOSED, and the truthiness is deliberate:
+
+    | `:sensitive?`            | result |
+    |--------------------------|--------|
+    | `true`                   | true   |
+    | `false` / `nil` / absent | false  |
+    | any other truthy value   | true   |
+
+  The `:rf/trace-event` schema types `:sensitive?` as a boolean, so a string
+  `\"true\"`, a keyword `:yes` or a `1` is a CONTRACT VIOLATION — and the only
+  safe reading of a violation on this axis is the conservative one. A
+  `(true? …)` check reads every one of them as NOT sensitive and forwards the
+  event, which is fail-OPEN in exactly the case where the producer has already
+  proved itself unreliable. `boolean` is therefore the whole implementation:
+  do not \"tighten\" it back to `true?` (rf2-kuky.8).
+
+  Matches the fail-closed posture `re-frame.mcp-base.sensitive/sensitive-stamp?`
+  already applies on the MCP wire — that one additionally logs and counts the
+  malformed stamp, which is envelope bookkeeping the framework predicate does
+  not owe its callers."
   [trace-event]
   (and (map? trace-event)
-       (true? (:sensitive? trace-event))))
+       (boolean (:sensitive? trace-event))))
 
 (defn- path-prefix?
   [prefix path]

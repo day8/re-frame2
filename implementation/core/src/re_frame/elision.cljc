@@ -1082,6 +1082,18 @@
   (Spec 002 §Frame target resolution; EP-0002 §Trace, Projection, And
   Elision / §Privacy And Egress).
 
+  The `:frame` opt is read by KEY PRESENCE, not truthiness: an explicit
+  `{:frame nil}` says *this value has no governing frame* and FAILS CLOSED.
+  Only an ABSENT `:frame` key falls through to the carried scope. That
+  distinction is the whole point — a caller projecting one frame's value
+  from inside another (a tool rendering from its own chrome frame, a
+  frameless record) must be able to SAY \"no frame\" and be believed. When
+  `nil` was read as absence it borrowed the ambient frame, which for such a
+  caller resolves, is live, and has an empty declaration registry, so the
+  value shipped RAW under no policy. Three consumers each minted a fresh
+  host object as a fake frame id to force this arm; the request is now
+  expressible and those workarounds are gone (rf2-kuky.5).
+
   A resolved frame-id is not enough — it must RESOLVE to a live frame.
   An explicit `:frame` opt (or a stale carried scope) may name a frame that
   was never registered or has since been destroyed. EP-0015 issue 1: an
@@ -1125,7 +1137,16 @@
                           opts)
                         opts)
                       opts)
-         frame-id   (or (:frame opts) (rf.frame/resolve-current-frame))
+         ;; PRESENCE, not truthiness: an explicit `:frame` key OWNS the
+         ;; resolution, `nil` included. `(or (:frame opts) …)` made
+         ;; `{:frame nil}` — "this value has no governing frame" —
+         ;; indistinguishable from "no `:frame` key", so it fell through to
+         ;; the ambient scope and shipped RAW under a frame that happened to
+         ;; be live with an empty registry. Saying `nil` is now sayable and
+         ;; fails closed.
+         frame-id   (if (contains? opts :frame)
+                      (:frame opts)
+                      (rf.frame/resolve-current-frame))
          ;; A frame-id alone is not policy-bearing — it must resolve to a
          ;; LIVE frame. `rf.frame/frame` returns nil for an unknown /
          ;; never-registered / destroyed id, so an explicit `:frame` opt or

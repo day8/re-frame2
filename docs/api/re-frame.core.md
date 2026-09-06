@@ -1075,7 +1075,7 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   (elide-wire-value v) → v or an elision-marker substitution
   (elide-wire-value v opts) → v or an elision-marker substitution
   ```
-- **Description**: The framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. It is the **single normative emission site** for the `:rf/redacted` sentinel and the `:rf.size/large-elided` marker. It walks `v` consulting the frame's runtime-db classification declarations; the frame resolves from the explicit `:frame` opt, else from the carried scope.
+- **Description**: The framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. It is the **single normative emission site** for the `:rf/redacted` sentinel and the `:rf.size/large-elided` marker. It walks `v` consulting the frame's runtime-db classification declarations; the frame resolves from the explicit `:frame` opt, else from the carried scope. The opt is read by key **presence**, not truthiness: an explicit `:frame nil` means *no governing frame* and fails closed; only an ABSENT `:frame` key falls through to the carried scope.
   - Redaction is strictly **path-based**: a secret re-keyed off its classified path ships raw. That is the **fail-open** default; to redact it, classify the destination path.
   - A *live* frame carrying no declarations passes the value through unchanged. A frameless or unresolvable-frame call **fails closed**: the whole value is redacted to `:rf/redacted`. Opt out with `:rf.size/include-sensitive? true`.
   - This is the low-level *value* walker; the record-level boundary primitive is `project-egress`.
@@ -1095,8 +1095,9 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   ```
 - **Description**: The public, record-level boundary primitive — **the required step before any off-box sink**. It dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error`) to a per-kind projector, and falls back to walking a kindless input as a tree-shaped value. Each tree-shaped slot is delegated to `elide-wire-value` against the frame's classification.
   - `opts` carries `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and advanced `:rf.size/*` overrides.
+  - Frame ownership resolves by key **presence**, in three steps: an explicit `:frame` key in `opts` wins (`nil` included); else a recognised `:rf.observe/*` record's own `:frame` slot (`nil` included); else the carried scope. A record is recognised by its `:kind`, so a bare value carrying a `:frame` key is a value and seeds nothing.
   - An unknown profile throws `:rf.error/unknown-egress-profile`.
-  - **Fail-closed**: a tree slot projects only when the frame is known — no `:rf/default` synthesis.
+  - **Fail-closed**: a tree slot projects only when the frame is known — an explicit `:frame nil` included — and there is no `:rf/default` synthesis.
   - Full model: [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 - **Example**:
   ```clojure
@@ -1155,10 +1156,16 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   ```clojure
   (sensitive? trace-event) → boolean
   ```
-- **Description**: True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against.
+- **Description**: True iff `trace-event` is a map carrying a truthy `:sensitive?` stamp at the top level (not under `:tags`). The framework-published predicate every consumer composes against — reach for it directly rather than wrapping it.
+  - **Fail-closed.** `true` is sensitive; `false`, `nil` and absent are not; and **any other truthy value counts as sensitive**. The trace-event schema types `:sensitive?` as a boolean, so a string, keyword or number is a contract violation — and forwarding on a violation is the one outcome that cannot be undone.
 - **Example**:
   ```clojure
-  (rf/sensitive? {:sensitive? true})   ;; => true
+  (rf/sensitive? {:sensitive? true})     ;; => true
+  (rf/sensitive? {:sensitive? false})    ;; => false
+  (rf/sensitive? {})                     ;; => false
+  ;; A malformed stamp is treated as sensitive, not ignored.
+  (rf/sensitive? {:sensitive? "true"})   ;; => true
+  (rf/sensitive? {:sensitive? :yes})     ;; => true
   ;; Drop sensitive events when forwarding from a flat trace read.
   (remove rf/sensitive? (rf/trace-buffer :app/main {:flat true}))
   ```

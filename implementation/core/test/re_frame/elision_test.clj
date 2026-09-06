@@ -781,6 +781,88 @@
         "stale carried scope naming a destroyed frame ⇒ fail closed")))
 
 ;; ---------------------------------------------------------------------------
+;; EXPLICIT `:frame nil` — presence, not truthiness (rf2-kuky.5).
+;;
+;; `elide-wire-value` used to resolve its frame with
+;; `(or (:frame opts) (rf.frame/resolve-current-frame))`, which made
+;; `{:frame nil}` — "this value has no governing frame" — indistinguishable
+;; from "no `:frame` key at all". A caller projecting one frame's value from
+;; INSIDE another (a tool rendering from its own chrome frame, a frameless
+;; record) therefore fell through to the AMBIENT frame, which resolves, is
+;; live, and has an empty declaration registry — so the value shipped RAW
+;; under no policy. Three consumers each minted a fake frame identity to force
+;; the fail-closed arm; the request is now sayable.
+;;
+;; The ambient frame in these arms is `:rf/default`, which the fixture binds
+;; and which carries NO declarations, so a borrow is DIRECTLY observable: it
+;; would return the value verbatim where fail-closed returns `:rf/redacted`.
+;; ---------------------------------------------------------------------------
+
+(deftest explicit-nil-frame-fails-closed-under-a-live-ambient-frame
+  (testing "PRECONDITION — an ambient frame is bound and live, so a fall-through
+            to it is observable rather than vacuous"
+    (is (= :rf/default (rf.frame/resolve-current-frame)))
+    (is (some? (rf.frame/frame :rf/default))))
+
+  (testing "an ABSENT :frame key falls through to the carried scope — today's
+            behaviour, pinned so the change below is the narrow one"
+    (is (= {:profile {:name "Ada"}}
+           (rf/elide-wire-value {:profile {:name "Ada"}} {}))
+        "no :frame key ⇒ the ambient frame's (empty) policy ⇒ verbatim"))
+
+  (testing "an EXPLICIT nil :frame means no governing frame and FAILS CLOSED"
+    (is (= :rf/redacted
+           (rf/elide-wire-value {:profile {:name "Ada"}} {:frame nil}))
+        "{:frame nil} must NOT borrow the ambient frame")
+    (is (= :rf/redacted
+           (rf/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
+        "no secret rides through an explicit nil frame"))
+
+  (testing "and the ambient frame is still there — the arm above redacted by
+            contract, not because the fixture had no frame to borrow"
+    (is (= {:profile {:name "Ada"}}
+           (rf/elide-wire-value {:profile {:name "Ada"}} {})))))
+
+(deftest explicit-nil-frame-honours-the-include-sensitive-opt-out
+  ;; The deliberate raw opt-out is unchanged: a caller that has explicitly
+  ;; waived sensitive redaction gets the identity walk even with no frame.
+  (is (= {:a 1 :b [2 3]}
+         (rf/elide-wire-value {:a 1 :b [2 3]}
+                              {:frame nil
+                               :rf.size/include-sensitive? true}))
+      "include-sensitive? true ⇒ explicit-nil frame still identity-walks"))
+
+(deftest explicit-nil-frame-cannot-be-made-live-by-registering-a-nil-id
+  ;; The structural property that retires the three dead-frame sentinels: each
+  ;; existed to be a frame id no app could register. `nil` already is one —
+  ;; the live-frame arm is guarded by `(some? frame-id)`, so an explicit nil
+  ;; can never take it however the frame registry is populated.
+  (let [registered? (try (rf/make-frame {:id nil}) true
+                         (catch Throwable _ false))]
+    (try
+      (is (= :rf/redacted
+             (rf/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
+          (str "an explicit nil frame must fail closed"
+               (when registered? " even with a frame registered under a nil id")))
+      (finally
+        (when registered?
+          (try (rf.frame/destroy-frame! nil) (catch Throwable _ nil)))))))
+
+(deftest explicit-nil-frame-overrides-a-live-ambient-with-real-declarations
+  ;; The leak in its sharpest form: the ambient frame has declarations, but
+  ;; they are the WRONG frame's. Borrowing them would apply one app's policy to
+  ;; another's value — over-redacting here, under-redacting elsewhere. An
+  ;; explicit nil refuses the borrow outright.
+  (install-class! :rf/default [[:auth :token]] [])
+  (is (= :rf/redacted
+         (rf/elide-wire-value {:auth {:token "secret-jwt"} :public "ok"}
+                              {:frame nil}))
+      "the WHOLE value redacts — never a partial walk under a borrowed policy")
+  (is (= {:auth {:token :rf/redacted} :public "ok"}
+         (rf/elide-wire-value {:auth {:token "secret-jwt"} :public "ok"} {}))
+      "CONTROL — the same value under the ambient frame walks its declarations"))
+
+;; ---------------------------------------------------------------------------
 ;; Collection-nested frame-declared elision at direct-read egress
 ;; (rf2-wm9kp).
 ;;
