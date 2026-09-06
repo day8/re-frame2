@@ -258,8 +258,8 @@ single source of truth.
 {:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-The preload registers Xray's listeners under `register-listener!`
-and `register-epoch-listener!` and installs the browser API/keybinding; then,
+The preload registers Xray's `:trace` and `:epoch` listeners through
+`rf/register-listener!` and installs the browser API/keybinding; then,
 once `rf/init!` has installed a substrate adapter, it seats the `:rf/xray`
 frame and auto-opens into the configured layout host.
 
@@ -557,15 +557,12 @@ available. The lifecycle is normative.
 1. Register Xray's `:rf.xray/*` handlers (subs / events / fxs)
    against the `:rf/xray` frame.
 2. Register the trace collector via
-   [`re-frame.trace/register-listener!`](../../../spec/009-Instrumentation.md)
+   [`(rf/register-listener! :trace …)`](../../../spec/009-Instrumentation.md)
    under `:rf.xray/trace-collector`.
 3. Register the epoch collector via
-   [`re-frame.epoch/register-epoch-listener!`](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)
-   under `:rf.xray/epoch-collector` (the `:epoch`-stream home verb —
-   canonical devtools attach via the home-namespace verbs, not the
-   `rf/register-listener!` facade, so the preload never requires
-   `re-frame.core`). `day8/re-frame2-epoch` is a hard Xray dependency, so
-   the artefact is always present in an Xray build.
+   [`(rf/register-listener! :epoch …)`](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)
+   under `:rf.xray/epoch-collector`. `day8/re-frame2-epoch` is a hard Xray
+   dependency, so the artefact is always present in an Xray build.
 4. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
 5. Schedule a bounded substrate-adapter readiness probe. On readiness it
@@ -771,9 +768,7 @@ namespace's bytes are still in the bundle.
 
 The foundation phase's third step registers an
 [`:epoch`-stream](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)
-`re-frame.epoch/register-epoch-listener!` callback (the epoch home verb — canonical
-devtools attach via the home-namespace verbs, per [Tool-Pair §the DCE tier
-rule](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)) under the
+`(rf/register-listener! :epoch …)` callback under the
 key `:rf.xray/epoch-collector`. Where the trace
 collector buffers raw events for panel-side projections (per
 [`013-Trace-Consumer.md`](./013-Trace-Consumer.md)), the epoch-collector serves
@@ -840,8 +835,8 @@ draining each cascade. Per
 each listener sees events in the runtime's emit order; no
 re-ordering occurs between framework emit and the collector body.
 Ordering *across* sibling listeners (other tools that register
-their own `register-epoch-listener!` callbacks alongside Xray) is **not
-contract** — the same rule that applies to `register-listener!`
+their own `:epoch`-stream listeners alongside Xray) is **not
+contract** — the same rule that applies to the `:trace` stream
 applies here. Xray's handler MUST NOT depend on the relative
 order of Xray's invocation versus any other tool's.
 
@@ -923,16 +918,19 @@ side-effect surface auditable. Test fixtures MAY call
 registration cycles; production code MUST NOT.
 
 **Epoch artefact is a hard Xray dependency.** `day8/re-frame2-epoch`
-is optional *for a host app*, but it is a **hard dependency of Xray**
-(xray `deps.edn`): the epoch-collector registers via the
-`re-frame.epoch/register-epoch-listener!` home verb, a compile-time
-dependency, so the artefact is always on the classpath in an
-Xray-enabled build and the "absent-artefact" case cannot arise for a
-compiled Xray. (This is why the home verb is safe here where the
-`rf/register-listener! :epoch` facade — which degrades to a silent
-no-op when epoch is absent — would be needed by code that must tolerate
-its absence; see [Tool-Pair §the DCE tier
-rule](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule).)
+is optional *for a host app*, but it is a **hard dependency of Xray**.
+Two things make that a compile-time guarantee, and neither is the verb
+the registration spells: the `day8/re-frame2-epoch` coordinate in
+`tools/xray/deps.edn`, which puts the artefact on the classpath, and the
+bare `[re-frame.epoch]` require in `install.cljs`, which LOADS the
+producer namespace on every startup path — including manual
+`core/init!`, which requires `install` but not `preload`. The facade
+reaches the producer through a late-bind hook an unloaded namespace never
+populates, so the require is what stops
+`(rf/register-listener! :epoch …)` degrading to the silent
+no-op it correctly performs for a host that must tolerate the artefact's
+absence. The "absent-artefact" case therefore cannot arise for a compiled
+Xray. See [Tool-Pair §Facade vs home-namespace verb](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule).
 Xray's time-travel panel still renders an empty state when
 `(empty? (rf/epoch-history ...))` — but that reflects a target frame
 with **no epochs recorded yet**, not an absent artefact.
@@ -958,7 +956,7 @@ only, per §Mount lifecycle) MUST NOT unregister the epoch
 callback — the callback is registered at preload time, not at
 mount time, and the preload's foundation phase persists across
 shell unmounts. Test fixtures driving teardown across runs MAY
-call `re-frame.epoch/unregister-epoch-listener!` for the
+call `(rf/unregister-listener! :epoch …)` for the
 `:rf.xray/epoch-collector` key to unwire the pump; the
 sentinel-based registration will then re-fire on the next
 preload reload. Production sessions never tear down.
@@ -972,7 +970,7 @@ body, and the `:rf/xray` event-queue entries — no per-settle dispatch
 fires. The framework's epoch surface is gated on the same flag (per
 [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code))
 so even an accidentally-included preload would find the
-`register-epoch-listener!` call resolve to a no-op. Both of those are
+epoch registration resolve to a no-op. Both of those are
 second lines of defence for the *preload* path; a host that calls
 `init!` from app code installs the epoch pump unconditionally, and its
 exclusion is a build-placement decision the host owns.

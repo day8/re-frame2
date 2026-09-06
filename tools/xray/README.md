@@ -192,8 +192,8 @@ Xray's preload gives you the in-app panel, and nothing else:
 {:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-The preload registers Xray's listeners under `register-listener!` and
-`register-epoch-listener!`, installs the browser API/keybinding, and
+The preload registers Xray's `:trace` and `:epoch` listeners through
+`rf/register-listener!`, installs the browser API/keybinding, and
 auto-opens into the layout host after `rf/init!`.
 
 Programmer/AI inspection and mutation is a **different** preload, and

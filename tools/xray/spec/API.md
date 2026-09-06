@@ -497,8 +497,8 @@ reference:
 
 | Surface | Spec | What Xray reads |
 |---|---|---|
-| `(re-frame.trace.tooling/register-listener! key callback)` | Spec 009 | The trace bus (every operation). Xray attaches via the `:trace` **home verb**, not the `rf/register-listener!` facade — a devtool preload must not require `re-frame.core` into a production build (Tool-Pair DCE tier rule). |
-| `(re-frame.epoch/register-epoch-listener! key callback)` | Tool-Pair | The per-cascade epoch records. Xray attaches via the `:epoch` **home verb** (same DCE tier rule; app/docs consumers may use the `(rf/register-listener! :epoch …)` facade instead). |
+| `(rf/register-listener! :trace key callback)` | Spec 009 | The trace bus (every operation). Xray attaches through the facade, like any other listener — what keeps the collector out of a production build is preload placement plus the `goog.DEBUG` gate, not the namespace the call names (per [Tool-Pair §Facade vs home-namespace verb](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)). |
+| `(rf/register-listener! :epoch key callback)` | Tool-Pair | The per-cascade epoch records. `day8/re-frame2-epoch` is a hard Xray dependency (`tools/xray/deps.edn`) and `install.cljs` carries a bare `[re-frame.epoch]` require, so the producer is loaded on every startup path and the facade's absent-artefact no-op cannot arise for a compiled Xray. |
 | `(rf/trace-buffer)` / `(rf/trace-buffer filter)` | Spec 009 | The bounded trace buffer (default 200). |
 | `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf/restore-epoch! frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |
