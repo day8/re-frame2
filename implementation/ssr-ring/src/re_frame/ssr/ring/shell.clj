@@ -11,8 +11,8 @@
   string content cannot close the script element, token content still
   round-trips through the EDN reader, and unsafe token-position breakout
   sequences fail loudly. The streaming path uses the same encoder."
-  (:require [re-frame.ssr.constants :as constants]
-            [re-frame.ssr.html-helpers :as html]))
+  (:require [re-frame.ssr.constants :as rf.ssr.constants]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]))
 
 (set! *warn-on-reflection* true)
 
@@ -47,8 +47,8 @@
   (`\"__rf_payload\"`) — the contract with the client bootstrap's
   `document.getElementById(...)` read."
   [payload-edn]
-  (str "<script id=\"" constants/payload-script-id "\" type=\"application/edn\">"
-       (html/escape-edn-script-body payload-edn)
+  (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
+       (rf.ssr.html-helpers/escape-edn-script-body payload-edn)
        "</script>"))
 
 ;; ---- single-source document envelope (prefix + suffix) --------------------
@@ -75,7 +75,7 @@
            lang           "en"}}]
   (let [attr-bag (html-attr-bag html-attrs lang)]
     (str "<!DOCTYPE html>"
-         "<html" (html/attr-string attr-bag) ">"
+         "<html" (rf.ssr.html-helpers/attr-string attr-bag) ">"
          "<head"
          ;; The head-model hash is separate from the body's render hash.
          (when head-hash (str " data-rf-head-hash=\"" head-hash "\""))
@@ -83,10 +83,10 @@
          "<meta charset=\"utf-8\">"
          (or head-html "")
          "</head>"
-         "<body" (html/attr-string body-attrs) ">"
+         "<body" (rf.ssr.html-helpers/attr-string body-attrs) ">"
          ;; Attribute values are escaped; raw trust applies only to the
          ;; `:head` and `:body-end` content hooks.
-         "<div id=\"" (html/escape-attr app-element-id) "\""
+         "<div id=\"" (rf.ssr.html-helpers/escape-attr app-element-id) "\""
          ;; Only streaming supplies this body-only structural hash marker.
          (when render-hash
            (str " data-rf-render-hash=\"" render-hash "\""))
@@ -107,7 +107,7 @@
     :or   {script-src "/main.js"}}]
   (str (when script-src
          ;; `:script-src` is an attribute value; `:body-end` is raw content.
-         (str "<script src=\"" (html/escape-attr script-src) "\"></script>"))
+         (str "<script src=\"" (rf.ssr.html-helpers/escape-attr script-src) "\"></script>"))
        (or body-end "")
        "</body>"
        "</html>"))

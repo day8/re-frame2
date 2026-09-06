@@ -16,15 +16,15 @@
     - `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` /
       `clear-schemas-by-frame!` — test-support hooks consumed by
       `re-frame.test-support`'s reset-runtime fixture."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.path :as path]
-            [re-frame.privacy :as privacy]
-            [re-frame.schemas.validator :as validator]
-            [re-frame.schemas.walker :as walker]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.path :as rf.path]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.schemas.validator :as rf.schemas.validator]
+            [re-frame.schemas.walker :as rf.schemas.walker]
+            [re-frame.source-coords :as rf.source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -44,11 +44,11 @@
   ([opts operation]
    (let [frame-target (:frame opts)
          frame-id     (if (some? frame-target)
-                        (frame/frame-target->id frame-target)
-                        (frame/require-current-frame!
+                        (rf.frame/frame-target->id frame-target)
+                        (rf.frame/require-current-frame!
                           operation {:where 'rf/reg-app-schema}))]
      (when-not (keyword? frame-id)
-       (error/throw-error!
+       (rf.error/throw-error!
          :rf.error/app-schemas-bad-arg
          'rf/app-schemas
           (str "the :frame opt must be a frame-id keyword or a frame value "
@@ -72,10 +72,10 @@
     (nil? opts-or-frame-id) {}
     ;; A frame value is a map; keep this branch before the generic map branch.
     (or (keyword? opts-or-frame-id)
-        (frame/frame-value? opts-or-frame-id)) {:frame opts-or-frame-id}
+        (rf.frame/frame-value? opts-or-frame-id)) {:frame opts-or-frame-id}
     (map? opts-or-frame-id) opts-or-frame-id
     :else
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/app-schemas-bad-arg
       'rf/app-schemas
       (str "app-schemas expects a keyword frame-id, a frame value, or an "
@@ -136,7 +136,7 @@
     (nil? metadata) {}
     (map? metadata) metadata
     :else
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/app-schema-bad-metadata
       'rf/reg-app-schema
       (str "reg-app-schema's middle arg must be a registration-metadata map — "
@@ -177,7 +177,7 @@
   canonical digest-key encoding."
   [path]
   (and (sequential? path)
-       (every? path/segment? path)))
+       (every? rf.path/segment? path)))
 
 ;; ---- runtime-db first-segment rejection -----------------------------------
 ;; App schemas validate app-db only. Runtime-db is framework-owned, so a
@@ -231,7 +231,7 @@
   ([path] (assert-app-schema-path! path nil))
   ([path frame]
    (when-not (valid-app-schema-path? path)
-     (error/throw-error!
+     (rf.error/throw-error!
        :rf.error/app-schema-bad-path
        'rf/reg-app-schema
        (str "reg-app-schema path " (pr-str path) " is invalid; pass "
@@ -246,7 +246,7 @@
        {:recovery :supply-a-concrete-get-in-path
         :extra    {:received path}}))
    (when (runtime-app-schema-path? path)
-     (error/throw-error!
+     (rf.error/throw-error!
        :rf.error/app-schema-runtime-path
        'rf/reg-app-schema
        (str "app schemas validate only app-db; a "
@@ -283,7 +283,7 @@
   documented empty no-op)."
   [path->schema]
   (when-not (valid-bulk-schemas-arg? path->schema)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/app-schemas-bad-batch
       'rf/reg-app-schemas
       (str "reg-app-schemas expects a {path -> schema} map (possibly empty); "
@@ -356,7 +356,7 @@
   top-level opaque schema's. `schema-has-opaque-child?` recurses the
   whole tree so this predicate is accurate at any depth."
   [schema]
-  (not (walker/schema-has-opaque-child? schema)))
+  (not (rf.schemas.walker/schema-has-opaque-child? schema)))
 
 (defn- maybe-warn-walker-opaque!
   "Emit `:rf.warning/schema-walker-opaque` once per process when
@@ -373,7 +373,7 @@
   (when (and (not (walker-introspectable? schema))
              (not @walker-opaque-warned))
     (when (compare-and-set! walker-opaque-warned false true)
-      (when-let [emit! (late-bind/get-fn :trace/emit!)]
+      (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
         (emit! :warning :rf.warning/schema-walker-opaque
                {:path path
                 :schema-kind (if (map? schema)
@@ -412,10 +412,10 @@
   unconditional helper call and defeat the elision sentinel."
   []
   (when (and (not @validator-unavailable-warned)
-             (nil? (late-bind/get-fn :schemas/malli-validate))
-             (validator/using-default-validator?))
+             (nil? (rf.late-bind/get-fn :schemas/malli-validate))
+             (rf.schemas.validator/using-default-validator?))
     (when (compare-and-set! validator-unavailable-warned false true)
-      (when-let [emit! (late-bind/get-fn :trace/emit!)]
+      (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
         (emit! :warning :rf.warning/schema-validator-unavailable
                {:reason
                 (str "reg-app-schema was called but :schemas/malli-validate"
@@ -456,7 +456,7 @@
 ;; (`re-frame.schemas.validate`, the
 ;; `(or schema-has-sensitive? schema-opaque?)` posture). This is the redaction
 ;; half of the same fail-closed posture for the hot-reload egress edge.
-(def ^:private redacted-sentinel privacy/redacted-sentinel)
+(def ^:private redacted-sentinel rf.privacy/redacted-sentinel)
 
 (defn- maybe-emit-schema-violation!
   "Emit `:rf.schema/violation` when a re-registration changes the schema
@@ -484,8 +484,8 @@
   [frame-id path prior-registered? prior-schema new-schema]
   (when (and prior-registered?
              (not= prior-schema new-schema))
-    (when-let [validate-fn @validator/validator-fn]
-      (let [app-db      (frame/frame-app-db-value frame-id)
+    (when-let [validate-fn @rf.schemas.validator/validator-fn]
+      (let [app-db      (rf.frame/frame-app-db-value frame-id)
             live-value (get-in app-db path)
             ;; A malformed new schema can make the validator throw
             ;; (e.g. Malli's `:malli.core/child-error` on a childless
@@ -495,7 +495,7 @@
             passes?   (try (boolean (validate-fn new-schema live-value))
                            (catch #?(:clj Throwable :cljs :default) _ true))]
         (when-not passes?
-          (when-let [emit! (late-bind/get-fn :trace/emit!)]
+          (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
             ;; Fail closed on an opaque schema. The
             ;; pure-data walker cannot see a `{:sensitive? true}` slot inside a
             ;; compiled `m/schema` value, so `schema-has-sensitive?` alone would
@@ -508,8 +508,8 @@
             ;; not the root-only
             ;; `schema-opaque?` — a vector-form `new-schema` can embed a nested
             ;; opaque child the root-only check would miss.
-            (let [sensitive? (or (walker/schema-has-sensitive? new-schema)
-                                 (walker/schema-has-opaque-child? new-schema))]
+            (let [sensitive? (or (rf.schemas.walker/schema-has-sensitive? new-schema)
+                                 (rf.schemas.walker/schema-has-opaque-child? new-schema))]
               (emit! :warning :rf.schema/violation
                      {:path               path
                       :pre-reload-schema  prior-schema
@@ -573,10 +573,10 @@
    (assert-app-schema-path! path (best-effort-frame-id frame-opts))
    (let [frame-id     (resolve-frame frame-opts)
          ;; Storage, lookup, and digesting share one canonical vector identity.
-         path         (path/normalize-concrete path)
+         path         (rf.path/normalize-concrete path)
          ;; Preserve open registration metadata, but stamp the positional
          ;; schema and resolved path/frame over caller-supplied values.
-         schema-meta  (source-coords/merge-coords
+         schema-meta  (rf.source-coords/merge-coords
                         (assoc (dissoc metadata :schema :frame)
                                :schema schema :path path :frame frame-id))
          ;; Capture before replacement for the dev-only hot-reload check.
@@ -591,7 +591,7 @@
          prior-schema (:schema (get prior-paths path))]
      (swap! schemas-by-frame assoc-in [frame-id path] schema-meta)
      ;; Read-only diagnostics are absent from production builds.
-     (when interop/debug-enabled?
+     (when rf.interop/debug-enabled?
        (maybe-warn-validator-unavailable!)
        (maybe-warn-walker-opaque! schema path)
        (maybe-emit-schema-violation! frame-id path prior-known? prior-schema
@@ -659,7 +659,7 @@
   ([path opts-or-frame-id]
    ;; Lookup uses the same canonical concrete path identity as registration.
    (let [frame-id (coerce->frame-id opts-or-frame-id)
-         path     (path/normalize-concrete path)]
+         path     (rf.path/normalize-concrete path)]
      (when-let [registration-metadata (get-in @schemas-by-frame [frame-id path])]
        (:schema registration-metadata)))))
 
@@ -684,7 +684,7 @@
   ([path opts-or-frame-id]
    ;; Lookup uses the same canonical concrete path identity as registration.
    (let [frame-id (coerce->frame-id opts-or-frame-id)
-         path     (path/normalize-concrete path)]
+         path     (rf.path/normalize-concrete path)]
      (get-in @schemas-by-frame [frame-id path]))))
 
 (defn app-schemas

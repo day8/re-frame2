@@ -36,15 +36,15 @@
   (`swap-vals!` exists on both runtimes); this test pins the JVM
   concurrency contract."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.error-listener :as error-listener]))
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]))
 
 ;; Private fns reached via their vars — the same internal surface the
 ;; runtime drives (buffer on the listener path, drain on the projection
 ;; path).
-(def ^:private consume! #'error-listener/consume-pending-traces!)
+(def ^:private consume! #'rf.ssr.error-listener/consume-pending-traces!)
 
 (defn- buffer! [frame-id trace]
-  (swap! error-listener/pending-error-traces
+  (swap! rf.ssr.error-listener/pending-error-traces
          update frame-id (fnil conj []) trace))
 
 (deftest consume-pending-traces-loses-no-trace-under-concurrent-append
@@ -54,7 +54,7 @@
     (let [frame-id      :rf.test/drain-race
           appends       2000
           ;; Clean slate for this frame.
-          _             (swap! error-listener/pending-error-traces
+          _             (swap! rf.ssr.error-listener/pending-error-traces
                                dissoc frame-id)
           drained       (atom [])
           appended      (atom 0)
@@ -102,12 +102,12 @@
             frame's key (the clear half of the atomic pull-and-clear), so a
             subsequent drain on the same frame returns empty."
     (let [frame-id :rf.test/drain-clear]
-      (swap! error-listener/pending-error-traces dissoc frame-id)
+      (swap! rf.ssr.error-listener/pending-error-traces dissoc frame-id)
       (buffer! frame-id {:op-type :error :operation :rf.error/probe :seq 0})
       (buffer! frame-id {:op-type :error :operation :rf.error/probe :seq 1})
       (let [pulled (consume! frame-id)]
         (is (= 2 (count pulled)) "the drain pulls both buffered traces")
-        (is (not (contains? @error-listener/pending-error-traces frame-id))
+        (is (not (contains? @rf.ssr.error-listener/pending-error-traces frame-id))
             "the frame key is removed in the same transition")
         (is (= [] (consume! frame-id))
             "a second drain returns empty — the buffer was cleared")))))
@@ -117,7 +117,7 @@
             returns [] and does not introduce a spurious frame key
             (swap-vals! dissoc of an absent key is a no-op)."
     (let [frame-id :rf.test/drain-empty]
-      (swap! error-listener/pending-error-traces dissoc frame-id)
+      (swap! rf.ssr.error-listener/pending-error-traces dissoc frame-id)
       (is (= [] (consume! frame-id)))
-      (is (not (contains? @error-listener/pending-error-traces frame-id))
+      (is (not (contains? @rf.ssr.error-listener/pending-error-traces frame-id))
           "no spurious key added for an empty drain"))))

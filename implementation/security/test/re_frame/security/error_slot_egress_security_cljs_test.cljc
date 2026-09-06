@@ -16,7 +16,7 @@
             ;; without it `route-url` soft-passes (no validation throw) and the
             ;; `:schemas/redact-validation-tags` sensitivity oracle is unbound.
             [re-frame.schemas.malli]
-            [re-frame.mcp-base.sensitive :as sens]
+            [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
             ;; SIDE-EFFECT REQUIRE, no alias: `rf/reg-route` is a late-bound
             ;; facade over the OPTIONAL `day8/re-frame2-routing` artefact,
             ;; which `re-frame.core` deliberately does not require. Loading
@@ -25,17 +25,17 @@
             [re-frame.routing]
             ;; A validation reject short-circuits before browser effects, so
             ;; the handler can be driven directly with synthetic coeffects.
-            [re-frame.routing.navigate :as navigate]
-            [re-frame.routing.registry :as registry]
-            #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
-               :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
+            [re-frame.routing.navigate :as rf.routing.navigate]
+            [re-frame.routing.registry :as rf.routing.registry]
+            #?(:clj  [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as rf.test-support :refer-macros [with-trace-recorder!]])
             ;; Drive the production trace emitter so tests observe the top-level
             ;; sensitivity stamp consumed by MCP egress.
-            [re-frame.trace :as trace]
-            [re-frame.security.gen :as gen]))
+            [re-frame.trace :as rf.trace]
+            [re-frame.security.gen :as rf.security.gen]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:clear-app-schemas? true}))
 
 (def ^:private sentinel "S3CR3T-rf2-zsm03-ERROR-SLOT-DO-NOT-LEAK")
@@ -43,7 +43,7 @@
 (defn- contains-sentinel?
   "True when the sentinel survives anywhere in `x`, including stringified data."
   [x]
-  (gen/contains-string? x sentinel))
+  (rf.security.gen/contains-string? x sentinel))
 
 (def ^:private sensitive-machine-id :sec/sensitive-machine)
 (def ^:private plain-machine-id     :sec/plain-machine)
@@ -79,7 +79,7 @@
   delivered envelope after projection and sensitivity hoisting."
   [tags]
   (with-trace-recorder! [traces]
-    (trace/emit-error! :rf.error/machine-action-exception tags)
+    (rf.trace/emit-error! :rf.error/machine-action-exception tags)
     (first (filter #(= :rf.error/machine-action-exception (:operation %))
                    @traces))))
 
@@ -118,9 +118,9 @@
             sensitive reads are disabled"
     (declare-machine-marks!)
     (let [out          (emit-machine-action-exception-for sensitive-machine-id)
-          [kept dropped] (sens/strip-sensitive [out] false)]
+          [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [out] false)]
       (is (some? out) "the machine-action-exception trace was delivered")
-      (is (true? (sens/sensitive-event? out))
+      (is (true? (rf.mcp-base.sensitive/sensitive-event? out))
           "MCP egress classifies the emitted event as sensitive (top-level flag)")
       (is (= 1 dropped) "the sensitive machine exception event dropped")
       (is (empty? kept) "nothing egressed with --allow-sensitive-reads disabled"))))
@@ -136,7 +136,7 @@
       (is (map? (:exception-data tags)) ":exception-data NOT redacted")
       (is (not (:sensitive? out))
           "no top-level :sensitive? when the machine declares nothing sensitive")
-      (is (false? (sens/sensitive-event? out)) "MCP egress treats it as non-sensitive"))))
+      (is (false? (rf.mcp-base.sensitive/sensitive-event? out)) "MCP egress treats it as non-sensitive"))))
 
 (deftest machine-exception-data-verbatim-for-unregistered-machine
   (testing "an unregistered machine keeps :exception-data verbatim"
@@ -227,7 +227,7 @@
   (if (<= depth 0)
     (fn [rng] [sentinel rng])
     (fn [rng]
-      (let [[wrap rng1] (gen/rand-nth rng [:map :vector :set :nested-map])
+      (let [[wrap rng1] (rf.security.gen/rand-nth rng [:map :vector :set :nested-map])
             [inner rng2] ((gen-ex-data (dec depth)) rng1)]
         (case wrap
           :map        [{:k inner} rng2]
@@ -237,7 +237,7 @@
 
 (def ^:private gen-nested-ex-data
   (fn [rng]
-    (let [[depth rng1] (gen/next-int rng 5)]
+    (let [[depth rng1] (rf.security.gen/next-int rng 5)]
       ((gen-ex-data (inc depth)) rng1))))
 
 (deftest sensitive-machine-redacts-ex-data-at-arbitrary-nesting
@@ -250,14 +250,14 @@
             property coverage."
     (declare-machine-marks!)
     (doseq [id-key [:actor-id :machine-id]]
-      (let [result (gen/for-all
+      (let [result (rf.security.gen/for-all
                      gen-nested-ex-data 120 41
                      (fn [ex-data]
                        (let [tags (assoc (machine-action-exception-tags
                                            id-key sensitive-machine-id)
                                          :exception-data ex-data)
                              out  (emit-machine-action-exception tags)
-                             [kept dropped] (sens/strip-sensitive [out] false)]
+                             [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [out] false)]
                          (and (some? out)
                               (= :rf/redacted (-> out :tags :exception-data))
                               (true? (:sensitive? out))
@@ -283,7 +283,7 @@
   (rf/reg-route :sec/route {:params params-schema} "/doc/:doc")
   (with-trace-recorder! [traces]
     ;; :doc must be rejected by the integer schema.
-    (navigate/navigate-handler {:db {} :rf.frame/id :rf/default}
+    (rf.routing.navigate/navigate-handler {:db {} :rf.frame/id :rf/default}
                                [:rf.route/navigate {:to :sec/route :params {:doc sentinel}}])
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))
@@ -329,7 +329,7 @@
     (let [machine-ev (emit-machine-action-exception-for sensitive-machine-id)
           nav-trace  (capture-navigate-failure sensitive-params-schema)
           events     (filterv some? [machine-ev nav-trace])
-          [kept _]   (sens/strip-sensitive events true)]
+          [kept _]   (rf.mcp-base.sensitive/strip-sensitive events true)]
       (is (= 2 (count events)) "both redacted events were produced")
       (is (not-any? contains-sentinel? kept)
           (str "the sentinel reached the MCP boundary even after redaction: "
@@ -341,7 +341,7 @@
             navigate :error slot would ship it"
     (rf/reg-route :sec/raw-route {:params sensitive-params-schema} "/doc/:doc")
     (let [ex (try
-               (registry/route-url {:to :sec/raw-route :params {:doc sentinel}})
+               (rf.routing.registry/route-url {:to :sec/raw-route :params {:doc sentinel}})
                nil
                (catch #?(:clj Throwable :cljs :default) e e))]
       (is (some? ex) "route-url threw on the non-conforming sensitive param")

@@ -23,8 +23,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.lifecycle :as lifecycle]))
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]))
 
 (defn- example-block
   "Return the text following the `Example:` marker in `docstring`, i.e.
@@ -69,7 +69,7 @@
             policy and the example opts map passes
             validate-construction-opts! (so a copy-paste is constructible,
             not a fail-closed boot throw)"
-    (let [doc   (-> #'ssr-ring/ssr-handler meta :doc)
+    (let [doc   (-> #'rf.ssr.ring/ssr-handler meta :doc)
           forms (read-forms (example-block doc))
           call  (find-call "ssr-handler" forms)
           opts  (second call)]
@@ -86,7 +86,7 @@
       (rf/reg-view* :pages/facade-example (fn [] [:div "facade example"]))
       (is (= (assoc opts :initial-events [[:init/facade-example]]
                          :root-view [(rf/view :pages/facade-example)])
-             (lifecycle/validate-construction-opts!
+             (rf.ssr.ring.lifecycle/validate-construction-opts!
                (assoc opts :initial-events [[:init/facade-example]]
                            :root-view [(rf/view :pages/facade-example)])))
           "the ssr-handler example opts map passes validate-construction-opts!"))))
@@ -95,7 +95,7 @@
   (testing "the ssr-middleware façade example uses the correct
             CURRIED composition shape — `((ssr-middleware opts) handler)` —
             and its opts map carries :payload"
-    (let [doc   (-> #'ssr-ring/ssr-middleware meta :doc)
+    (let [doc   (-> #'rf.ssr.ring/ssr-middleware meta :doc)
           block (example-block doc)
           forms (read-forms block)
           call  (find-call "ssr-middleware" forms)

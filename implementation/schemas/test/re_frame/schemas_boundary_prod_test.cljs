@@ -46,7 +46,7 @@
   boundary is a no-op in dev (per Spec 010 L145)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Per rf2-t0hq the CLJS default validator routes through the
             ;; late-bind hook `:schemas/malli-validate`, published at load
             ;; time by the `re-frame.schemas.malli` adapter ns — which the
@@ -54,9 +54,9 @@
             ;; Ruling A). Requiring `re-frame.schemas` is the whole opt-in,
             ;; so the boundary interceptor sees real Malli verdicts here
             ;; with no second require at app boot.
-            [re-frame.schemas :as schemas]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support])
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support])
   ;; rf2-bhh8my: the shared trace recorder supersedes the per-test
   ;; register-listener!/unregister-listener! capture bracket. The macro
   ;; ships from the `#?(:clj ...)` arm of re-frame.test-support, so CLJS
@@ -68,8 +68,8 @@
 ;; side-table between tests (rf2-cq1ak — app-db schemas are NOT a
 ;; registrar kind).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter            reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter            rf.adapter.reagent/adapter
      :clear-app-schemas? true}))
 
 ;; ---- boundary interceptor under `:advanced` + `goog.DEBUG=false` ---------
@@ -247,7 +247,7 @@
             `nil` disables every validation surface — including the
             boundary interceptor. The handler runs on a wildly malformed
             payload because validation has been opted out."
-    (schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-validator! nil)
     (try
       (let [calls (atom 0)]
         (rf/reg-event :api/disabled
@@ -258,7 +258,7 @@
         (is (= 1 @calls)
             "handler ran — nil validator means no boundary check, even in production"))
       (finally
-        (schemas/reset-schema-validator!)))))
+        (rf.schemas/reset-schema-validator!)))))
 
 ;; ---- rf2-tiymn — the humanizer is NOT published in production ------------
 ;;
@@ -273,9 +273,9 @@
 (deftest humanizer-unpublished-in-prod-cljs
   (testing "rf2-tiymn — under `:advanced` + `goog.DEBUG=false` the humanize
             hook is unbound while the validator hook is bound"
-    (is (nil? (late-bind/get-fn :schemas/humanize-explain!))
+    (is (nil? (rf.late-bind/get-fn :schemas/humanize-explain!))
         "no humanizer in a production build")
-    (is (fn? (late-bind/get-fn :schemas/malli-validate))
+    (is (fn? (rf.late-bind/get-fn :schemas/malli-validate))
         "the validator from the same adapter ns-load IS bound — the absence above is the gate, not a missing adapter")))
 
 ;; ---- rf2-6eh5h — a present NIL :schema cannot run a boundary handler -----
@@ -309,7 +309,7 @@
             false verdict rejects the event and the handler is not invoked"
     (let [seen  (atom [])
           calls (atom 0)]
-      (schemas/set-schema-validator!
+      (rf.schemas/set-schema-validator!
         (fn [schema _value] (swap! seen conj schema) false))
       (try
         (rf/reg-event :wire/custom
@@ -321,4 +321,4 @@
         (is (= [nil] @seen)
             "the validator RECEIVED the exact nil token in the production path")
         (finally
-          (schemas/reset-schema-validator!))))))
+          (rf.schemas/reset-schema-validator!))))))

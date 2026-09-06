@@ -84,14 +84,14 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts])
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
   (:import [java.io InputStream]
            [java.net.http HttpResponse$BodyHandlers]
            [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicInteger AtomicLong]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ===========================================================================
 ;; Knobs
@@ -132,7 +132,7 @@
   rf2-fun38: returns the leaked-thread vec on timeout (does not throw) so
   the assertion can name the offenders."
   [timeout-ms]
-  (ts/await-no-streaming-threads! timeout-ms leak-poll-ms))
+  (rf.ssr.ring.test-support/await-no-streaming-threads! timeout-ms leak-poll-ms))
 
 ;; ===========================================================================
 ;; Token-echo handler — proves per-request frame isolation
@@ -204,12 +204,12 @@
   (testing (str n-threads " threads × " n-reqs-per-thread
                 " requests against stream-handler — no drops, no bleed, no orphan threads")
     (register-echo-handlers!)
-    (let [handler (ssr-ring/stream-handler
+    (let [handler (rf.ssr.ring/stream-handler
                     {:initial-events [[:rf.test.ozhy9/init]]
                      :root-view [(rf/view :rf.test.ozhy9/root)]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
-        (let [client     (ts/new-http-client)
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client     (rf.ssr.ring.test-support/new-http-client)
               latch      (CountDownLatch. 1)
               ;; AtomicInteger counts COMPLETIONS — successful response
               ;; receipt regardless of body content. The body-token
@@ -230,7 +230,7 @@
                     (try
                       (dotimes [iter-idx n-reqs-per-thread]
                         (let [token    (token-for thread-idx iter-idx)
-                              req      (ts/http-get-request port (str "/req/" token) read-timeout-secs)
+                              req      (rf.ssr.ring.test-support/http-get-request port (str "/req/" token) read-timeout-secs)
                               response (.send client req
                                               (HttpResponse$BodyHandlers/ofString))
                               status   (.statusCode response)
@@ -340,12 +340,12 @@
   (testing (str n-threads " threads × " n-reqs-per-thread
                 " concurrent disconnect-mid-stream — no orphan threads, no hangs")
     (register-echo-handlers!)
-    (let [handler (ssr-ring/stream-handler
+    (let [handler (rf.ssr.ring/stream-handler
                     {:initial-events [[:rf.test.ozhy9/init]]
                      :root-view [(rf/view :rf.test.ozhy9/root)]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
-        (let [client     (ts/new-http-client)
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client     (rf.ssr.ring.test-support/new-http-client)
               latch      (CountDownLatch. 1)
               completed  (AtomicInteger. 0)
               futures
@@ -356,7 +356,7 @@
                     (dotimes [iter-idx n-reqs-per-thread]
                       (try
                         (let [token    (token-for thread-idx iter-idx)
-                              req      (ts/http-get-request port (str "/req/" token) read-timeout-secs)
+                              req      (rf.ssr.ring.test-support/http-get-request port (str "/req/" token) read-timeout-secs)
                               response (.send client req
                                               (HttpResponse$BodyHandlers/ofInputStream))
                               ^InputStream body-is (.body response)
@@ -421,12 +421,12 @@
 (deftest ^:stress daemon-thread-count-bounded-during-burst
   (testing "writer-thread count bounded during burst, decays to zero after"
     (register-echo-handlers!)
-    (let [handler (ssr-ring/stream-handler
+    (let [handler (rf.ssr.ring/stream-handler
                     {:initial-events [[:rf.test.ozhy9/init]]
                      :root-view [(rf/view :rf.test.ozhy9/root)]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
-        (let [client     (ts/new-http-client)
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client     (rf.ssr.ring.test-support/new-http-client)
               latch      (CountDownLatch. 1)
               ;; AtomicInteger that we sample peak across — every
               ;; sampler thread contends here.
@@ -444,7 +444,7 @@
                   ;; sampler-stop counts down. CPU cost is bounded by
                   ;; the burst duration (a few seconds at most).
                   (while (zero? (.getCount sampler-stop))
-                    (let [n (count (ts/live-streaming-threads))]
+                    (let [n (count (rf.ssr.ring.test-support/live-streaming-threads))]
                       (loop []
                         (let [cur (.get peak-count)]
                           (when (and (> n cur)
@@ -458,7 +458,7 @@
                     (.await latch)
                     (dotimes [iter-idx n-reqs-per-thread]
                       (let [token (token-for thread-idx iter-idx)
-                            req   (ts/http-get-request port (str "/req/" token) read-timeout-secs)]
+                            req   (rf.ssr.ring.test-support/http-get-request port (str "/req/" token) read-timeout-secs)]
                         (.send client req
                                (HttpResponse$BodyHandlers/ofString)))))))]
           (.start sampler-thread)

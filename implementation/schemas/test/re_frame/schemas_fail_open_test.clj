@@ -37,11 +37,11 @@
   verdict is preserved."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- capture
   "Run `body-fn` while collecting trace events; return the captured vector."
@@ -187,14 +187,14 @@
   (testing "rf2-a5kzs (finding 2, boundary seam) — validate-with-registered-fn
             isolates a malformed-schema throw and returns FALSE (fail closed)
             rather than propagating to the interceptor's (catch … true)."
-    (is (false? (schemas/validate-with-registered-fn [:vector] [:anything]))
+    (is (false? (rf.schemas/validate-with-registered-fn [:vector] [:anything]))
         "childless [:vector] → false (not a throw, not a pass)")
-    (is (false? (schemas/validate-with-registered-fn [:not-a-real-op :int] 1))
+    (is (false? (rf.schemas/validate-with-registered-fn [:not-a-real-op :int] 1))
         "unknown op → false")
     ;; A well-formed schema still returns a real verdict.
-    (is (true?  (schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok 1]))
+    (is (true?  (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok 1]))
         "well-formed conforming → true")
-    (is (false? (schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok "no"]))
+    (is (false? (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok "no"]))
         "well-formed non-conforming → false")))
 
 (deftest direct-validate-event-malformed-schema-returns-false
@@ -202,7 +202,7 @@
             false (not a throw) on a malformed schema and emits the trace."
     (let [traces (capture
                    (fn []
-                     (is (false? (schemas/validate-event! :ev/x [:ev/x 1] {:schema [:vector]}))
+                     (is (false? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema [:vector]}))
                          "malformed schema → false, no throw")))]
       (is (= 1 (count (malformed-traces traces)))))))
 
@@ -220,25 +220,25 @@
             :explain nil — the throw does not abort trace construction nor
             unwind into the router's catch-as-pass."
     ;; validate fails; explain throws.
-    (schemas/set-schema-fns! {:validate (fn [_ _] false)
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
                               :explain  throwing-explainer})
     (try
       (rf/reg-app-schema [:n] [:int])
       (let [traces (capture
                      (fn []
-                       (is (false? (schemas/validate-app-schema! {:n "bad"} :n/bad))
+                       (is (false? (rf.schemas/validate-app-schema! {:n "bad"} :n/bad))
                            "fail-closed: false (rollback) — the explainer throw did not flip the verdict")))
             v      (first (validation-failures traces))]
         (is (some? v) "the failure trace still fired")
         (is (= :app-db (-> v :tags :where)))
         (is (nil? (-> v :tags :explain)) ":explain degraded to nil — explainer threw"))
-      (finally (schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/reset-schema-validator!)))))
 
 (deftest sub-return-explainer-throw-preserves-failure
   (testing "rf2-a5kzs (finding 3) — a throwing explainer on the meta-bearing
             run-validation path (sub-return) still returns false; the sub
             yields the default and the failure trace fires with :explain nil."
-    (schemas/set-schema-fns! {:validate (fn [_ _] false)
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
                               :explain  throwing-explainer})
     (try
       (rf/reg-event :s/init (fn [_ _] {:db {:v [1 2 3]}}))
@@ -254,17 +254,17 @@
         (is (some? v) "the sub-return failure trace fired")
         (is (= :sub-return (-> v :tags :where)))
         (is (nil? (-> v :tags :explain)) ":explain degraded to nil"))
-      (finally (schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/reset-schema-validator!)))))
 
 (deftest direct-validate-event-explainer-throw-preserves-false
   (testing "rf2-a5kzs (finding 3) — validate-event! returns false (not a
             throw) when the explainer throws on a real validation failure."
-    (schemas/set-schema-fns! {:validate (fn [_ _] false)
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
                               :explain  throwing-explainer})
     (try
       (let [traces (capture
                      (fn []
-                       (is (false? (schemas/validate-event!
+                       (is (false? (rf.schemas/validate-event!
                                      :ev/x [:ev/x "bad"]
                                      {:schema [:cat [:= :ev/x] :int]}))
                            "false despite the explainer throwing")))
@@ -272,16 +272,16 @@
         (is (some? v))
         (is (= :event (-> v :tags :where)))
         (is (nil? (-> v :tags :explain))))
-      (finally (schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/reset-schema-validator!)))))
 
 (deftest boundary-explain-seam-isolates-explainer-throw
   (testing "rf2-a5kzs (finding 3, boundary seam) — explain-with-registered-fn
             degrades a throwing explainer to nil rather than propagating."
-    (schemas/set-schema-explainer! throwing-explainer)
+    (rf.schemas/set-schema-explainer! throwing-explainer)
     (try
-      (is (nil? (schemas/explain-with-registered-fn [:int] "bad"))
+      (is (nil? (rf.schemas/explain-with-registered-fn [:int] "bad"))
           "explainer throw → nil, not a propagated exception")
-      (finally (schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/reset-schema-validator!)))))
 
 ;; ===========================================================================
 ;; Belt-and-braces — a non-throwing default explainer still attaches :explain
@@ -292,7 +292,7 @@
             path: a normal Malli failure still carries a non-nil :explain."
     (rf/reg-app-schema [:n] [:int])
     (let [traces (capture
-                   #(schemas/validate-app-schema! {:n "bad"} :n/bad))
+                   #(rf.schemas/validate-app-schema! {:n "bad"} :n/bad))
           v      (first (validation-failures traces))]
       (is (some? v))
       (is (some? (-> v :tags :explain))

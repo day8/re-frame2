@@ -54,14 +54,14 @@
             ["react-dom/client" :as react-dom-client]
             [reagent2.core :as r2]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.suspense :as suspense :refer [boundary]]
-            [re-frame.ssr.constants :as constants]
-            [re-frame.ssr.install :as install]
-            [re-frame.ssr.streaming.constants :as wire]
-            [re-frame.ssr.streaming.client :as streaming-client]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.suspense :as rf.ssr.suspense :refer [boundary]]
+            [re-frame.ssr.constants :as rf.ssr.constants]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.ssr.streaming.constants :as rf.ssr.streaming.constants]
+            [re-frame.ssr.streaming.client :as rf.ssr.streaming.client]
+            [re-frame.test-support :as rf.test-support]
             ;; Publishes the React-context tier `frame-provider` resolves
             ;; through. Without it the provider renders nothing and every
             ;; assertion below would read an empty container.
@@ -78,10 +78,10 @@
 ;; on the page. A test that streams a failure MUST clear it.
 (use-fixtures :each
   {:before (fn []
-             (install/reset-installed-payloads!)
-             (suspense/reset-failed-boundaries!))}
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-slim-adapter/adapter :async? true :ambient-frame nil}))
+             (rf.ssr.install/reset-installed-payloads!)
+             (rf.ssr.suspense/reset-failed-boundaries!))}
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter :async? true :ambient-frame nil}))
 
 (defn- browser? []
   (and (exists? js/document)
@@ -182,15 +182,15 @@
     (rf/make-frame {:id fid :platform :server})
     (rf/dispatch-sync [:test/seed] {:frame fid})
     (let [{:keys [shell-html continuations]}
-          (rf/with-frame fid (ssr/streaming-render-shell [server-dashboard]))
-          outcomes (mapv #(rf/with-frame fid (ssr/streaming-render-continuation fid %))
+          (rf/with-frame fid (rf.ssr/streaming-render-shell [server-dashboard]))
+          outcomes (mapv #(rf/with-frame fid (rf.ssr/streaming-render-continuation fid %))
                          continuations)
           chunks   (mapv (fn [{:keys [id html delta failed?]}]
                            (str (if failed?
-                                  (ssr/streaming-failed-template id html)
-                                  (ssr/streaming-resolved-template id html))
+                                  (rf.ssr/streaming-failed-template id html)
+                                  (rf.ssr/streaming-resolved-template id html))
                                 (when (and (not failed?) (some? delta))
-                                  (ssr/streaming-hydrate-delta-script id (pr-str delta)))))
+                                  (rf.ssr/streaming-hydrate-delta-script id (pr-str delta)))))
                          outcomes)
           failed   (into #{} (comp (filter :failed?) (map :id)) outcomes)]
       (rf/destroy-frame! fid)
@@ -205,8 +205,8 @@
   (let [fid :test/expected]
     (rf/make-frame {:id fid :platform :server})
     (rf/dispatch-sync [:test/seed] {:frame fid})
-    (suspense/record-failed-boundaries! #{:card.flaky})
-    (let [html (rf/with-frame fid (ssr/render-to-string [dashboard] nil))]
+    (rf.ssr.suspense/record-failed-boundaries! #{:card.flaky})
+    (let [html (rf/with-frame fid (rf.ssr/render-to-string [dashboard] nil))]
       (rf/destroy-frame! fid)
       html)))
 
@@ -216,13 +216,13 @@
   the JVM half of that assembly is pinned in
   `streaming_component_cljs_test`."
   [failed]
-  (str "<script id=\"" constants/payload-script-id "\" type=\"application/edn\">"
+  (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
        (pr-str (cond-> {:rf/version   1
                         :rf/app-db    {:cards {:revenue {:title "Revenue" :value 42375}}}
                         :rf/render-hash "00000000"}
                  (seq failed)
                  (assoc :rf/runtime-db
-                        (assoc-in {} suspense/failed-boundaries-path (set failed)))))
+                        (assoc-in {} rf.ssr.suspense/failed-boundaries-path (set failed)))))
        "</script>"))
 
 ;; ---- DOM scaffolding -------------------------------------------------------
@@ -248,7 +248,7 @@
     (.removeChild p host)))
 
 (defn- mounts [host]
-  (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-mount "]"))))
+  (array-seq (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-mount "]"))))
 
 (defn- normalise-html
   "Collapse insignificant whitespace so a structural comparison is not
@@ -358,7 +358,7 @@
             "the shell walk registered both boundaries in document order")
         (is (= #{:card.flaky} failed)
             "the drain reported the throwing boundary as failed")
-        (streaming-client/install!
+        (rf.ssr.streaming.client/install!
           {:frame frame-id :root host :on-ready #(reset! ready %)})
         ;; Fallbacks are now LIVE mounts — the page paints its skeletons.
         (is (= 2 (count (mounts host)))
@@ -397,7 +397,7 @@
                       ;; The public boot path: read `__rf_payload`, validate
                       ;; it, dispatch `:rf/hydrate` into the explicit frame.
                       ;; State only — it never touches the DOM.
-                      (is (some? (ssr/hydrate! {:frame frame-id}))
+                      (is (some? (rf.ssr/hydrate! {:frame frame-id}))
                           "the final payload is readable and hydrates the frame")
                       (let [tree [rf/frame-provider {:frame frame-id} [dashboard]]
                             {:keys [complaints html]} (hydrate-capturing! (app-el host) tree)]
@@ -438,15 +438,15 @@
         (rf/dispatch-sync
           [:rf/hydrate {:rf/version 1
                         :rf/app-db  {:cards {:revenue {:title "Revenue" :value 42375}}}
-                        :rf/runtime-db (assoc-in {} suspense/failed-boundaries-path
+                        :rf/runtime-db (assoc-in {} rf.ssr.suspense/failed-boundaries-path
                                                  #{:card.flaky})}]
           {:frame frame-id})
-        (is (= #{:card.flaky} (suspense/frame-failed-boundaries frame-id))
+        (is (= #{:card.flaky} (rf.ssr.suspense/frame-failed-boundaries frame-id))
             "the DURABLE set survives the hydration round-trip into runtime-db")
         ;; The RENDER-TIME record — what the component consults. On a real
         ;; page the streaming client writes this at finalization; here we
         ;; stand in for it directly.
-        (suspense/record-failed-boundaries! #{:card.flaky})
+        (rf.ssr.suspense/record-failed-boundaries! #{:card.flaky})
         ;; Hydrate the SAME tree against the markup the finalised stream
         ;; leaves behind — which is, by construction, what the equivalent
         ;; non-streamed render of the same tree produces.
@@ -478,7 +478,7 @@
                          (register-app! frame-id))
             {:keys [shell chunks failed]} (server-render!)
             host     (make-host! shell)]
-        (streaming-client/install! {:frame frame-id :root host})
+        (rf.ssr.streaming.client/install! {:frame frame-id :root host})
         (doseq [c chunks] (append-chunk! host c))
         (async done
           (js/setTimeout
@@ -513,7 +513,7 @@
         ;; Everything arrived before the bundle booted.
         (doseq [c chunks] (append-chunk! host c))
         (append-chunk! host (payload-chunk failed))
-        (streaming-client/install!
+        (rf.ssr.streaming.client/install!
           {:frame frame-id :root host :on-ready (fn [_] (swap! calls inc))})
         (is (= 1 @calls) ":on-ready fires synchronously during install!")
         (is (zero? (count (mounts host)))
@@ -538,7 +538,7 @@
             {:keys [shell chunks]} (server-render!)
             host     (make-host! shell)
             ready    (atom false)]
-        (streaming-client/install!
+        (rf.ssr.streaming.client/install!
           {:frame frame-id :root host :on-ready (fn [_] (reset! ready true))})
         (append-chunk! host (first chunks))
         (async done
@@ -547,7 +547,7 @@
               (is (false? @ready) "no readiness before the final payload")
               (is (pos? (count (mounts host)))
                   "mounts are still present pre-readiness — this is precisely why hydration must wait")
-              (is (some? (.querySelector host (str "[" wire/attr-suspense-mount "] > div.card")))
+              (is (some? (.querySelector host (str "[" rf.ssr.streaming.constants/attr-suspense-mount "] > div.card")))
                   "the resolved card is nested inside its mount pre-readiness — the o4rbh mismatch shape")
               (remove-host! host)
               (done))

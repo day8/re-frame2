@@ -33,8 +33,8 @@
   the settled-shape, and (b) installing a RECORDING stub hook and asserting the
   exact opts map the façade forwards."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.ssr :as ssr]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.ssr :as rf.ssr]))
 
 (def ^:private drain-key :resources/drain-blocking-ssr!)
 
@@ -43,17 +43,17 @@
 ;; a fresh `default-blocking-pump!` fn object, so an `identical?` compare must
 ;; read the CURRENT var root the façade also resolves — a load-time snapshot
 ;; would go stale after any such reload.
-(defn- default-pump [] @#'ssr/default-blocking-pump!)
-(defn- default-timeout [] @#'ssr/default-ssr-blocking-timeout-ms)
+(defn- default-pump [] @#'rf.ssr/default-blocking-pump!)
+(defn- default-timeout [] @#'rf.ssr/default-ssr-blocking-timeout-ms)
 
 (defn- restore-hook!
   "Restore the drain hook to its pre-test registration (or remove it when it
   was absent), keeping the late-bind resolution cache consistent."
   [prev]
   (if prev
-    (late-bind/set-fn! drain-key prev)
-    (do (swap! late-bind/hooks dissoc drain-key)
-        (late-bind/invalidate-cache! drain-key)))
+    (rf.late-bind/set-fn! drain-key prev)
+    (do (swap! rf.late-bind/hooks dissoc drain-key)
+        (rf.late-bind/invalidate-cache! drain-key)))
   nil)
 
 ;; ---- (1) hook-absent no-op fast path ---------------------------------------
@@ -69,18 +69,18 @@
   blocking-ssr!` hook unregistered — the default for every no-resources SSR
   app) the façade is a no-op returning the exact settled-shape the Ring host
   consults: {:settled? true :timed-out [] :route-blocking-failure nil}"
-    (let [prev (late-bind/get-fn drain-key)]
+    (let [prev (rf.late-bind/get-fn drain-key)]
       (try
-        (swap! late-bind/hooks dissoc drain-key)
-        (late-bind/invalidate-cache! drain-key)
-        (is (nil? (late-bind/get-fn drain-key))
+        (swap! rf.late-bind/hooks dissoc drain-key)
+        (rf.late-bind/invalidate-cache! drain-key)
+        (is (nil? (rf.late-bind/get-fn drain-key))
             "precondition: the drain hook is absent in the ssr slice")
         (testing "1-arity (the host's default call — no opts)"
-          (is (= settled-shape (ssr/drain-blocking-resources! :ssr/some-frame))
+          (is (= settled-shape (rf.ssr/drain-blocking-resources! :ssr/some-frame))
               "hook-absent 1-arity returns the settled-shape"))
         (testing "2-arity opts are IGNORED on the absent path — still settled-shape"
           (is (= settled-shape
-                 (ssr/drain-blocking-resources!
+                 (rf.ssr/drain-blocking-resources!
                    :ssr/some-frame {:ssr-blocking-timeout-ms 123 :pump! nil :tick-ms 9}))
               "even with opts, the hook-absent path short-circuits to settled-shape"))
         (finally
@@ -91,23 +91,23 @@
 (deftest hook-present-forwards-resolved-opts-and-return
   (testing "rf2-zplpsp — with the drain hook PRESENT the façade forwards the
   frame-id and a normalised opts map, and returns the hook's result verbatim"
-    (let [prev     (late-bind/get-fn drain-key)
+    (let [prev     (rf.late-bind/get-fn drain-key)
           captured (atom nil)
           sentinel {:settled? false :timed-out #{[:x]} :route-blocking-failure {:route :r}}]
       (try
-        (late-bind/set-fn! drain-key
+        (rf.late-bind/set-fn! drain-key
           (fn [frame-id opts]
             (reset! captured {:frame-id frame-id :opts opts})
             sentinel))
 
         (testing "the hook's return rides back verbatim"
-          (is (= sentinel (ssr/drain-blocking-resources! :ssr/f))
+          (is (= sentinel (rf.ssr/drain-blocking-resources! :ssr/f))
               "the façade does not reshape the resources drain result"))
 
         (testing "DEFAULTS (1-arity / no opts): :deadline-ms = default 5000,
                   :pump! = default host-yield pump, :tick-ms = 5"
           (reset! captured nil)
-          (ssr/drain-blocking-resources! :ssr/f)
+          (rf.ssr/drain-blocking-resources! :ssr/f)
           (let [{:keys [frame-id opts]} @captured]
             (is (= :ssr/f frame-id) "frame-id is forwarded")
             (is (= (default-timeout) (:deadline-ms opts))
@@ -121,7 +121,7 @@
                   not an `or`) — a sync test stub drives a never-settling resource
                   straight to the deadline"
           (reset! captured nil)
-          (ssr/drain-blocking-resources! :ssr/f {:pump! nil})
+          (rf.ssr/drain-blocking-resources! :ssr/f {:pump! nil})
           (let [opts (:opts @captured)]
             (is (contains? opts :pump!) ":pump! key is present in the forwarded opts")
             (is (nil? (:pump! opts))
@@ -133,7 +133,7 @@
                   :deadline-ms, a custom :pump!, and :tick-ms"
           (reset! captured nil)
           (let [my-pump (fn [_tick] :pumped)]
-            (ssr/drain-blocking-resources! :ssr/f
+            (rf.ssr/drain-blocking-resources! :ssr/f
               {:ssr-blocking-timeout-ms 250 :pump! my-pump :tick-ms 7})
             (let [opts (:opts @captured)]
               (is (= 250 (:deadline-ms opts)) "explicit :ssr-blocking-timeout-ms → :deadline-ms")

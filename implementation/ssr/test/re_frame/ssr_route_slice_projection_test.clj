@@ -34,16 +34,16 @@
   uses a NON-sensitive sample route, so the leak was invisible there — this is
   the sensitive-route regression that gap called for (rf2-ugoxyv)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
             ;; Loading routing publishes the route classification machinery
             ;; and the routing fxs; the reset fixture reloads it.
             [re-frame.routing]
-            [re-frame.routing.classification :as route-class]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.routing.classification :as rf.routing.classification]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- the route under test -------------------------------------------------
 ;;
@@ -69,13 +69,13 @@
   time. Mirrors the machines test's commit-plane-effect install, but exercises
   the real route classification path."
   []
-  (let [lowered (route-class/apply-route-classification
+  (let [lowered (rf.routing.classification/apply-route-classification
                   {}
-                  (route-class/validate+extract route-id route-classification))
+                  (rf.routing.classification/validate+extract route-id route-classification))
         reg     (get lowered :rf.runtime/elision)]
     ;; Write the lowered route-sourced registry into the live frame's runtime-db
     ;; partition — the canonical durable home of `[:rf.runtime/elision]`.
-    (elision/swap-elision-slot! :rf/default (constantly reg))))
+    (rf.elision/swap-elision-slot! :rf/default (constantly reg))))
 
 (defn- runtime-db-with-secret-route
   "A runtime-db carrying the durable `:current` route slice the SSR hydration
@@ -99,7 +99,7 @@
             the plain :query sibling rides verbatim; the transient
             :pending-navigation is stripped"
     (install-route-classification!)
-    (let [slice   (payload-policy/project-runtime-db (runtime-db-with-secret-route))
+    (let [slice   (rf.ssr.payload-policy/project-runtime-db (runtime-db-with-secret-route))
           current (get-in slice [:rf.runtime/routing :current])]
       (is (= :rf/redacted (get-in current [:query :token]))
           "route-declared sensitive :query :token redacted in the hydration slice")
@@ -121,8 +121,8 @@
             redacted/elided route :query / :params, not the raw classified
             values"
     (install-route-classification!)
-    (let [rt-slice (payload-policy/project-runtime-db (runtime-db-with-secret-route))
-          payload  (payload-policy/build-payload
+    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db (runtime-db-with-secret-route))
+          payload  (rf.ssr.payload-policy/build-payload
                      :rf/default {:public/page :callback} "h1"
                      {:version 1 :runtime-db rt-slice})
           current  (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
@@ -139,7 +139,7 @@
     (let [rt      {:rf.runtime/routing
                    {:current {:route-id :route/home
                               :query    {:token "still-here"}}}}
-          slice   (payload-policy/project-runtime-db rt)
+          slice   (rf.ssr.payload-policy/project-runtime-db rt)
           current (get-in slice [:rf.runtime/routing :current])]
       (is (= "still-here" (get-in current [:query :token]))
           "an unclassified route query rides the hydration wire verbatim")
@@ -152,7 +152,7 @@
             (`[:rf.runtime/routing :current :query :token]`) into the live
             frame's elision registry — the path the SSR egress walk matches"
     (install-route-classification!)
-    (let [reg (get (frame/frame-runtime-db-value :rf/default) :rf.runtime/elision)]
+    (let [reg (get (rf.frame/frame-runtime-db-value :rf/default) :rf.runtime/elision)]
       (is (contains? (:sensitive-declarations reg)
                      [:rf.runtime/routing :current :query :token])
           "sensitive :query :token re-rooted to its absolute runtime-db path")

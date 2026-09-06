@@ -13,7 +13,7 @@
   so it carries no `:arglists`). `default-on-error` still gets a doc
   check below since it is a documented public surface."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.ring :as ssr-ring]))
+            [re-frame.ssr.ring :as rf.ssr.ring]))
 
 ;; The public FUNCTION surface of the facade — every entry MUST carry a
 ;; non-empty docstring AND a useful :arglists. (Listed explicitly rather

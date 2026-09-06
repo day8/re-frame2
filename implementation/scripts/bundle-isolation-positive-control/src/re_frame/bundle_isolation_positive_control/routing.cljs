@@ -1,6 +1,6 @@
 (ns re-frame.bundle-isolation-positive-control.routing
-  (:require [re-frame.routing.registry :as registry]))
+  (:require [re-frame.routing.registry :as rf.routing.registry]))
 
 (defn ^:export run []
   (aset js/globalThis "__rf2BundleIsolationRouting"
-        #js [registry/reg-route registry/route-url]))
+        #js [rf.routing.registry/reg-route rf.routing.registry/route-url]))

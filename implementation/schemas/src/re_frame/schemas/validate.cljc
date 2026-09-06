@@ -72,21 +72,21 @@
   the router rolls back; it does NOT install the unvalidated commit), and
   keeps validating the frame's sibling schemas so one bad registration
   cannot disable frame-wide post-commit validation."
-  (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.privacy :as privacy]
-            [re-frame.schemas.storage :as storage]
-            [re-frame.schemas.validator :as validator]
-            [re-frame.schemas.walker :as walker]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.schemas.storage :as rf.schemas.storage]
+            [re-frame.schemas.validator :as rf.schemas.validator]
+            [re-frame.schemas.walker :as rf.schemas.walker]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; Canonical privacy sentinel for value-bearing trace slots.
-(def ^:private redacted-sentinel privacy/redacted-sentinel)
+(def ^:private redacted-sentinel rf.privacy/redacted-sentinel)
 
 ;; The canonical value-bearing tag slots — the ones that carry the failing
 ;; value (or a value-bearing lookup key) verbatim and so must be scrubbed
@@ -132,7 +132,7 @@
   the whole-payload nature of these slots (a single marker, not a path-walk;
   the value-bearing slots carry the whole checked value, not a leaf)."
   [v]
-  (elision/->marker v [] {:reason :effect :hint nil}))
+  (rf.elision/->marker v [] {:reason :effect :hint nil}))
 
 (defn- elide-large-slots
   "Substitute the `:rf.size/large-elided` marker (for `v`, the whole checked
@@ -300,7 +300,7 @@
   prove every dev-only surface absent from optimized bundles."
   [subject id-or-path slot-tail schema value]
   (str subject id-or-path slot-tail (pr-str schema)
-       ", got " (error/type-of-value value) "."))
+       ", got " (rf.error/type-of-value value) "."))
 
 (defn- humanize-explain
   "Compute the operator-readable `:explain-humanized` payload from a
@@ -318,7 +318,7 @@
   failure trace itself)."
   [explanation]
   (when (some? explanation)
-    (when-let [humanize-fn (late-bind/get-fn :schemas/humanize-explain!)]
+    (when-let [humanize-fn (rf.late-bind/get-fn :schemas/humanize-explain!)]
       (try (humanize-fn explanation)
            (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
@@ -332,7 +332,7 @@
   category keyword in one place; future cross-cutting tag shaping
   lands here."
   [tags]
-  (trace/emit-error! :rf.error/schema-validation-failure tags))
+  (rf.trace/emit-error! :rf.error/schema-validation-failure tags))
 
 (defn- record-type-tag
   "TOTAL, CLOSED type tag for the always-on `:errors` record's `:reason`.
@@ -480,7 +480,7 @@
 
   Returns nil."
   [registered-path event-id frame-id leaf-value]
-  (when-let [dispatch-error-record! (late-bind/get-fn-cached
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn-cached
                                       :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       {:error           :rf.error/schema-validation-failure
@@ -499,7 +499,7 @@
                              registered-path " failed its schema (got "
                              (record-type-tag leaf-value)
                              "); the candidate transition was rejected and nothing installed.")
-       :time            (interop/now-ms)}))
+       :time            (rf.interop/now-ms)}))
   nil)
 
 (defn- emit-malformed-schema-rejection-record!
@@ -546,7 +546,7 @@
   never a static require into core's error-emit namespace. A nil hook is a
   silent skip. Returns nil."
   [registered-path event-id frame-id]
-  (when-let [dispatch-error-record! (late-bind/get-fn-cached
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn-cached
                                       :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       {:error           :rf.error/malformed-schema
@@ -562,7 +562,7 @@
        ;; absent from a release bundle by `check-elision.cjs`.
        :reason          (str "Registered app-db schema at path " registered-path
                              " is malformed and could not be evaluated; the candidate transition was rejected fail-closed and nothing installed.")
-       :time            (interop/now-ms)}))
+       :time            (rf.interop/now-ms)}))
   nil)
 
 (defn- emit-malformed-schema!
@@ -587,14 +587,14 @@
   surfaces retain structural locator tags but never include a value-bearing
   slot because the validator did not establish sensitivity."
   [tags]
-  (trace/emit-error! :rf.error/malformed-schema tags))
+  (rf.trace/emit-error! :rf.error/malformed-schema tags))
 
 (defn- safe-explain
   "Invoke the diagnostic-only explainer without allowing it to change the
   validation verdict. A throwing explainer degrades to nil."
   [schema value]
   (try
-    (validator/run-explainer schema value)
+    (rf.schemas.validator/run-explainer schema value)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 (defn- validate-entry-result
@@ -684,7 +684,7 @@
   [reg-meta value build-base-tags continue?]
   (if-not (continue?)
     :rf/stale-incarnation
-    (if-let [validate-fn @validator/validator-fn]
+    (if-let [validate-fn @rf.schemas.validator/validator-fn]
       ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
       ;; false `:schema` is delegated verbatim — default Malli then throws
       ;; on the non-schema form and the malformed isolation below fails
@@ -771,8 +771,8 @@
                 ;; `:cat`/`:map` element that is itself a compiled `m/schema`
                 ;; value) is just as unintrospectable, so the whole-payload
                 ;; check uses the recursive `schema-has-opaque-child?`.
-                        sensitive?  (or (walker/schema-has-sensitive? schema)
-                                        (walker/schema-has-opaque-child? schema))
+                        sensitive?  (or (rf.schemas.walker/schema-has-sensitive? schema)
+                                        (rf.schemas.walker/schema-has-opaque-child? schema))
                 ;; When the schema declares any `:large?`
                 ;; slot AND the failure is not sensitive (sensitive wins),
                 ;; elide the value-bearing slots to the `:rf.size/large-elided`
@@ -780,7 +780,7 @@
                 ;; SENSITIVE above (which subsumes large), so `:large?` is only
                 ;; consulted for a walkable schema here.
                         large?      (and (not sensitive?)
-                                         (walker/schema-has-large? schema))
+                                         (rf.schemas.walker/schema-has-large? schema))
                 ;; Humanize from the raw explanation here,
                 ;; before redaction, and fold the slot into base-tags so
                 ;; `redact-tags` scrubs it symmetrically with `:explain`
@@ -861,12 +861,12 @@
   result so the caller can decide rollback deterministically — but
   every failing schema is still surfaced as its own trace so consumers
   see the full set."
-  ([db] (validate-app-schema! db nil (frame/current-frame)))
-  ([db event-id] (validate-app-schema! db event-id (frame/current-frame)))
+  ([db] (validate-app-schema! db nil (rf.frame/current-frame)))
+  ([db event-id] (validate-app-schema! db event-id (rf.frame/current-frame)))
   ([db event-id frame-id]
-   (if-let [owner-token (frame/current-event-owner-token)]
+   (if-let [owner-token (rf.frame/current-event-owner-token)]
      (validate-app-schema! db event-id frame-id
-                           #(frame/event-continuation-live? frame-id owner-token))
+                           #(rf.frame/event-continuation-live? frame-id owner-token))
      (validate-app-schema! db event-id frame-id (constantly true))))
   ([db event-id frame-id continue?]
    ;; Per Spec 009 §Production builds the entire body lives inside a
@@ -880,13 +880,13 @@
    ;; gate predicate (the deref defeats Closure's reachability proof).
    ;;
    ;; Dereference the validator once outside the per-schema loop.
-   (if interop/debug-enabled?
-     (if-let [validate-fn @validator/validator-fn]
+   (if rf.interop/debug-enabled?
+     (if-let [validate-fn @rf.schemas.validator/validator-fn]
        ;; reduce + atomic short-circuit replaced doseq so we can emit
        ;; a trace per failure (full surface for consumers) AND return
        ;; a single conjoined boolean (single signal for the rollback
        ;; gate). Pass-state stays `true` only when every entry passed.
-        (loop [entries (seq (storage/frame-schema-entries frame-id))
+        (loop [entries (seq (rf.schemas.storage/frame-schema-entries frame-id))
                ok?     true]
           (if-not (continue?)
             :rf/stale-incarnation
@@ -1048,8 +1048,8 @@
                        ;; failing path (rather than "opaque anywhere in the
                        ;; schema") preserves leaf precision: an opaque sibling must
                        ;; not taint an unrelated non-opaque leaf's `:value`.
-                       leaf-sensitive?  (walker/schema-sensitive-at? schema in-path)
-                       whole-sensitive? (walker/schema-sensitive-at? schema nil)
+                       leaf-sensitive?  (rf.schemas.walker/schema-sensitive-at? schema in-path)
+                       whole-sensitive? (rf.schemas.walker/schema-sensitive-at? schema nil)
                        ;; A `:large?` non-sensitive schema
                        ;; elides the value-bearing slots to the size marker
                        ;; (sensitive wins; opaque is fail-closed sensitive,
@@ -1058,7 +1058,7 @@
                        ;; same shape on the narrowed `:value` (built from the
                        ;; failing leaf) and the whole-payload `:explain`.
                        whole-large?     (and (not whole-sensitive?)
-                                             (walker/schema-has-large? schema))
+                                             (rf.schemas.walker/schema-has-large? schema))
                        ;; Some `:in`
                        ;; segments are value-bearing, not structural: a
                        ;; `:set` failure's segment is the failing ELEMENT
@@ -1081,7 +1081,7 @@
                        ;; `:map-of` keys are kept so `:path` stays a useful
                        ;; locator for those shapes).
                             trace-in-path   (if (and in-path leaf-sensitive?)
-                                              (walker/sanitize-sensitive-path schema in-path)
+                                              (rf.schemas.walker/sanitize-sensitive-path schema in-path)
                                               in-path)
                             trace-path      (if trace-in-path
                                               (vec (concat registered-path trace-in-path))
@@ -1169,7 +1169,7 @@
   ([event-id event handler-meta frame]
    (validate-event! event-id event handler-meta frame (constantly true)))
   ([event-id event handler-meta frame continue?]
-   (if interop/debug-enabled?
+   (if rf.interop/debug-enabled?
      (run-validation
        handler-meta
        event
@@ -1204,7 +1204,7 @@
   ([sub-id query-v value sub-meta frame]
    (validate-sub! sub-id query-v value sub-meta frame (constantly true)))
   ([sub-id query-v value sub-meta frame continue?]
-   (if interop/debug-enabled?
+   (if rf.interop/debug-enabled?
      (run-validation
        sub-meta
        value
@@ -1249,7 +1249,7 @@
   ([fx-id event-id args fx-meta frame]
    (validate-fx! fx-id event-id args fx-meta frame (constantly true)))
   ([fx-id event-id args fx-meta frame continue?]
-   (if interop/debug-enabled?
+   (if rf.interop/debug-enabled?
      (run-validation
        fx-meta
        args
@@ -1313,7 +1313,7 @@
   runs in production by design."
   [schema value]
   (try
-    (boolean (validator/run-validator schema value))
+    (boolean (rf.schemas.validator/run-validator schema value))
     (catch #?(:clj Throwable :cljs :default) _ false)))
 
 (defn explain-with-registered-fn
@@ -1326,7 +1326,7 @@
   never change the verdict."
   [schema value]
   (try
-    (validator/run-explainer schema value)
+    (rf.schemas.validator/run-explainer schema value)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 (defn redact-validation-tags
@@ -1374,10 +1374,10 @@
   Pure; `redact-tags` is idempotent so a double-call (or a call on a
   tags map a path-based pre-scrub already touched) is safe."
   [schema tags]
-  (let [sensitive? (or (walker/schema-has-sensitive? schema)
-                       (walker/schema-has-opaque-child? schema))
+  (let [sensitive? (or (rf.schemas.walker/schema-has-sensitive? schema)
+                       (rf.schemas.walker/schema-has-opaque-child? schema))
         large?     (and (not sensitive?)
-                        (walker/schema-has-large? schema))]
+                        (rf.schemas.walker/schema-has-large? schema))]
     (cond-> tags
       sensitive? redact-tags
       large?     (elide-large-slots (:value tags)))))

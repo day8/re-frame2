@@ -43,13 +43,13 @@
   chunks arrive, reconciling against the final `__rf_payload`
   (`:replace-frame-state`) when it lands."
   (:require [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.shell :as shell]
-            [re-frame.ssr.streaming :as streaming]
-            [re-frame.trace :as trace])
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
+            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
+            [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
+            [re-frame.ssr.streaming :as rf.ssr.streaming]
+            [re-frame.trace :as rf.trace])
   (:import [java.io PipedInputStream PipedOutputStream OutputStream]
            [java.nio.charset StandardCharsets]))
 
@@ -87,7 +87,7 @@
   [head-html {:keys [render-hash] :as opts}]
   ;; Delegate all envelope and escaping decisions to the shared renderer;
   ;; streaming alone supplies the optional app-root render hash.
-  (shell/document-prefix head-html render-hash opts))
+  (rf.ssr.ring.shell/document-prefix head-html render-hash opts))
 
 (defn default-streaming-suffix
   "The shell suffix flushed after the final-payload chunk. Emits the
@@ -107,7 +107,7 @@
   [opts]
   ;; The shared suffix owns bootstrap escaping, raw body-end content, and the
   ;; document close; the app root closes in the shell chunk.
-  (shell/document-suffix opts))
+  (rf.ssr.ring.shell/document-suffix opts))
 
 ;; ---- shell phase (request thread, before response materialisation) -------
 ;;
@@ -182,21 +182,21 @@
   [frame-id {:keys [root-view] :as opts}]
   ;; Blocking route resources settle before the shell; suspense continuation
   ;; deferral is a separate axis. Absent resource hooks make this a no-op.
-  (ssr/drain-blocking-resources! frame-id opts)
+  (rf.ssr/drain-blocking-resources! frame-id opts)
   ;; Pin the frame on the request thread for registered view and head lookups.
   (rf/with-frame frame-id
-    (let [hiccup     (lifecycle/resolve-root-view root-view)
+    (let [hiccup     (rf.ssr.ring.lifecycle/resolve-root-view root-view)
           head-bag   (if (:head opts)
                        {:head-html (:head opts) :html-attrs nil :body-attrs nil}
-                       (lifecycle/resolve-head frame-id))
+                       (rf.ssr.ring.lifecycle/resolve-head frame-id))
           {:keys [head-html html-attrs body-attrs]} head-bag
           ;; Compute the body-only shell hash once on the request thread.
-          doc-hash   (lifecycle/render-document-hash hiccup)
+          doc-hash   (rf.ssr.ring.lifecycle/render-document-hash hiccup)
           ;; The SEPARATE client-reconstructible head-model hash — nil when
           ;; the head is not client-reconstructible (explicit `:head`
           ;; string / degraded resolution).
-          head-hash  (lifecycle/render-head-hash (:head-model head-bag))
-          {:keys [shell-html continuations]} (streaming/render-shell hiccup)]
+          head-hash  (rf.ssr.ring.lifecycle/render-head-hash (:head-model head-bag))
+          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell hiccup)]
       {:head-html     head-html
        :html-attrs    html-attrs
        :body-attrs    body-attrs
@@ -325,10 +325,10 @@
                 ;; the thread boundary), so `render-continuation`'s frame lookups
                 ;; + registered-view resolution operate on the request frame.
                 (rf/with-frame frame-id
-                  (streaming/render-continuation frame-id continuation))
+                  (rf.ssr.streaming/render-continuation frame-id continuation))
                 render-template (if failed?
-                                  streaming/failed-template
-                                  streaming/resolved-template)]
+                                  rf.ssr.streaming/failed-template
+                                  rf.ssr.streaming/resolved-template)]
             ;; A continuation write names
             ;; the boundary :id so ops correlate the failure to a specific
             ;; deferred subtree (not just "some continuation broke").
@@ -360,7 +360,7 @@
             ;; script.
             (let [projected-delta
                   (rf/with-frame frame-id
-                    (streaming/project-delta delta frame-id
+                    (rf.ssr.streaming/project-delta delta frame-id
                                              {:payload payload}))]
               (when (and (not failed?)
                          (map? projected-delta)
@@ -368,7 +368,7 @@
                 (vreset! writer-position [:continuation-delta boundary-id])
                 (write-chunk!
                   output-stream
-                  (streaming/hydrate-delta-script
+                  (rf.ssr.streaming/hydrate-delta-script
                     boundary-id (pr-str projected-delta)))))
             ;; Pop the drained entry, append any nested continuations at
             ;; the tail (FIFO), continue until empty.
@@ -395,10 +395,10 @@
               ;; Only continuations can mutate state between shell and payload.
               (let [post-drain-hash
                     (if (and root-view (seq continuations))
-                      (lifecycle/render-document-hash
-                        (lifecycle/resolve-root-view root-view))
+                      (rf.ssr.ring.lifecycle/render-document-hash
+                        (rf.ssr.ring.lifecycle/resolve-root-view root-view))
                       doc-hash)]
-                (streaming/build-final-payload
+                (rf.ssr.streaming/build-final-payload
                   frame-id post-drain-hash
                   {:version         version
                    :schema-digest   schema-digest
@@ -409,7 +409,7 @@
                    :client-frame-id client-frame-id})))]
         ;; Shared id-pinned, script-body-escaped payload element.
         (write-chunk! output-stream
-                      (shell/payload-script-tag (pr-str final-payload))))
+                      (rf.ssr.ring.shell/payload-script-tag (pr-str final-payload))))
       ;; Chunk N+3 — shell suffix close.
       (vreset! writer-position [:suffix nil])
       (write-chunk! output-stream (default-streaming-suffix opts)))
@@ -431,13 +431,13 @@
                                   :recovery   :truncate-and-close}
                            (some? boundary-id)
                            (assoc :boundary-id boundary-id))]
-        (trace/emit-error! :rf.error/ssr-streaming-writer-failed failure-tags)
+        (rf.trace/emit-error! :rf.error/ssr-streaming-writer-failed failure-tags)
         ;; Post-commit writer errors are always-on, non-projecting telemetry;
         ;; the status is already on the wire and cannot change.
-        (lifecycle/emit-always-on-error!
+        (rf.ssr.ring.lifecycle/emit-always-on-error!
           (assoc failure-tags
                  :error :rf.error/ssr-streaming-writer-failed
-                 :time  (interop/now-ms)))))
+                 :time  (rf.interop/now-ms)))))
     (finally
       (try (.close output-stream) (catch Throwable _ nil))))))
 
@@ -464,9 +464,9 @@
   rf2-moftbs); `frame-id` remains the keyword for the failure trace."
   [response frame-id frame]
   (try
-    (pipeline/ssr-response->ring-response response nil)
+    (rf.ssr.ring.pipeline/ssr-response->ring-response response nil)
     (finally
-      (lifecycle/destroy-frame-quietly! frame frame-id))))
+      (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id))))
 
 (defn- stream-projected-error!
   "Materialise a projected 5xx as a plain-String error response on the
@@ -485,9 +485,9 @@
   the failure trace use."
   [frame-id response public-error opts frame]
   (try
-    (pipeline/materialise-projected-error frame-id response public-error opts)
+    (rf.ssr.ring.pipeline/materialise-projected-error frame-id response public-error opts)
     (finally
-      (lifecycle/destroy-frame-quietly! frame frame-id))))
+      (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id))))
 
 (defn- render-shell-or-projected-error
   "Render the streaming shell on THIS (request) thread, BEFORE the chunked
@@ -523,8 +523,8 @@
     (render-streaming-shell! frame-id opts)
     (catch Throwable t
       (let [projected-error-response
-            (pipeline/project-render-throw->ring-response frame-id t opts)]
-        (lifecycle/destroy-frame-quietly! frame frame-id)
+            (rf.ssr.ring.pipeline/project-render-throw->ring-response frame-id t opts)]
+        (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id)
         (reduced projected-error-response)))))
 
 (defn- stream-rendered-response
@@ -568,7 +568,7 @@
   (let [;; No body default-stamp here (we pass our own InputStream); `:body` is
         ;; assoc'd after the writer is wired below. Content-Length is already
         ;; stripped by the shared materialiser.
-        ring-response (pipeline/ssr-response->ring-response
+        ring-response (rf.ssr.ring.pipeline/ssr-response->ring-response
                         post-shell-response "" content-type)
         ;; 16 KiB pipe buffer — large enough to absorb the shell chunk in one
         ;; write so the writer rarely blocks on a slow consumer, small enough
@@ -586,7 +586,7 @@
               ;; happens here so it does NOT block the response close on the
               ;; slower destroy path. Destroy the VALUE (incarnation-EXACT,
               ;; rf2-moftbs); the keyword names the frame on any failure trace.
-              (lifecycle/destroy-frame-quietly! frame frame-id))))
+              (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id))))
         ^String (str "rf2-ssr-streaming-" (name frame-id)))
       (.setDaemon true)
       (.start))
@@ -707,7 +707,7 @@
   ;; positions), `:script-src` / `:app-element-id` escape-attr'd
   ;; (attribute-value positions) by the streaming
   ;; prefix/suffix. See `validate-construction-opts!` for details.
-  (lifecycle/validate-construction-opts! raw-opts)
+  (rf.ssr.ring.lifecycle/validate-construction-opts! raw-opts)
   ;; Reject opts the streaming path cannot honour (`:renderer` and
   ;; `:html-shell`) at construction time. `ssr-handler` builds its response
   ;; from a one-piece `:html-shell` fn; the streaming path flushes a SPLIT
@@ -716,7 +716,7 @@
   ;; silently dropped — a fail-OPEN API-contract gap (a production app
   ;; switching ssr-handler → stream-handler would lose CSP nonces / asset
   ;; URLs / root markup with no signal). Fail CLOSED at boot instead.
-  (lifecycle/validate-streaming-opts! raw-opts)
+  (rf.ssr.ring.lifecycle/validate-streaming-opts! raw-opts)
   ;; Mirror ssr-handler's defaults so streaming and non-streaming
   ;; handlers feel symmetric to callers. `:on-error` resolves the same
   ;; way via the shared `lifecycle/resolve-on-error`: caller's
@@ -729,11 +729,11 @@
   ;; default-seeded `text/html; charset=utf-8` — or the app's Content-Type
   ;; — in control (the on-the-wire default is unchanged).
   (let [opts        (-> (merge {:emit-hash? true} raw-opts)
-                        (assoc :on-error (lifecycle/resolve-on-error raw-opts)))
+                        (assoc :on-error (rf.ssr.ring.lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error content-type]} opts]
     (fn ring-handler [request]
       (let [{:keys [frame-id frame short-circuit]}
-            (pipeline/setup-request-frame! opts request)]
+            (rf.ssr.ring.pipeline/setup-request-frame! opts request)]
         (if short-circuit
           short-circuit
           (try
@@ -746,7 +746,7 @@
             ;; the chunked head ONLY once the shell is known-renderable. The
             ;; helpers (`render-shell-or-projected-error`, `stream-rendered-
             ;; response`, `redirect-response!`) carry the per-step rationale.
-            (let [{:keys [response public-error]} (ssr/flush-response-result! frame-id)]
+            (let [{:keys [response public-error]} (rf.ssr/flush-response-result! frame-id)]
               (cond
                 ;; Redirect precedence FIRST (Spec 011 §Redirect precedence).
                 (some? (:redirect response))
@@ -755,7 +755,7 @@
                 ;; A drain-time projected 5xx — NO shell, NO writer thread; a
                 ;; plain-String projected-error body on the request thread
                 ;; (Spec 011 §Streaming pre-commit rule, rf2-oytx7j).
-                (pipeline/projected-5xx? public-error)
+                (rf.ssr.ring.pipeline/projected-5xx? public-error)
                 (stream-projected-error! frame-id response public-error opts frame)
 
                 :else
@@ -770,7 +770,7 @@
                     ;; before materialising the head.
                     (let [{post-shell-response     :response
                            post-shell-public-error :public-error}
-                          (ssr/flush-response-result! frame-id)]
+                          (rf.ssr/flush-response-result! frame-id)]
                       (cond
                         ;; A redirect here is defense in depth: in v1 it
                         ;; cannot surface at the post-shell re-read (only the
@@ -789,7 +789,7 @@
                         ;; rf2-oytx7j SUPERSEDES the old stream-the-degraded-
                         ;; shell-under-500 behaviour: a 5xx before the chunked
                         ;; head commits never ships a partial-state shell.
-                        (pipeline/projected-5xx? post-shell-public-error)
+                        (rf.ssr.ring.pipeline/projected-5xx? post-shell-public-error)
                         (stream-projected-error!
                           frame-id post-shell-response
                           post-shell-public-error opts frame)
@@ -810,6 +810,6 @@
               ;; internals.
               ;; Destroy the VALUE (incarnation-EXACT, rf2-moftbs); the keyword
               ;; `frame-id` names the frame on any failure trace.
-              (try (lifecycle/destroy-frame-quietly! frame frame-id)
+              (try (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id)
                    (catch Throwable _ nil))
-              (lifecycle/safe-on-error on-error request t))))))))
+              (rf.ssr.ring.lifecycle/safe-on-error on-error request t))))))))

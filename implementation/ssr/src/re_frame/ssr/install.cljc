@@ -77,9 +77,9 @@
   Layer-2 per-response page registry here either: this is the CLIENT-side
   install ledger, keyed by payload id, and it takes no position on how a
   server assembles a page."
-  (:require [re-frame.error :as error]
-            [re-frame.ssr.hash :as hash]
-            [re-frame.ssr.manifest :as manifest]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.ssr.hash :as rf.ssr.hash]
+            [re-frame.ssr.manifest :as rf.ssr.manifest]))
 
 ;; ---------------------------------------------------------------------------
 ;; The ledger
@@ -103,7 +103,7 @@
   which is what makes `:already-installed` a reliable verdict rather than
   a hopeful one."
   [payload]
-  (hash/render-tree-hash payload))
+  (rf.ssr.hash/render-tree-hash payload))
 
 (defn installed-payload
   "-> the install record for `payload-id`, or `nil` when nothing is
@@ -175,7 +175,7 @@
 
 (defn- throw-payload-conflict!
   [where payload-id arriving-digest root-id existing-claim]
-  (error/throw-error!
+  (rf.error/throw-error!
    :rf.error/frame-payload-conflict where
    (str "root " (pr-str root-id) " references payload "
         (pr-str payload-id) ", but a DIFFERENT payload is already "
@@ -235,7 +235,7 @@
   immediately following element sibling (Spec 011 §Discovery). Returns
   nil on the JVM, where there is no DOM to read."
   [container]
-  #?(:cljs (manifest/discover container)
+  #?(:cljs (rf.ssr.manifest/discover container)
      :clj  (do container nil)))
 
 (defn resolve-manifest!
@@ -260,11 +260,11 @@
   unchanged."
   [where {:keys [manifest container]}]
   (cond
-    (some? manifest) (manifest/validate! where manifest)
+    (some? manifest) (rf.ssr.manifest/validate! where manifest)
 
     (some? container)
     (or (discover-manifest container)
-        (error/throw-error!
+        (rf.error/throw-error!
          :rf.error/root-manifest-invalid where
          (str "no Root Manifest was found for this hydrating root. The "
               "manifest is the container's IMMEDIATELY FOLLOWING element "

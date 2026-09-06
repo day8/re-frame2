@@ -40,8 +40,8 @@
   The Malli adapter publishes its functions through late binding. The façade
   loads that adapter automatically; the absent-hook soft-pass remains a
   defensive contract for substitute ports and isolated tests."
-  (:require [re-frame.late-bind :as late-bind]
-            [re-frame.schemas.cache :as cache]))
+  (:require [re-frame.late-bind :as rf.late-bind]
+            [re-frame.schemas.cache :as rf.schemas.cache]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -54,7 +54,7 @@
   Apps that want Malli-absent behaviour to be a hard fail register
   a stricter validator via `set-schema-validator!`."
   [schema value]
-  (if-let [v (late-bind/get-fn :schemas/malli-validate)]
+  (if-let [v (rf.late-bind/get-fn :schemas/malli-validate)]
     (v schema value)
     true))
 
@@ -64,7 +64,7 @@
   `re-frame.schemas.malli`. Returns nil when the adapter
   ns is not loaded — the failure trace then omits the `:explain` key."
   [schema value]
-  (when-let [e (late-bind/get-fn :schemas/malli-explain)]
+  (when-let [e (rf.late-bind/get-fn :schemas/malli-explain)]
     (e schema value)))
 
 (defn- compare-by-pr-str
@@ -108,7 +108,7 @@
 
 ;; The process-lifetime print cache is bounded by boot-time schema
 ;; cardinality and can be cleared by test fixtures that generate schemas.
-(let [[memo clear!] (cache/clearable-memo compute-edn-print)]
+(let [[memo clear!] (rf.schemas.cache/clearable-memo compute-edn-print)]
 
   (def
     ^{:doc "The default schema-print companion. Per Spec 010

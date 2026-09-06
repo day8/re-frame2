@@ -13,22 +13,22 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.shell :as shell]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
+            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
+            [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
 ;; rf2-i3qc0 / rf2-09iktm — the canonical reset-runtime fixture is
 ;; artefact-local in `re-frame.ssr.ring.test-support`. It wraps the
 ;; published `re-frame.test-support/make-reset-runtime-fixture` and layers
 ;; the four SSR per-request side-channel atom resets, so no external
 ;; `../ssr/test` path is required.
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ===========================================================================
 ;; Cookie serialisation (RFC 6265)
@@ -37,16 +37,16 @@
 (deftest cookie-set-cookie-header-canonical
   (testing "minimal cookie: name + value only"
     (is (= "session=abc123"
-           (ssr-ring/cookie->set-cookie-header
+           (rf.ssr.ring/cookie->set-cookie-header
              {:name "session" :value "abc123"}))))
 
   (testing "value gets URL-encoded"
     (is (= "session=a%20b%26c"
-           (ssr-ring/cookie->set-cookie-header
+           (rf.ssr.ring/cookie->set-cookie-header
              {:name "session" :value "a b&c"}))))
 
   (testing "full attribute set in canonical order"
-    (let [s (ssr-ring/cookie->set-cookie-header
+    (let [s (rf.ssr.ring/cookie->set-cookie-header
               {:name      "session"
                :value     "abc"
                :max-age   3600
@@ -64,16 +64,16 @@
       (is (str/includes? s "SameSite=Lax"))))
 
   (testing "same-site tokens map to canonical strings"
-    (is (str/includes? (ssr-ring/cookie->set-cookie-header
+    (is (str/includes? (rf.ssr.ring/cookie->set-cookie-header
                          {:name "s" :value "" :same-site :strict})
                        "SameSite=Strict"))
-    (is (str/includes? (ssr-ring/cookie->set-cookie-header
+    (is (str/includes? (rf.ssr.ring/cookie->set-cookie-header
                          {:name "s" :value "" :same-site :none})
                        "SameSite=None")))
 
   (testing "missing :name raises a structured error"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (ssr-ring/cookie->set-cookie-header {:value "abc"})))))
+                 (rf.ssr.ring/cookie->set-cookie-header {:value "abc"})))))
 
 ;; ===========================================================================
 ;; rf2-rpedl — CRLF injection in Set-Cookie attributes + cookie-name grammar
@@ -96,7 +96,7 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/cookie-invalid-attribute"
-            (ssr-ring/cookie->set-cookie-header
+            (rf.ssr.ring/cookie->set-cookie-header
               {:name "session" :value "abc" :domain hostile}))
           (str "hostile :domain " (pr-str hostile) " must be rejected"))))
 
@@ -104,26 +104,26 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
-          (ssr-ring/cookie->set-cookie-header
+          (rf.ssr.ring/cookie->set-cookie-header
             {:name "session" :value "abc" :path "/\r\nSet-Cookie: x=1"}))))
 
   (testing "rf2-rpedl §P1.2 — CR / LF / NUL in :max-age (string-shaped) throws"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
-          (ssr-ring/cookie->set-cookie-header
+          (rf.ssr.ring/cookie->set-cookie-header
             {:name "session" :value "abc" :max-age "3600\r\nbad"}))))
 
   (testing "rf2-rpedl §P1.2 — CR / LF / NUL in :same-site (string-shaped) throws"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
-          (ssr-ring/cookie->set-cookie-header
+          (rf.ssr.ring/cookie->set-cookie-header
             {:name "session" :value "abc" :same-site "Lax\r\nbad"}))))
 
   (testing "rf2-rpedl §P1.2 — clean attributes still serialise (regression
             guard: validation doesn't reject valid input)"
-    (let [s (ssr-ring/cookie->set-cookie-header
+    (let [s (rf.ssr.ring/cookie->set-cookie-header
               {:name      "session"
                :value     "abc"
                :domain    "example.com"
@@ -147,34 +147,34 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
-          (ssr-ring/cookie->set-cookie-header
+          (rf.ssr.ring/cookie->set-cookie-header
             {:name "sid" :value "abc" :path "/; SameSite=None; Secure"}))))
 
   (testing "rf2-j538f7.16 — a `;` in string :max-age forges attributes (repro 2)"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
-          (ssr-ring/cookie->set-cookie-header
+          (rf.ssr.ring/cookie->set-cookie-header
             {:name "sid" :value "abc" :max-age "3600; SameSite=None; Secure"}))))
 
   (testing "rf2-j538f7.16 — a `;` in :domain is rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
-          (ssr-ring/cookie->set-cookie-header
+          (rf.ssr.ring/cookie->set-cookie-header
             {:name "sid" :value "abc" :domain "evil.com; Secure"}))))
 
   (testing "rf2-j538f7.16 — a `;` in string :same-site is rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/cookie-invalid-attribute"
-          (ssr-ring/cookie->set-cookie-header
+          (rf.ssr.ring/cookie->set-cookie-header
             {:name "sid" :value "abc" :same-site "Lax; Secure"}))))
 
   (testing "rf2-j538f7.16 — the offending attribute + original value ride the
             structured error payload"
     (try
-      (ssr-ring/cookie->set-cookie-header
+      (rf.ssr.ring/cookie->set-cookie-header
         {:name "sid" :value "abc" :path "/; SameSite=None"})
       (is false "expected a thrown :rf.error/cookie-invalid-attribute")
       (catch clojure.lang.ExceptionInfo e
@@ -188,7 +188,7 @@
 
   (testing "rf2-j538f7.16 — a `;` in cookie :value is DATA, not a delimiter:
             it is percent-encoded (`%3B`), so it must NOT be over-rejected"
-    (let [s (ssr-ring/cookie->set-cookie-header
+    (let [s (rf.ssr.ring/cookie->set-cookie-header
               {:name "sid" :value "a;b" :path "/"})]
       (is (str/includes? s "sid=a%3Bb")
           "semicolon in :value serialises as %3B (data stays data)")
@@ -198,7 +198,7 @@
 
   (testing "rf2-j538f7.16 — clean attributes (canonical `/` path, plain
             domain, integer max-age) still serialise unchanged"
-    (let [s (ssr-ring/cookie->set-cookie-header
+    (let [s (rf.ssr.ring/cookie->set-cookie-header
               {:name    "sid"  :value "abc"
                :path    "/app" :domain "example.com"
                :max-age 3600   :same-site :none})]
@@ -223,7 +223,7 @@
                 :path  "/; SameSite=None; Secure"}]]}))
     (rf/reg-view* :pages/hostile-cookie
       (fn [] [:div "hostile"]))
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/hostile-cookie]]
                       :root-view [(rf/view :pages/hostile-cookie)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -249,7 +249,7 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/cookie-invalid-name"
-            (ssr-ring/cookie->set-cookie-header
+            (rf.ssr.ring/cookie->set-cookie-header
               {:name "session id" :value "abc"}))))
 
     (testing "name with separator chars throws"
@@ -258,7 +258,7 @@
         (is (thrown-with-msg?
               clojure.lang.ExceptionInfo
               #":rf\.error/cookie-invalid-name"
-              (ssr-ring/cookie->set-cookie-header
+              (rf.ssr.ring/cookie->set-cookie-header
                 {:name bad :value "abc"}))
             (str "separator-bearing name " (pr-str bad) " must be rejected"))))
 
@@ -267,21 +267,21 @@
         (is (thrown-with-msg?
               clojure.lang.ExceptionInfo
               #":rf\.error/cookie-invalid-name"
-              (ssr-ring/cookie->set-cookie-header
+              (rf.ssr.ring/cookie->set-cookie-header
                 {:name bad :value "abc"}))
             (str "control-char name " (pr-str bad) " must be rejected"))))
 
     (testing "valid token-grammar names pass through"
       (doseq [ok ["session" "_csrf" "X-CSRF-TOKEN" "data-1.2.3" "a"]]
         (is (str/starts-with?
-              (ssr-ring/cookie->set-cookie-header {:name ok :value "v"})
+              (rf.ssr.ring/cookie->set-cookie-header {:name ok :value "v"})
               (str ok "="))
             (str "valid name " (pr-str ok) " should serialise"))))
 
     (testing "keyword / symbol names are coerced via clojure.core/name"
       (doseq [named [:session 'session :data-1.2.3]]
         (is (str/starts-with?
-              (ssr-ring/cookie->set-cookie-header {:name named :value "v"})
+              (rf.ssr.ring/cookie->set-cookie-header {:name named :value "v"})
               (str (clojure.core/name named) "="))
             (str "Named cookie name " (pr-str named) " should serialise"))))
 
@@ -295,7 +295,7 @@
         ;; structured ex-info — a narrow `catch ExceptionInfo` would let the
         ;; bug's raw exception escape the test and obscure the failure.
         (let [t (try
-                  (ssr-ring/cookie->set-cookie-header {:name bad :value "v"})
+                  (rf.ssr.ring/cookie->set-cookie-header {:name bad :value "v"})
                   ::no-throw
                   (catch clojure.lang.ExceptionInfo e e)
                   (catch Throwable e e))]
@@ -354,7 +354,7 @@
     (register-articles-app! [{:id "a" :title "Article A"}
                              {:id "b" :title "Article B"}])
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     ;; rf2-q1b96 — the RESOLVING root-view form. The hash
                     ;; assertion below is what forces it: an unresolved
                     ;; `[(rf/view :pages/articles)]` renders byte-identical
@@ -397,7 +397,7 @@
               (fn [ev]
                 (when (= :rf.frame/destroyed (:operation ev))
                   (swap! destroyed conj (:frame ev)))))
-          handler (ssr-ring/ssr-handler
+          handler (rf.ssr.ring/ssr-handler
                     {:initial-events    [[:rf/server-init]]
                      :root-view    [(rf/view :pages/articles)]
                      :fx-overrides {:http/get :http/get.canned}
@@ -425,7 +425,7 @@
     (register-articles-app! [{:id "x" :title "Article X"}])
     (let [real-destroy    rf/destroy-frame!
           teardown-target (atom ::none)
-          handler (ssr-ring/ssr-handler
+          handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:rf/server-init]]
                      :root-view      [(rf/view :pages/articles)]
                      :fx-overrides   {:http/get :http/get.canned}
@@ -437,7 +437,7 @@
       (with-redefs [rf/destroy-frame!
                     (fn [target & more]
                       (when (and (= ::none @teardown-target)
-                                 (frame/frame-value? target))
+                                 (rf.frame/frame-value? target))
                         (reset! teardown-target target))
                       (apply real-destroy target more))]
         (let [response (handler {:uri "/" :request-method :get})]
@@ -446,9 +446,9 @@
       (is (= frames-before (set (rf/frame-ids)))
           "the per-request incarnation is fully released — no frame leak")
       ;; N+1 protected: teardown targets the incarnation-carrying VALUE.
-      (is (frame/frame-value? @teardown-target)
+      (is (rf.frame/frame-value? @teardown-target)
           "per-request teardown targeted the make-frame VALUE, not the bare gensym id")
-      (is (some? (frame/frame-value-incarnation-token @teardown-target))
+      (is (some? (rf.frame/frame-value-incarnation-token @teardown-target))
           "the teardown target carries the exact incarnation token, so the
            two-argument destroy no-ops against any same-id successor (N+1)
            (proven end-to-end by re-frame.frame-lifecycle-test)"))))
@@ -467,7 +467,7 @@
     (rf/reg-view* :pages/should-not-render
       (fn [] [:div "should not render under redirect"]))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/redirect]]
                      :root-view [(rf/view :pages/should-not-render)]
                      :payload :rf.ssr.payload/whole-app-db})
@@ -497,7 +497,7 @@
       (rf/register-listener! :trace ::redirect-no-target-watch
         (fn [ev] (when (= :rf.ssr/ssr-redirect-no-target (:operation ev))
                    (swap! traces conj ev))))
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/redirect-no-target]]
                         :root-view [(rf/view :pages/noop-rt)]
                         :payload :rf.ssr.payload/whole-app-db})
@@ -533,7 +533,7 @@
     (rf/reg-view* :pages/cookied
       (fn [] [:div "cookied"]))
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/with-cookies]]
                       :root-view [(rf/view :pages/cookied)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -570,7 +570,7 @@
     (rf/reg-view* :pages/broken
       (fn [] (throw (ex-info "boom-internal-jdbc-url-secret" {}))))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/ok]]
                      :root-view [(rf/view :pages/broken)]
                      :payload :rf.ssr.payload/whole-app-db})
@@ -623,7 +623,7 @@
          :message    "I'm a teapot"
          :retryable? false}))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/ok]]
                      :root-view [(rf/view :pages/broken-2)]
                      :ssr       {:public-error-id :myapp/teapot}
@@ -664,7 +664,7 @@
          [:p.code (name code)]
          [:p.status (str status)]
          [:p.msg message]]))
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events  [[:init/ok]]
                       :root-view  [(rf/view :pages/broken-ev)]
                       :error-view :myapp/error-page
@@ -689,7 +689,7 @@
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/broken-evf
       (fn [] (throw (ex-info "boom" {}))))
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events  [[:init/ok]]
                       :root-view  [(rf/view :pages/broken-evf)]
                       :error-view (fn [public]
@@ -715,7 +715,7 @@
       (rf/register-listener! :trace ::error-view-throw-watch
         (fn [ev] (when (= :rf.error/ssr-ring-error-view-failed (:operation ev))
                    (swap! traces conj ev))))
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events  [[:init/ok]]
                         :root-view  [(rf/view :pages/broken-evt)]
                         :error-view (fn [_public]
@@ -760,7 +760,7 @@
       (rf/reg-view* :pages/once
         (fn [] [:div.page "once"]))
 
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/ok-once]]
                         :root-view (fn []
                                      (swap! call-count inc)
@@ -790,7 +790,7 @@
       (rf/reg-view* :pages/noni
         (fn [n] [:div {:data-call n} "noni"]))
 
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/ok-noni]]
                         ;; rf2-q1b96 — outer call: the fn RESOLVES the view
                         ;; rather than handing back a reference to it, so the
@@ -890,7 +890,7 @@
     (rf/reg-view* :pages/fixed-body (fn [] [:div.body "identical body"]))
 
     (let [mk      (fn [head]
-                    (ssr-ring/ssr-handler
+                    (rf.ssr.ring/ssr-handler
                       {:initial-events [[:init/noop-head]]
                        ;; rf2-q1b96 — resolving form; the body-only-hash
                        ;; assertions below need a hash to exist.
@@ -945,7 +945,7 @@
     (rf/reg-view* :pages/shared-body (fn [] [:div.body "same body, different head"]))
 
     (let [mk      (fn [init]
-                    (ssr-ring/ssr-handler
+                    (rf.ssr.ring/ssr-handler
                       {:initial-events [[init]]
                        :root-view [(rf/view :pages/shared-body)]
                        :payload   :rf.ssr.payload/whole-app-db}))
@@ -992,7 +992,7 @@
     (rf/reg-view* :pages/attrs-body (fn [] [:div.body "body"]))
 
     (let [mk      (fn [init]
-                    (ssr-ring/ssr-handler
+                    (rf.ssr.ring/ssr-handler
                       {:initial-events [[init]]
                        :root-view [(rf/view :pages/attrs-body)]
                        :payload   :rf.ssr.payload/whole-app-db}))
@@ -1052,7 +1052,7 @@
     (rf/reg-view* :app/root
       (fn [] [:div.app [:h1 "Regression"] [:p "count is stable"]]))
 
-    (let [handler     (ssr-ring/ssr-handler
+    (let [handler     (rf.ssr.ring/ssr-handler
                         {:initial-events [[:rf.test.regression/init]
                                           [:rf.test.regression/seed-route]]
                          ;; Documented EXPANDED :root-view form — symmetric
@@ -1074,7 +1074,7 @@
           ;; rf2-1oxjxk concern) even if a stable `:client-frame-id` were
           ;; later configured on the handler.
           payload     (dissoc (edn/read-string payload-edn) :rf/frame-id)
-          client-frame (frame/make-anon-frame-record!
+          client-frame (rf.frame/make-anon-frame-record!
                          {:doc      "rf2-1oxjxk regression client frame"
                           :platform :client
                           :ssr      {:on-mismatch :hard-error}})]
@@ -1096,7 +1096,7 @@
       ;; body, so this call threw :rf.ssr/hydration-mismatch on every
       ;; single SSR page — even here under :on-mismatch :hard-error.
       (is (= payload
-             (ssr/hydrate! {:frame          client-frame
+             (rf.ssr/hydrate! {:frame          client-frame
                             :payload        payload
                             :render-tree-fn #((rf/view :app/root))}))
           "rf2-1oxjxk: hydrate! completes without a spurious mismatch throw
@@ -1123,7 +1123,7 @@
             frame is omitted from the wire) and seeds the client app-db"
     (rf/reg-event :rf.lm2yzy/init (fn [{:keys [db]} _] {:db (assoc db :count 42)}))
     (rf/reg-view* :app/root (fn [] [:div.app [:h1 "lm2yzy"] [:p "stable"]]))
-    (let [handler     (ssr-ring/ssr-handler
+    (let [handler     (rf.ssr.ring/ssr-handler
                         {:initial-events [[:rf.lm2yzy/init]]
                          :root-view      (fn [] ((rf/view :app/root)))
                          :payload        :rf.ssr.payload/whole-app-db})
@@ -1141,7 +1141,7 @@
           "rf2-lm2yzy: the shipped wire payload omits the per-request gensym :rf/frame-id")
       ;; THE REGRESSION — must NOT throw. Pre-fix this threw
       ;; :rf.error/hydration-frame-id-mismatch on the gensym vs :app/main.
-      (is (= payload (ssr/hydrate! {:frame :app/main :payload payload}))
+      (is (= payload (rf.ssr/hydrate! {:frame :app/main :payload payload}))
           "rf2-lm2yzy: documented hydrate! completes without a frame-id mismatch")
       (is (= 42 (:count (rf/app-db-value :app/main)))
           "the client app-db carries the server's seeded slice after hydration")))
@@ -1151,7 +1151,7 @@
             the SAME frame succeeds"
     (rf/reg-event :rf.lm2yzy/init2 (fn [{:keys [db]} _] {:db (assoc db :count 7)}))
     (rf/reg-view* :app/root (fn [] [:div.app "stamped"]))
-    (let [handler     (ssr-ring/ssr-handler
+    (let [handler     (rf.ssr.ring/ssr-handler
                         {:initial-events  [[:rf.lm2yzy/init2]]
                          :root-view       (fn [] ((rf/view :app/root)))
                          :payload         :rf.ssr.payload/whole-app-db
@@ -1164,7 +1164,7 @@
           _           (rf/make-frame {:id :app/stamped :doc "lm2yzy stamped" :platform :client})]
       (is (= :app/stamped (:rf/frame-id payload))
           "the configured stable :client-frame-id rides the wire as :rf/frame-id")
-      (is (= payload (ssr/hydrate! {:frame :app/stamped :payload payload}))
+      (is (= payload (rf.ssr/hydrate! {:frame :app/stamped :payload payload}))
           "hydrate! into the matching stable frame succeeds (no mismatch)"))))
 
 ;; ===========================================================================
@@ -1191,7 +1191,7 @@
 
       (rf/reg-view* :pages/blank (fn [] [:div]))
 
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/capture-request-cofx]]
                         :root-view [(rf/view :pages/blank)]
                         :payload :rf.ssr.payload/whole-app-db})
@@ -1216,14 +1216,14 @@
 
       (rf/reg-view* :pages/blank2 (fn [] [:div]))
 
-      (let [handler (ssr-ring/ssr-handler
+      (let [handler (rf.ssr.ring/ssr-handler
                       {:initial-events [[:init/capture-frame-id]]
                        :root-view [(rf/view :pages/blank2)]
                        :payload :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/x" :request-method :get})
         (is (some? @captured-fid)
             "the initial-events handler captured the per-request frame-id")
-        (is (nil? (ssr/get-request @captured-fid))
+        (is (nil? (rf.ssr/get-request @captured-fid))
             "the request slot was cleared on frame teardown — no leak across requests")))))
 
 (deftest handler-isolates-request-slots-across-requests
@@ -1238,7 +1238,7 @@
 
       (rf/reg-view* :pages/blank3 (fn [] [:div]))
 
-      (let [handler (ssr-ring/ssr-handler
+      (let [handler (rf.ssr.ring/ssr-handler
                       {:initial-events [[:init/observe-request]]
                        :root-view [(rf/view :pages/blank3)]
                        :payload :rf.ssr.payload/whole-app-db})]
@@ -1283,7 +1283,7 @@
 
       (rf/reg-view* :pages/blank-auth (fn [] [:div]))
 
-      (let [handler (ssr-ring/ssr-handler
+      (let [handler (rf.ssr.ring/ssr-handler
                       ;; The fn form: derive the setup vector from the request.
                       {:initial-events (fn [req]
                                          [[:auth/server-init (extract-user req)]])
@@ -1307,7 +1307,7 @@
           {:db (assoc db :uri uri)}))
       (rf/reg-view* :pages/blank-once (fn [] [:div]))
 
-      (let [handler (ssr-ring/ssr-handler
+      (let [handler (rf.ssr.ring/ssr-handler
                       {:initial-events (fn [req]
                                          (swap! calls conj (:uri req))
                                          [[:init/noted (:uri req)]])
@@ -1326,7 +1326,7 @@
         (fn [{:keys [db]} _] (reset! seen true) {:db db}))
       (rf/reg-view* :pages/blank-plain (fn [] [:div]))
 
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/plain]]
                         :root-view [(rf/view :pages/blank-plain)]
                         :payload :rf.ssr.payload/whole-app-db})
@@ -1339,7 +1339,7 @@
   (testing "an :initial-events fn whose result is NOT a vector throws
             :rf.error/invalid-initial-events inside setup — routed to on-error 500"
     (rf/reg-view* :pages/blank-bad (fn [] [:div]))
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      ;; Returns a map, not a vector — programmer error.
                      {:initial-events (fn [_req] {:not "a vector"})
                       :root-view [(rf/view :pages/blank-bad)]
@@ -1355,19 +1355,19 @@
             resolution, and the two invalid-shape throws (unit)"
     (let [req {:uri "/u" :headers {}}]
       ;; Vector passes through verbatim.
-      (is (= [[:e 1]] (lifecycle/resolve-initial-events! [[:e 1]] req)))
+      (is (= [[:e 1]] (rf.ssr.ring.lifecycle/resolve-initial-events! [[:e 1]] req)))
       ;; A 1-arity fn is called with the request; its vector result is returned.
       (is (= [[:derived "/u"]]
-             (lifecycle/resolve-initial-events!
+             (rf.ssr.ring.lifecycle/resolve-initial-events!
                (fn [r] [[:derived (:uri r)]]) req)))
       ;; A fn returning a non-vector throws invalid-initial-events.
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"initial-events fn must return an :initial-events vector"
-                            (lifecycle/resolve-initial-events! (fn [_] {:nope true}) req)))
+                            (rf.ssr.ring.lifecycle/resolve-initial-events! (fn [_] {:nope true}) req)))
       ;; A non-vector, non-fn value throws invalid-initial-events.
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"initial-events must be a vector OR a"
-                            (lifecycle/resolve-initial-events! '(:list-not-vector) req))))))
+                            (rf.ssr.ring.lifecycle/resolve-initial-events! '(:list-not-vector) req))))))
 
 (deftest resolve-root-view-invalid-shape-unit-contract
   (testing "lifecycle/resolve-root-view — hiccup passthrough, 0-arity fn
@@ -1378,17 +1378,17 @@
             :rf.error/invalid-root-view for a value that is neither a hiccup
             vector nor a 0-arity fn — was untested (rf2-njkw94)."
     ;; A hiccup vector passes through verbatim.
-    (is (= [:div "x"] (lifecycle/resolve-root-view [:div "x"])))
+    (is (= [:div "x"] (rf.ssr.ring.lifecycle/resolve-root-view [:div "x"])))
     ;; A 0-arity fn is invoked exactly once; its hiccup result is returned.
     (let [calls (atom 0)]
-      (is (= [:section] (lifecycle/resolve-root-view
+      (is (= [:section] (rf.ssr.ring.lifecycle/resolve-root-view
                           (fn [] (swap! calls inc) [:section]))))
       (is (= 1 @calls) "the fn-form is resolved exactly once (rf2-6t36h)"))
     ;; Every non-vector, non-fn shape hits the :else arm and throws the
     ;; canonical :rf.error/invalid-root-view — pinned across scalar shapes so
     ;; the fail-closed branch (not accidental happy-path fallthrough) fires.
     (doseq [bad ["a-string" :a-keyword {:a :map} 42 nil]]
-      (let [ex (try (lifecycle/resolve-root-view bad)
+      (let [ex (try (rf.ssr.ring.lifecycle/resolve-root-view bad)
                     (catch clojure.lang.ExceptionInfo e e))]
         (is (instance? clojure.lang.ExceptionInfo ex)
             (str "resolve-root-view must throw for " (pr-str bad)))
@@ -1429,7 +1429,7 @@
 
       (rf/reg-view* :pages/blank-for-ssr-opt (fn [] [:div]))
 
-      (let [handler (ssr-ring/ssr-handler
+      (let [handler (rf.ssr.ring/ssr-handler
                       {:initial-events [[:init/capture-ssr-meta]]
                        :root-view [(rf/view :pages/blank-for-ssr-opt)]
                        :ssr       {:dev-error-detail? true
@@ -1457,7 +1457,7 @@
 
     (rf/reg-view* :pages/echo (fn [] [:div "echo"]))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events    [[:init/many-keys]]
                      :root-view    [(rf/view :pages/echo)]
                      :payload [:public/articles]})
@@ -1499,7 +1499,7 @@
 
     (rf/reg-view* :pages/echo (fn [] [:div "echo"]))
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/seed-runtime]]
                       :root-view [(rf/view :pages/echo)]
                       :payload   [:public/page]})
@@ -1557,7 +1557,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-missing-payload-policy"
-          (ssr-ring/ssr-handler
+          (rf.ssr.ring/ssr-handler
             {:initial-events [[:init/no-policy]]
              :root-view [(rf/view :pages/no-policy)]}))
         "ssr-handler MUST throw at construction time when the policy
@@ -1574,7 +1574,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-missing-payload-policy"
-          (ssr-ring/stream-handler
+          (rf.ssr.ring/stream-handler
             {:initial-events [[:init/no-policy-stream]]
              :root-view [(rf/view :pages/no-policy-stream)]}))
         "stream-handler MUST throw at construction time when the
@@ -1595,7 +1595,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-ring-missing-initial-events"
-          (ssr-ring/ssr-handler
+          (rf.ssr.ring/ssr-handler
             {:root-view [(rf/view :pages/no-oncreate)]
              :payload :rf.ssr.payload/whole-app-db})))))
 
@@ -1607,7 +1607,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-ring-missing-initial-events"
-          (ssr-ring/stream-handler
+          (rf.ssr.ring/stream-handler
             {:root-view [(rf/view :pages/no-oncreate-stream)]
              :payload :rf.ssr.payload/whole-app-db})))))
 
@@ -1620,7 +1620,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-ring-missing-root-view"
-          (ssr-ring/stream-handler
+          (rf.ssr.ring/stream-handler
             {:initial-events [[:init/no-rootview-stream]]
              :payload :rf.ssr.payload/whole-app-db})))))
 
@@ -1646,7 +1646,7 @@
     (rf/reg-view* :pages/policy-probe
       (fn [] [:div.page "policy probe"]))
 
-    (let [handler   (ssr-ring/ssr-handler
+    (let [handler   (rf.ssr.ring/ssr-handler
                       ;; The allowlist names ONLY the public slice.
                       ;; Every other server-only key on app-db is
                       ;; un-permitted and MUST be dropped.
@@ -1700,7 +1700,7 @@
     (rf/reg-view* :pages/wholeapp
       (fn [] [:div.page "whole app"]))
 
-    (let [handler   (ssr-ring/ssr-handler
+    (let [handler   (rf.ssr.ring/ssr-handler
                       {:initial-events      [[:init/wholeapp]]
                        :root-view      [(rf/view :pages/wholeapp)]
                        :payload :rf.ssr.payload/whole-app-db})
@@ -1726,7 +1726,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-unknown-payload-policy"
-          (ssr-ring/ssr-handler
+          (rf.ssr.ring/ssr-handler
             {:initial-events [[:init/typo-policy]]
              :root-view [(rf/view :pages/typo-policy)]
              :payload   :rf.ssr.payload/whole-db})) ; typo
@@ -1792,7 +1792,7 @@
           (is (thrown-with-msg?
                 clojure.lang.ExceptionInfo
                 #":rf\.error/ssr-trusted-shell-opt-invalid"
-                (ssr-ring/ssr-handler (assoc base-opts opt-k bad-val)))
+                (rf.ssr.ring/ssr-handler (assoc base-opts opt-k bad-val)))
               (str "ssr-handler MUST reject " (pr-str opt-k) " = "
                    (pr-str bad-val)
                    " with :rf.error/ssr-trusted-shell-opt-invalid"))))
@@ -1800,7 +1800,7 @@
       (testing "ex-data carries the structured diagnostic shape — :opt-key
                 names the offending opt; :got carries the rejected value;
                 :got-type names the type"
-        (let [ex (try (ssr-ring/ssr-handler
+        (let [ex (try (rf.ssr.ring/ssr-handler
                         (assoc base-opts :body-end {:script "evil"}))
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex) "an exception was thrown")
@@ -1815,7 +1815,7 @@
       (testing "strings pass through unchanged — the framework names
                 the boundary but does not gate the content; the
                 trust call itself remains the caller's"
-        (is (fn? (ssr-ring/ssr-handler
+        (is (fn? (rf.ssr.ring/ssr-handler
                    (assoc base-opts
                           :head           "<title>OK</title>"
                           :body-end       "<script src=\"/analytics.js\"></script>"
@@ -1825,7 +1825,7 @@
 
       (testing "nil values pass — explicit nil signals 'no override,
                 use the default'; the construction-time check accepts it"
-        (is (fn? (ssr-ring/ssr-handler
+        (is (fn? (rf.ssr.ring/ssr-handler
                    (assoc base-opts
                           :head           nil
                           :body-end       nil
@@ -1835,7 +1835,7 @@
       (testing "absent keys pass (regression guard — the check is
                 contains?-aware so absent opts don't trip on the
                 non-nil branch)"
-        (is (fn? (ssr-ring/ssr-handler base-opts)))))))
+        (is (fn? (rf.ssr.ring/ssr-handler base-opts)))))))
 
 (deftest stream-handler-construction-rejects-non-string-trusted-shell-opts
   (testing "rf2-o6ndb: stream-handler shares the trusted-shell-hook
@@ -1860,12 +1860,12 @@
           (is (thrown-with-msg?
                 clojure.lang.ExceptionInfo
                 #":rf\.error/ssr-trusted-shell-opt-invalid"
-                (ssr-ring/stream-handler (assoc base-opts opt-k bad-val)))
+                (rf.ssr.ring/stream-handler (assoc base-opts opt-k bad-val)))
               (str "stream-handler MUST reject " (pr-str opt-k) " = "
                    (pr-str bad-val)))))
 
       (testing "stream-handler accepts strings on all four"
-        (is (fn? (ssr-ring/stream-handler
+        (is (fn? (rf.ssr.ring/stream-handler
                    (assoc base-opts
                           :head           "<meta name=\"x\">"
                           :body-end       "<script src=\"/x.js\"></script>"
@@ -1886,7 +1886,7 @@
     (let [;; A quote-bearing-but-otherwise-trusted value: an asset URL the
           ;; caller assembled with a query-string carrying a quote, and an
           ;; id with a stray quote. Both are attribute-value positions.
-          html (ssr-ring/default-html-shell
+          html (rf.ssr.ring/default-html-shell
                  "body" "{}"
                  {:app-element-id "ap\"p"
                   :script-src     "/main.js?v=\"x\""})]
@@ -1903,14 +1903,14 @@
 
   (testing "rf2-7x0qk: an ampersand in :script-src (legal query-string
             separator) is escape-attr'd to &amp; — lossless, position-correct"
-    (let [html (ssr-ring/default-html-shell
+    (let [html (rf.ssr.ring/default-html-shell
                  "body" "{}" {:script-src "/main.js?a=1&b=2"})]
       (is (str/includes? html "src=\"/main.js?a=1&amp;b=2\"")
           "& in the URL is encoded as &amp; (the attribute-value escape)")))
 
   (testing "rf2-7x0qk: benign values are unaffected (escape-attr only
             touches & and \") — the common case round-trips verbatim"
-    (let [html (ssr-ring/default-html-shell
+    (let [html (rf.ssr.ring/default-html-shell
                  "body" "{}" {:app-element-id "root" :script-src "/bootstrap.js"})]
       (is (str/includes? html "<div id=\"root\">"))
       (is (str/includes? html "src=\"/bootstrap.js\"")))))
@@ -1958,16 +1958,16 @@
                      :body-end       "<script>ga();</script>"}
           body      "<main><h1>Hi</h1></main>"
           payload   "{:rf/app-db {:x 1} :rf/version 1}"
-          shell-out (ssr-ring/default-html-shell body payload opts)
+          shell-out (rf.ssr.ring/default-html-shell body payload opts)
           ;; The streaming prefix with NO :render-hash reproduces the
           ;; non-streaming shell's prefix exactly (the #app root carries no
           ;; data-rf-render-hash marker in the non-streaming mode). `:head`
           ;; is threaded as the prefix's positional head-html arg.
-          composed  (str (ssr-ring/default-streaming-prefix (:head opts) opts)
+          composed  (str (rf.ssr.ring/default-streaming-prefix (:head opts) opts)
                          body
                          "</div>"
-                         (shell/payload-script-tag payload)
-                         (ssr-ring/default-streaming-suffix opts))]
+                         (rf.ssr.ring.shell/payload-script-tag payload)
+                         (rf.ssr.ring/default-streaming-suffix opts))]
       (is (= shell-out composed)
           "the non-streaming shell is byte-identical to the composition of
            the shared streaming prefix/suffix renderers")
@@ -1988,8 +1988,8 @@
             data-rf-render-hash on #app when supplied; a render-hash-less
             call matches the non-streaming shell's marker-free #app root"
     (let [opts   {:app-element-id "app"}
-          hashed (ssr-ring/default-streaming-prefix "" (assoc opts :render-hash "cafebabe"))
-          plain  (ssr-ring/default-streaming-prefix "" opts)]
+          hashed (rf.ssr.ring/default-streaming-prefix "" (assoc opts :render-hash "cafebabe"))
+          plain  (rf.ssr.ring/default-streaming-prefix "" opts)]
       (is (str/includes? hashed "<div id=\"app\" data-rf-render-hash=\"cafebabe\">")
           "streaming prefix stamps the marker when :render-hash is supplied")
       (is (str/includes? plain "<div id=\"app\">")
@@ -2018,7 +2018,7 @@
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/x})}))
     (rf/reg-view* :pages/blank-for-title (fn [] [:div]))
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/seed-route]]
                       :root-view [(rf/view :pages/blank-for-title)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -2040,7 +2040,7 @@
     (rf/reg-view* :pages/blank-no-head (fn [] [:div]))
     (rf/reg-event :init/noop (fn [{:keys [db]} _] {:db db}))
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/noop]]
                       :root-view [(rf/view :pages/blank-no-head)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -2069,7 +2069,7 @@
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-title})}))
     (rf/reg-view* :pages/blank-no-title (fn [] [:div]))
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/seed-no-title]]
                       :root-view [(rf/view :pages/blank-no-title)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -2113,7 +2113,7 @@
     (register-attrs-app! {:html-attrs {:lang "fr" :data-theme "dark"}
                           :body-attrs {:class "page-article"}})
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/seed-attrs-route]]
                       :root-view [(rf/view :pages/blank-attrs)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -2132,7 +2132,7 @@
             is the default for routes that don't opt into attr bags."
     (register-attrs-app! {:title "T"}) ; no attr bags
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/seed-attrs-route]]
                       :root-view [(rf/view :pages/blank-attrs)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -2149,7 +2149,7 @@
             The bag still wins for every other attribute it declares."
     (register-attrs-app! {:html-attrs {:data-theme "dark"}})
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/seed-attrs-route]]
                       :root-view [(rf/view :pages/blank-attrs)]
                       :lang      "ja"
@@ -2183,7 +2183,7 @@
                                        :hidden         false  ; omitted
                                        :inert          true}})
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/seed-attrs-route]]
                       :root-view [(rf/view :pages/blank-attrs)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -2224,7 +2224,7 @@
           wrapped        (fn [_req]
                            (reset! wrapped-called true)
                            {:status 204 :headers {} :body ""})
-          mw             (ssr-ring/ssr-middleware
+          mw             (rf.ssr.ring/ssr-middleware
                            {:initial-events    [[:rf/server-init]]
                             :root-view    [(rf/view :pages/articles)]
                             :fx-overrides {:http/get :http/get.canned}
@@ -2298,7 +2298,7 @@
     (rf/reg-view* :pages/dashboard
       (fn [] [:div.page [:h1 "Public dashboard"]]))
 
-    (let [handler   (ssr-ring/ssr-handler
+    (let [handler   (rf.ssr.ring/ssr-handler
                       {:initial-events [[:auth/login]]
                        :root-view [(rf/view :pages/dashboard)]
                        :payload :rf.ssr.payload/whole-app-db})
@@ -2391,7 +2391,7 @@
     (rf/reg-view* :pages/vary
       (fn [] [:div.page [:h1 "vary"]]))
 
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:vary/emit]]
                       :root-view      [(rf/view :pages/vary)]
                       :payload        :rf.ssr.payload/whole-app-db})
@@ -2477,7 +2477,7 @@
             opt is no longer a silent no-op, and no duplicate key survives"
     (rf/reg-event :init/ct-ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/ct-body (fn [] [:div "body"]))
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/ct-ok]]
                       :root-view      [(rf/view :pages/ct-body)]
                       :content-type   "application/xhtml+xml; charset=utf-8"
@@ -2495,7 +2495,7 @@
             (text/html; charset=utf-8) rides the wire unchanged"
     (rf/reg-event :init/ct-def {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/ct-def-body (fn [] [:div "body"]))
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/ct-def]]
                       :root-view      [(rf/view :pages/ct-def-body)]
                       :payload        :rf.ssr.payload/whole-app-db})
@@ -2515,7 +2515,7 @@
         {:fx [[:rf.server/set-header {:name  "Content-Type"
                                       :value "application/json"}]]}))
     (rf/reg-view* :pages/ct-appset-body (fn [] [:div "body"]))
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/ct-appset]]
                       :root-view      [(rf/view :pages/ct-appset-body)]
                       :payload        :rf.ssr.payload/whole-app-db})
@@ -2557,7 +2557,7 @@
         (into [:ul]
               (for [{:keys [title]} (rf/subscribe-once [:articles])]
                 [:li title]))))
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/cl-stale]]
                       :root-view      [(rf/view :pages/cl-body)]
                       :payload        :rf.ssr.payload/whole-app-db})
@@ -2604,7 +2604,7 @@
 
       (rf/reg-view* :pages/hostile-page (fn [] [:div "ok"]))
 
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/hostile]]
                         :root-view [(rf/view :pages/hostile-page)]
                         :payload :rf.ssr.payload/whole-app-db})
@@ -2655,7 +2655,7 @@
             tag is broken, even before any runtime path. Pin the helper
             contract independent of the handler lifecycle."
     (let [payload-edn "{:greeting \"</script><script>x()</script>\"}"
-          html        (ssr-ring/default-html-shell "body" payload-edn {})]
+          html        (rf.ssr.ring/default-html-shell "body" payload-edn {})]
       (is (not (str/includes? html "</script><script>x()"))
           "shell-level: closing-tag pattern is broken")
       (is (str/includes? html "\\u003c/script>\\u003cscript>x()")
@@ -2674,7 +2674,7 @@
     (let [payload-edn (pr-str {:a<b 1
                                :tag :<
                                :public/title "</script><script>alert(1)</script>"})
-          html        (ssr-ring/default-html-shell "body" payload-edn {})
+          html        (rf.ssr.ring/default-html-shell "body" payload-edn {})
           body-edn    (second
                         (re-find
                           #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
@@ -2706,7 +2706,7 @@
     (let [payload-edn (pr-str {:k (symbol "a</script>b")})]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/ssr-edn-script-breakout"
-                            (ssr-ring/default-html-shell "body" payload-edn {}))))))
+                            (rf.ssr.ring/default-html-shell "body" payload-edn {}))))))
 
 (deftest shell-with-default-head-emits-exactly-one-charset-meta
   (testing "rf2-q78s1: the default shell owns the baseline <meta charset>;
@@ -2720,10 +2720,10 @@
             tag, yielding two."
     (let [;; The head fragment as the pipeline produces it for a route
           ;; with no declared :head — default-head rendered to HTML.
-          f          (frame/make-anon-frame-record! {:doc "Charset probe" :platform :server})
+          f          (rf.frame/make-anon-frame-record! {:doc "Charset probe" :platform :server})
           head-model (rf/active-head f)
           head-html  (rf/head-model->html head-model)
-          html       (ssr-ring/default-html-shell "body" "{}" {:head head-html})
+          html       (rf.ssr.ring/default-html-shell "body" "{}" {:head head-html})
           n-charset  (count (re-seq #"(?i)<meta\s+charset" html))]
       (is (= 1 n-charset)
           (str "expected exactly one <meta charset> in the default document; saw "
@@ -2941,7 +2941,7 @@
                       (when (= :rf.error/ssr-head-resolution-failed
                                (:operation ev))
                         (swap! traces conj ev))))
-          handler (ssr-ring/ssr-handler
+          handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/seed-throwing-head-route]]
                      :root-view [(rf/view :pages/head-throws-body)]
                      :payload   :rf.ssr.payload/whole-app-db})
@@ -3000,7 +3000,7 @@
             (never stamped as `:rf/frame-id`, so no hydration-frame-id-mismatch)"
     (register-articles-app! [{:id "a" :title "Article A"}])
 
-    (let [handler     (ssr-ring/ssr-handler
+    (let [handler     (rf.ssr.ring/ssr-handler
                         {:initial-events      [[:rf/server-init]]
                          :root-view      [(rf/view :pages/articles)]
                          :fx-overrides   {:http/get :http/get.canned}
@@ -3054,7 +3054,7 @@
     (let [secret-msg "boom-jdbc-secret:postgres://internal-db.svc:5432/auth"
           t          (ex-info secret-msg {})
           req        {:uri "/anything" :request-method :get}
-          response   (ssr-ring/default-on-error req t)]
+          response   (rf.ssr.ring/default-on-error req t)]
       (is (= 500 (:status response))
           "status pinned to 500 — Ring-layer fallback default")
       (is (= {"Content-Type" "text/plain; charset=utf-8"}
@@ -3105,7 +3105,7 @@
           (fn [_req _t]
             (throw (ex-info "boom in the caller's on-error — leaks JDBC URL etc."
                             {:internal :topology})))
-          handler (ssr-ring/ssr-handler
+          handler (rf.ssr.ring/ssr-handler
                     {:initial-events '(:rf/server-init) ;; non-vector → setup throws
                      :root-view [:div]
                      :payload [:x]
@@ -3153,7 +3153,7 @@
     (let [throwing-on-error
           (fn [_req _t]
             (throw (ex-info "boom in the caller's on-error" {:internal :topology})))
-          handler (ssr-ring/ssr-handler
+          handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:rf.test/init-bad-cookie]]
                      :root-view [:div "hello"]
                      :payload :rf.ssr.payload/whole-app-db
@@ -3206,10 +3206,10 @@
              ;; THEN A's constructor rethrows into `setup-request-frame!`.
              (reset! captured-id id)
              (real-make {:id id :doc "successor B" :platform :server})
-             (reset! b-token (frame/frame-incarnation-token id))
+             (reset! b-token (rf.frame/frame-incarnation-token id))
              (throw (ex-info "incarnation A setup failed (already rolled back by core)"
                              {:simulated true})))]
-          (let [result (pipeline/setup-request-frame!
+          (let [result (rf.ssr.ring.pipeline/setup-request-frame!
                          {;; A valid (empty) :initial-events so setup reaches the
                           ;; `make-frame` call (our stub); the throw models A's
                           ;; construction failing, not a bad-opt rejection.
@@ -3224,9 +3224,9 @@
 
         ;; The load-bearing assertion: B's EXACT incarnation is still live after
         ;; the catch. With the removed bare-id reap present it would be destroyed.
-        (is (frame/frame-incarnation-live? @captured-id @b-token)
+        (is (rf.frame/frame-incarnation-live? @captured-id @b-token)
             "same-id successor B survives the setup-failure catch (no bare-id reap)")
-        (is (some? (frame/frame @captured-id))
+        (is (some? (rf.frame/frame @captured-id))
             "the id still resolves to a live frame (B), not a reaped/absent slot")
         (finally
           (when-let [id @captured-id]
@@ -3264,18 +3264,18 @@
             :rf.error/ssr-render-failed record to register-error-listener!
             under debug-off. Promotion adds the off-box record; the 5xx
             wire outcome is unchanged."
-    (error-emit/clear-error-listeners!)
+    (rf.error-emit/clear-error-listeners!)
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/render-throws
       (fn [] (throw (ex-info "render boom" {}))))
     (let [seen (capture-always-on-categories!)]
-      (with-redefs [interop/debug-enabled? false]
-        (let [handler  (ssr-ring/ssr-handler
+      (with-redefs [rf.interop/debug-enabled? false]
+        (let [handler  (rf.ssr.ring/ssr-handler
                          {:initial-events [[:init/ok]]
                           :root-view [(rf/view :pages/render-throws)]
                           :payload   :rf.ssr.payload/whole-app-db})
               response (handler {:uri "/render-throws" :request-method :get})]
-          (error-emit/clear-error-listeners!)
+          (rf.error-emit/clear-error-listeners!)
           ;; WIRE-UNCHANGED: a render-time throw still projects 5xx.
           (is (= 500 (:status response))
               "render-failed still ships a 5xx through the full handler")
@@ -3290,16 +3290,16 @@
             :rf.error/ssr-head-resolution-failed record to register-error-
             listener! under debug-off. Promotion ships the off-box record
             but NEVER flips the deliberate degraded-200."
-    (error-emit/clear-error-listeners!)
+    (rf.error-emit/clear-error-listeners!)
     (register-head-throwing-app!)
     (let [seen (capture-always-on-categories!)]
-      (with-redefs [interop/debug-enabled? false]
-        (let [handler  (ssr-ring/ssr-handler
+      (with-redefs [rf.interop/debug-enabled? false]
+        (let [handler  (rf.ssr.ring/ssr-handler
                          {:initial-events [[:init/seed-throwing-head-route]]
                           :root-view [(rf/view :pages/head-throws-body)]
                           :payload   :rf.ssr.payload/whole-app-db})
               response (handler {:uri "/head-throws" :request-method :get})]
-          (error-emit/clear-error-listeners!)
+          (rf.error-emit/clear-error-listeners!)
           ;; WIRE-UNCHANGED: degraded 200, body intact.
           (is (= 200 (:status response))
               "throwing :head fn degrades to a 200 — promotion did NOT flip
@@ -3317,20 +3317,20 @@
             render-time 5xx already stamped is unchanged, NON-PROJECTING)
             AND delivers a :rf.error/ssr-ring-error-view-failed record to
             register-error-listener! under debug-off."
-    (error-emit/clear-error-listeners!)
+    (rf.error-emit/clear-error-listeners!)
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/broken-evt-hhutya
       (fn [] (throw (ex-info "boom" {}))))
     (let [seen (capture-always-on-categories!)]
-      (with-redefs [interop/debug-enabled? false]
-        (let [handler  (ssr-ring/ssr-handler
+      (with-redefs [rf.interop/debug-enabled? false]
+        (let [handler  (rf.ssr.ring/ssr-handler
                          {:initial-events  [[:init/ok]]
                           :root-view  [(rf/view :pages/broken-evt-hhutya)]
                           :error-view (fn [_public]
                                         (throw (ex-info "error-view itself broke" {})))
                           :payload :rf.ssr.payload/whole-app-db})
               response (handler {:uri "/broken" :request-method :get})]
-          (error-emit/clear-error-listeners!)
+          (rf.error-emit/clear-error-listeners!)
           ;; WIRE-UNCHANGED: the error boundary holds at 500 with the locked
           ;; default template; the error-view's own failure did NOT re-flip
           ;; or escape (NON-PROJECTING).

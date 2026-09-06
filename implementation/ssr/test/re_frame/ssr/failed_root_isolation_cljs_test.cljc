@@ -59,22 +59,22 @@
   probe into a no-op and let it pass for the wrong reason."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
+            [re-frame.error-emit :as rf.error-emit]
             ;; JVM-only: the sole executable read is the `#?(:clj …)`
             ;; `with-redefs [interop/debug-enabled? false]` arm below.
-            #?(:clj [re-frame.interop :as interop])
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.boot :as boot]
-            [re-frame.ssr.install :as install]
-            [re-frame.ssr.payload-policy :as payload-policy]))
+            #?(:clj [re-frame.interop :as rf.interop])
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.boot :as rf.ssr.boot]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-(use-fixtures :once (fn [f] (rf/init! ssr/adapter) (f)))
+(use-fixtures :once (fn [f] (rf/init! rf.ssr/adapter) (f)))
 
 ;; `installed-payloads` is a process-global `defonce` ledger keyed by payload
 ;; id, outside app-db and untouched by `clear-all!` or a `frame/frames` reset.
 ;; A test that installs a payload and does not reset it leaks into every
 ;; sibling test in the shared runner process.
-(use-fixtures :each (fn [f] (install/reset-installed-payloads!) (f)))
+(use-fixtures :each (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -104,7 +104,7 @@
   "The page-wide hydration payload, built by the SHIPPED assembler so
   these tests track the real wire shape."
   [db]
-  (payload-policy/build-payload nil db "server-hash-1" {}))
+  (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
 
 (defn- reg-bump!
   "Register the mutation the interactivity probe dispatches. Per-test —
@@ -164,8 +164,8 @@
   arrives next meets `:rf.error/frame-payload-conflict`. This is a page
   composed from fragments rendered by two different server responses."
   [fid]
-  (install/payload-install-decision!
-   'test fid (install/payload-content-digest (payload-for {:count 99}))
+  (rf.ssr.install/payload-install-decision!
+   'test fid (rf.ssr.install/payload-content-digest (payload-for {:count 99}))
    :page/other-response))
 
 (defn- boot-page-without-isolation!
@@ -175,7 +175,7 @@
   escapes and every root after it is never reached."
   [specs]
   (mapv (fn [{:keys [mount-fn] :as spec}]
-          (let [payload (boot/hydrate! (dissoc spec :mount-fn))]
+          (let [payload (rf.ssr.boot/hydrate! (dissoc spec :mount-fn))]
             (when mount-fn (mount-fn))
             payload))
         specs))
@@ -210,8 +210,8 @@
     (reg-bump!)
     (let [frames (vec (repeatedly 3 fresh-frame!))
           specs  (root-specs frames fail-idx lever)]
-      (install/reset-installed-payloads!)
-      (assert-isolated! (ssr/hydrate-page! specs) frames fail-idx
+      (rf.ssr.install/reset-installed-payloads!)
+      (assert-isolated! (rf.ssr/hydrate-page! specs) frames fail-idx
                         (str label " @" fail-idx)))))
 
 ;; ---------------------------------------------------------------------------
@@ -246,9 +246,9 @@
       (reg-bump!)
       (let [frames (vec (repeatedly 3 fresh-frame!))
             specs  (root-specs frames fail-idx nil)]
-        (install/reset-installed-payloads!)
+        (rf.ssr.install/reset-installed-payloads!)
         (poison-with-a-conflicting-payload! (nth frames fail-idx))
-        (assert-isolated! (ssr/hydrate-page! specs) frames fail-idx
+        (assert-isolated! (rf.ssr/hydrate-page! specs) frames fail-idx
                           (str "conflict @" fail-idx))))))
 
 ;; ---------------------------------------------------------------------------
@@ -260,7 +260,7 @@
   [lever]
   (let [frames (vec (repeatedly 3 fresh-frame!))
         specs  (root-specs frames 0 lever)]
-    (install/reset-installed-payloads!)
+    (rf.ssr.install/reset-installed-payloads!)
     {:escaped? (try (boot-page-without-isolation! specs) false
                     (catch #?(:clj Throwable :cljs :default) _ true))
      :frames   frames}))
@@ -292,12 +292,12 @@
   (testing "the throw happens before any claim, so the ledger is untouched
             and the next root referencing that payload installs normally"
     (let [fid (fresh-frame!)]
-      (ssr/hydrate-page! [{:frame fid :root-id :page/a
+      (rf.ssr/hydrate-page! [{:frame fid :root-id :page/a
                            :payload (payload-for {:count 7})
                            :manifest {:rf.root/schema-version 2}}])
-      (is (nil? (install/installed-payload fid))
+      (is (nil? (rf.ssr.install/installed-payload fid))
           "no claim was made")
-      (is (= :hydrated (:status (first (ssr/hydrate-page!
+      (is (= :hydrated (:status (first (rf.ssr/hydrate-page!
                                         [{:frame fid :root-id :page/b
                                           :payload (payload-for {:count 7})}]))))
           "a later root got a true :install, not a poisoned :already-installed")
@@ -312,9 +312,9 @@
             ever hydrated."
     (let [fid (fresh-frame!)]
       (rf/destroy-frame! fid)
-      (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
+      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                       :root-id :page/a})
-      (is (nil? (install/installed-payload fid))
+      (is (nil? (rf.ssr.install/installed-payload fid))
           (str "MEASURED: the seed did not land (the frame was not live), "
                "so the claim was released. Without the release this reads "
                "the claim record, and the assertion below fails."))
@@ -329,7 +329,7 @@
                "-tagged` never reaches it: nesting THESE opts back to "
                "`{:config {:platform :client}}` leaves that test green and "
                "reds only this line."))
-      (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
+      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                       :root-id :page/b})
       (is (hydrated? fid)
           "the next root actually seeded the re-created frame"))))
@@ -341,15 +341,15 @@
             ledger exists to prevent."
     (reg-bump!)
     (let [fid (fresh-frame!)]
-      (ssr/hydrate-page! [{:frame fid :root-id :page/a
+      (rf.ssr/hydrate-page! [{:frame fid :root-id :page/a
                            :payload (payload-for {:count 7})
                            :mount-fn (boom! "mount")}])
-      (is (= :page/a (:installed-by (install/installed-payload fid)))
+      (is (= :page/a (:installed-by (rf.ssr.install/installed-payload fid)))
           "the payload IS installed — the seed committed before the mount died")
       (is (hydrated? fid) "and the frame carries the server slice")
       ;; A sibling root sharing that frame keeps running against it.
       (rf/dispatch-sync [::bump] {:frame fid})
-      (ssr/hydrate-page! [{:frame fid :root-id :page/b
+      (rf.ssr/hydrate-page! [{:frame fid :root-id :page/b
                            :payload (payload-for {:count 7})}])
       (is (= {:count 8} (rf/app-db-value fid))
           "the sibling found the payload live and did NOT re-seed — the
@@ -365,8 +365,8 @@
   dev-only trace bus."
   [f]
   (let [seen (atom [])]
-    (error-emit/register-error-listener! ::capture #(swap! seen conj %))
-    (try (f) (finally (error-emit/unregister-error-listener! ::capture)))
+    (rf.error-emit/register-error-listener! ::capture #(swap! seen conj %))
+    (try (f) (finally (rf.error-emit/unregister-error-listener! ::capture)))
     @seen))
 
 (defn- root-boot-failures [records]
@@ -379,7 +379,7 @@
             record naming the root"
     (let [frames  (vec (repeatedly 3 fresh-frame!))
           records (capture-error-records!
-                   #(ssr/hydrate-page! (root-specs frames 1 mount-lever)))
+                   #(rf.ssr/hydrate-page! (root-specs frames 1 mount-lever)))
           failed  (root-boot-failures records)]
       (is (= 1 (count failed)) "exactly one root failed, one record")
       (let [r (first failed)]
@@ -397,7 +397,7 @@
       (is (= :hydrate
              (:phase (first (root-boot-failures
                              (capture-error-records!
-                              #(ssr/hydrate-page!
+                              #(rf.ssr/hydrate-page!
                                 (root-specs frames 0 manifest-lever)))))))
           "a preflight death never reached the seed"))))
 
@@ -407,7 +407,7 @@
     (let [frames  (vec (repeatedly 3 fresh-frame!))
           specs   (-> (root-specs frames 0 manifest-lever)
                       (assoc-in [2 :mount-fn] (boom! "mount")))
-          records (capture-error-records! #(ssr/hydrate-page! specs))]
+          records (capture-error-records! #(rf.ssr/hydrate-page! specs))]
       (is (= #{:page/r0 :page/r2}
              (set (map :root-id (root-boot-failures records)))))
       (is (hydrated? (nth frames 1)) "and the survivor still hydrated"))))
@@ -427,11 +427,11 @@
                category is `always-on` in the Spec 009 catalogue, which
                `error-catalogue-channel-conformance-test` pins against
                the `always-on-axis-conformance-cljs-test` literal.)"
-       (with-redefs [interop/debug-enabled? false]
+       (with-redefs [rf.interop/debug-enabled? false]
          (reg-bump!)
          (let [frames  (vec (repeatedly 3 fresh-frame!))
                specs   (root-specs frames 1 mount-lever)
-               records (capture-error-records! #(ssr/hydrate-page! specs))]
+               records (capture-error-records! #(rf.ssr/hydrate-page! specs))]
            (is (= 1 (count (root-boot-failures records)))
                "the always-on record survives a production build")
            (doseq [i [0 2]]
@@ -449,7 +449,7 @@
             the single guarantee is that a failed root fails ALONE"
     (let [fid      (fresh-frame!)
           attempts (atom 0)
-          outcome  (first (ssr/hydrate-page!
+          outcome  (first (rf.ssr/hydrate-page!
                            [{:frame fid :root-id :page/a
                              :payload (payload-for {:count 7})
                              :mount-fn (fn [] (swap! attempts inc)
@@ -462,7 +462,7 @@
   (testing "so a caller correlates a failure positionally even when the
             root died before its id could be read from a manifest"
     (let [frames   (vec (repeatedly 3 fresh-frame!))
-          outcomes (ssr/hydrate-page! (root-specs frames 1 manifest-lever))]
+          outcomes (rf.ssr/hydrate-page! (root-specs frames 1 manifest-lever))]
       (is (= [:page/r0 :page/r1 :page/r2] (mapv :root-id outcomes)))
       (is (= [:hydrated :failed :hydrated] (mapv :status outcomes))))))
 
@@ -475,7 +475,7 @@
                            (assoc spec :mount-fn
                                   #(swap! mounted conj (:root-id spec))))
                          (root-specs frames nil nil))
-          outcomes (ssr/hydrate-page! specs)]
+          outcomes (rf.ssr/hydrate-page! specs)]
       (is (= [:hydrated :hydrated :hydrated] (mapv :status outcomes)))
       (is (= [:page/r0 :page/r1 :page/r2] @mounted) "every root mounted")
       (doseq [fid frames]

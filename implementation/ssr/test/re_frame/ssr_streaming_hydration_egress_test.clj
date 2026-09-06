@@ -18,11 +18,11 @@
   rf2-bt9kct) through the actual `build-final-payload` path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.privacy :as privacy]
-            [re-frame.ssr.streaming :as streaming]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.ssr.streaming :as rf.ssr.streaming]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (def ^:private sframe :rf.uc3cs4/server)
 
@@ -56,7 +56,7 @@
           raw-delta {:secret {:api-key "leak-me"}
                      :public {:page :dashboard}}
           projected (rf/with-frame sframe
-                      (streaming/project-delta raw-delta sframe {:payload [:public]}))]
+                      (rf.ssr.streaming/project-delta raw-delta sframe {:payload [:public]}))]
       (is (not (contains? projected :secret))
           ":secret (off-allowlist) is dropped from the streaming delta")
       (is (= {:page :dashboard} (:public projected))
@@ -71,8 +71,8 @@
     (reg-sensitive-server-frame! {})
     (let [raw-delta {:session {:token "secret-jwt" :user "bob"}}
           projected (rf/with-frame sframe
-                      (streaming/project-delta raw-delta sframe {:payload [:session]}))]
-      (is (= privacy/redacted-sentinel (get-in projected [:session :token]))
+                      (rf.ssr.streaming/project-delta raw-delta sframe {:payload [:session]}))]
+      (is (= rf.privacy/redacted-sentinel (get-in projected [:session :token]))
           "the frame-sensitive nested :token is redacted in the streamed delta")
       (is (= "bob" (get-in projected [:session :user]))
           "the public sibling rides verbatim")
@@ -86,9 +86,9 @@
     (let [raw-delta {:session {:token "secret-jwt" :user "bob"}
                      :secret  {:api-key "x"}}
           projected (rf/with-frame sframe
-                      (streaming/project-delta
+                      (rf.ssr.streaming/project-delta
                         raw-delta sframe {:payload :rf.ssr.payload/whole-app-db}))]
-      (is (= privacy/redacted-sentinel (get-in projected [:session :token])))
+      (is (= rf.privacy/redacted-sentinel (get-in projected [:session :token])))
       (is (contains? projected :secret)
           "whole-app-db keeps the changed :secret key (no allowlist filtering)")
       (is (not (.contains (pr-str projected) "secret-jwt"))))))
@@ -98,9 +98,9 @@
             off-allowlist, both project to {} so the host emits no delta script"
     (reg-sensitive-server-frame! {})
     (rf/with-frame sframe
-      (is (= {} (streaming/project-delta {} sframe {:payload [:public]}))
+      (is (= {} (rf.ssr.streaming/project-delta {} sframe {:payload [:public]}))
           "empty delta → {}")
-      (is (= {} (streaming/project-delta {:secret {:k 1}} sframe {:payload [:public]}))
+      (is (= {} (rf.ssr.streaming/project-delta {:secret {:k 1}} sframe {:payload [:public]}))
           "all-off-allowlist delta → {} (no :rf/redacted scalar)"))))
 
 ;; ---- the streaming arm of rf2-bt9kct: build-final-payload's :rf/app-db -----
@@ -114,10 +114,10 @@
        :public  {:page :home}
        :secrets {:api-key "internal"}})
     (let [payload (rf/with-frame sframe
-                    (streaming/build-final-payload
+                    (rf.ssr.streaming/build-final-payload
                       sframe "h1" {:version 1 :payload [:session :public]}))
           db      (:rf/app-db payload)]
-      (is (= privacy/redacted-sentinel (get-in db [:session :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in db [:session :token]))
           "the frame-sensitive :token redacts in the streaming final payload")
       (is (= "carol" (get-in db [:session :user])))
       (is (= {:page :home} (:public db)))

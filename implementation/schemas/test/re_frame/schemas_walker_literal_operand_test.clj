@@ -25,12 +25,12 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]
-            [re-frame.schemas.walker-literal-operand-fixtures :as fx]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.schemas.walker-literal-operand-fixtures :as rf.schemas.walker-literal-operand-fixtures]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- warnings-of [recorded operation]
   (filterv (fn [ev] (and (= :warning (:op-type ev))
@@ -44,8 +44,8 @@
             members, comparator bounds, `:re` pattern) and their enclosing
             structural forms are fully walkable, so schema-has-opaque-child?
             is FALSE (pre-fix: every one returned true)"
-    (doseq [s fx/not-opaque-forms]
-      (is (false? (schemas/schema-has-opaque-child? s))
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/not-opaque-forms]
+      (is (false? (rf.schemas/schema-has-opaque-child? s))
           (str "literal/walkable form must NOT be opaque: " (pr-str s))))))
 
 (deftest nested-compiled-values-still-fail-closed
@@ -53,15 +53,15 @@
             REAL child-schema position (root, :map slot, container element,
             :cat/:tuple element, :multi/:orn branch, :map-of key/value,
             combinator child) still fails closed (true)"
-    (doseq [s fx/opaque-forms]
-      (is (true? (schemas/schema-has-opaque-child? s))
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/opaque-forms]
+      (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "nested compiled value must fail closed: " (pr-str s))))))
 
 (deftest unknown-operator-shapes-fail-closed
   (testing "rf2-3fc89f.12 — an unclassified operator shape cannot be proven
             walkable, so it fails closed (true)"
-    (doseq [s fx/unknown-op-forms]
-      (is (true? (schemas/schema-has-opaque-child? s))
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/unknown-op-forms]
+      (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "unknown operator shape must fail closed: " (pr-str s))))))
 
 ;; ---- registration warning (ACCEPTANCE #2) ---------------------------------
@@ -95,7 +95,7 @@
   return the single :rf.error/schema-validation-failure trace."
   [schema event]
   (with-trace-recorder! [traces]
-    (schemas/validate-event! :demo/e event {:schema schema})
+    (rf.schemas/validate-event! :demo/e event {:schema schema})
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))
 
@@ -148,7 +148,7 @@
                       [:cat [:= :demo/e] [:enum 1 2]]
                       [:= 42]
                       [:enum "a" "b"]]]
-        (let [out (schemas/redact-validation-tags schema tags)]
+        (let [out (rf.schemas/redact-validation-tags schema tags)]
           (is (= tags out)
               (str "non-sensitive literal schema rides verbatim: " (pr-str schema)))
           (is (not (contains? out :sensitive?))
@@ -161,7 +161,7 @@
       (doseq [schema [[:cat [:= :demo/e] [:map [:pw {:sensitive? true} :string]]]
                       [:map [:tok (m/schema [:string {:sensitive? true}])]]
                       (m/schema [:string {:sensitive? true}])]]
-        (let [out (schemas/redact-validation-tags schema tags)]
+        (let [out (rf.schemas/redact-validation-tags schema tags)]
           (is (true? (:sensitive? out))
               (str "sensitive/opaque schema is stamped: " (pr-str schema)))
           (is (= :rf/redacted (:value out))

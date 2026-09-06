@@ -22,12 +22,12 @@
   `re-frame.ssr.ring-draintime-error-view-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]
-            [re-frame.trace :as trace]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
+            [re-frame.trace :as rf.trace]))
 
 ;; rf2-lwtlk — ORDER MATTERS. The wholesale `clear-error-listeners!` used to
 ;; run INSIDE `reset-runtime`'s body, i.e. AFTER it. `reset-runtime` re-installs
@@ -39,8 +39,8 @@
 ;; reset arm the projector.
 (use-fixtures :each
   (fn [t]
-    (error-emit/clear-error-listeners!)
-    (tf/reset-runtime t)))
+    (rf.error-emit/clear-error-listeners!)
+    (rf.ssr.test-fixture/reset-runtime t)))
 
 (defn- make-server-frame
   "A `:server`-platform frame using the default projector (no-such-handler →
@@ -88,9 +88,9 @@
   ([frame-id operation] (buffer-error! frame-id operation nil))
   ([frame-id operation extra-tags]
    (let [tags (merge {:frame frame-id :recovery :for-test} extra-tags)]
-     (trace/emit-error! operation tags)
-     (error-emit/dispatch-error-record!
-       (merge {:error operation :time (interop/now-ms)} tags)))))
+     (rf.trace/emit-error! operation tags)
+     (rf.error-emit/dispatch-error-record!
+       (merge {:error operation :time (rf.interop/now-ms)} tags)))))
 
 ;; ===========================================================================
 ;; flush-response-result! — returns the projected public-error alongside resp
@@ -102,7 +102,7 @@
             :response — one drain, both facts."
     (let [fid (make-server-frame :ssr/frr-500)]
       (buffer-error! fid :rf.error/handler-exception)
-      (let [{:keys [response public-error]} (ssr/flush-response-result! fid)]
+      (let [{:keys [response public-error]} (rf.ssr/flush-response-result! fid)]
         (is (= 500 (:status public-error))
             "the projected public-error is returned for classification")
         (is (= :internal-error (:code public-error)))
@@ -114,7 +114,7 @@
             host keeps the app arm; only 500..599 diverts to the error page."
     (let [fid (make-server-frame :ssr/frr-404)]
       (buffer-error! fid :rf.error/no-such-handler {:kind :route})
-      (let [{:keys [public-error]} (ssr/flush-response-result! fid)]
+      (let [{:keys [public-error]} (rf.ssr/flush-response-result! fid)]
         (is (= 404 (:status public-error)))
         (is (<= 400 (:status public-error) 499)
             "a 404 is the client-fault / app-renderable arm")))))
@@ -124,7 +124,7 @@
             A host that reads a 200 with nil public-error stays on the app arm
             (status alone is not proof of a projection)."
     (let [fid (make-server-frame :ssr/frr-clean)
-          {:keys [response public-error]} (ssr/flush-response-result! fid)]
+          {:keys [response public-error]} (rf.ssr/flush-response-result! fid)]
       (is (nil? public-error) "no projection fired")
       (is (= 200 (:status response))))))
 
@@ -134,10 +134,10 @@
             the response keeps the stamped status."
     (let [fid (make-server-frame :ssr/frr-consume)]
       (buffer-error! fid :rf.error/handler-exception)
-      (let [first-flush (ssr/flush-response-result! fid)]
+      (let [first-flush (rf.ssr/flush-response-result! fid)]
         (is (= 500 (:status (:public-error first-flush)))
             "first flush projects the buffered error"))
-      (let [second-flush (ssr/flush-response-result! fid)]
+      (let [second-flush (rf.ssr/flush-response-result! fid)]
         (is (nil? (:public-error second-flush))
             "second flush finds the buffer empty → nil public-error")
         (is (= 500 (:status (:response second-flush)))
@@ -151,8 +151,8 @@
           f404 (make-server-frame :ssr/frr-b-404)]
       (buffer-error! f500 :rf.error/handler-exception)
       (buffer-error! f404 :rf.error/no-such-handler {:kind :route})
-      (let [a (ssr/flush-response-result! f500)
-            b (ssr/flush-response-result! f404)]
+      (let [a (rf.ssr/flush-response-result! f500)
+            b (rf.ssr/flush-response-result! f404)]
         (is (= 500 (:status (:public-error a))) "frame A keeps its 500")
         (is (= 404 (:status (:public-error b))) "frame B keeps its 404")
         (is (= 500 (:status (:response a))))
@@ -167,7 +167,7 @@
       ((requiring-resolve 're-frame.ssr.response/redirect-fx)
        {:frame fid} {:location "/login"})
       (buffer-error! fid :rf.error/handler-exception)
-      (let [{:keys [response public-error]} (ssr/flush-response-result! fid)]
+      (let [{:keys [response public-error]} (rf.ssr/flush-response-result! fid)]
         (is (some? (:redirect response)) "the redirect stands")
         (is (= 302 (:status response))
             "redirect status locked through — the 500 did NOT overwrite it")
@@ -185,11 +185,11 @@
   ([projector-fn] (project-with projector-fn false))
   ([projector-fn dev-detail?]
    (rf/reg-error-projector :test/shape-projector projector-fn)
-   (let [f (frame/make-anon-frame-record!
+   (let [f (rf.frame/make-anon-frame-record!
              {:platform :server
               :ssr      {:public-error-id   :test/shape-projector
                          :dev-error-detail? dev-detail?}})]
-     (ssr/project-error f {:op-type   :error
+     (rf.ssr/project-error f {:op-type   :error
                            :operation :rf.error/handler-exception
                            :tags      {:frame f}}))))
 

@@ -70,8 +70,8 @@
   (a set of `[namespace var]` pairs, empty/absent today) is the explicit escape
   hatch for a var intentionally documented only as a facade pointer elsewhere."
   (:require [clojure.string :as str]
-            [re-frame.api-manifest.gen :as gen]
-            [re-frame.api-manifest.projection :as proj]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+            [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 ;; The reference trees scanned. Each is an EXPECTED surface (it exists today
 ;; and is owned), so it uses `require-markdown-files` — a moved / renamed
@@ -134,8 +134,8 @@
   [files]
   (for [file  files
         alias ["rf" "story"]
-        ref   (proj/alias-call-references alias (proj/numbered-lines file))]
-    (assoc ref :file (proj/repo-relative file))))
+        ref   (rf.api-manifest.projection/alias-call-references alias (rf.api-manifest.projection/numbered-lines file))]
+    (assoc ref :file (rf.api-manifest.projection/repo-relative file))))
 
 ;; ---------------------------------------------------------------------------
 ;; Page + member coverage (rf2-e5692s).
@@ -167,7 +167,7 @@
                 (when-let [[_ ident] (re-matches #"#{2,4}\s+`([^`]+)`.*"
                                                  (str/trim line))]
                   (last (str/split ident #"/")))))
-        (proj/numbered-lines file)))
+        (rf.api-manifest.projection/numbered-lines file)))
 
 (defn- page-members
   "`{namespace-str -> #{covered-bare-var-name ...}}` for each namespace in
@@ -175,7 +175,7 @@
    the returned map has no page (→ a PAGE-MISSING problem downstream)."
   [namespaces]
   (reduce (fn [acc ns-str]
-            (let [f (proj/repo-file "docs" "api" (str ns-str ".md"))]
+            (let [f (rf.api-manifest.projection/repo-file "docs" "api" (str ns-str ".md"))]
               (if (.isFile ^java.io.File f)
                 (assoc acc ns-str (member-heading-names f))
                 acc)))
@@ -253,11 +253,11 @@
    eligible var has a member heading (or an explicit facade-pointer exemption);
    false (with a printed report) otherwise."
   []
-  (let [rows          (proj/manifest-rows)
+  (let [rows          (rf.api-manifest.projection/manifest-rows)
         eligible-rows (filter #(contains? eligible-tiers (:tier %)) rows)
         namespaces    (distinct (map :namespace eligible-rows))
         members       (page-members namespaces)
-        exempt        (set (:doc-api-coverage-exempt (gen/read-sidecar)))
+        exempt        (set (:doc-api-coverage-exempt (rf.api-manifest.gen/read-sidecar)))
         problems      (coverage-problems {:eligible-rows eligible-rows
                                           :members       members
                                           :exempt        exempt})]
@@ -265,24 +265,24 @@
 
 (defn check!
   []
-  (let [rows          (proj/manifest-rows)
+  (let [rows          (rf.api-manifest.projection/manifest-rows)
         ;; Resolution target: bare var names ANY manifest row carries. A
         ;; removed surface has no row in ANY namespace, so it is still caught.
         manifest-vars (set (map :var rows))
-        scoped-allow  (or (:doc-api-known-unmanifested-scoped (gen/read-sidecar)) {})
+        scoped-allow  (or (:doc-api-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar)) {})
         ;; Directory trees — fail loud if a tree moves/renames (rf2-utvst).
         dir-files     (mapcat (fn [[label segs]]
-                                (proj/require-markdown-files
-                                  label (apply proj/repo-file segs)))
+                                (rf.api-manifest.projection/require-markdown-files
+                                  label (apply rf.api-manifest.projection/repo-file segs)))
                               dir-surfaces)
         ;; The API reference is one doc per namespace under docs/api/ (covered
         ;; by the dir-surfaces tree above). spec/Privacy.md — a single
         ;; EXPECTED file; fail loud if it moves.
-        privacy-file  (apply proj/repo-file privacy-file-segs)
+        privacy-file  (apply rf.api-manifest.projection/repo-file privacy-file-segs)
         _             (when-not (.isFile ^java.io.File privacy-file)
                         (throw (ex-info
                                  (str "spec/Privacy.md: expected file is missing — "
-                                      (proj/repo-relative privacy-file)
+                                      (rf.api-manifest.projection/repo-relative privacy-file)
                                       ". The privacy projection gate cannot run "
                                       "against a non-existent surface; reconcile "
                                       "the path.")
@@ -295,11 +295,11 @@
         ;; Keyword-drift guards (EP-0017/EP-0011/EP-0015): spec/Privacy.md is
         ;; the EP-0015 surface, so a reintroduced retired `:rf.egress/*`
         ;; profile keyword goes RED here alongside any var-resolution drift.
-        kw-problems   (proj/keyword-drift-problems-over-files files)
+        kw-problems   (rf.api-manifest.projection/keyword-drift-problems-over-files files)
         problems      (concat var-problems kw-problems)
         ;; (1) Call-position reference discipline + keyword-drift over the
         ;; reference trees (the original rf2-vzupmg contract).
-        refs-ok       (proj/report-with-floor!
+        refs-ok       (rf.api-manifest.projection/report-with-floor!
                         "spec/Privacy.md + docs/api/ + docs/story/api/"
                         (count references) min-references problems)
         ;; (2) Page + member coverage of the manifest by docs/api/ (rf2-e5692s).

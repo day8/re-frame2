@@ -25,12 +25,12 @@
   `re-frame.ssr.error-listener`. This namespace stays effect-free
   (apart from registering the built-in default projector) so the
   projector logic can be exercised standalone."
-  (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- always-on error emission ---------------------------------------------
 ;;
@@ -66,7 +66,7 @@
   nil-return contract cannot drift. The ssr-ring artefact keeps a local wrapper
   to preserve the artefact boundary."
   [record]
-  (when-let [dispatch-error-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record! record))
   nil)
 
@@ -281,8 +281,8 @@
   ([id projector-fn]
    (reg-error-projector id {} projector-fn))
   ([id metadata projector-fn]
-   (registrar/register! :error-projector id
-                        (assoc (source-coords/merge-coords metadata)
+   (rf.registrar/register! :error-projector id
+                        (assoc (rf.source-coords/merge-coords metadata)
                                :handler-fn projector-fn))
    id))
 
@@ -294,7 +294,7 @@
   EXPLICITLY-configured projector (a recognised-but-unhonourable config,
   worth a diagnostic) apart from the plain default-fallback path (rf2-mlodrn)."
   [frame-id]
-  (get-in (frame/frame-meta frame-id) [:ssr :public-error-id]))
+  (get-in (rf.frame/frame-meta frame-id) [:ssr :public-error-id]))
 
 (defn- frame-projector-id
   "Read the :ssr config's :public-error-id for a frame, falling back
@@ -309,7 +309,7 @@
   :details key with the raw trace event."
   [frame-id]
   (boolean
-    (get-in (frame/frame-meta frame-id) [:ssr :dev-error-detail?])))
+    (get-in (rf.frame/frame-meta frame-id) [:ssr :dev-error-detail?])))
 
 (defn project-error
   "Resolve the active projector for the given frame and apply it to
@@ -330,7 +330,7 @@
   [frame-id trace-event]
   (let [configured-id (frame-configured-projector-id frame-id)
         projector-id  (frame-projector-id frame-id)
-        projector-fn  (registrar/handler :error-projector projector-id)
+        projector-fn  (rf.registrar/handler :error-projector projector-id)
         dev-detail?   (frame-dev-error-detail? frame-id)
         ;; Two failure modes for the projector:
         ;;   :threw      — the catch path returns this in `result`
@@ -344,7 +344,7 @@
             (projector-fn trace-event)
             ::no-projector)
           (catch #?(:clj Throwable :cljs :default) e
-            (trace/emit-error! :rf.error/sanitised-on-projection
+            (rf.trace/emit-error! :rf.error/sanitised-on-projection
                                {:projector-id      projector-id
                                 :frame             frame-id
                                 :exception         e
@@ -358,7 +358,7 @@
             (emit-always-on-error!
               {:error :rf.error/sanitised-on-projection
                :frame frame-id
-               :time  (interop/now-ms)
+               :time  (rf.interop/now-ms)
                :projector-id      projector-id
                :exception         e
                :exception-message #?(:clj  (.getMessage e)
@@ -403,19 +403,19 @@
                                                           " projector — using the locked"
                                                           " generic-500 fallback.")
                           :recovery                  :register-the-configured-projector-or-fix-the-id}]
-                (trace/emit-error! :rf.error/sanitised-on-projection tags)
+                (rf.trace/emit-error! :rf.error/sanitised-on-projection tags)
                 ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis so an
                 ;; off-box shipper on a `-Dre-frame.debug=false` JVM SSR host
                 ;; sees the misconfiguration. One-shot + NON-PROJECTING.
                 (emit-always-on-error!
                   (merge {:error :rf.error/sanitised-on-projection
-                          :time  (interop/now-ms)}
+                          :time  (rf.interop/now-ms)}
                          tags))))
             fallback-public-error)
 
           :else
           (do
-            (trace/emit-error! :rf.error/sanitised-on-projection
+            (rf.trace/emit-error! :rf.error/sanitised-on-projection
                                {:projector-id      projector-id
                                 :frame             frame-id
                                 :returned          result
@@ -428,7 +428,7 @@
             (emit-always-on-error!
               {:error :rf.error/sanitised-on-projection
                :frame frame-id
-               :time  (interop/now-ms)
+               :time  (rf.interop/now-ms)
                :projector-id      projector-id
                :returned          result
                :reason            "Error projector returned a non-conforming shape — using fallback."
@@ -441,4 +441,4 @@
   "True when the frame's :platform is :server. The error-projection
   hook only fires for server frames."
   [frame-id]
-  (= :server (:platform (frame/frame-meta frame-id))))
+  (= :server (:platform (rf.frame/frame-meta frame-id))))

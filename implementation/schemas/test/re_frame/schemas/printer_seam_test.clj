@@ -23,15 +23,15 @@
   clojure.spec port) needs to be able to plug into the digest
   pipeline without re-implementing it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.validator :as validator]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.validator :as rf.schemas.validator]))
 
 (defn- reset [test-fn]
   ;; Per rf2-froe / rf2-wla45 — the validator/explainer/printer atoms
   ;; are framework-wide; restore the defaults around each test so
   ;; sibling tests are not poisoned.
-  (schemas/reset-schema-validator!)
+  (rf.schemas/reset-schema-validator!)
   ;; EP-0002 (rf2-5q7um6): the digest-seam tests register schemas via
   ;; reg-app-schema, which is now context-required frame-local. Pin
   ;; :rf/default as the established scope so those ambient registrations
@@ -40,9 +40,9 @@
   ;; carried STAMP (it writes the plain `schemas-by-frame` atom), and the
   ;; schema-derived elision-populate step no-ops when the frame has no live
   ;; runtime-db container.
-  (try (binding [frame/*current-frame* :rf/default]
+  (try (binding [rf.frame/*current-frame* :rf/default]
          (test-fn))
-       (finally (schemas/reset-schema-validator!))))
+       (finally (rf.schemas/reset-schema-validator!))))
 
 (use-fixtures :each reset)
 
@@ -55,19 +55,19 @@
             literals (rf2-xssfv `digest_parity_fixtures.cljc`) keep
             matching."
     (is (= "[:map [:id :uuid]]"
-           (validator/run-printer [:map [:id :uuid]]))
+           (rf.schemas.validator/run-printer [:map [:id :uuid]]))
         "vector schema serialises as straightforward pr-str")
     (is (= "[:map {:closed true, :title \"User\"} [:id :uuid]]"
-           (validator/run-printer
+           (rf.schemas.validator/run-printer
              [:map (array-map :title "User" :closed true) [:id :uuid]]))
         "map-keys in the props map sort by (compare (pr-str a) (pr-str b))
          — :closed sorts before :title — regardless of insertion order")
     (is (= "[:map [:id :uuid]]"
-           (validator/run-printer
+           (rf.schemas.validator/run-printer
              ^{:doc "user-id"} [:map [:id :uuid]]))
         "metadata is stripped (`:doc` does not appear in the printed bytes)")
     (is (= ":int"
-           (validator/run-printer :int))
+           (rf.schemas.validator/run-printer :int))
         "primitive keyword schemas pass through pr-str unchanged")))
 
 (deftest set-schema-printer!-swaps-the-printer-atom
@@ -75,10 +75,10 @@
             the next call — the digest pipeline picks up the new bytes
             without a restart."
     (let [marker-printer (fn [_schema] "::SENTINEL::")]
-      (schemas/set-schema-printer! marker-printer)
-      (is (= "::SENTINEL::" (validator/run-printer [:map [:id :uuid]]))
+      (rf.schemas/set-schema-printer! marker-printer)
+      (is (= "::SENTINEL::" (rf.schemas.validator/run-printer [:map [:id :uuid]]))
           "every schema serialises to the sentinel, regardless of shape")
-      (is (= "::SENTINEL::" (validator/run-printer :int))
+      (is (= "::SENTINEL::" (rf.schemas.validator/run-printer :int))
           "primitive keyword schemas route through the registered fn too"))))
 
 (deftest schema-print-swap-flips-the-digest-bytes
@@ -89,17 +89,17 @@
             cross-port distinction Spec 010 §Locked rules line 491
             describes: 'two ports using *different* schema languages
             produce different digests by construction'."
-    (schemas/reg-app-schema [:n] :int)
-    (let [default-digest (schemas/app-schemas-digest)]
-      (schemas/set-schema-printer! (fn [_schema] "::DIFFERENT::"))
-      (let [swapped-digest (schemas/app-schemas-digest)]
+    (rf.schemas/reg-app-schema [:n] :int)
+    (let [default-digest (rf.schemas/app-schemas-digest)]
+      (rf.schemas/set-schema-printer! (fn [_schema] "::DIFFERENT::"))
+      (let [swapped-digest (rf.schemas/app-schemas-digest)]
         (is (not= default-digest swapped-digest)
             "digest changes once the printer registers different bytes")))
     ;; Restoring the default brings the digest back — the printer
     ;; surface is purely a contract over the serialisation step.
-    (schemas/set-schema-printer! nil)
+    (rf.schemas/set-schema-printer! nil)
     (is (= "sha256:e7939756d704eaab"
-           (schemas/app-schemas-digest))
+           (rf.schemas/app-schemas-digest))
         "set-schema-printer! nil restores the default — the digest matches
          the rf2-xssfv `single-prim` literal byte-for-byte (the path key is
          CEDN-1 `canonical-bytes`, not pr-str — rf2-ujmc3u)")))
@@ -110,8 +110,8 @@
             entry point is symmetrical across all three fns (rf2-froe +
             rf2-wla45 + rf2-13meg)."
     (let [marker (fn [_] "::FROM-BUNDLE::")]
-      (schemas/set-schema-fns! {:print marker})
-      (is (= "::FROM-BUNDLE::" (validator/run-printer :int))
+      (rf.schemas/set-schema-fns! {:print marker})
+      (is (= "::FROM-BUNDLE::" (rf.schemas.validator/run-printer :int))
           "the registered printer reaches the hot path"))))
 
 (deftest set-schema-fns!-nil-print-coerces-to-default
@@ -123,12 +123,12 @@
             'falls back to the default' promise is true at the write
             site (rf2-13meg)."
     ;; Poison first so a no-op would be observable.
-    (schemas/set-schema-printer! (fn [_] "::POISONED::"))
-    (is (= "::POISONED::" (validator/run-printer :int)))
-    (schemas/set-schema-fns! {:print nil})
-    (is (some? @validator/printer-fn)
+    (rf.schemas/set-schema-printer! (fn [_] "::POISONED::"))
+    (is (= "::POISONED::" (rf.schemas.validator/run-printer :int)))
+    (rf.schemas/set-schema-fns! {:print nil})
+    (is (some? @rf.schemas.validator/printer-fn)
         "printer-fn is never nil after a {:print nil} bundle swap")
-    (is (= ":int" (validator/run-printer :int))
+    (is (= ":int" (rf.schemas.validator/run-printer :int))
         "{:print nil} falls back to default-edn-print, not 'no printer'")))
 
 (deftest set-schema-printer!-nil-falls-back-to-default
@@ -136,10 +136,10 @@
             default EDN canonicaliser — the digest is never undefined
             for a present schema set, even when the validator and
             explainer have been nilled out (rf2-wla45 contract)."
-    (schemas/set-schema-printer! (fn [_] "::REPLACED::"))
-    (is (= "::REPLACED::" (validator/run-printer :int)))
-    (schemas/set-schema-printer! nil)
-    (is (= ":int" (validator/run-printer :int))
+    (rf.schemas/set-schema-printer! (fn [_] "::REPLACED::"))
+    (is (= "::REPLACED::" (rf.schemas.validator/run-printer :int)))
+    (rf.schemas/set-schema-printer! nil)
+    (is (= ":int" (rf.schemas.validator/run-printer :int))
         "nil printer falls back to default-edn-print; not 'no printer'")))
 
 (deftest reset-schema-validator!-restores-default-printer
@@ -148,10 +148,10 @@
             Test-support call sites that previously only had to
             worry about validator/explainer poisoning now also reset
             the printer for free."
-    (schemas/set-schema-printer! (fn [_] "::POISONED::"))
-    (is (= "::POISONED::" (validator/run-printer :int)))
-    (schemas/reset-schema-validator!)
-    (is (= ":int" (validator/run-printer :int))
+    (rf.schemas/set-schema-printer! (fn [_] "::POISONED::"))
+    (is (= "::POISONED::" (rf.schemas.validator/run-printer :int)))
+    (rf.schemas/reset-schema-validator!)
+    (is (= ":int" (rf.schemas.validator/run-printer :int))
         "reset restores the default EDN canonicaliser")))
 
 (deftest printer-only-affects-per-schema-bytes-not-pipeline-shape
@@ -161,14 +161,14 @@
             that returns a constant still produces a well-formed wire
             form — and the empty-set digest is unaffected because the
             pipeline never invokes the printer (zero entries)."
-    (schemas/set-schema-printer! (fn [_] "::CONSTANT::"))
+    (rf.schemas/set-schema-printer! (fn [_] "::CONSTANT::"))
     ;; Empty set — printer never called; the empty-set digest is
     ;; the historical sha256:e3b0c44298fc1c14 (rf2-0z1z).
     (is (= "sha256:e3b0c44298fc1c14"
-           (schemas/app-schemas-digest))
+           (rf.schemas/app-schemas-digest))
         "empty schema set still produces the canonical empty-string SHA")
-    (schemas/reg-app-schema [:n] :int)
-    (let [d1 (schemas/app-schemas-digest)]
+    (rf.schemas/reg-app-schema [:n] :int)
+    (let [d1 (rf.schemas/app-schemas-digest)]
       (is (re-matches #"^sha256:[0-9a-f]{16}$" d1)
           "wire form is still '\"sha256:\" + 16-hex' regardless of printer"))))
 
@@ -188,7 +188,7 @@
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:explained true})
           p-fn (fn [_] "::RET-PRINTER::")
-          ret  (schemas/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})]
+          ret  (rf.schemas/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})]
       (is (map? ret) "the return is a bundle map, not a single fn")
       (is (= #{:validate :explain :print} (set (keys ret)))
           "the bundle map always carries all three keys")
@@ -197,7 +197,7 @@
       (is (= p-fn (:print ret))    ":print in the return is the installed printer")
       ;; The returned printer is the one the hot path now uses — observed
       ;; through the public run-printer seam, not a raw atom deref.
-      (is (= "::RET-PRINTER::" (validator/run-printer :int))
+      (is (= "::RET-PRINTER::" (rf.schemas.validator/run-printer :int))
           "the returned :print fn is live on the digest hot path"))))
 
 (deftest set-schema-fns!-print-only-returns-whole-bundle-incl-untouched
@@ -208,12 +208,12 @@
             unrelated to what it set; now the return reflects the printer it
             installed AND the untouched fns."
     (let [marker (fn [_] "::PRINT-ONLY::")
-          ret    (schemas/set-schema-fns! {:print marker})]
+          ret    (rf.schemas/set-schema-fns! {:print marker})]
       (is (= #{:validate :explain :print} (set (keys ret)))
           "the bundle map carries all three keys even for a partial update")
       (is (= marker (:print ret))
           "the return's :print is the printer this call installed")
-      (is (= "::PRINT-ONLY::" (validator/run-printer :int))
+      (is (= "::PRINT-ONLY::" (rf.schemas.validator/run-printer :int))
           "the installed printer reaches the hot path")
       ;; Untouched fns keep their prior (default) registrations and appear
       ;; in the return — the reset fixture restored defaults before this test.
@@ -226,14 +226,14 @@
             coercion: never nil. A caller observing the return sees the
             actual printer that will be hashed, not the literal nil it passed."
     ;; Poison first so a no-op would be observable.
-    (schemas/set-schema-printer! (fn [_] "::POISONED::"))
-    (is (= "::POISONED::" (validator/run-printer :int)))
-    (let [ret (schemas/set-schema-fns! {:print nil})]
+    (rf.schemas/set-schema-printer! (fn [_] "::POISONED::"))
+    (is (= "::POISONED::" (rf.schemas.validator/run-printer :int)))
+    (let [ret (rf.schemas/set-schema-fns! {:print nil})]
       (is (some? (:print ret))
           "the returned :print is the coerced default, never the nil passed")
       ;; The returned printer IS the live default — verified via run-printer
       ;; rather than a raw atom deref.
-      (is (= ":int" (validator/run-printer :int))
+      (is (= ":int" (rf.schemas.validator/run-printer :int))
           "{:print nil} falls back to default-edn-print on the hot path")
       (is (= ":int" ((:print ret) :int))
           "calling the returned :print fn directly yields the default bytes"))))
@@ -246,9 +246,9 @@
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:e true})
           p-fn (fn [_] "::P::")]
-      (is (= v-fn (schemas/set-schema-validator! v-fn))
+      (is (= v-fn (rf.schemas/set-schema-validator! v-fn))
           "set-schema-validator! returns the single validator it installed")
-      (is (= e-fn (schemas/set-schema-explainer! e-fn))
+      (is (= e-fn (rf.schemas/set-schema-explainer! e-fn))
           "set-schema-explainer! returns the single explainer it installed")
-      (is (= p-fn (schemas/set-schema-printer! p-fn))
+      (is (= p-fn (rf.schemas/set-schema-printer! p-fn))
           "set-schema-printer! returns the single printer it installed"))))

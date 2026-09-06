@@ -32,7 +32,7 @@
   `assert-roster-complete!` (the throw), and assert the LIVE rosters account
   for the LIVE trees exactly."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.api-manifest.gen :as gen]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]))
 
 ;; ---------------------------------------------------------------------------
 ;; roster-drift — pure reconciliation over synthetic inputs.
@@ -51,8 +51,8 @@
   (testing "a tree whose every namespace is enrolled or recorded internal
             reports nothing in any of the three directions"
     (let [present (into #{'re-frame.ssr 're-frame.ssr.ring}
-                        (take 3 gen/internal-namespaces))
-          drift   (gen/roster-drift present no-cljs-sidecar)]
+                        (take 3 rf.api-manifest.gen/internal-namespaces))
+          drift   (rf.api-manifest.gen/roster-drift present no-cljs-sidecar)]
       (is (empty? (:unaccounted drift)))
       (is (empty? (:contradictory drift)))
       ;; Every internal entry NOT in this synthetic `present` reads as stale,
@@ -65,7 +65,7 @@
   (testing "a namespace named by NO roster is reported by name — the new
             public surface that would otherwise ship unscanned"
     (let [present #{'re-frame.ssr 're-frame.ssr.brand-new}
-          drift   (gen/roster-drift present no-cljs-sidecar)]
+          drift   (rf.api-manifest.gen/roster-drift present no-cljs-sidecar)]
       (is (= '[re-frame.ssr.brand-new] (:unaccounted drift))))))
 
 (deftest enrolment-accounts-for-a-namespace
@@ -73,15 +73,15 @@
             for — enrolment is what clears the finding, not a marker"
     ;; `re-frame.ssr.ring.node` is enrolled (rf2-8arzr.7), so it must NOT be
     ;; reported even though it is not on the internal roster.
-    (let [drift (gen/roster-drift #{'re-frame.ssr.ring.node} no-cljs-sidecar)]
+    (let [drift (rf.api-manifest.gen/roster-drift #{'re-frame.ssr.ring.node} no-cljs-sidecar)]
       (is (empty? (:unaccounted drift))))))
 
 (deftest a-cljs-only-sidecar-row-accounts-for-a-namespace
   (testing "a namespace the JVM cannot require is accounted for by its
             sidecar :cljs-only rows — the path a CLJS-only surface takes"
     (let [present #{'re-frame.hicasso.server}
-          bare    (gen/roster-drift present no-cljs-sidecar)
-          carried (gen/roster-drift
+          bare    (rf.api-manifest.gen/roster-drift present no-cljs-sidecar)
+          carried (rf.api-manifest.gen/roster-drift
                     present
                     {:cljs-only [{:namespace "re-frame.hicasso.server"
                                   :var       "render-body"}]})]
@@ -94,24 +94,24 @@
   (testing "an internal-roster entry whose source file is gone is reported —
             the roster rots the way the sidecar does, and is reconciled the
             same way"
-    (let [gone  (first (sort gen/internal-namespaces))
-          drift (gen/roster-drift
-                  (disj (set gen/internal-namespaces) gone)
+    (let [gone  (first (sort rf.api-manifest.gen/internal-namespaces))
+          drift (rf.api-manifest.gen/roster-drift
+                  (disj (set rf.api-manifest.gen/internal-namespaces) gone)
                   no-cljs-sidecar)]
       (is (= [gone] (:stale drift))))))
 
 (deftest claiming-both-is-contradictory
   (testing "a namespace enrolled as public AND recorded internal is a
             contradiction, not a classification"
-    (let [both  (first (sort gen/internal-namespaces))
-          drift (gen/roster-drift
+    (let [both  (first (sort rf.api-manifest.gen/internal-namespaces))
+          drift (rf.api-manifest.gen/roster-drift
                   #{both}
                   {:cljs-only [{:namespace (name both) :var "x"}]})]
       (is (= [both] (:contradictory drift))))))
 
 (deftest unaccounted-is-sorted
   (testing "findings are sorted, so the failure message is stable across runs"
-    (let [drift (gen/roster-drift
+    (let [drift (rf.api-manifest.gen/roster-drift
                   '#{re-frame.ssr.zzz re-frame.ssr.aaa re-frame.ssr.mmm}
                   no-cljs-sidecar)]
       (is (= '[re-frame.ssr.aaa re-frame.ssr.mmm re-frame.ssr.zzz]
@@ -127,10 +127,10 @@
     (let [present '#{re-frame.ssr re-frame.ssr.brand-new}]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"re-frame\.ssr\.brand-new"
-                            (gen/assert-roster-complete! present no-cljs-sidecar)))
+                            (rf.api-manifest.gen/assert-roster-complete! present no-cljs-sidecar)))
       (is (= '[re-frame.ssr.brand-new]
              (:unaccounted
-               (try (gen/assert-roster-complete! present no-cljs-sidecar)
+               (try (rf.api-manifest.gen/assert-roster-complete! present no-cljs-sidecar)
                     (catch clojure.lang.ExceptionInfo e (ex-data e)))))))))
 
 (deftest assert-message-names-both-remediation-paths
@@ -138,7 +138,7 @@
             enrol it, or record it internal. A gate that only says NO sends
             people to the nearest silencer (a ^:no-doc marker), which is the
             outcome this bead's fence forbids."
-    (let [msg (try (gen/assert-roster-complete! '#{re-frame.ssr.brand-new}
+    (let [msg (try (rf.api-manifest.gen/assert-roster-complete! '#{re-frame.ssr.brand-new}
                                                 no-cljs-sidecar)
                    (catch clojure.lang.ExceptionInfo e (ex-message e)))]
       (is (re-find #"jvm-namespaces" msg))
@@ -150,8 +150,8 @@
             assertion composes in the caller. `present` must carry the whole
             internal roster: an entry missing from the tree is STALE, which
             is a throw of its own."
-    (let [present (conj (set gen/internal-namespaces) 're-frame.ssr.ring.node)]
-      (is (= present (gen/assert-roster-complete! present no-cljs-sidecar))))))
+    (let [present (conj (set rf.api-manifest.gen/internal-namespaces) 're-frame.ssr.ring.node)]
+      (is (= present (rf.api-manifest.gen/assert-roster-complete! present no-cljs-sidecar))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The LIVE tree — the test that fails if the gate is orphaned again.
@@ -160,14 +160,14 @@
 (deftest covered-roots-are-non-empty
   (testing "the gate reconciles at least one real tree; an empty root list
             would make every assertion above vacuous"
-    (is (seq gen/roster-covered-roots))))
+    (is (seq rf.api-manifest.gen/roster-covered-roots))))
 
 (deftest live-rosters-account-for-the-live-trees
   (testing "every namespace under every covered root is classified, with no
             stale internal entries and no contradictions. This is the
             assertion `build-manifest` makes on every run and every --check."
-    (let [drift (gen/roster-drift (gen/covered-source-namespaces)
-                                  (gen/read-sidecar))]
+    (let [drift (rf.api-manifest.gen/roster-drift (rf.api-manifest.gen/covered-source-namespaces)
+                                  (rf.api-manifest.gen/read-sidecar))]
       (is (empty? (:unaccounted drift))
           (str "unaccounted: " (:unaccounted drift)))
       (is (empty? (:stale drift))
@@ -178,14 +178,14 @@
 (deftest the-crossing-namespaces-are-enrolled
   (testing "the two JVM-loadable ssr-node crossing namespaces rf2-8arzr.7
             found shipping unscanned are enrolled for introspection"
-    (is (contains? (set gen/jvm-namespaces) 're-frame.ssr.ring.node))
-    (is (contains? (set gen/jvm-namespaces) 're-frame.ssr.render-state))))
+    (is (contains? (set rf.api-manifest.gen/jvm-namespaces) 're-frame.ssr.ring.node))
+    (is (contains? (set rf.api-manifest.gen/jvm-namespaces) 're-frame.ssr.render-state))))
 
 (deftest covered-source-namespaces-reads-the-real-tree
   (testing "the live scan returns the artefact doors it must contain — a
             silently empty scan is the defect `namespaces-under` throws to
             prevent, and this pins that it did not happen"
-    (let [present (gen/covered-source-namespaces)]
+    (let [present (rf.api-manifest.gen/covered-source-namespaces)]
       (is (contains? present 're-frame.ssr))
       (is (contains? present 're-frame.ssr.ring))
       (is (contains? present 're-frame.ssr.ring.node))
@@ -223,20 +223,20 @@
             it. This drives the production call site rather than the helper, so
             it is what goes red if that call is ever removed and the gate is
             orphaned a second time."
-    (let [live    (gen/covered-source-namespaces)
-          sidecar (gen/read-sidecar)]
+    (let [live    (rf.api-manifest.gen/covered-source-namespaces)
+          sidecar (rf.api-manifest.gen/read-sidecar)]
       ;; CONTROL FIRST: the live tree is fully accounted for, so `build-manifest`
       ;; succeeds on it. Without this, a `build-manifest` that threw for some
       ;; unrelated reason (a missing classification, a duplicate row) would make
       ;; the assertion below pass for the wrong reason.
-      (is (map? (gen/build-manifest sidecar))
+      (is (map? (rf.api-manifest.gen/build-manifest sidecar))
           "control: the live tree builds a manifest")
-      (with-redefs [gen/covered-source-namespaces
+      (with-redefs [rf.api-manifest.gen/covered-source-namespaces
                     (constantly (conj live synthetic-unaccounted))]
         (is (thrown-with-msg?
               clojure.lang.ExceptionInfo
               #"re-frame\.ssr\.synthetic-unaccounted-probe"
-              (gen/build-manifest sidecar))
+              (rf.api-manifest.gen/build-manifest sidecar))
             "build-manifest must refuse, naming the unaccounted namespace")))))
 
 (deftest build-manifest-roster-refusal-carries-ex-data
@@ -245,12 +245,12 @@
             resemble it. Pinning the ex-data key is what distinguishes the
             roster assertion from the missing/stale/duplicate throws that
             follow it in the same fn."
-    (let [live    (gen/covered-source-namespaces)
-          sidecar (gen/read-sidecar)]
-      (with-redefs [gen/covered-source-namespaces
+    (let [live    (rf.api-manifest.gen/covered-source-namespaces)
+          sidecar (rf.api-manifest.gen/read-sidecar)]
+      (with-redefs [rf.api-manifest.gen/covered-source-namespaces
                     (constantly (conj live synthetic-unaccounted))]
         (try
-          (gen/build-manifest sidecar)
+          (rf.api-manifest.gen/build-manifest sidecar)
           (is false "expected build-manifest to throw on the unaccounted namespace")
           (catch clojure.lang.ExceptionInfo e
             (is (= [synthetic-unaccounted] (:unaccounted (ex-data e)))
@@ -263,8 +263,8 @@
             refusal must be the one that surfaces, because a later check firing
             first would mean an unaccounted namespace could be masked by any
             other drift in the tree."
-    (let [live    (gen/covered-source-namespaces)
-          sidecar (gen/read-sidecar)
+    (let [live    (rf.api-manifest.gen/covered-source-namespaces)
+          sidecar (rf.api-manifest.gen/read-sidecar)
           cljs    (vec (:cljs-only sidecar))
           _       (assert (seq cljs) "precondition: sidecar carries :cljs-only rows")
           ;; A sidecar that is ALSO duplicate-broken, so both checks would fire.
@@ -272,12 +272,12 @@
       ;; Control: with the rosters clean, this sidecar fails on the DUPLICATE.
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Duplicate manifest rows"
-                            (gen/build-manifest broken))
+                            (rf.api-manifest.gen/build-manifest broken))
           "control: the duplicate check fires when the rosters are clean")
-      (with-redefs [gen/covered-source-namespaces
+      (with-redefs [rf.api-manifest.gen/covered-source-namespaces
                     (constantly (conj live synthetic-unaccounted))]
         (is (thrown-with-msg?
               clojure.lang.ExceptionInfo
               #"Unaccounted public-API source namespace"
-              (gen/build-manifest broken))
+              (rf.api-manifest.gen/build-manifest broken))
             "the roster refusal precedes the duplicate refusal")))))

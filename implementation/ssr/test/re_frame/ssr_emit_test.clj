@@ -32,12 +32,12 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr.emit :as emit]
-            [re-frame.ssr.streaming :as streaming]
-            [re-frame.ssr.test-fixture :as tf]
-            [re-frame.ssr.ui-tree :as ui-tree]))
+            [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.ssr.streaming :as rf.ssr.streaming]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
+            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-xbvzh — shared raw-text emission across ALL three SSR paths.
@@ -58,12 +58,12 @@
   [tag content expected-inner]
   (let [tag-name (name tag)
         expected (str "<" tag-name ">" expected-inner "</" tag-name ">")]
-    (is (= expected (emit/render-to-string [tag content] {}))
+    (is (= expected (rf.ssr.emit/render-to-string [tag content] {}))
         (str "sync render-to-string byte-mismatch for <" tag-name ">"))
-    (is (str/includes? (:shell-html (streaming/render-shell [:div [tag content]]))
+    (is (str/includes? (:shell-html (rf.ssr.streaming/render-shell [:div [tag content]]))
                        expected)
         (str "streaming render-shell byte-mismatch for <" tag-name ">"))
-    (is (= expected (ui-tree/emit-ui-tree (v1 {:tag tag :children [content]})))
+    (is (= expected (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag tag :children [content]})))
         (str "emit-ui-tree byte-mismatch for <" tag-name ">"))))
 
 ;; ===========================================================================
@@ -77,15 +77,15 @@
             that the strip survives `emit-element`'s attr path."
     (testing ":on-click (kebab) is stripped through render-to-string"
       (is (= "<div id=\"x\"></div>"
-             (emit/render-to-string [:div {:on-click "alert(1)" :id "x"}] {}))))
+             (rf.ssr.emit/render-to-string [:div {:on-click "alert(1)" :id "x"}] {}))))
 
     (testing ":onClick (camelCase) is stripped through render-to-string"
       (is (= "<div id=\"x\"></div>"
-             (emit/render-to-string [:div {:onClick "alert(1)" :id "x"}] {}))))
+             (rf.ssr.emit/render-to-string [:div {:onClick "alert(1)" :id "x"}] {}))))
 
     (testing "the stripped handler value never appears in the output
               string — belt-and-braces against a partial-emit leak"
-      (let [html (emit/render-to-string
+      (let [html (rf.ssr.emit/render-to-string
                    [:div {:onMouseDown "steal()" :id "x"}] {})]
         (is (not (str/includes? html "steal"))
             "the handler body must not survive anywhere in the markup")
@@ -95,7 +95,7 @@
     (testing "a div whose ONLY attr is a stripped handler emits a clean
               open tag — no stray space, no bare attr"
       (is (= "<div></div>"
-             (emit/render-to-string [:div {:on-click "f"}] {}))))))
+             (rf.ssr.emit/render-to-string [:div {:on-click "f"}] {}))))))
 
 (deftest render-to-string-strips-lowercase-touch-handlers
   (testing "rf2-cv165 — the lower-case W3C Touch Events L2 GlobalEventHandlers
@@ -108,7 +108,7 @@
             security tier's render-to-string assertion)."
     (doseq [k [:ontouchstart :ontouchmove :ontouchend :ontouchcancel]]
       (testing (str k " is stripped through render-to-string")
-        (let [html (emit/render-to-string
+        (let [html (rf.ssr.emit/render-to-string
                      [:div {k "alert(document.cookie)" :id "x"} [:p "body"]] {})]
           (is (str/includes? html "id=\"x\"")
               (str "the legit attr should survive for " k))
@@ -125,11 +125,11 @@
             serialisation and is dropped through the full emit
             composition."
     (is (= "<div id=\"x\"></div>"
-           (emit/render-to-string [:div {:title (fn [_] :handler) :id "x"}] {})))
+           (rf.ssr.emit/render-to-string [:div {:title (fn [_] :handler) :id "x"}] {})))
 
     (testing "fn value is stripped even on an innocuous key name"
       (is (= "<span></span>"
-             (emit/render-to-string [:span {:data-cb (fn [] nil)}] {}))))))
+             (rf.ssr.emit/render-to-string [:span {:data-cb (fn [] nil)}] {}))))))
 
 (deftest render-to-string-drops-prototype-pollution-keys
   (testing "rf2-usio0 / rf2-dwds9 — reserved prototype-pollution keys
@@ -139,13 +139,13 @@
     (doseq [k ["__proto__" "constructor" "prototype"]]
       (testing (str "`" k "` is dropped through render-to-string")
         (is (= "<div id=\"x\"></div>"
-               (emit/render-to-string
+               (rf.ssr.emit/render-to-string
                  [:div {(keyword k) "polluted" :id "x"}] {}))
             (str k " must not survive to wire output via the emit path"))))
 
     (testing "the match is case-insensitive at the composed callsite too"
       (is (= "<div id=\"x\"></div>"
-             (emit/render-to-string
+             (rf.ssr.emit/render-to-string
                [:div {(keyword "Constructor") "polluted" :id "x"}] {}))))))
 
 (deftest render-to-string-strips-props-on-void-element
@@ -154,9 +154,9 @@
             open/close branch. An `on*` handler on an <input> is dropped
             and the void tag self-closes cleanly."
     (is (= "<input id=\"x\">"
-           (emit/render-to-string
+           (rf.ssr.emit/render-to-string
              [:input {:on-change "x()" :id "x"}] {})))
-    (let [html (emit/render-to-string
+    (let [html (rf.ssr.emit/render-to-string
                  [:img {:onError "alert(1)" :src "/a.png"}] {})]
       (is (str/includes? html "src=\"/a.png\"") "the legit attr survives")
       (is (not (str/includes? html "onError")) "the handler is stripped")
@@ -170,7 +170,7 @@
     (rf/reg-view ^{:rf/id :test/hostile-root} hostile-root-view []
       [:div {:on-click "alert(document.cookie)" :id "v"}
        [:p "safe body"]])
-    (let [html (emit/render-to-string [(rf/view :test/hostile-root)] {})]
+    (let [html (rf.ssr.emit/render-to-string [(rf/view :test/hostile-root)] {})]
       (is (str/includes? html "<p>safe body</p>")
           "the view body still renders")
       (is (str/includes? html "id=\"v\"")
@@ -186,7 +186,7 @@
             `data-rf-render-hash` lands while the user's hostile handler
             on the SAME root element is dropped — `merge-root-attrs`
             feeds into the same `attr-string` strip."
-    (let [html (emit/render-to-string
+    (let [html (rf.ssr.emit/render-to-string
                  [:div {:onClick "alert(1)" :id "root"} [:p "x"]]
                  {:render-hash "deadbeef"})]
       (is (str/includes? html "data-rf-render-hash=")
@@ -202,7 +202,7 @@
   (testing "rf2-usio0 — the strip runs at EVERY emit-element descent, not
             only the root. A handler buried several levels deep is
             dropped — `emit-children` re-enters `emit-element` per child."
-    (let [html (emit/render-to-string
+    (let [html (rf.ssr.emit/render-to-string
                  [:div
                   [:section
                    [:ul
@@ -225,7 +225,7 @@
             just through the non-streaming `render-to-string`."
     (let [tree [:div {:on-click "alert(1)" :id "x"}
                 [:p "shell body"]]
-          {:keys [shell-html]} (streaming/render-shell tree)]
+          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)]
       (is (str/includes? shell-html "<p>shell body</p>")
           "the shell body renders")
       (is (str/includes? shell-html "id=\"x\"")
@@ -242,7 +242,7 @@
                       :__proto__ "polluted"
                       :id "x"}
                 [:span "ok"]]
-          {:keys [shell-html]} (streaming/render-shell tree)]
+          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)]
       (is (str/includes? shell-html "id=\"x\"") "the legit attr survives")
       (is (str/includes? shell-html "<span>ok</span>") "body renders")
       (is (not (str/includes? shell-html "__proto__"))
@@ -256,7 +256,7 @@
             an <input> in the shell is dropped."
     (let [tree [:form
                 [:input {:onChange "steal()" :name "q"}]]
-          {:keys [shell-html]} (streaming/render-shell tree)]
+          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)]
       (is (str/includes? shell-html "name=\"q\"") "the legit attr survives")
       (is (not (str/includes? shell-html "onChange")) "the handler is stripped")
       (is (not (str/includes? shell-html "steal")) "the handler body is gone"))))
@@ -271,7 +271,7 @@
                 [:rf/suspense-boundary
                  {:id :sb :fallback [:p "loading"]}
                  [:p "body"]]]
-          {:keys [shell-html continuations]} (streaming/render-shell tree)]
+          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell tree)]
       (is (= 1 (count continuations))
           "the boundary still registered its continuation")
       (is (str/includes? shell-html "id=\"outer\"")
@@ -324,11 +324,11 @@
             in the emitted markup), so its literal `<` is NOT entity-escaped."
     (doseq [tag [:SCRIPT :Script :sCrIpT]]
       (is (= (str "<" (name tag) ">if (a < b)</" (name tag) ">")
-             (emit/render-to-string [tag "if (a < b)"] {}))
+             (rf.ssr.emit/render-to-string [tag "if (a < b)"] {}))
           (str tag " body emitted as raw text, not escaped")))
     (doseq [tag [:STYLE :Style]]
       (is (= (str "<" (name tag) ">a > .b { }</" (name tag) ">")
-             (emit/render-to-string [tag "a > .b { }"] {}))
+             (rf.ssr.emit/render-to-string [tag "a > .b { }"] {}))
           (str tag " body emitted as raw text, not escaped")))))
 
 (deftest raw-text-json-island-round-trips-through-json-parse
@@ -338,7 +338,7 @@
             `\\u0073` is ALSO a valid JSON string escape the payload round-trips
             back through JSON.parse."
     (let [json "{\"@type\":\"WebSite\",\"u\":\"a</script>b\"}"
-          out  (emit/render-to-string
+          out  (rf.ssr.emit/render-to-string
                  [:script {:type "application/ld+json"} json] {})]
       (is (= (str "<script type=\"application/ld+json\">"
                   "{\"@type\":\"WebSite\",\"u\":\"a</\\u0073cript>b\"}"
@@ -375,13 +375,13 @@
   (testing "rf2-xbvzh — a raw-text tag with NO string child is inert and emits
             unchanged; the raw-text emission only applies to string content."
     (is (= "<script></script>"
-           (emit/render-to-string [:script] {}))
+           (rf.ssr.emit/render-to-string [:script] {}))
         "empty <script> is fine")
     (is (= "<style></style>"
-           (emit/render-to-string [:style {}] {}))
+           (rf.ssr.emit/render-to-string [:style {}] {}))
         "empty <style> with an attrs map is fine")
     (is (= "<script src=\"/main.js\"></script>"
-           (emit/render-to-string [:script {:src "/main.js"}] {}))
+           (rf.ssr.emit/render-to-string [:script {:src "/main.js"}] {}))
         "an attribute-only <script> (the common external-script shape) is fine")))
 
 ;; ===========================================================================
@@ -399,21 +399,21 @@
             as void and self-closes; it must NOT emit a spurious closing tag.
             HTML5 tag names are case-insensitive."
     (testing "[:BR] self-closes (no </BR>)"
-      (let [html (emit/render-to-string [:BR] {})]
+      (let [html (rf.ssr.emit/render-to-string [:BR] {})]
         (is (= "<BR>" html)
             "void classification is case-insensitive; author case preserved")
         (is (not (str/includes? html "</BR>"))
             "no spurious closing tag for an upper-case void element")))
     (testing "[:Img …] self-closes with its attrs"
-      (let [html (emit/render-to-string [:Img {:src "/a.png"}] {})]
+      (let [html (rf.ssr.emit/render-to-string [:Img {:src "/a.png"}] {})]
         (is (= "<Img src=\"/a.png\">" html))
         (is (not (str/includes? html "</Img>")))))
     (testing "[:INPUT …] self-closes"
       (is (= "<INPUT name=\"q\">"
-             (emit/render-to-string [:INPUT {:name "q"}] {}))))
+             (rf.ssr.emit/render-to-string [:INPUT {:name "q"}] {}))))
     (testing "a non-void upper-case tag still emits an open+close pair"
       (is (= "<DIV>x</DIV>"
-             (emit/render-to-string [:DIV "x"] {}))
+             (rf.ssr.emit/render-to-string [:DIV "x"] {}))
           "case-folding only affects the void/raw-text classification, not
            which tags are void"))))
 
@@ -421,7 +421,7 @@
   (testing "rf2-hzttr finding 3 — the streaming walker mirrors the
             case-insensitive void classification (streaming.cljc:284). A
             `[:BR]` in the shell must self-close, not emit <BR></BR>."
-    (let [{:keys [shell-html]} (streaming/render-shell
+    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell
                                  [:div [:BR] [:Img {:src "/a.png"}]])]
       (is (str/includes? shell-html "<BR>"))
       (is (not (str/includes? shell-html "</BR>"))
@@ -434,7 +434,7 @@
             case-insensitively too: an UPPER/MIXED-case <STYLE>/<SCRIPT> body
             is emitted as raw text (author case preserved), NOT entity-escaped
             and NOT refused."
-    (let [{:keys [shell-html]} (streaming/render-shell
+    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell
                                  [:div
                                   [:STYLE "p > a { margin: 0 }"]
                                   [:Script "if (a < b) { x() }"]])]
@@ -458,10 +458,10 @@
     (let [some-component (fn [_props] [:div "react"])]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/ssr-reagent-native-head"
-                            (emit/render-to-string
+                            (rf.ssr.emit/render-to-string
                               [:> some-component {:prop "v"} [:span "child"]] {})))
       (testing "the props map is never emitted as raw text on the wire"
-        (let [thrown (try (emit/render-to-string
+        (let [thrown (try (rf.ssr.emit/render-to-string
                             [:> some-component {:secret "leak-me"}] {})
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (instance? clojure.lang.ExceptionInfo thrown))
@@ -474,14 +474,14 @@
     (let [some-component (fn [_props] [:div "react"])]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/ssr-reagent-native-head"
-                            (streaming/render-shell
+                            (rf.ssr.streaming/render-shell
                               [:div [:> some-component {:prop "v"}]]))))))
 
 (deftest render-to-string-still-handles-fragment-head
   (testing "rf2-ee38b.10 — splitting `:>` out of the `:<>` branch leaves
             the fragment head working: children splice with no wrapper."
     (is (= "<p>a</p><p>b</p>"
-           (emit/render-to-string [:<> [:p "a"] [:p "b"]] {})))))
+           (rf.ssr.emit/render-to-string [:<> [:p "a"] [:p "b"]] {})))))
 
 (deftest render-hash-threads-through-fragment-root
   (testing "rf2-58zvy1 finding 2 — root-attrs (the render-hash marker)
@@ -491,7 +491,7 @@
             tree lost the `data-rf-render-hash` the emitter docstring
             promises (and that the emitter/Ring hash contract depends on)."
     (testing "the marker lands on the FIRST DOM child only, not every child"
-      (let [html (emit/render-to-string [:<> [:div "a"] [:div "b"]] {:render-hash "deadbeef"})]
+      (let [html (rf.ssr.emit/render-to-string [:<> [:div "a"] [:div "b"]] {:render-hash "deadbeef"})]
         (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">a</div><div>b</div>"
                         html)
             (str "exactly one data-rf-render-hash, on the first div; got: " html))
@@ -499,15 +499,15 @@
             "marker appears exactly once across the fragment's children")))
     (testing "an explicit :render-hash threads through the fragment root"
       (is (= "<div data-rf-render-hash=\"deadbeef\">x</div>"
-             (emit/render-to-string [:<> [:div "x"]] {:render-hash "deadbeef"}))
+             (rf.ssr.emit/render-to-string [:<> [:div "x"]] {:render-hash "deadbeef"}))
           "the supplied hash drives the root-attr marker through the fragment"))
     (testing "nested fragments keep threading the marker down to the first DOM tag"
       (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">y</div>"
-                      (emit/render-to-string [:<> [:<> [:div "y"]]] {:render-hash "deadbeef"}))
+                      (rf.ssr.emit/render-to-string [:<> [:<> [:div "y"]]] {:render-hash "deadbeef"}))
           "a fragment whose first child is a fragment still places the marker"))
     (testing "no opts → no marker (fragment branch unchanged when root-attrs nil)"
       (is (= "<div>x</div>"
-             (emit/render-to-string [:<> [:div "x"]] {}))
+             (rf.ssr.emit/render-to-string [:<> [:div "x"]] {}))
           "without :render-hash the fragment root emits no marker"))))
 
 (deftest render-hash-threads-through-lazy-seq-root
@@ -520,21 +520,21 @@
             data-rf-render-hash marker."
     (testing "the marker lands on a (map …) lazy-seq root"
       (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">1</div>"
-                      (emit/render-to-string (map (fn [i] [:div i]) [1]) {:render-hash "deadbeef"}))
+                      (rf.ssr.emit/render-to-string (map (fn [i] [:div i]) [1]) {:render-hash "deadbeef"}))
           "a lazy-seq produced by map gets the marker on its first DOM child"))
     (testing "the marker lands on the FIRST DOM child only across a multi-child seq"
-      (let [html (emit/render-to-string (for [i [1 2]] [:p i]) {:render-hash "deadbeef"})]
+      (let [html (rf.ssr.emit/render-to-string (for [i [1 2]] [:p i]) {:render-hash "deadbeef"})]
         (is (re-matches #"<p data-rf-render-hash=\"[0-9a-f]+\">1</p><p>2</p>" html)
             (str "exactly one marker, on the first <p>; got: " html))
         (is (= 1 (count (re-seq #"data-rf-render-hash=" html)))
             "marker appears exactly once across the seq's children")))
     (testing "an explicit :render-hash threads through the lazy-seq root"
       (is (= "<div data-rf-render-hash=\"deadbeef\">x</div>"
-             (emit/render-to-string (list [:div "x"]) {:render-hash "deadbeef"}))
+             (rf.ssr.emit/render-to-string (list [:div "x"]) {:render-hash "deadbeef"}))
           "the supplied hash drives the marker through the seq root"))
     (testing "no opts → no marker (seq branch unchanged when root-attrs nil)"
       (is (= "<div>x</div>"
-             (emit/render-to-string (list [:div "x"]) {}))
+             (rf.ssr.emit/render-to-string (list [:div "x"]) {}))
           "without :render-hash the lazy-seq root emits no marker"))))
 
 ;; ===========================================================================
@@ -552,14 +552,14 @@
             emitting a phantom <suspense-boundary> DOM element."
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #":rf.error/ssr-suspense-boundary-outside-stream"
-                          (emit/render-to-string
+                          (rf.ssr.emit/render-to-string
                             [:rf/suspense-boundary
                              {:id :b1 :fallback [:span "loading"]}
                              [:div "resolved"]]
                             {})))
     (testing "the marker's id/fallback/subtree never reach the wire as
               a bogus <suspense-boundary> element"
-      (let [thrown (try (emit/render-to-string
+      (let [thrown (try (rf.ssr.emit/render-to-string
                           [:rf/suspense-boundary
                            {:id :secret-boundary :fallback [:span "spin"]}
                            [:div "leak-me"]]
@@ -572,7 +572,7 @@
               (emit-children recurses into it)"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/ssr-suspense-boundary-outside-stream"
-                            (emit/render-to-string
+                            (rf.ssr.emit/render-to-string
                               [:div [:section
                                      [:rf/suspense-boundary
                                       {:id :b :fallback [:span "…"]}
@@ -585,7 +585,7 @@
             the NON-streaming path); render-shell materialises the
             fallback as a <template> and does NOT throw."
     (let [{:keys [shell-html continuations]}
-          (streaming/render-shell
+          (rf.ssr.streaming/render-shell
             [:div
              [:rf/suspense-boundary
               {:id :card-1 :fallback [:span "loading…"]}
@@ -613,13 +613,13 @@
   (testing "rf2-ynjts.13 — a number child renders as its `str` form, not
             dropped, not escaped (emit-element number? branch)."
     (is (= "<span>42</span>"
-           (emit/render-to-string [:span 42] {}))
+           (rf.ssr.emit/render-to-string [:span 42] {}))
         "integer child stringifies")
     (is (= "<span>3.14</span>"
-           (emit/render-to-string [:span 3.14] {}))
+           (rf.ssr.emit/render-to-string [:span 3.14] {}))
         "double child stringifies")
     (is (= "<p>count=7</p>"
-           (emit/render-to-string [:p "count=" 7] {}))
+           (rf.ssr.emit/render-to-string [:p "count=" 7] {}))
         "a number sits inline alongside a string child")))
 
 (deftest render-to-string-boolean-child-is-dropped
@@ -630,16 +630,16 @@
             `false`. Distinct from a boolean ATTR VALUE (which `attr-string`
             renders as a bare attr name) — this is the child position."
     (is (= "<div></div>"
-           (emit/render-to-string [:div true] {}))
+           (rf.ssr.emit/render-to-string [:div true] {}))
         "a lone `true` child is dropped")
     (is (= "<div></div>"
-           (emit/render-to-string [:div false] {}))
+           (rf.ssr.emit/render-to-string [:div false] {}))
         "a lone `false` child is dropped")
     (is (= "<div><p>shown</p></div>"
-           (emit/render-to-string [:div (when true [:p "shown"]) (when false [:p "hidden"])] {}))
+           (rf.ssr.emit/render-to-string [:div (when true [:p "shown"]) (when false [:p "hidden"])] {}))
         "the false arm of a (when …) yields nil → dropped; the true arm renders")
     (is (= "<p>ab</p>"
-           (emit/render-to-string [:p "a" true "b" false nil] {}))
+           (rf.ssr.emit/render-to-string [:p "a" true "b" false nil] {}))
         "booleans + nil interleaved with strings drop, strings survive")))
 
 (deftest render-to-string-fn-headed-component
@@ -650,17 +650,17 @@
             emitter's fn-head branch had no direct assertion."
     (let [greeting (fn [name] [:h1 "Hello, " name])]
       (is (= "<h1>Hello, world</h1>"
-             (emit/render-to-string [greeting "world"] {}))
+             (rf.ssr.emit/render-to-string [greeting "world"] {}))
           "the component fn is called with the trailing args; its hiccup emits"))
     (testing "a fn-headed component nested as a child is resolved too"
       (let [item (fn [label] [:li label])]
         (is (= "<ul><li>a</li><li>b</li></ul>"
-               (emit/render-to-string [:ul [item "a"] [item "b"]] {}))
+               (rf.ssr.emit/render-to-string [:ul [item "a"] [item "b"]] {}))
             "fn-heads in child position resolve via emit-children → emit-element")))
     (testing "a fn-headed component returning a string renders the string escaped"
       (let [raw (fn [] "a < b")]
         (is (= "<p>a &lt; b</p>"
-               (emit/render-to-string [:p [raw]] {}))
+               (rf.ssr.emit/render-to-string [:p [raw]] {}))
             "the fn's string output flows back through escape-html")))))
 
 ;; ===========================================================================
@@ -678,10 +678,10 @@
   (testing "rf2-ynjts.13 — a text-node child escapes `& < > \" '` so no
             raw markup or quote can break out of text position."
     (is (= "<p>&amp;&lt;&gt;&quot;&#39;</p>"
-           (emit/render-to-string [:p "&<>\"'"] {}))
+           (rf.ssr.emit/render-to-string [:p "&<>\"'"] {}))
         "all five escapable entities are rewritten in text position")
     (is (= "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>"
-           (emit/render-to-string [:p "<script>alert(1)</script>"] {}))
+           (rf.ssr.emit/render-to-string [:p "<script>alert(1)</script>"] {}))
         "a literal <script> in text cannot inject a real tag")))
 
 (deftest render-to-string-attr-value-escapes-only-amp-and-quote
@@ -691,17 +691,17 @@
             text-node escaping is deliberate — over-escaping attrs corrupts
             legit values."
     (is (= "<div data-x=\"a&amp;b\"></div>"
-           (emit/render-to-string [:div {:data-x "a&b"}] {}))
+           (rf.ssr.emit/render-to-string [:div {:data-x "a&b"}] {}))
         "`&` in an attr value is escaped to &amp;")
     (is (= "<div data-x=\"&quot;q&quot;\"></div>"
-           (emit/render-to-string [:div {:data-x "\"q\""}] {}))
+           (rf.ssr.emit/render-to-string [:div {:data-x "\"q\""}] {}))
         "a double-quote in an attr value is escaped to &quot; (else it would
          close the value)")
     (is (= "<div data-x=\"a<b>c\"></div>"
-           (emit/render-to-string [:div {:data-x "a<b>c"}] {}))
+           (rf.ssr.emit/render-to-string [:div {:data-x "a<b>c"}] {}))
         "`<` and `>` are NOT escaped in an attr value — legal per HTML5")
     (is (= "<div data-x=\"it's\"></div>"
-           (emit/render-to-string [:div {:data-x "it's"}] {}))
+           (rf.ssr.emit/render-to-string [:div {:data-x "it's"}] {}))
         "a single-quote is NOT escaped — the value is double-quoted")))
 
 ;; ===========================================================================
@@ -718,13 +718,13 @@
             and `nil` attr values → omitted entirely, through the full
             render-to-string composition."
     (is (= "<input disabled required>"
-           (emit/render-to-string [:input {:disabled true :required true}] {}))
+           (rf.ssr.emit/render-to-string [:input {:disabled true :required true}] {}))
         "`true` boolean attrs emit as bare names on a void element")
     (is (= "<input>"
-           (emit/render-to-string [:input {:disabled false :hidden nil}] {}))
+           (rf.ssr.emit/render-to-string [:input {:disabled false :hidden nil}] {}))
         "`false` and `nil` attrs are omitted — no bare name, no empty value")
     (is (= "<button disabled>Go</button>"
-           (emit/render-to-string [:button {:disabled true :title nil} "Go"] {}))
+           (rf.ssr.emit/render-to-string [:button {:disabled true :title nil} "Go"] {}))
         "boolean + nil attrs compose on a non-void element alongside text")))
 
 ;; ===========================================================================
@@ -751,14 +751,14 @@
   (testing "rf2-wtd8z finding 2 — a Var-headed component `[#'component & args]`
             is invoked and its hiccup emitted (NOT stringified as EDN)"
     (is (= "<span>ok</span>"
-           (emit/render-to-string [#'var-component "ok"] {}))
+           (rf.ssr.emit/render-to-string [#'var-component "ok"] {}))
         "the Var head resolves: invoked with its args, returned hiccup emits")
     (testing "a Var-headed component nested as a child resolves too"
       (is (= "<ul><span>a</span><span>b</span></ul>"
-             (emit/render-to-string [:ul [#'var-component "a"] [#'var-component "b"]] {}))
+             (rf.ssr.emit/render-to-string [:ul [#'var-component "a"] [#'var-component "b"]] {}))
           "Var-heads in child position resolve via emit-children → emit-element"))
     (testing "root render-hash threads through the Var head onto the resolved DOM root"
-      (let [html (emit/render-to-string [#'var-component "ok"] {:render-hash "deadbeef"})]
+      (let [html (rf.ssr.emit/render-to-string [#'var-component "ok"] {:render-hash "deadbeef"})]
         (is (re-find #"<span [^>]*data-rf-render-hash=\"[^\"]+\">ok</span>" html)
             (str "the root data-rf-render-hash lands on the Var head's resolved"
                  " <span> root; got: " html))))))
@@ -772,12 +772,12 @@
             Var-headed."
     (rf/reg-view ^{:rf/id :rf.ssr-emit-test/var-view} var-view []
       [#'var-component "v"])
-    (let [html (emit/render-to-string [(rf/view :rf.ssr-emit-test/var-view)] {})]
+    (let [html (rf.ssr.emit/render-to-string [(rf/view :rf.ssr-emit-test/var-view)] {})]
       (is (= "<span>v</span>" html)
           (str "the Var head resolved to <span>v</span> (NOT EDN text); "
                "got: " html)))
     (testing "render-hash threads through the Var-headed view root onto the resolved DOM root"
-      (let [html (emit/render-to-string [(rf/view :rf.ssr-emit-test/var-view)] {:render-hash "deadbeef"})]
+      (let [html (rf.ssr.emit/render-to-string [(rf/view :rf.ssr-emit-test/var-view)] {:render-hash "deadbeef"})]
         (is (re-find #"<span [^>]*data-rf-render-hash=\"[^\"]+\">v</span>" html)
             (str "the root data-rf-render-hash threads through the view-ref AND "
                  "the Var head onto the resolved <span> root; got: " html))))))
@@ -786,12 +786,12 @@
   (testing "rf2-wtd8z finding 2 — the streaming shell walker resolves a
             Var-headed component just like the non-streaming emitter
             (ifn?, not fn?), recursing on its returned hiccup"
-    (let [{:keys [shell-html]} (streaming/render-shell [#'var-component "streamed"])]
+    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [#'var-component "streamed"])]
       (is (= "<span>streamed</span>" shell-html)
           (str "the streaming walker resolved the Var head + recursed on its"
                " body; got: " shell-html)))
     (testing "a Var head nested in a DOM tree streams resolved too"
-      (let [{:keys [shell-html]} (streaming/render-shell
+      (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell
                                    [:section [#'var-component "x"]])]
         (is (= "<section><span>x</span></section>" shell-html)
             (str "nested Var head resolved in the shell walk; got: "
@@ -817,14 +817,14 @@
                 [true "<script>y</script>"]]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/invalid-hiccup-head"
-                            (emit/render-to-string el {}))
+                            (rf.ssr.emit/render-to-string el {}))
           (str "malformed-head vector must fail loud, not emit raw: " (pr-str el)))))
 
   (testing "rf2-y1jbaq — no raw `<script>` / `<img onerror>` survives to output
             for a malformed-head vector (the throw prevents any emission)"
     (doseq [el [[nil "<script>alert(1)</script>"]
                 ["x" "<img src=x onerror=alert(1)>"]]]
-      (let [out (try (emit/render-to-string el {}) (catch Throwable _ ::threw))]
+      (let [out (try (rf.ssr.emit/render-to-string el {}) (catch Throwable _ ::threw))]
         (is (= ::threw out)
             (str "no wire output produced for malformed head: " (pr-str el)))))))
 
@@ -836,7 +836,7 @@
                 ["x" "<img src=x onerror=alert(1)>"]]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/invalid-hiccup-head"
-                            (streaming/render-shell el))
+                            (rf.ssr.streaming/render-shell el))
           (str "streaming path must fail loud on malformed head: " (pr-str el))))))
 
 ;; ===========================================================================
@@ -859,19 +859,19 @@
     (let [form2-closed (fn [value] (fn [] [:div value]))
           form2-arg    (fn [_outer-value]
                          (fn [value] [:p (str "v=" value)]))]
-      (is (= "<div>hello</div>" (emit/emit-element [form2-closed "hello"]))
+      (is (= "<div>hello</div>" (rf.ssr.emit/emit-element [form2-closed "hello"]))
           "sync emit renders the 0-arity-inner Form-2 output")
       (is (= "<div>hello</div>"
-             (:shell-html (streaming/render-shell [form2-closed "hello"])))
+             (:shell-html (rf.ssr.streaming/render-shell [form2-closed "hello"])))
           "streaming renders the 0-arity-inner Form-2 output")
-      (is (= "<p>v=7</p>" (emit/emit-element [form2-arg 7]))
+      (is (= "<p>v=7</p>" (rf.ssr.emit/emit-element [form2-arg 7]))
           "sync emit renders the same-arity-inner Form-2 output")
       (is (= "<p>v=7</p>"
-             (:shell-html (streaming/render-shell [form2-arg 7])))
+             (:shell-html (rf.ssr.streaming/render-shell [form2-arg 7])))
           "streaming renders the same-arity-inner Form-2 output")
       ;; Belt-and-braces: no fn-identity toString leaks into the output.
-      (doseq [out [(emit/emit-element [form2-closed "hello"])
-                   (:shell-html (streaming/render-shell [form2-closed "hello"]))]]
+      (doseq [out [(rf.ssr.emit/emit-element [form2-closed "hello"])
+                   (:shell-html (rf.ssr.streaming/render-shell [form2-closed "hello"]))]]
         (is (not (str/includes? out "fn__"))
             "no inner-fn .toString (`…fn__…@…`) leaks as page text")
         (is (not (str/includes? out "@"))
@@ -882,11 +882,11 @@
     (let [deep (fn [x] (fn [] (fn [] [:div x])))]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/ssr-nonrenderable-component"
-                            (emit/emit-element [deep "z"]))
+                            (rf.ssr.emit/emit-element [deep "z"]))
           "sync emit fails loud on a deeper-than-Form-2 component")
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/ssr-nonrenderable-component"
-                            (streaming/render-shell [deep "z"]))
+                            (rf.ssr.streaming/render-shell [deep "z"]))
           "streaming fails loud on a deeper-than-Form-2 component"))))
 
 ;; ===========================================================================
@@ -933,10 +933,10 @@
     ;; the JVM used to try 2 args, catch, retry at 0, and throw.
     (let [form2-partial (fn [_outer-value _ignored]
                           (fn [kept] [:p kept]))]
-      (is (= "<p>kept</p>" (emit/emit-element [form2-partial "kept" "ignored"]))
+      (is (= "<p>kept</p>" (rf.ssr.emit/emit-element [form2-partial "kept" "ignored"]))
           "sync emit passes the inner the longest prefix it accepts")
       (is (= "<p>kept</p>"
-             (:shell-html (streaming/render-shell [form2-partial "kept" "ignored"])))
+             (:shell-html (rf.ssr.streaming/render-shell [form2-partial "kept" "ignored"])))
           "streaming passes the inner the longest prefix it accepts"))))
 
 (deftest emit-form-2-inner-body-arity-exception-propagates-once
@@ -963,14 +963,14 @@
                                      (needs-two "x")]))]
       (reset! calls 0)
       (is (thrown? clojure.lang.ArityException
-                   (emit/emit-element [form2-buggy]))
+                   (rf.ssr.emit/emit-element [form2-buggy]))
           "sync emit propagates the inner body's own ArityException")
       (is (= 1 @calls)
           "sync emit invoked the inner render EXACTLY once (the old
            catch-and-retry reached 2)")
       (reset! calls 0)
       (is (thrown? clojure.lang.ArityException
-                   (streaming/render-shell [form2-buggy]))
+                   (rf.ssr.streaming/render-shell [form2-buggy]))
           "streaming propagates the inner body's own ArityException")
       (is (= 1 @calls)
           "streaming invoked the inner render EXACTLY once (the old
@@ -996,14 +996,14 @@
       (reset! calls 0)
       (is (thrown-with-msg? clojure.lang.ArityException
                             #"Wrong number of args \(1\)"
-                            (emit/emit-element [form2-buggy "x"]))
+                            (rf.ssr.emit/emit-element [form2-buggy "x"]))
           "sync emit surfaces the render's own failing call, not a
            fabricated zero-arity retry")
       (is (= 1 @calls) "sync emit invoked the inner render exactly once")
       (reset! calls 0)
       (is (thrown-with-msg? clojure.lang.ArityException
                             #"Wrong number of args \(1\)"
-                            (streaming/render-shell [form2-buggy "x"]))
+                            (rf.ssr.streaming/render-shell [form2-buggy "x"]))
           "streaming surfaces the render's own failing call, not a
            fabricated zero-arity retry")
       (is (= 1 @calls) "streaming invoked the inner render exactly once"))))
@@ -1026,11 +1026,11 @@
                                       (needs-two x)]
                                 [:p "zero-arity retry reached this"])))]
       (is (thrown? clojure.lang.ArityException
-                   (emit/emit-element [form2 "x"]))
+                   (rf.ssr.emit/emit-element [form2 "x"]))
           "sync emit surfaces the render's own failure rather than
            re-entering the variadic inner with no args")
       (is (thrown? clojure.lang.ArityException
-                   (streaming/render-shell [form2 "x"]))
+                   (rf.ssr.streaming/render-shell [form2 "x"]))
           "streaming surfaces the render's own failure rather than
            re-entering the variadic inner with no args"))))
 
@@ -1048,7 +1048,7 @@
                               [:p (str/join "," xs)]))]
       (reset! calls 0)
       (reset! seen nil)
-      (is (= "<p>a,b</p>" (emit/emit-element [form2 "a" "b"]))
+      (is (= "<p>a,b</p>" (rf.ssr.emit/emit-element [form2 "a" "b"]))
           "sync emit renders the variadic inner's output")
       (is (= ["a" "b"] @seen)
           "sync emit passed the variadic inner the complete arg sequence")
@@ -1056,7 +1056,7 @@
           "sync emit invoked the variadic inner exactly once")
       (reset! calls 0)
       (reset! seen nil)
-      (is (= "<p>a,b</p>" (:shell-html (streaming/render-shell [form2 "a" "b"])))
+      (is (= "<p>a,b</p>" (:shell-html (rf.ssr.streaming/render-shell [form2 "a" "b"])))
           "streaming renders the variadic inner's output")
       (is (= ["a" "b"] @seen)
           "streaming passed the variadic inner the complete arg sequence")
@@ -1104,35 +1104,35 @@
           multi-0-1 (fn [& _] (fn ([]  [:p "m0"])
                                   ([x] [:p (str "m1|" x)])))]
       (is (thrown? clojure.lang.ArityException
-                   (emit/emit-element [multi-1-2 "a" "b" "c"]))
+                   (rf.ssr.emit/emit-element [multi-1-2 "a" "b" "c"]))
           "sync emit refuses a 1-or-2-arity inner handed 3 args")
       (is (thrown? clojure.lang.ArityException
-                   (streaming/render-shell [multi-1-2 "a" "b" "c"]))
+                   (rf.ssr.streaming/render-shell [multi-1-2 "a" "b" "c"]))
           "streaming refuses a 1-or-2-arity inner handed 3 args")
       (is (thrown? clojure.lang.ArityException
-                   (emit/emit-element [multi-0-1 "a" "b"]))
+                   (rf.ssr.emit/emit-element [multi-0-1 "a" "b"]))
           "sync emit refuses a 0-or-1-arity inner handed 2 args")
       (is (thrown? clojure.lang.ArityException
-                   (streaming/render-shell [multi-0-1 "a" "b"]))
+                   (rf.ssr.streaming/render-shell [multi-0-1 "a" "b"]))
           "streaming refuses a 0-or-1-arity inner handed 2 args")
 
       ;; NON-VACUITY. The same two inners must still render through every arm
       ;; they DO declare — otherwise the rows above would be satisfied by a
       ;; blanket refusal of multi-arity inners, which is a different (and
       ;; worse) behaviour wearing the same green.
-      (is (= "<p>m2|a|b</p>" (emit/emit-element [multi-1-2 "a" "b"]))
+      (is (= "<p>m2|a|b</p>" (rf.ssr.emit/emit-element [multi-1-2 "a" "b"]))
           "sync emit selects the exact 2-arity arm")
       (is (= "<p>m2|a|b</p>"
-             (:shell-html (streaming/render-shell [multi-1-2 "a" "b"])))
+             (:shell-html (rf.ssr.streaming/render-shell [multi-1-2 "a" "b"])))
           "streaming selects the exact 2-arity arm")
-      (is (= "<p>m1|a</p>" (emit/emit-element [multi-1-2 "a"]))
+      (is (= "<p>m1|a</p>" (rf.ssr.emit/emit-element [multi-1-2 "a"]))
           "sync emit selects the exact 1-arity arm")
       (is (= "<p>m1|a</p>"
-             (:shell-html (streaming/render-shell [multi-1-2 "a"])))
+             (:shell-html (rf.ssr.streaming/render-shell [multi-1-2 "a"])))
           "streaming selects the exact 1-arity arm")
-      (is (= "<p>m0</p>" (emit/emit-element [multi-0-1]))
+      (is (= "<p>m0</p>" (rf.ssr.emit/emit-element [multi-0-1]))
           "sync emit selects the exact 0-arity arm")
-      (is (= "<p>m0</p>" (:shell-html (streaming/render-shell [multi-0-1])))
+      (is (= "<p>m0</p>" (:shell-html (rf.ssr.streaming/render-shell [multi-0-1])))
           "streaming selects the exact 0-arity arm")))
 
   (testing "rf2-mocn3 — a fixed+variadic inner routes by the same rules: the
@@ -1145,14 +1145,14 @@
     (let [mixed (fn [& _] (fn ([a] [:p (str "mx1|" a)])
                               ([a b & r] [:p (str "mxv|" a "|" b "|"
                                                   (str/join "," r))])))]
-      (is (= "<p>mxv|a|b|c</p>" (emit/emit-element [mixed "a" "b" "c"]))
+      (is (= "<p>mxv|a|b|c</p>" (rf.ssr.emit/emit-element [mixed "a" "b" "c"]))
           "sync emit hands the satisfied variadic arm every arg")
       (is (= "<p>mxv|a|b|c</p>"
-             (:shell-html (streaming/render-shell [mixed "a" "b" "c"])))
+             (:shell-html (rf.ssr.streaming/render-shell [mixed "a" "b" "c"])))
           "streaming hands the satisfied variadic arm every arg")
-      (is (= "<p>mx1|a</p>" (emit/emit-element [mixed "a"]))
+      (is (= "<p>mx1|a</p>" (rf.ssr.emit/emit-element [mixed "a"]))
           "sync emit prefers the exact fixed arm")
-      (is (= "<p>mx1|a</p>" (:shell-html (streaming/render-shell [mixed "a"])))
+      (is (= "<p>mx1|a</p>" (:shell-html (rf.ssr.streaming/render-shell [mixed "a"])))
           "streaming prefers the exact fixed arm"))))
 
 ;; ===========================================================================
@@ -1194,27 +1194,27 @@
   (testing "rf2-r9kf — an `aria-*` boolean stringifies in BOTH directions;
             `false` is a state, never an omission"
     (is (= "<button aria-expanded=\"true\">x</button>"
-           (emit/render-to-string [:button {:aria-expanded true} "x"] {}))
+           (rf.ssr.emit/render-to-string [:button {:aria-expanded true} "x"] {}))
         "aria-expanded true → aria-expanded=\"true\", never a bare name")
     (is (= "<button aria-expanded=\"false\">x</button>"
-           (emit/render-to-string [:button {:aria-expanded false} "x"] {}))
+           (rf.ssr.emit/render-to-string [:button {:aria-expanded false} "x"] {}))
         "aria-expanded false → aria-expanded=\"false\", never absent")
     (is (= "<div aria-hidden=\"false\"></div>"
-           (emit/render-to-string [:div {:aria-hidden false}] {}))
+           (rf.ssr.emit/render-to-string [:div {:aria-hidden false}] {}))
         "aria-hidden false survives — absent would mean the opposite")
     (is (= "<div aria-checked=\"false\"></div>"
-           (emit/render-to-string [:div {:aria-checked false}] {}))
+           (rf.ssr.emit/render-to-string [:div {:aria-checked false}] {}))
         "aria-checked false survives")
     (is (= "<div aria-disabled=\"false\"></div>"
-           (emit/render-to-string [:div {:aria-disabled false}] {}))
+           (rf.ssr.emit/render-to-string [:div {:aria-disabled false}] {}))
         "aria-disabled false survives"))
 
   (testing "rf2-r9kf — `data-*` booleans stringify the same way"
     (is (= "<div data-open=\"true\"></div>"
-           (emit/render-to-string [:div {:data-open true}] {}))
+           (rf.ssr.emit/render-to-string [:div {:data-open true}] {}))
         "data-* true → data-open=\"true\"")
     (is (= "<div data-open=\"false\"></div>"
-           (emit/render-to-string [:div {:data-open false}] {}))
+           (rf.ssr.emit/render-to-string [:div {:data-open false}] {}))
         "data-* false → data-open=\"false\"")))
 
 (deftest render-to-string-booleanish-attrs-stringify-both-ways
@@ -1224,7 +1224,7 @@
     (is (= (str "<div contentEditable=\"true\">"
                 "<section contentEditable=\"false\">locked</section>"
                 "</div>")
-           (emit/render-to-string
+           (rf.ssr.emit/render-to-string
             [:div {:contentEditable true}
              [:section {:contentEditable false} "locked"]]
             {}))
@@ -1235,7 +1235,7 @@
     (doseq [attribute-key [:contentEditable :draggable :spellCheck]
             [value expected] [[true "true"] [false "false"]]]
       (is (= (str "<div " (name attribute-key) "=\"" expected "\"></div>")
-             (emit/render-to-string [:div {attribute-key value}] {}))
+             (rf.ssr.emit/render-to-string [:div {attribute-key value}] {}))
           (str "booleanish " attribute-key " " value
                " → " (name attribute-key) "=\"" expected "\"")))))
 
@@ -1244,34 +1244,34 @@
             semantics. `disabled=\"false\"` is truthy to a browser, so
             emitting the false value here would disable the control"
     (is (= "<input disabled required>"
-           (emit/render-to-string [:input {:disabled true :required true}] {}))
+           (rf.ssr.emit/render-to-string [:input {:disabled true :required true}] {}))
         "true boolean attrs stay bare names")
     (is (= "<input>"
-           (emit/render-to-string [:input {:disabled false :hidden nil}] {}))
+           (rf.ssr.emit/render-to-string [:input {:disabled false :hidden nil}] {}))
         "a false boolean attr stays OMITTED — never disabled=\"false\"")
     (is (= "<input>"
-           (emit/render-to-string [:input {:checked false :readonly false}] {}))
+           (rf.ssr.emit/render-to-string [:input {:checked false :readonly false}] {}))
         "checked/readonly false stay omitted"))
 
   (testing "rf2-r9kf CONTROL — overloaded booleans keep their own shape:
             true → presence, false → omitted, any other value stringifies"
     (is (= "<a download>d</a>"
-           (emit/render-to-string [:a {:download true} "d"] {}))
+           (rf.ssr.emit/render-to-string [:a {:download true} "d"] {}))
         "download true → bare presence")
     (is (= "<a>d</a>"
-           (emit/render-to-string [:a {:download false} "d"] {}))
+           (rf.ssr.emit/render-to-string [:a {:download false} "d"] {}))
         "download false → omitted")
     (is (= "<a download=\"report.pdf\">d</a>"
-           (emit/render-to-string [:a {:download "report.pdf"} "d"] {}))
+           (rf.ssr.emit/render-to-string [:a {:download "report.pdf"} "d"] {}))
         "a string download stringifies"))
 
   (testing "rf2-r9kf CONTROL — a boolean on an ORDINARY attribute never
             becomes a bare attribute (react-dom drops it)"
     (is (= "<div>x</div>"
-           (emit/render-to-string [:div {:title true} "x"] {}))
+           (rf.ssr.emit/render-to-string [:div {:title true} "x"] {}))
         "true on an ordinary attribute is dropped, not emitted bare")
     (is (= "<div>x</div>"
-           (emit/render-to-string [:div {:role false} "x"] {}))
+           (rf.ssr.emit/render-to-string [:div {:role false} "x"] {}))
         "false on an ordinary attribute is dropped")))
 
 (deftest render-shell-applies-the-same-boolean-classes
@@ -1280,7 +1280,7 @@
             landing on one hiccup mode only is the drift this pins"
     (let [tree [:div {:aria-expanded false :contentEditable false}
                 [:button {:disabled true :aria-disabled false} "go"]]
-          {:keys [shell-html]} (streaming/render-shell tree)]
+          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)]
       (is (str/includes? shell-html "aria-expanded=\"false\"")
           "streaming keeps a false aria-* value")
       (is (str/includes? shell-html "contentEditable=\"false\"")
@@ -1324,8 +1324,8 @@
                                    [:download true]        [:download false]
                                    [:title true]           [:role false]]]
       (let [attribute-name (name attribute-key)
-            hiccup-html    (emit/render-to-string [:div {attribute-key value}] {})
-            tree-html      (ui-tree/emit-ui-tree
+            hiccup-html    (rf.ssr.emit/render-to-string [:div {attribute-key value}] {})
+            tree-html      (rf.ssr.ui-tree/emit-ui-tree
                             (v1 {:tag :div :attrs {attribute-key value}}))]
         (is (= (boolean-attr-class-signature attribute-name tree-html)
                (boolean-attr-class-signature attribute-name hiccup-html))

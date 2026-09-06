@@ -45,7 +45,7 @@
   opts at construction time — colocating the contract here avoids the
   circular require between the streaming sub-namespace and the Ring façade."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]))
+            [re-frame.error :as rf.error]))
 
 (set! *warn-on-reflection* true)
 
@@ -83,7 +83,7 @@
     (when (contains? opts option-key)
       (let [option-value (get opts option-key)]
         (when (and (some? option-value) (not (string? option-value)))
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/ssr-trusted-shell-opt-invalid
             'rf.ssr/trusted-shell
             (str "ssr-handler / stream-handler " (pr-str option-key)

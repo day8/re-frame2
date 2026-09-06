@@ -20,7 +20,7 @@
   prose at the call sites in `re-frame.core`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loading ssr registers its late-bind hooks. The
             ;; `with-hook-as-nil` helper below re-establishes the absent
             ;; state by flipping the hook value at runtime; restoration
@@ -31,12 +31,12 @@
   "Run `f` with the named late-bind hook set to nil. Restores the
   original value after `f` returns or throws."
   [hook-key f]
-  (let [original (late-bind/get-fn hook-key)]
+  (let [original (rf.late-bind/get-fn hook-key)]
     (try
-      (late-bind/set-fn! hook-key nil)
+      (rf.late-bind/set-fn! hook-key nil)
       (f)
       (finally
-        (late-bind/set-fn! hook-key original)))))
+        (rf.late-bind/set-fn! hook-key original)))))
 
 (deftest render-to-string-raises-when-ssr-artefact-missing
   (testing "rf/render-to-string raises :rf.error/ssr-artefact-missing when the :ssr/render-to-string hook is nil"

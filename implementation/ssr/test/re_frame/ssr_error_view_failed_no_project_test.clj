@@ -65,13 +65,13 @@
   adjudicated for real under the gate rather than only in dev."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.test-fixture :as tf]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
+            [re-frame.trace :as rf.trace]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (def ^:private server-frame :ssr/error-view-failed-no-project-frame)
 
@@ -104,18 +104,18 @@
       ;; the listener ripped out: a negative over a bus that emitted
       ;; nothing. The production counterpart is test (3), which calls the
       ;; always-on listener directly and is posture-independent.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         ;; Stamp the frame exactly as resolve-error-body's catch arm does.
-        (trace/emit-error! :rf.error/ssr-ring-error-view-failed
+        (rf.trace/emit-error! :rf.error/ssr-ring-error-view-failed
                            {:frame     fid
                             :exception "synthetic error-view failure"
                             :ex-class  "clojure.lang.ExceptionInfo"
                             :recovery  :fell-back-to-default-error-template})
-        (is (empty? (get @error-listener/pending-error-traces fid))
+        (is (empty? (get @rf.ssr.error-listener/pending-error-traces fid))
             "the error-view-failed trace was SKIPPED — not buffered into
              pending-error-traces (so a later get-response / re-flush can't
              re-project it and flip the already-stamped status)")
-        (is (= 200 (:status (ssr/get-response fid)))
+        (is (= 200 (:status (rf.ssr/get-response fid)))
             "status stays 200 — the error-view failure degraded gracefully
              to the locked default template; the default projector (→ 500)
              never ran for this category")))))
@@ -139,14 +139,14 @@
       ;; production gate this control observes an empty buffer. The category
       ;; itself DOES reach production, so the control is not lost — it is
       ;; re-run on the always-on axis by test (4).
-      (when interop/debug-enabled?
-        (trace/emit-error! :rf.error/sub-exception
+      (when rf.interop/debug-enabled?
+        (rf.trace/emit-error! :rf.error/sub-exception
                            {:frame     fid
                             :exception (ex-info "sub boom" {})
                             :recovery  :no-recovery})
-        (is (seq (get @error-listener/pending-error-traces fid))
+        (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
             "a genuine drain-time failure IS buffered for projection")
-        (is (not= 200 (:status (ssr/get-response fid)))
+        (is (not= 200 (:status (rf.ssr/get-response fid)))
             "and it projects a non-200 — the listener is doing real work;
              the error-view-failed skip in (1) is therefore meaningful and
              does NOT over-skip a real failure's fail-closed status")))))
@@ -178,7 +178,7 @@
       ;; real; that is the evidence.
       ;;
       ;; The error-emit record shape per `error-emit/dispatch-on-error!`.
-      (error-listener/error-emit-projection-listener
+      (rf.ssr.error-listener/error-emit-projection-listener
         {:error      :rf.error/ssr-ring-error-view-failed
          :event      nil
          :event-id   nil
@@ -186,10 +186,10 @@
          :time       0
          :exception  (ex-info "synthetic error-view failure" {})
          :elapsed-ms 0})
-      (is (empty? (get @error-listener/pending-error-traces fid))
+      (is (empty? (get @rf.ssr.error-listener/pending-error-traces fid))
           "the always-on listener also skips the error-view-failed
            category — not buffered")
-      (is (= 200 (:status (ssr/get-response fid)))
+      (is (= 200 (:status (rf.ssr/get-response fid)))
           "status stays 200 on the production substrate too"))))
 
 ;; ===========================================================================
@@ -209,7 +209,7 @@
             posture that ships: an over-broad skip would silently turn an
             unusable page into a 200 on a real server."
     (let [fid (make-server-frame)]
-      (error-listener/error-emit-projection-listener
+      (rf.ssr.error-listener/error-emit-projection-listener
         {:error      :rf.error/sub-exception
          :event      nil
          :event-id   nil
@@ -217,9 +217,9 @@
          :time       0
          :exception  (ex-info "sub boom" {})
          :elapsed-ms 0})
-      (is (seq (get @error-listener/pending-error-traces fid))
+      (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
           "a genuine drain-time failure IS buffered by the always-on listener")
-      (is (= 500 (:status (ssr/get-response fid)))
+      (is (= 500 (:status (rf.ssr/get-response fid)))
           "and it projects the default projector's fail-closed 500 — the
            always-on listener is doing real work in this posture, so the
            error-view-failed skip in (3) is targeted and does not swallow a

@@ -39,10 +39,10 @@
             [re-frame.machines]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (def ^:private auth-id :rf.ssr-machine/auth)
 
@@ -112,7 +112,7 @@
             projection; the large path elides; the plain sibling rides verbatim"
     (reg-auth-machine!)
     (declare-frame-marks!)
-    (let [slice    (payload-policy/project-runtime-db
+    (let [slice    (rf.ssr.payload-policy/project-runtime-db
                      (runtime-db-with-secret-snapshot))
           snapshot (get-in slice [:rf.runtime/machines :snapshots auth-id])]
       (is (= :rf/redacted (get-in snapshot [:data :token]))
@@ -133,9 +133,9 @@
             redacted/elided machine :data, not the raw classified fields"
     (reg-auth-machine!)
     (declare-frame-marks!)
-    (let [rt-slice (payload-policy/project-runtime-db
+    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db
                      (runtime-db-with-secret-snapshot))
-          payload  (payload-policy/build-payload
+          payload  (rf.ssr.payload-policy/build-payload
                      auth-id {:public/page :dashboard} "h1"
                      {:version 1 :runtime-db rt-slice})
           snap     (get-in payload [:rf/runtime-db :rf.runtime/machines
@@ -154,7 +154,7 @@
     (let [rt    {:rf.runtime/machines
                  {:snapshots {:rf.ssr-machine/plain
                               {:state :idle :data {:public "ok"}}}}}
-          slice (payload-policy/project-runtime-db rt)
+          slice (rf.ssr.payload-policy/project-runtime-db rt)
           snap  (get-in slice [:rf.runtime/machines :snapshots
                                :rf.ssr-machine/plain])]
       (is (= "ok" (get-in snap [:data :public]))

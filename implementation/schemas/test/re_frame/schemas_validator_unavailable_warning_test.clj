@@ -26,12 +26,12 @@
       of Malli — the warning would be noise."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- warnings-of
   "Filter the recorded events to the given operation keyword."
@@ -48,14 +48,14 @@
   process-wide concern), so we simulate the unloaded state by
   invalidating the hook around the test body."
   [f]
-  (let [prior (late-bind/get-fn :schemas/malli-validate)]
+  (let [prior (rf.late-bind/get-fn :schemas/malli-validate)]
     (try
-      (swap! late-bind/hooks dissoc :schemas/malli-validate)
-      (late-bind/invalidate-cache! :schemas/malli-validate)
+      (swap! rf.late-bind/hooks dissoc :schemas/malli-validate)
+      (rf.late-bind/invalidate-cache! :schemas/malli-validate)
       (f)
       (finally
         (when prior
-          (late-bind/set-fn! :schemas/malli-validate prior))))))
+          (rf.late-bind/set-fn! :schemas/malli-validate prior))))))
 
 ;; ---- positive paths -------------------------------------------------------
 
@@ -120,7 +120,7 @@
     (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
-          (schemas/set-schema-validator! (fn [_schema _value] true))
+          (rf.schemas/set-schema-validator! (fn [_schema _value] true))
           (rf/reg-app-schema [:user] [:map [:id :int]])))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))
@@ -133,7 +133,7 @@
     (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
-          (schemas/set-schema-fns! {:validate (fn [_ _] true)})
+          (rf.schemas/set-schema-fns! {:validate (fn [_ _] true)})
           (rf/reg-app-schema [:user] [:map])))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))))))
@@ -144,8 +144,8 @@
   (testing "with the Malli adapter loaded (`:schemas/malli-validate`
             is bound) the validation hot path runs — no warning"
     (with-trace-recorder! [recorded]
-      (let [prior (late-bind/get-fn :schemas/malli-validate)]
-        (late-bind/set-fn! :schemas/malli-validate (fn [_ _] true))
+      (let [prior (rf.late-bind/get-fn :schemas/malli-validate)]
+        (rf.late-bind/set-fn! :schemas/malli-validate (fn [_ _] true))
         (try
           (rf/reg-app-schema [:user] [:map])
           (finally
@@ -155,7 +155,7 @@
             ;; this stub does not leak a trivially-true validator process-wide
             ;; (rf2-hydpaf).
             (when prior
-              (late-bind/set-fn! :schemas/malli-validate prior))))
+              (rf.late-bind/set-fn! :schemas/malli-validate prior))))
         (is (empty? (warnings-of recorded
                                  :rf.warning/schema-validator-unavailable))
             ":schemas/malli-validate bound -> warning suppressed")))))
@@ -172,7 +172,7 @@
           (rf/reg-app-schema [:first] [:map])
           (is (= 1 (count (warnings-of recorded
                                        :rf.warning/schema-validator-unavailable))))
-          (schemas/clear-validator-unavailable-warned!)
+          (rf.schemas/clear-validator-unavailable-warned!)
           (rf/reg-app-schema [:second] [:map])
           (is (= 2 (count (warnings-of recorded
                                        :rf.warning/schema-validator-unavailable)))

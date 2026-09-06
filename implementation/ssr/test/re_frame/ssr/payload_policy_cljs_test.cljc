@@ -53,8 +53,8 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.payload-policy :as payload-policy]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             #?(:clj  [re-frame.test-support :refer [with-trace-recorder!]]
                :cljs [re-frame.test-support :refer-macros [with-trace-recorder!]])))
 
@@ -73,7 +73,7 @@
 
 (deftest apply-policy-allowlist-slices-app-db
   (testing ":payload [<kws>] ships only the listed keys"
-    (let [slice (payload-policy/apply-policy
+    (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload [:public/articles :public/user-id]})]
       (is (= {:public/articles [:a :b :c]
@@ -86,7 +86,7 @@
 (deftest apply-policy-allowlist-missing-keys-omitted
   (testing "allowlist keys absent from app-db → omitted from the slice
             (the policy is a permission, not a guarantee)"
-    (let [slice (payload-policy/apply-policy
+    (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload [:public/articles :public/no-such-key]})]
       (is (= {:public/articles [:a :b :c]} slice)
@@ -95,7 +95,7 @@
 (deftest apply-policy-allowlist-as-vector
   (testing "rf2-d8vs9x — the allowlist is a VECTOR; the vector shape
             produces the expected slice"
-    (let [slice (payload-policy/apply-policy
+    (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload [:public/articles]})]
       (is (= {:public/articles [:a :b :c]} slice)
@@ -110,19 +110,19 @@
             or lazy-seq) projects the same slice a vector does. Vectors stay
             the documented canonical spelling; the (every? keyword?) element
             guard and the empty-allowlist fail-closed are unchanged."
-    (let [slice (payload-policy/apply-policy
+    (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload '(:public/articles)})]
       (is (= {:public/articles [:a :b :c]} slice)
           "a list allowlist projects the expected slice"))
-    (let [slice (payload-policy/apply-policy
+    (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload (seq [:public/articles :public/user-id])})]
       (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
           "a lazy seq allowlist projects the expected slice"))
     (testing "construction-time arm agrees — a list :payload validates OK"
       (is (= {:initial-events [[:init]] :payload '(:public/articles)}
-             (payload-policy/validate-policy-opts!
+             (rf.ssr.payload-policy/validate-policy-opts!
                {:initial-events [[:init]] :payload '(:public/articles)}))
           "validate-policy-opts! returns opts unchanged for a list allowlist"))))
 
@@ -133,7 +133,7 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload #{:public/articles}})))))
 
@@ -149,13 +149,13 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload ["public/articles"]})))
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload [:public/articles "public/user-id"]}))
         "a MIXED allowlist (one keyword, one string) is still malformed —
@@ -169,7 +169,7 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload '("public/articles")})))))
 
@@ -178,13 +178,13 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload [nil]})))
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload [:public/articles nil]})))))
 
@@ -194,7 +194,7 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload [[:public/articles :public/user-id]]})))))
 
@@ -203,7 +203,7 @@
             non-keyword entries under `:bad-entries` so the developer can
             see exactly what to fix"
     (try
-      (payload-policy/validate-policy-opts!
+      (rf.ssr.payload-policy/validate-policy-opts!
         {:initial-events [[:init]] :payload [:public/articles "user-id" nil]})
       (is false "should have thrown")
       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
@@ -219,20 +219,20 @@
             valid all-keyword VECTOR allowlists (rf2-d8vs9x — the vector is
             the one accepted allowlist shape; a list spelling fails closed,
             asserted by apply-policy-list-payload-fails-closed)"
-    (let [slice (payload-policy/apply-policy
+    (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload [:public/articles :public/user-id]})]
       (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
           "all-keyword vector allowlist accepted"))
     (testing "construction-time arm agrees"
       (let [opts {:initial-events [[:init]] :payload [:public/articles]}]
-        (is (= opts (payload-policy/validate-policy-opts! opts)))))))
+        (is (= opts (rf.ssr.payload-policy/validate-policy-opts! opts)))))))
 
 ;; ---- apply-policy: whole-app-db branch (:payload keyword) ----------------
 
 (deftest apply-policy-whole-app-db-policy-ships-everything
   (testing ":payload :rf.ssr.payload/whole-app-db ships app-db verbatim"
-    (let [slice (payload-policy/apply-policy
+    (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload :rf.ssr.payload/whole-app-db})]
       (is (= sample-app-db slice)
@@ -241,7 +241,7 @@
 (deftest apply-policy-whole-app-db-policy-keyword-is-public-constant
   (testing "the policy keyword is exposed as a public def for callers"
     (is (= :rf.ssr.payload/whole-app-db
-           payload-policy/whole-app-db-policy)
+           rf.ssr.payload-policy/whole-app-db-policy)
         "`whole-app-db-policy` constant matches the literal keyword
          documented in the contract")))
 
@@ -253,11 +253,11 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/apply-policy sample-app-db {})))
+          (rf.ssr.payload-policy/apply-policy sample-app-db {})))
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/apply-policy sample-app-db nil))
+          (rf.ssr.payload-policy/apply-policy sample-app-db nil))
         "nil opts also throws — same contract")))
 
 (deftest apply-policy-throws-when-allowlist-empty
@@ -267,11 +267,11 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/apply-policy sample-app-db {:payload []})))
+          (rf.ssr.payload-policy/apply-policy sample-app-db {:payload []})))
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/apply-policy sample-app-db {:payload nil})))))
+          (rf.ssr.payload-policy/apply-policy sample-app-db {:payload nil})))))
 
 (deftest apply-policy-throws-on-unknown-policy-keyword
   (testing "rf2-gtgf9: a typo'd :payload keyword surfaces as
@@ -281,14 +281,14 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-unknown-payload-policy"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload :rf.ssr.payload/whole-db})) ; typo
         "typo'd policy keyword throws unknown-policy")
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-unknown-payload-policy"
-          (payload-policy/apply-policy
+          (rf.ssr.payload-policy/apply-policy
             sample-app-db
             {:payload :myapp/custom-policy})))))
 
@@ -297,14 +297,14 @@
 (deftest validate-policy-opts-passes-allowlist
   (testing "valid :payload vector passes validation + returns opts unchanged"
     (let [opts {:initial-events [[:init]] :payload [:public/articles]}]
-      (is (= opts (payload-policy/validate-policy-opts! opts))
+      (is (= opts (rf.ssr.payload-policy/validate-policy-opts! opts))
           "returns opts unchanged on success — composes cleanly into
            threading/let positions"))))
 
 (deftest validate-policy-opts-passes-whole-app-db
   (testing "valid :payload whole-app-db keyword passes validation"
     (let [opts {:initial-events [[:init]] :payload :rf.ssr.payload/whole-app-db}]
-      (is (= opts (payload-policy/validate-policy-opts! opts))))))
+      (is (= opts (rf.ssr.payload-policy/validate-policy-opts! opts))))))
 
 (deftest validate-policy-opts-fails-closed
   (testing "rf2-gtgf9 fail-closed: validation throws on absence —
@@ -313,14 +313,14 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/validate-policy-opts! {:initial-events [[:init]]})))))
+          (rf.ssr.payload-policy/validate-policy-opts! {:initial-events [[:init]]})))))
 
 (deftest validate-policy-opts-throws-on-unknown-policy
   (testing "construction-time arm also catches typo'd :payload keywords"
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-unknown-payload-policy"
-          (payload-policy/validate-policy-opts!
+          (rf.ssr.payload-policy/validate-policy-opts!
             {:initial-events [[:init]] :payload :rf.ssr.payload/whole-db})))))
 
 (deftest error-ex-data-carries-recovery-tag
@@ -328,7 +328,7 @@
             :declare-payload-policy` so trace tooling can suggest the
             fix — Spec 009 error catalogue convention"
     (try
-      (payload-policy/validate-policy-opts! {:initial-events [[:init]]})
+      (rf.ssr.payload-policy/validate-policy-opts! {:initial-events [[:init]]})
       (is false "should have thrown")
       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
         (is (= :declare-payload-policy
@@ -364,7 +364,7 @@
   (testing "project-runtime-db ships machines / route :current / ssr, OMITS the
             elision declaration registry (rf2-ybn1yb), and drops the non-durable
             routing keys (:pending-navigation + any stale counter)"
-    (let [slice (payload-policy/project-runtime-db sample-runtime-db)]
+    (let [slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)]
       (is (= {:snapshots {:auth.session/abc {:state :authenticated}}}
              (:rf.runtime/machines slice))
           "machine snapshots ride the wire whole")
@@ -392,7 +392,7 @@
   (testing "rf2-ybn1yb — the :rf.runtime/elision declaration registry is NOT in
             the projected runtime-db slice (the raw registry never crosses the
             hydration wire — its keys are classified paths)"
-    (let [slice (payload-policy/project-runtime-db sample-runtime-db)]
+    (let [slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)]
       (is (not (contains? slice :rf.runtime/elision))
           "the elision declaration registry is omitted from the SSR slice")
       (is (not (str/includes? (pr-str slice) "sensitive-declarations"))
@@ -407,8 +407,8 @@
   (testing "rf2-ybn1yb — the full :rf/hydration-payload the client receives
             carries no :rf.runtime/elision registry and no classified path
             structure / embedded sensitive id"
-    (let [rt-slice (payload-policy/project-runtime-db sample-runtime-db)
-          payload  (payload-policy/build-payload
+    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)
+          payload  (rf.ssr.payload-policy/build-payload
                      :rf/default {:public/page :dashboard} "h1"
                      {:version 1 :runtime-db rt-slice})]
       (is (not (contains? (:rf/runtime-db payload) :rf.runtime/elision))
@@ -423,7 +423,7 @@
             other durable subsystem fact) projects to nil, so build-payload
             omits the optional :rf/runtime-db key entirely (the registry can
             never be the sole reason a runtime-db slice rides)"
-    (is (nil? (payload-policy/project-runtime-db
+    (is (nil? (rf.ssr.payload-policy/project-runtime-db
                 {:rf.runtime/elision {:sensitive-declarations
                                       {[:auth :token] #{{:source :effect}}}}}))
         "elision-only runtime-db contributes no wire slice")))
@@ -431,20 +431,20 @@
 (deftest project-runtime-db-nil-and-empty
   (testing "nil / empty / non-map runtime-db projects to nil so build-payload
             omits the optional :rf/runtime-db key"
-    (is (nil? (payload-policy/project-runtime-db nil)))
-    (is (nil? (payload-policy/project-runtime-db {})))
-    (is (nil? (payload-policy/project-runtime-db "not-a-map")))
-    (is (nil? (payload-policy/project-runtime-db {:rf.runtime/routing {:scroll-positions {}}}))
+    (is (nil? (rf.ssr.payload-policy/project-runtime-db nil)))
+    (is (nil? (rf.ssr.payload-policy/project-runtime-db {})))
+    (is (nil? (rf.ssr.payload-policy/project-runtime-db "not-a-map")))
+    (is (nil? (rf.ssr.payload-policy/project-runtime-db {:rf.runtime/routing {:scroll-positions {}}}))
         "a runtime-db with ONLY transient routing keys projects to nil")))
 
 (deftest build-payload-emits-runtime-db-when-present
   (testing "build-payload rides a non-nil :runtime-db opt as :rf/runtime-db,
             and omits the key when nil (client-only / no-server-runtime shape)"
-    (let [rt-slice (payload-policy/project-runtime-db sample-runtime-db)
-          with-rt  (payload-policy/build-payload
+    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)
+          with-rt  (rf.ssr.payload-policy/build-payload
                      :rf/default {:public/page :dashboard} "h1"
                      {:version 1 :runtime-db rt-slice})
-          without  (payload-policy/build-payload
+          without  (rf.ssr.payload-policy/build-payload
                      :rf/default {:public/page :dashboard} "h1"
                      {:version 1 :runtime-db nil})]
       (is (= rt-slice (:rf/runtime-db with-rt))
@@ -458,9 +458,9 @@
             the projection frame. A non-nil stable id is stamped; a nil id
             OMITS :rf/frame-id (the documented no-conflict shape for an
             anonymous per-request server frame — never a per-request gensym)"
-    (let [stamped (payload-policy/build-payload
+    (let [stamped (rf.ssr.payload-policy/build-payload
                     :app/main {:public/page :dashboard} "h1" {:version 1})
-          omitted (payload-policy/build-payload
+          omitted (rf.ssr.payload-policy/build-payload
                     nil {:public/page :dashboard} "h1" {:version 1})]
       (is (= :app/main (:rf/frame-id stamped))
           "a stable wire id is stamped as :rf/frame-id")
@@ -483,17 +483,17 @@
 (deftest resolve-version-coerces-and-rejects-to-integer
   (testing "explicit integer :version is taken verbatim"
     (is (= 7 (:rf/version
-               (payload-policy/build-payload :rf/default {} "h" {:version 7})))))
+               (rf.ssr.payload-policy/build-payload :rf/default {} "h" {:version 7})))))
 
   (testing "a whole-number STRING :version is tolerantly coerced to an int"
     (is (= 7 (:rf/version
-               (payload-policy/build-payload :rf/default {} "h" {:version "7"})))))
+               (rf.ssr.payload-policy/build-payload :rf/default {} "h" {:version "7"})))))
 
   (testing "a SEMVER-string :version is rejected → falls back to the v1 = 1 default,
             emitting exactly one :rf.ssr/invalid-version warning (rf2-latm0)"
     (with-trace-recorder! [traces]
       (let [v (:rf/version
-                (payload-policy/build-payload :rf/default {} "h" {:version "1.0.0"}))]
+                (rf.ssr.payload-policy/build-payload :rf/default {} "h" {:version "1.0.0"}))]
         (is (= 1 v) "non-integer semver string is rejected, not shipped")
         (is (int? v))
         ;; The rejection is not silent: coerce-version emits a
@@ -503,7 +503,7 @@
         ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
         ;; REJECTION is pinned above and is what governs the wire; this is
         ;; the developer-facing announcement of it.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [hits (filterv #(= :rf.ssr/invalid-version (:operation %)) @traces)]
             (is (= 1 (count hits))
                 (str "expected exactly one :rf.ssr/invalid-version trace; saw: "
@@ -520,8 +520,8 @@
     ;; rf2-qfb1i: the late-bind version hook was removed — with no explicit
     ;; :version opt, resolve-version falls back to the SSR artefact's
     ;; compiled-in constant (the SAME value the client reads).
-    (let [v (:rf/version (payload-policy/build-payload :rf/default {} "h" {}))]
-      (is (= payload-policy/pattern-protocol-version v)
+    (let [v (:rf/version (rf.ssr.payload-policy/build-payload :rf/default {} "h" {}))]
+      (is (= rf.ssr.payload-policy/pattern-protocol-version v)
           "absent :version opt → the SSR-owned constant")
       (is (int? v)))))
 
@@ -587,9 +587,9 @@
 (deftest build-payload-conforms-to-hydration-payload-schema
   (testing "rf2-g00l2t — build-payload output validates against the canonical
             HydrationPayload schema, with :rf/version as a true integer"
-    (let [rt-slice (payload-policy/project-runtime-db sample-runtime-db)]
+    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)]
       (testing "full two-partition payload (integer version)"
-        (let [payload (payload-policy/build-payload
+        (let [payload (rf.ssr.payload-policy/build-payload
                         :rf/default {:public/page :dashboard} "deadbeef"
                         {:version 7 :schema-digest "digest-abc" :runtime-db rt-slice})]
           (is (m/validate HydrationPayload payload)
@@ -599,7 +599,7 @@
 
       (testing "a SEMVER-string :version still yields a schema-conforming payload
                 (rejected + coerced to the integer default)"
-        (let [payload (payload-policy/build-payload
+        (let [payload (rf.ssr.payload-policy/build-payload
                         :rf/default {:public/page :dashboard} "deadbeef"
                         {:version "1.0.0" :runtime-db rt-slice})]
           (is (m/validate HydrationPayload payload)
@@ -609,7 +609,7 @@
           (is (int? (:rf/version payload)))))
 
       (testing "minimal client-only payload (no runtime-db / schema-digest)"
-        (let [payload (payload-policy/build-payload
+        (let [payload (rf.ssr.payload-policy/build-payload
                         :rf/default {} "h" {})]
           (is (m/validate HydrationPayload payload)
               (str "minimal payload must conform; explain: "
@@ -628,7 +628,7 @@
 
 (deftest build-payload-render-hash-is-optional
   (testing "a real hash is preserved verbatim (hiccup tier)"
-    (let [payload (payload-policy/build-payload
+    (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "deadbeef" {})]
       (is (= "deadbeef" (:rf/render-hash payload))
           "a supplied hash rides the payload unchanged")
@@ -637,7 +637,7 @@
                (pr-str (m/explain HydrationPayload payload))))))
 
   (testing "a nil hash OMITS the key rather than stamping nil (adoption tier)"
-    (let [payload (payload-policy/build-payload
+    (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} nil {})]
       (is (not (contains? payload :rf/render-hash))
           "a nil render-hash omits :rf/render-hash entirely")
@@ -650,7 +650,7 @@
   (testing "a present-and-nil :rf/render-hash is REJECTED by the schema — what
             makes the omission load-bearing rather than cosmetic"
     (is (not (m/validate HydrationPayload
-                         (assoc (payload-policy/build-payload :rf/default {} nil {})
+                         (assoc (rf.ssr.payload-policy/build-payload :rf/default {} nil {})
                                 :rf/render-hash nil)))
         "a hand-stamped nil :rf/render-hash must not validate")))
 
@@ -671,7 +671,7 @@
   ;; any value — nil, an int, a map — rode through. These are the first
   ;; assertions in the corpus that look at it.
   (testing "a real head hash is preserved verbatim"
-    (let [payload (payload-policy/build-payload
+    (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "body-h"
                     {:head-hash "head-h"})]
       (is (= "head-h" (:rf/head-hash payload))
@@ -684,7 +684,7 @@
 
   (testing "a nil head hash OMITS the key (the explicit-:head-STRING shape,
             where the head is not client-reconstructible)"
-    (let [payload (payload-policy/build-payload
+    (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "body-h"
                     {:head-hash nil})]
       (is (not (contains? payload :rf/head-hash))
@@ -697,20 +697,20 @@
 
   (testing "a present-and-nil :rf/head-hash is REJECTED by the schema"
     (is (not (m/validate HydrationPayload
-                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                         (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
                                 :rf/head-hash nil)))
         "a hand-stamped nil :rf/head-hash must not validate"))
 
   (testing "a non-string :rf/head-hash is REJECTED — the point of typing a slot
             the OPEN map previously let through unexamined"
     (is (not (m/validate HydrationPayload
-                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                         (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
                                 :rf/head-hash 42)))
         "an integer head hash must not validate")))
 
 (deftest build-payload-schema-digest-is-optional
   (testing "a real digest is preserved verbatim"
-    (let [payload (payload-policy/build-payload
+    (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "h"
                     {:schema-digest "digest-abc"})]
       (is (= "digest-abc" (:rf/schema-digest payload))
@@ -721,7 +721,7 @@
 
   (testing "a nil digest OMITS the key (the app does not participate in the
             schema-digest check)"
-    (let [payload (payload-policy/build-payload
+    (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "h"
                     {:schema-digest nil})]
       (is (not (contains? payload :rf/schema-digest))
@@ -732,7 +732,7 @@
 
   (testing "a present-and-nil :rf/schema-digest is REJECTED by the schema"
     (is (not (m/validate HydrationPayload
-                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                         (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
                                 :rf/schema-digest nil)))
         "a hand-stamped nil :rf/schema-digest must not validate")))
 
@@ -742,9 +742,9 @@
   ;; pin, while the slot read `[:maybe :map]`, is that the omission is the only
   ;; legal spelling of absence — so these are the schema-side arms.
   (testing "a projected slice conforms under the tightened :map slot"
-    (let [payload (payload-policy/build-payload
+    (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "h"
-                    {:runtime-db (payload-policy/project-runtime-db sample-runtime-db)})]
+                    {:runtime-db (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)})]
       (is (map? (:rf/runtime-db payload)))
       (is (m/validate HydrationPayload payload)
           (str "a runtime-db-bearing payload conforms; explain: "
@@ -753,12 +753,12 @@
   (testing "a present-and-nil :rf/runtime-db is REJECTED by the schema — the
             fail-open `[:maybe :map]` admitted a second spelling of absence"
     (is (not (m/validate HydrationPayload
-                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                         (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
                                 :rf/runtime-db nil)))
         "a hand-stamped nil :rf/runtime-db must not validate"))
 
   (testing "a non-map :rf/runtime-db is REJECTED"
     (is (not (m/validate HydrationPayload
-                         (assoc (payload-policy/build-payload :rf/default {} "h" {})
+                         (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
                                 :rf/runtime-db "not-a-map")))
         "a string runtime-db must not validate")))

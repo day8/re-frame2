@@ -59,10 +59,10 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.node :as node]
-            [re-frame.ssr.ring.test-support :as ts]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.node :as rf.ssr.ring.node]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
             ;; THE SUBJECT. Requiring it is half the witness.
             [hicasso.login.host :as host]
             [hicasso.login.policy :as policy])
@@ -80,7 +80,7 @@
   registrations the model leans on, then the model itself. Same pattern,
   and same reason, as `re-frame.examples-test`'s fixture."
   [f]
-  (ts/reset-runtime
+  (rf.ssr.ring.test-support/reset-runtime
     (fn []
       (require 're-frame.cofx :reload)
       (require 're-frame.http.managed :reload)
@@ -217,12 +217,12 @@
 
   (testing "the shared model really is in the registrar, not merely on the
             classpath — `:initial-events` names a registration that exists"
-    (is (some? (registrar/lookup :event :auth.login/initialise-form))
+    (is (some? (rf.registrar/lookup :event :auth.login/initialise-form))
         ":auth.login/initialise-form — the host's one boot event")
-    (is (some? (registrar/lookup :fx :auth.login.demo/managed-stub))
+    (is (some? (rf.registrar/lookup :fx :auth.login.demo/managed-stub))
         ":auth.login.demo/managed-stub — the demo backend the host's
          :fx-overrides remaps :rf.http/managed to")
-    (is (some? (registrar/lookup :sub :auth.login/draft))
+    (is (some? (rf.registrar/lookup :sub :auth.login/draft))
         ":auth.login/draft — a named sub the server-rendered view reads")))
 
 (deftest render-state-is-one-source
@@ -320,7 +320,7 @@
             crosses; drive the machine from `:initial-events` and the
             snapshot rides the runtime partition."
     (let [{:keys [url]} (sidecar!)
-          h (ssr-ring/ssr-handler
+          h (rf.ssr.ring/ssr-handler
               {:initial-events [[:auth.login/initialise-form]
                                 ;; `:idle` -> `:submitting`, action
                                 ;; `:clear-error`. A pure data transition —
@@ -328,7 +328,7 @@
                                 ;; `submit-form`, not by the machine.
                                 [:auth.login/flow [:auth.login/submit]]]
                :payload        [:auth]
-               :renderer       (node/renderer
+               :renderer       (rf.ssr.ring.node/renderer
                                  {:endpoint     url
                                   :entry        policy/root-entry
                                   :build-id     host/build-id
@@ -356,11 +356,11 @@
       (fn [{:keys [db]} _]
         {:db (assoc db :auth.login/not-on-the-list "widened")}))
     (let [{:keys [url]} (sidecar!)
-          widened (ssr-ring/ssr-handler
+          widened (rf.ssr.ring/ssr-handler
                     {:initial-events [[:auth.login/initialise-form]
                                       [:login-host-test/seed-extra]]
                      :payload        [:auth]
-                     :renderer       (node/renderer
+                     :renderer       (rf.ssr.ring.node/renderer
                                        {:endpoint     url
                                         :entry        policy/root-entry
                                         :build-id     host/build-id

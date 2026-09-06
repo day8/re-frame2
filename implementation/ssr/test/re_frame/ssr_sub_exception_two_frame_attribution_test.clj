@@ -70,11 +70,11 @@
       could NOT prove (rf2-c0bq1)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (def ^:private frame-a :ssr/sub-req-a)
 (def ^:private frame-b :ssr/sub-req-b)
@@ -121,7 +121,7 @@
     (register-subs!)
     (let [fa (make-server-frame frame-a)
           fb (make-server-frame frame-b)]
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         ;; Both frames are live registered server frames — the exact
         ;; >1-server-frame shape the removed fallback could not handle.
         ;; frame-a derefs the throwing sub; frame-b derefs the clean one.
@@ -134,13 +134,13 @@
         (rf/subscribe-once [:throwing-sub] {:frame fa})
         (rf/subscribe-once [:clean-sub] {:frame fb})
 
-        (is (= 500 (:status (ssr/get-response fa)))
+        (is (= 500 (:status (rf.ssr/get-response fa)))
             "frame-a's sub-exception fails closed to 500 on frame-a's
              response — the always-on substrate carried the projection
              under the disabled dev gate (the dev-only trace path is
              elided here), and the `:frame` stamp routed it to the
              emitting frame even with a sibling server frame live")
-        (is (= 200 (:status (ssr/get-response fb)))
+        (is (= 200 (:status (rf.ssr/get-response fb)))
             "frame-b's response stays at the default 200 — frame-a's
              sub-throw did not bleed onto the sibling. The removed
              single-frame fallback would have no-op'd with >1 server
@@ -158,12 +158,12 @@
     (register-subs!)
     (let [fa (make-server-frame frame-a)
           fb (make-server-frame frame-b)]
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (rf/subscribe-once [:throwing-sub] {:frame fb})
         (rf/subscribe-once [:clean-sub] {:frame fa})
-        (is (= 500 (:status (ssr/get-response fb)))
+        (is (= 500 (:status (rf.ssr/get-response fb)))
             "frame-b (the emitting frame) fails closed to 500")
-        (is (= 200 (:status (ssr/get-response fa)))
+        (is (= 200 (:status (rf.ssr/get-response fa)))
             "frame-a stays at the default 200 — clean")))))
 
 ;; ===========================================================================
@@ -181,11 +181,11 @@
             is false (the prod default) so no `:details` slot leaks the
             raw trace."
     (register-subs!)
-    (let [project-error ssr/project-error
+    (let [project-error rf.ssr/project-error
           fa            (make-server-frame frame-a)]
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (rf/subscribe-once [:throwing-sub] {:frame fa})
-        (let [resp (ssr/get-response fa)]
+        (let [resp (rf.ssr/get-response fa)]
           (is (= 500 (:status resp))
               "sub-exception fails closed to 500 under production hardening")
           ;; The wire response carries the public-error status, not the

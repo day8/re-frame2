@@ -23,7 +23,7 @@
   (pure, synthetic inputs) plus `build-manifest` (the throw), and assert the
   live committed manifest is duplicate-free."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.api-manifest.gen :as gen]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]))
 
 ;; ---------------------------------------------------------------------------
 ;; duplicate-rows — pure detection over synthetic rows.
@@ -31,7 +31,7 @@
 
 (deftest no-duplicates-yields-empty
   (testing "a manifest with distinct [namespace var] keys has no duplicates"
-    (is (empty? (gen/duplicate-rows
+    (is (empty? (rf.api-manifest.gen/duplicate-rows
                   [{:namespace "re-frame.core" :var "reg-event"  :tier :front-porch}
                    {:namespace "re-frame.core" :var "subscribe"  :tier :front-porch}
                    {:namespace "re-frame.adapter.uix" :var "adapter" :tier :adapter}])))))
@@ -39,7 +39,7 @@
 (deftest duplicate-within-cljs-only-detected
   (testing "two rows sharing one [namespace var] (e.g. a duplicated :cljs-only
             sidecar entry, possibly with a CHANGED tier) are flagged"
-    (let [dups (gen/duplicate-rows
+    (let [dups (rf.api-manifest.gen/duplicate-rows
                  [{:namespace "re-frame.adapter.uix" :var "adapter" :tier :adapter}
                   ;; same [ns var], conflicting tier — the exact probe shape
                   {:namespace "re-frame.adapter.uix" :var "adapter" :tier :tooling}
@@ -50,7 +50,7 @@
 (deftest duplicate-between-jvm-and-cljs-only-detected
   (testing "a [namespace var] carried by BOTH a JVM-derived row and a
             :cljs-only row is flagged (the cross-category collision)"
-    (let [dups (gen/duplicate-rows
+    (let [dups (rf.api-manifest.gen/duplicate-rows
                  [{:namespace "re-frame.core" :var "frame-provider"
                    :tier :front-porch :runtime-verified? true}
                   {:namespace "re-frame.core" :var "frame-provider"
@@ -60,7 +60,7 @@
 
 (deftest duplicates-are-sorted
   (testing "the duplicate report is sorted by [namespace var] for stable output"
-    (let [dups (gen/duplicate-rows
+    (let [dups (rf.api-manifest.gen/duplicate-rows
                  [{:namespace "zzz" :var "b"} {:namespace "zzz" :var "b"}
                   {:namespace "aaa" :var "a"} {:namespace "aaa" :var "a"}])]
       (is (= [["aaa" "a"] ["zzz" "b"]] (map first dups))))))
@@ -78,7 +78,7 @@
    `:cljs-only` row and append a copy with a CHANGED tier (a conflicting
    duplicate, the worst case)."
   []
-  (let [sidecar (gen/read-sidecar)
+  (let [sidecar (rf.api-manifest.gen/read-sidecar)
         cljs    (vec (:cljs-only sidecar))
         _       (assert (seq cljs) "precondition: sidecar carries :cljs-only rows")
         dup     (assoc (first cljs) :tier :tooling)]
@@ -90,15 +90,15 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"Duplicate manifest rows"
-          (gen/build-manifest (live-sidecar-with-duplicate-cljs-only))))))
+          (rf.api-manifest.gen/build-manifest (live-sidecar-with-duplicate-cljs-only))))))
 
 (deftest build-manifest-duplicate-ex-data-lists-the-key
   (testing "the thrown ex-data names the duplicate [namespace var] + count so
             the sidecar/source var can be fixed"
-    (let [dup-row (first (:cljs-only (gen/read-sidecar)))
+    (let [dup-row (first (:cljs-only (rf.api-manifest.gen/read-sidecar)))
           expected-key [(:namespace dup-row) (:var dup-row)]]
       (try
-        (gen/build-manifest (live-sidecar-with-duplicate-cljs-only))
+        (rf.api-manifest.gen/build-manifest (live-sidecar-with-duplicate-cljs-only))
         (is false "expected build-manifest to throw on the duplicate")
         (catch clojure.lang.ExceptionInfo e
           (is (= [[expected-key 2]] (:duplicates (ex-data e)))
@@ -111,9 +111,9 @@
 (deftest live-manifest-has-no-duplicate-rows
   (testing "the committed spec/api-manifest.edn carries one row per
             [namespace var] (non-vacuous: it has many rows)"
-    (let [rows (:vars (gen/read-committed-manifest))]
+    (let [rows (:vars (rf.api-manifest.gen/read-committed-manifest))]
       (is (pos? (count rows)) "precondition: the manifest is non-empty")
-      (is (empty? (gen/duplicate-rows rows))
+      (is (empty? (rf.api-manifest.gen/duplicate-rows rows))
           "the committed manifest must not carry duplicate [namespace var] rows"))))
 
 ;; ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@
             :implementation row OFF the facade, an :internal-public facade
             row and an ordinary front-porch row are not"
     (is (= [["re-frame.core" "make-capture-frame"]]
-           (gen/implementation-facade-rows
+           (rf.api-manifest.gen/implementation-facade-rows
              [{:namespace "re-frame.core" :var "capture-frame"
                :tier :front-porch :facade? true}
               {:namespace "re-frame.core" :var "make-capture-frame"
@@ -144,7 +144,7 @@
 (deftest implementation-facade-rows-are-sorted
   (testing "the report is sorted by [namespace var] for stable output"
     (is (= [["a.ns" "b"] ["a.ns" "c"] ["z.ns" "a"]]
-           (gen/implementation-facade-rows
+           (rf.api-manifest.gen/implementation-facade-rows
              [{:namespace "z.ns" :var "a" :tier :implementation :facade? true}
               {:namespace "a.ns" :var "c" :tier :implementation :facade? true}
               {:namespace "a.ns" :var "b" :tier :implementation :facade? true}])))))
@@ -157,7 +157,7 @@
    rows had. Using the real sidecar keeps the missing/stale/duplicate checks
    passing so the facade-vs-disposition check is what fires."
   []
-  (let [sidecar (gen/read-sidecar)
+  (let [sidecar (rf.api-manifest.gen/read-sidecar)
         k       ["re-frame.core" "capture-frame"]]
     (assert (get-in sidecar [:classification k])
             "precondition: the sidecar classifies re-frame.core/capture-frame")
@@ -169,13 +169,13 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"Implementation-only rows exported from a facade"
-          (gen/build-manifest (live-sidecar-with-demoted-facade-var))))))
+          (rf.api-manifest.gen/build-manifest (live-sidecar-with-demoted-facade-var))))))
 
 (deftest build-manifest-implementation-facade-ex-data-lists-the-key
   (testing "the thrown ex-data names the offending [namespace var] so the
             var can be moved off the facade"
     (try
-      (gen/build-manifest (live-sidecar-with-demoted-facade-var))
+      (rf.api-manifest.gen/build-manifest (live-sidecar-with-demoted-facade-var))
       (is false "expected build-manifest to throw on the planted row")
       (catch clojure.lang.ExceptionInfo e
         (is (= [["re-frame.core" "capture-frame"]]
@@ -202,7 +202,7 @@
   (testing "a facade row with no :justification is flagged; a facade row WITH
             one, and a non-facade row without one, are not"
     (is (= [["re-frame.core" "silent"]]
-           (gen/unjustified-facade-rows
+           (rf.api-manifest.gen/unjustified-facade-rows
              [{:namespace "re-frame.core" :var "spoken" :facade? true
                :action :keep :justification "day-one vocabulary"}
               {:namespace "re-frame.core" :var "silent" :facade? true
@@ -216,7 +216,7 @@
             refused exactly as an absent one is"
     (is (= [["re-frame.core" "blank"] ["re-frame.core" "empty"]
             ["re-frame.core" "not-a-string"]]
-           (gen/unjustified-facade-rows
+           (rf.api-manifest.gen/unjustified-facade-rows
              [{:namespace "re-frame.core" :var "empty" :facade? true
                :action :keep :justification ""}
               {:namespace "re-frame.core" :var "blank" :facade? true
@@ -229,11 +229,11 @@
             :move included, because the table must be able to RECORD a ruled
             move before the move executes"
     (is (empty?
-          (gen/bad-action-facade-rows
-            (for [a gen/facade-action-vocab]
+          (rf.api-manifest.gen/bad-action-facade-rows
+            (for [a rf.api-manifest.gen/facade-action-vocab]
               {:namespace "re-frame.core" :var (name a) :facade? true
                :action a :justification "reason"}))))
-    (is (= #{:keep :rename :move :internal-public} gen/facade-action-vocab))))
+    (is (= #{:keep :rename :move :internal-public} rf.api-manifest.gen/facade-action-vocab))))
 
 (deftest bad-action-facade-rows-flags-missing-and-unknown
   (testing "an absent :action (the shape a new, unclassified facade export
@@ -242,7 +242,7 @@
     (is (= [["re-frame.core" "absent" nil]
             ["re-frame.core" "coined" :defer]
             ["re-frame.core" "typo" :keeep]]
-           (gen/bad-action-facade-rows
+           (rf.api-manifest.gen/bad-action-facade-rows
              [{:namespace "re-frame.core" :var "typo" :facade? true
                :action :keeep :justification "reason"}
               {:namespace "re-frame.core" :var "coined" :facade? true
@@ -259,7 +259,7 @@
    duplicate / implementation-facade checks passing, so the axis under test
    is what fires."
   [& ks]
-  (let [sidecar (gen/read-sidecar)
+  (let [sidecar (rf.api-manifest.gen/read-sidecar)
         k       ["re-frame.core" "capture-frame"]]
     (assert (get-in sidecar [:classification k :justification])
             "precondition: the sidecar justifies re-frame.core/capture-frame")
@@ -273,12 +273,12 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"Facade rows with no :justification"
-          (gen/build-manifest (live-sidecar-without :justification))))))
+          (rf.api-manifest.gen/build-manifest (live-sidecar-without :justification))))))
 
 (deftest build-manifest-unjustified-ex-data-lists-the-key
   (testing "the thrown ex-data names the offending [namespace var]"
     (try
-      (gen/build-manifest (live-sidecar-without :justification))
+      (rf.api-manifest.gen/build-manifest (live-sidecar-without :justification))
       (is false "expected build-manifest to throw on the unjustified row")
       (catch clojure.lang.ExceptionInfo e
         (is (= [["re-frame.core" "capture-frame"]]
@@ -287,14 +287,14 @@
 (deftest build-manifest-throws-on-unknown-action
   (testing "build-manifest refuses a facade row whose :action is outside the
             closed vocabulary"
-    (let [sidecar (assoc-in (gen/read-sidecar)
+    (let [sidecar (assoc-in (rf.api-manifest.gen/read-sidecar)
                             [:classification ["re-frame.core" "capture-frame"]
                              :action]
                             :defer)]
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #"Facade rows with a missing or unknown :action"
-            (gen/build-manifest sidecar))))))
+            (rf.api-manifest.gen/build-manifest sidecar))))))
 
 (deftest build-manifest-throws-on-missing-action
   (testing "an absent :action is refused too — it is the shape an unclassified
@@ -302,18 +302,18 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"Facade rows with a missing or unknown :action"
-          (gen/build-manifest (live-sidecar-without :action))))))
+          (rf.api-manifest.gen/build-manifest (live-sidecar-without :action))))))
 
 (deftest build-manifest-does-not-require-the-axes-off-the-facade
   (testing "dropping both axes from a NON-facade row leaves generation green —
             the obligation is on facade exports only"
-    (let [sidecar (gen/read-sidecar)
+    (let [sidecar (rf.api-manifest.gen/read-sidecar)
           k       ["re-frame.epoch" "restore-epoch!"]]
       (assert (get-in sidecar [:classification k])
               "precondition: the sidecar classifies re-frame.epoch/restore-epoch!")
       (assert (nil? (get-in sidecar [:classification k :justification]))
               "precondition: a non-facade row carries no :justification today")
-      (is (map? (gen/build-manifest
+      (is (map? (rf.api-manifest.gen/build-manifest
                   (update-in sidecar [:classification k]
                              dissoc :justification :action)))))))
 
@@ -324,17 +324,17 @@
 (deftest live-manifest-facade-rows-all-carry-both-axes
   (testing "the committed spec/api-manifest.edn justifies and classifies every
             :facade? true row (non-vacuous: it has many facade rows)"
-    (let [rows   (:vars (gen/read-committed-manifest))
+    (let [rows   (:vars (rf.api-manifest.gen/read-committed-manifest))
           facade (filter :facade? rows)]
       (is (pos? (count facade)) "precondition: the manifest has facade rows")
-      (is (empty? (gen/unjustified-facade-rows rows)))
-      (is (empty? (gen/bad-action-facade-rows rows))))))
+      (is (empty? (rf.api-manifest.gen/unjustified-facade-rows rows)))
+      (is (empty? (rf.api-manifest.gen/bad-action-facade-rows rows))))))
 
 (deftest live-manifest-axes-are-facade-scoped
   (testing "no NON-facade row carries either axis — the two columns mean
             'facade audit', so a stray one on an ordinary row would read as a
             classification nobody made"
-    (let [rows (remove :facade? (:vars (gen/read-committed-manifest)))]
+    (let [rows (remove :facade? (:vars (rf.api-manifest.gen/read-committed-manifest)))]
       (is (pos? (count rows)) "precondition: the manifest has non-facade rows")
       (is (empty? (filter #(or (contains? % :action)
                                (contains? % :justification))
@@ -345,12 +345,12 @@
             at :tier :implementation, and the plant above is the only way to
             get one (non-vacuous: the manifest still carries :implementation
             rows OFF the facade and :facade? true rows at other tiers)"
-    (let [rows (:vars (gen/read-committed-manifest))]
+    (let [rows (:vars (rf.api-manifest.gen/read-committed-manifest))]
       (is (some #(and (= :implementation (:tier %)) (not (:facade? %))) rows)
           "precondition: :implementation rows exist off the facade")
       (is (some :facade? rows)
           "precondition: facade rows exist")
-      (is (empty? (gen/implementation-facade-rows rows))
+      (is (empty? (rf.api-manifest.gen/implementation-facade-rows rows))
           "the committed manifest must not carry an implementation-only facade row"))))
 
 ;; ---------------------------------------------------------------------------
@@ -369,7 +369,7 @@
             invariants without a Conventions change, and three `contains?`
             calls cannot see that."
     (is (= '#{re-frame.core re-frame.story day8.re-frame2-xray.core}
-           gen/facade-namespaces))))
+           rf.api-manifest.gen/facade-namespaces))))
 
 (deftest xray-facade-rows-are-cljs-only-and-carry-the-flag-per-row
   (testing "the Xray façade reaches the manifest by the `:cljs-only` route,
@@ -379,12 +379,12 @@
             two routes; without it, a reader could believe adding the name to
             that set is what flags the rows, and blanking the sidecar flags
             would then look safe."
-    (let [sidecar   (gen/read-sidecar)
+    (let [sidecar   (rf.api-manifest.gen/read-sidecar)
           xray-rows (filter #(= "day8.re-frame2-xray.core" (:namespace %))
                             (:cljs-only sidecar))]
       (is (seq xray-rows)
           "precondition: the sidecar carries :cljs-only rows for the Xray façade")
-      (is (not (contains? (set gen/jvm-namespaces) 'day8.re-frame2-xray.core))
+      (is (not (contains? (set rf.api-manifest.gen/jvm-namespaces) 'day8.re-frame2-xray.core))
           "the Xray façade is CLJS-only — it must not be on the JVM roster")
       (is (every? :facade? xray-rows)
           "every Xray façade row must carry :facade? true in the sidecar")
@@ -396,10 +396,10 @@
             :facade? true rows to the committed manifest — the non-vacuity
             guard that would catch `facade?` silently narrowing back to one
             namespace while --check stayed green (both sides would agree)"
-    (let [facade-rows (filter :facade? (:vars (gen/read-committed-manifest)))
+    (let [facade-rows (filter :facade? (:vars (rf.api-manifest.gen/read-committed-manifest)))
           by-ns       (set (map :namespace facade-rows))]
       (is (seq facade-rows) "precondition: the manifest carries facade rows")
-      (doseq [ns-sym gen/facade-namespaces]
+      (doseq [ns-sym rf.api-manifest.gen/facade-namespaces]
         (is (contains? by-ns (name ns-sym))
             (str "no :facade? true row for enrolled façade " ns-sym))))))
 
@@ -425,10 +425,10 @@
     ;; deliberately out of scope: it names individual vars whose home
     ;; namespace is mostly internal, and `resolve-extra-var` already throws
     ;; when one stops resolving.
-    (let [rows       (:vars (gen/read-committed-manifest))
+    (let [rows       (:vars (rf.api-manifest.gen/read-committed-manifest))
           rowed-nses (set (map :namespace rows))]
       (is (seq rows) "precondition: the committed manifest carries rows")
-      (doseq [ns-sym gen/jvm-namespaces]
+      (doseq [ns-sym rf.api-manifest.gen/jvm-namespaces]
         (is (contains? rowed-nses (name ns-sym))
             (str ns-sym " is in the generator's jvm-namespaces roster but "
                  "contributes NO row to the committed manifest — it either "

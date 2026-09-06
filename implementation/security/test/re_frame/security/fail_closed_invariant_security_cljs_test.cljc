@@ -10,25 +10,25 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Publishes the Malli late-bind validate/explain hooks; without
             ;; it the default validator soft-passes and a malformed schema
             ;; never throws (so there is nothing to fail-closed against).
             [re-frame.schemas.malli]
-            [re-frame.schemas :as schemas]
-            [re-frame.routing.url :as url]
-            [re-frame.ssr.hydrate :as hydrate]
-            #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
-               :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
-            [re-frame.security.gen :as gen]))
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.routing.url :as rf.routing.url]
+            [re-frame.ssr.hydrate :as rf.ssr.hydrate]
+            #?(:clj  [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as rf.test-support :refer-macros [with-trace-recorder!]])
+            [re-frame.security.gen :as rf.security.gen]))
 
 ;; App schemas are frame-local. Bind a scope for registration without creating
 ;; an adapter-backed frame; hydration tests carry their own explicit stamp.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:clear-app-schemas? true})
   (fn [test-fn]
-    (binding [frame/*current-frame* :rf/default]
+    (binding [rf.frame/*current-frame* :rf/default]
       (test-fn))))
 
 (defn- capture
@@ -55,7 +55,7 @@
             schema and never propagates the validator throw. A true result would run
             the boundary handler on an unvalidated untrusted payload."
     (doseq [schema malformed-schemas]
-      (let [verdict (try (schemas/validate-with-registered-fn schema [:anything])
+      (let [verdict (try (rf.schemas/validate-with-registered-fn schema [:anything])
                          (catch #?(:clj Throwable :cljs :default) e [:threw e]))]
         (is (false? verdict)
             (str "malformed schema " (pr-str schema)
@@ -68,15 +68,15 @@
     (doseq [schema malformed-schemas]
       ;; :where :event
       (let [traces (capture
-                     #(is (false? (schemas/validate-event! :ev/x [:ev/x 1] {:schema schema}))
+                     #(is (false? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema schema}))
                           (str "event / " (pr-str schema) " → false")))]
         (is (pos? (count (ops traces :rf.error/malformed-schema)))
             (str "event / " (pr-str schema) " emits :rf.error/malformed-schema")))
       ;; :where :fx-args
-      (is (false? (schemas/validate-fx! :fx/x :ev/x {:any :thing} {:schema schema}))
+      (is (false? (rf.schemas/validate-fx! :fx/x :ev/x {:any :thing} {:schema schema}))
           (str "fx / " (pr-str schema) " → false"))
       ;; :where :sub-return
-      (is (false? (schemas/validate-sub! :sub/x [:sub/x] {:any :thing} {:schema schema}))
+      (is (false? (rf.schemas/validate-sub! :sub/x [:sub/x] {:any :thing} {:schema schema}))
           (str "sub / " (pr-str schema) " → false")))))
 
 (deftest app-db-validation-never-passes-a-malformed-schema
@@ -86,7 +86,7 @@
     (doseq [schema malformed-schemas]
       (rf/reg-app-schema [:root] schema)
       (let [traces (capture
-                     #(is (false? (schemas/validate-app-schema! {:root {:anything 1}} :root/bad))
+                     #(is (false? (rf.schemas/validate-app-schema! {:root {:anything 1}} :root/bad))
                           (str "app-db / " (pr-str schema) " → false (rollback)")))]
         (is (pos? (count (ops traces :rf.error/malformed-schema)))
             (str "app-db / " (pr-str schema) " emits :rf.error/malformed-schema"))))))
@@ -96,12 +96,12 @@
             (a buggy / hostile custom validator) fails CLOSED at the
             boundary seam, not OPEN. The throw is isolated; the verdict is
             false (reject), never true."
-    (schemas/set-schema-fns! {:validate (fn [_ _] (throw (ex-info "validator boom" {})))
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] (throw (ex-info "validator boom" {})))
                               :explain  (fn [_ _] nil)})
     (try
-      (is (false? (schemas/validate-with-registered-fn [:int] 1))
+      (is (false? (rf.schemas/validate-with-registered-fn [:int] 1))
           "throwing validator → false (fail closed), not a propagated throw, not true")
-      (finally (schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/reset-schema-validator!)))))
 
 (def ^:private untrusted-url-inputs
   "Hostile / malformed URL-sink inputs. Each MUST classify EXTERNAL
@@ -136,9 +136,9 @@
             in-app URL. Without a window, external-url? uses the same
             fail-closed lexical fallback."
     (doseq [input untrusted-url-inputs]
-      (is (false? (url/safe-in-app-url? input))
+      (is (false? (rf.routing.url/safe-in-app-url? input))
           (str (pr-str input) " must NOT pass the in-app lexical gate"))
-      (is (true? (url/external-url? input))
+      (is (true? (rf.routing.url/external-url? input))
           (str (pr-str input) " must classify EXTERNAL (fail closed)")))))
 
 (deftest legitimate-in-app-urls-still-pass
@@ -147,25 +147,25 @@
             still classifies in-app, so fail-closed didn't break real nav."
     (doseq [ok-url ["/" "/dashboard" "/users/42" "/a/b/c" "?q=1" "#frag"
                     "/search?sort=asc#top"]]
-      (is (true? (url/safe-in-app-url? ok-url))
+      (is (true? (rf.routing.url/safe-in-app-url? ok-url))
           (str (pr-str ok-url) " is a legitimate in-app reference"))
-      (is (false? (url/external-url? ok-url))
+      (is (false? (rf.routing.url/external-url? ok-url))
           (str (pr-str ok-url) " classifies in-app (not external)")))))
 
 (def ^:private gen-non-string
-  (gen/gen-one-of
-    (gen/gen-elem [nil true false :kw 'sym {} [] #{}])
-    (gen/gen-int -1000 1000)))
+  (rf.security.gen/gen-one-of
+    (rf.security.gen/gen-elem [nil true false :kw 'sym {} [] #{}])
+    (rf.security.gen/gen-int -1000 1000)))
 
 (deftest non-string-url-inputs-always-fail-closed
   (testing "any non-string URL-sink input classifies
             external and never passes the in-app gate. JavaScript would
             stringify it (`new URL(x, base)`); the guard rejects it first."
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-non-string 200 11
                    (fn [x]
-                     (and (false? (url/safe-in-app-url? x))
-                          (true? (url/external-url? x)))))]
+                     (and (false? (rf.routing.url/safe-in-app-url? x))
+                          (true? (rf.routing.url/external-url? x)))))]
       (is (nil? result)
           (str "a non-string URL input was not failed closed: "
                (pr-str (when result (dissoc result :threw))))))))
@@ -179,7 +179,7 @@
   [payload]
   (let [out (atom nil)
         traces (capture
-                 #(reset! out (hydrate/hydrate-event-handler
+                 #(reset! out (rf.ssr.hydrate/hydrate-event-handler
                                 {:db existing-db :rf.frame/id :rf/default}
                                 [:rf/hydrate payload])))]
     {:result @out :traces traces}))
@@ -280,7 +280,7 @@
   [payload]
   (let [out (atom nil)
         traces (capture
-                 #(reset! out (hydrate/hydrate-event-handler
+                 #(reset! out (rf.ssr.hydrate/hydrate-event-handler
                                 {:db            existing-db
                                  :rf.db/runtime existing-runtime-db
                                  :rf.frame/id   :rf/default}
@@ -316,9 +316,9 @@
                  " must fire no compatibility-check fxs"))))))
 
 (def ^:private gen-non-map
-  (gen/gen-one-of
-    (gen/gen-elem [nil true false :kw "str" 'sym [] #{} [:a :b]])
-    (gen/gen-int -100 100)))
+  (rf.security.gen/gen-one-of
+    (rf.security.gen/gen-elem [nil true false :kw "str" 'sym [] #{} [:a :b]])
+    (rf.security.gen/gen-int -100 100)))
 
 (deftest non-map-hydration-inputs-always-fail-closed
   (testing "a non-map payload, or a map
@@ -327,7 +327,7 @@
             the diagnostic fires. One installed-garbage case = one
             fail-open. Both load-bearing partition slices are exercised."
     (let [result
-          (gen/for-all
+          (rf.security.gen/for-all
             gen-non-map 200 23
             (fn [bad]
               (let [;; The whole payload is the non-map `bad`.

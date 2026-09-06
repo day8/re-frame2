@@ -66,15 +66,15 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.interop :as interop]
-            [re-frame.schemas :as schemas]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.interop :as rf.interop]
+            [re-frame.schemas :as rf.schemas]
             ;; Loading the Malli adapter publishes the
             ;; `:schemas/malli-validate` late-bind hook the default
             ;; validator routes through (Spec 010 §Recommended soft-pass /
             ;; rf2-t0hq); without it `reg-app-schema` validation soft-passes.
             [re-frame.schemas.malli]
-            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
@@ -100,16 +100,16 @@
 (def ^:dynamic ^:private *captured* nil)
 
 (defn- reset-runtime [test-fn]
-  (tf/reset-runtime
+  (rf.ssr.test-fixture/reset-runtime
     (fn []
-      (schemas/reset-schema-validator!)
-      (error-emit/clear-error-listeners!)
+      (rf.schemas/reset-schema-validator!)
+      (rf.error-emit/clear-error-listeners!)
       (with-trace-recorder! [captured]
         (binding [*captured* captured]
           (try
             (test-fn)
             (finally
-              (schemas/reset-schema-validator!))))))))
+              (rf.schemas/reset-schema-validator!))))))))
 
 (use-fixtures :each reset-runtime)
 
@@ -244,7 +244,7 @@
       ;; Trace-level confirmation: a single :rf.flow/computed for the event.
       ;; rf2-lwtlk — dev-instrumentation arm. The eval COUNT it restates is
       ;; pinned posture-independently by `(= 1 (count @flow-evals))` above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (by-op :rf.flow/computed)))
             "exactly one :rf.flow/computed trace fired for the macrostep
              dispatch — no double / missed eval")))))
@@ -325,7 +325,7 @@
         ;; The subject itself is absent. So the rejection assertions are kept
         ;; VERBATIM in a dev arm, and the posture that ships gets its own arm
         ;; below rather than silence.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           ;; The candidate never installed — neither the handler's :n write NOR
           ;; the flow's bad output ever reached the container.
           (is (= baseline-db (rf/app-db-value :rf/default))
@@ -343,7 +343,7 @@
         ;; and (c) — validation surviving the gate, with or without rollback —
         ;; were both REJECTED, so a change that quietly made `reg-app-schema`
         ;; always-on reddens here and sends the reader to the bead.
-        (when-not interop/debug-enabled?
+        (when-not rf.interop/debug-enabled?
           (is (= {:n -3 :derived {:doubled -6}} (rf/app-db-value :rf/default))
               "with no validator to reject it, the SCHEMA-VIOLATING candidate
                installs WHOLE — the flow's -6 and the handler's :n -3 land
@@ -370,7 +370,7 @@
         ;; rf2-lwtlk — dev-instrumentation arm. Note the `not-any?` and the
         ;; zero-db-changed half of `sig`: both are negatives over the trace
         ;; ring and would pass vacuously under the gate.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [sig (filterv #{:rf.event/db-changed
                                :rf.error/schema-validation-failure}
                              (ops))]
@@ -437,7 +437,7 @@
       ;; rf2-lwtlk — dev-instrumentation arm. Both `not-any?` halves are
       ;; negatives over the trace ring; under the gate they hold whatever the
       ;; drain did.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         ;; Trace signature (b): ZERO db-changed, a flow-eval-exception present.
         (is (not-any? #(= :rf.event/db-changed %) (ops))
             "NO :rf.event/db-changed in the throw stream — the event aborted
@@ -539,7 +539,7 @@
       ;; rf2-lwtlk — dev-instrumentation arm. Both assertions restate
       ;; `(= [1 2] @flow-inputs)` above, which is posture-independent and is
       ;; the same claim read off the flow itself rather than off the bus.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [computes (by-op :rf.flow/computed)]
           (is (= 2 (count computes))
               "exactly two :rf.flow/computed traces — one per dispatched event")
@@ -633,7 +633,7 @@
       ;; rf2-lwtlk — dev-instrumentation arm. Both restate
       ;; `(= [:route/article] @flow-inputs)` above, which is
       ;; posture-independent.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [computes (by-op :rf.flow/computed)]
           (is (= 1 (count computes))
               "exactly one :rf.flow/computed trace for the transition
@@ -709,7 +709,7 @@
         ;; app-db, the unchanged route slice and the zero `:on-match`
         ;; invocations. The `not-any?` half is a negative over the ring and
         ;; would pass vacuously under the gate.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           ;; Trace signature: :rf.flow/failed fired, but NO :rf.event/db-changed
           ;; for this dispatch — the event aborted before install.
           (is (seq (by-op :rf.flow/failed))
@@ -796,7 +796,7 @@
       ;; rf2-lwtlk — dev-instrumentation arm. The SKIP itself is pinned
       ;; posture-independently by `(= [] @flow-evals)` above — the flow body
       ;; did not run — which is the observation the trace announces.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq (by-op :rf.flow/skip))
             ":rf.flow/skip fired for the value-equal re-transition")))))
 

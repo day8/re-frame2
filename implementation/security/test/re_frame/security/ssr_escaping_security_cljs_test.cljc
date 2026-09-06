@@ -15,9 +15,9 @@
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
             [clojure.string :as str]
-            [re-frame.ssr.html-helpers :as h]
-            [re-frame.ssr.emit :as emit]
-            [re-frame.security.gen :as gen]))
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
+            [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.security.gen :as rf.security.gen]))
 
 (def ^:private canonical-handlers
   ["onclick" "onload" "onerror" "onmouseover" "onmouseout" "onsubmit"
@@ -59,21 +59,21 @@
   "Draws a `[k v]` attribute pair whose KEY is a randomly-recased canonical
   event-handler name (a hostile attribute key controlling a handler). The
   value is an attacker JS payload string."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [[base bits]]
       [(keyword (recase base bits)) "alert(document.cookie)"])
     (fn [rng]
-      (let [[base rng1] (gen/rand-nth rng canonical-handlers)
-            [bits rng2] ((gen/gen-vec (count base) (gen/gen-elem [0 1])) rng1)]
+      (let [[base rng1] (rf.security.gen/rand-nth rng canonical-handlers)
+            [bits rng2] ((rf.security.gen/gen-vec (count base) (rf.security.gen/gen-elem [0 1])) rng1)]
         [[base bits] rng2]))))
 
 (deftest no-recased-canonical-handler-serialises
   (testing "across 600 randomly-recased canonical handler names,
             attr-string strips every one (empty output, no live on*= attr)"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-handler-casing 600 1
                    (fn [[k v]]
-                     (let [out (h/attr-string {k v})]
+                     (let [out (rf.ssr.html-helpers/attr-string {k v})]
                        ;; A stripped handler yields "" for a single-entry map.
                        (and (= "" out)
                             (not (live-handler-attr? out))))))]
@@ -105,7 +105,7 @@
   makes the lower-cased name impossible to collide with a canonical allowlist
   entry, so the ONLY matcher arm that strips it is `event-handler-name-re`.
   The value is an attacker JS payload string."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [[form prefix-bits tail]]
       (let [tail-str (apply str tail)
             base     (case form
@@ -115,11 +115,11 @@
                        :kebab (str "on-" tail-str))]
         [(keyword (recase-on-prefix base prefix-bits)) "alert(document.cookie)"]))
     (fn [rng]
-      (let [[form rng1] (gen/rand-nth rng [:camel :kebab])
-            [pb0 rng2]  (gen/rand-nth rng1 [0 1])
-            [pb1 rng3]  (gen/rand-nth rng2 [0 1])
-            [tail rng4] ((gen/gen-vec (gen/gen-int 4 7)
-                                      (gen/gen-elem structural-tail-letters))
+      (let [[form rng1] (rf.security.gen/rand-nth rng [:camel :kebab])
+            [pb0 rng2]  (rf.security.gen/rand-nth rng1 [0 1])
+            [pb1 rng3]  (rf.security.gen/rand-nth rng2 [0 1])
+            [tail rng4] ((rf.security.gen/gen-vec (rf.security.gen/gen-int 4 7)
+                                      (rf.security.gen/gen-elem structural-tail-letters))
                          rng3)]
         [[form [pb0 pb1] tail] rng4]))))
 
@@ -127,10 +127,10 @@
   (testing "across 600 non-allowlist structural handler names
             (camelCase / kebab, recased prefix), attr-string strips every one
             via event-handler-name-re alone"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-custom-structural-handler 600 5
                    (fn [[k v]]
-                     (let [out (h/attr-string {k v})]
+                     (let [out (rf.ssr.html-helpers/attr-string {k v})]
                        (and (= "" out)
                             (not (live-handler-attr? out))))))]
       (is (nil? result)
@@ -154,7 +154,7 @@
 (deftest hostile-handler-corpus-all-stripped
   (testing "every hostile handler key strips to an empty attribute string"
     (doseq [k hostile-handler-keys]
-      (let [out (h/attr-string {k "javascript:alert(1)"})]
+      (let [out (rf.ssr.html-helpers/attr-string {k "javascript:alert(1)"})]
         (is (= "" out)
             (str "handler key " (pr-str k) " was NOT stripped - leaked: "
                  (pr-str out)))
@@ -166,7 +166,7 @@
             trace of the JavaScript payload"
     (doseq [k [:ontouchstart :ontouchmove :ontouchend :ontouchcancel]]
       (let [payload "alert(document.cookie)"
-            html    (emit/emit-element [:div {k payload :id "ok"} "child"])]
+            html    (rf.ssr.emit/emit-element [:div {k payload :id "ok"} "child"])]
         (is (str/includes? html "id=\"ok\"")
             (str "the benign attr should survive for key " (pr-str k)))
         (is (str/includes? html "child")
@@ -185,7 +185,7 @@
             allowlist can catch it"
     (let [payload "globalThis.pwned++"]
       (doseq [k [:oncommand :ONCOMMAND :OnCommand :oNcOmMaNd]]
-        (let [out (h/attr-string {k payload})]
+        (let [out (rf.ssr.html-helpers/attr-string {k payload})]
           (is (= "" out)
               (str "handler key " (pr-str k) " was NOT stripped - leaked: "
                    (pr-str out)))
@@ -197,7 +197,7 @@
                    (pr-str out)))))
       ;; Non-vacuity: the SAME payload under a benign key serialises, so the
       ;; empty results above prove handler stripping, not value rejection.
-      (is (str/includes? (h/attr-string {:data-x payload}) payload)
+      (is (str/includes? (rf.ssr.html-helpers/attr-string {:data-x payload}) payload)
           "the payload under a benign attribute must serialise"))))
 
 (deftest oncommand-payload-never-reaches-wire-html
@@ -205,7 +205,7 @@
             attribute and child text while omitting the handler name and the
             JavaScript payload entirely"
     (let [payload "globalThis.pwned++"
-          html    (emit/emit-element [:div {:oncommand payload :id "ok"}
+          html    (rf.ssr.emit/emit-element [:div {:oncommand payload :id "ok"}
                                       "child"])]
       (is (str/includes? html "id=\"ok\"")
           "the benign sibling attr should survive")
@@ -220,7 +220,7 @@
   (testing "the matcher must NOT over-strip innocuous English-word keys -
             `online`/`once`/`only`/`on` are real attribute names, not handlers"
     (doseq [k [:online :once :only :on :one :ongoing]]
-      (let [out (h/attr-string {k "v"})]
+      (let [out (rf.ssr.html-helpers/attr-string {k "v"})]
         (is (str/includes? out (name k))
             (str "innocuous key " (pr-str k) " was wrongly stripped"))))))
 
@@ -230,20 +230,20 @@
   "Draws a hostile attribute key that splices a breakout char into an
   otherwise-plausible name, attempting to escape attribute-name context to
   inject a sibling `onclick=` attribute."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [[prefix ch suffix]]
       (str prefix ch suffix))
     (fn [rng]
-      (let [[prefix rng1] (gen/rand-nth rng ["data-x" "class" "title" "id" "x"])
-            [ch rng2]     (gen/rand-nth rng1 breakout-chars)
-            [suffix rng3] (gen/rand-nth rng2 ["onclick=alert(1)" "\"onload=x"
+      (let [[prefix rng1] (rf.security.gen/rand-nth rng ["data-x" "class" "title" "id" "x"])
+            [ch rng2]     (rf.security.gen/rand-nth rng1 breakout-chars)
+            [suffix rng3] (rf.security.gen/rand-nth rng2 ["onclick=alert(1)" "\"onload=x"
                                                "><script>" "/>" "=\"y\" onmouseover=z"])]
         [[prefix ch suffix] rng3]))))
 
 (defn- throws-invalid-attr-name?
   [attrs]
   (try
-    (h/attr-string attrs)
+    (rf.ssr.html-helpers/attr-string attrs)
     false
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
       (= :rf.error/ssr-invalid-attribute-name
@@ -253,7 +253,7 @@
   (testing "across 400 generated grammar-breakout keys,
             attr-string throws :rf.error/ssr-invalid-attribute-name; never
             silently serialises a key that escapes attribute-name context"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-breakout-key 400 7
                    (fn [k]
                       ;; A raw string preserves `/`; keyword conversion would
@@ -276,22 +276,22 @@
 (def ^:private gen-script-breakout
   "Draws a hostile string embedding a randomly-recased `</script...>`
   payload that would prematurely close a <script> body."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [[bits tail]]
       (str "{\"k\":\"" (recase "</script" bits) tail "\"}"))
     (fn [rng]
-      (let [[bits rng1] ((gen/gen-vec (count "</script") (gen/gen-elem [0 1])) rng)
-            [tail rng2] (gen/rand-nth rng1 [">" " >" "/" "\t" "\n"])]
+      (let [[bits rng1] ((rf.security.gen/gen-vec (count "</script") (rf.security.gen/gen-elem [0 1])) rng)
+            [tail rng2] (rf.security.gen/rand-nth rng1 [">" " >" "/" "\t" "\n"])]
         [[bits tail] rng2]))))
 
 (deftest script-body-breakout-neutralised
   (testing "escape-script-body-string escapes every `<`
             so no `</script` (any casing) survives in a script body; sweep
             500 recased closing-tag payloads"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-script-breakout 500 3
                    (fn [payload]
-                     (let [escaped (h/escape-script-body-string payload)]
+                     (let [escaped (rf.ssr.html-helpers/escape-script-body-string payload)]
                         ;; Without a literal `<`, no closing tag can begin.
                        (and (not (str/includes? escaped "<"))
                             (str/includes? escaped "\\u003c")))))]
@@ -306,7 +306,7 @@
                      "</title><script>alert(1)</script>"
                      "\"><svg onload=alert(1)>"
                      "<!--<script>--><script>x</script>"]]
-      (let [out (h/escape-html payload)]
+      (let [out (rf.ssr.html-helpers/escape-html payload)]
         (is (not (str/includes? out "<")) (str "raw < survived: " (pr-str out)))
         (is (not (str/includes? out ">")) (str "raw > survived: " (pr-str out)))
         (is (not (str/includes? out "\"")) (str "raw \" survived: " (pr-str out)))))))
@@ -328,12 +328,12 @@
   STRING VALUE embeds a randomly-recased closing-tag breakout. The breakout
   lives inside an EDN string literal, so the escape must neutralise it AND
   round-trip."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [[bits tail]]
       (pr-str {:k (str "x" (recase "</script" bits) tail "y")}))
     (fn [rng]
-      (let [[bits rng1] ((gen/gen-vec (count "</script") (gen/gen-elem [0 1])) rng)
-            [tail rng2] (gen/rand-nth rng1 [">" " >" "/" "\t" "\n"])]
+      (let [[bits rng1] ((rf.security.gen/gen-vec (count "</script") (rf.security.gen/gen-elem [0 1])) rng)
+            [tail rng2] (rf.security.gen/rand-nth rng1 [">" " >" "/" "\t" "\n"])]
         [[bits tail] rng2]))))
 
 (deftest edn-script-string-breakout-neutralised-and-round-trips
@@ -341,10 +341,10 @@
             `</script` in an EDN string literal so none survives in the body,
             AND the reader recovers the original document verbatim; sweep 500
             recased closing-tag payloads"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-edn-string-breakout 500 11
                    (fn [edn-doc]
-                     (let [escaped (h/escape-edn-script-body edn-doc)]
+                     (let [escaped (rf.ssr.html-helpers/escape-edn-script-body edn-doc)]
                        (and (no-script-breakout? escaped)
                             ;; Reading the escaped body must recover the same value.
                             (= (edn/read-string edn-doc)
@@ -370,7 +370,7 @@
             breakout"
     (doseq [doc edn-token-with-angle-corpus]
       (let [edn-doc (pr-str doc)
-            escaped (h/escape-edn-script-body edn-doc)]
+            escaped (rf.ssr.html-helpers/escape-edn-script-body edn-doc)]
         (is (no-script-breakout? escaped)
             (str "doc " (pr-str doc) " left a </script breakout: " escaped))
         (is (= doc (edn/read-string escaped))
@@ -386,7 +386,7 @@
                      "{:tag<!-- 1}"
                      "{:k </script}"]]
       (let [thrown (try
-                     (h/escape-edn-script-body edn-doc)
+                     (rf.ssr.html-helpers/escape-edn-script-body edn-doc)
                      nil
                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
                        (:rf.error/id (ex-data e))))]
@@ -402,7 +402,7 @@
                  {:s "a</b><![CDATA[x]]>"}
                  {:s "</SCRIPT/></script >"}]]
       (let [edn-doc (pr-str doc)
-            escaped (h/escape-edn-script-body edn-doc)]
+            escaped (rf.ssr.html-helpers/escape-edn-script-body edn-doc)]
         (is (no-script-breakout? escaped)
             (str "string-literal breakout survived for " (pr-str doc)))
         (is (= doc (edn/read-string escaped))

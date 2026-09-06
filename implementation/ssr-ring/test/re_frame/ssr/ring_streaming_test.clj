@@ -13,17 +13,17 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.ring.test-support :as ts])
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
   (:import [java.io InputStream]))
 
 (defn- reset+reg-test-handlers
   [test-fn]
-  (ts/reset-runtime
+  (rf.ssr.ring.test-support/reset-runtime
     (fn []
       (rf/reg-event :rf.test/seed-articles
         (fn [_ [_ arts]] {:db {:articles arts}}))
@@ -66,7 +66,7 @@
 
 (deftest stream-handler-emits-shell-then-resolved-then-payload
   (testing "chunk order: shell prefix → shell-html → resolved templates → final __rf_payload → close"
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -116,7 +116,7 @@
             and payload all stream OUTSIDE `#app` (Spec 011 §998-1001). The
             `:test/root` shell has NO inner `<div>`, so the only `</div>` in
             the wire is the app-root close."
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -160,7 +160,7 @@
   (testing "rf2-z9dduj: `default-streaming-suffix` no longer carries the
             app-root `</div>` (it moved to the shell chunk). The suffix is now
             purely the bootstrap script + body-end + document close."
-    (let [suffix (ssr-ring/default-streaming-suffix {:script-src "/main.js"})]
+    (let [suffix (rf.ssr.ring/default-streaming-suffix {:script-src "/main.js"})]
       (is (not (str/includes? suffix "</div>"))
           "the suffix no longer closes the app root")
       (is (str/includes? suffix "</body></html>")
@@ -174,7 +174,7 @@
             shell-prefix + shell-html + `</div>` + payload + suffix."
     (rf/reg-view ^{:rf/id :test/static-only} static-only []
       [:main [:h1 "Static"]])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/static-only)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -198,7 +198,7 @@
        [:rf/suspense-boundary {:id :a :fallback [:p "A loading"]} [:p "A done"]]
        [:rf/suspense-boundary {:id :b :fallback [:p "B loading"]} [:p "B done"]]
        [:rf/suspense-boundary {:id :c :fallback [:p "C loading"]} [:p "C done"]]])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/multi-root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -229,7 +229,7 @@
         {:id :test/throwy :fallback [:p "Still loading…"]}
         [(rf/view :test/throwing-section)]]
        [:footer "End"]])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/fragile-root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -265,7 +265,7 @@
         {:id :test/outer :fallback [:p.outer-fallback "outer loading"]}
         [(rf/view :test/outer-section)]]
        [:footer "End"]])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/nested-root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -328,7 +328,7 @@
   (testing "A tree with NO :rf/suspense-boundary still streams cleanly (degenerate case)"
     (rf/reg-view ^{:rf/id :test/static-root} static-root []
       [:main [:h1 "Just static"]])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/static-root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -378,7 +378,7 @@
         {:id :test/unchanged :fallback [:p "unchanged loading"]}
         [(rf/view :test/reading-section)]]
        [:footer "End"]])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/delta-root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -430,11 +430,11 @@
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
     (rf/reg-view ^{:rf/id :test/should-not-stream} should-not-stream []
       [:div "should not render under redirect"])
-    (let [handler       (ssr-ring/stream-handler
+    (let [handler       (rf.ssr.ring/stream-handler
                           {:initial-events [[:rf.test.stream/redirect]]
                            :root-view [(rf/view :test/should-not-stream)]
                            :payload :rf.ssr.payload/whole-app-db})
-          baseline-fids (disj (frame/frame-ids) :rf/default)
+          baseline-fids (disj (rf.frame/frame-ids) :rf/default)
           response      (handler {:uri "/secret" :request-method :get})]
       ;; Redirect response shape — status + Location, empty body, no
       ;; chunked InputStream (a redirect has no streamed body).
@@ -448,13 +448,13 @@
           "redirect body is NOT a streamed pipe — it short-circuits")
       ;; Teardown — the per-request frame + its request slot MUST be
       ;; gone immediately after the call (no writer thread to wait on).
-      (let [end-fids (disj (frame/frame-ids) :rf/default)
+      (let [end-fids (disj (rf.frame/frame-ids) :rf/default)
             leaked   (clojure.set/difference end-fids baseline-fids)]
         (is (empty? leaked)
             (str "the per-request frame MUST be destroyed on the streaming
                  redirect path — found leaked frame-ids: " (vec leaked))))
-      (doseq [fid (disj (frame/frame-ids) :rf/default)]
-        (is (nil? (ssr/get-request fid))
+      (doseq [fid (disj (rf.frame/frame-ids) :rf/default)]
+        (is (nil? (rf.ssr/get-request fid))
             (str "no request slot leaks for frame " fid))))))
 
 ;; ===========================================================================
@@ -479,27 +479,27 @@
       [:div "should not render under redirect"])
     (let [real-destroy    rf/destroy-frame!
           teardown-target (atom ::none)
-          handler         (ssr-ring/stream-handler
+          handler         (rf.ssr.ring/stream-handler
                             {:initial-events [[:rf.test.stream/redirect2]]
                              :root-view [(rf/view :test/should-not-stream2)]
                              :payload :rf.ssr.payload/whole-app-db})
-          baseline-fids   (disj (frame/frame-ids) :rf/default)]
+          baseline-fids   (disj (rf.frame/frame-ids) :rf/default)]
       (with-redefs [rf/destroy-frame!
                     (fn [target & more]
                       (when (and (= ::none @teardown-target)
-                                 (frame/frame-value? target))
+                                 (rf.frame/frame-value? target))
                         (reset! teardown-target target))
                       (apply real-destroy target more))]
         (let [response (handler {:uri "/secret" :request-method :get})]
           (is (= 302 (:status response)) "redirect short-circuit on the wire")))
       ;; N released: no per-request frame leaks after the inline teardown.
-      (is (empty? (clojure.set/difference (disj (frame/frame-ids) :rf/default)
+      (is (empty? (clojure.set/difference (disj (rf.frame/frame-ids) :rf/default)
                                           baseline-fids))
           "the per-request incarnation is fully released on the streaming redirect path")
       ;; N+1 protected: the terminal teardown targeted the incarnation VALUE.
-      (is (frame/frame-value? @teardown-target)
+      (is (rf.frame/frame-value? @teardown-target)
           "streaming terminal teardown targeted the make-frame VALUE, not the bare id")
-      (is (some? (frame/frame-value-incarnation-token @teardown-target))
+      (is (some? (rf.frame/frame-value-incarnation-token @teardown-target))
           "the teardown target carries the exact incarnation token — so a same-id
            successor (N+1) is left intact by the two-argument destroy"))))
 
@@ -515,7 +515,7 @@
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
     (rf/reg-view ^{:rf/id :test/redirect-ct-root} redirect-ct-root []
       [:div "noop"])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.stream/redirect-ct]]
                       :root-view [(rf/view :test/redirect-ct-root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -529,7 +529,7 @@
       ;; `:content-type` default on top — it passes the 2-arg form. Pin
       ;; the agreement: whatever Content-Type rides is the accumulator's,
       ;; identical to the non-streaming redirect of the same response.
-      (let [ns-handler (ssr-ring/ssr-handler
+      (let [ns-handler (rf.ssr.ring/ssr-handler
                          {:initial-events [[:rf.test.stream/redirect-ct]]
                           :root-view [(rf/view :test/redirect-ct-root)]
                           :payload :rf.ssr.payload/whole-app-db})
@@ -581,7 +581,7 @@
     (let [throwing-root (fn root-view-fn []
                           (throw (ex-info ":rf.test/root-view-throw"
                                           {:reason "shell-render fail-closed probe"})))
-          handler       (ssr-ring/stream-handler
+          handler       (rf.ssr.ring/stream-handler
                           {:initial-events [[:rf.test.server/init-min]]
                            :root-view throwing-root
                            :payload :rf.ssr.payload/whole-app-db})
@@ -614,7 +614,7 @@
        [:h1 "Header"]
        [(rf/view :test/shell-throwing-section)]
        [:footer "End"]])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init-min]]
                       :root-view [(rf/view :test/shell-throwing-root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -647,7 +647,7 @@
     (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
-    (let [handler (ssr-ring/stream-handler
+    (let [handler (rf.ssr.ring/stream-handler
                     {:initial-events [[:rf.test.server/init-min]]
                      :root-view [(rf/view :test/uses-throwing-sub)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
@@ -655,7 +655,7 @@
                      :payload :rf.ssr.payload/whole-app-db})]
       ;; Production hardening — the dev-only trace listener elides; the
       ;; always-on error-emit substrate is the status source of truth.
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (let [response (handler {:uri "/" :request-method :get})]
           (is (= 500 (:status response))
               "render-time sub-throw under production hardening →
@@ -686,13 +686,13 @@
     (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init-min]]
                       :root-view [(rf/view :test/uses-clean-sub)]
                       :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}
                       :payload :rf.ssr.payload/whole-app-db})]
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (let [response (handler {:uri "/" :request-method :get})
               body     (streamed-body (:body response))]
           (is (= 200 (:status response))
@@ -741,7 +741,7 @@
       (fn [_ _] {:db {}}))
     (rf/reg-view ^{:rf/id :test/plain-root} plain-root []
       [:main [:h1 "rendered shell"]])
-    (let [real-flush ssr/flush-response-result!
+    (let [real-flush rf.ssr/flush-response-result!
           ;; Per-frame call counter so we stub ONLY the second
           ;; flush-response-result! (the post-shell re-read) for our frame,
           ;; leaving the first (early-branch drain read) untouched. Keying on
@@ -752,7 +752,7 @@
                          :headers  []
                          :cookies  []
                          :redirect {:status 302 :location "/post-shell-login"}}]
-      (with-redefs [ssr/flush-response-result!
+      (with-redefs [rf.ssr/flush-response-result!
                     (fn [fid]
                       (let [n (swap! calls inc)]
                         ;; 1st call = early-branch drain read → real value
@@ -763,11 +763,11 @@
                         (if (= n 2)
                           {:response redirect-resp :public-error nil}
                           (real-flush fid))))]
-        (let [handler       (ssr-ring/stream-handler
+        (let [handler       (rf.ssr.ring/stream-handler
                               {:initial-events [[:rf.test.server/init-min]]
                                :root-view [(rf/view :test/plain-root)]
                                :payload :rf.ssr.payload/whole-app-db})
-              baseline-fids (disj (frame/frame-ids) :rf/default)
+              baseline-fids (disj (rf.frame/frame-ids) :rf/default)
               response      (handler {:uri "/secret" :request-method :get})]
           (is (= 302 (:status response))
               "post-shell redirect ships the 3xx status on the wire")
@@ -784,7 +784,7 @@
           ;; No writer thread spawned + frame torn down inline (the writer's
           ;; finally — the streaming teardown path — never runs on this
           ;; branch, so the inline destroy is load-bearing).
-          (let [end-fids (disj (frame/frame-ids) :rf/default)
+          (let [end-fids (disj (rf.frame/frame-ids) :rf/default)
                 leaked   (clojure.set/difference end-fids baseline-fids)]
             (is (empty? leaked)
                 (str "the per-request frame MUST be destroyed inline on the
@@ -843,12 +843,12 @@
                 ;; `hiccup` = (resolve-root-view root-view). When the host
                 ;; passes an EXPANDED form (symmetric with the client's
                 ;; :render-tree-fn), this is the marker-bearing root tree.
-                server-hiccup (lifecycle/resolve-root-view
+                server-hiccup (rf.ssr.ring.lifecycle/resolve-root-view
                                 (fn [] ((rf/view :test/hash-root))))
-                server-hash   (ssr/render-tree-hash server-hiccup)
+                server-hash   (rf.ssr/render-tree-hash server-hiccup)
                 ;; The client verifies via :render-tree-fn #((rf/view :root)).
                 client-hiccup ((rf/view :test/hash-root))
-                client-hash   (ssr/render-tree-hash client-hiccup)]
+                client-hash   (rf.ssr/render-tree-hash client-hiccup)]
             ;; The marker IS present in both trees (the equality is NOT
             ;; achieved by stripping it).
             (is (str/includes? (pr-str server-hiccup) ":rf/suspense-boundary")
@@ -914,7 +914,7 @@
                       (when (= :rf.error/ssr-head-resolution-failed
                                (:operation ev))
                         (swap! traces conj ev))))
-          handler (ssr-ring/stream-handler
+          handler (rf.ssr.ring/stream-handler
                     {:initial-events [[:rf.test.stream/seed-throwing-head-route]]
                      :root-view [(rf/view :test/stream-head-body)]
                      :payload   :rf.ssr.payload/whole-app-db})
@@ -990,7 +990,7 @@
          ;; verbatim header casing.
          :fx [[:rf.server/set-header {:name "Content-Length" :value "7"}]
               [:rf.server/append-header {:name "content-length" :value "13"}]]}))
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init-with-content-length]]
                       :root-view [(rf/view :test/root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -1026,7 +1026,7 @@
       (fn [_ _]
         {:db {:articles [] :comments []}
          :fx [[:rf.server/set-header {:name "Content-Length" :value "999"}]]}))
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init-cl-and-ct]]
                       :root-view [(rf/view :test/root)]
                       :payload :rf.ssr.payload/whole-app-db})
@@ -1052,7 +1052,7 @@
   (testing "rf2-nncni3: a custom :content-type opt force-replaces the
             default-seeded text/html on the STREAMED response head — no
             duplicate content-type key, and the body still streams in full"
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view      [(rf/view :test/root)]
                       :content-type   "application/xhtml+xml; charset=utf-8"
@@ -1093,7 +1093,7 @@
     (let [custom-shell (fn [body-html payload-edn _opts]
                          (str "<custom>" body-html payload-edn "</custom>"))
           ex (is (thrown? clojure.lang.ExceptionInfo
-                   (ssr-ring/stream-handler
+                   (rf.ssr.ring/stream-handler
                      {:initial-events  [[:rf.test.server/init]]
                       :root-view  [(rf/view :test/root)]
                       :payload    :rf.ssr.payload/whole-app-db
@@ -1116,7 +1116,7 @@
             string / map / vector fails closed the same way a fn does"
     (doseq [bad ["<html>…</html>" {:shape :map} [:vector]]]
       (let [ex (is (thrown? clojure.lang.ExceptionInfo
-                     (ssr-ring/stream-handler
+                     (rf.ssr.ring/stream-handler
                        {:initial-events  [[:rf.test.server/init]]
                         :root-view  [(rf/view :test/root)]
                         :payload    :rf.ssr.payload/whole-app-db
@@ -1131,7 +1131,7 @@
             cleanly and streams normally — the rejection gates only a
             non-nil override, never the no-override common path"
     ;; Absent — the default streaming construction path.
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.server/init]]
                       :root-view [(rf/view :test/root)]
                       :payload   :rf.ssr.payload/whole-app-db})
@@ -1143,7 +1143,7 @@
       (is (str/includes? body "<h1>News</h1>")
           "the default split envelope streams the rendered shell"))
     ;; Explicit nil — "no override requested" passes the gate.
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events  [[:rf.test.server/init]]
                       :root-view  [(rf/view :test/root)]
                       :payload    :rf.ssr.payload/whole-app-db
@@ -1214,7 +1214,7 @@
             explicit :head STRING carries no reconstructible model, so
             :rf/head-hash / data-rf-head-hash is OMITTED entirely."
     (let [mk      (fn [head]
-                    (ssr-ring/stream-handler
+                    (rf.ssr.ring/stream-handler
                       {:initial-events [[:rf.test.server/init]]
                        ;; rf2-q1b96 — resolving form; the body-only-hash
                        ;; assertions below need a hash to exist.
@@ -1256,7 +1256,7 @@
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :test.stream/route-b})}))
     (let [mk      (fn [init]
-                    (ssr-ring/stream-handler
+                    (rf.ssr.ring/stream-handler
                       {:initial-events [[:rf.test.server/init] [init]]
                        ;; rf2-q1b96 — resolving form: `(= ha hb)` below would
                        ;; hold vacuously (nil = nil) on an unresolved root.
@@ -1293,7 +1293,7 @@
             :rf/head-hash (the separate channel — a default head is always
             reconstructible via active-head, so the channel is present even
             with no explicit :head/:reg-head)."
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events  [[:rf.test.server/init]]
                       ;; rf2-q1b96 — resolving form; an unresolved root
                       ;; carries no hash on either channel.
@@ -1326,7 +1326,7 @@
             NO data-rf-render-hash / data-rf-head-hash on the streamed
             shell. Toggling the opt now has an observable effect on the
             wire (it was a no-op for the HTML path before)."
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events  [[:rf.test.server/init]]
                       ;; rf2-q1b96 — resolving form, so this test still
                       ;; isolates the `:emit-hash?` toggle: the payload keys
@@ -1418,7 +1418,7 @@
        [:rf/suspense-boundary
         {:id :test/bump :fallback [:p "loading"]}
         [(rf/view :test/counter-mutator)]]])
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      ;; EXPANDED :root-view form (symmetric with the client's
                      ;; :render-tree-fn) so the streamed hash is over the
                      ;; rendered counter-bearing tree, not an unexpanded
@@ -1453,7 +1453,7 @@
             ;; whole-db replace event).
             (rf/dispatch-sync [:rf.test/hydrate-db db-slice])
             (let [client-hiccup ((rf/view :test/counter-root))
-                  client-hash   (lifecycle/render-document-hash client-hiccup)]
+                  client-hash   (rf.ssr.ring.lifecycle/render-document-hash client-hiccup)]
               ;; THE PIN — the load-bearing assertion. Pre-fix the server hash
               ;; describes counter=0 (pre-drain) while the client renders
               ;; counter=1 (post-drain), so these DIFFER → spurious mismatch.
@@ -1499,7 +1499,7 @@
         (fn [_ _] {}))
       (rf/reg-view* :pages/stream-once
         (fn [] [:div.page "once"]))
-      (let [handler  (ssr-ring/stream-handler
+      (let [handler  (rf.ssr.ring/stream-handler
                        {:initial-events [[:rf.test/init-once]]
                         :root-view (fn []
                                      (swap! call-count inc)
@@ -1526,7 +1526,7 @@
     (rf/reg-view* :pages/stream-noni
       (fn [n] [:div {:data-call n} "noni"]))
     (let [counter   (atom 0)
-          handler   (ssr-ring/stream-handler
+          handler   (rf.ssr.ring/stream-handler
                       {:initial-events [[:rf.test/init-noni]]
                        ;; rf2-q1b96 — outer call: RESOLVES the view instead of
                        ;; handing back a reference, so a hash exists at all.

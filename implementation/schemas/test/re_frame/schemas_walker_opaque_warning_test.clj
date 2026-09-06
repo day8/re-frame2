@@ -25,11 +25,11 @@
   test-fixture cache-clear story."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- warnings-of
   "Filter the recorded events to the given operation keyword."
@@ -162,7 +162,7 @@
       (rf/reg-app-schema [:first] {:malli/schema :first})
       (is (= 1 (count (warnings-of recorded
                                    :rf.warning/schema-walker-opaque))))
-      (schemas/clear-walker-opaque-warned!)
+      (rf.schemas/clear-walker-opaque-warned!)
       (rf/reg-app-schema [:second] {:malli/schema :second})
       (is (= 2 (count (warnings-of recorded
                                    :rf.warning/schema-walker-opaque)))

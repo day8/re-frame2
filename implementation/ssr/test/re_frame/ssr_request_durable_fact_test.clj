@@ -41,13 +41,13 @@
   the two negatives cannot pass by the record being absent altogether."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- shape 1: event payload (the sanitized fact rides :event) -------------
 
@@ -55,7 +55,7 @@
   (testing "a setup handler writes durable app-db from a request-derived fact
             supplied as EVENT PAYLOAD — the fact rides :event (recorded), the
             handler never reads the ambient request cofx"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})]
+    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})]
       ;; The handler reads the SANITIZED session off its event arg, NOT off the
       ;; ambient :rf.server/request cofx — so the durable write folds a recorded
       ;; fact (the event), replay-stable.
@@ -67,7 +67,7 @@
       ;; Host adapter sanitizes the request and dispatches WITH the fact.
       (rf/dispatch-sync [:auth/server-init {:user "alice" :authed? true}]
                         {:frame server-frame})
-      (let [db (frame/frame-app-db-value server-frame)]
+      (let [db (rf.frame/frame-app-db-value server-frame)]
         (is (= "alice" (:auth/user db))
             "durable app-db carries the request-derived user from event payload")
         (is (= :authed (:auth/state db)))))))
@@ -78,7 +78,7 @@
   (testing "a setup handler writes durable app-db from a PROVIDED recordable
             :rf.cofx leaf the host stamped onto the token after sanitizing the
             request — the value is recorded + replay-stable, delivered flat"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})]
+    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})]
       (rf/reg-cofx :auth.session/user
         {:recordable? true :provided? true
          :doc "Sanitized session user, stamped by the SSR host adapter."})
@@ -92,7 +92,7 @@
       (rf/dispatch-sync [:auth/server-init-cofx]
                         {:frame   server-frame
                          :rf.cofx {:auth.session/user "bob"}})
-      (let [db (frame/frame-app-db-value server-frame)]
+      (let [db (rf.frame/frame-app-db-value server-frame)]
         (is (= "bob" (:auth/user db))
             "durable app-db carries the request-derived user from the recorded :rf.cofx leaf")
         (is (= :authed (:auth/state db)))))))
@@ -101,7 +101,7 @@
   (testing "a PROVIDED recordable request fact absent from the token fails
             LOUDLY with :rf.error/missing-required-cofx — NOT a silent
             fall-back to get-request / nil (the strict-replay contract)"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})]
+    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})]
       (with-trace-recorder! [traces]
         (rf/reg-cofx :auth.session/user
           {:recordable? true :provided? true
@@ -122,11 +122,11 @@
           ;; fail-closed contract is pinned by the throw and its
           ;; `:rf.error/id` above, both production-real; this is the dev
           ;; trace restating the same category on the trace bus.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (seq (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces))
                 "a :rf.error/missing-required-cofx error trace was emitted"))
           ;; And no durable write landed.
-          (is (nil? (:auth/user (frame/frame-app-db-value server-frame)))
+          (is (nil? (:auth/user (rf.frame/frame-app-db-value server-frame)))
               "no durable app-db slice was written from a missing provided fact"))))))
 
 ;; ---- contrast: the ambient :rf.server/request value is NOT recorded -------
@@ -136,9 +136,9 @@
             token's :rf.cofx record — proving it is unrecorded (replay re-runs
             the supplier), which is exactly why a DURABLE write must not fold it
             (it would diverge on replay / read nil after teardown)"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})
+    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
           seen-cofx    (atom ::unset)]
-      (ssr/set-request! server-frame {:request-method :get :uri "/x"
+      (rf.ssr/set-request! server-frame {:request-method :get :uri "/x"
                                       :headers {"cookie" "session=raw-secret"}})
       ;; A handler that READS the ambient request (a legal NON-durable use:
       ;; here just to capture the recorded :rf.cofx for the assertion).

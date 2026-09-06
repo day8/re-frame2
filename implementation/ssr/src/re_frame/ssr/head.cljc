@@ -28,18 +28,18 @@
   §Optional-artefact wrapper convention), each public surface is
   reachable via `re-frame.core` through a late-bind hook so core never
   statically `:require`s `re-frame.ssr.head`."
-  (:require [re-frame.late-bind :as late-bind]
-            [re-frame.ssr.head.emit :as head-emit]
-            [re-frame.ssr.head.registry :as registry]))
+  (:require [re-frame.late-bind :as rf.late-bind]
+            [re-frame.ssr.head.emit :as rf.ssr.head.emit]
+            [re-frame.ssr.head.registry :as rf.ssr.head.registry]))
 
 ;; ---- public-surface re-exports --------------------------------------------
 
-(def head-model->html    head-emit/head-model->html)
+(def head-model->html    rf.ssr.head.emit/head-model->html)
 
-(def reg-head            registry/reg-head)
-(def render-head         registry/render-head)
-(def active-head         registry/active-head)
-(def default-head        registry/default-head)
+(def reg-head            rf.ssr.head.registry/reg-head)
+(def render-head         rf.ssr.head.registry/render-head)
+(def active-head         rf.ssr.head.registry/active-head)
+(def default-head        rf.ssr.head.registry/default-head)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -49,11 +49,11 @@
 ;; every hook, regardless of which sub-ns happened to define the
 ;; underlying fn.
 
-(late-bind/set-fn! :ssr/reg-head          reg-head)
-(late-bind/set-fn! :ssr/render-head       render-head)
-(late-bind/set-fn! :ssr/active-head       active-head)
+(rf.late-bind/set-fn! :ssr/reg-head          reg-head)
+(rf.late-bind/set-fn! :ssr/render-head       render-head)
+(rf.late-bind/set-fn! :ssr/active-head       active-head)
 ;; NB: late-bind keys conventionally use `-` only (the drift-detector
 ;; regex limits its grammar to alpha-numeric + standard symbol chars);
 ;; the user-facing fn is `head-model->html` but the hook key drops the
 ;; `->` decoration.
-(late-bind/set-fn! :ssr/head-model-html   head-model->html)
+(rf.late-bind/set-fn! :ssr/head-model-html   head-model->html)

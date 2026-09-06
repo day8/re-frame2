@@ -8,9 +8,9 @@
   pairs into vectors so multi-valued headers (Set-Cookie, Vary,
   Link, ...) round-trip correctly."
   (:require [clojure.string :as str]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.ring.cookie :as cookie]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.ring.cookie :as rf.ssr.ring.cookie]
+            [re-frame.trace :as rf.trace]))
 
 (set! *warn-on-reflection* true)
 
@@ -44,10 +44,10 @@
   values and emits a development warning. Nil remains nil instead of being
   fabricated into an empty header."
   [ring-headers [header-name header-value]]
-  (when (and interop/debug-enabled?
+  (when (and rf.interop/debug-enabled?
              (some? header-value)
              (not (string? header-value)))
-    (trace/emit! :warning :rf.ssr/ssr-non-string-header-value
+    (rf.trace/emit! :warning :rf.ssr/ssr-non-string-header-value
                  {:where      :ssr-ring/merge-pair-into-header-map
                   :header     header-name
                   :value-type (some-> header-value class .getName)
@@ -87,7 +87,7 @@
     (fn [ring-headers cookie-map]
       (merge-pair-into-header-map
         ring-headers
-        ["Set-Cookie" (cookie/cookie->set-cookie-header cookie-map)]))
+        ["Set-Cookie" (rf.ssr.ring.cookie/cookie->set-cookie-header cookie-map)]))
     headers-map
     cookies))
 

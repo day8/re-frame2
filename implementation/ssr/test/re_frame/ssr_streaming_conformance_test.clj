@@ -17,8 +17,8 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (defn- realise-fixture-head
   "Realise a fixture-supplied render tree onto THIS host's head grammar.
@@ -53,7 +53,7 @@
 
 (defn- reset+reg-fixture-handlers
   [test-fn]
-  (tf/reset-runtime
+  (rf.ssr.test-fixture/reset-runtime
     (fn []
       ;; Register the four views the fixture's :fixture/handlers names.
       (rf/reg-view ^{:rf/id :streaming.test/article-list} _al []
@@ -124,7 +124,7 @@
                           (filter #(= :ssr.streaming/render-shell (:call %)))
                           first)
           {:keys [shell-html continuations]}
-          (ssr/streaming-render-shell (realise-fixture-head (:input shell-call)))
+          (rf.ssr/streaming-render-shell (realise-fixture-head (:input shell-call)))
           expect (:expect shell-call)]
       (testing "shell-html includes every fixture-pinned substring"
         (doseq [s (:shell-html-includes expect)]
@@ -145,7 +145,7 @@
           ;; views. We drain against that frame.
           fid     :rf/default]
       (doseq [{:keys [input expect]} cont-calls]
-        (let [out (ssr/streaming-render-continuation
+        (let [out (rf.ssr/streaming-render-continuation
                     fid (update input :subtree realise-fixture-head))]
           (doseq [s (:html-includes expect)]
             (is (str/includes? (:html out) s)
@@ -161,7 +161,7 @@
                        first)
           input   (:input fp-call)
           expect  (:expect fp-call)
-          payload (ssr/streaming-build-final-payload
+          payload (rf.ssr/streaming-build-final-payload
                     :rf/default
                     (:render-hash input)
                     ;; rf2-lm2yzy — the WIRE :rf/frame-id is decoupled from the
@@ -226,7 +226,7 @@
                           (filter #(= :ssr.streaming/render-shell (:call %)))
                           first)
           {:keys [shell-html continuations]}
-          (ssr/streaming-render-shell (realise-fixture-head (:input shell-call)))
+          (rf.ssr/streaming-render-shell (realise-fixture-head (:input shell-call)))
           expect     (:expect shell-call)]
       (doseq [s (:shell-html-includes expect)]
         (is (str/includes? shell-html s)
@@ -251,7 +251,7 @@
           inner-call (second cont-calls)
           fid        :rf/default]
       ;; Drain the outer.
-      (let [out    (ssr/streaming-render-continuation
+      (let [out    (rf.ssr/streaming-render-continuation
                      fid (update (:input outer-call) :subtree realise-fixture-head))
             expect (:expect outer-call)]
         (is (= (:failed? expect) (:failed? out))
@@ -267,7 +267,7 @@
                (mapv :id (:continuations out)))
             "outer drain returns the inner continuation at the FIFO tail"))
       ;; Drain the inner.
-      (let [in     (ssr/streaming-render-continuation
+      (let [in     (rf.ssr/streaming-render-continuation
                      fid (update (:input inner-call) :subtree realise-fixture-head))
             expect (:expect inner-call)]
         (is (= (:failed? expect) (:failed? in)))

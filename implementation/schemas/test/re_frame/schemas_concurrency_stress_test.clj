@@ -80,13 +80,13 @@
   schemas-by-frame atom CAN race across threads. JVM-only by design."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.storage :as storage]
-            [re-frame.schemas.test-fixture :as tf])
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.storage :as rf.schemas.storage]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 ;; Per-thread iteration count. Kept at the rf2-1gpx8 / rf2-35rgj
 ;; standard 5000 so CI stays under ~60s wall-clock with the default
@@ -168,7 +168,7 @@
               "reg thread completed within 120s wall-clock")))
 
       ;; --- Invariant 1: no entry dropped --------------------------
-      (let [final-entries (storage/frame-schema-entries stress-frame)
+      (let [final-entries (rf.schemas.storage/frame-schema-entries stress-frame)
             actual-count  (count final-entries)
             expected      (* n-threads stress-iters)]
         (is (= expected actual-count)
@@ -283,7 +283,7 @@
                   ;; pure reduce-kv inside `app-schemas`. The captured
                   ;; value is a fully-realised immutable map at this
                   ;; point; no later writer mutation can perturb it.
-                  (let [snap (storage/app-schemas
+                  (let [snap (rf.schemas.storage/app-schemas
                                {:frame stress-frame})]
                     (swap! (nth per-reader-results r) conj snap))))))]
       (.countDown latch)
@@ -335,10 +335,10 @@
                                         :frame  temp-frame}))
                               {}
                               snap)]
-              (swap! storage/schemas-by-frame
+              (swap! rf.schemas.storage/schemas-by-frame
                      assoc temp-frame meta-snap)
-              (let [d1 (schemas/app-schemas-digest {:frame temp-frame})
-                    d2 (schemas/app-schemas-digest {:frame temp-frame})]
+              (let [d1 (rf.schemas/app-schemas-digest {:frame temp-frame})
+                    d2 (rf.schemas/app-schemas-digest {:frame temp-frame})]
                 (is (= d1 d2)
                     (str "Reader " r ": digest of frozen captured "
                          "snapshot is non-deterministic — first call "
@@ -347,7 +347,7 @@
                          "cross-thread state pollution in the digest "
                          "pipeline.")))))
           (finally
-            (swap! storage/schemas-by-frame dissoc temp-frame))))
+            (swap! rf.schemas.storage/schemas-by-frame dissoc temp-frame))))
 
       ;; --- Invariant: every captured snapshot's keys are well-formed paths
       ;; the writer is known to have issued. A torn-read fragment
@@ -435,7 +435,7 @@
           ;; byte-for-byte. Computed BEFORE the futures launch so the
           ;; comparison happens against a snapshot fixed in evaluation
           ;; order (no later main-thread mutation could perturb it).
-          baseline (schemas/extract-sensitive-paths-from-schema
+          baseline (rf.schemas/extract-sensitive-paths-from-schema
                      schema [])
           latch    (CountDownLatch. 1)
           ;; Per-thread divergence record + per-thread call count.
@@ -448,7 +448,7 @@
                 (.await latch)
                 (dotimes [_ stress-iters]
                   (.incrementAndGet ^AtomicLong (nth per-thread-counts t))
-                  (let [r (schemas/extract-sensitive-paths-from-schema
+                  (let [r (rf.schemas/extract-sensitive-paths-from-schema
                             schema [])]
                     (when (not= r baseline)
                       (swap! (nth divergences t) conj
@@ -491,7 +491,7 @@
       ;; would indicate the contention exposed a memoisation cache or
       ;; mutable global the walker reads through (currently neither;
       ;; this is the future-proof guard).
-      (let [post (schemas/extract-sensitive-paths-from-schema schema [])]
+      (let [post (rf.schemas/extract-sensitive-paths-from-schema schema [])]
         (is (= baseline post)
             (str "Post-stress walker baseline drifted: expected "
                  (pr-str baseline) "; got " (pr-str post)))))))
@@ -551,7 +551,7 @@
               "ordering thread completed within 120s wall-clock")))
 
       ;; --- Invariant: exactly one entry for the contested path ----
-      (let [entries (storage/frame-schema-entries stress-frame)]
+      (let [entries (rf.schemas.storage/frame-schema-entries stress-frame)]
         (is (= 1 (count entries))
             (str "Expected exactly one entry under contested path "
                  "(per-path hot-reload is overwrite-in-place, not "
@@ -622,7 +622,7 @@
       ;; that thread (and ONLY that thread) issued.
       (doseq [t (range n-threads)
               :let [fid     (nth per-thread-frames t)
-                    entries (storage/frame-schema-entries fid)
+                    entries (rf.schemas.storage/frame-schema-entries fid)
                     winner  (-> entries (get shared-path) :schema)
                     own-issued
                     (set (for [m (range stress-iters)] (mk-schema t m)))]]

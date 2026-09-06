@@ -45,16 +45,16 @@
   reason."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.boot :as boot]
-            [re-frame.ssr.install :as install]
-            [re-frame.ssr.manifest :as manifest]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.router :as router]))
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.boot :as rf.ssr.boot]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.ssr.manifest :as rf.ssr.manifest]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.router :as rf.router]))
 
-(use-fixtures :once (fn [f] (rf/init! ssr/adapter) (f)))
+(use-fixtures :once (fn [f] (rf/init! rf.ssr/adapter) (f)))
 
-(use-fixtures :each (fn [f] (install/reset-installed-payloads!) (f)))
+(use-fixtures :each (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
 
 ;; ---------------------------------------------------------------------------
 ;; Host-neutral fixtures
@@ -88,7 +88,7 @@
   target stand. The frame-id mismatch arm is covered by
   `ssr_hydration_test`."
   [db]
-  (payload-policy/build-payload nil db "server-hash-1" {}))
+  (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
 
 (defn- reg-bump!
   "Register the client-side mutation the idempotence proof interleaves.
@@ -99,7 +99,7 @@
 (def ^:private manifest-v1
   "A minimal valid Root Manifest v1 — only `:rf.root/schema-version` is
   required, which is exactly the subset property S5-A pinned."
-  {:rf.root/schema-version manifest/schema-version
+  {:rf.root/schema-version rf.ssr.manifest/schema-version
    :root-id                :page/shop
    :view-id                :app/shop-root
    :phase                  :server})
@@ -128,7 +128,7 @@
     (reg-bump!)
     (let [fid     (fresh-frame!)
           payload (payload-for {:count 7})]
-      (boot/hydrate! {:frame fid :payload payload})
+      (rf.ssr.boot/hydrate! {:frame fid :payload payload})
       (is (= {:count 7} (rf/app-db-value fid)) "first install seeded")
 
       (rf/dispatch-sync [::bump] {:frame fid})
@@ -136,7 +136,7 @@
           "the client moved past the server slice")
 
       ;; PAST the ledger, straight at the handler.
-      (router/dispatch-sync! [:rf/hydrate payload] {:frame fid})
+      (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame fid})
 
       (is (= {:count 7} (rf/app-db-value fid))
           (str "MEASURED (this is the defect, not an aspiration): an "
@@ -157,13 +157,13 @@
     (let [fid     (fresh-frame!)
           payload (payload-for {:count 7})]
       ;; ROOT A boots.
-      (boot/hydrate! {:frame fid :payload payload :root-id :page/a})
+      (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/a})
       (rf/dispatch-sync [::bump] {:frame fid})
       (let [after-one (rf/app-db-value fid)]
         (is (= {:count 8} after-one))
 
         ;; ROOT B boots — same page, same frame, same payload script.
-        (boot/hydrate! {:frame fid :payload payload :root-id :page/b})
+        (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/b})
 
         (is (= after-one (rf/app-db-value fid))
             (str "the observable frame-state is IDENTICAL to installing "
@@ -176,8 +176,8 @@
             page WAS server-rendered, whichever root got there first"
     (let [fid     (fresh-frame!)
           payload (payload-for {:count 7})]
-      (is (= payload (boot/hydrate! {:frame fid :payload payload})))
-      (is (= payload (boot/hydrate! {:frame fid :payload payload}))
+      (is (= payload (rf.ssr.boot/hydrate! {:frame fid :payload payload})))
+      (is (= payload (rf.ssr.boot/hydrate! {:frame fid :payload payload}))
           "a caller branching on the return value cannot tell root order"))))
 
 (deftest the-installing-root-is-recorded-and-a-later-root-does-not-replace-it
@@ -185,9 +185,9 @@
             installed it, so a conflict can name the right party"
     (let [fid     (fresh-frame!)
           payload (payload-for {:count 7})]
-      (boot/hydrate! {:frame fid :payload payload :root-id :page/a})
-      (boot/hydrate! {:frame fid :payload payload :root-id :page/b})
-      (is (= :page/a (:installed-by (install/installed-payload fid)))
+      (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/a})
+      (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/b})
+      (is (= :page/a (:installed-by (rf.ssr.install/installed-payload fid)))
           "root B found the claim live; it did not take it over"))))
 
 (deftest order-independence-either-root-may-boot-first
@@ -196,9 +196,9 @@
     (let [payload (payload-for {:count 7})]
       (doseq [[first-root second-root] [[:page/a :page/b] [:page/b :page/a]]]
         (let [fid (fresh-frame!)]
-          (boot/hydrate! {:frame fid :payload payload :root-id first-root})
-          (boot/hydrate! {:frame fid :payload payload :root-id second-root})
-          (is (= first-root (:installed-by (install/installed-payload fid)))
+          (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id first-root})
+          (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id second-root})
+          (is (= first-root (:installed-by (rf.ssr.install/installed-payload fid)))
               (str "whichever root booted first owns the claim (order "
                    (pr-str [first-root second-root]) ")")))))))
 
@@ -216,11 +216,11 @@
   (testing "two roots referencing one payload id with DIFFERENT content is
             :rf.error/frame-payload-conflict — never a silent first-wins"
     (let [fid (fresh-frame!)]
-      (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
+      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                       :root-id :page/a})
       (is (= :rf.error/frame-payload-conflict
              (caught-error-id
-              #(boot/hydrate! {:frame fid :payload (payload-for {:count 99})
+              #(rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
                                :root-id :page/b})))))))
 
 (deftest a-conflicting-root-leaves-the-installed-payload-untouched
@@ -228,17 +228,17 @@
             frame it seeded, and the ledger record all survive intact"
     (reg-bump!)
     (let [fid (fresh-frame!)]
-      (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
+      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                       :root-id :page/a})
       (rf/dispatch-sync [::bump] {:frame fid})
       (let [before-conflict (rf/app-db-value fid)
-            record-before   (install/installed-payload fid)]
+            record-before   (rf.ssr.install/installed-payload fid)]
         (caught-error-id
-         #(boot/hydrate! {:frame fid :payload (payload-for {:count 99})
+         #(rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
                           :root-id :page/b}))
         (is (= before-conflict (rf/app-db-value fid))
             "the frame the first root seeded was not touched")
-        (is (= record-before (install/installed-payload fid))
+        (is (= record-before (rf.ssr.install/installed-payload fid))
             "the ledger still attributes the payload to root A — a
              conflicting root never overwrites, merges, or partially claims")))))
 
@@ -246,9 +246,9 @@
   (testing "ex-data carries :payload-id, :installed and :arriving, each with
             its content :digest (004C §7 — the S5 arm's own slot)"
     (let [fid (fresh-frame!)]
-      (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
+      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                       :root-id :page/a})
-      (let [data (try (boot/hydrate! {:frame fid :payload (payload-for {:count 99})
+      (let [data (try (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
                                       :root-id :page/b})
                       nil
                       (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
@@ -270,17 +270,17 @@
   (testing "the digest is a function of payload CONTENT, not identity —
             two roots reading the same script must agree without sharing
             an object"
-    (is (= (install/payload-content-digest (payload-for {:count 7}))
-           (install/payload-content-digest (payload-for {:count 7})))
+    (is (= (rf.ssr.install/payload-content-digest (payload-for {:count 7}))
+           (rf.ssr.install/payload-content-digest (payload-for {:count 7})))
         "separately constructed but equal payloads agree")
-    (is (not= (install/payload-content-digest (payload-for {:count 7}))
-              (install/payload-content-digest (payload-for {:count 8})))
+    (is (not= (rf.ssr.install/payload-content-digest (payload-for {:count 7}))
+              (rf.ssr.install/payload-content-digest (payload-for {:count 8})))
         "a differing app-db slice is a differing digest"))
 
   (testing "key order does not change the digest — the canonical-EDN walk
             sorts, so an unordered map literal cannot fake a conflict"
-    (is (= (install/payload-content-digest {:rf/app-db {:a 1 :b 2} :rf/version 1})
-           (install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a 1}})))))
+    (is (= (rf.ssr.install/payload-content-digest {:rf/app-db {:a 1 :b 2} :rf/version 1})
+           (rf.ssr.install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a 1}})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Preflight step 1 — the manifest
@@ -291,7 +291,7 @@
             not from a caller-supplied guess"
     (let [fid (fresh-frame!)
           {:keys [root-id decision manifest]}
-          (install/preflight! 'test {:payload    (payload-for {:count 7})
+          (rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
                                      :payload-id fid
                                      :manifest   manifest-v1})]
       (is (= :page/shop root-id) "read from the manifest's content")
@@ -304,10 +304,10 @@
     (let [fid (fresh-frame!)]
       (is (= :rf.error/root-manifest-invalid
              (caught-error-id
-              #(install/preflight! 'test {:payload    (payload-for {:count 7})
+              #(rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
                                           :payload-id fid
                                           :manifest   {:rf.root/schema-version 2}}))))
-      (is (nil? (install/installed-payload fid))
+      (is (nil? (rf.ssr.install/installed-payload fid))
           "the payload was NOT claimed — preflight failed first"))))
 
 (deftest an-explicit-root-id-wins-over-the-manifests
@@ -315,7 +315,7 @@
             default source, not an override"
     (let [fid (fresh-frame!)]
       (is (= :page/explicit
-             (:root-id (install/preflight! 'test
+             (:root-id (rf.ssr.install/preflight! 'test
                                            {:payload    (payload-for {:count 7})
                                             :payload-id fid
                                             :manifest   manifest-v1
@@ -326,7 +326,7 @@
             preflight adds a manifest STEP, it does not make manifests
             mandatory for a host that supplies its own payload"
     (let [fid (fresh-frame!)]
-      (boot/hydrate! {:frame fid :payload (payload-for {:count 7})})
+      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})})
       (is (= {:count 7} (rf/app-db-value fid))))))
 
 ;; ---------------------------------------------------------------------------
@@ -338,13 +338,13 @@
             under the same id must not meet a phantom conflict raised by a
             lifetime that no longer exists"
     (let [fid (fresh-frame!)]
-      (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
+      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                       :root-id :page/a})
-      (install/release-payload! fid)
-      (is (nil? (install/installed-payload fid)))
+      (rf.ssr.install/release-payload! fid)
+      (is (nil? (rf.ssr.install/installed-payload fid)))
       ;; A DIFFERENT payload would have conflicted a moment ago.
       (is (= :install
-             (:decision (install/preflight! 'test
+             (:decision (rf.ssr.install/preflight! 'test
                                             {:payload    (payload-for {:count 99})
                                              :payload-id fid
                                              :root-id    :page/c})))))))

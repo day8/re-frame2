@@ -7,11 +7,11 @@
   Listeners buffer candidate errors instead of projecting inside the callback.
   The settle-point drain then chooses the final error, respects redirect
   precedence, and updates the per-frame response accumulator atomically."
-  (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.error-projector :as error-projector]
-            [re-frame.ssr.response :as response]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.error-projector :as rf.ssr.error-projector]
+            [re-frame.ssr.response :as rf.ssr.response]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- always-on error emission ---------------------------------------------
 ;;
@@ -46,7 +46,7 @@
   frame."
   [trace-event]
   (let [tag-frame (get-in trace-event [:tags :frame])]
-    (when (and tag-frame (error-projector/server-frame? tag-frame))
+    (when (and tag-frame (rf.ssr.error-projector/server-frame? tag-frame))
       tag-frame)))
 
 ;; Categories that are RECOVERABLE DEGRADATIONS, not request failures.
@@ -175,7 +175,7 @@
 (defn- buffer-error-trace!
   ;; All SSR side channels use the process-local frame address.
   [frame-id trace-event]
-  (swap! pending-error-traces update (frame/frame-address frame-id)
+  (swap! pending-error-traces update (rf.frame/frame-address frame-id)
          (fnil conj []) trace-event))
 
 (defn- consume-pending-traces!
@@ -189,7 +189,7 @@
   next drain). No trace is dropped either way. `swap-vals!` is available
   on both the JVM (Clojure ≥1.9) and ClojureScript."
   [frame-id]
-  (let [frame-address (frame/frame-address frame-id)
+  (let [frame-address (rf.frame/frame-address frame-id)
         [prior-traces _updated-traces]
         (swap-vals! pending-error-traces dissoc frame-address)]
     (get prior-traces frame-address [])))
@@ -221,16 +221,16 @@
   `:redirect`, the redirect's :status is locked through and this fn
   does not overwrite it."
   ([frame-id]
-   (when-let [last-trace (when (and frame-id (error-projector/server-frame? frame-id))
+   (when-let [last-trace (when (and frame-id (rf.ssr.error-projector/server-frame? frame-id))
                            (last (consume-pending-traces! frame-id)))]
      (apply-error-projection! frame-id last-trace)))
   ([frame-id trace-event]
-   (when (and frame-id trace-event (error-projector/server-frame? frame-id))
-     (let [public-error     (error-projector/project-error frame-id trace-event)
-           current-response (response/response-of frame-id)
+   (when (and frame-id trace-event (rf.ssr.error-projector/server-frame? frame-id))
+     (let [public-error     (rf.ssr.error-projector/project-error frame-id trace-event)
+           current-response (rf.ssr.response/response-of frame-id)
            redirect         (:redirect current-response)]
        (when-not redirect
-         (response/swap-response! frame-id
+         (rf.ssr.response/swap-response! frame-id
                                   (fn [response]
                                     (assoc response :status (:status public-error)))))
        public-error))))
@@ -262,13 +262,13 @@
   prefer eager exceptions during dev (to surface bugs early) opt in
   per-frame. Production should always project (the default)."
   [frame-id ^Throwable t]
-  (when (and frame-id (error-projector/server-frame? frame-id)
-             (= :throw (get-in (frame/frame-meta frame-id)
+  (when (and frame-id (rf.ssr.error-projector/server-frame? frame-id)
+             (= :throw (get-in (rf.frame/frame-meta frame-id)
                                [:ssr :on-view-exception])))
     ;; Dev opt-in — surface the original throwable to the host's outer
     ;; handler rather than projecting it to a sanitised public-error.
     (throw t))
-  (when (and frame-id (error-projector/server-frame? frame-id))
+  (when (and frame-id (rf.ssr.error-projector/server-frame? frame-id))
     (let [tags {:frame             frame-id
                 :exception         t
                 :exception-message #?(:clj  (.getMessage t)
@@ -297,7 +297,7 @@
       ;; listener will buffer the trace under :ssr.error/render-failed;
       ;; we drain it again via the 1-arity call below so the buffer
       ;; clears.
-      (trace/emit-error! :rf.error/ssr-render-failed tags)
+      (rf.trace/emit-error! :rf.error/ssr-render-failed tags)
       ;; EP-0008 (rf2-hhutya): ALSO ride the always-on error-emit axis so
       ;; an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host sees
       ;; the structured render-failure record (the dev trace above is
@@ -308,10 +308,10 @@
       ;; drops BOTH buffered duplicates, so the wire status is driven solely
       ;; by the DIRECT `apply-error-projection!` call (no double-stamp, no
       ;; re-project on a later flush). Union record shape.
-      (error-projector/emit-always-on-error!
+      (rf.ssr.error-projector/emit-always-on-error!
         {:error :rf.error/ssr-render-failed
          :frame frame-id
-         :time  (interop/now-ms)
+         :time  (rf.interop/now-ms)
          :exception         t
          :exception-message #?(:clj  (.getMessage t)
                                :cljs (.-message t))
@@ -448,7 +448,7 @@
                          :tags      (-> (dissoc record :error)
                                         (update :recovery #(or % :no-recovery)))}]
         (when (and direct-frame-id
-                   (error-projector/server-frame? direct-frame-id))
+                   (rf.ssr.error-projector/server-frame? direct-frame-id))
           (buffer-error-trace! direct-frame-id trace-event))))))
 
 (defn peek-response
@@ -461,8 +461,8 @@
   projector buffer (the side-effect baked into `get-response`) would
   consume a trace the host had not yet observed."
   [frame-id]
-  (-> (response/response-of frame-id)
-      (dissoc response/status-writes-key response/redirect-writes-key)))
+  (-> (rf.ssr.response/response-of frame-id)
+      (dissoc rf.ssr.response/status-writes-key rf.ssr.response/redirect-writes-key)))
 
 (defn flush-response-result!
   "Drain any pending error projection for `frame-id` ONCE and return BOTH
@@ -538,11 +538,11 @@
   recovered-to-nil error-view sub — the signal to fall back once to the
   locked template."
   [frame-id]
-  (boolean (seq (get @pending-error-traces (frame/frame-address frame-id)))))
+  (boolean (seq (get @pending-error-traces (rf.frame/frame-address frame-id)))))
 
 (defn clear-pending-error-traces!
   "Drop frame-id's entry from the pending-error-traces buffer.
   Called from `re-frame.ssr.request/on-frame-destroyed!`. Keyed by the frame
   address."
   [frame-id]
-  (swap! pending-error-traces dissoc (frame/frame-address frame-id)))
+  (swap! pending-error-traces dissoc (rf.frame/frame-address frame-id)))

@@ -49,8 +49,8 @@
                                     and overloaded-boolean names keep
                                     presence semantics; `nil` → omitted."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.ssr.hash :as hash]))
+            [re-frame.error :as rf.error]
+            [re-frame.ssr.hash :as rf.ssr.hash]))
 
 (defn escape-html
   "Full text-node HTML escape: `& < > \" '`. Stringifies non-strings."
@@ -272,7 +272,7 @@
               (if (or (= nxt \/) (= nxt \!))
                 ;; `</` or `<!` in token position is a real HTML breakout
                 ;; precursor with no readable in-token EDN escape.
-                (error/throw-error!
+                (rf.error/throw-error!
                   :rf.error/ssr-edn-script-breakout
                   'rf.ssr/html-helpers
                   (str "EDN script body carries a `<"
@@ -316,7 +316,7 @@
   (let [s (name k)]
     (if (re-matches attr-name-grammar s)
       s
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/ssr-invalid-attribute-name
         'rf.ssr/html-helpers
         (str "attribute name violates the HTML5 grammar "
@@ -772,7 +772,7 @@
                      (let [css-name (style-name->css raw)]
                        (str css-name ":"
                             (if (number? v)
-                              (let [n (hash/canonical-number v)]
+                              (let [n (rf.ssr.hash/canonical-number v)]
                                 (if (or (zero? v)
                                         (contains? unitless-style-css-names css-name))
                                   n
@@ -877,7 +877,7 @@
                                    ;; Without this the hash would AGREE while the
                                    ;; server/client attribute strings diverged — a
                                    ;; silent hydration inconsistency.
-                                   (number? v) (hash/canonical-number v)
+                                   (number? v) (rf.ssr.hash/canonical-number v)
                                    :else       v)]
                              (str (validate-attr-name! k)
                                   "=\"" (escape-attr rendered-val) "\""))))

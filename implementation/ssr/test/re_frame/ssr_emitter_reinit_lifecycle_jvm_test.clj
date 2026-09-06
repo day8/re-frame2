@@ -20,45 +20,45 @@
   path armed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
   (fn [f]
-    (substrate-adapter/reset-lifecycle-state-for-tests!)
+    (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
     (try
       (f)
       (finally
         (rf/destroy-adapter!)
-        (substrate-adapter/reset-lifecycle-state-for-tests!)))))
+        (rf.substrate.adapter/reset-lifecycle-state-for-tests!)))))
 
 (defn- render! []
-  (substrate-adapter/render-to-string [:div "ok"] {}))
+  (rf.substrate.adapter/render-to-string [:div "ok"] {}))
 
 (deftest ssr-load-published-the-durable-emitter-on-the-jvm-too
-  (is (fn? (late-bind/get-fn :ssr/current-hiccup-emitter))
+  (is (fn? (rf.late-bind/get-fn :ssr/current-hiccup-emitter))
       "re-frame.ssr ns-load published :ssr/current-hiccup-emitter on the JVM"))
 
 (deftest jvm-plain-atom-emitter-is-retained-across-destroy-and-reinit
-  (is (nil? (rf/init! plain-atom/adapter)))
+  (is (nil? (rf/init! rf.substrate.plain-atom/adapter)))
   (testing "first install renders through the SSR emitter"
     (is (re-find #"<div>ok</div>" (render!))))
 
   (is (nil? (rf/destroy-adapter!)))
-  (is (true? (substrate-adapter/adapter-disposed?)))
+  (is (true? (rf.substrate.adapter/adapter-disposed?)))
 
-  (is (nil? (rf/init! plain-atom/adapter)) "a fresh init is legal after disposal")
+  (is (nil? (rf/init! rf.substrate.plain-atom/adapter)) "a fresh init is legal after disposal")
   (testing "the JVM emitter survived the no-op dispose — re-init still renders"
     (is (re-find #"<div>ok</div>" (render!))
         "plain-atom retains its hiccup-emitter across the dispose/re-init cycle")))
 
 (deftest jvm-lifecycle-is-repeatable-and-does-not-duplicate-publication
-  (let [emitter-before (late-bind/get-fn :ssr/current-hiccup-emitter)]
+  (let [emitter-before (rf.late-bind/get-fn :ssr/current-hiccup-emitter)]
     (dotimes [_ 5]
-      (is (nil? (rf/init! plain-atom/adapter)))
+      (is (nil? (rf/init! rf.substrate.plain-atom/adapter)))
       (is (re-find #"<div>ok</div>" (render!)))
       (is (nil? (rf/destroy-adapter!))))
-    (is (identical? emitter-before (late-bind/get-fn :ssr/current-hiccup-emitter))
+    (is (identical? emitter-before (rf.late-bind/get-fn :ssr/current-hiccup-emitter))
         "the durable emitter slot holds the SAME single publication after every cycle")))

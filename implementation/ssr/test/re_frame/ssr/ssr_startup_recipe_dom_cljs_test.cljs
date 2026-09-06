@@ -106,15 +106,15 @@
   commit naturally — no `act()` wrapper is needed."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; The canonical mount helper `ssr.core/run` itself calls. Requiring
             ;; it — NOT `ssr.core` — is what lets this proof execute the real
             ;; adopt-vs-fresh React-root branch without pulling `ssr.core`'s app
             ;; registrations (and their bundle-wide id collisions) into the test.
             [ssr.mount :as mount]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.constants :as constants]
-            [re-frame.test-support :as test-support]))
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.constants :as rf.ssr.constants]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- the app under the recipe (unique ids ⇒ no bundle collision) -----------
 ;;
@@ -176,10 +176,10 @@
   proven separately; here the point is the mount branch, not annotation
   parity.)"
   [handle]
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (rf/make-frame {:id app-frame :platform :client})
   (let [el      (and (exists? js/document) (js/document.getElementById "app"))
-        payload (ssr/hydrate! {:frame app-frame :render-tree-fn (fn [] [recipe-view])})
+        payload (rf.ssr/hydrate! {:frame app-frame :render-tree-fn (fn [] [recipe-view])})
         tree    [rf/frame-provider {:frame app-frame} [recipe-view]]]
     (mount/mount! handle el tree payload)
     payload))
@@ -189,8 +189,8 @@
 ;; recipe stands up its own `:rf/default`. `:adapter` installs the STOCK
 ;; Reagent adapter the recipe uses (its own `rf/init!` is idempotent).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 
@@ -235,14 +235,14 @@
     (set! (.-innerHTML host)
           (str "<div id=\"app\">" inner-html "</div>"
                (when payload?
-                 (str "<script id=\"" constants/payload-script-id
+                 (str "<script id=\"" rf.ssr.constants/payload-script-id
                       "\" type=\"application/edn\">{:rf/version 1 :rf/app-db {}}</script>"))))
     (.appendChild (.-body js/document) host)
     host))
 
 (defn- teardown! [host handle act-prev]
   ;; `unmount!` is idempotent and a no-op on a handle that never mounted.
-  (try (reagent-adapter/unmount! handle) (catch :default _ nil))
+  (try (rf.adapter.reagent/unmount! handle) (catch :default _ nil))
   (when-let [p (.-parentNode host)] (.removeChild p host))
   (restore-act-env! act-prev))
 
@@ -259,7 +259,7 @@
       (async done
         (clear-stale-apps!)
         (let [act-prev   (disable-act-env!)
-              handle     (reagent-adapter/client-root)
+              handle     (rf.adapter.reagent/client-root)
               host       (plant-host! {:inner-html server-markup :payload? true})
               app-el     (.getElementById js/document "app")
               ;; The EXACT server-rendered node, captured BEFORE startup.
@@ -318,7 +318,7 @@
       (async done
         (clear-stale-apps!)
         (let [act-prev  (disable-act-env!)
-              handle    (reagent-adapter/client-root)
+              handle    (rf.adapter.reagent/client-root)
               host      (plant-host!
                          {:inner-html "<div data-testid=\"stale-sentinel\">stale</div>"
                           :payload? false})

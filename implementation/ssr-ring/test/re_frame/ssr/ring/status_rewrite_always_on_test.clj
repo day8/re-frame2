@@ -55,11 +55,11 @@
   channel counted twice."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 (def ^:private status-rewrite-category
   :rf.error/ssr-ring-response-status-invalid)
@@ -110,7 +110,7 @@
     (let [ring    (atom nil)
           records (collect-status-rewrite-records
                     (fn []
-                      (reset! ring (pipeline/ssr-response->ring-response
+                      (reset! ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                                      {:status "404" :headers [["content-type" "text/html"]]}
                                      "<p>x</p>"))))]
       (is (= 1 (count records))
@@ -126,7 +126,7 @@
             reaches an off-box shipper, so a slot someone adds later must red
             here rather than ship."
     (let [record (first (collect-status-rewrite-records
-                          (fn [] (pipeline/ssr-response->ring-response
+                          (fn [] (rf.ssr.ring.pipeline/ssr-response->ring-response
                                    {:status "404" :headers []} "x"))))]
       (is (some? record) "a record was fanned")
       (is (= expected-record-slots (set (keys record)))
@@ -154,7 +154,7 @@
             every value, so a rename cannot quietly reintroduce it."
     (let [secret "sekrit-session-token"
           record (first (collect-status-rewrite-records
-                          (fn [] (pipeline/ssr-response->ring-response
+                          (fn [] (rf.ssr.ring.pipeline/ssr-response->ring-response
                                    {:status secret :headers []} "x"))))]
       (is (some? record))
       (is (not (contains? record :status))
@@ -176,11 +176,11 @@
             record per request."
     (let [records (collect-status-rewrite-records
                     (fn []
-                      (pipeline/ssr-response->ring-response {:status 201 :headers []} "x")
-                      (pipeline/ssr-response->ring-response {:headers []} "x")
-                      (pipeline/ssr-response->ring-response
+                      (rf.ssr.ring.pipeline/ssr-response->ring-response {:status 201 :headers []} "x")
+                      (rf.ssr.ring.pipeline/ssr-response->ring-response {:headers []} "x")
+                      (rf.ssr.ring.pipeline/ssr-response->ring-response
                         {:redirect {:status 302 :location "/x"}} nil)
-                      (pipeline/ssr-response->ring-response
+                      (rf.ssr.ring.pipeline/ssr-response->ring-response
                         {:redirect {:location "/x"}} nil)))]
       (is (= [] records)
           "no record for a valid, absent or defaulted status"))))
@@ -201,7 +201,7 @@
     (let [ring    (atom nil)
           records (collect-status-rewrite-records
                     (fn []
-                      (reset! ring (pipeline/ssr-response->ring-response
+                      (reset! ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                                      {:redirect {:status "302"}} nil))))]
       (is (= 1 (count records))
           "ONE rewrite fans ONE record, even on the redirect arm that reports
@@ -228,13 +228,13 @@
                                   (swap! warnings conj ev))))
                      (try
                        (collect-status-rewrite-records
-                         (fn [] (pipeline/ssr-response->ring-response
+                         (fn [] (rf.ssr.ring.pipeline/ssr-response->ring-response
                                   {:status "404" :headers []} "x")))
                        (finally
                          (rf/unregister-listener! :trace ::status-rewrite-trace-watch))))]
       (is (= 1 (count records))
           "axis 1 (always-on) carries the rewrite in EVERY build")
-      (if interop/debug-enabled?
+      (if rf.interop/debug-enabled?
         (do
           (is (= 1 (count @warnings))
               "axis 2 (dev trace) also carries it in a dev build")

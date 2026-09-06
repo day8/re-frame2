@@ -41,16 +41,16 @@
   artefact's load-time wiring, not on any private internals."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             ;; DELIBERATELY require ONLY the facade — NOT
             ;; `re-frame.schemas.malli`. The whole point of rf2-v96fh is
             ;; that requiring the facade is sufficient to wire Malli.
             [re-frame.schemas]
-            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- failures-of
   [recorded]
@@ -65,9 +65,9 @@
             the `:schemas/malli-validate` late-bind hook is bound. Pre-fix
             the adapter ns was never loaded by the facade and this hook
             was nil, so the default validator soft-passed."
-    (is (some? (late-bind/get-fn :schemas/malli-validate))
+    (is (some? (rf.late-bind/get-fn :schemas/malli-validate))
         ":schemas/malli-validate is bound — the facade pulled the adapter")
-    (is (some? (late-bind/get-fn :schemas/malli-explain))
+    (is (some? (rf.late-bind/get-fn :schemas/malli-explain))
         ":schemas/malli-explain is bound too")))
 
 ;; ---- registering a schema implies validation ------------------------------
@@ -79,7 +79,7 @@
             silent no-op (the default validator soft-passed)."
     (rf/reg-app-schema [:count] [:int])
     (with-trace-recorder! [recorded]
-      (with-redefs [interop/debug-enabled? true]
+      (with-redefs [rf.interop/debug-enabled? true]
         (rf/reg-event :count/break (fn [{:keys [db]} _] {:db (assoc db :count "not-an-int")}))
         ;; validate-app-schema! runs the registered app-db schema set over
         ;; the supplied db value, exactly as the post-handler step does.
@@ -98,7 +98,7 @@
             reject."
     (rf/reg-app-schema [:count] [:int])
     (with-trace-recorder! [recorded]
-      (with-redefs [interop/debug-enabled? true]
+      (with-redefs [rf.interop/debug-enabled? true]
         (re-frame.schemas/validate-app-schema! {:count 7} :count/ok))
       (is (empty? (failures-of recorded))
           "no failure trace — the well-typed value conforms"))))

@@ -35,20 +35,20 @@
       controls stay green."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]
-            [re-frame.spec :as spec]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.spec :as rf.spec]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- spy-validator!
   "Install a validator that records every schema token it is handed and
   returns false. Returns the recording atom."
   []
   (let [seen (atom [])]
-    (schemas/set-schema-validator!
+    (rf.schemas/set-schema-validator!
       (fn [schema _value] (swap! seen conj schema) false))
     seen))
 
@@ -65,13 +65,13 @@
                   "verbatim to the validator, once per consult, and the "
                   "false verdict returns")
       (let [seen (atom [])]
-        (schemas/set-schema-validator!
+        (rf.schemas/set-schema-validator!
           (fn [schema _value] (swap! seen conj schema) false))
-        (is (false? (schemas/validate-event! :ev/x [:ev/x 1] {:schema token}))
+        (is (false? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema token}))
             "event surface returns false — the caller skips the handler")
-        (is (false? (schemas/validate-fx! :fx/x :ev/x {:a 1} {:schema token}))
+        (is (false? (rf.schemas/validate-fx! :fx/x :ev/x {:a 1} {:schema token}))
             "fx surface returns false — the caller skips the fx")
-        (is (false? (schemas/validate-sub! :sub/x [:sub/x] 42 {:schema token}))
+        (is (false? (rf.schemas/validate-sub! :sub/x [:sub/x] 42 {:schema token}))
             "sub surface returns false — the caller replaces with default")
         (is (= [token token token] @seen)
             "the EXACT declared token was delegated, exactly once per surface")))))
@@ -106,7 +106,7 @@
       {:schema       nil
        :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
-    (let [meta (registrar/lookup :event :wire/received)]
+    (let [meta (rf.registrar/lookup :event :wire/received)]
       (is (some? meta) "registration succeeded")
       (is (contains? meta :schema) "the :schema key is present")
       (is (nil? (:schema meta)) "…and its value is the authored nil"))))
@@ -123,7 +123,7 @@
         {:schema       nil
          :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] {}))
-      (with-redefs [spec/dev-mode? (constantly false)]
+      (with-redefs [rf.spec/dev-mode? (constantly false)]
         (let [before (:before rf/validate-at-boundary-interceptor)
               ctx    (before {:coeffects {:event [:wire/received {:untrusted 1}]}})]
           (is (= [nil] @seen)
@@ -141,7 +141,7 @@
       {:schema       nil
        :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
-    (with-redefs [spec/dev-mode? (constantly false)]
+    (with-redefs [rf.spec/dev-mode? (constantly false)]
       (let [before (:before rf/validate-at-boundary-interceptor)
             ctx    (before {:coeffects {:event [:wire/received {:untrusted 1}]}})]
         (is (true? (:rf/skip-handler? ctx))
@@ -151,12 +151,12 @@
   (testing "AC 4 control — set-schema-validator! nil remains the documented
             global opt-out: even a present nil schema passes the boundary
             unchecked when validation is disabled"
-    (schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-validator! nil)
     (rf/reg-event :wire/received
       {:schema       nil
        :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
-    (with-redefs [spec/dev-mode? (constantly false)]
+    (with-redefs [rf.spec/dev-mode? (constantly false)]
       (let [before (:before rf/validate-at-boundary-interceptor)
             ctx    (before {:coeffects {:event [:wire/received {:untrusted 1}]}})]
         (is (not (:rf/skip-handler? ctx))
@@ -171,7 +171,7 @@
     (testing (str "with default Malli a present " (pr-str token)
                   " schema fails CLOSED via :rf.error/malformed-schema")
       (with-trace-recorder! [traces]
-        (is (false? (schemas/validate-event! :ev/x [:ev/x 1] {:schema token}))
+        (is (false? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema token}))
             "false — the caller runs its normal recovery (skip)")
         (let [mal (ops @traces :rf.error/malformed-schema)]
           (is (= 1 (count mal))
@@ -186,17 +186,17 @@
   (testing "an ABSENT :schema key remains a no-op on every meta surface —
             the validator is never invoked and every surface passes"
     (let [seen (spy-validator!)]
-      (is (true? (schemas/validate-event! :ev/x [:ev/x 1] {:doc "no schema"})))
-      (is (true? (schemas/validate-event! :ev/x [:ev/x 1] nil))
+      (is (true? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:doc "no schema"})))
+      (is (true? (rf.schemas/validate-event! :ev/x [:ev/x 1] nil))
           "nil registration metadata is 'no declaration' too")
-      (is (true? (schemas/validate-fx! :fx/x :ev/x {:a 1} {})))
-      (is (true? (schemas/validate-sub! :sub/x [:sub/x] 42 {})))
+      (is (true? (rf.schemas/validate-fx! :fx/x :ev/x {:a 1} {})))
+      (is (true? (rf.schemas/validate-sub! :sub/x [:sub/x] 42 {})))
       (is (= [] @seen) "the validator was never consulted"))))
 
 (deftest nil-registered-validator-disables-validation-for-present-falsey-tokens
   (testing "set-schema-validator! nil disables validation even for a
             present nil / false declaration — the documented global opt-out"
-    (schemas/set-schema-validator! nil)
-    (is (true? (schemas/validate-event! :ev/x [:ev/x 1] {:schema nil})))
-    (is (true? (schemas/validate-fx! :fx/x :ev/x {:a 1} {:schema false})))
-    (is (true? (schemas/validate-sub! :sub/x [:sub/x] 42 {:schema nil})))))
+    (rf.schemas/set-schema-validator! nil)
+    (is (true? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema nil})))
+    (is (true? (rf.schemas/validate-fx! :fx/x :ev/x {:a 1} {:schema false})))
+    (is (true? (rf.schemas/validate-sub! :sub/x [:sub/x] 42 {:schema nil})))))

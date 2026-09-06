@@ -13,32 +13,32 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
             ;; Used only to contrast trace plumbing with public projection.
-            [re-frame.mcp-base.sensitive :as sens]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]
-            [re-frame.security.gen :as gen]))
+            [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.security.gen :as rf.security.gen]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-PUBLIC-PROFILE-DO-NOT-SHIP")
 
 (defn- contains-sentinel?
   "True when the sentinel survives anywhere in `x` (substring scan)."
   [x]
-  (gen/contains-string? x sentinel))
+  (rf.security.gen/contains-string? x sentinel))
 
 (def ^:private big-string (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! [frame-id]
   (rf/make-frame {:id frame-id})
   ;; Install the durable app-db classification through the commit-plane path.
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:auth :token]]
                 :large     [[:docs :blob]]}))))
 
@@ -58,9 +58,9 @@
                      :rf.egress/local-redacted]]
       (let [out (rf/project-egress (app-db-value)
                   {:frame :pub/offbox :rf.egress/profile profile})]
-        (is (gen/redacted? (get-in out [:auth :token]))
+        (is (rf.security.gen/redacted? (get-in out [:auth :token]))
             (str profile ": frame-owned sensitive app-db leaf redacted"))
-        (is (gen/large-marker? (get-in out [:docs :blob]))
+        (is (rf.security.gen/large-marker? (get-in out [:docs :blob]))
             (str profile ": frame-owned large app-db leaf elided to a marker"))
         (is (= 3 (get-in out [:public :count]))
             (str profile ": unmarked sibling passes through"))
@@ -80,10 +80,10 @@
   (testing "project-egress with no live frame redacts the whole value — no
             :rf/default synthesis"
     ;; Rebind the ambient frame AWAY so the egress is genuinely frameless.
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (let [out (rf/project-egress (app-db-value)
                   {:rf.egress/profile :rf.egress/off-box-tool})]
-        (is (gen/redacted? out) "frameless egress fails closed to :rf/redacted")
+        (is (rf.security.gen/redacted? out) "frameless egress fails closed to :rf/redacted")
         (is (not (contains-sentinel? out))))
       ;; The deliberate opt-out: include-sensitive? true gets an identity walk
       ;; against the no-frame policy (the single control point).
@@ -97,11 +97,11 @@
             unresolvable frame's empty registry must NOT fall through to a
             permissive identity walk"
     ;; :pub/never-registered is never make-frame'd — its registry is unreachable.
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (let [out (rf/project-egress (app-db-value)
                   {:frame :pub/never-registered
                    :rf.egress/profile :rf.egress/off-box-tool})]
-        (is (gen/redacted? out)
+        (is (rf.security.gen/redacted? out)
             "an unknown / destroyed frame fails closed, identically to frameless")
         (is (not (contains-sentinel? out)))))))
 
@@ -109,11 +109,11 @@
   (testing "a classified :large :app-db leaf elides to a structural marker —
             the off-box-tool profile carries the indicator, no raw bytes"
     (rf/make-frame {:id :pub/large})
-    (frame/swap-runtime-db! :pub/large
-      (fn [rt] (elision/apply-classification-effects rt {:large [[:upload]]})))
+    (rf.frame/swap-runtime-db! :pub/large
+      (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:upload]]})))
     (let [out (rf/project-egress {:upload big-string :public "ok"}
                 {:frame :pub/large :rf.egress/profile :rf.egress/off-box-tool})]
-      (is (gen/large-marker? (:upload out)) "the large leaf is a structural marker")
+      (is (rf.security.gen/large-marker? (:upload out)) "the large leaf is a structural marker")
       (is (not= big-string (:upload out)) "the raw large value is NOT shipped")
       (is (= "ok" (:public out))))))
 
@@ -121,26 +121,26 @@
   (testing "a path declared BOTH :sensitive and :large redacts, never
             large-elides — so NO path/size/digest marker can leak for it"
     (rf/make-frame {:id :pub/both})
-    (frame/swap-runtime-db! :pub/both
-      (fn [rt] (elision/apply-classification-effects rt
+    (rf.frame/swap-runtime-db! :pub/both
+      (fn [rt] (rf.elision/apply-classification-effects rt
                  {:sensitive [[:secret]]
                   :large     [[:secret]]})))
     (let [out (rf/project-egress {:secret big-string}
                 {:frame :pub/both
                  :rf.egress/profile :rf.egress/off-box-observability})]
-      (is (gen/redacted? (:secret out)) "the both-marked path is :rf/redacted")
-      (is (not (gen/large-marker? (:secret out)))
+      (is (rf.security.gen/redacted? (:secret out)) "the both-marked path is :rf/redacted")
+      (is (not (rf.security.gen/large-marker? (:secret out)))
           "NO large marker — no path/size/digest can leak for a sensitive path"))))
 
 (def ^:private gen-path
   "A 1..3-segment keyword app-db path."
-  (gen/gen-vec (gen/gen-int 1 4)
-               (gen/gen-elem [:a :b :c :auth :token :tenant :user :data])))
+  (rf.security.gen/gen-vec (rf.security.gen/gen-int 1 4)
+               (rf.security.gen/gen-elem [:a :b :c :auth :token :tenant :user :data])))
 
 (deftest framed-corpus-redacts-declared-path
   (testing "for 200 random frames classifying a random app-db path sensitive,
             project-egress redacts the sentinel planted at that path"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-path 200 41
                    (fn [path]
                      (let [path  (vec path)
@@ -149,14 +149,14 @@
                         ;; Each draw reuses the frame, so clear the append-only
                         ;; classification slot before installing the new path.
                        (rf/make-frame {:id fid})
-                       (frame/swap-runtime-db! fid
+                       (rf.frame/swap-runtime-db! fid
                          (fn [rt]
                            (-> (dissoc rt :rf.runtime/elision)
-                               (elision/apply-classification-effects {:sensitive [path]}))))
+                               (rf.elision/apply-classification-effects {:sensitive [path]}))))
                        (let [out (rf/project-egress value
                                    {:frame fid
                                     :rf.egress/profile :rf.egress/off-box-tool})]
-                         (and (gen/redacted? (get-in out path))
+                         (and (rf.security.gen/redacted? (get-in out path))
                               (not (contains-sentinel? out)))))))]
       (is (nil? result)
           (str "a declared-sensitive path leaked the sentinel: "
@@ -171,7 +171,7 @@
                                :epochs []
                                :app-db (app-db-value)}}
           ;; scrub-snapshot is a trace/epoch-only walker.
-          [scrubbed _dropped] (sens/scrub-snapshot snapshot false)
+          [scrubbed _dropped] (rf.mcp-base.sensitive/scrub-snapshot snapshot false)
           raw-app-db (get-in scrubbed [:pub/snap :app-db])]
       (is (= sentinel (get-in raw-app-db [:auth :token]))
           "PLUMBING: scrub-snapshot leaves :app-db raw (trace/epoch-only by design)")
@@ -182,9 +182,9 @@
       (let [projected (rf/project-egress raw-app-db
                         {:frame :pub/snap
                          :rf.egress/profile :rf.egress/off-box-tool})]
-        (is (gen/redacted? (get-in projected [:auth :token]))
+        (is (rf.security.gen/redacted? (get-in projected [:auth :token]))
             "PUBLIC: project-egress of the snapshot :app-db redacts the sensitive leaf")
-        (is (gen/large-marker? (get-in projected [:docs :blob]))
+        (is (rf.security.gen/large-marker? (get-in projected [:docs :blob]))
             "PUBLIC: project-egress elides the large leaf")
         (is (not (contains-sentinel? projected))
             "PUBLIC: no sentinel crosses the projected boundary")))))
@@ -194,14 +194,14 @@
             trace EVENTS, but it is NOT the durable app-db egress boundary: a
             raw app-db-shaped map with no :sensitive? stamp passes UNTOUCHED.
             Durable app-db egress uses frame-owned project-egress."
-    (let [[kept dropped] (sens/strip-sensitive
+    (let [[kept dropped] (rf.mcp-base.sensitive/strip-sensitive
                            [{:operation :x :sensitive? true :tags {:value sentinel}}]
                            false)]
       (is (= [] kept) "PLUMBING: a stamped trace event is dropped")
       (is (= 1 dropped)))
     ;; An unstamped app-db-shaped map is not a trace event the filter can classify.
     (let [raw {:auth {:token sentinel}}
-          [kept _dropped] (sens/strip-sensitive [raw] false)]
+          [kept _dropped] (rf.mcp-base.sensitive/strip-sensitive [raw] false)]
       (is (= [raw] kept)
           "PLUMBING: strip-sensitive does NOT redact unstamped app-db data —
            the durable boundary is frame-owned project-egress")

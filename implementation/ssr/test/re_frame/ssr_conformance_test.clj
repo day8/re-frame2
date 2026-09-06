@@ -142,21 +142,21 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.conformance :as conformance]
+            [re-frame.conformance :as rf.conformance]
             [re-frame.core :as rf]
-            [re-frame.events :as events]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.head :as ssr-head]
-            [re-frame.ssr.test-fixture :as tf]
-            [re-frame.subs :as subs]
-            [re-frame.trace :as trace]))
+            [re-frame.events :as rf.events]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.head :as rf.ssr.head]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
+            [re-frame.subs :as rf.subs]
+            [re-frame.trace :as rf.trace]))
 
 ;; The shared reset fixture is `:each` — every fixture in the corpus
 ;; runs against a clean registrar / frame table / side-channel slot.
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- fixture discovery ----------------------------------------------------
 
@@ -311,12 +311,12 @@
   to the frame's app-db via the substrate adapter and to the dispatch
   surface. Mirrors core's runner shape."
   []
-  {:read-db!  (fn [frame-id] (frame/frame-app-db-value frame-id))
+  {:read-db!  (fn [frame-id] (rf.frame/frame-app-db-value frame-id))
    ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via swap-frame-db! —
    ;; app-db-container is now a read-only projection over the one physical
    ;; frame-state container.
    :write-db! (fn [frame-id new-db]
-                (frame/swap-frame-db! frame-id (constantly new-db)))
+                (rf.frame/swap-frame-db! frame-id (constantly new-db)))
    :dispatch! (fn [event frame-id] (rf/dispatch event {:frame frame-id}))})
 
 (defn- collect-cofx-keys
@@ -414,7 +414,7 @@
     ;; on a kind (rf2-hl4bdk).
     (doseq [[id steps] (:event hmap)]
       (let [handler   (normalize-event-handler
-                        (conformance/realise-event-handler steps))
+                        (rf.conformance/realise-event-handler steps))
             base-meta (get event-meta id {})
             ks        (collect-cofx-keys steps)
             cofx-ids  (vec (filter cofx-registry ks))
@@ -424,18 +424,18 @@
           ;; FN form (nil provenance): a fixture overriding a framework
           ;; event id (e.g. :rf/hydrate) must REPLACE its source-store slot,
           ;; not collide at default-image assembly (rf2-h1vqa4).
-          (events/reg-event id meta handler)
-          (events/reg-event id handler))))
+          (rf.events/reg-event id meta handler)
+          (rf.events/reg-event id handler))))
     ;; ---- subs ----------------------------------------------------------
     (doseq [[id steps] (:sub hmap)]
-      (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
+      (let [{:keys [kind inputs body]} (rf.conformance/realise-sub steps)
             meta                       (get sub-meta id {})]
         (case kind
           :layer-1 (if (seq meta) (rf/reg-sub id meta body) (rf/reg-sub id body))
           ;; Use the fn-form `subs/reg-sub` — the public `rf/reg-sub`
           ;; is a JVM macro (Spec 001 §Source-coordinate capture); a
           ;; macro var isn't `apply`-able.
-          :layer-2 (apply subs/reg-sub id
+          :layer-2 (apply rf.subs/reg-sub id
                           (concat (when (seq meta) [meta])
                                   (interleave (repeat :<-) inputs)
                                   [body])))))
@@ -446,13 +446,13 @@
       (doseq [id all-ids]
         (let [body    (get fx-bodies id [[:noop]])
               meta    (get fx-registry id {})
-              handler (conformance/realise-fx-handler id body helpers)]
+              handler (rf.conformance/realise-fx-handler id body helpers)]
           (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
     ;; ---- views ---------------------------------------------------------
     (doseq [[id steps] (:view hmap)]
-      (registrar/register!
+      (rf.registrar/register!
         :view id
-        {:handler-fn (conformance/realise-view-handler steps)}))
+        {:handler-fn (rf.conformance/realise-view-handler steps)}))
     ;; ---- heads ---------------------------------------------------------
     ;; The head ns's `reg-head` is the public registration surface;
     ;; here we wire the head handler-fn the fixture's :return-head body
@@ -484,7 +484,7 @@
   is why the always-on captures below exist alongside it."
   [fixture-id]
   (let [traces (atom [])]
-    (trace/register-listener! [fixture-id]
+    (rf.trace/register-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
@@ -659,10 +659,10 @@
   ;; actually render (rf2-j81hs — a keyword head is a DOM element on every
   ;; host, so EDN cannot name a view as a head). Recurses into maps, which
   ;; is what reaches the `:subtree` inside a render-continuation input.
-  (let [call (update call :input conformance/realise-view-refs)]
+  (let [call (update call :input rf.conformance/realise-view-refs)]
   (case (:call call)
     :render-to-string
-    (let [out  (try (ssr/render-to-string (:input call) (or (:opts call) {}))
+    (let [out  (try (rf.ssr/render-to-string (:input call) (or (:opts call) {}))
                     (catch Throwable e (str "<error: " (.getMessage e) ">")))
           want (:expect call)]
       {:passed? (= want out)
@@ -679,7 +679,7 @@
     ;; corpus plus same-hash LAW pairs; the value branch is per-host, the
     ;; law pairs are pattern-level.
     :render-tree-hash
-    (let [out  (try (ssr/render-tree-hash (:input call))
+    (let [out  (try (rf.ssr/render-tree-hash (:input call))
                     (catch Throwable e (str "<error: " (.getMessage e) ">")))
           want (:expect call)]
       {:passed? (= want out)
@@ -694,7 +694,7 @@
 
     :ssr.streaming/render-shell
     (let [{:keys [shell-html continuations]}
-          (try (ssr/streaming-render-shell (:input call))
+          (try (rf.ssr/streaming-render-shell (:input call))
                (catch Throwable e {:shell-html (str "<error: " (.getMessage e) ">")
                                    :continuations []}))
           want (:expect call)
@@ -714,7 +714,7 @@
                               "    continuations actual:   " (pr-str conts-actual) "\n"))))})
 
     :ssr.streaming/render-continuation
-    (let [out  (try (ssr/streaming-render-continuation
+    (let [out  (try (rf.ssr/streaming-render-continuation
                       :rf/default (:input call))
                     (catch Throwable e {:html (str "<error: " (.getMessage e) ">")
                                         :failed? true}))
@@ -740,7 +740,7 @@
                               "    failed? actual:   " (:failed? out) "\n"))))})
 
     :ssr.streaming/build-final-payload
-    (let [payload (try (ssr/streaming-build-final-payload
+    (let [payload (try (rf.ssr/streaming-build-final-payload
                          :rf/default
                          (:render-hash (:input call))
                          ;; rf2-lm2yzy — the WIRE :rf/frame-id is decoupled from
@@ -896,7 +896,7 @@
               server-hash     (:rf/render-hash payload)
               frame-id        (:rf/frame-id payload :rf/default)]
           (when (and client-hash server-hash)
-            (ssr/verify-hydration!
+            (rf.ssr/verify-hydration!
               frame-id client-hash
               {:first-diff-path first-diff-path
                :server-hash     server-hash}))))
@@ -914,8 +914,8 @@
       ;; :status onto the per-frame response slot. We flush before
       ;; reading final-app-db / request-result so the assertions see
       ;; the post-drain state.
-      (doseq [fid (frame/frame-ids)]
-        (try (ssr/apply-error-projection! fid)
+      (doseq [fid (rf.frame/frame-ids)]
+        (try (rf.ssr/apply-error-projection! fid)
              (catch Throwable _ nil)))
       ;; ---- assertion gathering -----------------------------------------
       (let [expect        (or (:fixture/expect fixture) {})
@@ -940,10 +940,10 @@
             ;;
             ;; The production counterpart is `always-on-failures` below; the
             ;; two are complementary, not a substitution.
-            trace-failures (when interop/debug-enabled?
+            trace-failures (when rf.interop/debug-enabled?
                              (check-trace-emissions @traces
                                                     (:trace-emissions expect)))
-            not-emit-failures (when interop/debug-enabled?
+            not-emit-failures (when rf.interop/debug-enabled?
                                 (check-trace-not-emitted @traces
                                                          (:trace-not-emitted expect)))
             ;; ---- the always-on counterpart (rf2-lwtlk) ----------------
@@ -974,7 +974,7 @@
             pe-check
             (when expected-pe
               (if last-error
-                (let [actual (ssr/project-error :rf/default last-error)]
+                (let [actual (rf.ssr/project-error :rf/default last-error)]
                   {:expected expected-pe
                    :actual   actual
                    :passed?  (= expected-pe actual)})
@@ -1000,7 +1000,7 @@
             expected-rr   (:ssr/request-result expect)
             req-check
             (when expected-rr
-              (let [response (ssr/get-response :rf/default)
+              (let [response (rf.ssr/get-response :rf/default)
                     rr       {:response response
                               :html     :absent
                               :payload  :absent}]
@@ -1017,7 +1017,7 @@
                 {:misses misses
                  :html   html
                  :passed? (empty? misses)}))]
-        (trace/clear-listeners!)
+        (rf.trace/clear-listeners!)
         {:fixture-id        fid
          :passed?           (and (or (nil? expected-db) (submap? expected-db final-db))
                                  (every? #(= (:expected %) (:actual %)) sub-checks)

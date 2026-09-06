@@ -76,13 +76,13 @@
   CONSUMES a discovered manifest are later S5 leaves — this namespace
   supplies the shape, the wire, and the finder they will use."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.ssr.constants :as constants]
-            [re-frame.ssr.html-helpers :as html]
+            [re-frame.error :as rf.error]
+            [re-frame.ssr.constants :as rf.ssr.constants]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             ;; CLJS-only: the `:ssr/discover-root-manifest` publication at the
             ;; bottom of this namespace is the DOM-side discovery seam, so the
             ;; registry is only reached on the host that has a DOM.
-            #?(:cljs [re-frame.late-bind :as late-bind])
+            #?(:cljs [re-frame.late-bind :as rf.late-bind])
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])))
 
@@ -179,7 +179,7 @@
   never partially adopted."
   [where m]
   (if-let [p (problems m)]
-    (error/throw-error!
+    (rf.error/throw-error!
      :rf.error/root-manifest-invalid where
      (str "root manifest is not a valid Root Manifest v1 ("
           (pr-str p) "). Root Manifest v1 is the versioned SUPERSET of "
@@ -204,7 +204,7 @@
   [where container-id]
   (if (and (string? container-id) (not (str/blank? container-id)))
     {:id container-id}
-    (error/throw-error!
+    (rf.error/throw-error!
      :rf.error/root-manifest-invalid where
      (str "a host-authored root container has no `id` — the manifest's "
           ":element-locator vocabulary is the closed `{:id …}` form, and "
@@ -340,7 +340,7 @@
   [where props]
   (when (some? props)
     (when-not (map? props)
-      (error/throw-error!
+      (rf.error/throw-error!
        :rf.error/root-manifest-invalid where
        (str "root props must be a map to ride the manifest; got "
             (pr-str props))
@@ -354,7 +354,7 @@
     (doseq [[k v] props]
       (let [bad-key? (not (edn-carryable? k))]
         (when (or bad-key? (not (edn-carryable? v)))
-          (error/throw-error!
+          (rf.error/throw-error!
            :rf.error/root-manifest-invalid where
            (str "root prop " (pr-str k) " has a "
                 (if bad-key? "KEY" "value")
@@ -557,7 +557,7 @@
   [m]
   (validate! 'rf.ssr/manifest-script m)
   (when-let [k (unwireable-key m)]
-    (error/throw-error!
+    (rf.error/throw-error!
      :rf.error/root-manifest-invalid 'rf.ssr/manifest-script
      (str "root manifest key " (pr-str k) " holds a value the EDN wire "
           "cannot carry, so the emitted body would not read back AS "
@@ -574,7 +574,7 @@
       :extra    {:unserialisable-manifest-key k}}))
   (when-let [{:keys [collision path collapses browser-number] :as c}
              (numeric-collision m)]
-    (error/throw-error!
+    (rf.error/throw-error!
      :rf.error/root-manifest-invalid 'rf.ssr/manifest-script
      (str "root manifest holds a cross-host numeric collision at "
           (pr-str path) ": the distinct "
@@ -591,8 +591,8 @@
      {:recovery :re-render-the-root-manifest
       :extra    c}))
   (str "<script type=\"" manifest-script-type "\" "
-       constants/root-manifest-marker-attribute ">"
-       (html/escape-edn-script-body (pr-str m))
+       rf.ssr.constants/root-manifest-marker-attribute ">"
+       (rf.ssr.html-helpers/escape-edn-script-body (pr-str m))
        "</script>"))
 
 (defn- read-edn-forms
@@ -634,14 +634,14 @@
   (let [forms (try
                 (read-edn-forms (str s))
                 (catch #?(:clj Exception :cljs :default) e
-                  (error/throw-error!
+                  (rf.error/throw-error!
                    :rf.error/root-manifest-invalid where
                    (str "root manifest script body is not readable EDN: "
                         #?(:clj (.getMessage ^Exception e) :cljs (.-message e)))
                    {:recovery :re-render-the-root-manifest
                     :extra    {:invalid :unreadable}})))]
     (when-not (= 1 (count forms))
-      (error/throw-error!
+      (rf.error/throw-error!
        :rf.error/root-manifest-invalid where
        (str "root manifest script body must hold EXACTLY ONE EDN form; "
             "found " (count forms) ". A body with trailing content or a "
@@ -689,7 +689,7 @@
       (and el
            (= "SCRIPT" (.-tagName el))
            (= manifest-script-type (.getAttribute el "type"))
-           (.hasAttribute el constants/root-manifest-marker-attribute)))))
+           (.hasAttribute el rf.ssr.constants/root-manifest-marker-attribute)))))
 
 #?(:cljs
    (defn discover
@@ -750,4 +750,4 @@
 ;; hook key grammar rule 3, enforced by `late_bind_drift_test.clj`): this
 ;; publication, the `re-frame.late-bind.directory` row, and any consumer land as
 ;; ONE change.
-#?(:cljs (late-bind/set-fn! :ssr/discover-root-manifest discover))
+#?(:cljs (rf.late-bind/set-fn! :ssr/discover-root-manifest discover))

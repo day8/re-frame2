@@ -23,7 +23,7 @@
   `reconcile` reconciler with synthetic inputs, plus a live smoke that the
   committed spec/API.md + manifest still reconcile clean."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.api-manifest.api-md-check :as c]))
+            [re-frame.api-manifest.api-md-check :as rf.api-manifest.api-md-check]))
 
 ;; A minimal synthetic manifest reproducing the EXACT ambiguity the real
 ;; manifest has: the bare var `adapter` carried for four namespaces, three
@@ -43,10 +43,10 @@
    real `adapter-aliases` and an optional bare-name allowlist."
   [api-rows & {:keys [known-unmanifested]
                :or   {known-unmanifested #{}}}]
-  (c/reconcile {:rows               synthetic-rows
+  (rf.api-manifest.api-md-check/reconcile {:rows               synthetic-rows
                 :api-rows           api-rows
                 :known-unmanifested known-unmanifested
-                :aliases            c/adapter-aliases}))
+                :aliases            rf.api-manifest.api-md-check/adapter-aliases}))
 
 ;; ---------------------------------------------------------------------------
 ;; Qualified-row resolution.
@@ -55,7 +55,7 @@
 (deftest live-api-md-check-passes
   (testing "the committed tree passes the full api-md-check including the
             EP-0011/EP-0015 keyword-drift guards (no false +)"
-    (is (true? (c/check!))
+    (is (true? (rf.api-manifest.api-md-check/check!))
         "live drift: api-md-check failed with the keyword-drift guards wired")))
 
 (deftest qualified-alias-row-resolves-by-exact-ns+var
@@ -157,11 +157,11 @@
   (testing "the committed spec/API.md projection reconciles against the
             committed manifest with zero problems (the CI contract), and it
             actually exercises qualified rows"
-    (let [api-rows (c/parse-api-md-var-rows)]
+    (let [api-rows (rf.api-manifest.api-md-check/parse-api-md-var-rows)]
       (is (pos? (count (filter :qualifier api-rows)))
           "spec/API.md must actually name namespace/alias-qualified var-rows
            (otherwise this regression would be vacuous)")
-      (is (true? (c/check!))
+      (is (true? (rf.api-manifest.api-md-check/check!))
           "live drift: spec/API.md var-rows disagree with the manifest"))))
 
 ;; ---------------------------------------------------------------------------
@@ -176,26 +176,26 @@
 
 (deftest zero-extracted-rows-violates-the-floor
   (testing "ZERO extracted var-rows (a total parser collapse) trips the floor"
-    (is (some? (c/floor-violation 0))
+    (is (some? (rf.api-manifest.api-md-check/floor-violation 0))
         "zero extracted rows must be a floor violation (vacuous OK refused)")))
 
 (deftest near-collapse-extraction-violates-the-floor
   (testing "a near-collapse (a small subset extracted, well below the live
             ~196) trips the floor"
-    (is (some? (c/floor-violation 5))
+    (is (some? (rf.api-manifest.api-md-check/floor-violation 5))
         "5 extracted rows is a near-total collapse — must trip the floor")
-    (is (some? (c/floor-violation 149))
+    (is (some? (rf.api-manifest.api-md-check/floor-violation 149))
         "149 rows is below the 150 floor — must trip it")))
 
 (deftest healthy-extraction-does-not-violate-the-floor
   (testing "the live extracted-row count (~196) is comfortably above the floor"
-    (is (nil? (c/floor-violation 196))
+    (is (nil? (rf.api-manifest.api-md-check/floor-violation 196))
         "the live count must NOT trip the floor (no false positive)")
-    (is (nil? (c/floor-violation 150))
+    (is (nil? (rf.api-manifest.api-md-check/floor-violation 150))
         "exactly at the floor is acceptable (strictly-below trips)")
     ;; And the REAL parse over the committed API.md is above the floor — the
     ;; floor is calibrated below the live count, never tripping on real churn.
-    (is (nil? (c/floor-violation (count (c/parse-api-md-var-rows))))
+    (is (nil? (rf.api-manifest.api-md-check/floor-violation (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))
         "the real spec/API.md extraction must clear the floor")))
 
 ;; ---------------------------------------------------------------------------
@@ -221,7 +221,7 @@
 (deftest unknown-kind-marker-disappears-then-is-caught
   (testing "END-TO-END (rf2-asxo3): a root verb whose M/Fn marker is an unknown
             spelling (`Macro`) is DROPPED by the real parser"
-    (let [parsed (c/parse-var-rows synthetic-api-md-lines)]
+    (let [parsed (rf.api-manifest.api-md-check/parse-var-rows synthetic-api-md-lines)]
       (is (= #{"create-root" "hydrate-root" "unmount!"} (set (map :var parsed)))
           "render! must have DISAPPEARED from the parse (unknown marker skipped)"))))
 
@@ -231,5 +231,5 @@
             the marker drift, not the fixture)"
     (let [ok-lines (assoc-in synthetic-api-md-lines [3 1]
                              "| `render!` | M | sig | S1 | advanced | n |")
-          parsed   (c/parse-var-rows ok-lines)]
+          parsed   (rf.api-manifest.api-md-check/parse-var-rows ok-lines)]
       (is (= #{"create-root" "render!" "hydrate-root" "unmount!"} (set (map :var parsed)))))))

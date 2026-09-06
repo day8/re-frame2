@@ -10,9 +10,9 @@
   the pure `reconcile` reconciler with synthetic inputs — plus a live
   smoke that the committed spec + manifest still reconcile clean."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.api-manifest.gen :as gen]
-            [re-frame.api-manifest.projection :as proj]
-            [re-frame.api-manifest.xray-spec-check :as xray]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+            [re-frame.api-manifest.projection :as rf.api-manifest.projection]
+            [re-frame.api-manifest.xray-spec-check :as rf.api-manifest.xray-spec-check]))
 
 ;; A minimal synthetic manifest: two distinct panel namespaces, each
 ;; exporting the SAME bare var `Panel`, plus a bare-var mount fn. This is
@@ -29,7 +29,7 @@
    synthetic manifest with the given allowlists."
   [{:keys [qualified-refs bare-refs qualified-allow bare-allow]
     :or   {qualified-refs [] bare-refs [] qualified-allow #{} bare-allow #{}}}]
-  (xray/reconcile {:rows            synthetic-rows
+  (rf.api-manifest.xray-spec-check/reconcile {:rows            synthetic-rows
                    :qualified-refs  qualified-refs
                    :bare-refs       bare-refs
                    :qualified-allow qualified-allow
@@ -98,17 +98,17 @@
 (deftest live-spec-and-manifest-reconcile-clean
   (testing "the committed tools/xray/spec/API.md reconciles against the
             committed manifest with zero problems (the CI contract)"
-    (let [rows            (proj/manifest-rows)
-          sidecar         (gen/read-sidecar)
+    (let [rows            (rf.api-manifest.projection/manifest-rows)
+          sidecar         (rf.api-manifest.gen/read-sidecar)
           qualified-allow (set (map vec (:xray-spec-known-unmanifested-qualified sidecar)))
           bare-allow      (set (:xray-spec-known-unmanifested sidecar))
-          file            (proj/repo-file "tools" "xray" "spec" "API.md")
-          rel             (proj/repo-relative file)
-          lines           (proj/numbered-lines file)
-          qualified-refs  (distinct (proj/qualified-symbol-references
+          file            (rf.api-manifest.projection/repo-file "tools" "xray" "spec" "API.md")
+          rel             (rf.api-manifest.projection/repo-relative file)
+          lines           (rf.api-manifest.projection/numbered-lines file)
+          qualified-refs  (distinct (rf.api-manifest.projection/qualified-symbol-references
                                       "day8.re-frame2-xray." lines))
-          bare-refs       (distinct (xray/mount-references lines))
-          problems        (xray/reconcile {:rows            rows
+          bare-refs       (distinct (rf.api-manifest.xray-spec-check/mount-references lines))
+          problems        (rf.api-manifest.xray-spec-check/reconcile {:rows            rows
                                            :qualified-refs  qualified-refs
                                            :bare-refs       bare-refs
                                            :qualified-allow qualified-allow

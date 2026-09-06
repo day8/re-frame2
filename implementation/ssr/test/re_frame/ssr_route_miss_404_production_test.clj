@@ -50,9 +50,9 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; NOTE the fixture does NOT clear the always-on error-listener registry.
 ;; `re-frame.ssr` installs its own `::error-projection` listener there at
@@ -60,7 +60,7 @@
 ;; path this suite exercises; wiping the registry would silently disarm
 ;; every 404 assertion below into a vacuous 200. Each test unregisters
 ;; only the shipper stand-in it registered.
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -82,7 +82,7 @@
   default unless a test names its own)."
   ([] (server-frame :rf.ssr/default-error-projector))
   ([projector-id]
-   (frame/make-anon-frame-record!
+   (rf.frame/make-anon-frame-record!
      {:platform :server
       :ssr      {:public-error-id   projector-id
                  :dev-error-detail? false}})))
@@ -110,7 +110,7 @@
     (let [f (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
 
-      (let [{:keys [response public-error]} (ssr/flush-response-result! f)]
+      (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
         (is (= 404 (:status response))
             "the drain projects the route miss onto :status — 404, not a soft-404 200")
         (is (nil? (:redirect response))
@@ -137,7 +137,7 @@
       (is (str/includes? html "No such page")
           "the app's not-found body rendered — the projection did not
            short-circuit the render")
-      (is (= 404 (:status (ssr/flush-response! f)))
+      (is (= 404 (:status (rf.ssr/flush-response! f)))
           "and the response still carries the 404"))))
 
 (deftest the-route-slice-records-the-miss-alongside-the-404
@@ -152,7 +152,7 @@
              (get-in (rf/frame-state-value f)
                      [:rf.db/runtime :rf.runtime/routing :current :route-id]))
           "the navigation slice committed the not-found fallback")
-      (is (= 404 (:status (ssr/flush-response! f)))
+      (is (= 404 (:status (rf.ssr/flush-response! f)))
           "and the response accumulator carries the projected 404"))))
 
 ;; ===========================================================================
@@ -252,7 +252,7 @@
         (is (= :rf.error/no-such-handler (:error record)))
         (is (= :malformed-url (:reason record))
             "the malformed percent-encoding is named on the production record")
-        (is (= 404 (:status (ssr/flush-response! f)))
+        (is (= 404 (:status (rf.ssr/flush-response! f)))
             "and it is still a 404 on the wire — a malformed URL matches no
              route")))))
 
@@ -271,7 +271,7 @@
     (register-routes!)
     (let [f (server-frame)]
       (rf/dispatch-sync [:never/registered] {:frame f})
-      (is (= 500 (:status (ssr/flush-response! f)))
+      (is (= 500 (:status (rf.ssr/flush-response! f)))
           "the event-kind miss falls through to the locked generic-500"))))
 
 (deftest default-projector-gates-the-404-arm-on-kind-route
@@ -280,23 +280,23 @@
             is opt-in on the route discriminator (fail-safe), symmetric with
             the `:where`-gated schema-validation-failure arm."
     (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
-           (ssr/default-error-projector-fn
+           (rf.ssr/default-error-projector-fn
              {:operation :rf.error/no-such-handler :tags {:kind :route}}))
         ":kind :route → 404")
-    (is (= ssr/fallback-public-error
-           (ssr/default-error-projector-fn
+    (is (= rf.ssr/fallback-public-error
+           (rf.ssr/default-error-projector-fn
              {:operation :rf.error/no-such-handler :tags {:kind :event}}))
         ":kind :event (an unregistered event id) → the locked 500")
-    (is (= ssr/fallback-public-error
-           (ssr/default-error-projector-fn
+    (is (= rf.ssr/fallback-public-error
+           (rf.ssr/default-error-projector-fn
              {:operation :rf.error/no-such-handler :tags {:kind :frame}}))
         ":kind :frame (a Tool-Pair surface naming an unknown frame) → 500")
-    (is (= ssr/fallback-public-error
-           (ssr/default-error-projector-fn
+    (is (= rf.ssr/fallback-public-error
+           (rf.ssr/default-error-projector-fn
              {:operation :rf.error/no-such-handler :tags {}}))
         "no :kind → 500; the 404 arm never fires on an unclassified miss")
     (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
-           (ssr/default-error-projector-fn {:operation :rf.error/no-such-route}))
+           (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-route}))
         ":rf.error/no-such-route keeps its UNCONDITIONAL 404 — one failure
          mode, no :kind discriminator")))
 
@@ -320,7 +320,7 @@
 
     (let [f (server-frame :myapp/route-miss-projector)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (let [{:keys [response public-error]} (ssr/flush-response-result! f)]
+      (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
         (is (= 410 (:status response))
             "the custom projector's status reaches the wire — the runtime
              default did not shadow it")
@@ -337,7 +337,7 @@
     (let [f (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
       (rf/dispatch-sync [:auth/bounce] {:frame f})
-      (let [response (ssr/get-response f)]
+      (let [response (rf.ssr/get-response f)]
         (is (= {:status 302 :location "/login"} (:redirect response))
             "the redirect survived the drain")
         (is (not= 404 (:status response))
@@ -361,9 +361,9 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
                         {:frame miss-frame})
       (rf/dispatch-sync [:rf.route/handle-url-change "/"] {:frame ok-frame})
-      (is (= 404 (:status (ssr/flush-response! miss-frame)))
+      (is (= 404 (:status (rf.ssr/flush-response! miss-frame)))
           "the frame that missed carries the 404")
-      (is (= 200 (:status (ssr/flush-response! ok-frame)))
+      (is (= 200 (:status (rf.ssr/flush-response! ok-frame)))
           "its concurrent sibling, which routed fine, is untouched"))))
 
 (deftest a-client-frame-route-miss-stamps-no-status
@@ -373,12 +373,12 @@
             no request to fail."
     (register-routes!)
     (let [seen     (capture-always-on! ::client)
-          client-f (frame/make-anon-frame-record! {:platform :client})]
+          client-f (rf.frame/make-anon-frame-record! {:platform :client})]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
                         {:frame client-f})
       (rf/unregister-listener! :errors ::client)
       (is (= [:rf.error/no-such-handler] (mapv :error @seen))
           "the always-on record still fans — a CLJS production build's error
            shipper sees the client-side route miss too")
-      (is (= 200 (:status (ssr/get-response client-f)))
+      (is (= 200 (:status (rf.ssr/get-response client-f)))
           "but no status is stamped: a client frame has no HTTP response"))))

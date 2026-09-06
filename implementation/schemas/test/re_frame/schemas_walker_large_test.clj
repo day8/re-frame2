@@ -30,7 +30,7 @@
   `:large?`); these pin the propagate / omit behaviour at the walker
   level for both flags."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.schemas :as schemas]))
+            [re-frame.schemas :as rf.schemas]))
 
 ;; ---- :large? structural recognition --------------------------------------
 ;;
@@ -40,10 +40,10 @@
 
 (deftest large-no-slots
   (testing "a schema with no :large? props produces no entries"
-    (is (= {} (schemas/extract-large-paths-from-schema
+    (is (= {} (rf.schemas/extract-large-paths-from-schema
                 [:map [:name :string]] [])))
-    (is (= {} (schemas/extract-large-paths-from-schema :string [])))
-    (is (= {} (schemas/extract-large-paths-from-schema :int [:a :b])))))
+    (is (= {} (rf.schemas/extract-large-paths-from-schema :string [])))
+    (is (= {} (rf.schemas/extract-large-paths-from-schema :int [:a :b])))))
 
 (deftest large-slot-level
   (testing "the slot's per-slot props carry :large? true — claims (conj base k)"
@@ -51,19 +51,19 @@
                   [:id    :int]
                   [:blob  {:large? true} :string]]]
       (is (= {[:blob] {:large? true :source :schema}}
-             (schemas/extract-large-paths-from-schema schema []))))))
+             (rf.schemas/extract-large-paths-from-schema schema []))))))
 
 (deftest large-honours-base-path
   (testing "base-path is prepended to every discovered :large? slot path"
     (let [schema [:map [:blob {:large? true} :string]]]
       (is (= {[:user :blob] {:large? true :source :schema}}
-             (schemas/extract-large-paths-from-schema schema [:user]))))))
+             (rf.schemas/extract-large-paths-from-schema schema [:user]))))))
 
 (deftest large-container-level
   (testing "the schema's OWN props (container-level) claim the base-path —
             `(reg-app-schema [:user :pdf] [:string {:large? true}])`"
     (is (= {[:user :pdf] {:large? true :source :schema}}
-           (schemas/extract-large-paths-from-schema
+           (rf.schemas/extract-large-paths-from-schema
              [:string {:large? true}] [:user :pdf])))))
 
 (deftest large-nested-map
@@ -75,7 +75,7 @@
                      [:map
                       [:payload {:large? true} :string]]]]]]]
       (is (= {[:doc :attachment :payload] {:large? true :source :schema}}
-             (schemas/extract-large-paths-from-schema schema []))))))
+             (rf.schemas/extract-large-paths-from-schema schema []))))))
 
 (deftest large-multiple-slots
   (testing "multiple :large? slots in one schema produce one entry each"
@@ -86,13 +86,13 @@
                   [:caption  :string]]]
       (is (= {[:hi-res] {:large? true :source :schema}
               [:raw]    {:large? true :source :schema}}
-             (schemas/extract-large-paths-from-schema schema []))))))
+             (rf.schemas/extract-large-paths-from-schema schema []))))))
 
 (deftest large-positional-combinator-descends
   (testing ":vector descends at the same base-path for :large? — the
             inner type's container props claim the :vector's path"
     (is (= {[:frames] {:large? true :source :schema}}
-           (schemas/extract-large-paths-from-schema
+           (rf.schemas/extract-large-paths-from-schema
              [:vector [:string {:large? true}]] [:frames])))))
 
 (deftest large-dispatch-bearing-claims-parent-path
@@ -100,7 +100,7 @@
             (dispatch values are not path segments) — symmetric with the
             :sensitive? :orn/:catn/:altn cases in walker_operators_test"
     (is (= {[:asset] {:large? true :source :schema}}
-           (schemas/extract-large-paths-from-schema
+           (rf.schemas/extract-large-paths-from-schema
              [:multi {:dispatch :kind}
               [:photo {:large? true} [:map [:kind :string]]]
               [:icon  [:map [:kind :string]]]]
@@ -115,20 +115,20 @@
                   [:blob   {:large? true} :string]
                   [:secret {:sensitive? true} :string]]]
       (is (= {[:blob] {:large? true :source :schema}}
-             (schemas/extract-large-paths-from-schema schema []))
+             (rf.schemas/extract-large-paths-from-schema schema []))
           ":large? walker sees only the :large? slot, not the :sensitive? one")
       (is (= {[:secret] {:sensitive? true :source :schema}}
-             (schemas/extract-sensitive-paths-from-schema schema []))
+             (rf.schemas/extract-sensitive-paths-from-schema schema []))
           ":sensitive? walker sees only the :sensitive? slot, not the :large? one"))))
 
 (deftest large-opaque-and-degenerate-forms-tolerated
   (testing "opaque / degenerate forms yield no :large? declarations —
             the walker treats them as non-introspectable leaves rather
             than blowing up (matches the :sensitive? defensive contract)"
-    (is (= {} (schemas/extract-large-paths-from-schema 'malli/Opaque [])))
-    (is (= {} (schemas/extract-large-paths-from-schema (fn [_] true) [])))
-    (is (= {} (schemas/extract-large-paths-from-schema [] [])))
-    (is (= {} (schemas/extract-large-paths-from-schema [:string] [])))))
+    (is (= {} (rf.schemas/extract-large-paths-from-schema 'malli/Opaque [])))
+    (is (= {} (rf.schemas/extract-large-paths-from-schema (fn [_] true) [])))
+    (is (= {} (rf.schemas/extract-large-paths-from-schema [] [])))
+    (is (= {} (rf.schemas/extract-large-paths-from-schema [:string] [])))))
 
 ;; ---- :hint propagation (declaration-from-properties) ---------------------
 ;;
@@ -141,7 +141,7 @@
   (testing "a :large? slot carrying :hint surfaces the hint verbatim in
             the declaration map"
     (is (= {[:upload] {:large? true :source :schema :hint "video-blob"}}
-           (schemas/extract-large-paths-from-schema
+           (rf.schemas/extract-large-paths-from-schema
              [:map [:upload {:large? true :hint "video-blob"} :string]]
              [])))))
 
@@ -149,7 +149,7 @@
   (testing "a :sensitive? slot carrying :hint surfaces the hint verbatim —
             :hint composes with either flag"
     (is (= {[:password] {:sensitive? true :source :schema :hint "argon2id"}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:map [:password {:sensitive? true :hint "argon2id"} :string]]
              [])))))
 
@@ -157,10 +157,10 @@
   (testing "with no :hint prop the declaration map carries exactly
             {flag true :source :schema} — the :hint key is absent, not
             present-with-nil (minimal marker shape)"
-    (let [large (get (schemas/extract-large-paths-from-schema
+    (let [large (get (rf.schemas/extract-large-paths-from-schema
                        [:map [:blob {:large? true} :string]] [])
                      [:blob])
-          sens  (get (schemas/extract-sensitive-paths-from-schema
+          sens  (get (rf.schemas/extract-sensitive-paths-from-schema
                        [:map [:tok {:sensitive? true} :string]] [])
                      [:tok])]
       (is (= {:large? true :source :schema} large))
@@ -173,9 +173,9 @@
   (testing "a slot carrying :hint but NOT the flag set to true produces
             no declaration at all — the :hint is inert without its flag
             (declaration-from-properties gates on the flag-key, not on :hint)"
-    (is (= {} (schemas/extract-large-paths-from-schema
+    (is (= {} (rf.schemas/extract-large-paths-from-schema
                 [:map [:blob {:hint "orphan-hint"} :string]] []))
         ":hint without :large? true → no declaration")
-    (is (= {} (schemas/extract-large-paths-from-schema
+    (is (= {} (rf.schemas/extract-large-paths-from-schema
                 [:map [:blob {:large? false :hint "x"} :string]] []))
         ":large? false (not true) → no declaration even with a :hint")))

@@ -46,15 +46,15 @@
   recommendation is recorded on rf2-u2x6w."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
             ;; Loading routing publishes the route classification machinery and
             ;; the routing events; the reset fixture reloads it.
             [re-frame.routing]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (def ^:private token-secret "secret-oauth-token-u2x6w")
 (def ^:private blob-secret "huge-callback-blob-value-u2x6w")
@@ -85,7 +85,7 @@
   "`:rf/default`'s ACTUAL runtime-db — the state a request frame would be
   holding when the hydration payload is built, not a hand-written fixture map."
   []
-  (frame/frame-runtime-db-value :rf/default))
+  (rf.frame/frame-runtime-db-value :rf/default))
 
 ;; ===========================================================================
 ;; (1) The always-on precondition — activation really lowers, in this posture
@@ -126,11 +126,11 @@
             the registry's re-rooted absolute route paths match and the
             classified values never reach the wire."
     (navigate-to-classified-route!)
-    (let [slice   (payload-policy/project-runtime-db (live-runtime-db) :rf/default)
+    (let [slice   (rf.ssr.payload-policy/project-runtime-db (live-runtime-db) :rf/default)
           current (get-in slice [:rf.runtime/routing :current])]
       (is (= :rf/redacted (get-in current [:query :token]))
           "the `:sensitive` query value redacts in the hydration slice")
-      (is (elision/marker? (get-in current [:query :payload]))
+      (is (rf.elision/marker? (get-in current [:query :payload]))
           "the `:large` one elides to the size marker")
       (is (= "/dashboard" (get-in current [:query :return-to]))
           "the unclassified sibling rides verbatim — path-precise, not a
@@ -148,13 +148,13 @@
             becomes the serialized hydration blob; asserting on the projector's
             return value alone would leave the last hop unwitnessed."
     (navigate-to-classified-route!)
-    (let [rt-slice (payload-policy/project-runtime-db (live-runtime-db) :rf/default)
-          payload  (payload-policy/build-payload
+    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db (live-runtime-db) :rf/default)
+          payload  (rf.ssr.payload-policy/build-payload
                      :rf/default {:public/page :callback} "h1"
                      {:version 1 :runtime-db rt-slice})
           current  (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
       (is (= :rf/redacted (get-in current [:query :token])))
-      (is (elision/marker? (get-in current [:query :payload])))
+      (is (rf.elision/marker? (get-in current [:query :payload])))
       (is (not (.contains (pr-str payload) token-secret))
           "GUARD: the blob the client receives carries no raw secret")
       (is (not (.contains (pr-str payload) blob-secret))))))
@@ -171,7 +171,7 @@
             be a different framework."
     (rf/reg-route :route/home {:query [:map [:token :string]]} "/home")
     (rf/dispatch-sync [:rf.route/transitioned "/home?token=not-classified"])
-    (let [slice   (payload-policy/project-runtime-db (live-runtime-db) :rf/default)
+    (let [slice   (rf.ssr.payload-policy/project-runtime-db (live-runtime-db) :rf/default)
           current (get-in slice [:rf.runtime/routing :current])]
       (is (= "not-classified" (get-in current [:query :token]))
           "an unclassified route query rides the hydration wire verbatim")

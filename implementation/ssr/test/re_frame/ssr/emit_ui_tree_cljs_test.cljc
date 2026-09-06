@@ -23,8 +23,8 @@
   does not throw on `(inc nil)`, so the serialiser throws EXPLICITLY via the
   canonical builder — the ids and ex-data are identical on both hosts."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.ui-tree :as ui-tree]
-            [re-frame.ssr :as ssr]))
+            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
+            [re-frame.ssr :as rf.ssr]))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -55,7 +55,7 @@
              ["version 0"        {:rf.ui/tree-version 0  :tag :div} 0]
              ["string \"1\""     {:rf.ui/tree-version "1" :tag :div} "1"]
              ["version 2"        {:rf.ui/tree-version 2  :tag :div} 2]]]
-      (let [d (caught-ex-data #(ui-tree/emit-ui-tree root))]
+      (let [d (caught-ex-data #(rf.ssr.ui-tree/emit-ui-tree root))]
         (is (map? d)
             (str label ": expected a thrown ex-info, got " (pr-str d)))
         (is (= :rf.error/ssr-ui-tree-version-unsupported (:rf.error/id d))
@@ -70,8 +70,8 @@
   (testing "one structurally-identical tree emits at v1 and throws at v2"
     (let [good (v1 {:tag :div :children ["ok"]})
           bad  (assoc good :rf.ui/tree-version 2)]
-      (is (= "<div>ok</div>" (ui-tree/emit-ui-tree good)))
-      (let [d (caught-ex-data #(ui-tree/emit-ui-tree bad))]
+      (is (= "<div>ok</div>" (rf.ssr.ui-tree/emit-ui-tree good)))
+      (let [d (caught-ex-data #(rf.ssr.ui-tree/emit-ui-tree bad))]
         (is (= :rf.error/ssr-ui-tree-version-unsupported (:rf.error/id d)))
         (is (= 2 (:got d)))))))
 
@@ -79,7 +79,7 @@
   (testing "a v2 tree whose body would be perfectly emittable still throws"
     ;; If the gate ran AFTER emission (or not first) this would emit markup.
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree {:rf.ui/tree-version 2
+              #(rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version 2
                                       :tag :div
                                       :children [{:tag :span :children ["x"]}]}))]
       (is (= :rf.error/ssr-ui-tree-version-unsupported (:rf.error/id d))))))
@@ -91,7 +91,7 @@
 (deftest malformed-node-throws-the-shared-id-not-the-version-id
   (testing "multiple discriminators on a node past the version gate"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree (v1 {:tag :div
+              #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div
                                           :children [{:tag :span :html "x"}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
           "a malformed node is the SHARED tree-consumer id, not the version id")
@@ -100,19 +100,19 @@
 
   (testing "no discriminator and no :children"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree (v1 {:tag :div :children [{:not-a-node 1}]})))]
+              #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [{:not-a-node 1}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
       (is (= [] (:got d)))
       (is (= [:children 0] (:path d)))))
 
   (testing "a non-string, non-map node (a bare keyword child)"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree (v1 {:tag :div :children [:nope]})))]
+              #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [:nope]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))))
 
   (testing "a non-string :html is malformed"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html 42}]})))]
+              #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html 42}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))))))
 
 (deftest trusted-html-child-under-textarea-is-rejected
@@ -126,7 +126,7 @@
     ;; RED-BEFORE lever: the shipped serialiser emitted the markup verbatim
     ;; ("<textarea><b>x</b></textarea>"), diverging from React 19.2.
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :children [{:html "<b>x</b>"}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
           "a textarea trusted-markup child is the shared tree-consumer id")
@@ -135,15 +135,15 @@
   (testing "a leading-LF {:html …} child under <textarea> is rejected, NOT "
            "leading-LF-compensated — trusted-HTML compensation is pre/listing only"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :children [{:html "\n<b>x</b>"}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))))
   (testing "an ordinary <textarea> body still emits — only :html children reject"
     (is (= "<textarea>hi</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["hi"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["hi"]})))
         "a string child is fine")
     (is (= "<textarea>plain</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
         ":value content is fine")))
 
 (deftest textarea-effective-child-stream-is-validated
@@ -156,7 +156,7 @@
     ;; RED-BEFORE lever: the fragment spliced {:html …} into the textarea and the
     ;; shipped serialiser emitted "<textarea><b>x</b></textarea>".
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea
                       :children [{:children [{:html "<b>x</b>"}]}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
@@ -164,7 +164,7 @@
           "the diagnostic locates the SPLICED leaf, not the textarea")))
   (testing "trusted markup nested through a VIEW BOUNDARY is rejected"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea
                       :children [{:view-id :my/view
                                   :children [{:html "<b>x</b>"}]}]})))]
@@ -172,44 +172,44 @@
       (is (= [:children 0 :children 0] (:path d)))))
   (testing "a structural element child is rejected (React renders [object Object])"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :children [{:tag :span :children ["x"]}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
       (is (= [:children 0] (:path d)))))
   (testing "more than one effective child is rejected (React allows at most one)"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["a" "b"]})))]
+              #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["a" "b"]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
       (is (= [:children 1] (:path d)) "locates the surplus (second) child"))
     ;; a fragment does not hide the count — two spliced children still reject
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :children [{:children ["a" "b"]}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))))
   (testing ":value / :default-value plus an authored child is rejected"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :attrs {:value "v"} :children ["c"]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
       (is (= [:children 0] (:path d))))
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :attrs {:default-value "v"} :children ["c"]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
           ":default-value maps to value and rejects the pair identically")))
   (testing "the valid shapes still emit unchanged — value, sole text, spliced text"
     (is (= "<textarea>plain</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
         ":value alone is valid")
     (is (= "<textarea>hi</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["hi"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["hi"]})))
         "a sole string child is valid")
     (is (= "<textarea>hi</textarea>"
-           (ui-tree/emit-ui-tree
+           (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :textarea :children [{:children ["hi"]}]})))
         "a single string spliced through a fragment is valid")
     (is (= "<textarea>hi</textarea>"
-           (ui-tree/emit-ui-tree
+           (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :textarea :children [{:view-id :v :children ["hi"]}]})))
         "a single string spliced through a view boundary is valid")))
 
@@ -220,56 +220,56 @@
 (deftest emits-elements-attrs-and-text
   (testing "element with sorted attrs and escaped text"
     (is (= "<div class=\"box\" id=\"main\">hi</div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div
                                       :attrs {:id "main" :class "box"}
                                       :children ["hi"]})))))
   (testing "full 5-char text escaping (&#x27; for apostrophe, matching React)"
     (is (= "<p>&lt;b&gt; &amp; &quot; &#x27;</p>"
-           (ui-tree/emit-ui-tree (v1 {:tag :p :children ["<b> & \" '"]}))))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :p :children ["<b> & \" '"]}))))))
 
 (deftest emits-conversion-table-name-rows
   (testing ":for/:class verbatim, :tab-index collapses, :view-box aliases"
     (is (= "<label for=\"x\" tabindex=\"3\"></label>"
-           (ui-tree/emit-ui-tree (v1 {:tag :label :attrs {:for "x" :tab-index 3}}))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :label :attrs {:for "x" :tab-index 3}}))))
     (is (= "<svg viewBox=\"0 0 1 1\"></svg>"
-           (ui-tree/emit-ui-tree (v1 {:tag :svg :attrs {:view-box "0 0 1 1"}}))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :svg :attrs {:view-box "0 0 1 1"}}))))
     (is (= "<a xlink:href=\"#a\"></a>"
-           (ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:xlink-href "#a"}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:xlink-href "#a"}})))))
   (testing "data-* / aria-* names verbatim"
     (is (= "<div data-fooBar=\"1\"></div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:data-fooBar "1"}}))))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:data-fooBar "1"}}))))))
 
 (deftest emits-boolean-classes
   (testing "boolean attr: true -> presence, false -> omitted"
     (is (= "<input disabled=\"\">"
-           (ui-tree/emit-ui-tree (v1 {:tag :input :attrs {:disabled true :checked false}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :input :attrs {:disabled true :checked false}})))))
   (testing "booleanish: true/false -> \"true\"/\"false\", never omitted"
     (is (= "<div contentEditable=\"false\"></div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:content-editable false}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:content-editable false}})))))
   (testing "overloaded: true -> presence, false -> omitted, other -> value"
     (is (= "<a download=\"\"></a>"
-           (ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:download true}}))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:download true}}))))
     (is (= "<a download=\"file.txt\"></a>"
-           (ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:download "file.txt"}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:download "file.txt"}})))))
   (testing "aria-* values always stringify, never omitted"
     (is (= "<div aria-hidden=\"false\"></div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:aria-hidden false}}))))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:aria-hidden false}}))))))
 
 (deftest emits-style-in-pinned-order
   (testing ":style map -> css declaration, sorted by property name"
     (is (= "<div style=\"color:red;margin-top:0\"></div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:style {:margin-top "0"
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:style {:margin-top "0"
                                                                  :color "red"}}}))))))
 
 (deftest emits-void-elements-self-closed
-  (is (= "<br>" (ui-tree/emit-ui-tree (v1 {:tag :br}))))
+  (is (= "<br>" (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :br}))))
   (is (= "<img src=\"a.png\">"
-         (ui-tree/emit-ui-tree (v1 {:tag :img :attrs {:src "a.png"}})))))
+         (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :img :attrs {:src "a.png"}})))))
 
 (deftest drops-events-and-keys
   (testing "events never serialise into HTML; :key has no HTML presence"
     (is (= "<button>Go</button>"
-           (ui-tree/emit-ui-tree (v1 {:tag :button
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :button
                                       :events {:on-click [:go]}
                                       :key 7
                                       :children ["Go"]}))))))
@@ -277,7 +277,7 @@
 (deftest ignores-reserved-diagnostic-keys
   (testing "node-level :rf.ui/* diagnostic keys never emit"
     (is (= "<div>x</div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div
                                       :rf.ui/presence {:phase :present}
                                       :rf.ui/boundary :client-only
                                       :children ["x"]}))))))
@@ -285,18 +285,18 @@
 (deftest splices-fragments-and-erases-view-boundaries
   (testing "fragment root splices its children with no wrapper"
     (is (= "<span>a</span><span>b</span>"
-           (ui-tree/emit-ui-tree (v1 {:children [{:tag :span :children ["a"]}
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:children [{:tag :span :children ["a"]}
                                                  {:tag :span :children ["b"]}]})))))
   (testing "view boundary is erased; its children splice, its :props are ignored"
     (is (= "<span>x</span>"
-           (ui-tree/emit-ui-tree (v1 {:view-id :my/view
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:view-id :my/view
                                       :props {:whatever 1}
                                       :children [{:tag :span :children ["x"]}]}))))))
 
 (deftest writes-trusted-html-verbatim
   (testing ":html node content is NOT escaped"
     (is (= "<div><b>raw</b></div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "<b>raw</b>"}]}))))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "<b>raw</b>"}]}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Raw-text elements — <script>/<style> content (rf2-2dh3b)
@@ -318,15 +318,15 @@
     ;; RED-BEFORE lever: the shipped `escape-html` path emitted
     ;; "<script>a &amp; b &lt; c &gt; d</script>" — a corrupted script body.
     (is (= "<script>a & b < c > d</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["a & b < c > d"]}))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["a & b < c > d"]}))))
     (is (= "<script>if (a && b) {}</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["if (a && b) {}"]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["if (a && b) {}"]})))))
   (testing "ordinary ampersand / less-than in <style> stays LITERAL"
     (is (= "<style>a & b < c > d</style>"
-           (ui-tree/emit-ui-tree (v1 {:tag :style :children ["a & b < c > d"]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children ["a & b < c > d"]})))))
   (testing "a childless raw-text element still emits an explicit close tag"
-    (is (= "<script></script>" (ui-tree/emit-ui-tree (v1 {:tag :script}))))
-    (is (= "<style></style>" (ui-tree/emit-ui-tree (v1 {:tag :style}))))))
+    (is (= "<script></script>" (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script}))))
+    (is (= "<style></style>" (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style}))))))
 
 (deftest raw-text-closing-sequences-get-context-safe-spellings
   (testing "<script> content: (<|</)script -> the s/S becomes \\u0073 / \\u0053"
@@ -334,31 +334,31 @@
     ;; "&lt;/script&gt;" whose entities stay LITERAL inside raw text — the DOM
     ;; would carry the text </script> and terminate the element early.
     (is (= "<script>var x = '</\\u0073cript>';</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["var x = '</script>';"]}))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["var x = '</script>';"]}))))
     (is (= "<script>a<\\u0073cript>b</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["a<script>b"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["a<script>b"]})))
         "an OPENING <script in content is escaped too, matching React")
     (is (= "<script>a</\\u0053CRIPT>b</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["a</SCRIPT>b"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["a</SCRIPT>b"]})))
         "case is preserved except the escaped s/S; uppercase S -> \\u0053")
     (is (= "<script>a</\\u0053cRiPt>b</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["a</ScRiPt>b"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["a</ScRiPt>b"]})))
         "mixed-case suffix preserved verbatim"))
   (testing "<style> content: (<|</)style -> the s/S becomes \\73 / \\53 (CSS escape)"
     (is (= "<style>.x{content:'</\\73 tyle>'}</style>"
-           (ui-tree/emit-ui-tree (v1 {:tag :style :children [".x{content:'</style>'}"]}))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children [".x{content:'</style>'}"]}))))
     (is (= "<style>a</\\53 TYLE>b</style>"
-           (ui-tree/emit-ui-tree (v1 {:tag :style :children ["a</STYLE>b"]}))))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children ["a</STYLE>b"]}))))))
 
 (deftest raw-text-own-lever-p-still-escapes
   (testing "VACUITY probe: the SAME text in a NON-raw-text element IS escaped"
     ;; The fix is narrow: only <script>/<style> bypass entity escaping. If the
     ;; branch mis-fired for ordinary elements this would drop the entities.
     (is (= "<p>a &amp; b &lt; c &gt; d</p>"
-           (ui-tree/emit-ui-tree (v1 {:tag :p :children ["a & b < c > d"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :p :children ["a & b < c > d"]})))
         "an ordinary <p> keeps full 5-char escaping")
     (is (= "<div>&lt;/script&gt;</div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div :children ["</script>"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children ["</script>"]})))
         "and </script> in a <div> is inert escaped text, not a raw-text escape")))
 
 ;; ---------------------------------------------------------------------------
@@ -380,19 +380,19 @@
     ;; RED-BEFORE lever (rf2-0spji): the shipped fast path emitted the literal
     ;; EDN "<script>{:html \"const x=1;\"}</script>".
     (is (= "<script>const x=1;</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "const x=1;"}]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "const x=1;"}]})))))
   (testing "a sole {:html s} child under <style> likewise emits its trusted body"
     (is (= "<style>.x{color:red}</style>"
-           (ui-tree/emit-ui-tree (v1 {:tag :style :children [{:html ".x{color:red}"}]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children [{:html ".x{color:red}"}]})))))
   (testing "the :html body is VERBATIM — the trusted bypass, NEITHER escaped NOR closing-sequence-rewritten"
     ;; Contrast the STRING path: "</script>" as a string CHILD is rewritten to
     ;; "</\\u0073cript>" (raw-text-closing-sequences-*). The :html trusted bypass
     ;; writes it verbatim — exactly as react-dom pushes dangerouslySetInnerHTML
     ;; and as the general :html node path (writes-trusted-html-verbatim) does.
     (is (= "<script>var s = '</script>';</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "var s = '</script>';"}]}))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "var s = '</script>';"}]}))))
     (is (= "<script>if (1 < 2 && 3) {}</script>"
-           (ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "if (1 < 2 && 3) {}"}]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "if (1 < 2 && 3) {}"}]})))
         "< and & stay literal — the :html body is never 5-char escaped")))
 
 (deftest raw-text-structural-child-fails-loud-not-stringified
@@ -400,44 +400,44 @@
     ;; RED-BEFORE lever: the fast path stringified it to
     ;; "<script>{:tag :b, :children [\"x\"]}</script>".
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :script :children [{:tag :b :children ["x"]}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
           "a structural child in a raw-text element is the SHARED malformed id")
       (is (= [] (:path d)) "locates the offending raw-text element (the root here)")))
   (testing "a non-string :html under <style> is the SAME shared malformed id, located at the child"
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree (v1 {:tag :style :children [{:html 42}]})))]
+              #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children [{:html 42}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
       (is (= [:children 0] (:path d)) "the reused :html row locates the non-string body")))
   (testing "a body mixing string content with a structural child is malformed"
     ;; React forbids both `children` and `dangerouslySetInnerHTML`; a mixed body
     ;; likewise fails loud rather than half-stringifying.
     (let [d (caught-ex-data
-              #(ui-tree/emit-ui-tree
+              #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :script :children ["const x=1;" {:html "y"}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))))))
 
 (deftest custom-element-property-props-omitted
   (testing "property-classified props never reach markup; attributes do"
     (is (= "<my-widget id=\"w\"></my-widget>"
-           (ui-tree/emit-ui-tree (v1 {:tag :my-widget
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :my-widget
                                       :attrs {:help-text "hi" :id "w"}
                                       :rf.ui/property-props #{:help-text}}))))))
 
 (deftest form-control-special-forms
   (testing ":default-value serialises as value"
     (is (= "<input value=\"d\">"
-           (ui-tree/emit-ui-tree (v1 {:tag :input :attrs {:default-value "d"}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :input :attrs {:default-value "d"}})))))
   (testing ":value on :textarea serialises as the text child, not an attribute"
     (is (= "<textarea>hello</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "hello"}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "hello"}})))))
   (testing ":value on :select serialises as selected on the matching option"
     (is (= (str "<select>"
                 "<option value=\"a\">A</option>"
                 "<option selected=\"\" value=\"b\">B</option>"
                 "</select>")
-           (ui-tree/emit-ui-tree
+           (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :select
                   :attrs {:value "b"}
                   :children [{:tag :option :attrs {:value "a"} :children ["A"]}
@@ -452,7 +452,7 @@
                 "<option value=\"b\">B</option>"
                 "<option selected=\"\" value=\"c\">C</option>"
                 "</select>")
-           (ui-tree/emit-ui-tree
+           (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :select
                   :attrs {:multiple true :value ["a" "c"]}
                   :children [{:tag :option :attrs {:value "a"} :children ["A"]}
@@ -463,7 +463,7 @@
                 "<option value=\"a\">A</option>"
                 "<option value=\"b\">B</option>"
                 "</select>")
-           (ui-tree/emit-ui-tree
+           (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :select
                   :attrs {:multiple true :value []}
                   :children [{:tag :option :attrs {:value "a"} :children ["A"]}
@@ -486,48 +486,48 @@
     ;; RED-BEFORE lever: the shipped serialiser emitted "<pre>\nhello</pre>",
     ;; which parses to a DOM with one FEWER newline than the tree authored.
     (is (= "<pre>\n\nhello</pre>"
-           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\nhello"]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\nhello"]})))))
   (testing "each extra authored LF survives (one is eaten, the rest remain)"
     (is (= "<pre>\n\n\nhello</pre>"
-           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\n\nhello"]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\n\nhello"]})))))
   (testing "pre child text is still HTML-escaped alongside the compensation"
     (is (= "<pre>\n\n&lt;a&gt; &amp; b</pre>"
-           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\n<a> & b"]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\n<a> & b"]})))))
   (testing "<listing> is a newline-eating element too"
     (is (= "<listing>\n\nhello</listing>"
-           (ui-tree/emit-ui-tree (v1 {:tag :listing :children ["\nhello"]}))))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :listing :children ["\nhello"]}))))))
 
 (deftest leading-newline-compensated-for-textarea-value
   (testing ":value on <textarea> beginning with LF gets the doubled LF"
     ;; RED-BEFORE lever: emitted "<textarea>\nhello</textarea>" (one LF).
     (is (= "<textarea>\n\nhello</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\nhello"}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\nhello"}})))))
   (testing "textarea :value is RCDATA-escaped alongside the compensation"
     (is (= "<textarea>\n\n&lt;a&gt;&amp;</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\n<a>&"}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\n<a>&"}})))))
   (testing "a single string child (no :value) is compensated the same way"
     (is (= "<textarea>\n\nhi</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["\nhi"]}))))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["\nhi"]}))))))
 
 (deftest leading-newline-own-lever-only-a-single-lf-string-child
   (testing "VACUITY: no LF prefix ⇒ no compensation (the fix must not add one)"
     (is (= "<pre>hello</pre>"
-           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["hello"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["hello"]})))
         "content not beginning with LF is emitted unchanged")
     (is (= "<textarea>hello</textarea>"
-           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "hello"}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "hello"}})))))
   (testing "a leading CR (\\r) is NOT a newline-eating trigger — matches React"
     (is (= "<pre>\r\nhello</pre>"
-           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\r\nhello"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\r\nhello"]})))
         "only a leading LF is eaten by the parser, so only LF is compensated"))
   (testing "MULTIPLE children ⇒ no compensation (React's single-string guard)"
     ;; Two text children are React's `children` array, not a string — no doctoring.
     (is (= "<pre>\nab</pre>"
-           (ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\na" "b"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\na" "b"]})))
         "a multi-child pre body is left untouched even when the first begins LF"))
   (testing "a non-newline-eating element is never compensated"
     (is (= "<div>\nhello</div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div :children ["\nhello"]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children ["\nhello"]})))
         "the compensation is scoped to pre/listing/textarea only")))
 
 ;; ---------------------------------------------------------------------------
@@ -544,16 +544,16 @@
   (testing "<pre> sole {:html s} child beginning with LF gets React's compensating LF"
     ;; RED-BEFORE lever (rf2-0spji): emitted "<pre>\n<b>x</b></pre>" (one LF).
     (is (= "<pre>\n\n<b>x</b></pre>"
-           (ui-tree/emit-ui-tree (v1 {:tag :pre :children [{:html "\n<b>x</b>"}]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children [{:html "\n<b>x</b>"}]})))))
   (testing "<listing> compensates a sole trusted-HTML LF body the same way"
     (is (= "<listing>\n\n<i>y</i></listing>"
-           (ui-tree/emit-ui-tree (v1 {:tag :listing :children [{:html "\n<i>y</i>"}]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :listing :children [{:html "\n<i>y</i>"}]})))))
   (testing "VACUITY: a :html body NOT beginning with LF gets no compensation"
     (is (= "<pre><b>x</b></pre>"
-           (ui-tree/emit-ui-tree (v1 {:tag :pre :children [{:html "<b>x</b>"}]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children [{:html "<b>x</b>"}]})))
         "the fix must not add an LF when none is owed")
     (is (= "<div>\n<b>x</b></div>"
-           (ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "\n<b>x</b>"}]})))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "\n<b>x</b>"}]})))
         "a non-newline-eating element is never compensated, even for a :html body")))
 
 (deftest opts-contract
@@ -564,23 +564,23 @@
   (let [tree (v1 {:tag :html})]
     (testing ":doctype? true prefixes the doctype"
       (is (= "<!DOCTYPE html><html></html>"
-             (ui-tree/emit-ui-tree tree {:doctype? true}))))
+             (rf.ssr.ui-tree/emit-ui-tree tree {:doctype? true}))))
     (testing "default (arity-1) emits no doctype"
       (is (= "<html></html>"
-             (ui-tree/emit-ui-tree tree))))
+             (rf.ssr.ui-tree/emit-ui-tree tree))))
     (testing "nil opts emits no doctype"
       (is (= "<html></html>"
-             (ui-tree/emit-ui-tree tree nil))))
+             (rf.ssr.ui-tree/emit-ui-tree tree nil))))
     (testing ":doctype? false emits no doctype"
       (is (= "<html></html>"
-             (ui-tree/emit-ui-tree tree {:doctype? false}))))
+             (rf.ssr.ui-tree/emit-ui-tree tree {:doctype? false}))))
     (testing "unknown keys are ignored — not rejected, not honoured"
       (is (= "<html></html>"
-             (ui-tree/emit-ui-tree tree {:emit-hash? true :bogus 1})))
+             (rf.ssr.ui-tree/emit-ui-tree tree {:emit-hash? true :bogus 1})))
       (is (= "<!DOCTYPE html><html></html>"
-             (ui-tree/emit-ui-tree tree {:doctype? true :emit-hash? true :bogus 1}))))))
+             (rf.ssr.ui-tree/emit-ui-tree tree {:doctype? true :emit-hash? true :bogus 1}))))))
 
 (deftest facade-re-export-is-the-same-fn
   (testing "re-frame.ssr/emit-ui-tree is the serialiser"
     (is (= "<div>hi</div>"
-           (ssr/emit-ui-tree (v1 {:tag :div :children ["hi"]}))))))
+           (rf.ssr/emit-ui-tree (v1 {:tag :div :children ["hi"]}))))))

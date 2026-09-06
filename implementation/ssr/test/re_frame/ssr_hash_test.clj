@@ -19,47 +19,47 @@
   pruning-equivalence."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.ssr.emit :as emit]
-            [re-frame.ssr.hash :as hash]))
+            [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.ssr.hash :as rf.ssr.hash]))
 
 ;; ---- canonical-edn ---------------------------------------------------------
 
 (deftest canonical-edn-prunes-nil-from-maps
   (testing "map entries with nil values are pruned — {:class nil} ≡ {}"
-    (is (= (hash/canonical-edn {})
-           (hash/canonical-edn {:class nil}))
+    (is (= (rf.ssr.hash/canonical-edn {})
+           (rf.ssr.hash/canonical-edn {:class nil}))
         "lone nil-valued entry is pruned")
-    (is (= (hash/canonical-edn {:id "x"})
-           (hash/canonical-edn {:id "x" :class nil}))
+    (is (= (rf.ssr.hash/canonical-edn {:id "x"})
+           (rf.ssr.hash/canonical-edn {:id "x" :class nil}))
         "nil-valued entry pruned alongside live entries")
-    (is (= (hash/canonical-edn {:id "x"})
-           (hash/canonical-edn {:id "x" :class nil :title nil :hidden nil}))
+    (is (= (rf.ssr.hash/canonical-edn {:id "x"})
+           (rf.ssr.hash/canonical-edn {:id "x" :class nil :title nil :hidden nil}))
         "multiple nil-valued entries all pruned"))
 
   (testing "nil map keys ARE preserved (the spec prunes nil VALUES, not keys)"
     ;; Hiccup attribute maps don't have nil keys in practice, but the
     ;; spec is explicit about pruning nil values — leaves keys alone.
-    (is (not= (hash/canonical-edn {})
-              (hash/canonical-edn {nil "x"}))
+    (is (not= (rf.ssr.hash/canonical-edn {})
+              (rf.ssr.hash/canonical-edn {nil "x"}))
         "nil-keyed entry is NOT pruned")))
 
 (deftest canonical-edn-prunes-nil-from-sequences
   (testing "vectors: nil child elements are pruned"
-    (is (= (hash/canonical-edn [:p "text"])
-           (hash/canonical-edn [:p "text" nil]))
+    (is (= (rf.ssr.hash/canonical-edn [:p "text"])
+           (rf.ssr.hash/canonical-edn [:p "text" nil]))
         "trailing nil element pruned")
-    (is (= (hash/canonical-edn [:p "text"])
-           (hash/canonical-edn [:p nil "text" nil]))
+    (is (= (rf.ssr.hash/canonical-edn [:p "text"])
+           (rf.ssr.hash/canonical-edn [:p nil "text" nil]))
         "interior + trailing nil elements pruned"))
 
   (testing "lists: nil child elements are pruned"
-    (is (= (hash/canonical-edn '(:p "text"))
-           (hash/canonical-edn '(:p "text" nil)))
+    (is (= (rf.ssr.hash/canonical-edn '(:p "text"))
+           (rf.ssr.hash/canonical-edn '(:p "text" nil)))
         "trailing nil element pruned in a list")))
 
 (deftest canonical-edn-returns-nil-for-nil
   (testing "bare nil input — sentinel for parent pruning"
-    (is (nil? (hash/canonical-edn nil))
+    (is (nil? (rf.ssr.hash/canonical-edn nil))
         "canonical-edn returns nil for nil input — parent's keep/remove prunes it")))
 
 (deftest canonical-edn-non-nil-fast-path-unchanged
@@ -68,27 +68,27 @@
             parity test (hash_check_cljs_test.cljs) pins '9d7457ef' for
             [:div {:class \"x\"} [:p \"hi\"]]."
     (is (= "[:div {:class \"x\"} [:p \"hi\"]]"
-           (hash/canonical-edn [:div {:class "x"} [:p "hi"]]))
+           (rf.ssr.hash/canonical-edn [:div {:class "x"} [:p "hi"]]))
         "no-nil tree serialises to the pre-fix canonical form")))
 
 ;; ---- render-tree-hash ------------------------------------------------------
 
 (deftest render-tree-hash-equates-nil-attr-with-absent-attr
   (testing "{:class nil} and {} hash identically per Spec 011 §Hydration-mismatch"
-    (is (= (hash/render-tree-hash [:div {:class nil}])
-           (hash/render-tree-hash [:div {}]))
+    (is (= (rf.ssr.hash/render-tree-hash [:div {:class nil}])
+           (rf.ssr.hash/render-tree-hash [:div {}]))
         "the common (when condition? :class) shape no longer triggers spurious mismatch")
-    (is (= (hash/render-tree-hash [:div {:id "x" :class nil}])
-           (hash/render-tree-hash [:div {:id "x"}]))
+    (is (= (rf.ssr.hash/render-tree-hash [:div {:id "x" :class nil}])
+           (rf.ssr.hash/render-tree-hash [:div {:id "x"}]))
         "nil-valued attr pruned alongside live attrs")))
 
 (deftest render-tree-hash-equates-nil-child-with-absent-child
   (testing "nil children are pruned — [:p \"text\" nil] ≡ [:p \"text\"]"
-    (is (= (hash/render-tree-hash [:p "text" nil])
-           (hash/render-tree-hash [:p "text"]))
+    (is (= (rf.ssr.hash/render-tree-hash [:p "text" nil])
+           (rf.ssr.hash/render-tree-hash [:p "text"]))
         "trailing nil child pruned")
-    (is (= (hash/render-tree-hash [:div [:p "a"] nil [:p "b"]])
-           (hash/render-tree-hash [:div [:p "a"] [:p "b"]]))
+    (is (= (rf.ssr.hash/render-tree-hash [:div [:p "a"] nil [:p "b"]])
+           (rf.ssr.hash/render-tree-hash [:div [:p "a"] [:p "b"]]))
         "interior nil child pruned")))
 
 ;; ===========================================================================
@@ -112,12 +112,12 @@
           colon-first (array-map ":a" 2 :a 1)]
       (is (= a-first colon-first)
           "the two maps are Clojure-= (sanity: same logical map)")
-      (is (= (hash/render-tree-hash a-first)
-             (hash/render-tree-hash colon-first))
+      (is (= (rf.ssr.hash/render-tree-hash a-first)
+             (rf.ssr.hash/render-tree-hash colon-first))
           "render-tree-hash is insertion-order-independent for
            str-colliding keys")
-      (is (= (hash/canonical-edn a-first)
-             (hash/canonical-edn colon-first))
+      (is (= (rf.ssr.hash/canonical-edn a-first)
+             (rf.ssr.hash/canonical-edn colon-first))
           "canonical EDN is byte-identical regardless of construction order"))
 
     (testing "the canonical form distinguishes the two key shapes (the
@@ -125,22 +125,22 @@
       ;; The keyword sorts before the quoted string (`:` 0x3A < `\"` 0x22?
       ;; no — `"` is 0x22, `:` is 0x3A, so the quoted string sorts first).
       ;; We assert byte-equality across orders, not the absolute position.
-      (is (str/includes? (hash/canonical-edn (array-map :a 1 ":a" 2))
+      (is (str/includes? (rf.ssr.hash/canonical-edn (array-map :a 1 ":a" 2))
                          "\":a\"")
           "the string key keeps its quotes in canonical form")
-      (is (str/includes? (hash/canonical-edn (array-map :a 1 ":a" 2))
+      (is (str/includes? (rf.ssr.hash/canonical-edn (array-map :a 1 ":a" 2))
                          ":a 1")
           "the keyword key is bare in canonical form"))))
 
 (deftest render-tree-hash-prunes-nil-deeply
   (testing "pruning is recursive — nil-pruning applies at every level"
-    (is (= (hash/render-tree-hash
+    (is (= (rf.ssr.hash/render-tree-hash
              [:section {:class "wrap"}
               [:header {:role "banner" :hidden nil}
                [:h1 "Title" nil]]
               [:article {:class nil}
                [:p "Body" nil]]])
-           (hash/render-tree-hash
+           (rf.ssr.hash/render-tree-hash
              [:section {:class "wrap"}
               [:header {:role "banner"}
                [:h1 "Title"]]
@@ -164,8 +164,8 @@
             <!DOCTYPE html> followed by <root data-rf-render-hash=\"...\"> —
             the hash rides on the root element, not on the doctype"
     (let [tree [:div {:class "page"} [:h1 "Hello"]]
-          h    (hash/render-tree-hash tree)
-          html (emit/render-to-string tree {:doctype? true :render-hash h})]
+          h    (rf.ssr.hash/render-tree-hash tree)
+          html (rf.ssr.emit/render-to-string tree {:doctype? true :render-hash h})]
       (is (str/starts-with? html "<!DOCTYPE html>")
           ":doctype? prepended")
       (is (re-find (re-pattern (str "<!DOCTYPE html><div[^>]*data-rf-render-hash=\"" h "\""))
@@ -180,7 +180,7 @@
   (testing ":render-hash / :doctype? false → root element carries the hash;
             no doctype prefix"
     (let [tree [:section [:p "x"]]
-          html (emit/render-to-string tree {:render-hash (hash/render-tree-hash tree)})]
+          html (rf.ssr.emit/render-to-string tree {:render-hash (rf.ssr.hash/render-tree-hash tree)})]
       (is (not (str/starts-with? html "<!DOCTYPE"))
           "no doctype emitted")
       (is (re-find #"^<section[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
@@ -190,7 +190,7 @@
 (deftest doctype-without-render-hash-omits-hash-attribute
   (testing ":doctype? true, no :render-hash → doctype emitted; no hash attr"
     (let [tree [:div "no-hash"]
-          html (emit/render-to-string tree {:doctype? true})]
+          html (rf.ssr.emit/render-to-string tree {:doctype? true})]
       (is (str/starts-with? html "<!DOCTYPE html>"))
       (is (not (str/includes? html "data-rf-render-hash"))
           "no hash attribute without :render-hash"))))
@@ -199,10 +199,10 @@
   (testing "the retired `:emit-hash?` opt is now an ordinary unknown key —
             no marker, no throw (the emitter does not validate its opts)"
     (let [tree [:div "x"]]
-      (is (= "<div>x</div>" (emit/render-to-string tree {:emit-hash? true}))
+      (is (= "<div>x</div>" (rf.ssr.emit/render-to-string tree {:emit-hash? true}))
           ":emit-hash? true stamps nothing")
       (is (= "<!DOCTYPE html><div>x</div>"
-             (emit/render-to-string tree {:doctype? true :emit-hash? true}))
+             (rf.ssr.emit/render-to-string tree {:doctype? true :emit-hash? true}))
           ":emit-hash? does not disturb the other opts"))))
 
 ;; ---- rf2-jsa2ml: raw-fn hiccup heads hash identity-free -------------------
@@ -219,7 +219,7 @@
             raw fn head to the fixed identity-free token `#fn[]`."
     (let [f1 (fn [_] [:span "a"])
           f2 (fn [_] [:span "a"])]
-      (is (= "#fn[]" (hash/canonical-edn f1))
+      (is (= "#fn[]" (rf.ssr.hash/canonical-edn f1))
           "a raw fn serialises to the identity-free token, not #fn[<toString>]")
       ;; The decisive property: two DISTINCT fn objects standing for the same
       ;; logical view (server's deref'd defn vs client's) hash identically.
@@ -227,18 +227,18 @@
       ;; toString → different canonical EDN → different hashes → false mismatch.
       (is (not= (.toString f1) (.toString f2))
           "sanity: the two fn objects DO have divergent toStrings (the trap)")
-      (is (= (hash/render-tree-hash [:div [f1 {:x 1}]])
-             (hash/render-tree-hash [:div [f2 {:x 1}]]))
+      (is (= (rf.ssr.hash/render-tree-hash [:div [f1 {:x 1}]])
+             (rf.ssr.hash/render-tree-hash [:div [f2 {:x 1}]]))
           "distinct fn objects for the same tree hash identically — no spurious mismatch")
       ;; The fn's props still discriminate: a different prop → a different hash.
-      (is (not= (hash/render-tree-hash [:div [f1 {:x 1}]])
-                (hash/render-tree-hash [:div [f1 {:x 2}]]))
+      (is (not= (rf.ssr.hash/render-tree-hash [:div [f1 {:x 1}]])
+                (rf.ssr.hash/render-tree-hash [:div [f1 {:x 2}]]))
           "the head is identity-free but the props are still hashed")))
   (testing "a Var head stays identity-stable — a Var is NOT fn? on the JVM, so
             `[#'ns/view …]` falls to :else → pr-str → #'ns/name (identical
             both runtimes)"
     (is (= "#'clojure.core/identity"
-           (hash/canonical-edn #'clojure.core/identity))
+           (rf.ssr.hash/canonical-edn #'clojure.core/identity))
         "a Var reference keeps its stable #'ns/name print form")))
 
 ;; ---- rf2-0ypnnk: whole-valued doubles canonicalise cross-runtime ----------
@@ -251,21 +251,21 @@
             the hash passes while the server/client DOM diverges (and, under
             :on-mismatch :hard-error, hydration crashes)."
     ;; hash side — canonical EDN drops the .0 for a child AND an attr value.
-    (is (= "[:span 9]" (hash/canonical-edn [:span 9.0]))
+    (is (= "[:span 9]" (rf.ssr.hash/canonical-edn [:span 9.0]))
         "whole-double child → `9` in the canonical EDN")
     (is (= "[:progress {:max 1,:value 0}]"
-           (hash/canonical-edn [:progress {:value 0.0 :max 1.0}]))
+           (rf.ssr.hash/canonical-edn [:progress {:value 0.0 :max 1.0}]))
         "whole-double attr values → `0`/`1` in the canonical EDN")
     ;; HTML side — the emitter applies the SAME normalisation, child + attr.
-    (is (= "<span>9</span>" (emit/render-to-string [:span 9.0] {}))
+    (is (= "<span>9</span>" (rf.ssr.emit/render-to-string [:span 9.0] {}))
         "whole-valued double CHILD renders `9`, not the JVM `9.0`")
-    (let [html (emit/render-to-string [:progress {:value 0.0 :max 1.0}] {})]
+    (let [html (rf.ssr.emit/render-to-string [:progress {:value 0.0 :max 1.0}] {})]
       (is (str/includes? html "value=\"0\"") "whole-double attr renders value=\"0\"")
       (is (str/includes? html "max=\"1\"")   "whole-double attr renders max=\"1\"")
       (is (not (str/includes? html ".0"))    "no trailing .0 leaks into the HTML"))
     ;; integers, non-whole doubles, and ratios behave as documented.
-    (is (= "42"   (hash/canonical-number 42))   "an integer is unchanged")
-    (is (= "3.14" (hash/canonical-number 3.14)) "a non-whole double is unchanged")
-    (is (= "0.5"  (hash/canonical-number 1/2))  "a ratio coerces to its IEEE-double form")
-    (is (= "<span>3.14</span>" (emit/render-to-string [:span 3.14] {}))
+    (is (= "42"   (rf.ssr.hash/canonical-number 42))   "an integer is unchanged")
+    (is (= "3.14" (rf.ssr.hash/canonical-number 3.14)) "a non-whole double is unchanged")
+    (is (= "0.5"  (rf.ssr.hash/canonical-number 1/2))  "a ratio coerces to its IEEE-double form")
+    (is (= "<span>3.14</span>" (rf.ssr.emit/render-to-string [:span 3.14] {}))
         "a non-whole double child is unchanged")))

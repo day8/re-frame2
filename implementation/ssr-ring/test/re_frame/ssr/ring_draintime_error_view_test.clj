@@ -27,13 +27,13 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts])
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
   (:import [java.io ByteArrayOutputStream InputStream]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; helpers
@@ -113,7 +113,7 @@
     (reg-drain-boom-event!)
     (reg-counting-root!)
     (reset! error-view-calls 0)
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/set-safe] [:init/boom]]
                       :root-view  [(rf/view :pages/counting-root)]
                       :error-view (fn [{:keys [status message]}]
@@ -147,7 +147,7 @@
             ships no payload."
     (reg-drain-boom-event!)
     (reg-counting-root!)
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/boom]]
                       :root-view [(rf/view :pages/counting-root)]
                       :payload   :rf.ssr.payload/whole-app-db})
@@ -173,7 +173,7 @@
     (rf/reg-view* :pages/not-found
       (fn [] [:div.not-found "APP-NOT-FOUND-UI"]))
     (reset! error-view-calls 0)
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/route-to-missing]]
                       :root-view  [(rf/view :pages/not-found)]
                       :error-view (fn [_] (swap! error-view-calls inc)
@@ -199,7 +199,7 @@
                  :message "SERVICE-DEGRADED-MARKER" :retryable? true}))
       (reg-drain-boom-event!)
       (reg-counting-root!)
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/boom]]
                         :root-view [(rf/view :pages/counting-root)]
                         :ssr       {:public-error-id :myapp/degraded}
@@ -216,7 +216,7 @@
         {:platforms #{:server}}
         (fn [_ _] {:fx [[:rf.server/set-status 500]]}))
       (reg-counting-root!)
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/set-500]]
                         :root-view [(rf/view :pages/counting-root)]
                         :payload   :rf.ssr.payload/whole-app-db})
@@ -239,7 +239,7 @@
     (testing "keyword form"
       (rf/reg-view* :myapp/kw-error
         (fn [_public] [:div.kw-error @(rf/subscribe [:err/detail])]))
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/boom]]
                         :root-view  [:div "root"]
                         :error-view :myapp/kw-error
@@ -249,7 +249,7 @@
         (is (str/includes? (body->str (:body response)) "SUB-VALUE-UNDER-FRAME")
             "keyword error view resolved its sub under the request frame")))
     (testing "fn form"
-      (let [handler  (ssr-ring/ssr-handler
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/boom]]
                         :root-view  [:div "root"]
                         :error-view (fn [_public]
@@ -275,15 +275,15 @@
       (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
       (rf/reg-view* :pages/render-throws-ev
         (fn [] (throw (ex-info "root-throw-detail" {}))))
-      (error-emit/clear-error-listeners!)
+      (rf.error-emit/clear-error-listeners!)
       (let [calls (atom 0)
             seen  (capture-always-on!)
             traces (atom [])]
         (rf/register-listener! :trace ::ev-throw
           (fn [ev] (when (= :rf.error/ssr-ring-error-view-failed (:operation ev))
                      (swap! traces conj ev))))
-        (with-redefs [interop/debug-enabled? debug?]
-          (let [handler  (ssr-ring/ssr-handler
+        (with-redefs [rf.interop/debug-enabled? debug?]
+          (let [handler  (rf.ssr.ring/ssr-handler
                            {:initial-events [[:init/ok]]
                             :root-view  [(rf/view :pages/render-throws-ev)]
                             :error-view (fn [_public]
@@ -305,7 +305,7 @@
                     (some #{:rf.error/ssr-ring-error-view-failed} @seen))
                 ":rf.error/ssr-ring-error-view-failed emitted for containment")))
         (rf/unregister-listener! :trace ::ev-throw)
-        (error-emit/clear-error-listeners!)))))
+        (rf.error-emit/clear-error-listeners!)))))
 
 (deftest error-view-recovered-nil-sub-falls-back-to-template
   (testing "OPEN PROOF (rf2-oytx7j): an error view whose reactive sub RECOVERS
@@ -331,8 +331,8 @@
     ;; render — that buffered trace is exactly what `pending-error-trace?`
     ;; detects. `capture-always-on!` adds a recorder ALONGSIDE it.
     (let [seen (capture-always-on!)]
-      (with-redefs [interop/debug-enabled? false]
-        (let [handler  (ssr-ring/ssr-handler
+      (with-redefs [rf.interop/debug-enabled? false]
+        (let [handler  (rf.ssr.ring/ssr-handler
                          {:initial-events [[:init/ok]]
                           :root-view  [(rf/view :pages/render-throws-rn)]
                           :error-view :myapp/sub-error-view
@@ -353,7 +353,7 @@
           (is (= 1 (count (filter #{:rf.error/ssr-ring-error-view-failed} @seen)))
               "exactly one :rf.error/ssr-ring-error-view-failed record (the
                fallback fired once, no re-projection loop)")))
-      (error-emit/clear-error-listeners!))))
+      (rf.error-emit/clear-error-listeners!))))
 
 (deftest redirect-beats-pending-projection
   (testing "a redirect set during the drain beats a pending projection — the
@@ -365,7 +365,7 @@
               [:dispatch [:init/boom]]]}))
     (reg-drain-boom-event!)
     (reg-counting-root!)
-    (let [handler  (ssr-ring/ssr-handler
+    (let [handler  (rf.ssr.ring/ssr-handler
                      {:initial-events [[:init/redirect-then-boom]]
                       :root-view  [(rf/view :pages/counting-root)]
                       :error-view (fn [_] [:div "SHOULD-NOT-APPEAR"])
@@ -391,8 +391,8 @@
          [:h1 "DEGRADED-ROOT-MARKER"]
          [:p (str "v: " @(rf/subscribe [:render/throwing]))]]))
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (with-redefs [interop/debug-enabled? false]
-      (let [handler  (ssr-ring/ssr-handler
+    (with-redefs [rf.interop/debug-enabled? false]
+      (let [handler  (rf.ssr.ring/ssr-handler
                        {:initial-events [[:init/ok]]
                         :root-view  [(rf/view :pages/uses-throwing-render-sub)]
                         :ssr        {:public-error-id   :rf.ssr/default-error-projector
@@ -418,7 +418,7 @@
             NO writer thread and NO hydration payload."
     (reg-drain-boom-event!)
     (reg-counting-root!)
-    (let [handler  (ssr-ring/stream-handler
+    (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:init/boom]]
                       :root-view  [(rf/view :pages/counting-root)]
                       :error-view (fn [{:keys [message]}]
@@ -449,8 +449,8 @@
          [:h1 "DEGRADED-SHELL-MARKER"]
          [:p (str "v: " @(rf/subscribe [:shell/throwing]))]]))
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (with-redefs [interop/debug-enabled? false]
-      (let [handler  (ssr-ring/stream-handler
+    (with-redefs [rf.interop/debug-enabled? false]
+      (let [handler  (rf.ssr.ring/stream-handler
                        {:initial-events [[:init/ok]]
                         :root-view [(rf/view :pages/shell-uses-throwing-sub)]
                         :ssr       {:public-error-id   :rf.ssr/default-error-projector

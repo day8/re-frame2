@@ -44,15 +44,15 @@
   behaviour the trace merely narrates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- registration -----------------------------------------------------------
 ;;
@@ -61,7 +61,7 @@
 
 (deftest cofx-is-registered-after-namespace-load
   (testing ":rf.server/request resolves in the cofx registry"
-    (let [meta (registrar/lookup :cofx :rf.server/request)]
+    (let [meta (rf.registrar/lookup :cofx :rf.server/request)]
       (is (some? meta)
           "the cofx registry holds an entry under :rf.server/request")
       (is (fn? (:handler-fn meta))
@@ -71,12 +71,12 @@
       ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). `:doc` is a
       ;; pure-documentation key and is stripped in production builds; the
       ;; three RETAINED keys above are the ones the runtime acts on.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (string? (:doc meta))
             "the registration carries a :doc string"))
       ;; rf2-lwtlk — the REAL-gate arm: the elision itself, witnessed on a
       ;; JVM actually started with `-Dre-frame.debug=false`.
-      (when-not interop/debug-enabled?
+      (when-not rf.interop/debug-enabled?
         (is (nil? (:doc meta))
             ":doc is elided from the registry slot in production builds
              (Spec 001 §Production elision contract)")))))
@@ -89,7 +89,7 @@
 
 (deftest cofx-reads-populated-request
   (testing "(set-request! frame req) → :rf.cofx/requires [:rf.server/request] → handler reads req"
-    (let [server-frame (frame/make-anon-frame-record!
+    (let [server-frame (rf.frame/make-anon-frame-record!
                          {:doc      "SSR request frame"
                           :platform :server})
           request      {:request-method :get
@@ -101,7 +101,7 @@
                         :scheme         :https}
           observed     (atom :unset)]
       ;; Host adapter populates the slot.
-      (ssr/set-request! server-frame request)
+      (rf.ssr/set-request! server-frame request)
       ;; A server-side handler reads it via the cofx.
       (rf/reg-event :req-test/read
         {:rf.cofx/requires [:rf.server/request]}
@@ -115,12 +115,12 @@
 
 (deftest get-request-mirrors-cofx
   (testing "ssr/get-request is the public read surface — same value as the cofx"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})
+    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
           request      {:request-method :post
                         :uri            "/api/articles"
                         :body           "{\"title\":\"new\"}"}]
-      (ssr/set-request! server-frame request)
-      (is (= request (ssr/get-request server-frame))
+      (rf.ssr/set-request! server-frame request)
+      (is (= request (rf.ssr/get-request server-frame))
           "get-request returns the host-supplied map verbatim"))))
 
 ;; ---- unpopulated slot ------------------------------------------------------
@@ -131,7 +131,7 @@
 
 (deftest cofx-injects-nil-when-slot-unpopulated
   (testing "cofx returns nil when no host adapter has populated the slot"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})
+    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
           observed     (atom :unset)]
       (rf/reg-event :req-test/read-empty
         {:rf.cofx/requires [:rf.server/request]}
@@ -159,7 +159,7 @@
 (deftest cofx-is-skipped-on-client-frame
   (testing ":rf.server/request is skipped on a :platform :client frame
             and emits :rf.cofx/skipped-on-platform"
-    (let [client-frame (frame/make-anon-frame-record! {:platform :client})
+    (let [client-frame (rf.frame/make-anon-frame-record! {:platform :client})
           observed     (atom :unset)]
       (with-trace-recorder! [traces]
         (rf/reg-event :req-test/read-on-client
@@ -180,7 +180,7 @@
             "the cofx did NOT run — :rf.server/request is absent from coeffects")
 
         ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
                               @traces)]
             (is (= 1 (count skips))
@@ -204,14 +204,14 @@
 
 (deftest two-frames-carry-independent-request-data
   (testing "two simultaneous per-request frames have isolated request slots"
-    (let [frame-a    (frame/make-anon-frame-record! {:platform :server :doc "request A"})
-          frame-b    (frame/make-anon-frame-record! {:platform :server :doc "request B"})
+    (let [frame-a    (rf.frame/make-anon-frame-record! {:platform :server :doc "request A"})
+          frame-b    (rf.frame/make-anon-frame-record! {:platform :server :doc "request B"})
           request-a  {:uri "/articles/aaa" :headers {"cookie" "session=user-a"}}
           request-b  {:uri "/articles/bbb" :headers {"cookie" "session=user-b"}}
           observed-a (atom :unset)
           observed-b (atom :unset)]
-      (ssr/set-request! frame-a request-a)
-      (ssr/set-request! frame-b request-b)
+      (rf.ssr/set-request! frame-a request-a)
+      (rf.ssr/set-request! frame-b request-b)
 
       (rf/reg-event :req-test/read-isolated
         {:rf.cofx/requires [:rf.server/request]}
@@ -231,17 +231,17 @@
       (is (= request-b @observed-b)
           "frame B's handler saw frame B's request — no leak from A")
       ;; Independent reads via the public surface.
-      (is (= request-a (ssr/get-request frame-a)))
-      (is (= request-b (ssr/get-request frame-b))))))
+      (is (= request-a (rf.ssr/get-request frame-a)))
+      (is (= request-b (rf.ssr/get-request frame-b))))))
 
 (deftest clear-request-removes-the-slot
   (testing "clear-request! removes the per-frame slot — subsequent reads return nil"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})
+    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
           request      {:uri "/x"}]
-      (ssr/set-request! server-frame request)
-      (is (= request (ssr/get-request server-frame)))
-      (ssr/clear-request! server-frame)
-      (is (nil? (ssr/get-request server-frame))
+      (rf.ssr/set-request! server-frame request)
+      (is (= request (rf.ssr/get-request server-frame)))
+      (rf.ssr/clear-request! server-frame)
+      (is (nil? (rf.ssr/get-request server-frame))
           "the slot was cleared")
 
       ;; The cofx now injects nil.
@@ -266,10 +266,10 @@
 (deftest set-request-is-the-test-seam
   (testing "set-request! supplies the request for a harness-driven drain; the
             declared cofx reads it (replacing the retired 2-arity override)"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})
+    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
           explicit     {:uri "/explicit" :headers {"x-test" "1"}}
           observed     (atom :unset)]
-      (ssr/set-request! server-frame explicit)
+      (rf.ssr/set-request! server-frame explicit)
       (rf/reg-event :req-test/read-explicit
         {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
@@ -288,10 +288,10 @@
 
 (deftest cofx-works-under-ssr-server-preset
   (testing "the cofx surfaces the request under a :preset :ssr-server frame"
-    (let [server-frame (frame/make-anon-frame-record! {:preset :ssr-server})
+    (let [server-frame (rf.frame/make-anon-frame-record! {:preset :ssr-server})
           request      {:uri "/preset" :request-method :get}
           observed     (atom :unset)]
-      (ssr/set-request! server-frame request)
+      (rf.ssr/set-request! server-frame request)
       (rf/reg-event :req-test/read-preset
         {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]

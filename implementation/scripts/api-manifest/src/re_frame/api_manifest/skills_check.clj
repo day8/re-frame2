@@ -27,8 +27,8 @@
   (`:skills-known-unmanifested`) catches any further legitimate
   non-manifest reference in the checked skills."
   (:require [clojure.string :as str]
-            [re-frame.api-manifest.gen :as gen]
-            [re-frame.api-manifest.projection :as proj]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+            [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private core-ns "re-frame.core")
 
@@ -48,21 +48,21 @@
 
 (defn check!
   []
-  (let [rows      (proj/manifest-rows)
+  (let [rows      (rf.api-manifest.projection/manifest-rows)
         ;; `(rf/<var>` is the `re-frame.core` alias surface; resolve against
         ;; the core rows (front-porch + advanced + tooling + testing).
-        core-vars (set (map :var (proj/rows-in-ns rows core-ns)))
-        allow     (set (:skills-known-unmanifested (gen/read-sidecar)))
-        dir       (proj/repo-file "skills")
+        core-vars (set (map :var (rf.api-manifest.projection/rows-in-ns rows core-ns)))
+        allow     (set (:skills-known-unmanifested (rf.api-manifest.gen/read-sidecar)))
+        dir       (rf.api-manifest.projection/repo-file "skills")
         ;; require-markdown-files (rf2-utvst): fail loudly if skills/ moves
         ;; or is renamed, rather than silently checking zero files.
-        files     (->> (proj/require-markdown-files "skills/" dir)
+        files     (->> (rf.api-manifest.projection/require-markdown-files "skills/" dir)
                        (remove #(str/includes?
-                                 (str/replace (proj/repo-relative %) "\\" "/")
+                                 (str/replace (rf.api-manifest.projection/repo-relative %) "\\" "/")
                                  excluded-skill-dir)))
         results   (for [file files
-                        ref  (proj/alias-call-references "rf" (proj/numbered-lines file))]
-                    (assoc ref :file (proj/repo-relative file)))
+                        ref  (rf.api-manifest.projection/alias-call-references "rf" (rf.api-manifest.projection/numbered-lines file))]
+                    (assoc ref :file (rf.api-manifest.projection/repo-relative file)))
         var-problems (keep (fn [{:keys [var line raw file]}]
                              (when-not (or (contains? core-vars var)
                                            (contains? allow var))
@@ -75,9 +75,9 @@
         ;; EP-0017 `:rf.world/inputs`, EP-0011 reply-envelope (`:stale-key` /
         ;; bare `:work-id`), and EP-0015 egress-profile vocabulary reintroduced
         ;; outside an explicit retirement/rename mention.
-        kw-problems  (proj/keyword-drift-problems-over-files files)
+        kw-problems  (rf.api-manifest.projection/keyword-drift-problems-over-files files)
         problems     (concat var-problems kw-problems)]
-    (proj/report-with-floor! "skills/ (excl. re-frame-migration)"
+    (rf.api-manifest.projection/report-with-floor! "skills/ (excl. re-frame-migration)"
                              (count results) min-references problems)))
 
 (defn -main [& _]

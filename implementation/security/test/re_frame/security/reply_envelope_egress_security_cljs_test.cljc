@@ -11,24 +11,24 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
             ;; Families use the internal reply substrate directly.
-            [re-frame.reply :as reply]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]
-            [re-frame.security.gen :as gen]))
+            [re-frame.reply :as rf.reply]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.security.gen :as rf.security.gen]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-REPLY-EGRESS-DO-NOT-SHIP")
 
 (defn- contains-sentinel?
   "True when the sentinel survives anywhere in `x` (substring scan)."
   [x]
-  (gen/contains-string? x sentinel))
+  (rf.security.gen/contains-string? x sentinel))
 
 ;; CROSS-RECORD SPELLING (rf2-l7s7b7, Managed-Effects §The reply map). Every
 ;; top-level REPLY ENVELOPE below single-roots the work identity as
@@ -54,8 +54,8 @@
 (defn- mk-frame! [frame-id]
   (rf/make-frame {:id frame-id})
   ;; Install durable classification through the commit-plane path.
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:token] [:partner-key] [:detail :token]]
                 :large     [[:doc]]}))))
 
@@ -76,17 +76,17 @@
                      :rf.reply/work-status  :failed
                      :rf.frame/id  :reply/framed
                      :completed-at 1781078400456}
-          out (reply/trace-summary reply-map
+          out (rf.reply/trace-summary reply-map
                 {:frame :reply/framed
                  :rf.size/include-sensitive? false
                  :rf.size/include-large?     false})]
-      (is (gen/redacted? (get-in out [:value :token])) ":value sensitive leaf redacted")
-      (is (gen/large-marker? (get-in out [:value :doc])) ":value large leaf elided")
+      (is (rf.security.gen/redacted? (get-in out [:value :token])) ":value sensitive leaf redacted")
+      (is (rf.security.gen/large-marker? (get-in out [:value :doc])) ":value large leaf elided")
       (is (= 7 (get-in out [:value :public])) "unmarked sibling rides through")
-      (is (gen/redacted? (get-in out [:error :detail :token])) ":error sensitive leaf redacted")
-      (is (gen/redacted? (get-in out [:correlation :partner-key])) ":correlation sensitive leaf redacted")
+      (is (rf.security.gen/redacted? (get-in out [:error :detail :token])) ":error sensitive leaf redacted")
+      (is (rf.security.gen/redacted? (get-in out [:correlation :partner-key])) ":correlation sensitive leaf redacted")
       (is (= "t-1" (get-in out [:correlation :trace-id])) "non-sensitive correlation fact rides")
-      (is (gen/redacted? (get-in out [:meta :token])) ":meta sensitive leaf redacted")
+      (is (rf.security.gen/redacted? (get-in out [:meta :token])) ":meta sensitive leaf redacted")
       (is (not (contains-sentinel? (:value out))))
       (is (not (contains-sentinel? (:error out))))
       (is (not (contains-sentinel? (:correlation out))))
@@ -116,8 +116,8 @@
           reply-map {:status :ok :value value
                      :rf.reply/work-id [:rf.work/http :x 1]
                      :rf.reply/work-status :completed}
-          out (reply/trace-summary reply-map opts)]
-      (is (= (:value out) (elision/elide-wire-value value opts))
+          out (rf.reply/trace-summary reply-map opts)]
+      (is (= (:value out) (rf.elision/elide-wire-value value opts))
           ":value slot is exactly elide-wire-value under the resolved opts"))))
 
 (deftest frameless-trace-summary-fails-closed
@@ -125,17 +125,17 @@
             wire-bearing slot to :rf/redacted (fail-closed; no :rf/default
             synthesis) — the sentinel never rides off-box"
     ;; Remove ambient scope so no other frame's policy can be borrowed.
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (let [reply-map {:status      :error
                        :error       {:kind :rf.http/cors :detail sentinel}
                        :correlation {:partner-key sentinel}
                        :meta        {:secret sentinel}
                        :rf.reply/work-id [:rf.work/http :y 2]
                        :rf.reply/work-status :failed}
-            out (reply/trace-summary reply-map nil)]
-        (is (gen/redacted? (:error out)) ":error fails closed (whole slot redacted)")
-        (is (gen/redacted? (:correlation out)) ":correlation fails closed")
-        (is (gen/redacted? (:meta out)) ":meta fails closed")
+            out (rf.reply/trace-summary reply-map nil)]
+        (is (rf.security.gen/redacted? (:error out)) ":error fails closed (whole slot redacted)")
+        (is (rf.security.gen/redacted? (:correlation out)) ":correlation fails closed")
+        (is (rf.security.gen/redacted? (:meta out)) ":meta fails closed")
         (is (not (contains-sentinel? out)) "no sentinel survives frameless egress")
         (is (= :error (:status out)))
         (is (= [:rf.work/http :y 2] (:rf.reply/work-id out)))
@@ -143,7 +143,7 @@
         (is (not (contains? out :work/id))
             "TOOTH — frameless egress grows no top-level bare :work/id alias (rf2-xy3g)"))
       ;; Explicit sensitive inclusion is the trusted-local opt-out.
-      (let [out (reply/trace-summary {:status :ok :value {:token sentinel}
+      (let [out (rf.reply/trace-summary {:status :ok :value {:token sentinel}
                                       :rf.reply/work-id [:rf.work/http :z 3]
                                       :rf.reply/work-status :completed}
                   {:rf.size/include-sensitive? true})]
@@ -154,7 +154,7 @@
   "A status-correct reply map carrying the sentinel in its wire slots. The
   status drives which value/error slots are present (so the corpus stays
   validate-reply-legal), but every present wire slot plants the sentinel."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [[status work-status]]
       (let [base {:rf.reply/work-id   [:rf.work/http :gen 1]
                   :rf.reply/work-kind :http
@@ -178,8 +178,8 @@
                                 :rf.reply/stale-reason :rf.reply/correlation-mismatch
                                 :rf.reply/work-status :suppressed)))))
     (fn [rng]
-      (let [[status rng1] (gen/rand-nth rng (vec reply/statuses))
-            [ws rng2]     (gen/rand-nth rng1 (vec reply/work-statuses))]
+      (let [[status rng1] (rf.security.gen/rand-nth rng (vec rf.reply/statuses))
+            [ws rng2]     (rf.security.gen/rand-nth rng1 (vec rf.reply/work-statuses))]
         [[status ws] rng2]))))
 
 (deftest framed-corpus-never-ships-sentinel
@@ -187,16 +187,16 @@
             egress never ships the sentinel through any wire slot, and the
             status stays in the closed taxonomy"
     (mk-frame! :reply/corpus)
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-reply 300 17
                    (fn [reply-map]
-                     (let [out (reply/trace-summary reply-map
+                     (let [out (rf.reply/trace-summary reply-map
                                  {:frame :reply/corpus})]
                        (and (not (contains-sentinel? (:value out)))
                             (not (contains-sentinel? (:error out)))
                             (not (contains-sentinel? (:correlation out)))
                             (not (contains-sentinel? (:meta out)))
-                            (contains? reply/statuses (:status out))
+                            (contains? rf.reply/statuses (:status out))
                             ;; rf2-xy3g — across every status the canonical
                             ;; TRANSIENT-ENVELOPE identity survives egress and
                             ;; no bare ledger alias appears beside it.
@@ -223,7 +223,7 @@
                    :rf.reply/work-id [:rf.work/http :a 1]
                    :rf.reply/work-kind :http
                    :rf.frame/id :reply/stale :completed-at 1781078400456}
-          {:keys [deliver? reply] :as outcome} (reply/suppress nil carried current natural)]
+          {:keys [deliver? reply] :as outcome} (rf.reply/suppress nil carried current natural)]
       (is (false? deliver?) "a superseded app reply is NOT delivered")
       (is (= :stale (:status reply)) "the forced status is :stale")
       (is (true? (:stale? reply)) ":stale? marker forced on")
@@ -237,7 +237,7 @@
           "TOOTH — suppression grows no top-level bare :work/id alias (rf2-xy3g)")
       (is (= :reply/stale (:rf.frame/id reply)))
       (is (= 1781078400456 (:completed-at reply)) "causal completion time survives")
-      (is (reply/valid-reply? reply) "the suppression reply is contract-valid")
+      (is (rf.reply/valid-reply? reply) "the suppression reply is contract-valid")
       ;; Suppression traces retain correlation without carrying the value.
       (let [trace (:trace outcome)]
         (is (true? (:rf.reply/suppressed? trace)))
@@ -272,7 +272,7 @@
                            :re-frame.reply/stale-authority true}
                           {:event [:app/on-reply] :dispatch-stale? true
                            :re-frame.reply/stale-authority "trusted"}]]
-        (let [{:keys [deliver? reply]} (reply/suppress app-target carried current)]
+        (let [{:keys [deliver? reply]} (rf.reply/suppress app-target carried current)]
           (is (false? deliver?)
               (str "app target " (pr-str app-target) " must NOT deliver a stale envelope"))
           (is (= :stale (:status reply)) "the outcome is still a well-formed stale reply")
@@ -287,17 +287,17 @@
           reply-with-handle {:status :ok :value {:on-done handle}
                              :rf.reply/work-id [:rf.work/http :h 1]
                              :rf.reply/work-status :completed}
-          problems (reply/validate-reply reply-with-handle)]
+          problems (rf.reply/validate-reply reply-with-handle)]
       (is (some #(= :rf.reply/host-handle (:rf.reply/problem %)) problems)
           "validate-reply flags the host handle in the reply :value"))
     (let [bad-target {:event [:app/on-reply (fn [] :smuggled)] :delivery :append}
-          data (try (reply/durable-target bad-target)
+          data (try (rf.reply/durable-target bad-target)
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
                       (ex-data e)))]
       (is (= :rf.error/reply-non-data-target (:rf.error/id data))
           "a host handle in a durable target's public field fails loud"))
-    (is (reply/valid-reply? {:status :ok :value {:public 1}
+    (is (rf.reply/valid-reply? {:status :ok :value {:public 1}
                              :rf.reply/work-id [:rf.work/http :h 2]
                              :rf.reply/work-status :completed}))
-    (is (reply/data-only-target? {:event [:app/on-reply] :delivery :append}))))
+    (is (rf.reply/data-only-target? {:event [:app/on-reply] :delivery :append}))))

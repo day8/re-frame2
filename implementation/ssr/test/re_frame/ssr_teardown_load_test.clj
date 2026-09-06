@@ -56,9 +56,9 @@
                                    laptop."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
-            [re-frame.frame            :as frame]
-            [re-frame.ssr              :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame            :as rf.frame]
+            [re-frame.ssr              :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; ---- runtime reset --------------------------------------------------------
 ;;
@@ -66,7 +66,7 @@
 ;; (rf2-i3qc0). One source of truth for the registrar/side-channel/ns-reload
 ;; cycle every ssr-artefact JVM test runs between :each.
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- side-channel probes --------------------------------------------------
 
@@ -120,7 +120,7 @@
   frames are gensym'd under `:rf.frame/*`; if any survive past their
   request's `destroy-frame!`, the count grows here."
   []
-  (disj (frame/frame-ids) :rf/default))
+  (disj (rf.frame/frame-ids) :rf/default))
 
 ;; ---- the per-request SSR flow under test ---------------------------------
 
@@ -142,13 +142,13 @@
   Returns the rendered HTML for sanity-check assertions."
   [i]
   (let [server-frame
-        (frame/make-anon-frame-record!
+        (rf.frame/make-anon-frame-record!
           {:doc       (str "load-test request " i)
            :platform  :server
            :initial-events [[:load-test/server-init {:i i}]]})]
     ;; Step 2 — populate the per-frame request slot. Exercises the SSR
     ;; side-channel atom we just wired the destroy hook for.
-    (ssr/set-request! server-frame
+    (rf.ssr/set-request! server-frame
                       {:uri            (str "/load/" i)
                        :request-method :get
                        :headers        {"user-agent" "load-test"}})
@@ -157,7 +157,7 @@
                  (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)}))]
       ;; Step 4 — flush the response accumulator (also triggers any
       ;; pending-error-trace drain).
-      (ssr/get-response server-frame)
+      (rf.ssr/get-response server-frame)
       ;; Step 7 — destroy. Intentionally NO clear-request! call.
       (rf/destroy-frame! server-frame)
       html)))
@@ -309,7 +309,7 @@
     ;; trace-emit so we don't have to engineer a real handler failure
     ;; — the cleanup contract is the same).
     (dotimes [i 50]
-      (let [fid (frame/make-anon-frame-record!
+      (let [fid (rf.frame/make-anon-frame-record!
                   {:doc       (str "error-buffer test " i)
                    :platform  :server
                    :initial-events [[:load-test/server-init {:i i}]]})]

@@ -59,11 +59,11 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ===========================================================================
 ;; Jetty + java.net.http harness
@@ -79,7 +79,7 @@
   "Issue a real HTTP GET and return `{:status :body}` observed on the
   wire (30s read-timeout pinned via the shared helper)."
   [client port path]
-  (ts/http-get client port path read-timeout-secs))
+  (rf.ssr.ring.test-support/http-get client port path read-timeout-secs))
 
 ;; ===========================================================================
 ;; A root-view whose reactive sub THROWS during the render walk.
@@ -125,7 +125,7 @@
             frame-destroy)."
     (register-throwing-sub-view!)
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/ok]]
                      :root-view [(rf/view :pages/uses-throwing-sub)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
@@ -133,7 +133,7 @@
                      :payload :rf.ssr.payload/whole-app-db})]
       ;; Production hardening — the dev-only trace listener elides; the
       ;; always-on error-emit substrate is the status source of truth.
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (testing "direct in-process handler call — render-time sub-throw
                   fails closed to 500 (the buffered fail-closed status,
                   re-flushed after the render walk per rf2-c0bq1), and
@@ -156,8 +156,8 @@
 
         (testing "bytes-on-the-wire through Jetty — the 500 survives the
                   full round-trip"
-          (ts/with-jetty [port handler]
-            (let [client (ts/new-http-client)
+          (rf.ssr.ring.test-support/with-jetty [port handler]
+            (let [client (rf.ssr.ring.test-support/new-http-client)
                   {:keys [status]} (http-get client port "/uses-throwing-sub")]
               (is (= 500 status)
                   "the render-time sub-throw fail-closed 500 rides the
@@ -181,13 +181,13 @@
         (let [v @(rf/subscribe [:clean-sub])]
           [:main [:h1 "clean"] [:p (str "value: " v)]])))
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/ok]]
                      :root-view [(rf/view :pages/uses-clean-sub)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (let [response (handler {:uri "/uses-clean-sub" :request-method :get})]
           (is (= 200 (:status response))
               "clean render → empty error buffer → re-flush no-op → 200")

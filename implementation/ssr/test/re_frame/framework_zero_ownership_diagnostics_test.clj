@@ -91,16 +91,16 @@
   production face and nothing asserted it in either posture before."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.elision :as elision]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.elision :as rf.elision]
             ;; The routing / ssr / machines subsystem namespaces are loaded
             ;; (and re-installed between tests) by `tf/reset-runtime`, so
             ;; their `:rf.route/*` / `:rf/hydrate` / machine-lifecycle event
             ;; + fx registrations are live without an explicit require here.
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -127,7 +127,7 @@
     a))
 
 (defn- stub-push-url! []
-  (fx/reg-fx :rf.nav/push-url
+  (rf.fx/reg-fx :rf.nav/push-url
              {:platforms #{:server :client}}
              (fn [_ _] nil)))
 
@@ -179,7 +179,7 @@
       ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate: the diagnostic ring is empty for every input there.
       ;; The four route-slice writes above are the posture-independent half.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @diags)
             (str "routing navigation events are framework-authority writers — "
                  "no ownership diagnostic; got " (diagnostic-ids diags)))))))
@@ -217,7 +217,7 @@
           ":rf.route/continue completed the navigation")
       ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate; the pending-slot writes above are the residue.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @diags)
             (str "url-requested / cancel / continue are framework-authority "
                  "writers — no ownership diagnostic; got " (diagnostic-ids diags)))))))
@@ -276,7 +276,7 @@
 
       ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @diags)
             (str "machine reg / dispatch / spawn / destroy are framework-"
                  "authority writers (via :rf/machine?) — no ownership "
@@ -307,9 +307,9 @@
                        :large     [[:profile :avatar]]
                        :sensitive [[:profile :ssn]]}))
       (rf/dispatch-sync [:test/classify-profile])
-      (is (seq (elision/declarations :rf/default))
+      (is (seq (rf.elision/declarations :rf/default))
           "the :large path was classified into the elision registry")
-      (is (seq (elision/sensitive-declarations :rf/default))
+      (is (seq (rf.elision/sensitive-declarations :rf/default))
           "the :sensitive path was classified into the elision registry")
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/elision]))
@@ -317,7 +317,7 @@
       ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate; the three elision-registry pins above are the
       ;; posture-independent half.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @diags)
             (str "commit-plane classification effects write runtime-db through "
                  "the privileged frame-state commit — no ownership diagnostic; got "
@@ -348,7 +348,7 @@
       ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
       ;; under the gate; the app-db replacement + server-hash pins above are
       ;; the posture-independent half.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @diags)
             (str ":rf/hydrate is a framework-authority writer "
                  "(:rf/framework-authority? true) — no ownership diagnostic; got "
@@ -384,7 +384,7 @@
       ;; CONTROL for the five `empty?` assertions above, and it is the one
       ;; that goes red first under the gate — correctly, because with the
       ;; diagnostic elided there is nothing for a control to control.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= [:rf.warning/app-handler-runtime-effect] (diagnostic-ids diags))
             "a non-framework handler writing :rf.db/runtime trips exactly the warning")
         (is (= :app/sneaky-runtime-write (-> @diags first :tags :rf.trace/event-id))

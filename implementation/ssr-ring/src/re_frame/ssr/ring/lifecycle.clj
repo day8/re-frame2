@@ -6,12 +6,12 @@
   the frame-scoped `:rf.server/request` coeffect rather than being appended to
   initial event vectors. Per Spec 011 §Request storage and §Head/meta."
   (:require [re-frame.core :as rf]
-            [re-frame.error :as error]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.ring.trust :as trust]
-            [re-frame.trace :as trace]))
+            [re-frame.error :as rf.error]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.ring.trust :as rf.ssr.ring.trust]
+            [re-frame.trace :as rf.trace]))
 
 (set! *warn-on-reflection* true)
 
@@ -27,7 +27,7 @@
   <ms> + flat category keys}`. No-op when the producer hasn't loaded.
   Returns nil."
   [record]
-  (when-let [dispatch-error-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record! record))
   nil)
 
@@ -61,7 +61,7 @@
   (try
     (on-error request t)
     (catch Throwable on-error-t
-      (trace/emit-error! :rf.error/ssr-ring-on-error-failed
+      (rf.trace/emit-error! :rf.error/ssr-ring-on-error-failed
                          {:exception (.getMessage on-error-t)
                           :ex-class  (.getName (class on-error-t))
                           :recovery  :fell-back-to-default-on-error})
@@ -95,7 +95,7 @@
    (try
      (rf/destroy-frame! frame-target)
      (catch Throwable t
-       (trace/emit! :warning :rf.ssr/destroy-frame-failed
+       (rf.trace/emit! :warning :rf.ssr/destroy-frame-failed
                     {:frame    diag-frame-id
                      :reason   (or (.getMessage t) (.getName (class t)))
                      :ex-class (.getName (class t))
@@ -143,7 +143,7 @@
     (vector? root-view) root-view
     (fn?     root-view) (root-view)
     :else
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/invalid-root-view
       'rf.ssr/ssr-handler
       (str "root-view must be a hiccup vector or a 0-arity fn returning "
@@ -181,7 +181,7 @@
        :body-attrs (:body-attrs model)
        :head-model model})
     (catch Throwable t
-      (trace/emit-error! :rf.error/ssr-head-resolution-failed
+      (rf.trace/emit-error! :rf.error/ssr-head-resolution-failed
                          {:frame     frame-id
                           :exception t
                           :recovery  :no-recovery})
@@ -190,7 +190,7 @@
       (emit-always-on-error!
         {:error     :rf.error/ssr-head-resolution-failed
          :frame     frame-id
-         :time      (interop/now-ms)
+         :time      (rf.interop/now-ms)
          :exception t
          :recovery  :no-recovery})
       {:head-html "" :html-attrs nil :body-attrs nil :head-model nil})))
@@ -327,7 +327,7 @@
     (let [derived (initial-events request)]
       (if (vector? derived)
         derived
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/invalid-initial-events
           'rf.ssr/ssr-handler
           (str ":initial-events fn must return an :initial-events vector; the "
@@ -337,7 +337,7 @@
            :extra    {:returned derived}})))
 
     :else
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/invalid-initial-events
       'rf.ssr/ssr-handler
       (str ":initial-events must be a vector OR a (fn [request] initial-events-vector); "
@@ -356,13 +356,13 @@
   worse, inside an already-committed writer. Returns `opts` unchanged."
   [{:keys [initial-events root-view renderer] :as opts}]
   (when-not initial-events
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-ring-missing-initial-events
       'rf.ssr/ssr-handler
       "ssr-handler requires :initial-events (a vector of events); supply :initial-events in the handler opts."
       {:recovery :supply-the-initial-events-opt}))
   (when-not (or root-view renderer)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-ring-missing-root-view
       'rf.ssr/ssr-handler
       (str "ssr-handler requires :root-view (a hiccup vector or 0-arity fn) "
@@ -398,8 +398,8 @@
   threading position cleanly."
   [opts]
   (validate-required-opts! opts)
-  (payload-policy/validate-policy-opts! opts)
-  (trust/validate-trusted-shell-opts! opts))
+  (rf.ssr.payload-policy/validate-policy-opts! opts)
+  (rf.ssr.ring.trust/validate-trusted-shell-opts! opts))
 
 (defn validate-streaming-opts!
   "Reject opts the streaming handler CANNOT honour, at handler-
@@ -444,7 +444,7 @@
   Returns `opts` unchanged on success."
   [opts]
   (when (some? (:renderer opts))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-streaming-unsupported-opt
       'rf.ssr/stream-handler
       (str "stream-handler does not support :renderer — the streaming "
@@ -457,7 +457,7 @@
        :extra    {:opt-key :renderer
                   :got     (:renderer opts)}}))
   (when (some? (:html-shell opts))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-streaming-unsupported-opt
       'rf.ssr/stream-handler
       (str "stream-handler does not support :html-shell — the "

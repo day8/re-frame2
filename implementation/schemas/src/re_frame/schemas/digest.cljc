@@ -27,10 +27,10 @@
       have shifted under them."
   (:require #?@(:cljs [[goog.crypt :as gcrypt]
                        [goog.crypt.Sha256]])
-            [re-frame.identity :as identity]
-            [re-frame.path :as path]
-            [re-frame.schemas.storage :as storage]
-            [re-frame.schemas.validator :as validator])
+            [re-frame.identity :as rf.identity]
+            [re-frame.path :as rf.path]
+            [re-frame.schemas.storage :as rf.schemas.storage]
+            [re-frame.schemas.validator :as rf.schemas.validator])
   #?(:clj (:import [java.security MessageDigest]
                    [java.nio.charset StandardCharsets])))
 
@@ -91,9 +91,9 @@
   is a deterministic UTF-8 token stream (`v[k::a k::b]`), so the digest is
   cross-host byte-stable for every admitted segment kind."
   [path schema-value]
-  (str (identity/canonical-bytes (path/normalize-concrete path))
+  (str (rf.identity/canonical-bytes (rf.path/normalize-concrete path))
        " "
-       (sha256-hex (validator/run-printer schema-value))
+       (sha256-hex (rf.schemas.validator/run-printer schema-value))
        "\n"))
 
 (defn- compare-utf8-bytes
@@ -156,5 +156,5 @@
   travel), and pair-tool drift detection."
   ([] (app-schemas-digest {}))
   ([opts-or-frame-id]
-   (let [frame-id (storage/coerce->frame-id opts-or-frame-id)]
-     (compute-digest (storage/app-schemas {:frame frame-id})))))
+   (let [frame-id (rf.schemas.storage/coerce->frame-id opts-or-frame-id)]
+     (compute-digest (rf.schemas.storage/app-schemas {:frame frame-id})))))

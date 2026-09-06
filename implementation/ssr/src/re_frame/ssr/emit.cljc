@@ -39,11 +39,11 @@
   ;; hiccup → HTML function with no registry dependency at all, which is
   ;; the honest shape — resolving a name was never the emitter's job.
   (:require [clojure.string]
-            [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.ssr.hash :as hash]
-            [re-frame.ssr.html-helpers :as html]
-            #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
+            [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.ssr.hash :as rf.ssr.hash]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
+            #?(:cljs [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])))
 
 ;; ---- shared HTML helpers --------------------------------------------------
 ;;
@@ -54,7 +54,7 @@
 ;; consumed directly via the `html/` alias — they have no `emit/`-qualified
 ;; consumers.
 
-(def attr-string html/attr-string)
+(def attr-string rf.ssr.html-helpers/attr-string)
 
 ;; Per HTML5 spec, these elements are void — they self-close and have no
 ;; closing tag.
@@ -133,7 +133,7 @@
   [tag-name source-kw]
   (when-not (and (string? tag-name)
                  (re-matches tag-name-re tag-name))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/invalid-tag-name
       'rf.ssr/emit
       (str "tag-name " (pr-str tag-name)
@@ -322,8 +322,8 @@
   crossing: this arm is
   reached only for a keyword in the reserved `:rf/*` namespace."
   [element head]
-  (let [safe-element (error/safe-form element)]
-    (error/throw-error!
+  (let [safe-element (rf.error/safe-form element)]
+    (rf.error/throw-error!
       :rf.error/invalid-hiccup-head
       'rf.ssr/emit
       (str "hiccup vector head " (pr-str head)
@@ -365,8 +365,8 @@
   `error/safe-form` first; `(first element)` is read from the crossed value,
   so the head is covered by the same one crossing."
   [element]
-  (let [safe-element (error/safe-form element)]
-    (error/throw-error!
+  (let [safe-element (rf.error/safe-form element)]
+    (rf.error/throw-error!
       :rf.error/invalid-hiccup-head
       'rf.ssr/emit
       (str "hiccup vector head " (pr-str (first safe-element))
@@ -566,7 +566,7 @@
       ;; with the same args (Form-2 semantics) to get the hiccup.
       (let [rendered (invoke-form-2-render-fn resolved args)]
         (if (fn? rendered)
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/ssr-nonrenderable-component
             'rf.ssr/emit
             (str "a callable hiccup component resolved to a fn even after the"
@@ -591,14 +591,14 @@
   ([el root-attrs]
    (cond
      (nil? el)         ""
-     (string? el)      (html/escape-html el)
+     (string? el)      (rf.ssr.html-helpers/escape-html el)
      ;; Canonicalise the numeric print form so the emitted HTML matches the
      ;; render-tree hash byte-for-byte across runtimes (rf2-0ypnnk): a
      ;; whole-valued double renders `9` (not the JVM `9.0`), agreeing with
      ;; CLJS. `canonical-number` uses `pr-str`, which coincides with `str`
      ;; for numbers (no quoting), so ordinary integers/decimals are
      ;; unchanged.
-     (number? el)      (hash/canonical-number el)
+     (number? el)      (rf.ssr.hash/canonical-number el)
      (boolean? el)     ""
      ;; A keyword or symbol CHILD is spelled by its `name` — no leading
      ;; colon, namespace dropped (rf2-53lsj).
@@ -621,7 +621,7 @@
      ;; `(or (keyword? el) (symbol? el))` rather than `named?` — the
      ;; latter is CLJS-only, and this is a `.cljc` emitter.
      (or (keyword? el) (symbol? el))
-     (html/escape-html (name el))
+     (rf.ssr.html-helpers/escape-html (name el))
      (vector? el)
      (let [head (first el)]
        (cond
@@ -664,8 +664,8 @@
          ;; …]` is what `:>` interop is FOR, and a React 19 provider is a
          ;; cyclic object graph.
          (= :> head)
-         (let [el (error/safe-form el)]
-           (error/throw-error!
+         (let [el (rf.error/safe-form el)]
+           (rf.error/throw-error!
              :rf.error/ssr-reagent-native-head
              'rf.ssr/emit
              (str "Reagent-native interop head `:>` "
@@ -698,8 +698,8 @@
          ;; boundary's `:fallback` is ordinary hiccup and can carry a
          ;; foreign JS value anywhere inside it.
          (= :rf/suspense-boundary head)
-         (let [el (error/safe-form el)]
-           (error/throw-error!
+         (let [el (rf.error/safe-form el)]
+           (rf.error/throw-error!
              :rf.error/ssr-suspense-boundary-outside-stream
              'rf.ssr/emit
              (str ":rf/suspense-boundary (element "
@@ -773,7 +773,7 @@
                ;; case.
                normalised-tag-name (clojure.string/lower-case tag-name)
                void?        (contains? void-elements (keyword normalised-tag-name))
-               raw-text?    (contains? html/raw-text-tags normalised-tag-name)]
+               raw-text?    (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
            (cond
              void?     (str "<" tag-name (attr-string attrs) ">")
              ;; rf2-xbvzh — an ordinary inline <script>/<style> with STRING
@@ -787,7 +787,7 @@
              ;; no compiled child-shape grammar).
              (and raw-text? (seq children) (every? string? children))
              (str "<" tag-name (attr-string attrs) ">"
-                  (html/escape-raw-text normalised-tag-name
+                  (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
                                         (clojure.string/join children))
                   "</" tag-name ">")
              :else
@@ -831,7 +831,7 @@
      ;; `data-rf-render-hash` marker; thread it onto the first DOM child,
      ;; exactly like the `:<>` fragment root.
      (sequential? el) (emit-children-threading-root-attrs el root-attrs)
-     :else (html/escape-html el))))
+     :else (rf.ssr.html-helpers/escape-html el))))
 
 (defn render-to-string
   "Pure hiccup → HTML string. Per Spec 011 §The render-tree → HTML
@@ -898,12 +898,12 @@
      (catch Throwable _ nil)))
 
 #?(:cljs
-   (plain-atom-cljs/set-hiccup-emitter! render-to-string))
+   (rf.substrate.plain-atom/set-hiccup-emitter! render-to-string))
 
 ;; Reagent adapter wiring (load-order-symmetric counterpart to the
 ;; plain-atom path above). No-op when the Reagent adapter isn't on the
 ;; classpath.
-(when-let [reagent-set-emitter! (late-bind/get-fn :reagent/set-hiccup-emitter!)]
+(when-let [reagent-set-emitter! (rf.late-bind/get-fn :reagent/set-hiccup-emitter!)]
   (reagent-set-emitter! render-to-string))
 
 ;; rf2-vxgfnd.204 — retain the current SSR emitter durably so a substrate
@@ -921,4 +921,4 @@
 ;; install replay is a harmless idempotent re-apply. Load-order symmetric with
 ;; the publications above — whichever of ssr / adapter loads last, the durable
 ;; slot plus the install replay converge on the same armed state.
-(late-bind/set-fn! :ssr/current-hiccup-emitter render-to-string)
+(rf.late-bind/set-fn! :ssr/current-hiccup-emitter render-to-string)

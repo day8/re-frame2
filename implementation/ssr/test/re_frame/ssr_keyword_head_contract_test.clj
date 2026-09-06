@@ -65,10 +65,10 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.emit :as emit]
-            [re-frame.ssr.streaming :as streaming]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.ssr.streaming :as rf.ssr.streaming]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; The view body, held as a plain fn so the SAME implementation backs all
 ;; three spellings under test (keyword head, Var head, `(rf/view :id)`).
@@ -86,7 +86,7 @@
   (rf/reg-view* :dashboard/card {} card-view)
   (test-fn))
 
-(use-fixtures :each tf/reset-runtime with-registered-card)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime with-registered-card)
 
 ;; ===========================================================================
 ;; The standard emitter — `render-to-string`
@@ -105,7 +105,7 @@
             (measured, and pinned as a cross-host equality in the CLJS
             twin)."
     (is (= "<card>revenue</card>"
-           (emit/render-to-string [:dashboard/card :revenue] nil))))
+           (rf.ssr.emit/render-to-string [:dashboard/card :revenue] nil))))
 
   (testing "the registration is genuinely present — this test would be
             vacuous if `:dashboard/card` were simply unregistered, which
@@ -119,7 +119,7 @@
             registration state does not change the head's meaning, which
             is the whole content of the one-grammar rule"
     (is (= "<card>revenue</card>"
-           (emit/render-to-string [:never-registered/card :revenue] nil)))))
+           (rf.ssr.emit/render-to-string [:never-registered/card :revenue] nil)))))
 
 (deftest scalar-children-are-spelled-by-name
   (testing "rf2-53lsj — a keyword or symbol CHILD is spelled by its `name`:
@@ -131,7 +131,7 @@
             Every expectation here was measured against Reagent +
             react-dom/server before it was written; the CLJS twin asserts
             the same strings from the other side."
-    (are [expected tree] (= expected (emit/render-to-string tree nil))
+    (are [expected tree] (= expected (rf.ssr.emit/render-to-string tree nil))
       "<div>revenue</div>" [:div :revenue]
       "<div>b</div>"       [:div :a/b]
       "<div>leaf</div>"    [:div :ns.deep/leaf]
@@ -144,15 +144,15 @@
             colon-stripping fix would have got wrong. `:a/b` paints `b`,
             never `a/b`, because Reagent routes a named child through
             `(name x)` rather than trimming the printed form."
-    (is (= "<div>b</div>" (emit/render-to-string [:div :a/b] nil)))
-    (is (not= "<div>a/b</div>" (emit/render-to-string [:div :a/b] nil))))
+    (is (= "<div>b</div>" (rf.ssr.emit/render-to-string [:div :a/b] nil)))
+    (is (not= "<div>a/b</div>" (rf.ssr.emit/render-to-string [:div :a/b] nil))))
 
   (testing "escaping still applies to the NAME — spelling a child by
             `name` must not become an escape bypass"
-    (is (= "<div>x&lt;y</div>" (emit/render-to-string [:div :x<y] nil))))
+    (is (= "<div>x&lt;y</div>" (rf.ssr.emit/render-to-string [:div :x<y] nil))))
 
   (testing "the classes that already agreed are unchanged"
-    (are [expected tree] (= expected (emit/render-to-string tree nil))
+    (are [expected tree] (= expected (rf.ssr.emit/render-to-string tree nil))
       "<div>plain</div>" [:div "plain"]
       "<div>9</div>"     [:div 9]
       "<div></div>"      [:div nil]
@@ -162,8 +162,8 @@
             standard emitter, so this is a delegation pin, not a second
             implementation"
     (doseq [tree [[:div :revenue] [:div :a/b] [:div 'a/b] [:dashboard/card :revenue]]]
-      (is (= (emit/render-to-string tree nil)
-             (:shell-html (streaming/render-shell tree)))
+      (is (= (rf.ssr.emit/render-to-string tree nil)
+             (:shell-html (rf.ssr.streaming/render-shell tree)))
           (str "emitter/walker divergence on " (pr-str tree))))))
 
 (deftest keyword-head-carries-ordinary-element-syntax
@@ -172,7 +172,7 @@
             `.class`/`#id` sugar, an attrs map, and child recursion. It is
             not a special case, it is the same case."
     (is (= "<card class=\"revenue\" data-x=\"1\"><b>hi</b></card>"
-           (emit/render-to-string [:dashboard/card.revenue {:data-x "1"} [:b "hi"]] nil)))))
+           (rf.ssr.emit/render-to-string [:dashboard/card.revenue {:data-x "1"} [:b "hi"]] nil)))))
 
 (deftest views-are-referenced-by-callable-head
   (testing "rf2-j81hs — the two supported spellings both RESOLVE the view
@@ -186,11 +186,11 @@
     (testing "a bare fn Var resolves the view — UNANNOTATED (it is the raw
               render fn, not the registered handle)"
       (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
-             (emit/render-to-string [card-view :revenue] nil))))
+             (rf.ssr.emit/render-to-string [card-view :revenue] nil))))
 
     ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The registered
     ;; handle carries the annotations only under `interop/debug-enabled?`.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (testing "`(rf/view :id)` — the REGISTERED handle — resolves the view AND
                 carries both dev annotations (rf2-8vi4q). In idiomatic usage
                 the symbol `reg-view` defs IS `(rf/view id)`, so THIS is what a
@@ -199,30 +199,30 @@
                     " data-rf2-source-coord=\"dashboard:card:?:?\""
                     " data-rf-view=\":dashboard/card\">"
                     "<h3>:revenue</h3></div>")
-               (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))
+               (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))
 
     (testing "both spellings resolve to the SAME view subtree — the class and
               child agree; the registered handle merely adds the debug-gated
               annotation attributes on the root"
-      (is (str/includes? (emit/render-to-string [card-view :revenue] nil)
+      (is (str/includes? (rf.ssr.emit/render-to-string [card-view :revenue] nil)
                          "class=\"card\""))
-      (is (str/includes? (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
+      (is (str/includes? (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
                          "class=\"card\""))
-      (is (str/includes? (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
+      (is (str/includes? (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
                          "<h3>:revenue</h3>")))
 
     ;; rf2-lwtlk — the REAL-gate arm. With no annotation wrapper installed the
     ;; two spellings are not merely "the same subtree modulo attributes", they
     ;; are byte-identical — which is the head-grammar claim in its purest
     ;; form, and is only observable in this posture.
-    (when-not interop/debug-enabled?
+    (when-not rf.interop/debug-enabled?
       (testing "under -Dre-frame.debug=false the registered handle and the bare
                 Var render byte-identically — nothing but the debug-gated
                 attributes ever separated them"
-        (is (= (emit/render-to-string [card-view :revenue] nil)
-               (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))
+        (is (= (rf.ssr.emit/render-to-string [card-view :revenue] nil)
+               (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))
         (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
-               (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))))
+               (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))))
 
 ;; ===========================================================================
 ;; The streaming shell walker — `render-shell`
@@ -233,13 +233,13 @@
             had its OWN `(registrar/lookup :view head)` probe, so fixing
             only the standard emitter would have left the streaming path
             diverging from every client substrate."
-    (let [{:keys [shell-html]} (streaming/render-shell [:dashboard/card :revenue])]
+    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [:dashboard/card :revenue])]
       (is (= "<card>revenue</card>" shell-html))))
 
   (testing "and still recurses through the element into nested children,
             so a suspense boundary underneath a keyword head is reachable"
     (let [{:keys [shell-html continuations]}
-          (streaming/render-shell
+          (rf.ssr.streaming/render-shell
             [:dashboard/card
              [:rf/suspense-boundary {:id :b1 :fallback [:span "loading"]}
               [card-view :revenue]]])]
@@ -250,7 +250,7 @@
 
   (testing "callable heads resolve in the walker exactly as in the
             standard emitter"
-    (let [{:keys [shell-html]} (streaming/render-shell [card-view :revenue])]
+    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [card-view :revenue])]
       (is (= "<div class=\"card\"><h3>:revenue</h3></div>" shell-html)))))
 
 ;; ===========================================================================
@@ -269,7 +269,7 @@
             nothing: `:rf/suspense-boundry` has a `name` that passes the
             DOM tag grammar. That is the very failure this bead removes,
             displaced by one keystroke, so the reserved scheme fails loud."
-    (let [data (head-error #(emit/render-to-string % nil)
+    (let [data (head-error #(rf.ssr.emit/render-to-string % nil)
                            [:rf/suspense-boundry {:id :x} [:p "hi"]])]
       (is (some? data) "an unrecognised :rf/* head must throw")
       (is (= :rf.error/invalid-hiccup-head (:rf.error/id data))
@@ -283,12 +283,12 @@
       (is (some? (:element data)))))
 
   (testing "the dotted `:rf.<area>/*` sub-namespaces are reserved too"
-    (is (some? (head-error #(emit/render-to-string % nil) [:rf.ssr/nope]))))
+    (is (some? (head-error #(rf.ssr.emit/render-to-string % nil) [:rf.ssr/nope]))))
 
   (testing "the streaming walker rejects it identically — it carried its
             own keyword branch, so a one-sided guard would re-fork the
             hosts"
-    (let [data (head-error #(:shell-html (streaming/render-shell %))
+    (let [data (head-error #(:shell-html (rf.ssr.streaming/render-shell %))
                            [:rf/suspense-boundry {:id :x}])]
       (is (= :rf.error/invalid-hiccup-head (:rf.error/id data)))
       (is (= :use-a-recognised-reserved-head-or-an-unreserved-keyword
@@ -298,17 +298,17 @@
             not swallow the markers it sits next to"
     (testing ":<> fragment still splices"
       (is (= "<p>a</p><p>b</p>"
-             (emit/render-to-string [:<> [:p "a"] [:p "b"]] nil))))
+             (rf.ssr.emit/render-to-string [:<> [:p "a"] [:p "b"]] nil))))
 
     (testing ":rf/suspense-boundary still raises its OWN distinct error
               from the standard emitter, not the reserved-head one"
       (is (= :rf.error/ssr-suspense-boundary-outside-stream
-             (:rf.error/id (head-error #(emit/render-to-string % nil)
+             (:rf.error/id (head-error #(rf.ssr.emit/render-to-string % nil)
                                        [:rf/suspense-boundary {:id :b}])))))
 
     (testing ":rf/suspense-boundary still WORKS in the streaming walker"
       (let [{:keys [continuations]}
-            (streaming/render-shell
+            (rf.ssr.streaming/render-shell
               [:rf/suspense-boundary {:id :b1 :fallback [:span "…"]}
                [card-view :revenue]])]
         (is (= 1 (count continuations))))))
@@ -317,9 +317,9 @@
             scoped to `:rf/*` and must not capture app namespaces, which
             are exactly the heads that now render as custom elements"
     (is (= "<card>revenue</card>"
-           (emit/render-to-string [:dashboard/card :revenue] nil)))
+           (rf.ssr.emit/render-to-string [:dashboard/card :revenue] nil)))
     (is (= "<widget></widget>"
-           (emit/render-to-string [:rfid/widget] nil))
+           (rf.ssr.emit/render-to-string [:rfid/widget] nil))
         "`:rfid/widget` starts with `rf` but is NOT the reserved scheme —
          the check must match the `rf` namespace exactly or an `rf.` dotted
          prefix, not a bare string prefix")))
@@ -332,6 +332,6 @@
                   [:never-registered/card :revenue]
                   [card-view :revenue]
                   [(rf/view :dashboard/card) :revenue]]]
-      (is (= (emit/render-to-string tree nil)
-             (:shell-html (streaming/render-shell tree)))
+      (is (= (rf.ssr.emit/render-to-string tree nil)
+             (:shell-html (rf.ssr.streaming/render-shell tree)))
           (str "emitter/walker divergence on " (pr-str tree))))))

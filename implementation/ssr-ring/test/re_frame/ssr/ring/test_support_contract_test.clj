@@ -6,7 +6,7 @@
   returns (rather than throws) the leaked set on timeout."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
 (deftest with-jetty-round-trips-a-ring-handler
   (testing "ts/with-jetty stands up an ephemeral-port Jetty,
@@ -17,9 +17,9 @@
                     {:status  201
                      :headers {"Content-Type" "text/plain"}
                      :body    "ts-smoke-ok"})]
-      (ts/with-jetty [port handler]
-        (let [client (ts/new-http-client)
-              {:keys [status body]} (ts/http-get client port "/" 5)]
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client (rf.ssr.ring.test-support/new-http-client)
+              {:keys [status body]} (rf.ssr.ring.test-support/http-get client port "/" 5)]
           (is (= 201 status) "wire status is the handler's status")
           (is (= "ts-smoke-ok" body) "wire body is the handler's body"))))))
 
@@ -30,9 +30,9 @@
                     {:status  200
                      :headers {"X-Ts-Smoke" "yep"}
                      :body    "h"})]
-      (ts/with-jetty [port handler]
-        (let [client (ts/new-http-client)
-              {:keys [status headers]} (ts/http-get client port "/" 5
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client (rf.ssr.ring.test-support/new-http-client)
+              {:keys [status headers]} (rf.ssr.ring.test-support/http-get client port "/" 5
                                                     :with-headers? true)]
           (is (= 200 status))
           (is (map? headers) "headers present as a map")
@@ -44,14 +44,14 @@
 (deftest leak-detector-reports-empty-when-no-writers
   (testing "with no streaming request in flight, the leak
             detector sees no rf2-ssr-streaming-* threads"
-    (is (= "rf2-ssr-streaming-" ts/daemon-thread-name-prefix)
+    (is (= "rf2-ssr-streaming-" rf.ssr.ring.test-support/daemon-thread-name-prefix)
         "the prefix matches the writer thread's naming contract")
-    (is (empty? (ts/live-streaming-threads))
+    (is (empty? (rf.ssr.ring.test-support/live-streaming-threads))
         "no streaming-writer daemon thread is alive in a quiescent JVM")))
 
 (deftest await-no-streaming-threads-returns-empty-fast-when-quiescent
   (testing "await-no-streaming-threads! returns [] immediately when nothing
             is leaked and does not throw"
-    (let [result (ts/await-no-streaming-threads! 1000 10)]
+    (let [result (rf.ssr.ring.test-support/await-no-streaming-threads! 1000 10)]
       (is (= [] result)
           "returns an empty vector (no leak) rather than throwing"))))

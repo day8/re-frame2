@@ -23,16 +23,16 @@
   actually asserts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.install :as install]
-            [re-frame.ssr.manifest :as manifest]
-            [re-frame.ssr.payload-policy :as payload-policy]))
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.ssr.manifest :as rf.ssr.manifest]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-(use-fixtures :once (fn [f] (rf/init! ssr/adapter) (f)))
+(use-fixtures :once (fn [f] (rf/init! rf.ssr/adapter) (f)))
 
 ;; The process-global `defonce` install ledger — reset or it leaks into
 ;; every sibling test in the shared runner process.
-(use-fixtures :each (fn [f] (install/reset-installed-payloads!) (f)))
+(use-fixtures :each (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
 
 (defn- browser? []
   (and (exists? js/document)
@@ -72,10 +72,10 @@
     (is (= :client (:platform (rf/frame-meta (fresh-frame!)))))))
 
 (defn- payload-for [db]
-  (payload-policy/build-payload nil db "server-hash-1" {}))
+  (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
 
 (defn- manifest-for [root-id]
-  {:rf.root/schema-version manifest/schema-version
+  {:rf.root/schema-version rf.ssr.manifest/schema-version
    :root-id                root-id
    :view-id                :app/root
    :element-locator        {:id (name root-id)}
@@ -99,7 +99,7 @@
                  (for [[rid manifest?] entries]
                    (str "<div id=\"" (name rid) "\">server markup</div>"
                         (when manifest?
-                          (manifest/script-html (manifest-for rid)))))))
+                          (rf.ssr.manifest/script-html (manifest-for rid)))))))
     (.appendChild (.-body js/document) page)
     page))
 
@@ -135,13 +135,13 @@
               page must still hydrate AND still run."
       (doseq [broken-idx (range 3)]
         (reg-bump!)
-        (install/reset-installed-payloads!)
+        (rf.ssr.install/reset-installed-payloads!)
         (let [ids     [:page/shop :page/cart :page/nav]
               entries (map-indexed (fn [i rid] [rid (not= i broken-idx)]) ids)
               page    (render-page! entries)
               frames  (vec (repeatedly 3 fresh-frame!))]
           (try
-            (let [outcomes (ssr/hydrate-page! (specs-for page entries frames))]
+            (let [outcomes (rf.ssr/hydrate-page! (specs-for page entries frames))]
               (is (= :failed (:status (nth outcomes broken-idx)))
                   (str "the manifest-less root at " broken-idx " failed"))
               (is (= :rf.error/root-manifest-invalid
@@ -174,11 +174,11 @@
                         (assoc-in [1 :payload] (payload-for {:count 99})))]
         (try
           ;; The middle root's frame was already installed from THIS response.
-          (install/payload-install-decision!
+          (rf.ssr.install/payload-install-decision!
            'test (nth frames 1)
-           (install/payload-content-digest (payload-for {:count 7}))
+           (rf.ssr.install/payload-content-digest (payload-for {:count 7}))
            :page/first-response)
-          (let [outcomes (ssr/hydrate-page! specs)]
+          (let [outcomes (rf.ssr/hydrate-page! specs)]
             (is (= :rf.error/frame-payload-conflict
                    (:rf.error/id (ex-data (:error (nth outcomes 1)))))
                 "the stale fragment's root failed loud")
@@ -211,7 +211,7 @@
                                   (swap! mounted conj i)))))
                      (specs-for page entries frames))]
         (try
-          (let [outcomes (ssr/hydrate-page! specs)]
+          (let [outcomes (rf.ssr/hydrate-page! specs)]
             (is (= :failed (:status (nth outcomes 1))))
             (is (= #{0 2} @mounted) "both surviving roots mounted")
             (doseq [i [0 2]]

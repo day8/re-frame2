@@ -47,12 +47,12 @@
   original Throwable instead of returning a public-error map."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (deftest project-render-exception-emits-ssr-render-failed-trace
   (testing "rf2-260pg / rf2-zwgsv: `project-render-exception!` against a
@@ -66,13 +66,13 @@
                                               (:operation ev))
                                        (swap! traces conj ev))))
       (try
-        (let [f  (frame/make-anon-frame-record!
+        (let [f  (rf.frame/make-anon-frame-record!
                    {:platform :server
                     :ssr      {:public-error-id   :rf.ssr/default-error-projector
                                :dev-error-detail? false}})
               t  (ex-info "synthetic render-time failure"
                           {:reason :test})
-              public (ssr/project-render-exception! f t)]
+              public (rf.ssr/project-render-exception! f t)]
 
           (testing "projector returned a public-error map (the
                     status-stamping path executed)"
@@ -84,7 +84,7 @@
           ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
           ;; projection above is the production-real half and is asserted
           ;; outside it; everything from here down is the trace envelope.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (testing "exactly one `:rf.error/ssr-render-failed` trace
                       fired (Spec 009 §Error event catalogue)"
               (is (= 1 (count @traces))
@@ -139,9 +139,9 @@
       (try
         ;; Default platform is :client; project-render-exception! checks
         ;; `server-frame?` and short-circuits.
-        (let [f      (frame/make-anon-frame-record! {})
+        (let [f      (rf.frame/make-anon-frame-record! {})
               t      (ex-info "should not fire" {})
-              result (ssr/project-render-exception! f t)]
+              result (rf.ssr/project-render-exception! f t)]
           ;; SEMANTIC, posture-independent (rf2-lwtlk): `nil` rather than a
           ;; public-error map IS the short-circuit, observable in production.
           (is (nil? result)
@@ -149,7 +149,7 @@
           ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
           ;; under the gate: the ring is empty for every input there, so
           ;; `zero?` cannot distinguish a short-circuit from a full run.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (zero? (count @traces))
                 "no `:rf.error/ssr-render-failed` trace fires for a
                  non-server frame")))
@@ -168,7 +168,7 @@
                                         (:operation ev))
                                  (swap! traces conj ev))))
       (try
-        (let [f (frame/make-anon-frame-record!
+        (let [f (rf.frame/make-anon-frame-record!
                   {:platform :server
                    :ssr      {:public-error-id   :rf.ssr/default-error-projector
                               :on-view-exception :throw}})
@@ -179,11 +179,11 @@
           ;; projection path was skipped — no public-error map came back.
           (is (thrown-with-msg? clojure.lang.ExceptionInfo
                                 #"eager dev failure"
-                                (ssr/project-render-exception! f t))
+                                (rf.ssr/project-render-exception! f t))
               "the original throwable surfaces unchanged to the host")
           ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
           ;; under the gate, where no trace fires on any path.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (zero? (count @traces))
                 "the projection path (and its trace) is skipped when the
                  dev escape-hatch is on — the host's outer handler owns it")))
@@ -195,11 +195,11 @@
             production default) project-render-exception! projects as
             normal. Pins the default so the escape-hatch can't silently
             become the default."
-    (let [f (frame/make-anon-frame-record!
+    (let [f (rf.frame/make-anon-frame-record!
               {:platform :server
                :ssr      {:public-error-id :rf.ssr/default-error-projector}})
           t (ex-info "normal failure" {})
-          public (ssr/project-render-exception! f t)]
+          public (rf.ssr/project-render-exception! f t)]
       (is (map? public) "projection path runs by default")
       (is (= 500 (:status public))
           "the default projector maps to 500 — no re-throw"))))

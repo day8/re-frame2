@@ -28,8 +28,8 @@
   pinned in `re-frame.ssr-hash-test` (rf2-6djjl); this namespace focuses
   on byte-identity literals, not structural equivalence."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.hash :as h]
-            [re-frame.ssr.hash-parity-fixtures :as fixtures]))
+            [re-frame.ssr.hash :as rf.ssr.hash]
+            [re-frame.ssr.hash-parity-fixtures :as rf.ssr.hash-parity-fixtures]))
 
 ;; ---- pinned-literal vectors -----------------------------------------------
 ;;
@@ -43,14 +43,14 @@
             fixture hashes to its pinned 8-hex literal under the JVM
             pipeline. Byte-identity with the CLJS-side literal locks
             the cross-runtime invariant."
-    (doseq [{:keys [label input expected rationale]} fixtures/all-fixtures]
-      (let [actual (h/render-tree-hash input)]
+    (doseq [{:keys [label input expected rationale]} rf.ssr.hash-parity-fixtures/all-fixtures]
+      (let [actual (rf.ssr.hash/render-tree-hash input)]
         (is (= expected actual)
             (str "JVM render-tree-hash for fixture " (pr-str label)
                  " — " rationale
                  " — expected " (pr-str expected)
                  ", got " (pr-str actual)
-                 " (canonical: " (pr-str (h/canonical-edn input)) ")"))))))
+                 " (canonical: " (pr-str (rf.ssr.hash/canonical-edn input)) ")"))))))
 
 ;; ---- nil-pruning equivalence pairs ---------------------------------------
 ;;
@@ -66,9 +66,9 @@
             the pruning step OR the FNV byte stream would fail one of
             the two assertions."
     (doseq [{:keys [label input-with-nil input-without-nil expected rationale]}
-            fixtures/nil-prune-pairs]
-      (let [h-with    (h/render-tree-hash input-with-nil)
-            h-without (h/render-tree-hash input-without-nil)]
+            rf.ssr.hash-parity-fixtures/nil-prune-pairs]
+      (let [h-with    (rf.ssr.hash/render-tree-hash input-with-nil)
+            h-without (rf.ssr.hash/render-tree-hash input-without-nil)]
         (is (= expected h-without)
             (str "JVM no-nil canonical hash for " (pr-str label) " — "
                  rationale " — expected " (pr-str expected)
@@ -88,9 +88,9 @@
   (testing "Spec 011 §Hydration-mismatch detection — attribute maps
             emit in sorted-key order. Fixture pairs MUST produce
             byte-identical hashes under the JVM pipeline."
-    (doseq [{:keys [label input-a input-b rationale]} fixtures/equality-pairs]
-      (let [ha (h/render-tree-hash input-a)
-            hb (h/render-tree-hash input-b)]
+    (doseq [{:keys [label input-a input-b rationale]} rf.ssr.hash-parity-fixtures/equality-pairs]
+      (let [ha (rf.ssr.hash/render-tree-hash input-a)
+            hb (rf.ssr.hash/render-tree-hash input-b)]
         (is (= ha hb)
             (str "JVM key-order pair " (pr-str label) " — " rationale
                  " — input-a → " (pr-str ha)
@@ -109,7 +109,7 @@
             be wrong (FNV-1a 32-bit doesn't forbid collisions) but it
             would mean the corpus failed to discriminate between the
             render trees, defeating the point of pinning."
-    (let [literals (mapv :expected fixtures/all-fixtures)]
+    (let [literals (mapv :expected rf.ssr.hash-parity-fixtures/all-fixtures)]
       (is (= (count literals) (count (set literals)))
           (str "Fixture literals must be pairwise distinct — got "
                (pr-str literals))))))

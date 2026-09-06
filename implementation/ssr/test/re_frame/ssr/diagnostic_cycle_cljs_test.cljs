@@ -47,9 +47,9 @@
   (:require ["react" :as react]
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.error :as error]
-            [re-frame.ssr.emit :as emit]
-            [re-frame.ssr.ui-tree :as ui-tree]))
+            [re-frame.error :as rf.error]
+            [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -169,10 +169,10 @@
                        ["a nested acyclic obj" [:div {} [:span {:ctx acyclic-object}]]]
                        ["a string"             "text"]
                        ["nil"                  nil]]]
-      (is (identical? v (error/safe-form v))
+      (is (identical? v (rf.error/safe-form v))
           (str label " must come back identical")))
     (is (= (pr-str [acyclic-object {:value "dark"}])
-           (error/pr-form [acyclic-object {:value "dark"}]))
+           (rf.error/pr-form [acyclic-object {:value "dark"}]))
         "so pr-form IS pr-str wherever pr-str terminates — including on a
          foreign object, whose contents stay in the diagnostic")))
 
@@ -180,17 +180,17 @@
   (testing "The elision is the strict minimum: the token replaces the value
            `pr-str` cannot survive and nothing else, so the props and
            children around it go on discriminating the diagnostic."
-    (is (= "#js {…cyclic…}" (error/pr-form (self-referential-object))))
-    (is (= "#js […cyclic…]" (error/pr-form (self-referential-array))))
-    (is (= "#js {…cyclic…}" (error/pr-form provider)))
+    (is (= "#js {…cyclic…}" (rf.error/pr-form (self-referential-object))))
+    (is (= "#js […cyclic…]" (rf.error/pr-form (self-referential-array))))
+    (is (= "#js {…cyclic…}" (rf.error/pr-form provider)))
     (is (= "[#js {…cyclic…} {:value \"dark\"} [:p \"x\"]]"
-           (error/pr-form [provider {:value "dark"} [:p "x"]])))
+           (rf.error/pr-form [provider {:value "dark"} [:p "x"]])))
     (is (= "[:div {:ctx #js {…cyclic…}} \"x\"]"
-           (error/pr-form [:div {:ctx provider} "x"]))
+           (rf.error/pr-form [:div {:ctx provider} "x"]))
         "a cycle nested in an attrs map is elided in place, leaving the map
          around it intact")
     (is (= "[:div #js […cyclic…]]"
-           (error/pr-form [:div #js [(self-referential-object)]]))
+           (rf.error/pr-form [:div #js [(self-referential-object)]]))
         "a foreign value from which a cycle is REACHABLE is elided whole —
          the array holding the cycle is itself unprintable")))
 
@@ -201,14 +201,14 @@
            regression dressed up as a fix."
     (let [shared #js {"k" "v"}
           form   [:div {:a shared :b shared}]]
-      (is (identical? form (error/safe-form form)))
-      (is (= (pr-str form) (error/pr-form form)))))
+      (is (identical? form (rf.error/safe-form form)))
+      (is (= (pr-str form) (rf.error/pr-form form)))))
   (testing "and a persistent collection nested INSIDE a foreign value is
            crossed, not treated as the end of the graph — acyclic here, so
            it must come back untouched."
     (let [form [:div #js {"held" [:p "x"]}]]
-      (is (identical? form (error/safe-form form)))
-      (is (= (pr-str form) (error/pr-form form))))))
+      (is (identical? form (rf.error/safe-form form)))
+      (is (= (pr-str form) (rf.error/pr-form form))))))
 
 (deftest a-cycle-through-a-mixed-chain-is-found
   (testing "`pr-str` alternates between foreign values and persistent
@@ -217,13 +217,13 @@
            acyclic and hand `pr-str` the overflow — which is exactly what
            the control row above proves happens."
     (is (= "[:div #js {…cyclic…}]"
-           (error/pr-form [:div #js {"held" [:p provider]}])))
+           (rf.error/pr-form [:div #js {"held" [:p provider]}])))
     (is (= "#js {…cyclic…}"
-           (error/pr-form #js {"held" #js [[:p provider]]}))
+           (rf.error/pr-form #js {"held" #js [[:p provider]]}))
         "two collections deep and through an array as well")
     (rejected-with :rf.error/invalid-hiccup-head
                    "a mixed-chain cycle in head position"
-                   #(emit/emit-element [#js {"held" [:p provider]} {}]))))
+                   #(rf.ssr.emit/emit-element [#js {"held" [:p provider]} {}]))))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.ssr.emit — four throw sites
@@ -241,34 +241,34 @@
                         ["a provider nested in markup"  [:div.hosts [:h1 "hosts"]
                                                          [provider {:value "dark"} "x"]]]]]
       (rejected-with :rf.error/invalid-hiccup-head label
-                     #(emit/emit-element el)))))
+                     #(rf.ssr.emit/emit-element el)))))
 
 (deftest render-to-string-is-the-shipped-entry-point-that-reaches-it
   (testing "The severity claim, executed: this is not a test-only path. The
            public `render-to-string` reaches the same throw."
     (rejected-with :rf.error/invalid-hiccup-head "render-to-string on a provider head"
-                   #(emit/render-to-string [:main [provider {:value "dark"} "x"]] nil))))
+                   #(rf.ssr.emit/render-to-string [:main [provider {:value "dark"} "x"]] nil))))
 
 (deftest emit-rejects-a-cyclic-reserved-rf-head-with-its-own-error
   (testing "`reject-reserved-rf-hiccup-head!` prints the ELEMENT, so a
            cyclic value anywhere in the element blew it up even though the
            head itself is an ordinary keyword."
     (rejected-with :rf.error/invalid-hiccup-head "an unrecognised :rf/* head"
-                   #(emit/emit-element [:rf/suspense-boundry {:ctx provider}]))))
+                   #(rf.ssr.emit/emit-element [:rf/suspense-boundry {:ctx provider}]))))
 
 (deftest emit-rejects-a-cyclic-reagent-native-head-with-its-own-error
   (testing "`[:> ctx.Provider …]` is what `:>` interop is FOR, so this arm
            is the one where a cyclic foreign value is not merely possible
            but EXPECTED."
     (rejected-with :rf.error/ssr-reagent-native-head "a :> provider element"
-                   #(emit/emit-element [:> provider {:value "dark"}]))))
+                   #(rf.ssr.emit/emit-element [:> provider {:value "dark"}]))))
 
 (deftest emit-rejects-a-cyclic-suspense-boundary-with-its-own-error
   (testing "A boundary's `:fallback` is ordinary hiccup and can carry a
            foreign value anywhere inside it."
     (rejected-with :rf.error/ssr-suspense-boundary-outside-stream
                    "a suspense boundary whose fallback holds a provider"
-                   #(emit/emit-element
+                   #(rf.ssr.emit/emit-element
                       [:rf/suspense-boundary {:id :b :fallback [:div {:ctx provider}]}]))))
 
 ;; ---------------------------------------------------------------------------
@@ -301,14 +301,14 @@
              ["a textarea given a structural child"
               (tree {:tag :textarea :children [{:tag :b :attrs {:ctx provider}}]})]]]
       (rejected-with :rf.error/ui-tree-malformed label
-                     #(ui-tree/emit-ui-tree t)))))
+                     #(rf.ssr.ui-tree/emit-ui-tree t)))))
 
 (deftest ui-tree-version-gate-rejects-a-cyclic-version-with-its-own-error
   (testing "The version gate runs FIRST and prints the version it got, so a
            foreign value in that slot reached `pr-str` before any node did."
     (rejected-with :rf.error/ssr-ui-tree-version-unsupported
                    "a cyclic :rf.ui/tree-version"
-                   #(ui-tree/emit-ui-tree {:rf.ui/tree-version provider}))))
+                   #(rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version provider}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The acyclic path, byte for byte
@@ -322,7 +322,7 @@
            (what the hash walk does, and rightly) would have cost the
            diagnostic exactly the information it exists to carry."
     (let [el [acyclic-object {:value "dark"}]
-          o  (outcome #(emit/emit-element el))]
+          o  (outcome #(rf.ssr.emit/emit-element el))]
       (is (= :rf.error/invalid-hiccup-head (:error-id o))
           (str "the acyclic control still produces the correct error; got " (pr-str o)))
       (is (str/includes? (:message o) (str "hiccup vector head " (pr-str acyclic-object)))
@@ -331,16 +331,16 @@
           (str "element printed byte-identically to pr-str; got " (pr-str (:message o)))))
 
     (let [el [:> acyclic-object {:value "dark"}]
-          o  (outcome #(emit/emit-element el))]
+          o  (outcome #(rf.ssr.emit/emit-element el))]
       (is (= :rf.error/ssr-reagent-native-head (:error-id o)))
       (is (str/includes? (:message o) (str "(element " (pr-str el) ")"))))
 
     (let [node {:attrs {:ctx acyclic-object}}
-          o    (outcome #(ui-tree/emit-ui-tree (tree node)))]
+          o    (outcome #(rf.ssr.ui-tree/emit-ui-tree (tree node)))]
       (is (= :rf.error/ui-tree-malformed (:error-id o)))
       (is (str/includes? (:message o) (str "renderable tree node: " (pr-str node)))))
 
-    (let [o (outcome #(ui-tree/emit-ui-tree {:rf.ui/tree-version acyclic-object}))]
+    (let [o (outcome #(rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version acyclic-object}))]
       (is (= :rf.error/ssr-ui-tree-version-unsupported (:error-id o)))
       (is (str/includes? (:message o) (str " — got " (pr-str acyclic-object)))))))
 
@@ -348,7 +348,7 @@
   (testing "The crossing is on the FAILURE path only — nothing about a
            valid render moves."
     (is (= "<div class=\"x\"><p>hi</p></div>"
-           (emit/render-to-string [:div {:class "x"} [:p "hi"]] nil)))
+           (rf.ssr.emit/render-to-string [:div {:class "x"} [:p "hi"]] nil)))
     (is (= "<div><p>hi</p></div>"
-           (ui-tree/emit-ui-tree
+           (rf.ssr.ui-tree/emit-ui-tree
              (tree {:tag :div :children [{:tag :p :children ["hi"]}]}))))))

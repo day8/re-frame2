@@ -84,7 +84,7 @@
                     :refer [emit-ns-publics emit-cljs-only-rows
                             emit-classification-rows]])
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.api-manifest.cljs-probe :as probe]
+            [re-frame.api-manifest.cljs-probe :as rf.api-manifest.cljs-probe]
             ;; The covered CLJS-only namespaces. The `:require` forces the
             ;; analyzer to analyse each before `emit-ns-publics` expands,
             ;; so the macro reads a real surface. The aliases are unused at
@@ -252,9 +252,9 @@
 
 (deftest cljs-only-surface-in-sync
   (testing "live CLJS public surface reconciles with the :cljs-only rows"
-    (let [result (probe/reconcile live-publics reconcile-rows fully-rowed)]
-      (is (probe/in-sync? result)
-          (probe/report result)))))
+    (let [result (rf.api-manifest.cljs-probe/reconcile live-publics reconcile-rows fully-rowed)]
+      (is (rf.api-manifest.cljs-probe/in-sync? result)
+          (rf.api-manifest.cljs-probe/report result)))))
 
 (deftest every-covered-namespace-was-analysed
   (testing "each covered namespace enumerates at least one public var"

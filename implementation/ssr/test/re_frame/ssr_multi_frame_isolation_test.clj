@@ -48,10 +48,10 @@
   smokes per the audit's §Drop-or-keep recommendation)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs :as subs]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.subs :as rf.subs]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; Frame ids mirror testbeds/ssr_multi_frame/core.cljs lines 48-50.
 (def ^:private frame-a   :counter/a)
@@ -85,7 +85,7 @@
   (rf/reg-sub :entries   (fn [db _] (:entries db)))
   ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db
   ;; state, so :hydration is a runtime-db sub (reads the runtime-db projection).
-  (subs/reg-runtime-sub :hydration (fn [rt _] (get-in rt [:rf.runtime/ssr :hydration]))))
+  (rf.subs/reg-runtime-sub :hydration (fn [rt _] (get-in rt [:rf.runtime/ssr :hydration]))))
 
 (defn- register-three-frames! []
   (rf/make-frame {:id frame-a :initial-events [[::counter-init]]})

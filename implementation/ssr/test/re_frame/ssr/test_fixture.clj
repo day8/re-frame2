@@ -52,15 +52,15 @@
     divergence is an immediate signal that either the tests are
     cheating or the teardown is incomplete."
   (:require [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.install :as install]
-            [re-frame.ssr.request :as request]
-            [re-frame.ssr.response :as response]))
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.ssr.request :as rf.ssr.request]
+            [re-frame.ssr.response :as rf.ssr.response]))
 
 (defn reset-runtime
   "The canonical `:each` fixture for ssr-artefact JVM tests. Wipes the
@@ -69,27 +69,27 @@
 
   Call shape — `(use-fixtures :each reset-runtime)`."
   [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
   ;; SSR side-channel atoms — direct refs into the producing sub-ns
   ;; rather than the (private) façade aliases. Same atoms either way;
   ;; this avoids the `(resolve ...)` reflective dance the legacy
   ;; per-file fixtures used to reach the ^:private façade vars.
-  (reset! request/request-slots {})
-  (reset! response/response-slots {})
-  (reset! error-listener/pending-error-traces {})
+  (reset! rf.ssr.request/request-slots {})
+  (reset! rf.ssr.response/response-slots {})
+  (reset! rf.ssr.error-listener/pending-error-traces {})
   ;; S5 — the hydration-payload install ledger. Keyed by payload id (a
   ;; frame id), so a claim left by a prior test would make the next test's
   ;; first hydrate look like a sibling root's second one.
-  (install/reset-installed-payloads!)
+  (rf.ssr.install/reset-installed-payloads!)
   ;; Per rf2-4gvb4 — the flows artefact's per-frame `last-inputs` memo
   ;; table is reset through the public `flows/reset-last-inputs!` seam
   ;; (the atom itself is now private to the flows artefact). Spec 013
   ;; §Flow re-evaluation trigger.
-  (flows/reset-last-inputs!)
-  (rf/init! ssr/adapter)
+  (rf.flows/reset-last-inputs!)
+  (rf/init! rf.ssr/adapter)
   ;; Namespace-load-time registrations get wiped by clear-all!; reload
   ;; so :rf/hydrate, :rf.route/navigate, :rf.server/* fxs, the
   ;; :rf.server/request cofx, the head late-bind hooks, AND the

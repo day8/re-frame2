@@ -43,14 +43,14 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.constants :as constants]
-            [re-frame.ssr.streaming.constants :as wire]
-            [re-frame.ssr.streaming.client :as streaming-client]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.constants :as rf.ssr.constants]
+            [re-frame.ssr.streaming.constants :as rf.ssr.streaming.constants]
+            [re-frame.ssr.streaming.client :as rf.ssr.streaming.client]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Per cljs.test: async tests require fixtures supplied as a MAP (a fn-form
 ;; fixture's teardown runs before the async body completes — "Async tests require
@@ -60,8 +60,8 @@
 ;; dispose/install it hand-rolled. `:ambient-frame nil` preserves the
 ;; no-ambient-scope behaviour (each test creates its own client frame).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-slim-adapter/adapter :async? true :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter :async? true :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 
@@ -84,7 +84,7 @@
   (str "<main class=\"dashboard\"><section class=\"cards\">"
        (->> ids
             (map (fn [id]
-                   (ssr/streaming-fallback-template
+                   (rf.ssr/streaming-fallback-template
                      id (str "<div class=\"card skeleton\">loading " (name id) "</div>"))))
             (str/join ""))
        "</section></main>"))
@@ -94,14 +94,14 @@
   by its hydrate-delta `<script>` — exactly the two nodes the writer
   thread flushes per drained continuation."
   [id resolved-html delta]
-  (str (ssr/streaming-resolved-template id resolved-html)
-       (ssr/streaming-hydrate-delta-script id (pr-str delta))))
+  (str (rf.ssr/streaming-resolved-template id resolved-html)
+       (rf.ssr/streaming-hydrate-delta-script id (pr-str delta))))
 
 (defn- failed-chunk-html
   "A failed-continuation chunk: failed `<template>` (fallback HTML +
   `data-rf2-suspense-failed`), no delta script."
   [id fallback-html]
-  (ssr/streaming-failed-template id fallback-html))
+  (rf.ssr/streaming-failed-template id fallback-html))
 
 (defn- failed-chunk-with-delta-html
   "A CONTRADICTORY wire shape (rf2-x76af2.40): a failed `<template>` (the
@@ -111,8 +111,8 @@
   must fail CLOSED on: the failed fallback swaps, but the delta must be
   quarantined, not merged."
   [id fallback-html delta]
-  (str (ssr/streaming-failed-template id fallback-html)
-       (ssr/streaming-hydrate-delta-script id (pr-str delta))))
+  (str (rf.ssr/streaming-failed-template id fallback-html)
+       (rf.ssr/streaming-hydrate-delta-script id (pr-str delta))))
 
 ;; ---- DOM scaffolding -------------------------------------------------------
 
@@ -144,7 +144,7 @@
   (count (array-seq (.querySelectorAll host (str "." cls)))))
 
 (defn- mount-for [host id]
-  (.querySelector host (str "[" wire/attr-suspense-mount "=\"" (pr-str id) "\"]")))
+  (.querySelector host (str "[" rf.ssr.streaming.constants/attr-suspense-mount "=\"" (pr-str id) "\"]")))
 
 (defn- showing-fallback?
   "True when boundary `id` is in its (live, visible) fallback state —
@@ -213,14 +213,14 @@
                                  "<div class=\"card resolved-revenue\">Revenue 42375</div>"
                                  {:cards {:revenue {:title "Revenue" :value 42375}}}))
           ;; signups has NOT resolved yet — its fallback is still inert.
-          (is (nil? (.querySelector host (str "#" constants/payload-script-id)))
+          (is (nil? (.querySelector host (str "#" rf.ssr.constants/payload-script-id)))
               "no final payload present — any hydration is purely from chunk deltas")
-          (is (= {} (frame/frame-app-db-value fid)) "app-db empty before install")
+          (is (= {} (rf.frame/frame-app-db-value fid)) "app-db empty before install")
 
           ;; Install runs its synchronous initial sweep: materialise the
           ;; un-resolved fallback into a visible mount, swap the resolved
           ;; chunk into its mount, and merge its delta.
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             (try
               ;; (a) revenue (resolved chunk present) swapped in-place.
               (is (false? (boolean (showing-fallback? host :card.revenue)))
@@ -267,7 +267,7 @@
                                  "<div class=\"card resolved-signups\">Signups</div>"
                                  {:cards {:revenue {:value 42375}
                                           :signups {:value 318}}}))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             (try
               (is (= 42375 (:value @(rf/subscribe [:sct/card :revenue] {:frame fid})))
                   "revenue card survives the second chunk's :cards replacement")
@@ -287,20 +287,20 @@
             host     (make-root! [:card.flaky])
             captured (atom [])
             k        (str (gensym "stream-fail-cb"))]
-        (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+        (rf.trace.tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
         (try
           (append-chunk!
             host
             (failed-chunk-html :card.flaky "<div class=\"card card-failed\">unavailable</div>"))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             (try
               (is (= 1 (card-count host "card-failed")) "the failed chunk's fallback HTML is in the DOM")
-              (is (= {} (frame/frame-app-db-value fid)) "no delta applied for a failed boundary")
+              (is (= {} (rf.frame/frame-app-db-value fid)) "no delta applied for a failed boundary")
               (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %)) @captured)
                   ":rf.ssr/suspense-boundary-failed trace emitted client-side")
               (finally (stop!))))
           (finally
-            (trace-tooling/unregister-listener! k)
+            (rf.trace.tooling/unregister-listener! k)
             (remove-root! host)))))))
 
 (deftest failed-boundary-suppresses-matching-hydration-delta
@@ -323,7 +323,7 @@
             k         (str (gensym "stream-failquarantine-cb"))
             failed-of #(filter (fn [ev] (= :rf.ssr/suspense-boundary-failed (:operation ev)))
                                @captured)]
-        (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+        (rf.trace.tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
         (try
           ;; A failed template AND a VALID-MAP delta for the SAME id — the
           ;; contradictory shape. The delta WOULD merge for a successful
@@ -333,15 +333,15 @@
             (failed-chunk-with-delta-html
               :card.flaky "<div class=\"card card-failed\">unavailable</div>"
               {:cards {:flaky {:value 99}}}))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             (try
               (is (= 1 (card-count host "card-failed"))
                   "the failed chunk's fallback HTML swapped in")
-              (is (= {} (frame/frame-app-db-value fid))
+              (is (= {} (rf.frame/frame-app-db-value fid))
                   "the failed boundary's delta is NOT merged (fail-closed)")
               (is (nil? @(rf/subscribe [:sct/card :flaky] {:frame fid}))
                   "a subscription reads no speculative state for the failed boundary")
-              (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+              (is (zero? (count (array-seq (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-hydrate "]")))))
                   "the contradictory delta script is consumed (DOM left script-free)")
               ;; exactly one :quarantined-delta diagnostic.
               (let [q (filter #(= :quarantined-delta (:recovery %)) (failed-of))]
@@ -354,7 +354,7 @@
                     "the failed fallback swap still emits its :inline-fallback signal exactly once"))
               (finally (stop!))))
           (finally
-            (trace-tooling/unregister-listener! k)
+            (rf.trace.tooling/unregister-listener! k)
             (remove-root! host)))))))
 
 (deftest failed-boundary-suppresses-delta-arriving-first
@@ -373,17 +373,17 @@
               host     (make-root! [:card.flaky])
               captured (atom [])
               k        (str (gensym "stream-failfirst-cb"))]
-          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          (rf.trace.tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
           ;; Batch 1: ONLY the delta <script> — its (failed) template has not arrived.
           (append-chunk!
             host
-            (ssr/streaming-hydrate-delta-script
+            (rf.ssr/streaming-hydrate-delta-script
               :card.flaky (pr-str {:cards {:flaky {:value 99}}})))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             ;; First sweep: boundary not swapped → delta held, not applied.
-            (is (= {} (frame/frame-app-db-value fid))
+            (is (= {} (rf.frame/frame-app-db-value fid))
                 "delta held (boundary not swapped yet) — nothing merged speculatively")
-            (is (= 1 (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+            (is (= 1 (count (array-seq (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-hydrate "]")))))
                 "the delta <script> waits in the DOM (not consumed before its swap)")
             ;; Batch 2: the FAILED template arrives → swaps → outcome :failed.
             (append-chunk!
@@ -393,9 +393,9 @@
               (fn []
                 (is (= 1 (card-count host "card-failed"))
                     "failed fallback swapped in the later sweep")
-                (is (= {} (frame/frame-app-db-value fid))
+                (is (= {} (rf.frame/frame-app-db-value fid))
                     "the delta (which arrived FIRST) is quarantined once its boundary resolved FAILED — never merged")
-                (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                (is (zero? (count (array-seq (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-hydrate "]")))))
                     "the contradictory delta script is consumed")
                 ;; Scope the match to THIS boundary's own id. `captured` is a
                 ;; PROCESS-GLOBAL trace listener — it observes every namespace's
@@ -442,14 +442,14 @@
               host     (make-root! [:card.revenue])
               captured (atom [])
               k        (str (gensym "stream-nonmap-cb"))]
-          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          (rf.trace.tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
           (try
             (append-chunk!
               host
               (resolved-chunk-html :card.revenue
                                    "<div class=\"card resolved-revenue\">Revenue</div>"
                                    bad-delta))
-            (let [stop! (streaming-client/install! {:frame fid :root host})]
+            (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
               (try
                 ;; DOM still progresses — the resolved content swapped in.
                 (is (= 1 (card-count host "resolved-revenue"))
@@ -458,13 +458,13 @@
                 (is (false? (boolean (showing-fallback? host :card.revenue)))
                     (str (pr-str bad-delta) ": mount shows resolved content, not a skeleton"))
                 ;; app-db is UNCHANGED — the malformed delta was not merged.
-                (is (= {} (frame/frame-app-db-value fid))
+                (is (= {} (rf.frame/frame-app-db-value fid))
                     (str (pr-str bad-delta)
                          ": app-db must stay unchanged (malformed delta NOT merged)"))
                 (is (nil? @(rf/subscribe [:sct/card :revenue] {:frame fid}))
                     (str (pr-str bad-delta) ": subscription reads no speculative state"))
                 ;; The script is consumed regardless of delta validity.
-                (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                (is (zero? (count (array-seq (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-hydrate "]")))))
                     (str (pr-str bad-delta) ": the delta script is dropped (DOM left script-free)"))
                 ;; The fail-closed diagnostic fires.
                 (let [skipped (filter #(and (= :rf.ssr/suspense-boundary-failed (:operation %))
@@ -476,7 +476,7 @@
                            (pr-str (mapv (juxt :operation :recovery) @captured)))))
                 (finally (stop!))))
             (finally
-              (trace-tooling/unregister-listener! k)
+              (rf.trace.tooling/unregister-listener! k)
               (remove-root! host))))))))
 
 (deftest empty-delta-body-is-not-malformed
@@ -491,7 +491,7 @@
             host     (make-root! [:card.empty :card.full])
             captured (atom [])
             k        (str (gensym "stream-empty-cb"))]
-        (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+        (rf.trace.tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
         (try
           ;; (a) empty-map delta — valid no-op, no app-db change, no trace.
           (append-chunk!
@@ -505,7 +505,7 @@
             (resolved-chunk-html :card.full
                                  "<div class=\"card resolved-full\">full</div>"
                                  {:cards {:full {:value 5}}}))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             (try
               (is (= 1 (card-count host "resolved-empty")) "empty-delta chunk still swaps")
               (is (= 5 (:value @(rf/subscribe [:sct/card :full] {:frame fid}))) "valid delta merged")
@@ -514,7 +514,7 @@
                        (pr-str (mapv :operation @captured))))
               (finally (stop!))))
           (finally
-            (trace-tooling/unregister-listener! k)
+            (rf.trace.tooling/unregister-listener! k)
             (remove-root! host)))))))
 
 (deftest css-special-payload-id-does-not-throw
@@ -547,7 +547,7 @@
               (str "<script id=\"" pid "\" type=\"application/edn\">"
                    "{:rf/version 1 :rf/app-db {} :rf/render-hash \"00000000\"}"
                    "</script>"))
-            (let [stop! (streaming-client/install! {:frame fid :root host :payload-id pid})]
+            (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host :payload-id pid})]
               (try
                 ;; No throw is the headline assertion; the chunk still
                 ;; swapped (the sweep ran before completion-detection).
@@ -579,7 +579,7 @@
             ;; mount swaps, exactly the nested wire shape.
             host (make-root! [:card.outer])
             ;; The outer resolved content embeds the inner fallback template.
-            inner-fallback (ssr/streaming-fallback-template
+            inner-fallback (rf.ssr/streaming-fallback-template
                              :card.inner "<div class=\"card skeleton inner-skel\">loading inner</div>")
             outer-resolved-html (str "<section class=\"card resolved-outer\">outer "
                                      inner-fallback "</section>")]
@@ -605,9 +605,9 @@
             (resolved-chunk-html :card.outer
                                  outer-resolved-html
                                  {:cards {:outer {:value 7} :inner {:value 99}}}))
-          (is (nil? (.querySelector host (str "#" constants/payload-script-id)))
+          (is (nil? (.querySelector host (str "#" rf.ssr.constants/payload-script-id)))
               "no final payload — recovery is purely the sweep's doing")
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             (try
               (is (= 1 (card-count host "resolved-outer"))
                   "outer resolved content is live")
@@ -629,7 +629,7 @@
   read both."
   [host id]
   (array-seq
-    (.querySelectorAll host (str "[" wire/attr-suspense-mount "=\"" (pr-str id) "\"]"))))
+    (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-mount "=\"" (pr-str id) "\"]"))))
 
 (defn- inert-fallback-template-count
   "Count of un-materialised fallback `<template>`s still in the DOM. After a
@@ -637,7 +637,7 @@
   mount (rf2-8en9mu: a duplicate-id boundary must not leave a stray inert
   template)."
   [host]
-  (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-fallback "]")))))
+  (count (array-seq (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-fallback "]")))))
 
 (deftest fallback-is-inert-template-before-js-then-painted-on-install
   (testing "rf2-xzhf2a — the no-JS / first-byte contract. The shell's
@@ -656,7 +656,7 @@
         (try
           ;; BEFORE install (the no-JS / first-byte state): the fallback skeleton
           ;; is inert template content — NOT in the live painted DOM.
-          (is (some? (.querySelector host (str "[" wire/attr-suspense-fallback "]")))
+          (is (some? (.querySelector host (str "[" rf.ssr.streaming.constants/attr-suspense-fallback "]")))
               "the inert fallback <template> is present in the shell")
           (is (nil? (.querySelector host ".skeleton"))
               "the skeleton is INERT template content — not painted live DOM before JS")
@@ -664,7 +664,7 @@
               "no live <rf-suspense> mount exists before the client runs")
           ;; AFTER install: the runtime materialises the inert template into a
           ;; live, painted mount — the skeleton is now real DOM.
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             (try
               (is (zero? (inert-fallback-template-count host))
                   "the inert fallback <template> is consumed on install")
@@ -703,7 +703,7 @@
             (resolved-chunk-html :card.dupe
                                  "<div class=\"card resolved-dupe\">resolved 7</div>"
                                  {:cards {:dupe {:value 7}}}))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             (try
               ;; (a) BOTH fallbacks materialised — no stray inert template.
               (is (zero? (inert-fallback-template-count host))
@@ -749,7 +749,7 @@
               host     (make-root! [id])
               captured (atom [])
               k        (str (gensym "stream-idtype-cb"))]
-          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          (rf.trace.tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
           (try
             ;; A failed-boundary chunk → process-resolved-template! emits
             ;; :rf.ssr/suspense-boundary-failed with :id (read-boundary-id …).
@@ -761,7 +761,7 @@
             (append-chunk!
               host
               (failed-chunk-html id "<div class=\"card card-failed\">unavailable</div>"))
-            (let [stop! (streaming-client/install! {:frame fid :root host})]
+            (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
               (try
                 ;; The boundary id lands in the trace envelope's PAYLOAD —
                 ;; `[:tags :id]` — not the top-level `:id` (a trace-sequence
@@ -778,7 +778,7 @@
                            (pr-str (type ev-id)))))
                 (finally (stop!))))
             (finally
-              (trace-tooling/unregister-listener! k)
+              (rf.trace.tooling/unregister-listener! k)
               (remove-root! host))))))))
 
 (deftest async-observer-applies-late-chunk
@@ -791,7 +791,7 @@
         done
         (let [fid   (make-client-frame!)
               host  (make-root! [:card.late])
-              stop! (streaming-client/install! {:frame fid :root host})]
+              stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
           ;; Before the chunk: the fallback is materialised + visible.
           (is (true? (showing-fallback? host :card.late)) "late card starts as a visible skeleton")
           ;; Chunk arrives after install → the observer fires (microtask).
@@ -836,9 +836,9 @@
           ;; its delta <script> has NOT streamed in yet.
           (append-chunk!
             host
-            (ssr/streaming-resolved-template
+            (rf.ssr/streaming-resolved-template
               :card.revenue "<div class=\"card resolved-revenue\">Revenue 42375</div>"))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             ;; After the synchronous initial sweep: the template swapped in,
             ;; but app-db is still empty — the delta is in a later chunk.
             (is (= 1 (card-count host "resolved-revenue"))
@@ -851,7 +851,7 @@
             ;; swapped + removed. The observer fires a fresh sweep.
             (append-chunk!
               host
-              (ssr/streaming-hydrate-delta-script
+              (rf.ssr/streaming-hydrate-delta-script
                 :card.revenue (pr-str {:cards {:revenue {:title "Revenue" :value 42375}}})))
             ;; `setTimeout 0` (macrotask) runs after the observer microtask,
             ;; so the second-batch sweep has definitely run by the continuation.
@@ -861,7 +861,7 @@
                        @(rf/subscribe [:sct/card :revenue] {:frame fid}))
                     "the delta merged even though it arrived in a LATER batch than its template")
                 (is (zero? (count (array-seq
-                                    (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                                    (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-hydrate "]")))))
                     "the delta <script> was consumed (DOM left script-free)")
                 (stop!)
                 (remove-root! host)
@@ -887,9 +887,9 @@
           ;; resolved <template> has NOT streamed in yet.
           (append-chunk!
             host
-            (ssr/streaming-hydrate-delta-script
+            (rf.ssr/streaming-hydrate-delta-script
               :card.revenue (pr-str {:cards {:revenue {:title "Revenue" :value 42375}}})))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             ;; After the synchronous initial sweep: no resolved template yet,
             ;; so the boundary is not `seen` and the delta is HELD (not applied).
             (is (nil? @(rf/subscribe [:sct/card :revenue] {:frame fid}))
@@ -897,13 +897,13 @@
             (is (true? (showing-fallback? host :card.revenue))
                 "the boundary still shows its fallback — no resolved template yet")
             (is (= 1 (count (array-seq
-                              (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                              (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-hydrate "]")))))
                 "the delta <script> waits in the DOM (not consumed before its swap)")
             ;; Batch 2: the resolved <template> arrives. The observer fires;
             ;; the swap marks the id `seen`, then the still-present delta merges.
             (append-chunk!
               host
-              (ssr/streaming-resolved-template
+              (rf.ssr/streaming-resolved-template
                 :card.revenue "<div class=\"card resolved-revenue\">Revenue 42375</div>"))
             (js/setTimeout
               (fn []
@@ -913,7 +913,7 @@
                        @(rf/subscribe [:sct/card :revenue] {:frame fid}))
                     "the delta (which arrived FIRST) merged once its template swapped")
                 (is (zero? (count (array-seq
-                                    (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                                    (.querySelectorAll host (str "[" rf.ssr.streaming.constants/attr-suspense-hydrate "]")))))
                     "the delta <script> was consumed once applied")
                 (stop!)
                 (remove-root! host)
@@ -960,11 +960,11 @@
           ;; before any live mount exists.
           (set! (.-innerHTML host) "<div id=\"app\"><main></main></div>")
           (.appendChild (.-body js/document) host)
-          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          (rf.trace.tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
           (append-chunk!
             host
             (failed-chunk-html id "<div class=\"card card-failed\">unavailable</div>"))
-          (let [stop! (streaming-client/install! {:frame fid :root host})]
+          (let [stop! (rf.ssr.streaming.client/install! {:frame fid :root host})]
             ;; Sweep 1 (synchronous initial sweep): no mount → swapped? false
             ;; → the failed arm is gated → NO trace, and the failed <template>
             ;; stays retryable.
@@ -982,7 +982,7 @@
                 ;; retryable failed chunk → swap succeeds → EXACTLY ONE trace.
                 (append-chunk!
                   host
-                  (ssr/streaming-fallback-template
+                  (rf.ssr/streaming-fallback-template
                     id "<div class=\"card skeleton\">loading</div>"))
                 (js/setTimeout
                   (fn []

@@ -27,8 +27,8 @@
   removed name to the repo-relative migration files allowed to mention it in
   call position. The same reference in live teaching prose remains an error."
   (:require [clojure.string :as str]
-            [re-frame.api-manifest.gen :as gen]
-            [re-frame.api-manifest.projection :as proj]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+            [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private core-ns "re-frame.core")
 
@@ -76,10 +76,10 @@
 
 (defn check!
   []
-  (let [rows         (proj/manifest-rows)
-        core-vars    (set (map :var (proj/rows-in-ns rows core-ns)))
-        scoped-allow (:doc-guide-known-unmanifested-scoped (gen/read-sidecar))
-        dir          (proj/repo-file "docs" "core")
+  (let [rows         (rf.api-manifest.projection/manifest-rows)
+        core-vars    (set (map :var (rf.api-manifest.projection/rows-in-ns rows core-ns)))
+        scoped-allow (:doc-guide-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar))
+        dir          (rf.api-manifest.projection/repo-file "docs" "core")
         ;; require-markdown-files (rf2-utvst): fail loudly if docs/core/
         ;; moves or is renamed, rather than silently checking zero files.
         ;;
@@ -94,18 +94,18 @@
         ;; non-core surface it names (e.g. `rf/machine-meta`). doc-api-check
         ;; already covers this subtree for BOTH var-resolution and
         ;; keyword-drift, so the exclusion loses no coverage.
-        guide-files  (->> (proj/require-markdown-files "docs/core/" dir)
-                          (remove #(str/starts-with? (proj/repo-relative %)
+        guide-files  (->> (rf.api-manifest.projection/require-markdown-files "docs/core/" dir)
+                          (remove #(str/starts-with? (rf.api-manifest.projection/repo-relative %)
                                                      "docs/core/api/")))
         ;; Capability concept docs are a required one-level docs/* surface;
         ;; discovery covers new capabilities and fails loudly if the surface
         ;; disappears.
-        concept-files (proj/require-capability-doc-files
+        concept-files (rf.api-manifest.projection/require-capability-doc-files
                         "docs/*/concepts.md" "concepts.md")
         files        (concat guide-files concept-files)
         references   (for [file files
-                           ref  (proj/alias-call-references "rf" (proj/numbered-lines file))]
-                       (assoc ref :file (proj/repo-relative file)))
+                           ref  (rf.api-manifest.projection/alias-call-references "rf" (rf.api-manifest.projection/numbered-lines file))]
+                       (assoc ref :file (rf.api-manifest.projection/repo-relative file)))
         var-problems (reconcile {:references   references
                                  :core-vars    core-vars
                                  :scoped-allow scoped-allow})
@@ -114,9 +114,9 @@
         ;; `:work-id`), or EP-0015 egress-profile keyword vocabulary creeping
         ;; back into teaching prose. Fold the keyword scan in so a
         ;; reintroduction goes RED here too.
-        kw-problems  (proj/keyword-drift-problems-over-files files)
+        kw-problems  (rf.api-manifest.projection/keyword-drift-problems-over-files files)
         problems     (concat var-problems kw-problems)]
-    (proj/report-with-floor! "docs/core/ + docs/*/concepts.md"
+    (rf.api-manifest.projection/report-with-floor! "docs/core/ + docs/*/concepts.md"
                              (count references) min-references problems)))
 
 (defn -main [& _]
