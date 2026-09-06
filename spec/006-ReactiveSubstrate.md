@@ -2034,31 +2034,31 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
 ```clojure
 ;; Reagent (CLJS, day8/re-frame2-reagent):
 (require '[re-frame.core :as rf]
-         '[re-frame.adapter.reagent :as reagent])
-(rf/init! reagent/adapter)
+         '[re-frame.adapter.reagent :as rf.adapter.reagent])
+(rf/init! rf.adapter.reagent/adapter)
 
 ;; reagent-slim (CLJS, day8/reagent-slim) — the slim jar publishes its
 ;; adapter at the CANONICAL `re-frame.adapter.reagent` ns (renamed from the
 ;; in-tree `-slim` ns at publication), so it is a drop-in swap for the stock
 ;; jar's require:
 (require '[re-frame.core :as rf]
-         '[re-frame.adapter.reagent :as reagent])
-(rf/init! reagent/adapter)
+         '[re-frame.adapter.reagent :as rf.adapter.reagent])
+(rf/init! rf.adapter.reagent/adapter)
 
 ;; UIx (CLJS, day8/re-frame2-uix):
 (require '[re-frame.core :as rf]
-         '[re-frame.adapter.uix :as uix])
-(rf/init! uix/adapter)
+         '[re-frame.adapter.uix :as rf.adapter.uix])
+(rf/init! rf.adapter.uix/adapter)
 
 ;; SSR / JVM (day8/re-frame2-ssr):
 (require '[re-frame.core :as rf]
-         '[re-frame.ssr :as ssr])
-(rf/init! ssr/adapter)
+         '[re-frame.ssr :as rf.ssr])
+(rf/init! rf.ssr/adapter)
 
 ;; Headless / plain-atom (re-frame.substrate.plain-atom in core):
 (require '[re-frame.core :as rf]
-         '[re-frame.substrate.plain-atom :as plain-atom])
-(rf/init! plain-atom/adapter)
+         '[re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
+(rf/init! rf.substrate.plain-atom/adapter)
 ```
 
 `(rf/init! …)` accepts exactly one argument shape:
@@ -2178,7 +2178,7 @@ Per [011](011-SSR.md), the server-side render path doesn't use the adapter's rea
 
 No Reagent. No React. No reactivity. Pure data → pure data → string.
 
-The server-side adapter is the distinct **`re-frame.ssr` adapter** (`:kind :rf.adapter/ssr`) — a headless, plain-atom-*shaped* adapter that binds its own `render-to-string`. The caller boots it **explicitly** with `(rf/init! ssr/adapter)` (per [§Adapter selection at boot](#adapter-selection-at-boot)); nothing auto-selects it by platform. It is distinct from the core plain-atom adapter, which some headless SSR paths also use — both live in the [canonical inventory](#cljs-reference-scope).
+The server-side adapter is the distinct **`re-frame.ssr` adapter** (`:kind :rf.adapter/ssr`) — a headless, plain-atom-*shaped* adapter that binds its own `render-to-string`. The caller boots it **explicitly** with `(rf/init! rf.ssr/adapter)` (per [§Adapter selection at boot](#adapter-selection-at-boot)); nothing auto-selects it by platform. It is distinct from the core plain-atom adapter, which some headless SSR paths also use — both live in the [canonical inventory](#cljs-reference-scope).
 
 ## CLJS reference scope
 

@@ -34,9 +34,9 @@ artefact both MCP servers share; the codec was vendored into it from
 coordinate):
 
 ```clojure
-(require '[re-frame.mcp-base.dedup :as dedup])
+(require '[re-frame.mcp-base.dedup :as rf.mcp-base.dedup])
 
-(dedup/expand (get payload :rf.mcp/dedup-table))
+(rf.mcp-base.dedup/expand (get payload :rf.mcp/dedup-table))
 ;; => the original structure with sharing restored
 ```
 
@@ -95,7 +95,7 @@ All four are returned **in place of** the requested payload (or slot)
 when their condition fires. Check for them at the top level (or
 inside the relevant slice) before treating a result as raw data:
 
-- `{:rf.mcp/dedup-table <cache-map>}` — call `dedup/expand`.
+- `{:rf.mcp/dedup-table <cache-map>}` — call `rf.mcp-base.dedup/expand`.
 - `{:rf.mcp/overflow {:tool ... :estimated-tokens ... :hint ...}}` —
   narrow the call.
 - `{:rf.mcp/cache-hit {:hash ... :unchanged-since ... :hint ...}}` —
