@@ -809,42 +809,42 @@
         {:platforms #{:server :client}}
         (fn [_ {:keys [token]}] (reset! stored token)))
 
-      ;; The login machine. Mirrors the structure of examples/login/core.cljs's
-      ;; :auth.login/flow — five states, deepest-wins, multi-guard branch.
-      (rf/reg-event :auth.login/flow
-        (rf.machines/make-machine-handler
-          ;; Per Spec 005: spec map does NOT carry :id; the id comes
-          ;; from the enclosing reg-event call.
-          {:initial :idle
-           :data    {:attempts 0 :error nil}
-           :guards
-           {:under-retry-limit
-            (fn [{data :data}] (< (:attempts data) 3))}
-           :actions
-           {:clear-error    (fn [_] {:data {:error nil}})
-            :issue-request  (fn [{[_ creds] :event}]
-                              {:fx [[:http {:method     :post
-                                            :url        "/api/login"
-                                            :body       creds
-                                            :on-success [:auth.login/flow [:auth.login/success]]
-                                            :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
-            :record-error   (fn [{data :data [_ err] :event}]
-                              {:data (-> data
-                                         (update :attempts inc)
-                                         (assoc :error (or (:message err) "Login failed.")))})
-            :lock-account   (fn [_] {:fx []})
-            :store-session  (fn [{[_ {:keys [token]}] :event}]
-                              {:fx [[:auth.session/store {:token token}]]})}
-           :states
-           {:idle        {:on {:auth.login/submit {:target :submitting :action :clear-error}}}
-            :submitting  {:entry :issue-request
-                          :on    {:auth.login/success {:target :authed :action :store-session}
-                                  :auth.login/failure [{:target :error-shown :guard :under-retry-limit :action :record-error}
-                                                       {:target :locked-out :action :lock-account}]}}
-            :error-shown {:on {:auth.login/dismiss {:target :idle}
-                               :auth.login/submit  {:target :submitting}}}
-            :authed      {}
-            :locked-out  {}}}))
+      ;; The login machine. Mirrors the structure of
+      ;; examples/core/login/model.cljc's :auth.login/flow — five states,
+      ;; deepest-wins, multi-guard branch.
+      (rf/reg-machine :auth.login/flow
+        ;; Per Spec 005: spec map does NOT carry :id; the id comes
+        ;; from the enclosing reg-machine call.
+        {:initial :idle
+         :data    {:attempts 0 :error nil}
+         :guards
+         {:under-retry-limit
+          (fn [{data :data}] (< (:attempts data) 3))}
+         :actions
+         {:clear-error    (fn [_] {:data {:error nil}})
+          :issue-request  (fn [{[_ creds] :event}]
+                            {:fx [[:http {:method     :post
+                                          :url        "/api/login"
+                                          :body       creds
+                                          :on-success [:auth.login/flow [:auth.login/success]]
+                                          :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
+          :record-error   (fn [{data :data [_ err] :event}]
+                            {:data (-> data
+                                       (update :attempts inc)
+                                       (assoc :error (or (:message err) "Login failed.")))})
+          :lock-account   (fn [_] {:fx []})
+          :store-session  (fn [{[_ {:keys [token]}] :event}]
+                            {:fx [[:auth.session/store {:token token}]]})}
+         :states
+         {:idle        {:on {:auth.login/submit {:target :submitting :action :clear-error}}}
+          :submitting  {:entry :issue-request
+                        :on    {:auth.login/success {:target :authed :action :store-session}
+                                :auth.login/failure [{:target :error-shown :guard :under-retry-limit :action :record-error}
+                                                     {:target :locked-out :action :lock-account}]}}
+          :error-shown {:on {:auth.login/dismiss {:target :idle}
+                             :auth.login/submit  {:target :submitting}}}
+          :authed      {}
+          :locked-out  {}}})
 
       ;; Subs over the machine snapshot. EP-0001 (rf2-vzld77): machine
       ;; snapshots are durable runtime-db state, so this composes off the

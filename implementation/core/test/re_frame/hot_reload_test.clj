@@ -20,7 +20,9 @@
   performs both registrations within one test body."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            ;; Publishes the late-bind hook `rf/reg-machine` lowers onto.
+            ;; Side-effect require; alias unused.
+            [re-frame.machines]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
@@ -47,9 +49,10 @@
   ;; registrations so :rf/hydrate, :rf.nav/push-url etc. resurrect.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr    :reload)
-  ;; The snapshot test uses `rf.machines/make-machine-handler`; re-load machines so
-  ;; the artefact's reg surface is live in isolated runs too (the snapshot
-  ;; slot lives in runtime-db per EP-0001).
+  ;; The snapshot test uses `rf/reg-machine`, which lowers onto the machines
+  ;; artefact's late-bound registration hook; re-load machines so that reg
+  ;; surface is live in isolated runs too (the snapshot slot lives in
+  ;; runtime-db per EP-0001).
   (require 're-frame.machines :reload)
   (test-fn))
 
@@ -260,19 +263,18 @@
     (rf/make-frame {:id :tenant :doc       "v1 metadata"
                     :tenant-id :acme})
     ;; Build a tiny machine and dispatch into it so [:rf.runtime/machines :snapshots] is
-    ;; populated. We use a machine handler so the snapshot lands at
+    ;; populated. We register a machine so the snapshot lands at
     ;; [:rf.runtime/machines :snapshots :traffic-light] per Spec 005.
-    (rf/reg-event :traffic-light
-      (rf.machines/make-machine-handler
-        {:initial :red
-         :data    {:ticks 0}
-         :actions {:tick-action
-                   (fn [{data :data}]
-                     {:data (update data :ticks inc)})}
-         :states
-         {:red    {:on {:tick {:target :green :action :tick-action}}}
-          :green  {:on {:tick {:target :yellow :action :tick-action}}}
-          :yellow {:on {:tick {:target :red    :action :tick-action}}}}}))
+    (rf/reg-machine :traffic-light
+      {:initial :red
+       :data    {:ticks 0}
+       :actions {:tick-action
+                 (fn [{data :data}]
+                   {:data (update data :ticks inc)})}
+       :states
+       {:red    {:on {:tick {:target :green :action :tick-action}}}
+        :green  {:on {:tick {:target :yellow :action :tick-action}}}
+        :yellow {:on {:tick {:target :red    :action :tick-action}}}}})
     ;; Drive the machine forward twice in :tenant.
     (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
     (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
