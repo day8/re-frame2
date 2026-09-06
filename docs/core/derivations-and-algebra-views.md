@@ -59,8 +59,7 @@ with the identical formula:
 ```clojure
 ;; Source form A — a subscription.
 (rf/reg-sub :cart/total
-  :<- [:cart/items]
-  :<- [:pricing/discounts]
+  {:inputs [[:cart/items] [:pricing/discounts]]}
   (fn [[items discounts] _] (sum-cart items discounts)))
 
 ;; Source form B — a flow. The same function.
@@ -350,8 +349,8 @@ The view, side by side with one of its selectors:
 
 ;; A selector — how a view reads the machine — is an ordinary subscription.
 (rf/reg-sub :checkout/progress
-  :<- [:rf/machine :checkout/main]
-  (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+  {:inputs [[:rf/machine :checkout/main]]}
+  (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
 ```
 
 A machine's `:inputs` are the event ids its transition table listens for — every

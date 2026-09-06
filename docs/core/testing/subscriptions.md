@@ -4,7 +4,7 @@ A [subscription](../subscriptions.md) is a formula over facts. You test a formul
 
 That works because a subscription's computation is a pure function of `(inputs, query-v)` — so you need no reactive runtime, no DOM, and no browser to test what it *computes*. `rf/compute-sub` runs a sub's body against an app-db **value** and returns the result. It runs on the JVM: no Reagent, no React, no installed [adapter](../glossary.md#adapter), no live cache.
 
-> **A subscription test is `compute-sub` against a db value — the whole `:<-` chain resolves for you.**
+> **A subscription test is `compute-sub` against a db value — the whole declared-`:inputs` chain resolves for you.**
 
 That's the whole recipe. The rest of this page is choosing where the db value comes from — and knowing the one thing a sub test doesn't prove.
 
@@ -23,7 +23,7 @@ The sub under test here is the three-layer cart chain from [Subscriptions](../su
   (let [db {:cart/items           [{:sku "a" :category "books"  :price 2}
                                    {:sku "b" :category "snacks" :price 1}]
             :cart/category-filter "books"}]
-    ;; compute-sub resolves the whole :<- chain — :cart/items and
+    ;; compute-sub resolves the whole declared-:inputs chain — :cart/items and
     ;; :cart/by-price run automatically as inputs.
     (is (= ["a"]
            (mapv :sku (rf/compute-sub [:cart/visible] db))))))

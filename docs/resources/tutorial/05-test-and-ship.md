@@ -199,7 +199,7 @@ There's a [partition](../../core/glossary.md#the-two-partitions) wrinkle the pip
 
 ??? note "Going deeper — layered subs come along for free"
 
-    That `:auth.login-form/can-submit?` sub is **layered** — defined `:<- [:auth.login-form/slice]`, so it reads through another sub. `compute-sub` resolves the chain transitively: it computes the input sub against `db` first, depth-first, then runs the outer body against that value — all without spinning up the cache. Same for a parametric `input-fn` sub. You test the top sub and the whole [derivation graph](../../core/glossary.md#the-derivation-graph) underneath it comes along, exactly as the running app composes it. The cache the live app uses is an *optimisation* layered over this pure composition, not part of its meaning — which is precisely why you can drop it on the JVM and still get the right answer.
+    That `:auth.login-form/can-submit?` sub is **layered** — declared `{:inputs [[:auth.login-form/slice]]}`, so it reads through another sub. `compute-sub` resolves the chain transitively: it computes the input sub against `db` first, depth-first, then runs the outer body against that value — all without spinning up the cache. Same when `:inputs` holds a producer fn. You test the top sub and the whole [derivation graph](../../core/glossary.md#the-derivation-graph) underneath it comes along, exactly as the running app composes it. The cache the live app uses is an *optimisation* layered over this pure composition, not part of its meaning — which is precisely why you can drop it on the JVM and still get the right answer.
 
 ## 5. Test the view, not just the state
 

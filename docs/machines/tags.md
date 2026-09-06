@@ -144,9 +144,8 @@ sub that returns the first matching tag's render keyword.
    {:tag :data/empty   :render :empty}
    {:tag :data/some    :render :some}])
 
-(rf/reg-sub :ui/render
-  :<- [:rf/machine :ui/nine-states]
-  (fn [snap _]
+(rf/reg-sub :ui/render {:inputs [[:rf/machine :ui/nine-states]]}
+  (fn [[snap] _]
     (let [tags (:tags snap)]
       (some (fn [{:keys [tag render]}]
               (when (contains? tags tag) render))

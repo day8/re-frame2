@@ -66,19 +66,18 @@ Split it. A tiny extractor decides *whether* anything changed, and a layer-2 sub
 (rf/reg-sub :articles/all
   (fn [db _] (:articles db)))
 
-(rf/reg-sub :feed/slugs
-  :<- [:articles/all]
-  (fn [articles _]
+(rf/reg-sub :feed/slugs {:inputs [[:articles/all]]}
+  (fn [[articles] _]
     (->> (vals articles)
          (sort-by :created-at #(compare %2 %1))
          (mapv :slug))))
 ```
 
-The `:<-` arrow reads as "this sub's input comes from": `:feed/slugs` now derives from the *value* `:articles/all` extracted, not from `db`. When some other key in app-db changes, `:articles/all` re-runs, returns an `=` map, the gate closes, and `:feed/slugs` never wakes. The sort doesn't run. You didn't make anything faster — you stopped doing it.
+`:inputs` reads as "this sub's inputs come from": `:feed/slugs` now derives from the *value* `:articles/all` extracted, not from `db`. When some other key in app-db changes, `:articles/all` re-runs, returns an `=` map, the gate closes, and `:feed/slugs` never wakes. The sort doesn't run. You didn't make anything faster — you stopped doing it.
 
-!!! warning "Gotcha — a mistyped `:<-` input fails quiet, not loud"
+!!! warning "Gotcha — a mistyped `:inputs` id fails quiet, not loud"
 
-    When you split a sub, the new `:<-` edge points at another sub *by id*. Get that id wrong — a typo, a sub you haven't registered yet — and re-frame2 doesn't throw. It [fails loud as data](../glossary.md#error-record): it emits a `:rf.error/no-such-sub` [error record](../glossary.md#error-record) (recovery `:replaced-with-default`) to your always-on error listeners and feeds your derivation `nil` for that input. So a bad split doesn't look *slow* — it looks *wrong* (the feed renders empty, or a downstream `nil` throws somewhere unrelated). If a sub you just refactored returns nothing, check its `:<-` ids against your `reg-sub` names before you suspect the gate. The parametric input-function form has its own two named modes: an input fn that throws surfaces `:rf.error/sub-input-fn-exception`, and one that returns something other than a query vector (or vector of them) surfaces `:rf.error/sub-input-fn-bad-return`.
+    When you split a sub, the new `:inputs` edge points at another sub *by id*. Get that id wrong — a typo, a sub you haven't registered yet — and re-frame2 doesn't throw. It [fails loud as data](../glossary.md#error-record): it emits a `:rf.error/no-such-sub` [error record](../glossary.md#error-record) (recovery `:replaced-with-default`) to your always-on error listeners and feeds your derivation `nil` for that input. So a bad split doesn't look *slow* — it looks *wrong* (the feed renders empty, or a downstream `nil` throws somewhere unrelated). If a sub you just refactored returns nothing, check its `:inputs` ids against your `reg-sub` names before you suspect the gate. A malformed `:inputs` *literal* is the loud case — it is refused at registration with `:rf.error/reg-sub-bad-args`. An `:inputs` *producer fn* has its own two named modes: one that throws surfaces `:rf.error/sub-input-fn-exception`, and one that returns something other than a vector of query vectors surfaces `:rf.error/sub-input-fn-bad-return`.
 
 The same misplacement happens one level up, and it trips people constantly. Computation in a **view body** runs on every render of that view, including renders caused by ancestors. Sorting, filtering, and formatting belong in a layer-2 sub; there they run once per input change and are shared by every consumer. Views just walk data and emit hiccup — the `[:div ...]` vector form re-frame2 uses to describe markup ([Views](../views.md)).
 

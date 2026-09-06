@@ -9,7 +9,7 @@ The pages here climb one rung at a time, and each stands alone — start whereve
 | Test… | The move | Page |
 |---|---|---|
 | an **event handler** | pluck it from the registrar, call it with literal coeffects, check the returned map | [Event handlers](event-handlers.md) |
-| a **subscription** | `compute-sub` against a db value — the whole `:<-` chain resolves for you | [Subscriptions](subscriptions.md) |
+| a **subscription** | `compute-sub` against a db value — the whole declared-`:inputs` chain resolves for you | [Subscriptions](subscriptions.md) |
 | a **view** | call it, walk the returned hiccup with `re-frame.test-helpers` | [Views](views.md) |
 | a **whole pipeline run** | `dispatch-sync` into a fresh frame with supplied facts and canned replies | [Pipeline runs](pipeline-runs.md) |
 

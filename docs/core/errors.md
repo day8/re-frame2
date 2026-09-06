@@ -407,7 +407,7 @@ the exact mirror of the event side:
   the hot recompute path, `:compute-sub` for the on-demand path) tells you which
   resolution path threw. The fix is the same defensive default you'd apply in a
   handler.
-- **A `subscribe` to an unregistered sub-id — or a `:<-` input naming one — emits
+- **A `subscribe` to an unregistered sub-id — or a declared `:inputs` entry naming one — emits
   `:rf.error/no-such-sub`** (recovery `:replaced-with-default`): the unresolved input
   is substituted with `nil` and the sub's body still runs. This is the render-phase
   twin of `:rf.error/no-such-handler`: a botched load order degrades to a `nil` read

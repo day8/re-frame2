@@ -231,9 +231,9 @@ Declare the guard alongside the routes it protects:
   "/settings")
 
 (rf/reg-sub :my-app/signed-in?
-  {:doc "The :can-enter auth guard: true when a user is signed in."}
-  :<- [:auth/user]
-  (fn [user _] (some? user)))                ;; true → OK to enter
+  {:doc "The :can-enter auth guard: true when a user is signed in."
+   :inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))               ;; true → OK to enter
 ```
 
 Three things about those five lines:

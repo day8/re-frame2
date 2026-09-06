@@ -199,9 +199,8 @@ is the trigger the table matches against `:on`. The first keyword is the
 This is an ordinary subscription, so projections are ordinary subscriptions too:
 
 ```clojure
-(rf/reg-sub :auth.login/error
-  :<- [:rf/machine :auth.login/flow]
-  (fn [snap _]
+(rf/reg-sub :auth.login/error {:inputs [[:rf/machine :auth.login/flow]]}
+  (fn [[snap] _]
     (get-in snap [:data :error])))
 ```
 

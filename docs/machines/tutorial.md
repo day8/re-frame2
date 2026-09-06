@@ -271,13 +271,11 @@ So `:store-session` reads `:value` and `:record-error` reads `:error`. Deeper ti
 Project the snapshot. Ask **tags** for shared intent. The credential draft is ordinary app-db form state — read it through a plain sub, not out of the machine.
 
 ```clojure
-(rf/reg-sub :auth.login/state
-  :<- [:rf/machine :auth.login/flow]
-  (fn [m _] (:state m)))
+(rf/reg-sub :auth.login/state {:inputs [[:rf/machine :auth.login/flow]]}
+  (fn [[m] _] (:state m)))
 
-(rf/reg-sub :auth.login/error
-  :<- [:rf/machine :auth.login/flow]
-  (fn [m _] (get-in m [:data :error])))
+(rf/reg-sub :auth.login/error {:inputs [[:rf/machine :auth.login/flow]]}
+  (fn [[m] _] (get-in m [:data :error])))
 
 (rf/reg-sub :auth.login/draft
   (fn [db _] (get-in db [:auth :login-form :draft])))
