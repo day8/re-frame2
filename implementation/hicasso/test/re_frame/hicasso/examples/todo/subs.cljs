@@ -5,12 +5,14 @@
   bottom reads `app-db`; nothing above it does. `h/sub` in a view reads
   the top.
 
-  The declared-input chain rather than `reg-sub`'s two-fn form throughout, and for
-  the reason the slice authoring report records: the two-fn form puts a
-  ONE-argument
-  input fn beside a TWO-argument computation fn in the same form, the
-  mistake compiles, and the chain has no such adjacency. Confirmed here
-  from a second application.
+  Dependencies are DECLARED under `:inputs` in the registration metadata
+  map, and a declared list always reaches the body as a vector. The v1
+  positional forms this file used to be written in — the `:<-` chain and
+  the two-trailing-fn tail — are retired (rf2-kuky.50), and the slice
+  authoring report's complaint about the second one went with them: it put
+  a ONE-argument input fn beside a TWO-argument computation fn in the same
+  form, where the mistake compiled. Under `:inputs` the producer is a
+  metadata VALUE, so there is no adjacency to confuse.
 
   ## The filter is not stored, so it cannot be stale
 

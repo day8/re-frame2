@@ -530,9 +530,11 @@
 
 ;; ---- handler-detection robustness (rf2-280fmh) ----------------------------
 ;;
-;; The fn-or-Var handler test + the two-trailing-fn parametric-form
-;; recognition replaced the original `(= 1 (count remaining))` /
-;; bare-`ifn?` parser. Downstream consumers (ssr / xray / pair-mcp) build
+;; The fn-or-Var handler test replaced the original bare-`ifn?` parser, and
+;; it outlived the two-trailing-fn form it was introduced alongside: with
+;; that form retired (rf2-kuky.50) `handler?` still decides whether the ONE
+;; trailing arg is a computation fn, and still has to accept a Var.
+;; Downstream consumers (ssr / xray / pair-mcp) build
 ;; subs through registration shapes the original parametric feature test
 ;; did NOT cover — chiefly the meta-map-prefixed `(reg-sub id meta-map
 ;; computation-fn)` form (ssr/core conformance corpora use exactly this),
