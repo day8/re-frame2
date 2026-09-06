@@ -83,21 +83,110 @@
 ;;   :input-fn       for the `:parametric` kind, the pure
 ;;                   (fn [query-v] -> [query-vector*]) input producer.
 ;;                   Absent for `:db` / `:static`.
+;;   :vector-inputs? TRANSITIONAL (deleted with the `:<-` grammar by
+;;                   rf2-kuky.50) — true when the sub DECLARED its
+;;                   dependencies under `:inputs`, so its body always
+;;                   receives them as a vector; false for the `:<-`
+;;                   chain, which keeps the v1 bare-for-one convention
+;;                   until the arrow grammar is deleted.
+;;
+;; The user writes ONE key — `:inputs` in the metadata map (rf2-kuky.45) —
+;; and the parser LIFTS it into the runtime-owned slots above. `:inputs` is
+;; never stored a second time on the registration, so `handler-meta` and
+;; every tool keep reading exactly the slots they already read.
+
+(declare normalize-sub-inputs)
+
+(defn- reg-sub-bad-args!
+  "Throw the tagged `:rf.error/reg-sub-bad-args` ex-info for a malformed
+  `reg-sub` registration shape (registration-time / dev-only per Spec 009).
+  `reg-sub` catches it, emits the structured dev trace, and re-throws."
+  [id reason received]
+  (rf.error/throw-error!
+    :rf.error/reg-sub-bad-args
+    'rf/reg-sub
+    reason
+    {:recovery :fix-registration
+     :extra    {:id       id
+                :received received}}))
+
+(defn declared-inputs->slots
+  "The ONE `:inputs` → runtime-slot normalization seam, shared by public
+  `reg-sub` (via `parse-reg-sub-args`) and inline-image `lower-inline-sub`
+  (EP-0026 — an inline registration follows the SAME registrar contract,
+  neither looser nor stricter). Given the user's `:inputs` VALUE it returns
+  the runtime-owned slots to install:
+
+    [query-vector*]  → {:input-kind :static  :input-signals <queries>}
+    fn-or-Var        → {:input-kind :parametric :input-fn <producer>}
+
+  both stamped `:vector-inputs? true` — a DECLARED dependency list is always
+  delivered to the body as a vector (Spec 006 §Subscription input producers;
+  ruled on rf2-kuky.45).
+
+  A literal is SHAPE-checked here, at registration, through the same pure
+  `normalize-sub-inputs` grammar the parametric producer's RETURN is checked
+  against (`[[:a] [:b :arg]]` — every element a vector with a keyword head),
+  so one grammar is expressed once. The check is shape-only and never a
+  registry lookup: `{:inputs [[:a]]}` registers before `:a` exists
+  (registration-order freedom). A producer fn/Var is NEVER executed here — it
+  is validated at materialisation, where a bad return is the distinct
+  `:rf.error/sub-input-fn-bad-return`.
+
+  Anything else — including an explicit `nil`, which is not \"absent\" —
+  raises `:rf.error/reg-sub-bad-args`."
+  [id inputs]
+  (cond
+    (vector? inputs)
+    {:input-kind     :static
+     :input-signals  (:queries
+                       (try
+                         (normalize-sub-inputs inputs)
+                         (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                           (reg-sub-bad-args!
+                             id
+                             (str "reg-sub `:inputs` must be a vector of query vectors "
+                                  "— e.g. {:inputs [[:items] [:filter :active]]}. "
+                                  (:reason (ex-data e)))
+                             inputs))))
+     :vector-inputs? true}
+
+    (or (fn? inputs) (var? inputs))
+    {:input-kind     :parametric
+     :input-fn       inputs
+     :input-signals  []
+     :vector-inputs? true}
+
+    :else
+    (reg-sub-bad-args!
+      id
+      (str "reg-sub `:inputs` must be either a vector of query vectors "
+           "(e.g. {:inputs [[:items] [:filter]]}) or a producer fn/Var of the "
+           "query vector (e.g. {:inputs (fn [[_ id]] [[:article id]])}). An "
+           "explicit nil is not \"absent\" — omit `:inputs` entirely for a "
+           "layer-1 app-db reader.")
+      inputs)))
 
 (defn- parse-reg-sub-args
-  "Accept the `:<-` shorthand, the layer-1 app-db-reader form, and the
-  two-function parametric `input-fn` form.
+  "Accept the `:inputs` metadata declaration, the layer-1 app-db-reader
+  form, and — TRANSITIONALLY, until rf2-kuky.50 deletes them — the `:<-`
+  shorthand and the two-function parametric `input-fn` form.
 
   Forms supported (Spec 006 §Subscription input producers, API
-  §`reg-sub` input-production modes):
-    (reg-sub :id (fn [db query] ...))                         ;; :db (layer-1)
-    (reg-sub :id :<- [:other-sub] (fn [other-val q] ...))     ;; :static single
-    (reg-sub :id :<- [:a] :<- [:b] (fn [[a b] q] ...))         ;; :static multi
+  §`reg-sub` `:inputs`):
+    (reg-sub :id (fn [db query] ...))                          ;; :db (layer-1)
+    (reg-sub :id {:inputs [[:a] [:b]]} (fn [[a b] q] ...))      ;; :static
+    (reg-sub :id {:inputs (fn [q] [[:a]])} (fn [[a] q] ...))    ;; :parametric
+    (reg-sub :id :<- [:other-sub] (fn [other-val q] ...))      ;; :static single
+    (reg-sub :id :<- [:a] :<- [:b] (fn [[a b] q] ...))          ;; :static multi
     (reg-sub :id (fn input [q] [[:a] [:b]]) (fn comp [in q] ...)) ;; :parametric
 
-  An optional metadata-map may precede any of these. The two-function
-  parametric form is recognised by two trailing fns with NO `:<-` chain
-  — the first is the `input-fn`, the second the computation fn.
+  A metadata-map may precede any of these; `:inputs` is read from it and
+  lifted into the runtime-owned slots by `declared-inputs->slots`. It is
+  OVER-SPECIFIED — and so `:rf.error/reg-sub-bad-args` — to combine
+  `:inputs` with a `:<-` chain or with two trailing fns. The two-function
+  parametric form is recognised by two trailing fns with NO `:<-` chain and
+  NO `:inputs` — the first is the `input-fn`, the second the computation fn.
 
   Returns a parsed map carrying `:input-kind` plus the kind-specific
   slots. Signals `:rf.error/reg-sub-bad-args` (a thrown, tagged ex-info
@@ -111,19 +200,45 @@
         ;; accept a malformed tail like `(reg-sub :id (fn …) :stray-kw)`.
         handler? (fn [x] (or (fn? x) (var? x)))
         meta? (and (map? (first args)) (not (vector? (first args))))
-        meta  (if meta? (first args) {})
+        raw-meta  (if meta? (first args) {})
+        ;; `:inputs` is the USER key; the runtime-owned slots it lifts into
+        ;; are the ONE representation, so it never rides the registration.
+        declared? (contains? raw-meta :inputs)
+        meta      (cond-> raw-meta declared? (dissoc :inputs))
         rest-args (if meta? (next args) args)
         bad!  (fn [reason received]
-                (rf.error/throw-error!
-                  :rf.error/reg-sub-bad-args
-                  'rf/reg-sub
-                  reason
-                  {:recovery :fix-registration
-                   :extra    {:id       id
-                              :received received}}))]
+                (reg-sub-bad-args! id reason received))]
     (loop [chain []
            remaining rest-args]
       (cond
+        ;; `:inputs` IS the dependency declaration — a `:<-` chain or a
+        ;; second trailing fn beside it is an over-specified, ambiguous
+        ;; registration with two disagreeing input producers.
+        (and declared?
+             (or (= :<- (first remaining))
+                 (and (= 2 (count remaining))
+                      (handler? (first remaining))
+                      (handler? (second remaining)))))
+        (bad! (str "reg-sub `:inputs` already declares this subscription's "
+                   "dependencies — it cannot be combined with a `:<-` chain "
+                   "or a second (input-fn) trailing fn. Keep `:inputs` and "
+                   "pass ONE computation fn.")
+              (vec remaining))
+
+        (and declared?
+             (= 1 (count remaining))
+             (handler? (first remaining)))
+        (merge {:id         id
+                :meta       meta
+                :handler-fn (first remaining)}
+               (declared-inputs->slots id (:inputs raw-meta)))
+
+        declared?
+        (bad! (str "reg-sub with `:inputs` expects exactly one trailing "
+                   "computation fn — (reg-sub :id {:inputs [[:a]]} "
+                   "(fn [[a] query-v] ...)).")
+              (vec remaining))
+
         (and (= :<- (first remaining))
              (vector? (second remaining)))
         (recur (conj chain (second remaining))
@@ -145,25 +260,32 @@
              (= 2 (count remaining))
              (handler? (first remaining))
              (handler? (second remaining)))
-        {:id         id
-         :meta       meta
-         :input-kind :parametric
-         :input-fn   (first remaining)
-         :handler-fn (second remaining)}
+        {:id             id
+         :meta           meta
+         :input-kind     :parametric
+         :input-fn       (first remaining)
+         ;; A parametric producer has ALWAYS delivered a vector, at any
+         ;; realized count — the same rule `:inputs` now states outright.
+         :vector-inputs? true
+         :handler-fn     (second remaining)}
 
         ;; Single trailing fn — layer-1 app-db reader (`:db`) when no
         ;; `:<-` chain, else the `:static` `:<-` computation fn.
         (and (= 1 (count remaining))
              (handler? (first remaining)))
-        {:id            id
-         :meta          meta
-         :input-kind    (if (empty? chain) :db :static)
-         :input-signals chain
-         :handler-fn    (first remaining)}
+        {:id             id
+         :meta           meta
+         :input-kind     (if (empty? chain) :db :static)
+         :input-signals  chain
+         ;; TRANSITIONAL: the `:<-` chain keeps the v1 bare-for-one
+         ;; convention verbatim until rf2-kuky.50 deletes the grammar.
+         :vector-inputs? false
+         :handler-fn     (first remaining)}
 
         :else
         (bad! (str "reg-sub expects one of: layer-1 app-db reader "
-                   "(computation-fn), static inputs "
+                   "(computation-fn), declared inputs "
+                   "({:inputs [[:a] [:b]]} computation-fn), static inputs "
                    "(:<- [:a] :<- [:b] computation-fn), or parametric "
                    "inputs (input-fn computation-fn). The trailing arg(s) "
                    "must be the required function(s).")
@@ -201,38 +323,46 @@
   "Register a subscription under `id`. The sole sub-registration form
   (per Spec 002 §Subscriptions composing).
 
-  Four shapes — one per input-producer kind (Spec 006 §Subscription
-  input producers):
+      (reg-sub id ?metadata computation-fn)
 
-      ;; :db — Layer-1: reads `app-db` directly (no input producer).
+  A subscription declares its dependencies ONCE, under `:inputs` in the
+  metadata map, and a declared dependency list ALWAYS arrives at the body
+  as a VECTOR — at zero, one or many inputs (Spec 006 §Subscription input
+  producers; ruled on rf2-kuky.45). Moving a dependency between a literal
+  and a computed producer never changes the body's shape, and adding a
+  second input never flips a scalar argument into a vector.
+
+      ;; No `:inputs` — Layer-1: the body reads `app-db` directly.
       (reg-sub :id
         (fn [db query-v] ...derived-value...))
 
-      ;; :static, single input — the literal `:<-` producer chains off
-      ;; one upstream sub.
-      (reg-sub :id
-        :<- [:upstream-id]
-        (fn [upstream-val query-v] ...derived-value...))
+      ;; :inputs as a literal vector of query vectors — a `:static`
+      ;; dependency list, known and shape-checked at registration.
+      (reg-sub :cart/by-price {:inputs [[:cart/items]]}
+        (fn [[items] _] (sort-by :price items)))
 
-      ;; :static, multi input — the literal `:<-` producer chains off N
-      ;; upstream subs.
-      (reg-sub :id
-        :<- [:a-sub]
-        :<- [:b-sub]
-        (fn [[a-val b-val] query-v] ...derived-value...))
+      (reg-sub :cart/visible {:inputs [[:cart/by-price] [:cart/filter]]}
+        (fn [[items f] _] (filter f items)))
 
-      ;; :parametric — an `input-fn` producer (two trailing fns, NO `:<-`
-      ;; chain). The first fn is a pure `query-v -> vector-of-query-vectors`
-      ;; that computes the inputs PER concrete query; the second is the
-      ;; computation fn over those realized inputs.
-      (reg-sub :id
-        (fn [query-v] [[:a (second query-v)] [:b]])   ;; input-fn
-        (fn [[a-val b-val] query-v] ...derived-value...))
+      ;; :inputs as a producer fn (or Var) — a `:parametric` dependency
+      ;; list, realized per concrete `query-v`. Pure; never executed at
+      ;; registration.
+      (reg-sub :article/page {:inputs (fn [[_ id]] [[:article/by-id id] [:viewer]])}
+        (fn [[article viewer] query-v] ...derived-value...))
 
-  An optional metadata-map may precede the `:<-` chain / handler:
-  `(reg-sub :id {:doc \"...\" :schema ...} ...)`. The `query-v` arg the
-  handler receives is the full `[sub-id & args]` subscription vector
-  the caller passed to `subscribe`.
+  `{:inputs []}` declares NO dependencies and delivers `[]`; OMITTING
+  `:inputs` is the layer-1 app-db reader. The two are distinct by design.
+
+  The metadata map is the same one every registrar takes
+  (`{:doc \"...\" :schema ... :inputs ...}`). The `query-v` arg the handler
+  receives is the full `[sub-id & args]` subscription vector the caller
+  passed to `subscribe`.
+
+  TRANSITIONAL (deleted by rf2-kuky.50, with no release in between): the
+  v1 `:<-` chain and the two-trailing-fn `input-fn` tail are still
+  accepted with their EXACT prior semantics — a single `:<-` input is
+  delivered bare, ≥2 as a vector. Combining either with `:inputs` is
+  over-specified and raises `:rf.error/reg-sub-bad-args`. Write `:inputs`.
 
   Returns `id`. Re-registering an existing `id` replaces the prior
   registration; cached entries for the affected sub are invalidated
@@ -242,9 +372,8 @@
 
       (rf/reg-sub :user/name (fn [db _] (get-in db [:user :name])))
 
-      (rf/reg-sub :user/initials
-        :<- [:user/name]
-        (fn [name _]
+      (rf/reg-sub :user/initials {:inputs [[:user/name]]}
+        (fn [[name] _]
           (clojure.string/join (map first (clojure.string/split name #\"\\s+\")))))
 
   See also: `subscribe` (reactive form), `subscribe-once` (one-shot
@@ -268,7 +397,7 @@
                                          :reason    reason
                                          :recovery  :no-recovery}))
                    (throw e)))
-        {:keys [meta handler-fn input-kind input-signals input-fn]} parsed]
+        {:keys [meta handler-fn input-kind input-signals input-fn vector-inputs?]} parsed]
     ;; rf2-vxgfnd.219 — one shared normalization seam validates the retired /
     ;; unknown registration KEYS (rf2-x68lzo — a retired `:spec` hard-errors,
     ;; unknown bare keys warn) AND the EP-0025 `:sensitive` / `:large`
@@ -283,7 +412,11 @@
                      :handler-fn    handler-fn
                      :input-kind    input-kind
                      :input-signals (or input-signals []))
-        input-fn (assoc :input-fn input-fn)))
+        input-fn       (assoc :input-fn input-fn)
+        ;; TRANSITIONAL slot (rf2-kuky.50 deletes it with the `:<-`
+        ;; grammar): only a `:<-` chain still delivers bare-for-one, so
+        ;; only it needs the discriminator recorded.
+        vector-inputs? (assoc :vector-inputs? true)))
     ;; Per Spec 009 §:op-type vocabulary: :rf.sub/create marks subscription
     ;; materialisation — emitted at registration time so tools see when
     ;; the sub becomes available in the registry.
@@ -1248,7 +1381,13 @@
                                                (doseq [input-q @acquired]
                                                  (release-input-ref! frame-id input-q :sub-cycle-unwind)))
                                              (throw e))))))
-        parametric?   (= :parametric input-kind)
+        ;; A DECLARED dependency list (`{:inputs …}`, literal or producer)
+        ;; and the transitional two-fn parametric tail deliver their input
+        ;; values to the body as a VECTOR at every realized count. Only the
+        ;; transitional `:<-` chain still delivers bare-for-one, so the
+        ;; parser stamps this discriminator and rf2-kuky.50 deletes it with
+        ;; the arrow grammar.
+        vector-inputs? (boolean (:vector-inputs? sub-meta))
         memoised-body (cond
                         input-error?
                         ;; Recovery body: a constant nil reaction (Spec 009
@@ -1282,31 +1421,36 @@
                           (first inputs))
 
                         ;; PARAMETRIC subs (any realized input count,
-                        ;; including 1) deliver a VECTOR of input values to
-                        ;; the computation fn — `(fn [[a b] q] ...)` — per
-                        ;; Spec 006 §Single input contract. Route through the
-                        ;; varargs layer-n wrapper with `vector-inputs? true`
-                        ;; so even a single realized parametric input is
-                        ;; delivered as `[value]`, NOT the bare-value `:<-`
-                        ;; convention.
-                        parametric?
+                        ;; including 0 and 1) deliver a VECTOR of input
+                        ;; values to the computation fn at every count.
+                        ;; Their realized topology is per-query-v, so they
+                        ;; keep the varargs wrapper rather than picking up
+                        ;; the single-input specialisation at a count that
+                        ;; the NEXT query vector may not repeat.
+                        (= :parametric input-kind)
                         (rf.subs.memo/make-layer-n-memoised-body
-                          body-fn query-id query-v frame-id input-qs sub-meta true)
+                          body-fn query-id query-v frame-id input-qs sub-meta
+                          vector-inputs?)
 
-                        ;; Static `:<-` with a single input — the dominant
-                        ;; shape; specialise to fixed-arity-1 for
-                        ;; parity with layer-1. Delivers the bare
-                        ;; value (the v1 `:<-` single-input convention).
+                        ;; A single declared input — the dominant layer-2
+                        ;; shape; specialise to fixed-arity-1 for parity with
+                        ;; layer-1 (the allocation profile is why this arm
+                        ;; exists). `vector-inputs?` decides only the body's
+                        ;; ARGUMENT: `[v0]` for an `:inputs` declaration, the
+                        ;; bare value for the transitional `:<-` chain. The
+                        ;; memo cells compare the upstream value either way,
+                        ;; so the memo-hit structure is identical.
                         ;; `(first inputs)` — the lone upstream reaction, for
                         ;; the same movement-witness resolution as layer-1
                         ;; (rf2-gncxk.1).
                         (= 1 (count input-qs))
                         (rf.subs.memo/make-layer-n-single-input-memoised-body
                           body-fn query-id query-v frame-id input-qs sub-meta
-                          (first inputs))
+                          (first inputs) vector-inputs?)
                         :else
                         (rf.subs.memo/make-layer-n-memoised-body
-                          body-fn query-id query-v frame-id input-qs sub-meta))
+                          body-fn query-id query-v frame-id input-qs sub-meta
+                          vector-inputs?))
         reaction      (rf.substrate.adapter/make-derived-value inputs memoised-body)
         ;; A parametric input-production failure recovers to a nil-yielding
         ;; reaction that is NOT cached (mirroring the no-such-sub miss):
@@ -2053,7 +2197,10 @@
                           ;; whole sub to nil (already emitted above).
                           nil
                           (try
-                          (let [parametric? (= :parametric input-kind)
+                          (let [;; Same discriminator the reactive build reads,
+                                ;; so `compute-sub`, `subscribe-once` and the
+                                ;; reactive path AGREE on the body's argument.
+                                vector-inputs? (boolean (:vector-inputs? meta))
                                 raw (cond
                                       ;; Layer-1-shaped (`:db` / `:runtime-db` /
                                       ;; `:frame-state` — see the `layer-1?` set
@@ -2068,21 +2215,20 @@
                                       layer-1?
                                       (body-fn (partition-value-for-sub db input-kind) query-v)
 
-                                      ;; PARAMETRIC subs deliver a VECTOR of
-                                      ;; resolved input values (producer
-                                      ;; order) to the computation fn at ANY
-                                      ;; count — `(fn [[a] q] ...)` even for a
-                                      ;; single input (EP §Single input). This
-                                      ;; mirrors the reactive path's
-                                      ;; `vector-inputs?` delivery so
-                                      ;; `compute-sub` and `subscribe-once`
-                                      ;; AGREE for parametric subs.
-                                      parametric?
+                                      ;; DECLARED dependencies (`{:inputs …}`,
+                                      ;; literal or producer) and the
+                                      ;; transitional two-fn parametric tail
+                                      ;; deliver a VECTOR of resolved input
+                                      ;; values in producer order at ANY count
+                                      ;; — `[]` for `{:inputs []}`, `[v]` for
+                                      ;; one, `[a b]` for two.
+                                      vector-inputs?
                                       (body-fn (mapv #(compute-sub* % db memo) input-qs) query-v)
 
-                                      ;; Static `:<-` with zero realized
-                                      ;; inputs delivers `(body-fn nil
-                                      ;; query-v)` — matching the reactive
+                                      ;; TRANSITIONAL `:<-` chain (rf2-kuky.50
+                                      ;; deletes these three arms with the
+                                      ;; grammar). Zero realized inputs
+                                      ;; delivers `nil` — matching the reactive
                                       ;; path's `(empty? input-signals)`
                                       ;; delivery in
                                       ;; `subs.memo/validate-and-trace`.
@@ -2469,19 +2615,20 @@
 ;; computation fn under `:impl`. For the inline sub to COMPUTE through a
 ;; frame-targeted subscribe, the assembled generation's resolver descriptor
 ;; must carry the SAME runnable slots `reg-sub` installs — `:handler-fn` +
-;; the `:input-kind` / `:input-signals` discriminators the sub-cache reads.
-;; The inline tuple `[id metadata body]` carries exactly ONE body fn and no
-;; `:<-` chain, so the lowered shape is the layer-1 app-db reader (`:input-kind
-;; :db`), the only sub shape expressible inline (a `:<-` static / parametric
-;; sub needs the chain / two-fn form `reg-sub` parses, which the inline tuple
-;; cannot carry). Closes the EP-0023 §Image Fragments "same runtime descriptor
+;; the `:input-kind` / `:input-signals` / `:input-fn` discriminators the
+;; sub-cache reads. The inline tuple `[id metadata body]` carries exactly ONE
+;; body fn, and dependencies are now DECLARED IN THE METADATA (`:inputs`)
+;; rather than positionally — so a DERIVED sub is expressible inline, lowered
+;; through `declared-inputs->slots`, the same seam public `reg-sub` uses.
+;; Omitting `:inputs` still lowers to the layer-1 app-db reader (`:input-kind
+;; :db`). Closes the EP-0023 §Image Fragments "same runtime descriptor
 ;; shape" contract for subs. Published via late-bind (image-assembly cannot
 ;; static-require this ns — subs requires live-frame requires image-assembly).
 
 (defn lower-inline-sub
   "Lower an inline `:reg-sub` descriptor's raw computation fn into the runnable
-  layer-1 (`:input-kind :db`) sub slots `reg-sub` installs (`:handler-fn` +
-  `:input-kind :db` + empty `:input-signals`). `metadata` is NORMALIZED ONCE
+  sub slots `reg-sub` installs (`:handler-fn` + `:input-kind` /
+  `:input-signals` / `:input-fn`). `metadata` is NORMALIZED ONCE
   through the SAME `normalize-sub-metadata` seam public `reg-sub` runs
   (rf2-vxgfnd.219), so an inline registration accepts, rejects, and elides
   identical metadata: a retired bare `:spec` hard-errors with
@@ -2490,6 +2637,14 @@
   `:doc` — neither looser nor stricter than the public path. Normalization is
   side-effect-free with respect to the global registrar; the runtime-owned
   runnable slots are installed AFTER it, so metadata can never override them.
+
+  DEPENDENCIES: an inline `:reg-sub` declaring `{:inputs …}` lowers through
+  `declared-inputs->slots` — the SAME normalization the public registrar runs
+  — so an inline DERIVED sub (`:static` or `:parametric`) is registered,
+  cached, and reported by `sub-topology` exactly as a namespace-authored one
+  is, and a malformed literal raises the same `:rf.error/reg-sub-bad-args`.
+  Omitting `:inputs` lowers to the layer-1 app-db reader. `:inputs` is lifted,
+  never retained: the runtime-owned slots are the ONE representation.
 
   `id` is the AUTHORED descriptor id (e.g. `:counter/value`) threaded from the
   image-assembly lowering boundary (rf2-vxgfnd.257), so a retired/unknown-key or
@@ -2504,11 +2659,15 @@
   map into the descriptor's nested `:metadata` for inspection/dedupe rather than
   retaining a second, raw copy that would leak dev-only `:doc` into production."
   [id metadata impl]
-  (let [normalized (normalize-sub-metadata 'rf/reg-sub id metadata)]
-    (cond-> (assoc normalized
-                   :handler-fn    impl
-                   :input-kind    :db
-                   :input-signals [])
+  (let [normalized (normalize-sub-metadata 'rf/reg-sub id metadata)
+        slots      (if (contains? normalized :inputs)
+                     (declared-inputs->slots id (:inputs normalized))
+                     {:input-kind :db :input-signals []})
+        ;; `:inputs` is the USER key; it lifts into the runtime-owned slots
+        ;; and is not carried a second time — on the descriptor's top level
+        ;; or in its nested `:metadata`.
+        normalized (dissoc normalized :inputs)]
+    (cond-> (merge normalized {:handler-fn impl} slots)
       (seq normalized) (assoc :metadata normalized))))
 
 (rf.late-bind/set-fn! :image/lower-inline-sub lower-inline-sub)

@@ -288,7 +288,7 @@
   `.fx` / `.cofx`'s `:image/lower-inline-<kind>`):
 
     :reg-event → :event
-    :reg-sub   → :sub  (the layer-1 db-reader form ONLY)
+    :reg-sub   → :sub
     :reg-fx    → :fx
     :reg-cofx  → :cofx
 
