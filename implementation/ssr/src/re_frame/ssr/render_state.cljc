@@ -296,6 +296,14 @@
                       :key       k
                       :half      (if bad-key? :key :value)}})))))
 
+;; The SSR liveness PRECONDITION — and a DELIBERATE throw. This id
+;; recover-but-emits in the OPERATION realms (dispatch / dispatch-sync /
+;; subscribe), where a teardown / hot-reload destroy is indistinguishable
+;; from a real use-after-destroy bug. A server render has no such race: it
+;; is a synchronous call from application code whose caller can handle the
+;; refusal, and half-projected markup for a dead frame is worse than a loud
+;; one. Recorded on the `:rf.error/frame-destroyed` row of Spec 009
+;; §Error contract (rf2-t6yr) — do not "fix" this to recover.
 (defn- require-live-frame! [frame-id]
   (when-not (frame/frame frame-id)
     (error/throw-error!
