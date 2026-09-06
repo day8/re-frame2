@@ -74,20 +74,19 @@ A build *may* carry two adapters on its classpath, but `init!` installs exactly 
 | Substrate | Coordinate | View library |
 |---|---|---|
 | Reagent | `day8/re-frame2-reagent` | `reagent` (hiccup) |
-| UIx | `day8/re-frame2-uix` | `com.pitch/uix.core` **and** `com.pitch/uix.dom` (UIx 2 publishes as Maven 1.x) |
+| UIx | `day8/re-frame2-uix` | `com.pitch/uix.core` (UIx 2 publishes as Maven 1.x) |
 | reagent-slim | `day8/reagent-slim` | `reagent2` (ships inside it) |
 
-UIx is the one row that needs two view-library coordinates, and it is worth a sentence because the adapter will not supply the second for you. `day8/re-frame2-uix` depends on `com.pitch/uix.core` — the adapter's own source needs it — but it deliberately does *not* depend on `com.pitch/uix.dom`, because mounting a React root is the application's call, not the adapter's, and a headless or server-side UIx consumer should not pay for it. Every mount you will write from Step 4 on calls `uix.dom/create-root`, so name both, at the same version:
+One view-library coordinate is the whole of it. `day8/re-frame2-uix` depends on `com.pitch/uix.core` — the adapter's own source needs it — and deliberately does *not* depend on `com.pitch/uix.dom`, because a headless or server-side UIx consumer should not pay for a DOM renderer. Your app does not need it either: the adapter publishes its own root door (Step 4), and the React Root behind it is minted by the shared spine through `react-dom/client`.
 
 ```clojure
 ;; deps.edn for a UIx app — the complete recipe.
 {:deps {day8/re-frame2     {:mvn/version "<latest>"}   ; core
         day8/re-frame2-uix {:mvn/version "<latest>"}   ; the UIx adapter
-        com.pitch/uix.core {:mvn/version "1.4.4"}      ; defui / $ / hooks
-        com.pitch/uix.dom  {:mvn/version "1.4.4"}}}    ; create-root / render-root
+        com.pitch/uix.core {:mvn/version "1.4.4"}}}    ; defui / $ / hooks
 ```
 
-`<latest>` is the released `day8/re-frame2` version (every re-frame2 artefact ships in lockstep at that one version); the two `com.pitch` coordinates are third-party and carry their own version, which must match each other. Drop `com.pitch/uix.dom` and everything still *reads* fine right up until the compiler cannot resolve `uix.dom` at your mount.
+`<latest>` is the released `day8/re-frame2` version (every re-frame2 artefact ships in lockstep at that one version); the `com.pitch` coordinate is third-party and carries its own version. Add `com.pitch/uix.dom` — pinned at the same version as `uix.core` — only when you write component tests that drive a root by hand, the recipe [Testing views](../testing/views.md) shows.
 
 !!! note "Coordinates are not published yet"
 
@@ -101,7 +100,6 @@ Here's the part people are usually nervous about, and it turns out to be the eas
 ;; Adapted from examples/substrates/uix/counter/core.cljs
 (ns my-app.views
   (:require [uix.core :refer [$ defui]]
-            [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
             [re-frame.adapter.uix :as uix-adapter]))
 
@@ -172,12 +170,18 @@ Step 3 said the surrounding provider supplies a view's ambient frame. This is th
 So the last move is to mount the root inside it. The scope shape takes a `:frame` opt naming an already-registered frame, with the subtree as idiomatic `$` trailing children:
 
 ```clojure
-;; react-root is your (uix-dom/create-root (js/document.getElementById "app"))
-(uix-dom/render-root
-  ($ uix-adapter/frame-provider {:frame :rf/default}
-     ($ counter-app))
-  react-root)
+;; The adapter's own root handle. Inert at allocation — no DOM work — so this
+;; is safe at namespace load, and `defonce` keeps ONE Root across hot reloads.
+(defonce app-root (uix-adapter/client-root))
+
+(defn ^:dev/after-load mount! []
+  (uix-adapter/render! app-root
+    ($ uix-adapter/frame-provider {:frame :rf/default}
+       ($ counter-app))
+    (js/document.getElementById "app")))
 ```
+
+That is the whole mount, and it is the same three names a Reagent app uses: `client-root` allocates an opaque handle, the first `render!` through it creates the React Root (or hydrates one, with `{:hydrate? true}`), and every later call updates that *same* Root — which is why one function is both the boot path and the `^:dev/after-load` hook. `unmount!` releases it and is idempotent. No `com.pitch/uix.dom`, no caller-owned root atom, and no create-or-render branch to write. The one substrate difference is the tree: `render!` takes a React element built with `$`, and handing it hiccup fails loud with `:rf.error/hiccup-on-element-render-slot` rather than spraying React child errors.
 
 Children ride the native `$` trailing-args channel — `($ frame-provider {:frame :f} ($ a) ($ b))` — exactly the shape every other UIx component uses. No `:children` prop-map key to remember, so no key to forget.
 

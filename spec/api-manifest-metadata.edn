@@ -137,6 +137,15 @@
   {:namespace "re-frame.adapter.uix" :var "wrap-view"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  ;; rf2-kuky.56 — the same reusable client root the ratom adapters publish
+  ;; (rf2-k5r9t), now on every React view adapter: allocate inert, render
+  ;; (create or hydrate once, then update the same Root), unmount
+  ;; idempotently. The tree is a React ELEMENT here (`uix.core/$`) rather
+  ;; than hiccup; everything else is the Reagent contract verbatim, and both
+  ;; ride the shared spine factory so they cannot drift.
+  {:namespace "re-frame.adapter.uix" :var "client-root"         :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "render!"             :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix" :var "unmount!"            :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; --- Xray (day8/re-frame2-xray) — the live public surface (rf2-jhn46).
   ;;     Migrated off the `:xray-spec-known-unmanifested` allowlist into real
   ;;     :cljs-only rows so the gkp0t Xray-spec projection check resolves them

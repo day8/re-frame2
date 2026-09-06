@@ -283,7 +283,8 @@ not a silent dead button. The fix is the require list in the `ns` form above.
   adds URL routing, a `hashchange` listener, and `:url-bound? true`.
 
 The UIx examples use the same lifecycle. Only the adapter and the render call
-change — UIx apps hold a `uix.dom` root themselves.
+change — the UIx adapter publishes the same `client-root` / `render!` /
+`unmount!` trio as Reagent, over a React element instead of hiccup.
 
 ??? info "From re-frame v1"
 
