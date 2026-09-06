@@ -8,7 +8,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. The :action and :justification columns are the facade-audit axes (spec/Conventions.md §Facade policy fields 4 and 3) — also curated, and present on :facade? true rows ONLY, which is why most rows carry neither. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 538,
+ :var-count 541,
  :tier-vocab
  [:front-porch
   :advanced
@@ -76,10 +76,13 @@
   {:namespace "re-frame.adapter.reagent", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent", :var "unmount!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "client-root", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "flush-views!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "frame-provider", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "frame-root", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "render!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "set-hiccup-emitter!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.adapter.uix", :var "unmount!", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "use-current-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "use-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "use-subscribe", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
