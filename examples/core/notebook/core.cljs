@@ -115,7 +115,7 @@
 (rf/reg-sub :notebook/selected-id
   (fn [db _] (:notebook/selected-id db)))
 
-;; Subs compose. The `:<-` lines wire this sub's inputs to other subs —
+;; Subs compose. The `:inputs` vector wires this sub's inputs to other subs —
 ;; here, the documents and the selected id — and the body below is a plain
 ;; function of their values. The payoff is that it recomputes only when
 ;; one of those inputs actually changes, and the subs downstream (`-body`,

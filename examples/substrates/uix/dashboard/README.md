@@ -36,9 +36,9 @@ each metric's series to the last N points:
 
 ```clojure
 (rf/reg-sub :dashboard/visible-metrics
-  :<- [:dashboard/metrics]
-  :<- [:dashboard/active-tags]
-  :<- [:dashboard/selected-range]
+  {:inputs [[:dashboard/metrics]
+            [:dashboard/active-tags]
+            [:dashboard/selected-range]]}
   (fn [[metrics active-tags {:keys [points]}] _]
     (->> metrics
          (filter #(contains? active-tags (:tag %)))

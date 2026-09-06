@@ -57,8 +57,8 @@ body through the markdown parser:
 
 ```clojure
 (rf/reg-sub :notebook/selected-hiccup
-  :<- [:notebook/selected-body]
-  (fn [body _] (markdown->hiccup body)))
+  {:inputs [[:notebook/selected-body]]}
+  (fn [[body] _] (markdown->hiccup body)))
 ```
 
 The preview view subscribes to `:notebook/selected-hiccup` and splices

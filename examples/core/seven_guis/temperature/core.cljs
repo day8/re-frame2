@@ -110,9 +110,10 @@
 ;;
 ;; A little two-layer graph. Three tiny *extractors* (Layer 1) pluck the raw
 ;; fields straight out of the slice: :temp/active, :temp/canonical-celsius,
-;; :temp/typing. Then two *derivations* (Layer 2) chain off all three with
-;; `:<-` to compute what each box should actually display. The view reads only
-;; those two `-text` subs and stays blissfully unaware of the rest.
+;; :temp/typing. Then two *derivations* (Layer 2) chain off all three — named
+;; in their `:inputs` — to compute what each box should actually display. The
+;; view reads only those two `-text` subs and stays blissfully unaware of the
+;; rest.
 ;;
 ;; The cleverness all lives in the two `-text` subs, and it's one rule: for
 ;; the box you're *currently editing*, hand back your raw keystrokes; for the
@@ -120,7 +121,7 @@
 ;; pass-through vs. derive — which is the whole reason typing "1." doesn't
 ;; reformat itself out from under you mid-keystroke.
 ;;
-;; For the layers, the equality gate, and the `:<-` arrow in full, see
+;; For the layers, the equality gate, and the `:inputs` slot in full, see
 ;; `docs/core/subscriptions.md`.
 
 (rf/reg-sub :temp/active
