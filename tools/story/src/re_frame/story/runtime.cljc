@@ -49,11 +49,7 @@
             [re-frame.story.requirements :as rf.story.requirements]
             [re-frame.story.result    :as rf.story.result]
             [re-frame.interop         :as rf.interop]
-            [re-frame.trace           :as rf.trace]
-            ;; The listener API lives in `re-frame.trace.tooling`
-            ;; (production-DCE split). The hot-path emit fast-path
-            ;; (`rf.trace/emit!`) stays in `re-frame.trace`.
-            [re-frame.trace.tooling   :as rf.trace.tooling]))
+            [re-frame.trace           :as rf.trace]))
 
 ;; ---- empty / disabled result ---------------------------------------------
 
@@ -100,9 +96,9 @@
   [listener body-fn]
   (let [cb-id (keyword "re-frame.story.runtime"
                        (str "capture-" (swap! capture-counter inc)))]
-    (rf.trace.tooling/register-listener! cb-id listener)
+    (rf/register-listener! :trace cb-id listener)
     (try (body-fn)
-      (finally (rf.trace.tooling/unregister-listener! cb-id)))))
+      (finally (rf/unregister-listener! :trace cb-id)))))
 
 (defn- capture-phase-errors
   "Run `body-fn` (a 0-arg thunk) with a registered trace listener that

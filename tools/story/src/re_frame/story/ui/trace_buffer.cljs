@@ -29,9 +29,7 @@
   builds (`enabled?` false via `:closure-defines`) elide every Story
   surface, including the load-time clear-on-toggle-off hook below."
   (:require [reagent.core :as r]
-            ;; rf2-qwm0a — listener API lives in
-            ;; `re-frame.trace.tooling` (production-DCE split).
-            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.core :as rf]
             ;; rf2-7737vq — the canonical RAW trace-event frame reader
             ;; (`re-frame.trace/trace-event-frame`), replacing Story's
             ;; hand-rolled `[:tags :frame]` read.
@@ -161,7 +159,7 @@
   [variant-id]
   (when rf.story.config/enabled?
     (let [id (listener-id variant-id)]
-      (rf.trace.tooling/register-listener! id
+      (rf/register-listener! :trace id
         (fn [ev]
           (when (variant-event? variant-id ev)
             ;; rf2-6z4znr — the listener is per-variant; resolve the suppress
@@ -176,5 +174,5 @@
   "Tear down the trace listener for `variant-id`. Idempotent."
   [variant-id]
   (when rf.story.config/enabled?
-    (rf.trace.tooling/unregister-listener! (listener-id variant-id))
+    (rf/unregister-listener! :trace (listener-id variant-id))
     nil))

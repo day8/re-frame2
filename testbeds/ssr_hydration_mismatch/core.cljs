@@ -40,9 +40,6 @@
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.ssr :as rf.ssr]
-            ;; rf2-qwm0a — listener surface lives in
-            ;; `re-frame.trace.tooling` (production-DCE split).
-            [re-frame.trace.tooling :as rf.trace.tooling]
             [cljs.reader])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -78,7 +75,7 @@
       (:recovery ev)       (assoc :recovery (str (:recovery ev))))))
 
 (defn install-trace-listener! []
-  (rf.trace.tooling/register-listener! ::ssr-hydration-mismatch-listener
+  (rf/register-listener! :trace ::ssr-hydration-mismatch-listener
     (fn [ev]
       (let [op (:operation ev)]
         (when (and op

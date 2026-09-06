@@ -44,6 +44,7 @@
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             [re-frame.story.schemas    :as rf.story.schemas]
             [re-frame.trace.tooling    :as rf.trace.tooling]
+            [re-frame.trace            :as rf.trace]
             [malli.core                :as m]))
 
 ;; ---- fixtures -------------------------------------------------------------
@@ -424,14 +425,18 @@
             the variant is destroyed, the listener is UNREGISTERED — it does
             not survive teardown to inspect future trace events (rf2-294yq5.4)"
     (let [live (atom #{})]
-      ;; Instrument the trace-tooling registry so the test observes which
-      ;; listener ids are live without reaching into its private atom.
-      (with-redefs [rf.trace.tooling/register-listener!
+      ;; Instrument the trace registry so the test observes which listener
+      ;; ids are live without reaching into its private atom. Redefine the
+      ;; `re-frame.trace` vars, NOT their `re-frame.trace.tooling`
+      ;; originals: `trace.cljc` binds them with `def`, which captures the
+      ;; tooling fn VALUE at load time, so a redef of the tooling var is
+      ;; invisible to the `rf/register-listener!` facade path Story uses.
+      (with-redefs [rf.trace/register-listener!
                     (fn [id f]
                       (swap! live conj id)
                       (swap! @#'rf.trace.tooling/listeners assoc id f)
                       id)
-                    rf.trace.tooling/unregister-listener!
+                    rf.trace/unregister-listener!
                     (fn [id]
                       (swap! live disj id)
                       (swap! @#'rf.trace.tooling/listeners dissoc id)
@@ -452,12 +457,12 @@
             second play trace listener; each run installs one and the prior
             is gone (rf2-294yq5.4)"
     (let [live (atom #{})]
-      (with-redefs [rf.trace.tooling/register-listener!
+      (with-redefs [rf.trace/register-listener!
                     (fn [id f]
                       (swap! live conj id)
                       (swap! @#'rf.trace.tooling/listeners assoc id f)
                       id)
-                    rf.trace.tooling/unregister-listener!
+                    rf.trace/unregister-listener!
                     (fn [id]
                       (swap! live disj id)
                       (swap! @#'rf.trace.tooling/listeners dissoc id)

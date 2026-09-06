@@ -61,10 +61,6 @@
                          trace-listener install + teardown; idempotent.
   - `play-stepper-active?` / `step-once!` — UI play-stepper hooks."
   (:require [re-frame.core             :as rf]
-            ;; The listener surface (`register-listener!` /
-            ;; `unregister-listener!`) lives in `re-frame.trace.tooling`
-            ;; (production-DCE split).
-            [re-frame.trace.tooling    :as rf.trace.tooling]
             ;; The canonical RAW trace-event frame reader
             ;; (`re-frame.trace/frame-of`) reads the frame off a trace event.
             [re-frame.trace            :as rf.trace]
@@ -199,14 +195,14 @@
   [frame-id]
   (when rf.story.config/enabled?
     (let [id (listener-id frame-id)]
-      (rf.trace.tooling/register-listener! id (listener-for-frame frame-id))
+      (rf/register-listener! :trace id (listener-for-frame frame-id))
       id)))
 
 (defn remove-trace-listener!
   "Tear down the per-frame trace listener for `frame-id`. Idempotent."
   [frame-id]
   (when rf.story.config/enabled?
-    (rf.trace.tooling/unregister-listener! (listener-id frame-id))
+    (rf/unregister-listener! :trace (listener-id frame-id))
     nil))
 
 ;; ---------------------------------------------------------------------------
