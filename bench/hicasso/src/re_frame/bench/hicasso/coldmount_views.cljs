@@ -192,10 +192,10 @@
   ;; the static literal `:<-` form cannot express. A parametric single
   ;; input is delivered as `[value]` (Spec 006 §Single input contract).
   (rf/reg-sub :cm/l2
-    (fn [qv] [[:p0/cell (second qv)]])
+    {:inputs (fn [qv] [[:p0/cell (second qv)]])}
     (fn [[cell] _] cell))
   (rf/reg-sub :cm/l3
-    (fn [qv] [[:cm/l2 (second qv)]])
+    {:inputs (fn [qv] [[:cm/l2 (second qv)]])}
     (fn [[cell] _] cell))
   ;; -- the witness chain: identical shape, plus one counter per body ------
   (rf/reg-sub :cm/w1
@@ -203,12 +203,12 @@
       (aset witness-counters "body1" (inc (aget witness-counters "body1")))
       (nth (:cells db) (mod i rf.bench.hicasso.p0-reagent-views/cells-n))))
   (rf/reg-sub :cm/w2
-    (fn [qv] [[:cm/w1 (second qv)]])
+    {:inputs (fn [qv] [[:cm/w1 (second qv)]])}
     (fn [[cell] _]
       (aset witness-counters "body2" (inc (aget witness-counters "body2")))
       cell))
   (rf/reg-sub :cm/w3
-    (fn [qv] [[:cm/w2 (second qv)]])
+    {:inputs (fn [qv] [[:cm/w2 (second qv)]])}
     (fn [[cell] _]
       (aset witness-counters "body3" (inc (aget witness-counters "body3")))
       cell))

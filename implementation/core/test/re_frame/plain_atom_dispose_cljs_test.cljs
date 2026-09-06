@@ -43,8 +43,7 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum
-      :<- [:a]
-      :<- [:b]
+      {:inputs [[:a] [:b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
 
@@ -79,8 +78,8 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :c (fn [db _] (:c db)))
-    (rf/reg-sub :ab :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
-    (rf/reg-sub :ac :<- [:a] :<- [:c] (fn [[a c] _] (+ a c)))
+    (rf/reg-sub :ab {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :ac {:inputs [[:a] [:c]]} (fn [[a c] _] (+ a c)))
     (rf/dispatch-sync [:init])
 
     (rf.subs/subscribe [:ab] {:frame :rf/default})
@@ -108,8 +107,8 @@
             chain on the CLJS-plain-atom adapter"
     (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :a*2 :<- [:a]   (fn [a _] (* 2 a)))
-    (rf/reg-sub :a*4 :<- [:a*2] (fn [a2 _] (* 2 a2)))
+    (rf/reg-sub :a*2 {:inputs [[:a]]}   (fn [[a] _] (* 2 a)))
+    (rf/reg-sub :a*4 {:inputs [[:a*2]]} (fn [[a2] _] (* 2 a2)))
     (rf/dispatch-sync [:init])
 
     (let [r (rf.subs/subscribe [:a*4] {:frame :rf/default})]

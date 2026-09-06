@@ -130,8 +130,7 @@
     (rf/reg-sub :cart/items      (fn [db _] (:items db)))
     (rf/reg-sub :pricing/discounts (fn [db _] (:discounts db)))
     (rf/reg-sub :cart/total
-                :<- [:cart/items]
-                :<- [:pricing/discounts]
+                {:inputs [[:cart/items] [:pricing/discounts]]}
                 (fn [[items discounts] _] [items discounts]))
     (let [node ((rf.subs.tooling/sub-algebra-view) :cart/total)]
       (is (has-fixed-classifications? node))
@@ -145,7 +144,7 @@
 (deftest static-sub-preserves-query-vector-args
   (testing "static declared inputs preserve the full :<- query-vector args"
     (rf/reg-sub :upstream (fn [db [_ _arg]] (:n db)))
-    (rf/reg-sub :downstream :<- [:upstream :some-arg] (fn [u _] u))
+    (rf/reg-sub :downstream {:inputs [[:upstream :some-arg]]} (fn [[u] _] u))
     (is (= [[:sub [:upstream :some-arg]]]
            (:inputs ((rf.subs.tooling/sub-algebra-view) :downstream)))
         "the declared input carries the full :<- query-vector, args and all")))
@@ -161,9 +160,9 @@
     (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
     (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
     (rf/reg-sub :article/page
-                (fn [[_ id]]
+                {:inputs (fn [[_ id]]
                   [[:article/by-id id]
-                   [:comments/for-article id]])
+                   [:comments/for-article id]])}
                 (fn [[article comments] [_ id]]
                   {:id id :article article :comments comments}))
     (let [node ((rf.subs.tooling/sub-algebra-view) :article/page)]
@@ -264,7 +263,7 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (is (= [[:db []]] (:inputs ((rf.subs.tooling/sub-algebra-view) :a))))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :a :<- [:b] (fn [b _] b))
+    (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] b))
     (let [node ((rf.subs.tooling/sub-algebra-view) :a)]
       (is (= [[:sub [:b]]] (:inputs node))
           "the re-registered :<- chain replaces the prior :db reader's inputs")

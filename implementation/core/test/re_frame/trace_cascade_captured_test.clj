@@ -161,8 +161,8 @@
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
       (rf/reg-sub :n (fn [db _] (:n db)))
       (rf/reg-sub :doubled
-        :<- [:n]
-        (fn [n _] (swap! body-runs inc) (* 2 n)))
+        {:inputs [[:n]]}
+        (fn [[n] _] (swap! body-runs inc) (* 2 n)))
       (rf/dispatch-sync [:seed])
       (let [seen   (atom [])
             events (collect-trace
@@ -447,8 +447,8 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled
-      :<- [:n]
-      (fn [n _] (* 2 n)))
+      {:inputs [[:n]]}
+      (fn [[n] _] (* 2 n)))
     (rf/dispatch-sync [:seed])
     (let [r      (rf/subscribe [:doubled])
           before @r ;; first recompute, value 4
@@ -479,8 +479,7 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum
-      :<- [:a]
-      :<- [:b]
+      {:inputs [[:a] [:b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:seed])
     (let [r-a    (rf/subscribe [:a])
@@ -588,8 +587,8 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 2}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled
-      :<- [:n]
-      (fn [n _] (* 2 n)))
+      {:inputs [[:n]]}
+      (fn [[n] _] (* 2 n)))
     (rf/dispatch-sync [:seed])
     (let [first-value (atom nil)
           events (collect-trace
@@ -773,8 +772,8 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 2}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled
-      :<- [:n]
-      (fn [n _] (* 2 n)))
+      {:inputs [[:n]]}
+      (fn [[n] _] (* 2 n)))
     (rf/dispatch-sync [:seed])
     (let [r-n       (rf/subscribe [:n])
           r-doubled (rf/subscribe [:doubled])

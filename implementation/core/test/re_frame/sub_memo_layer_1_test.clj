@@ -164,7 +164,7 @@
     (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
     (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-sub :n        (fn [db _] (:n db)))
-    (rf/reg-sub :n-via-l2 :<- [:n] (fn [n _] n))
+    (rf/reg-sub :n-via-l2 {:inputs [[:n]]} (fn [[n] _] n))
     (rf/dispatch-sync [:seed])
     (let [r1 (rf/subscribe [:n])
           r2 (rf/subscribe [:n-via-l2])]

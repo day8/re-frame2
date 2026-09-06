@@ -197,11 +197,11 @@
     (is (= :sub/l1 (rf.subs/reg-sub :sub/l1 (fn [db _] db))))
     ;; Layer-2 single.
     (is (= :sub/l2-single
-           (rf.subs/reg-sub :sub/l2-single :<- [:sub/l1] (fn [up _] up))))
+           (rf.subs/reg-sub :sub/l2-single {:inputs [[:sub/l1]]} (fn [[up] _] up))))
     ;; Layer-2 multi.
     (is (= :sub/l2-multi
            (rf.subs/reg-sub :sub/l2-multi
-                         :<- [:sub/l1] :<- [:sub/l2-single]
+                         {:inputs [[:sub/l1] [:sub/l2-single]]}
                          (fn [[a b] _] [a b]))))
     (let [meta (rf.registrar/lookup :sub :sub/l2-multi)]
       (is (= [[:sub/l1] [:sub/l2-single]] (:input-signals meta))

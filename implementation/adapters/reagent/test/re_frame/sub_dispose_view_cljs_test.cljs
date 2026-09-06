@@ -99,8 +99,7 @@
     (rf/reg-sub :rf2-e9g4g.view/a (fn [db _] (:a db)))
     (rf/reg-sub :rf2-e9g4g.view/b (fn [db _] (:b db)))
     (rf/reg-sub :rf2-e9g4g.view/sum
-      :<- [:rf2-e9g4g.view/a]
-      :<- [:rf2-e9g4g.view/b]
+      {:inputs [[:rf2-e9g4g.view/a] [:rf2-e9g4g.view/b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-e9g4g/init])
 
@@ -158,8 +157,7 @@
     (rf/reg-sub :rf2-e9g4g.cond/a (fn [db _] (:a db)))
     (rf/reg-sub :rf2-e9g4g.cond/b (fn [db _] (:b db)))
     (rf/reg-sub :rf2-e9g4g.cond/sum
-      :<- [:rf2-e9g4g.cond/a]
-      :<- [:rf2-e9g4g.cond/b]
+      {:inputs [[:rf2-e9g4g.cond/a] [:rf2-e9g4g.cond/b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-e9g4g/init])
 
@@ -219,8 +217,8 @@
     (rf/reg-event :rf2-e9g4g/init (fn [{:keys [db]} _] {:db {:v 42}}))
     (rf/reg-sub :rf2-e9g4g.multi/v (fn [db _] (:v db)))
     (rf/reg-sub :rf2-e9g4g.multi/doubled
-      :<- [:rf2-e9g4g.multi/v]
-      (fn [v _] (* 2 v)))
+      {:inputs [[:rf2-e9g4g.multi/v]]}
+      (fn [[v] _] (* 2 v)))
     (rf/dispatch-sync [:rf2-e9g4g/init])
 
     (with-trace-recorder! [traces {:pred sub-dispose-pred}]
@@ -297,8 +295,7 @@
     (rf/reg-sub :rf2-b2bxk.rea/a (fn [db _] (:a db)))
     (rf/reg-sub :rf2-b2bxk.rea/b (fn [db _] (:b db)))
     (rf/reg-sub :rf2-b2bxk.rea/sum
-      :<- [:rf2-b2bxk.rea/a]
-      :<- [:rf2-b2bxk.rea/b]
+      {:inputs [[:rf2-b2bxk.rea/a] [:rf2-b2bxk.rea/b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-b2bxk/init])
 
@@ -366,8 +363,7 @@
     (rf/reg-sub :rf2-b2bxk.cond-rea/a (fn [db _] (:a db)))
     (rf/reg-sub :rf2-b2bxk.cond-rea/b (fn [db _] (:b db)))
     (rf/reg-sub :rf2-b2bxk.cond-rea/sum
-      :<- [:rf2-b2bxk.cond-rea/a]
-      :<- [:rf2-b2bxk.cond-rea/b]
+      {:inputs [[:rf2-b2bxk.cond-rea/a] [:rf2-b2bxk.cond-rea/b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-b2bxk/init])
 

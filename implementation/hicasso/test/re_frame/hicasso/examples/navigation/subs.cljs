@@ -37,29 +37,26 @@
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-sub ::feed
-  {:doc "The list rows — slug and title, which is all a row renders."}
-  :<- [::articles]
-  (fn [articles _] (mapv #(select-keys % [:slug :title]) articles)))
+  {:doc "The list rows — slug and title, which is all a row renders." :inputs [[::articles]]}
+  (fn [[articles] _] (mapv #(select-keys % [:slug :title]) articles)))
 
 (rf/reg-sub ::article
   {:doc "One article by slug, or nil for a slug the URL invented. A URL is
-  user input, so an unknown slug is a page rather than an error."}
-  :<- [::articles]
-  (fn [articles [_ slug]] (first (filter #(= slug (:slug %)) articles))))
+  user input, so an unknown slug is a page rather than an error."
+   :inputs [[::articles]]}
+  (fn [[articles] [_ slug]] (first (filter #(= slug (:slug %)) articles))))
 
 (rf/reg-sub ::title
   {:doc "The editable title for one article — the draft when there is one,
-  the saved title otherwise. What the controlled field is handed."}
-  :<- [::articles]
-  :<- [::drafts]
+  the saved title otherwise. What the controlled field is handed."
+   :inputs [[::articles] [::drafts]]}
   (fn [[articles drafts] [_ slug]]
     (or (get drafts slug)
         (:title (first (filter #(= slug (:slug %)) articles))))))
 
 (rf/reg-sub ::dirty?
-  {:doc "Has anything been typed and not saved? What the Save button reads."}
-  :<- [::drafts]
-  (fn [drafts _] (boolean (seq drafts))))
+  {:doc "Has anything been typed and not saved? What the Save button reads." :inputs [[::drafts]]}
+  (fn [[drafts] _] (boolean (seq drafts))))
 
 ;; ---------------------------------------------------------------------------
 ;; The guard routing reads
@@ -68,6 +65,6 @@
 (rf/reg-sub ::may-leave?
   {:doc "The article route's `:can-leave` verdict. TRUE means the
   navigation may proceed — see the namespace docstring on why this is not
-  the dirty flag."}
-  :<- [::drafts]
-  (fn [drafts _] (empty? drafts)))
+  the dirty flag."
+   :inputs [[::drafts]]}
+  (fn [[drafts] _] (empty? drafts)))

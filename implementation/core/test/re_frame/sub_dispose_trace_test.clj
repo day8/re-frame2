@@ -161,8 +161,7 @@
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/reg-sub :sub/b (fn [db _] (:b db)))
     (rf/reg-sub :sub/sum
-      :<- [:sub/a]
-      :<- [:sub/b]
+      {:inputs [[:sub/a] [:sub/b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::cascade-emit)]
@@ -322,8 +321,7 @@
     (rf/reg-sub :sub/ca (fn [db _] (:a db)))
     (rf/reg-sub :sub/cb (fn [db _] (:b db)))
     (rf/reg-sub :sub/csum
-      :<- [:sub/ca]
-      :<- [:sub/cb]
+      {:inputs [[:sub/ca] [:sub/cb]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::cache-clear-layered)]
@@ -446,8 +444,7 @@
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/reg-sub :sub/b (fn [db _] (:b db)))
     (rf/reg-sub :sub/sum
-      :<- [:sub/a]
-      :<- [:sub/b]
+      {:inputs [[:sub/a] [:sub/b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
     (let [acc       (collect-traces! ::input-dispose-throw)

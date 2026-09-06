@@ -96,13 +96,13 @@
   ;; :subs — a static `:<-` sub (an :input edge source) + a layer-1 sub.
   (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
   (rf/reg-sub :cart/total
-              :<- [:cart/items]
-              (fn [items _] (count items)))
+              {:inputs [[:cart/items]]}
+              (fn [[items] _] (count items)))
   ;; :subs — a machine selector (a sub over [:rf/machine …]) — gets the
   ;; :selector edge from the machine process.
   (rf/reg-sub :upload/progress
-              :<- [:rf/machine :upload/main]
-              (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+              {:inputs [[:rf/machine :upload/main]]}
+              (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
   ;; :flows — a materialized after-event derivation.
   (rf/reg-flow :cart/materialized-total {:inputs [[:cart :items]] :output-path [:cart :total]} count)
   ;; :resources — a process node (runtime-db / remote authority).
@@ -275,8 +275,8 @@
                      :states  {:idle {:on {:download/start {:target :fetching}}}
                                :fetching {:on {:download/done {:target :idle}}}}})
     (rf/reg-sub :upload/progress
-                :<- [:rf/machine :upload/main]
-                (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+                {:inputs [[:rf/machine :upload/main]]}
+                (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
     (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           edges (:edges g)
           sel   (filter #(= :selector (:role %)) edges)]
@@ -297,8 +297,8 @@
     (rf/reg-machine :download/main
                     {:initial :idle :data {} :states {:idle {}}})
     (rf/reg-sub :upload/busy?
-                :<- [:rf.machine/has-tag? :upload/main :busy]
-                (fn [tagged? _] (boolean tagged?)))
+                {:inputs [[:rf.machine/has-tag? :upload/main :busy]]}
+                (fn [[tagged?] _] (boolean tagged?)))
     (let [g   (rf.derivation.graph/derivation-graph all-contributors)
           sel (filter #(= :selector (:role %)) (:edges g))]
       (is (= [{:from [:machine :upload/main]
@@ -310,8 +310,8 @@
 (deftest selector-targeting-on-machine-selector-targets-fn
   (testing "machine-selector-targets returns the set of machine ids a selector reads"
     (rf/reg-sub :upload/progress
-                :<- [:rf/machine :upload/main]
-                (fn [snapshot _] snapshot))
+                {:inputs [[:rf/machine :upload/main]]}
+                (fn [[snapshot] _] snapshot))
     (rf/reg-sub :plain/sub (fn [db _] db))
     (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/progress))
         "the target machine id is extracted")
@@ -325,7 +325,7 @@
 (deftest parametric-sub-contributes-no-static-edge
   (testing "a parametric input-fn sub contributes no static :input edge (don't-execute rule)"
     (rf/reg-sub :article/page
-                (fn [[_ slug]] [[:article/by-slug slug] [:comments/for-article slug]])
+                {:inputs (fn [[_ slug]] [[:article/by-slug slug] [:comments/for-article slug]])}
                 (fn [[a c] _] {:article a :comments c}))
     (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           node  (get (:nodes g) [:sub :article/page])]
@@ -534,8 +534,8 @@
       (rf/reg-machine :upload/main
                       {:initial :idle :data {} :states {:idle {}}})
       (rf/reg-sub :upload/progress
-                  :<- [:rf/machine :upload/main]
-                  (fn [snapshot _] snapshot))
+                  {:inputs [[:rf/machine :upload/main]]}
+                  (fn [[snapshot] _] snapshot))
       (let [g   (rf.derivation.graph/derivation-graph)            ;; zero-arg → default-contributors
             sel (filter #(= :selector (:role %)) (:edges g))]
         (is (some #(= % {:from [:machine :upload/main]

@@ -37,29 +37,28 @@
 (rf/reg-sub ::search (fn [db _] (:search db)))
 
 (rf/reg-sub ::term
-  {:doc "The controlled field's value — the only place the text lives."}
-  :<- [::search]
-  (fn [search _] (:term search)))
+  {:doc "The controlled field's value — the only place the text lives." :inputs [[::search]]}
+  (fn [[search] _] (:term search)))
 
 (rf/reg-sub ::revision
   {:doc "The reset trigger. Bumped by `::events/clear`, so the field takes
-         an empty value it may already have been handed."}
-  :<- [::search]
-  (fn [search _] (:revision search)))
+         an empty value it may already have been handed."
+   :inputs [[::search]]}
+  (fn [[search] _] (:revision search)))
 
 (rf/reg-sub ::open?
   {:doc "Is the suggestion panel on screen? The one flag that decides
-         whether the suggestion read exists at all."}
-  :<- [::search]
-  (fn [search _] (boolean (:open? search))))
+         whether the suggestion read exists at all."
+   :inputs [[::search]]}
+  (fn [[search] _] (boolean (:open? search))))
 
 (rf/reg-sub ::status
-  :<- [::search]
-  (fn [search _] (:status search)))
+  {:inputs [[::search]]}
+  (fn [[search] _] (:status search)))
 
 (rf/reg-sub ::problem
-  :<- [::search]
-  (fn [search _] (:problem search)))
+  {:inputs [[::search]]}
+  (fn [[search] _] (:problem search)))
 
 ;; ---------------------------------------------------------------------------
 ;; The resources
@@ -69,9 +68,9 @@
   {:doc "The rows for `term`, or `nil` when what is held answers a
          different one. **Parametric on the resource's parameter**, so a
          committed read of it names the resource and the instance
-         together."}
-  :<- [::search]
-  (fn [search [_ term]]
+         together."
+   :inputs [[::search]]}
+  (fn [[search] [_ term]]
     (when (= term (:term (:shown search)))
       (:rows (:shown search)))))
 
@@ -84,9 +83,9 @@
   {:doc "Whatever rows are held, whichever term they answer. Read ONLY by
          the panel's refresh-with-data decision; every other reader wants
          [[::suggestions]], which answers `nil` unless the rows are for
-         the term asked about."}
-  :<- [::search]
-  (fn [search _] (:rows (:shown search))))
+         the term asked about."
+   :inputs [[::search]]}
+  (fn [[search] _] (:rows (:shown search))))
 
 (rf/reg-sub ::detail
   {:doc "One row's detail, `:pending` while the service is being asked,
@@ -105,6 +104,6 @@
 
 (rf/reg-sub ::searchable?
   {:doc "Has the user typed enough to be worth a request? The panel shows
-         a hint rather than an empty list when they have not."}
-  :<- [::term]
-  (fn [term _] (rf.hicasso.examples.typeahead.db/searchable? term)))
+         a hint rather than an empty list when they have not."
+   :inputs [[::term]]}
+  (fn [[term] _] (rf.hicasso.examples.typeahead.db/searchable? term)))

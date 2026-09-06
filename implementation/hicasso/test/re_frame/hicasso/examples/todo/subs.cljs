@@ -39,9 +39,8 @@
   {:doc "The active filter, derived from the URL: `:all`, `:active` or
          `:completed`. Two route ids and one path parameter collapse into one
          keyword here, so every reader downstream — the list, the three tabs —
-         asks one question and `app-db` holds no copy of the answer."}
-  :<- [:rf.route/id]
-  :<- [:rf.route/params]
+         asks one question and `app-db` holds no copy of the answer."
+   :inputs [[:rf.route/id] [:rf.route/params]]}
   (fn [[route-id params] _]
     (if (= rf.hicasso.examples.todo.routes/filtered route-id)
       (case (:filter params)
@@ -51,9 +50,7 @@
       :all)))
 
 (rf/reg-sub ::visible
-  {:doc "The rows the list renders, in insertion order."}
-  :<- [::todos]
-  :<- [::showing]
+  {:doc "The rows the list renders, in insertion order." :inputs [[::todos] [::showing]]}
   (fn [[todos showing] _]
     (case showing
       :active    (remove :done? todos)
@@ -67,20 +64,20 @@
 (rf/reg-sub ::any?
   {:doc "Is there anything at all? The whole main section and the footer are
          absent when there is not — the Todo class's one piece of conditional
-         chrome."}
-  :<- [::todos]
-  (fn [todos _] (boolean (seq todos))))
+         chrome."
+   :inputs [[::todos]]}
+  (fn [[todos] _] (boolean (seq todos))))
 
 (rf/reg-sub ::active-count
-  :<- [::todos]
-  (fn [todos _] (count (remove :done? todos))))
+  {:inputs [[::todos]]}
+  (fn [[todos] _] (count (remove :done? todos))))
 
 (rf/reg-sub ::completed-count
-  :<- [::todos]
-  (fn [todos _] (count (filter :done? todos))))
+  {:inputs [[::todos]]}
+  (fn [[todos] _] (count (filter :done? todos))))
 
 (rf/reg-sub ::all-done?
   {:doc "Drives the toggle-all checkbox. An empty list is NOT all-done —
-         otherwise the box would sit checked over nothing."}
-  :<- [::todos]
-  (fn [todos _] (and (boolean (seq todos)) (every? :done? todos))))
+         otherwise the box would sit checked over nothing."
+   :inputs [[::todos]]}
+  (fn [[todos] _] (and (boolean (seq todos)) (every? :done? todos))))

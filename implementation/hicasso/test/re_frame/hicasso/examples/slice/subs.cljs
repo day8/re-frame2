@@ -50,14 +50,12 @@
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-sub ::t
-  {:doc "The sentence for a string key, in the frame's current locale."}
-  :<- [::locale]
-  (fn [locale [_ k]] (rf.hicasso.examples.slice.i18n/t locale k)))
+  {:doc "The sentence for a string key, in the frame's current locale." :inputs [[::locale]]}
+  (fn [[locale] [_ k]] (rf.hicasso.examples.slice.i18n/t locale k)))
 
 (rf/reg-sub ::token
-  {:doc "The value of a theme token, under the frame's current theme."}
-  :<- [::theme]
-  (fn [theme [_ k]] (rf.hicasso.examples.slice.i18n/token theme k)))
+  {:doc "The value of a theme token, under the frame's current theme." :inputs [[::theme]]}
+  (fn [[theme] [_ k]] (rf.hicasso.examples.slice.i18n/token theme k)))
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 2 — the feed and the article
@@ -72,21 +70,19 @@
   no `?page=`, and whatever number a user typed on the one that does. It
   is separated from [[::current-page]] so the difference between *what was
   asked for* and *what exists* stays visible: the pager highlights the
-  page it is showing, and only the clamp decides which that is."}
-  :<- [:rf.route/query]
-  (fn [query _] (:page query)))
+  page it is showing, and only the clamp decides which that is."
+   :inputs [[:rf.route/query]]}
+  (fn [[query] _] (:page query)))
 
 (rf/reg-sub ::page-count
-  {:doc "How many pages the feed has."}
-  :<- [::listed]
-  (fn [rows _] (rf.hicasso.examples.slice.db/page-count rows)))
+  {:doc "How many pages the feed has." :inputs [[::listed]]}
+  (fn [[rows] _] (rf.hicasso.examples.slice.db/page-count rows)))
 
 (rf/reg-sub ::current-page
   {:doc "The page actually on screen — the URL's number brought inside the
   range the data has. `/slice?page=900` shows the last page rather than an
-  empty one, because a URL is user input."}
-  :<- [::listed]
-  :<- [::page]
+  empty one, because a URL is user input."
+   :inputs [[::listed] [::page]]}
   (fn [[rows page] _] (rf.hicasso.examples.slice.db/clamp-page rows page)))
 
 (rf/reg-sub ::feed
@@ -96,9 +92,8 @@
   The name did not change when pagination arrived, and neither did the
   question the feed page asks: *what rows do I render?* Which is why the
   page number never reaches a view — the pager reads it to draw itself,
-  and the list reads rows."}
-  :<- [::listed]
-  :<- [::current-page]
+  and the list reads rows."
+   :inputs [[::listed] [::current-page]]}
   (fn [[rows page] _] (rf.hicasso.examples.slice.db/page-rows rows page)))
 
 ;; ---------------------------------------------------------------------------
@@ -107,15 +102,15 @@
 
 (rf/reg-sub ::digest-blocks
   {:doc "The digest's blocks, as they arrived. The region renders them by
-  kind and the shape of the region follows the data."}
-  :<- [::digest]
-  (fn [digest _] (:blocks digest)))
+  kind and the shape of the region follows the data."
+   :inputs [[::digest]]}
+  (fn [[digest] _] (:blocks digest)))
 
 (rf/reg-sub ::digest-loading?
   {:doc "Is a reload of the digest in flight? The retry control reads it,
-  so a second click cannot queue a second request."}
-  :<- [::digest]
-  (fn [digest _] (= :loading (:status digest))))
+  so a second click cannot queue a second request."
+   :inputs [[::digest]]}
+  (fn [[digest] _] (= :loading (:status digest))))
 
 (rf/reg-sub ::article
   {:doc "One article by slug, or nil for a slug the URL invented."}
@@ -146,9 +141,9 @@
   it answered `{:status :saving}` in flight and `{:status :failed
   :problem …}` on refusal — two shapes for one read, so a caller
   comparing whole values has to know which branch it is in. A closed
-  shape costs one nil."}
-  :<- [::save]
-  (fn [save [_ slug]]
+  shape costs one nil."
+   :inputs [[::save]]}
+  (fn [[save] [_ slug]]
     (if (= slug (:slug save))
       {:status (:status save) :problem (:problem save)}
       {:status :idle :problem nil})))

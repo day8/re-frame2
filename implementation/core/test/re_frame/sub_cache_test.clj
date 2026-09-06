@@ -85,7 +85,7 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
 
     (let [r (rf/subscribe [:sum])]
@@ -561,7 +561,7 @@
   (testing "the guarded release's 1 → 0 edge disposes in-tick and cascades (rf2-2rtt6.25)"
     (rf/reg-event :init (fn [_ _] {:db {:a 2}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :double :<- [:a] (fn [a _] (* 2 a)))
+    (rf/reg-sub :double {:inputs [[:a]]} (fn [[a] _] (* 2 a)))
     (rf/dispatch-sync [:init])
 
     (let [r (rf/subscribe [:double])]
@@ -650,8 +650,7 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum
-      :<- [:a]
-      :<- [:b]
+      {:inputs [[:a] [:b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
 
@@ -681,8 +680,8 @@
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :c (fn [db _] (:c db)))
     ;; Two layer-2 subs that share input :a.
-    (rf/reg-sub :ab :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
-    (rf/reg-sub :ac :<- [:a] :<- [:c] (fn [[a c] _] (+ a c)))
+    (rf/reg-sub :ab {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :ac {:inputs [[:a] [:c]]} (fn [[a c] _] (+ a c)))
     (rf/dispatch-sync [:init])
 
     (rf/subscribe [:ab])
@@ -721,7 +720,7 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
 
     ;; External subscriber to :a, parallel to the layer-2 sub that also uses :a.
@@ -752,8 +751,8 @@
   (testing "disposal cascades recursively through a layer-3 chain"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :a*2 :<- [:a]   (fn [a _] (* 2 a)))
-    (rf/reg-sub :a*4 :<- [:a*2] (fn [a2 _] (* 2 a2)))
+    (rf/reg-sub :a*2 {:inputs [[:a]]}   (fn [[a] _] (* 2 a)))
+    (rf/reg-sub :a*4 {:inputs [[:a*2]]} (fn [[a2] _] (* 2 a2)))
     (rf/dispatch-sync [:init])
 
     (let [r (rf/subscribe [:a*4])]
@@ -774,7 +773,7 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
 
     ;; Two subscribers to the same parent — parent ref-count goes to 2,
@@ -822,7 +821,7 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:init])
 
     (let [real-frame  rf.frame/frame

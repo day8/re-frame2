@@ -156,14 +156,14 @@
   ;; machine selector (the :selector edge target).
   (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
   (rf/reg-sub :cart/total
-              :<- [:cart/items]
-              (fn [items _] (sum-cart items)))
+              {:inputs [[:cart/items]]}
+              (fn [[items] _] (sum-cart items)))
   (rf/reg-sub :article/page
-              (fn [[_ slug]] [[:article/by-slug slug] [:comments/for-article slug]])
+              {:inputs (fn [[_ slug]] [[:article/by-slug slug] [:comments/for-article slug]])}
               (fn [[a c] _] {:article a :comments c}))
   (rf/reg-sub :upload/progress
-              :<- [:rf/machine :upload/main]
-              (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+              {:inputs [[:rf/machine :upload/main]]}
+              (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
   ;; :flows — the subscription's policy TWIN: same sum-cart, materialized
   ;; into app-db `:after-event`.
   (rf/reg-flow :cart/materialized-total {:inputs [[:cart :items]] :output-path [:cart :total]} sum-cart)
@@ -1040,7 +1040,7 @@
      ;; entry (+ its :cart/items input) carrying a realized `[:sub q]` edge —
      ;; no resource / unregistered-input fan-out.
      (rf/reg-sub :cart/item-qty
-                 (fn [[_ _sku]] [[:cart/items]])
+                 {:inputs (fn [[_ _sku]] [[:cart/items]])}
                  (fn [[items] [_ sku]] (some #(when (= sku (:sku %)) (:qty %)) items)))
      (rf/dispatch-sync [::seed-cart cart-items])
      (let [q [:cart/item-qty "b"]

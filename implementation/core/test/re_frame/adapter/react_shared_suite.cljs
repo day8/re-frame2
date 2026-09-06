@@ -1378,7 +1378,7 @@
   (testing (str name " — layer-1 + layer-2 subs return computed values")
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [10 20 30]}}))
     (rf/reg-sub :items     (fn [db _] (:items db)))
-    (rf/reg-sub :item-sum  :<- [:items] (fn [items _] (reduce + items)))
+    (rf/reg-sub :item-sum  {:inputs [[:items]]} (fn [[items] _] (reduce + items)))
     (rf/dispatch-sync [:seed])
     (is (= [10 20 30] (rf/subscribe-once [:items])))
     (is (= 60         (rf/subscribe-once [:item-sum])))))
@@ -1499,8 +1499,8 @@
     ;; the compiler does not emit an :infer-warning (the throw is the
     ;; point; the type is intentionally unknowable), keeping the
     ;; :browser-test compile warning-clean.
-    (rf/reg-sub :items-count :<- [:items]
-      (fn [items _] (count (.something ^js items))))
+    (rf/reg-sub :items-count {:inputs [[:items]]}
+      (fn [[items] _] (count (.something ^js items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
       (rf.trace.tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
@@ -6113,7 +6113,7 @@
         (rf/reg-event ::hz-seed (fn [_ _] {:db {:m 11}}))
         (rf/dispatch-sync [::hz-seed] {:frame hz-frame})
         (rf/reg-sub ::hz-input (fn [db _] (:m db)))
-        (rf/reg-sub rc-query :<- [::hz-input] (fn [v _] v))
+        (rf/reg-sub rc-query {:inputs [[::hz-input]]} (fn [[v] _] v))
         (let [parent-k   [rc-query]
               input-k    [::hz-input]
               cache      (:sub-cache (rf.frame/frame hz-frame))

@@ -118,8 +118,8 @@
   (testing "compute-sub evaluates a sub against a supplied db value"
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :m     (fn [db _] (:m db)))
-    (rf/reg-sub :n*2   :<- [:n] (fn [n _] (* 2 n)))
-    (rf/reg-sub :n+m   :<- [:n] :<- [:m] (fn [[n m] _] (+ n m)))
+    (rf/reg-sub :n*2   {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
+    (rf/reg-sub :n+m   {:inputs [[:n] [:m]]} (fn [[n m] _] (+ n m)))
     ;; Layer-1 read.
     (is (= 7 (rf/compute-sub [:n] {:n 7})))
     ;; Layer-2 single :<-.
@@ -166,7 +166,7 @@
               (is (= "boom" (:exception-message t)))))))))
   (testing "compute-sub emits :rf.error/sub-exception when a layer-2 body throws"
     (rf/reg-sub :n   (fn [db _] (:n db)))
-    (rf/reg-sub :n*2 :<- [:n] (fn [_n _q] (throw (ex-info "kaboom" {}))))
+    (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[_n] _q] (throw (ex-info "kaboom" {}))))
     (let [traces (atom [])]
       (rf/register-listener! :trace ::boom2 (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/compute-sub [:n*2] {:n 7})))
@@ -392,8 +392,7 @@
     (rf/reg-sub :diamond/a (fn [db _] (:x db)))
     (rf/reg-sub :diamond/b (fn [db _] (:y db)))
     (rf/reg-sub :diamond/c
-      :<- [:diamond/a]
-      :<- [:diamond/b]
+      {:inputs [[:diamond/a] [:diamond/b]]}
       (fn [[a b] _] {:a a :b b}))
     (let [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:diamond/init] {:frame f})
@@ -408,8 +407,8 @@
     (rf/reg-event :chain/init (fn [{:keys [db]} _] {:db {:n 10}}))
     (rf/reg-event :chain/set  (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (rf/reg-sub :chain/a (fn [db _] (:n db)))
-    (rf/reg-sub :chain/b :<- [:chain/a] (fn [a _] (* a 2)))
-    (rf/reg-sub :chain/c :<- [:chain/b] (fn [b _] (inc b)))
+    (rf/reg-sub :chain/b {:inputs [[:chain/a]]} (fn [[a] _] (* a 2)))
+    (rf/reg-sub :chain/c {:inputs [[:chain/b]]} (fn [[b] _] (inc b)))
     (let [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:chain/init] {:frame f})
       (is (= 21 (rf/compute-sub [:chain/c] (rf/app-db-value f)))
@@ -424,7 +423,7 @@
     (rf/reg-event :stable/touch-unrelated
                      (fn [{:keys [db]} _] {:db (assoc db :unrelated "z")}))   ;; same value
     (rf/reg-sub :stable/a (fn [db _] (:n db)))
-    (rf/reg-sub :stable/squared :<- [:stable/a] (fn [a _] (* a a)))
+    (rf/reg-sub :stable/squared {:inputs [[:stable/a]]} (fn [[a] _] (* a a)))
     (let [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:stable/init] {:frame f})
       (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
@@ -446,11 +445,10 @@
             :root exactly ONCE per top-level compute-sub call"
     (let [root-calls (atom 0)]
       (rf/reg-sub :memo/root (fn [db _] (swap! root-calls inc) (:n db)))
-      (rf/reg-sub :memo/a :<- [:memo/root] (fn [r _] (inc r)))
-      (rf/reg-sub :memo/b :<- [:memo/root] (fn [r _] (dec r)))
+      (rf/reg-sub :memo/a {:inputs [[:memo/root]]} (fn [[r] _] (inc r)))
+      (rf/reg-sub :memo/b {:inputs [[:memo/root]]} (fn [[r] _] (dec r)))
       (rf/reg-sub :memo/c
-        :<- [:memo/a]
-        :<- [:memo/b]
+        {:inputs [[:memo/a] [:memo/b]]}
         (fn [[a b] _] {:a a :b b}))
       (reset! root-calls 0)
       (let [v (rf/compute-sub [:memo/c] {:n 10})]
@@ -467,11 +465,10 @@
       ;; Pre-fix, `leaf` resolves twice (once per l1/l2 path); the memo
       ;; collapses it to one.
       (rf/reg-sub :memo/leaf (fn [db _] (swap! leaf-calls inc) (:base db)))
-      (rf/reg-sub :memo/l1 :<- [:memo/leaf] (fn [x _] (* x 2)))
-      (rf/reg-sub :memo/l2 :<- [:memo/leaf] (fn [x _] (* x 3)))
+      (rf/reg-sub :memo/l1 {:inputs [[:memo/leaf]]} (fn [[x] _] (* x 2)))
+      (rf/reg-sub :memo/l2 {:inputs [[:memo/leaf]]} (fn [[x] _] (* x 3)))
       (rf/reg-sub :memo/top
-        :<- [:memo/l1]
-        :<- [:memo/l2]
+        {:inputs [[:memo/l1] [:memo/l2]]}
         (fn [[a b] _] (+ a b)))
       (reset! leaf-calls 0)
       (let [v (rf/compute-sub [:memo/top] {:base 5})]
@@ -484,7 +481,7 @@
             call against a different db recomputes (no stale cross-call cache)"
     (let [calls (atom 0)]
       (rf/reg-sub :memo/leaf2 (fn [db _] (swap! calls inc) (:v db)))
-      (rf/reg-sub :memo/up :<- [:memo/leaf2] (fn [x _] (inc x)))
+      (rf/reg-sub :memo/up {:inputs [[:memo/leaf2]]} (fn [[x] _] (inc x)))
       (reset! calls 0)
       (is (= 2 (rf/compute-sub [:memo/up] {:v 1})))
       (is (= 11 (rf/compute-sub [:memo/up] {:v 10}))
@@ -498,7 +495,7 @@
   (testing "layer-1 and layer-2 subs return computed values"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [1 2 3 4 5]}}))
     (rf/reg-sub :items     (fn [db _] (:items db)))
-    (rf/reg-sub :item-count :<- [:items] (fn [items _] (count items)))
+    (rf/reg-sub :item-count {:inputs [[:items]]} (fn [[items] _] (count items)))
     (rf/dispatch-sync [:seed])
     (is (= [1 2 3 4 5] (rf/subscribe-once [:items] {:frame :rf/default})))
     (is (= 5           (rf/subscribe-once [:item-count] {:frame :rf/default})))))
@@ -852,8 +849,8 @@
       ;; framework `:rf/machine` sub (which reads the runtime-db projection)
       ;; rather than reaching into a raw db path.
       (rf/reg-sub :auth.login/state
-        :<- [:rf/machine :auth.login/flow]
-        (fn [snapshot _] (:state snapshot)))
+        {:inputs [[:rf/machine :auth.login/flow]]}
+        (fn [[snapshot] _] (:state snapshot)))
 
       (testing "happy path: idle → submitting → authed; session token stored"
         (reset! stored nil)

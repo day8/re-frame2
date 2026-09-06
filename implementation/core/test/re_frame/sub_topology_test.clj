@@ -97,7 +97,7 @@
 (deftest single-input-layer-2-sub-reports-the-upstream-query-vector
   (testing "a layer-2 sub with one :<- declares one upstream input QUERY-VECTOR"
     (rf/reg-sub :n  (fn [db _] (:n db)))
-    (rf/reg-sub :n2 :<- [:n] (fn [n _] (* 2 n)))
+    (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
     (let [topo (rf.subs/sub-topology)]
       (is (= :db (:input-kind (topo :n))))
       (is (= :static (:input-kind (topo :n2))))
@@ -110,7 +110,7 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :c (fn [db _] (:c db)))
-    (rf/reg-sub :sum :<- [:a] :<- [:b] :<- [:c]
+    (rf/reg-sub :sum {:inputs [[:a] [:b] [:c]]}
                 (fn [[a b c] _] (+ a b c)))
     (let [entry ((rf.subs/sub-topology) :sum)]
       (is (= :static (:input-kind entry)))
@@ -120,8 +120,8 @@
 (deftest deeper-chain-each-link-recorded
   (testing "layer-3 chain — every node carries its direct upstream query-vectors"
     (rf/reg-sub :raw   (fn [db _] (:n db)))
-    (rf/reg-sub :step1 :<- [:raw]   (fn [r _] (inc r)))
-    (rf/reg-sub :step2 :<- [:step1] (fn [s _] (* 10 s)))
+    (rf/reg-sub :step1 {:inputs [[:raw]]}   (fn [[r] _] (inc r)))
+    (rf/reg-sub :step2 {:inputs [[:step1]]} (fn [[s] _] (* 10 s)))
     (let [topo (rf.subs/sub-topology)]
       (is (= []        (:inputs (topo :raw))))
       (is (= [[:raw]]   (:inputs (topo :step1))))
@@ -135,8 +135,8 @@
     ;; §Subscription topology (the rf2-e3acps reconciliation). Tools that
     ;; want the bare sub-id project with `(mapv first ...)`.
     (rf/reg-sub :upstream (fn [db [_ _arg]] (:n db)))
-    (rf/reg-sub :downstream :<- [:upstream :some-arg]
-                (fn [u _] (str u)))
+    (rf/reg-sub :downstream {:inputs [[:upstream :some-arg]]}
+                (fn [[u] _] (str u)))
     (is (= [[:upstream :some-arg]] (:inputs ((rf.subs/sub-topology) :downstream)))
         "static inputs carry the full :<- query-vector, args and all")))
 
@@ -153,10 +153,10 @@
     (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
     (rf/reg-sub :viewer/current       (fn [db _] (:viewer db)))
     (rf/reg-sub :article/page
-                (fn [[_ id]]
+                {:inputs (fn [[_ id]]
                   [[:article/by-id id]
                    [:comments/for-article id]
-                   [:viewer/current]])
+                   [:viewer/current]])}
                 (fn [[article comments viewer] [_ id]]
                   {:id id :article article :comments comments :viewer viewer}))
     (let [entry ((rf.subs/sub-topology) :article/page)]
@@ -171,7 +171,7 @@
   (testing "a single-input parametric sub still reports the :parametric sentinel"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (let [entry ((rf.subs/sub-topology) :item/title)]
       (is (= :parametric (:input-kind entry)))
@@ -253,17 +253,17 @@
     ;; reports the new :<- chain (last-write-wins per Spec 001
     ;; §Hot-reload semantics).
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :a :<- [:b] (fn [b _] (str b)))
+    (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] (str b)))
     (is (= :static (:input-kind ((rf.subs/sub-topology) :a))))
     (is (= [[:b]] (:inputs ((rf.subs/sub-topology) :a)))))
 
   (testing "re-registering a :static sub as :parametric flips :input-kind + :inputs"
     (rf/reg-sub :x (fn [db _] (:x db)))
-    (rf/reg-sub :p :<- [:x] (fn [x _] x))
+    (rf/reg-sub :p {:inputs [[:x]]} (fn [[x] _] x))
     (is (= :static (:input-kind ((rf.subs/sub-topology) :p))))
     (is (= [[:x]] (:inputs ((rf.subs/sub-topology) :p))))
     (rf/reg-sub :p
-                (fn [[_ id]] [[:x id]])
+                {:inputs (fn [[_ id]] [[:x id]])}
                 (fn [[x] _] x))
     (is (= :parametric (:input-kind ((rf.subs/sub-topology) :p))))
     (is (= :parametric (:inputs ((rf.subs/sub-topology) :p))))))
@@ -279,12 +279,12 @@
     ;; sub-topology as a verbatim projection means tools can detect
     ;; cycles by traversing the returned graph; sub-topology itself
     ;; just reports what was registered.
-    (rf/reg-sub :loop :<- [:loop] (fn [v _] v))
+    (rf/reg-sub :loop {:inputs [[:loop]]} (fn [[v] _] v))
     (is (= [[:loop]] (:inputs ((rf.subs/sub-topology) :loop)))))
 
   (testing "a 2-node cycle :<- declarations are similarly verbatim"
-    (rf/reg-sub :a :<- [:b] (fn [b _] b))
-    (rf/reg-sub :b :<- [:a] (fn [a _] a))
+    (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] b))
+    (rf/reg-sub :b {:inputs [[:a]]} (fn [[a] _] a))
     (let [topo (rf.subs/sub-topology)]
       (is (= [[:b]] (:inputs (topo :a))))
       (is (= [[:a]] (:inputs (topo :b)))))))
