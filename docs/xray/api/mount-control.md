@@ -107,9 +107,9 @@ A host running a single app frame selects it explicitly — via `init! {:target-
 
 The L1 frame picker chip in the shell's top strip is wired to this — clicking flips `set-target-frame!`, and every panel in view (Trace, Views, Machines, App-DB Diff) rescopes to the new frame. Hosts can drive the same flip programmatically from a per-route effect, a Settings-popup wire-up, or a test harness assertion.
 
-## The TBD-impl stub
+## Runtime theme override
 
-One surface declared by the spec ships as a stub that emits a `:rf.warning/*` trace and otherwise no-ops.
+The shell reads its palette from `--rf-xray-*` CSS custom properties, and a host can re-declare them at runtime — editor-driven palette sync is the motivating case.
 
 ### `load-theme`
 
@@ -117,7 +117,7 @@ One surface declared by the spec ships as a stub that emits a `:rf.warning/*` tr
   ```clojure
   (xray/load-theme css-string) → nil
   ```
-- **Description**: Programmatically swap the Xray shell's CSS theme. The theme module exists (`day8.re-frame2-xray.theme/*`) but the runtime CSS-swap surface is not yet wired. Calling emits `:rf.warning/xray-load-theme-not-yet-implemented` so the gap is visible in the trace stream. Forward-compatible — host code may call with a CSS string today and expect the impl to land later.
+- **Description**: Swap the Xray shell's palette by handing in a CSS string — typically a block re-declaring the `--rf-xray-*` custom properties the shell reads. The CSS rides in a single dedicated `<style>` block appended **last** to `<head>`, so its rules win on authoring order against the built-in per-theme block. Idempotent: successive calls **replace** the override in place rather than stacking it, and a `nil` or blank string clears the override and restores the built-in palette. A safe no-op where there is no DOM (server render, JVM). Returns `nil`.
 
 ## The browser-global JS mirror
 
