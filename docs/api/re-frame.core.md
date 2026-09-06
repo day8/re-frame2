@@ -59,39 +59,40 @@ Every entry here registers a named handler into the frame's registrar.
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-sub id ?metadata input-fn? computation-fn)
+  (reg-sub id ?metadata computation-fn)
   ```
-- **Description**: A computed view over `app-db` and other subs. There are three input-production modes (see the table below). A layer-1 `app-db` reader has no input producer. `:<-` is a literal producer. A parametric `input-fn` computes inputs from the outer `query-v`.
+- **Description**: A computed view over `app-db` and other subs. A subscription declares its dependencies under **`:inputs`** in the metadata map — the same slot `reg-flow` uses — and there are three input-production modes (see the table below). Omitting `:inputs` is a layer-1 `app-db` reader with no producer; a literal `:inputs` vector is a static producer; an `:inputs` fn computes the inputs from the outer `query-v`.
 
-  The optional first fn is the v2 **`input-fn`**: a *pure* function from the outer `query-v` to a **vector of query vectors**. It must not call `subscribe`, deref `app-db`, dispatch, or perform IO. It must not return live reactions either — it is not a v1 reaction-returning signal fn. The runtime resolves each returned query vector in the *same frame* as the outer subscription.
+  **Declared inputs always arrive as a vector** — at zero, one or many, in declaration order. Moving a dependency between the literal and the fn form never changes the body, and adding a second input never turns a scalar argument into a vector. `{:inputs []}` declares no dependencies and delivers `[]`; omitting `:inputs` delivers `app-db` itself.
+
+  An `:inputs` **producer fn** is a *pure* function from the outer `query-v` to a **vector of query vectors**. It must not call `subscribe`, deref `app-db`, dispatch, or perform IO. It must not return live reactions either — it is not a v1 reaction-returning signal fn. It never runs at registration; the runtime resolves each returned query vector in the *same frame* as the outer subscription, at materialization.
 
   This is the only sub-registration form in v2; `reg-sub-raw` is gone (see the [migration reference](../../migration/from-re-frame-v1/README.md)). Full input grammar and error ids: [Subscriptions concept guide](../core/subscriptions.md).
 
 | Mode | Form | Where the inputs come from |
 |---|---|---|
-| App-db reader | `(reg-sub id computation-fn)` | No upstream subs; the computation fn receives `app-db` and the outer `query-v` (layer 1). |
-| Static inputs | `(reg-sub id :<- q1 :<- q2 computation-fn)` | A literal, fixed list of query vectors known at registration (`:<-` sugar). |
-| Parametric inputs | `(reg-sub id input-fn computation-fn)` | Computed from the outer `query-v` by an `input-fn` when a concrete cache entry is first materialized. |
+| App-db reader | `(reg-sub id computation-fn)` | `:inputs` omitted. No upstream subs; the computation fn receives `app-db` and the outer `query-v` (layer 1). |
+| Static inputs | `(reg-sub id {:inputs [q1 q2]} computation-fn)` | A literal, fixed list of query vectors known — and shape-checked — at registration. |
+| Parametric inputs | `(reg-sub id {:inputs producer-fn} computation-fn)` | Computed from the outer `query-v` when a concrete cache entry is first materialized. |
 
 - **Examples**:
   ```clojure
-  ;; Layer-1 — read straight off app-db (no producer)
+  ;; Layer-1 — read straight off app-db (no :inputs, no producer)
   (rf/reg-sub :counter/value
     (fn [db _query] (:counter/value db)))
 
-  ;; Layer-2 — compose an upstream sub via the :<- sugar (static inputs)
-  (rf/reg-sub :counter/doubled
-    :<- [:counter/value]
-    (fn [value _query] (* 2 value)))
+  ;; Layer-2 — declare the upstream sub; the body destructures the vector
+  (rf/reg-sub :counter/doubled {:inputs [[:counter/value]]}
+    (fn [[value] _query] (* 2 value)))
 
-  ;; Parametric — the input-fn returns a vector of query vectors,
-  ;; computed from the outer query-v; the runtime resolves each in the
-  ;; outer sub's frame and hands the resolved values to the computation-fn.
+  ;; Parametric — the producer returns a vector of query vectors, computed
+  ;; from the outer query-v; the runtime resolves each in the outer sub's
+  ;; frame and hands the resolved values to the computation-fn.
   (rf/reg-sub :article/page
-    (fn input-fn [[_ article-id]]
-      [[:article/by-id article-id]
-       [:comments/for-article article-id]
-       [:viewer/current]])
+    {:inputs (fn [[_ article-id]]
+               [[:article/by-id article-id]
+                [:comments/for-article article-id]
+                [:viewer/current]])}
     (fn computation-fn [[article comments viewer] [_ article-id]]
       {:id article-id :article article :comments comments
        :can-edit? (:edit? viewer)}))
