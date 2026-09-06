@@ -46,12 +46,12 @@
   rows needed exactly one door, and the tree row is a claim the bench
   file could not make at all."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::dogfood)
 (def ^:private new-draft-key ::new)
@@ -111,12 +111,12 @@
                                (assoc :next-id (inc id)))})))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (collector/reset-runtime!))}))
+                      (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- seeded!
   ([] (seeded! 3))
@@ -213,7 +213,7 @@
   (seeded! 3)
   (is (false? (read-sub [:dg/done? 1])))
   (let [{:keys [intents prevented?]}
-        (ht/fire! frame-id [:button {:on-click [:dg/toggle 1]} "toggle"] :on-click {})]
+        (rf.hicasso.test/fire! frame-id [:button {:on-click [:dg/toggle 1]} "toggle"] :on-click {})]
 
     (testing "the intent the position dispatched, as the vector itself"
       (is (= [[:dg/toggle 1]] intents)))
@@ -235,29 +235,29 @@
                                    :re-frame.hicasso/value]}]]
 
     (testing "the form IS the controlled door — the runtime's own selection"
-      (is (true? (ht/controlled? field)))
-      (is (= "" (get (ht/element-props field) "value"))))
+      (is (true? (rf.hicasso.test/controlled? field)))
+      (is (= "" (get (rf.hicasso.test/element-props field) "value"))))
 
     (testing "the marker is substituted from the event's own target, and the
               substituted intent is what reached the handler"
       (is (= {:intents [[:dg/edit-draft new-draft-key "mi"]] :prevented? false}
-             (ht/fire! frame-id field :on-input {:value "mi"})))
+             (rf.hicasso.test/fire! frame-id field :on-input {:value "mi"})))
       (is (= "mi" (read-sub [:dg/draft new-draft-key])))
       (is (= {:intents [[:dg/edit-draft new-draft-key "milk"]] :prevented? false}
-             (ht/fire! frame-id field :on-input {:value "milk"})))
+             (rf.hicasso.test/fire! frame-id field :on-input {:value "milk"})))
       (is (= "milk" (read-sub [:dg/draft new-draft-key]))))
 
     (testing "and the same substitution read as pure data agrees with what
               the fired handler dispatched — two doors, one law"
       (is (= [:dg/edit-draft new-draft-key "milk"]
-             (ht/materialize [:dg/edit-draft new-draft-key :re-frame.hicasso/value]
+             (rf.hicasso.test/materialize [:dg/edit-draft new-draft-key :re-frame.hicasso/value]
                              {:value "milk"}))))))
 
 (deftest l1-the-form-submits-once-and-prevents-the-browsers-navigation
   (seeded! 3)
   (send! [:dg/edit-draft new-draft-key "milk"])
   (let [{:keys [intents prevented?]}
-        (ht/fire! frame-id [:form {:on-submit [:dg/create]}] :on-submit {})]
+        (rf.hicasso.test/fire! frame-id [:form {:on-submit [:dg/create]}] :on-submit {})]
 
     (testing "the default action is prevented, by policy and without the
               author writing `::h/prevent` — `on-submit` carries it"
@@ -280,10 +280,10 @@
               expectation for both is SILENCE, which is a claim about the
               intents and not only about app-db"
       (is (= {:intents [] :prevented? false}
-             (ht/fire! frame-id field :on-key-down
+             (rf.hicasso.test/fire! frame-id field :on-key-down
                        {:key "Enter" :composing? true :key-code 13})))
       (is (= {:intents [] :prevented? false}
-             (ht/fire! frame-id field :on-key-down
+             (rf.hicasso.test/fire! frame-id field :on-key-down
                        {:key "Enter" :composing? false :key-code 229})))
       (is (= "todo 1" (:title (read-sub [:dg/todo 1]))))
       (is (= "renamed" (read-sub [:dg/draft 1])) "and the draft survives"))
@@ -291,28 +291,28 @@
     (testing "a settled Enter commits — the control that says the two rows
               above are silence rather than a dead handler"
       (is (= [[:dg/commit 1]]
-             (:intents (ht/fire! frame-id field :on-key-down
+             (:intents (rf.hicasso.test/fire! frame-id field :on-key-down
                                  {:key "Enter" :composing? false :key-code 13}))))
       (is (= "renamed" (:title (read-sub [:dg/todo 1])))))
 
     (testing "Escape takes the map's other branch"
       (send! [:dg/edit-draft 1 "second thoughts"])
       (is (= [[:dg/cancel 1]]
-             (:intents (ht/fire! frame-id field :on-key-down
+             (:intents (rf.hicasso.test/fire! frame-id field :on-key-down
                                  {:key "Escape" :composing? false :key-code 27}))))
       (is (= "" (read-sub [:dg/draft 1])))
       (is (= "renamed" (:title (read-sub [:dg/todo 1])))))
 
     (testing "and a key the map does not name dispatches nothing, so a
               key-map is not a catch-all wearing a lookup"
-      (is (= [] (:intents (ht/fire! frame-id field :on-key-down {:key "a"})))))))
+      (is (= [] (:intents (rf.hicasso.test/fire! frame-id field :on-key-down {:key "a"})))))))
 
 (deftest l1-a-position-the-form-does-not-write-refuses
   (testing "a silently absent handler is the fault this door exists to make
             loud, so naming one refuses rather than answering no intents —
             which would be indistinguishable from a handler that fired and
             dispatched nothing"
-    (let [refused (try (ht/fire! frame-id [:button {:on-click [:dg/toggle 1]}]
+    (let [refused (try (rf.hicasso.test/fire! frame-id [:button {:on-click [:dg/toggle 1]}]
                                  :on-double-click {})
                        nil
                        (catch :default e (ex-data e)))]
@@ -334,8 +334,8 @@
 
 (defn- row-body
   [{:keys [id]}]
-  (let [todo  (h/sub [:dg/todo id])
-        draft (h/sub [:dg/draft id])]
+  (let [todo  (rf.hicasso/sub [:dg/todo id])
+        draft (rf.hicasso/sub [:dg/draft id])]
     [:li.row {:data-id id}
      [:input.toggle {:type      "checkbox"
                      :checked   (:done? todo)
@@ -349,7 +349,7 @@
 
 (defn- filters-body
   [_]
-  (let [current (h/sub [:dg/filter])]
+  (let [current (rf.hicasso/sub [:dg/filter])]
     [:nav.filters
      (for [f [:all :active :done]]
        [:button.filter {:key      f
@@ -359,7 +359,7 @@
         (name f)])]))
 
 (deftest l2-the-rendered-row-carries-its-intents-as-data
-  (let [tree (ht/tree [row-body {:id 1}]
+  (let [tree (rf.hicasso.test/tree [row-body {:id 1}]
                         {:subs {[:dg/todo 1]  {:id 1 :title "todo 1" :done? false}
                                  [:dg/draft 1] ""}})]
 
@@ -372,43 +372,43 @@
               [:dg/commit 1]
               [:dg/cancel 1]
               [:dg/remove 1]]
-             (ht/intents tree))))
+             (rf.hicasso.test/intents tree))))
 
     (testing "the marker is retained as the authored keyword rather than
               resolved — a tree cannot know what a target will carry, and
               writing a value there would be the tree claiming one"
       (is (= [:dg/edit-draft 1 :re-frame.hicasso/value]
-             (:on-input (ht/attrs (ht/find tree #(= "draft" (:class (:attrs %)))))))))
+             (:on-input (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= "draft" (:class (:attrs %)))))))))
 
     (testing "the read values reached the markup"
-      (is (= "todo 1×" (ht/text tree)))
-      (is (false? (:checked (ht/attrs (ht/find tree #(= "toggle" (:class (:attrs %)))))))))
+      (is (= "todo 1×" (rf.hicasso.test/text tree)))
+      (is (false? (:checked (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= "toggle" (:class (:attrs %)))))))))
 
     (testing "and the control: the same body with a DONE to-do renders the
               other value, so the row above is reading the fixture"
-      (is (true? (:checked (ht/attrs (ht/find (ht/tree [row-body {:id 1}]
+      (is (true? (:checked (rf.hicasso.test/attrs (rf.hicasso.test/find (rf.hicasso.test/tree [row-body {:id 1}]
                                                          {:subs {[:dg/todo 1] {:done? true}
                                                                   [:dg/draft 1] ""}})
                                               #(= "toggle" (:class (:attrs %)))))))))))
 
 (deftest l2-a-dynamic-child-list-renders-inside-the-body-s-own-window
-  (let [tree (ht/tree [filters-body {}] {:subs {[:dg/filter] :active}})]
+  (let [tree (rf.hicasso.test/tree [filters-body {}] {:subs {[:dg/filter] :active}})]
 
     (testing "a `for` inside the body splices its members as children — the
               runtime's one-level flatten, not a second rule"
-      (is (= 3 (count (ht/find-all tree #(= :button (:tag %))))))
-      (is (= "allactivedone" (ht/text tree))))
+      (is (= 3 (count (rf.hicasso.test/find-all tree #(= :button (:tag %))))))
+      (is (= "allactivedone" (rf.hicasso.test/text tree))))
 
     (testing "each member keeps the key it was written with"
       (is (= [:all :active :done]
-             (mapv :key (ht/find-all tree #(= :button (:tag %)))))))
+             (mapv :key (rf.hicasso.test/find-all tree #(= :button (:tag %)))))))
 
     (testing "and the read taken INSIDE the loop is the read the fixture
               answered — which is what says the walk happened inside the
               body's own render window rather than after it"
       (is (= "filter on"
-             (:class (ht/attrs (ht/find tree #(= :active (:data-filter (:attrs %))))))))
+             (:class (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= :active (:data-filter (:attrs %))))))))
       (is (= "filter"
-             (:class (ht/attrs (ht/find tree #(= :all (:data-filter (:attrs %))))))))
+             (:class (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= :all (:data-filter (:attrs %))))))))
       (is (= [[:dg/set-filter :all] [:dg/set-filter :active] [:dg/set-filter :done]]
-             (ht/intents tree))))))
+             (rf.hicasso.test/intents tree))))))

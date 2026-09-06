@@ -11,23 +11,23 @@
   `defaultPrevented`. The real browser click, the real route change and
   the real page re-render are `shapes/route_link_dom_cljs_test`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.route-link :as link]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.route-link :as rf.hicasso.impl.route-link]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing :as routing]
-            [re-frame.test-support :as test-support]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing :as rf.routing]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil}))
 
 (def ^:private frame-id ::grammar)
 
 (defn- fresh! []
-  (routing/reg-route :conduit.profile/show {} "/profile/:username")
+  (rf.routing/reg-route :conduit.profile/show {} "/profile/:username")
   (rf/make-frame {:id frame-id :initial-events [[:rf/set-db {}]]})
   frame-id)
 
@@ -36,8 +36,8 @@
   [[intent/with-frame]] — and answer the hiccup value."
   [props & children]
   (fresh!)
-  (intent/with-frame frame-id (fn [_] nil)
-    (fn [] (apply link/route-link props children))))
+  (rf.hicasso.impl.intent/with-frame frame-id (fn [_] nil)
+    (fn [] (apply rf.hicasso.impl.route-link/route-link props children))))
 
 (defn- ev
   "A stand-in click event: `:button`/`:metaKey` select the click class,
@@ -75,7 +75,7 @@
 (deftest the-click-decision-is-readable-off-the-tree
   (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}} "jane")
         on-click  (:on-click attrs)]
-    (is (intent/navigate-head? on-click) "the click position carries the navigate head")
+    (is (rf.hicasso.impl.intent/navigate-head? on-click) "the click position carries the navigate head")
     (let [{:keys [frame payload native? veto]} (second on-click)]
       (is (= frame-id frame) "the frame was captured at render, as data")
       (is (= [:rf.route/url-requested {:url "/profile/jane"
@@ -108,9 +108,9 @@
 
 (deftest a-prevent-veto-rides-the-vector-as-data
   (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
-                             :on-click [intent/prevent-head [:conduit/track "jane"]]}
+                             :on-click [rf.hicasso.impl.intent/prevent-head [:conduit/track "jane"]]}
                             "jane")]
-    (is (= [intent/prevent-head [:conduit/track "jane"]]
+    (is (= [rf.hicasso.impl.intent/prevent-head [:conduit/track "jane"]]
            (:veto (second (:on-click attrs))))
         "the declarative veto is visible to `=` on the rendered tree")))
 
@@ -138,7 +138,7 @@
   (fresh!)
   (is (thrown-with-msg?
         js/Error #"hicasso-route-link-outside-boundary"
-        (link/route-link {:to :conduit.profile/show :params {:username "jane"}} "jane"))))
+        (rf.hicasso.impl.route-link/route-link {:to :conduit.profile/show :params {:username "jane"}} "jane"))))
 
 (deftest a-prefetch-key-never-reaches-the-anchor
   (testing "`:prefetch` is routing's link-model key, not an HTML attribute,
@@ -154,8 +154,8 @@
 (defn- lower-navigate
   "Lower `[intent/navigate-head m]` at an event position and answer the closure."
   [m]
-  (intent/with-frame frame-id (fn [_] nil)
-    (fn [] (intent/lower-prop :on-click [intent/navigate-head m]))))
+  (rf.hicasso.impl.intent/with-frame frame-id (fn [_] nil)
+    (fn [] (rf.hicasso.impl.intent/lower-prop :on-click [rf.hicasso.impl.intent/navigate-head m]))))
 
 (deftest the-navigate-map-lowers-to-a-closure
   (testing "HD-027's four keys — :frame, :payload, :native? and :veto — lower
@@ -169,11 +169,11 @@
 (deftest prevent-does-not-wrap-a-navigate
   (is (thrown-with-msg?
         js/Error #"hicasso-malformed-prevent"
-        (intent/with-frame frame-id (fn [_] nil)
-          (fn [] (intent/lower-prop
+        (rf.hicasso.impl.intent/with-frame frame-id (fn [_] nil)
+          (fn [] (rf.hicasso.impl.intent/lower-prop
                    :on-click
-                   [intent/prevent-head
-                    [intent/navigate-head {:frame frame-id :payload [:x]
+                   [rf.hicasso.impl.intent/prevent-head
+                    [rf.hicasso.impl.intent/navigate-head {:frame frame-id :payload [:x]
                                            :native? false :veto nil}]]))))
       "decorators do not nest, in either order"))
 
@@ -187,14 +187,14 @@
   [props]
   (let [!seen  (atom [])
         [_ attrs] (rendered props "jane")
-        h      (intent/with-frame frame-id
+        h      (rf.hicasso.impl.intent/with-frame frame-id
                  (fn [ev] (swap! !seen conj ev) nil)
-                 (fn [] (intent/lower-prop :on-click (:on-click attrs))))]
+                 (fn [] (rf.hicasso.impl.intent/lower-prop :on-click (:on-click attrs))))]
     [h !seen]))
 
 (deftest a-prevent-veto-cancels-the-navigation-and-dispatches-instead
   (let [[h !seen] (lowered-click {:to :conduit.profile/show :params {:username "jane"}
-                                  :on-click [intent/prevent-head [:conduit/track "jane"]]})
+                                  :on-click [rf.hicasso.impl.intent/prevent-head [:conduit/track "jane"]]})
         !prevented (atom false)]
     (h (ev {:prevented !prevented}))
     (is (true? @!prevented)
@@ -231,10 +231,10 @@
   previous registration in `finally` so the suite's other rows keep
   running against routing's real seam."
   [f thunk]
-  (let [previous (late-bind/get-fn :routing/activate-link!)]
-    (late-bind/set-fn! :routing/activate-link! f)
+  (let [previous (rf.late-bind/get-fn :routing/activate-link!)]
+    (rf.late-bind/set-fn! :routing/activate-link! f)
     (try (thunk)
-         (finally (late-bind/set-fn! :routing/activate-link! previous)))))
+         (finally (rf.late-bind/set-fn! :routing/activate-link! previous)))))
 
 (deftest a-function-veto-rides-the-vector-and-reaches-the-seam-by-identity
   (testing "the roster's IMPERATIVE half (HD-024: whoever holds the event
@@ -304,7 +304,7 @@
            routing artefact's absence, which is what keeps the degrade a
            navigation policy rather than a lost click"
     (let [[h !seen]  (lowered-click {:to :conduit.profile/show :params {:username "jane"}
-                                     :on-click [intent/prevent-head [:conduit/track "jane"]]})
+                                     :on-click [rf.hicasso.impl.intent/prevent-head [:conduit/track "jane"]]})
           !prevented (atom false)]
       (with-activate-link nil #(h (ev {:prevented !prevented})))
       (is (true? @!prevented))
@@ -317,9 +317,9 @@
            :to, and the two coordinates the author needs to repair it.
            Asserted as ex-data rather than a message regex, per the
            refusal-shape convention"
-    (let [previous (late-bind/get-fn :routing/link-model)]
+    (let [previous (rf.late-bind/get-fn :routing/link-model)]
       (try
-        (late-bind/set-fn! :routing/link-model nil)
+        (rf.late-bind/set-fn! :routing/link-model nil)
         (let [data (try
                      (rendered {:to :conduit.profile/show :params {:username "jane"}} "jane")
                      ::returned-without-refusing
@@ -331,4 +331,4 @@
               "…and the dependency to add")
           (is (re-find #"re-frame\.routing" (str (:reason data)))
               "…and the namespace to require at boot"))
-        (finally (late-bind/set-fn! :routing/link-model previous))))))
+        (finally (rf.late-bind/set-fn! :routing/link-model previous))))))

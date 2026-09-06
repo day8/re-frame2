@@ -29,16 +29,16 @@
   build (sentinel `rf2-frame` in `scripts/check-elision.cjs`) and by
   `reg_view_devtools_elision_prod_test.cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.performance :as performance]
-            [re-frame.test-support :as test-support]
+            [re-frame.performance :as rf.performance]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -86,14 +86,14 @@
                  [] [:p "x"])
     (let [id      :rf.devtools-test/one-identifier
           wrapped (rf/view id)]
-      (is (= (performance/build-name :render id)
+      (is (= (rf.performance/build-name :render id)
              (str "rf:render:" (.-displayName ^js wrapped)))
           "the render measure name is exactly \"rf:render:\" + displayName")
       ;; Non-vacuous on both sides: a namespaced keyword, and a measure
       ;; name that really does carry the namespace (so the equality is not
       ;; satisfied by two empty strings).
       (is (= "rf:render:rf.devtools-test/one-identifier"
-             (performance/build-name :render id))
+             (rf.performance/build-name :render id))
           "the measure name is the documented shape for a namespaced id"))))
 
 ;; ---- JSX source-coord props (regression: must NOT be injected) -----------
@@ -164,5 +164,5 @@
             inspector renders `rf2-frame.Provider` rather than the
             opaque default"
     (is (= "rf2-frame"
-           (.-displayName ^js adapter-context/frame-context))
+           (.-displayName ^js rf.adapter.context/frame-context))
         "frame-context.displayName is set to \"rf2-frame\"")))

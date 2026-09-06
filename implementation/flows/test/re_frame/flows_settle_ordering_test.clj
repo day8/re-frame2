@@ -27,11 +27,11 @@
             ;; lagging runtime — every assertion below goes red for the wrong
             ;; reason. Required for effect, not for a var.
             [re-frame.flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private sum-flow
   "1 + 2 = 3 at `[:derived]` — the audit probe's own shape."

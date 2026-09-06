@@ -14,8 +14,8 @@
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
             [reagent2.impl.template    :as template]
-            [re-frame.substrate.spine   :as spine]
-            [re-frame.views            :as views]))
+            [re-frame.substrate.spine   :as rf.substrate.spine]
+            [re-frame.views            :as rf.views]))
 
 ;; ---- shared ratom-spine wiring --------------------------------------------
 ;;
@@ -24,7 +24,7 @@
 ;; stock `reagent.*` is structurally absent from the slim dependency graph.
 
 (def ^:private spine-fns
-  (spine/make-ratom-spine
+  (rf.substrate.spine/make-ratom-spine
     {;; Keep generated watch ids attributable in mixed-adapter test bundles.
      :gensym-prefix-sub "rf-reagent-slim-sub-"
      ;; Each op is a thin call-through lambda rather than the bare Var
@@ -119,14 +119,14 @@
   The shared ratom spine owns rendering, disposal, hook routing, and SSR
   publication. It receives only injected `reagent2.*` operations, preserving
   the invariant that stock Reagent is absent from slim bundles."
-  (spine/make-ratom-adapter
+  (rf.substrate.spine/make-ratom-adapter
     spine-fns
     {:kind :rf.adapter/reagent-slim
      ;; The returned component receives the frame keyword at render time.
-     :register-context-provider (fn [_frame-keyword] (views/build-frame-provider))
+     :register-context-provider (fn [_frame-keyword] (rf.views/build-frame-provider))
      ;; reagent2 reactions do not implement stock Reagent's IDisposable; the
      ;; spine handles re-frame-owned disposal before these substrate ops.
-     :current-frame     views/current-frame
+     :current-frame     rf.views/current-frame
      :current-component r/current-component
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
@@ -150,5 +150,5 @@
 ;; fixtures re-arm both caches. Keeping this wiring in the adapter avoids a
 ;; `reagent2.*` to `re-frame.*` dependency; the private cache intentionally has
 ;; no arm-state probe.
-(spine/install-clear-warn-once-step! template/clear-warned-keyword-prop!
+(rf.substrate.spine/install-clear-warn-once-step! template/clear-warned-keyword-prop!
                                      {:label :reagent-slim/warned-keyword-prop})

@@ -100,10 +100,10 @@
   witness is the half that makes the other half mean something."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect require: machines publishes the late-bind hook
             ;; (see epoch_test.clj for the same dance).
             [re-frame.machines]))
@@ -127,8 +127,8 @@
 ;; resolve a carried frame stamp without a hand-rolled `make-frame` + `with-
 ;; frame` dance here. Explicit `{:frame …}` opts in the bodies still win.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; rf2-t7qh8 — the witness read. See the docstring section above: it is what
@@ -143,7 +143,7 @@
             `:trace-events` payloads land in heap memory — the
             primary motivating concern of the audit (tokens / PII /
             secrets retained in SSR process memory) is addressed."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod-gate.epoch/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.epoch/inc])
@@ -152,7 +152,7 @@
       (is (= 3 (:n (app-db-of :rf/default)))
           "WITNESS: all three dispatches ran their handler and committed —
            so the empty ring below is elision, not a dead dispatch loop")
-      (is (empty? (epoch/epoch-history :rf/default))
+      (is (empty? (rf.epoch/epoch-history :rf/default))
           "epoch ring is empty under disabled debug gate"))))
 
 (deftest epoch-cb-silent-when-debug-disabled
@@ -160,9 +160,9 @@
             fire under the disabled debug gate. No record fan-out
             means no tool/plugin callback in-process can observe
             `:db-before` / `:db-after` / raw trace vectors."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
-        (epoch/register-epoch-listener!
+        (rf.epoch/register-epoch-listener!
           :prod-gate.epoch/recorder
           (fn [record] (swap! seen conj record)))
         (rf/reg-event :prod-gate.epoch/silent
@@ -180,7 +180,7 @@
             surface is dev-only; SSR production processes do NOT
             give arbitrary in-process code the ability to mutate
             `app-db` out of band."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (is (false? (rf/restore-epoch! :rf/default :some-epoch-id))
           "restore-epoch! returns false (refuses to operate)"))))
 
@@ -200,7 +200,7 @@
         "WITNESS: the probe handler ran — there is a real dispatch to refuse to replay")
     (let [recorded-id (or (:epoch-id (last (rf/epoch-history :rf/default)))
                           :some-epoch-id)]
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (is (false? (rf/replay-epoch! :rf/default recorded-id))
             "replay-epoch! returns false (refuses to operate)")
         (is (false? (rf/replay-epoch! :rf/default :some-epoch-id {:origin :pair}))
@@ -213,7 +213,7 @@
             when the JVM debug gate is off. Same admin-surface
             concern as `restore-epoch!` — pair-tool writes (Tool-Pair
             §Pair-tool writes) are a dev-only surface."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
           "replace-frame-state! returns false (refuses to operate)"))))
 
@@ -235,7 +235,7 @@
     (rf/reg-event :prod-gate.epoch/dev-inc
                      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:prod-gate.epoch/dev-inc])
-    (is (pos? (count (epoch/epoch-history :rf/default)))
+    (is (pos? (count (rf.epoch/epoch-history :rf/default)))
         "epoch ring has at least one record under default gate")))
 
 ;; ---- rf2-vq5o0 privacy-surface JVM false-path coverage ------------------
@@ -248,14 +248,14 @@
             seam; the projection itself is a pure data transform that
             no consumer can reach a record through under the disabled
             gate."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod-gate.priv/silent
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.priv/silent])
       (is (= 1 (:n (app-db-of :rf/default)))
           "WITNESS: the dispatch ran — nothing reached the ring for the
            projection to read")
-      (is (= [] (epoch/projected-history :rf/default))
+      (is (= [] (rf.epoch/projected-history :rf/default))
           "empty projected-history under the disabled gate"))))
 
 (deftest sensitive-rollup-not-computed-under-disabled-gate
@@ -264,7 +264,7 @@
             path elides record assembly entirely; the rollup never
             runs. We verify by asserting the ring stays empty — no
             record means no rollup compute path was reached."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod-gate.priv/sensitive
                        {:sensitive? true}
                        (fn [{:keys [db]} _] {:db (assoc db :token "shh")}))
@@ -272,7 +272,7 @@
       (is (= "shh" (:token (app-db-of :rf/default)))
           "WITNESS: the `:sensitive?`-flagged handler ran and wrote the token —
            so the absent rollup below is elision, not an absent event")
-      (is (empty? (epoch/epoch-history :rf/default))
+      (is (empty? (rf.epoch/epoch-history :rf/default))
           "no record assembled — rollup never reached"))))
 
 ;; ---- EP-0015 §15 / open-issue 6 :redact-fn surface JVM coverage ----------
@@ -290,7 +290,7 @@
             is NEVER invoked along the dispatch/storage path. An app that
             ships a `:redact-fn` and flips the gate to false in production
             pays zero invocation cost."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [invocations (atom 0)]
         (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                     (swap! invocations inc)
@@ -306,7 +306,7 @@
         (is (zero? @invocations)
             ":redact-fn was never called along the storage path — it is a
              projection-side hook, and record assembly is elided anyway")
-        (is (empty? (epoch/epoch-history :rf/default))
+        (is (empty? (rf.epoch/epoch-history :rf/default))
             "no record assembled under the disabled gate")
         (rf/configure! {:epoch-history {:redact-fn nil}})))))
 
@@ -328,7 +328,7 @@
       (is (zero? @invocations)
           ":redact-fn NOT invoked by settle — it is projection-side only")
       ;; Projecting the recorded record IS where the override fires.
-      (epoch/projected-record (last (epoch/epoch-history :prod-gate.dev/frame)))
+      (rf.epoch/projected-record (last (rf.epoch/epoch-history :prod-gate.dev/frame)))
       (is (pos? @invocations)
           ":redact-fn fires when projected-record is called (the egress
            override), under the default gate")
@@ -339,7 +339,7 @@
             gated arm that would record the synthetic epoch is elided. The
             :redact-fn (projection-side) is never reached on this path
             regardless; the early-return false is preserved."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [invocations (atom 0)]
         (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                     (swap! invocations inc)
@@ -404,8 +404,8 @@
            :sub-runs      []
            :renders       []
            :effects       []}]
-      (with-redefs [interop/debug-enabled? false]
-        (let [projected (epoch/projected-record synthetic-record)]
+      (with-redefs [rf.interop/debug-enabled? false]
+        (let [projected (rf.epoch/projected-record synthetic-record)]
           (is (some? projected)
               "projection runs even under the disabled gate")
           (is (= 42 (:epoch-id projected))

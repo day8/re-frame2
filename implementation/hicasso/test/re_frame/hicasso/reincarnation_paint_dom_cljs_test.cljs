@@ -67,16 +67,16 @@
   passes because nothing ran. The real run is `npm run test:browser`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [clojure.set :as set]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]))
 
@@ -86,11 +86,11 @@
 (rf/reg-sub   :reinc-paint/who  (fn [db _] (:who db)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The exercised population — a MEASUREMENT, not a claim
@@ -116,7 +116,7 @@
   [why]
   (is true (str "a paint-order claim needs a real React DOM — " why)))
 
-(h/defview who-line [_] [:p {:id "who"} (h/sub [:reinc-paint/who])])
+(rf.hicasso/defview who-line [_] [:p {:id "who"} (rf.hicasso/sub [:reinc-paint/who])])
 
 (defn- seat!
   "Create the frame under `frame-id` and seed it. Called once to mount the
@@ -126,7 +126,7 @@
   [who]
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:reinc-paint/seed who]))
-  (frame/frame-incarnation-token frame-id))
+  (rf.frame/frame-incarnation-token frame-id))
 
 (defn- reincarnate!
   "Destroy and re-seat under the same public id, synchronously. Answers
@@ -140,7 +140,7 @@
 
 (defn- poll
   [pred label]
-  (test-support/poll-until pred {:label label :timeout-ms 4000}))
+  (rf.test-support/poll-until pred {:label label :timeout-ms 4000}))
 
 (defonce ^:private !minted
   ;; Every root a row has minted through `mount-live!`, oldest first.
@@ -164,7 +164,7 @@
   NEXT namespace to inherit, which is the very contamination this
   teardown exists to prevent, arriving by a second door."
   []
-  (run! mount/release! @!minted)
+  (run! rf.hicasso.impl.mount/release! @!minted)
   (reset! !minted [])
   nil)
 
@@ -184,12 +184,12 @@
   instant until [[release-minted!]] runs there is a live root on the page
   and this promise is the only thing that could ever name it."
   []
-  (let [container (mount/fresh-container!)
-        handle    (mount/root! container frame-id [who-line {}])]
+  (let [container (rf.hicasso.impl.mount/fresh-container!)
+        handle    (rf.hicasso.impl.mount/root! container frame-id [who-line {}])]
     (swap! !minted conj handle)
     (-> (poll #(= "A" (text handle)) "the predecessor's value is committed")
         (.then (fn [_]
-                 (mount/dispatch! handle [:reinc-paint/seed "A-live"])
+                 (rf.hicasso.impl.mount/dispatch! handle [:reinc-paint/seed "A-live"])
                  (poll #(= "A-live" (text handle))
                        "the boundary repaints, so its subscription is live")))
         (.then (fn [_] handle)))))
@@ -238,7 +238,7 @@
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (text handle)))
-                   " | residue " (pr-str (dissoc (runtime/residue) :entries))))
+                   " | residue " (pr-str (dissoc (rf.hicasso.test.runtime/residue) :entries))))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -248,15 +248,15 @@
 
 (deftest the-first-render-opportunity-after-a-reincarnation-observes-the-successor
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no rendering opportunity") (done))
       (do
-        (support/leave-act-environment!)
+        (rf.hicasso.checkpoint-support/leave-act-environment!)
         (seat! "A")
         (-> (mount-live!)
             (.then
               (fn [handle]
-                (let [token-a (frame/frame-incarnation-token frame-id)
+                (let [token-a (rf.frame/frame-incarnation-token frame-id)
                       ;; Register the frame observation BEFORE the transition,
                       ;; so the callback is queued against the rendering
                       ;; opportunity that follows this very task.
@@ -279,7 +279,7 @@
                             nothing"
                     (is (= "A-live" (text handle))))
 
-                  (-> (support/drain-checkpoint #(= "B" (text handle)))
+                  (-> (rf.hicasso.checkpoint-support/drain-checkpoint #(= "B" (text handle)))
                       (.then
                         (fn [turns]
                           (testing "and it is corrected INSIDE the microtask
@@ -290,7 +290,7 @@
                                     event loop reaches a rendering opportunity"
                             (is (some? turns)
                                 (str "not corrected within the checkpoint ("
-                                     support/checkpoint-turn-budget
+                                     rf.hicasso.checkpoint-support/checkpoint-turn-budget
                                      " promise turns); the DOM read "
                                      (pr-str (text handle)))))
                           framed))
@@ -307,12 +307,12 @@
                                     replaced the attachment, it did not add a
                                     second"
                             (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                                   (dissoc (runtime/residue) :entries))))
+                                   (dissoc (rf.hicasso.test.runtime/residue) :entries))))
 
                           (exercised! :paint-order/mounted-reincarnation)
-                          (mount/unmount! handle)
-                          (.then (runtime/quiesced!)
-                                 (fn [_] (mount/release! handle) nil))))
+                          (rf.hicasso.impl.mount/unmount! handle)
+                          (.then (rf.hicasso.test.runtime/quiesced!)
+                                 (fn [_] (rf.hicasso.impl.mount/release! handle) nil))))
                       (.catch (report-failure! "W1 paint-order witness" handle))))))
             (.catch (report-failure! "W1 paint-order witness" nil))
             ;; The single trailing step, which BOTH arms reach: this row's
@@ -338,16 +338,16 @@
   ;; ORDERING GUARANTEE and not the repair — which is exactly the finding the
   ;; bead's ruling rests on.
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no rendering opportunity") (done))
       (do
-        (support/leave-act-environment!)
+        (rf.hicasso.checkpoint-support/leave-act-environment!)
         (seat! "A")
         (-> (mount-live!)
             (.then
               (fn [handle]
-                (support/with-macrotask-deferral #(reincarnate! "B"))
-                (-> (support/drain-checkpoint #(= "B" (text handle)))
+                (rf.hicasso.checkpoint-support/with-macrotask-deferral #(reincarnate! "B"))
+                (-> (rf.hicasso.checkpoint-support/drain-checkpoint #(= "B" (text handle)))
                     (.then
                       (fn [turns]
                         (testing "with the macrotask deferral restored the
@@ -371,9 +371,9 @@
                                   green is the scheduling and nothing else"
                           (is (= "B" later)))
                         (exercised! :paint-order/macrotask-sabotage)
-                        (mount/unmount! handle)
-                        (.then (runtime/quiesced!)
-                               (fn [_] (mount/release! handle) nil))))
+                        (rf.hicasso.impl.mount/unmount! handle)
+                        (.then (rf.hicasso.test.runtime/quiesced!)
+                               (fn [_] (rf.hicasso.impl.mount/release! handle) nil))))
                     (.catch (report-failure! "W1 sabotage control" handle)))))
             (.catch (report-failure! "W1 sabotage control" nil))
             ;; The single trailing step, which BOTH arms reach: this row's
@@ -413,12 +413,12 @@
   ;; reincarnation restarts the frame's install epoch, so basis@render and
   ;; basis@commit can be the same number across it.
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no rendering opportunity") (done))
       (do
-        (support/leave-act-environment!)
+        (rf.hicasso.checkpoint-support/leave-act-environment!)
         (seat! "A")
-        (let [container (mount/fresh-container!)
+        (let [container (rf.hicasso.impl.mount/fresh-container!)
               root      (react-dom-client/createRoot container)
               handle    {:root root :container container :frame frame-id}]
           ;; A concurrent root, deliberately not `mount/root!`: that door
@@ -427,7 +427,7 @@
           (.render root
                    (react/createElement
                      (.-Fragment react) nil
-                     (mount/provider frame-id (codec/root-element frame-id [who-line {}]))
+                     (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id [who-line {}]))
                      (react/createElement gap-reincarnator nil)))
           (-> (poll #(seq (text handle)) "the boundary commits")
               (.then
@@ -453,12 +453,12 @@
                   (testing "and it is corrected ONCE: one cell, one reader, no
                             second registration left by the correcting render"
                     (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                           (dissoc (runtime/residue) :entries))))
+                           (dissoc (rf.hicasso.test.runtime/residue) :entries))))
 
                   (exercised! :paint-order/staged-gap)
-                  (mount/unmount! handle)
-                  (.then (runtime/quiesced!)
-                         (fn [_] (mount/release! handle) nil))))
+                  (rf.hicasso.impl.mount/unmount! handle)
+                  (.then (rf.hicasso.test.runtime/quiesced!)
+                         (fn [_] (rf.hicasso.impl.mount/release! handle) nil))))
               (.catch (report-failure! "W2 staged-gap witness" handle))
               ;; The single trailing step, which BOTH arms reach: this row's
               ;; roots go down first, and the single `done` is the last act.
@@ -469,7 +469,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no rendering opportunity, so nothing is exercised")
     (is (= declared-population @!exercised)
         (str "every declared paint-order mechanism must be reached; missing: "

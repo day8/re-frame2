@@ -48,16 +48,16 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.adapter.react-shared-suite]
-            [re-frame.test-support :as test-support])
+            [re-frame.test-support :as rf.test-support])
   (:require-macros
    [re-frame.adapter.react-shared-suite-tests
     :refer [define-react-shared-suite-tests!]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter}))
 
 ;; rf2-7kjz8 / rf2-z7hfp / rf2-7kii2 — the frame-provider branch assertions
 ;; now target the substrate-agnostic spine core
@@ -67,13 +67,13 @@
 ;; DOM twin + the trailing-children regression test (folded from the prior
 ;; per-adapter uix_frame_provider_branches_cljs_test.cljs).
 (def ^:private cfg
-  {:adapter          uix-adapter/adapter
+  {:adapter          rf.adapter.uix/adapter
    :substrate-kw     :uix
    :name             "UIx"
    :producer-ns      're-frame.adapter.uix
-   :wrap-view        uix-adapter/wrap-view
-   :set-emitter!     uix-adapter/set-hiccup-emitter!
-   :render-to-string (:render-to-string uix-adapter/adapter)
+   :wrap-view        rf.adapter.uix/wrap-view
+   :set-emitter!     rf.adapter.uix/set-hiccup-emitter!
+   :render-to-string (:render-to-string rf.adapter.uix/adapter)
    ;; rf2-6j09b / rf2-6r9j.36 — the public Vars the suite's public-surface
    ;; guard asserts (presence/kind/distinctness). Substrate-specific because
    ;; each adapter's re-exports are distinct objects the suite cannot name
@@ -90,14 +90,14 @@
    :public-surface-keys [:set-hiccup-emitter! :use-current-frame :frame-provider
                          :frame-root :use-subscribe :use-frame :flush-views!
                          :wrap-view]
-   :public-surface   {:set-hiccup-emitter! uix-adapter/set-hiccup-emitter!
-                      :use-current-frame   uix-adapter/use-current-frame
-                      :frame-provider      uix-adapter/frame-provider
-                      :frame-root          uix-adapter/frame-root
-                      :use-subscribe       uix-adapter/use-subscribe
-                      :use-frame           uix-adapter/use-frame
-                      :flush-views!        uix-adapter/flush-views!
-                      :wrap-view           uix-adapter/wrap-view}})
+   :public-surface   {:set-hiccup-emitter! rf.adapter.uix/set-hiccup-emitter!
+                      :use-current-frame   rf.adapter.uix/use-current-frame
+                      :frame-provider      rf.adapter.uix/frame-provider
+                      :frame-root          rf.adapter.uix/frame-root
+                      :use-subscribe       rf.adapter.uix/use-subscribe
+                      :use-frame           rf.adapter.uix/use-frame
+                      :flush-views!        rf.adapter.uix/flush-views!
+                      :wrap-view           rf.adapter.uix/wrap-view}})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`. The macro ns owns

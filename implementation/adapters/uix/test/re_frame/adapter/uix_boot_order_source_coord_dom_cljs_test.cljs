@@ -48,9 +48,9 @@
             ["react-dom/client" :as react-dom-client]
             [uix.core :refer-macros [$]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The `use-fixtures` call is NOT here. It sits below the ns-load registration
 ;; further down, and the position is load-bearing: `make-reset-runtime-fixture`
@@ -90,8 +90,8 @@
 
 ;; NOW the fixture — see the note under the ns form for why the order matters.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -156,13 +156,13 @@
   [act-fn head]
   (let [mount-node (.createElement js/document "div")
         react-root (react-dom-client/createRoot mount-node)]
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (let [diagnostics (capture-console-diagnostics
                           (fn []
                             (act-fn
                               (fn []
                                 (.render react-root
-                                  ($ uix-adapter/frame-provider {:frame probe-frame}
+                                  ($ rf.adapter.uix/frame-provider {:frame probe-frame}
                                      ($ head)))))))
             view-root   (.querySelector mount-node "[data-testid='probe']")]
         (try

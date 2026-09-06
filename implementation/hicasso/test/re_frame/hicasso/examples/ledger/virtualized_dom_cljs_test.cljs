@@ -63,23 +63,23 @@
   than to a false green — the posture every other `*-dom` suite here
   keeps."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.ledger.app :as app]
-            [re-frame.hicasso.examples.ledger.events :as events]
-            [re-frame.hicasso.examples.ledger.subs :as subs]
-            [re-frame.hicasso.examples.ledger.vendor :as vendor]
-            [re-frame.hicasso.examples.ledger.views :as views]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.ledger.app :as rf.hicasso.examples.ledger.app]
+            [re-frame.hicasso.examples.ledger.events :as rf.hicasso.examples.ledger.events]
+            [re-frame.hicasso.examples.ledger.subs :as rf.hicasso.examples.ledger.subs]
+            [re-frame.hicasso.examples.ledger.vendor :as rf.hicasso.examples.ledger.vendor]
+            [re-frame.hicasso.examples.ledger.views :as rf.hicasso.examples.ledger.views]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom" :as react-dom]))
 
 ;; ---------------------------------------------------------------------------
 ;; The controls — the recipe with one rule removed each
 ;; ---------------------------------------------------------------------------
 
-(h/defview unkeyed-ledger
+(rf.hicasso/defview unkeyed-ledger
   "**Rule 1 removed.** Identical to `views/ledger` except that the row
   written in the render callback carries no `:key`.
 
@@ -88,37 +88,37 @@
   three rows hands every DOM node to the record three places further
   down, silently, while the page keeps looking right."
   [_]
-  (let [total  (h/sub [::subs/total])
-        pinned (h/sub [::subs/pinned-index])]
+  (let [total  (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/total])
+        pinned (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/pinned-index])]
     [:div {:role "grid" :aria-rowcount (str total)}
-     [views/rows {:count           total
-                  :row-height      views/row-height
-                  :viewport-height views/viewport-height
-                  :overscan        views/overscan
+     [rf.hicasso.examples.ledger.views/rows {:count           total
+                  :row-height      rf.hicasso.examples.ledger.views/row-height
+                  :viewport-height rf.hicasso.examples.ledger.views/viewport-height
+                  :overscan        rf.hicasso.examples.ledger.views/overscan
                   :pinned-index    pinned
-                  :render-row      (h/event [i offset]
-                                     (h/as-element
-                                       [views/ledger-row {:index i :offset offset}]))}]]))
+                  :render-row      (rf.hicasso/event [i offset]
+                                     (rf.hicasso/as-element
+                                       [rf.hicasso.examples.ledger.views/ledger-row {:index i :offset offset}]))}]]))
 
-(h/defview unpinned-ledger
+(rf.hicasso/defview unpinned-ledger
   "**Rule 3 removed.** Identical to `views/ledger` except that the
   virtualizer is never told which row the platform's focus is in, so it
   unmounts that row like any other the moment the window leaves it."
   [_]
-  (let [total (h/sub [::subs/total])]
+  (let [total (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/total])]
     [:div {:role "grid" :aria-rowcount (str total)}
-     [views/rows {:count           total
-                  :row-height      views/row-height
-                  :viewport-height views/viewport-height
-                  :overscan        views/overscan
+     [rf.hicasso.examples.ledger.views/rows {:count           total
+                  :row-height      rf.hicasso.examples.ledger.views/row-height
+                  :viewport-height rf.hicasso.examples.ledger.views/viewport-height
+                  :overscan        rf.hicasso.examples.ledger.views/overscan
                   :pinned-index    -1
-                  :render-row      (h/event [i offset]
-                                     (h/as-element
-                                       [views/ledger-row {:key    (views/row-key i)
+                  :render-row      (rf.hicasso/event [i offset]
+                                     (rf.hicasso/as-element
+                                       [rf.hicasso.examples.ledger.views/ledger-row {:key    (rf.hicasso.examples.ledger.views/row-key i)
                                                           :index  i
                                                           :offset offset}]))}]]))
 
-(h/defview plain-list
+(rf.hicasso/defview plain-list
   "The same rows with no virtualizer at all — the contrast that makes
   *the document holds a window* a measurement rather than a reading of
   one number.
@@ -127,22 +127,22 @@
   is not an anti-pattern: for a hundred rows it is the right shape, and
   saying so is half of what a virtualizer recipe is for."
   [_]
-  (let [total (h/sub [::subs/total])]
+  (let [total (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/total])]
     [:div {:role "grid" :aria-rowcount (str total)}
      (for [i (range total)]
-       [views/ledger-row {:key    (views/row-key i)
+       [rf.hicasso.examples.ledger.views/ledger-row {:key    (rf.hicasso.examples.ledger.views/row-key i)
                           :index  i
-                          :offset (* i views/row-height)}])]))
+                          :offset (* i rf.hicasso.examples.ledger.views/row-height)}])]))
 
 ;; The fixture snapshots the registrar when THIS form is evaluated, so it
 ;; sits below the three views above.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; The MAP shape, because [[the-screen-leaves-nothing-behind]] is
     ;; `async` and `cljs.test` aborts the WHOLE RUN — every namespace
     ;; after this one included — on an async row under a positional
     ;; fixture. Observed: one line of `Testing aborted.` and no summary.
-    {:adapter       uix-adapter/adapter
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true}))
 
@@ -158,8 +158,8 @@
                  subject — " why)))
 
 (defn- mount-ledger!
-  ([total] (mount-ledger! total [views/ledger {}]))
-  ([total form] (hm/mount! form {:initial-events (app/initial-events total)})))
+  ([total] (mount-ledger! total [rf.hicasso.examples.ledger.views/ledger {}]))
+  ([total form] (rf.hicasso.test.mounted/mount! form {:initial-events (rf.hicasso.examples.ledger.app/initial-events total)})))
 
 (defn- query-node [mount selector] (.querySelector (:container mount) selector))
 (defn- query-nodes [mount selector]
@@ -173,7 +173,7 @@
   "The note field of the row showing model index `i`, or nil when that
   row is not in the document."
   [m i]
-  (query-node m (str "#" (events/note-id i))))
+  (query-node m (str "#" (rf.hicasso.examples.ledger.events/note-id i))))
 
 (defn- record-of
   "The record id the node BELONGS TO, read off the DOM. The whole of the
@@ -189,10 +189,10 @@
   derived rather than typed — see `ledger.l0-cljs-test`, which is where
   the arithmetic itself is held."
   [i total]
-  (vendor/window-from (* i views/row-height)
-                      {:row-height      views/row-height
-                       :viewport-height views/viewport-height
-                       :overscan        views/overscan
+  (rf.hicasso.examples.ledger.vendor/window-from (* i rf.hicasso.examples.ledger.views/row-height)
+                      {:row-height      rf.hicasso.examples.ledger.views/row-height
+                       :viewport-height rf.hicasso.examples.ledger.views/viewport-height
+                       :overscan        rf.hicasso.examples.ledger.views/overscan
                        :total           total}))
 
 (defn- window-size [i total]
@@ -225,14 +225,14 @@
      line's body run outside the measurement it belongs to."
   [m i]
   (let [^js vp (viewport-in m)
-        want   (* i views/row-height)]
+        want   (* i rf.hicasso.examples.ledger.views/row-height)]
     (set! (.-scrollTop vp) want)
     (is (= want (.-scrollTop vp))
         "the viewport did not scroll — the instrument, not the screen")
     (react-dom/flushSync
       (fn [] (.dispatchEvent vp (js/Event. "scroll" #js {:bubbles true}))))
-    (hm/settle! m)
-    (hm/settle! m)
+    (rf.hicasso.test.mounted/settle! m)
+    (rf.hicasso.test.mounted/settle! m)
     ;; 4. And assert the WINDOW moved, not merely the offset. Steps 1 and
     ;;    2 can both succeed while the window stands still — that is
     ;;    exactly what the first two runs of this file did — and the
@@ -252,12 +252,12 @@
 (defn- type-into! [m ^js n text]
   (set-native-value! n (str (.-value n) text))
   (.dispatchEvent n (js/Event. "input" #js {:bubbles true}))
-  (hm/settle! m)
+  (rf.hicasso.test.mounted/settle! m)
   nil)
 
 (defn- focus! [m ^js n]
   (.focus n)
-  (hm/settle! m)
+  (rf.hicasso.test.mounted/settle! m)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -283,7 +283,7 @@
       (testing "and each carries a real, operable field"
         (is (some? (note-node m 0)))
         (is (= "Note for Record 0" (.getAttribute (note-node m 0) "aria-label"))))
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 (deftest the-vendors-own-wrappers-are-presentational
   ;; A `role="grid"` owns `role="row"`, and a virtualizer puts two divs
@@ -297,9 +297,9 @@
       (is (= "presentation" (.getAttribute (query-node m ".ledger-spacer") "role")))
       (testing "and the spacer is the MODEL's full height, which is what
                 makes the scrollbar honest"
-        (is (= (str (* 10000 views/row-height) "px")
+        (is (= (str (* 10000 rf.hicasso.examples.ledger.views/row-height) "px")
                (.. ^js (query-node m ".ledger-spacer") -style -height))))
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
 ;; Windowing bounds the mounted rows
@@ -310,7 +310,7 @@
     (skip! "the windowing claim")
     (let [small (mount-ledger! 100)
           n-100 (count (rows-in small))
-          _     (hm/unmount! small)
+          _     (rf.hicasso.test.mounted/unmount! small)
           big   (mount-ledger! 10000)
           n-10k (count (rows-in big))]
       (is (= n-100 n-10k)
@@ -319,7 +319,7 @@
            hundred changed nothing about the page, which is what
            `10K-row behavior` means before any timing is involved")
       (is (= 24 n-10k))
-      (hm/unmount! big)))
+      (rf.hicasso.test.mounted/unmount! big)))
 
   (testing "and the unwindowed shape GROWS, which is what says the number
             above is a measurement"
@@ -333,8 +333,8 @@
              document is the model. For a hundred rows that is the right
              shape; the ledger's claim is about the shape that is still
              right at ten thousand")
-        (hm/unmount! a)
-        (hm/unmount! b)))))
+        (rf.hicasso.test.mounted/unmount! a)
+        (rf.hicasso.test.mounted/unmount! b)))))
 
 (deftest the-announced-position-follows-the-model-across-a-scroll
   (if-not (browser?)
@@ -355,7 +355,7 @@
            on screen")
       (is (= (str "rec-" (+ 100000 from)) (record-of (first (rows-in m))))
           "and it is the record the position claims it is")
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
 ;; Keyed identity across a scroll — the finding
@@ -399,7 +399,7 @@
       (is (= 2 (.-selectionStart ^js (active)))
           "with the caret still between the two letters the user left it
            between — the fact a node-identity claim exists to buy")
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 (deftest a-slot-keyed-window-moves-focus-to-another-record
   ;; THE POSITIVE CONTROL, and the finding this screen publishes. Without
@@ -427,7 +427,7 @@
         (is (= "rec-100043" (record-of (active)))
             "the correct screen answers `rec-100040` at this exact point;
              the two variants differ in nothing else"))
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
 ;; Focus continuity — the pin
@@ -456,9 +456,9 @@
       (testing "and the application never touched focus to achieve it —
                 the pin only stops React deleting the node the platform's
                 focus is already in"
-        (is (= 40 (rf/subscribe-once [::subs/pinned-index] {:frame (:frame m)}))
+        (is (= 40 (rf/subscribe-once [::rf.hicasso.examples.ledger.subs/pinned-index] {:frame (:frame m)}))
             "the one thing the application knows about focus: an index"))
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 (deftest without-the-pin-a-scroll-destroys-the-focused-node
   ;; THE POSITIVE CONTROL for the row above.
@@ -475,7 +475,7 @@
           "and focus fell to the document body. The user was typing; now
            they are typing nowhere, and no keystroke will reach the field
            they were in")
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
 ;; Work follows the data
@@ -487,13 +487,13 @@
     (letfn [(keystroke-cost [total]
               (let [m (mount-ledger! total)
                     n (note-node m 0)]
-                (try (hm/bodies-run #(type-into! m n "a"))
-                     (finally (hm/unmount! m)))))
+                (try (rf.hicasso.test.mounted/bodies-run #(type-into! m n "a"))
+                     (finally (rf.hicasso.test.mounted/unmount! m)))))
             (scroll-cost [total]
               (let [m (mount-ledger! total)]
                 (scroll-to! m 40)
-                (try (hm/bodies-run #(scroll-to! m 43))
-                     (finally (hm/unmount! m)))))]
+                (try (rf.hicasso.test.mounted/bodies-run #(scroll-to! m 43))
+                     (finally (rf.hicasso.test.mounted/unmount! m)))))]
       (testing "a keystroke costs one body, and the model's size is not in it"
         (let [at-100 (keystroke-cost 100)
               at-10k (keystroke-cost 10000)]
@@ -526,13 +526,13 @@
     (skip! "the pin's price")
     (let [m (mount-ledger! 10000)
           n (note-node m 5)]
-      (is (= 1 (hm/bodies-run #(focus! m n)))
+      (is (= 1 (rf.hicasso.test.mounted/bodies-run #(focus! m n)))
           "ONE: the screen's own body, because `:pinned-index` moved. The
            twenty-four mounted rows ran nothing — the render callback
            re-created their elements with identical props and every one
            of them bailed out. That is what makes the pin affordable, and
            it is a fact about the row's props being two numbers")
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
 ;; Teardown
@@ -551,6 +551,6 @@
         (scroll-to! m 500)
         (focus! m (note-node m 500))
         (type-into! m (note-node m 500) "x")
-        (-> (hm/unmount! m)
-            (hm/assert-clean!)
+        (-> (rf.hicasso.test.mounted/unmount! m)
+            (rf.hicasso.test.mounted/assert-clean!)
             (.then (fn [_] (done))))))))

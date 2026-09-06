@@ -28,7 +28,7 @@
   the term is read once by the field's own boundary and handed down as a
   prop."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.examples.typeahead.db :as db]))
+            [re-frame.hicasso.examples.typeahead.db :as rf.hicasso.examples.typeahead.db]))
 
 ;; ---------------------------------------------------------------------------
 ;; The field
@@ -78,7 +78,7 @@
 (rf/reg-sub ::wanted
   {:doc "The term a live read wants, or `nil` — [[db/wanted]] as a
          subscription, so the shell can hand the panel its parameter."}
-  (fn [db _] (db/wanted db)))
+  (fn [db _] (rf.hicasso.examples.typeahead.db/wanted db)))
 
 (rf/reg-sub ::held-rows
   {:doc "Whatever rows are held, whichever term they answer. Read ONLY by
@@ -107,4 +107,4 @@
   {:doc "Has the user typed enough to be worth a request? The panel shows
          a hint rather than an empty list when they have not."}
   :<- [::term]
-  (fn [term _] (db/searchable? term)))
+  (fn [term _] (rf.hicasso.examples.typeahead.db/searchable? term)))

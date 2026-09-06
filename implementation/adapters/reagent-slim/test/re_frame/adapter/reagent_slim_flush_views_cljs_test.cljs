@@ -22,15 +22,15 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.adapter.reagent-slim :as reagent-slim]))
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
 
 (deftest flush-views-canonical-shape
   (testing "reagent-slim — flush-views! surfaced from the ADAPTER ns with
             the canonical nil-return shape (rf2-b6nm5 / Decision 6),
             converged with the substrate-ns Promise-returning primitive"
-    (is (fn? reagent-slim/flush-views!)
+    (is (fn? rf.adapter.reagent-slim/flush-views!)
         "the slim adapter ns exposes flush-views! as a fn (previously only the substrate ns did)")
-    (is (nil? (reagent-slim/flush-views!))
+    (is (nil? (rf.adapter.reagent-slim/flush-views!))
         "0-arity flush-views! returns nil — the converged contract (NOT the substrate-ns Promise)")
-    (is (nil? (reagent-slim/flush-views! (fn [] nil)))
+    (is (nil? (rf.adapter.reagent-slim/flush-views! (fn [] nil)))
         "1-arity flush-views! also returns nil")))

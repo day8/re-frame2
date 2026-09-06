@@ -47,7 +47,7 @@
   are."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.hicasso.impl.slot :as slot]))
+            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]))
 
 (def corpus
   "Authored prop key → the canonical React slot it emits into.
@@ -121,7 +121,7 @@
 
 (deftest the-slot-rule-answers-the-corpus
   (doseq [[k expected] corpus]
-    (is (= expected (slot/prop-name k))
+    (is (= expected (rf.hicasso.impl.slot/prop-name k))
         (str "slot for " (pr-str k)))))
 
 (deftest the-slot-rule-is-a-pure-function-of-the-key
@@ -129,7 +129,7 @@
             on a rule that holds no state at all — the codec's caches are
             an accelerant over this, never a source of a different answer"
     (doseq [[k expected] corpus]
-      (is (= expected (slot/prop-name k) (slot/prop-name k))
+      (is (= expected (rf.hicasso.impl.slot/prop-name k) (rf.hicasso.impl.slot/prop-name k))
           (str "repeated for " (pr-str k))))))
 
 (deftest every-branch-of-the-rule-is-represented

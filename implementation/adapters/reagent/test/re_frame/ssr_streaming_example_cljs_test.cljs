@@ -38,10 +38,10 @@
             [clojure.string :as str]
             [reagent.dom.server :as rds]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; The failed-boundary record the example's boundaries consult.
-            [re-frame.ssr.suspense :as suspense]
+            [re-frame.ssr.suspense :as rf.ssr.suspense]
             ;; the example's production source — registers :dashboard/root,
             ;; :dashboard/card, :dashboard/card-skeleton and the two subs at
             ;; ns-load.
@@ -69,8 +69,8 @@
 ;; leaves `(rf/view :dashboard/root)` nil. The fixture folds this ns's stable
 ;; ns-load baseline back over the live registrar before each test.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn init!}))
 
 (defn- render-client-tree
@@ -104,8 +104,8 @@
                    :signups {:title "New signups (last 7 days)" :value 318}
                    :latency {:title "P50 latency (ms)"          :value 24}})}))
   (rf/dispatch-sync [::seed] {:frame test-frame})
-  (suspense/reset-failed-boundaries!)
-  (suspense/record-failed-boundaries! #{:card.flaky}))
+  (rf.ssr.suspense/reset-failed-boundaries!)
+  (rf.ssr.suspense/record-failed-boundaries! #{:card.flaky}))
 
 ;; ---- (1) no server-only marker leaks into the client DOM -------------------
 
@@ -165,7 +165,7 @@
             proof: nothing about app-db decides this, the recorded failure
             does"
     (seed-cards!)
-    (suspense/reset-failed-boundaries!)
+    (rf.ssr.suspense/reset-failed-boundaries!)
     (is (thrown? :default (render-client-tree))
         (str "with no recorded failure the boundary must render its body "
              "(`throwing-card`), not silently keep showing the fallback"))))

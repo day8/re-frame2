@@ -85,22 +85,22 @@
   `test:browser` run, every later namespace and the closing summary
   included."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.ledger.app :as app]
-            [re-frame.hicasso.examples.ledger.events :as events]
-            [re-frame.hicasso.examples.ledger.vendor :as vendor]
-            [re-frame.hicasso.examples.ledger.views :as views]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.hicasso.trusted-input-support :as trusted]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.ledger.app :as rf.hicasso.examples.ledger.app]
+            [re-frame.hicasso.examples.ledger.events :as rf.hicasso.examples.ledger.events]
+            [re-frame.hicasso.examples.ledger.vendor :as rf.hicasso.examples.ledger.vendor]
+            [re-frame.hicasso.examples.ledger.views :as rf.hicasso.examples.ledger.views]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.hicasso.trusted-input-support :as rf.hicasso.trusted-input-support]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom" :as react-dom]))
 
 ;; ---------------------------------------------------------------------------
 ;; The control page — the two defects this file's instruments must catch
 ;; ---------------------------------------------------------------------------
 
-(h/defview a-page-of-near-misses
+(rf.hicasso/defview a-page-of-near-misses
   "Three controls that all LOOK operable, and one of them is.
 
   It is a page rather than a ledger variant on purpose: what the two
@@ -131,8 +131,8 @@
 ;; and `:async? true` is the opt-in, so the file was one async row away
 ;; from the trap it believed it had avoided.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true}))
 
@@ -155,7 +155,7 @@
   (array-seq (.querySelectorAll (:container mount) selector)))
 
 (defn- viewport-in [m] (query-node m ".ledger-viewport"))
-(defn- note-node [m i] (query-node m (str "#" (events/note-id i))))
+(defn- note-node [m i] (query-node m (str "#" (rf.hicasso.examples.ledger.events/note-id i))))
 (defn- active [] (.-activeElement js/document))
 (defn- record-of [^js node] (some-> node (.getAttribute "data-record")))
 
@@ -247,18 +247,18 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- mount-ledger!
-  ([] (mount-ledger! events/default-total))
-  ([total] (hm/mount! [views/ledger {}] {:initial-events (app/initial-events total)})))
+  ([] (mount-ledger! rf.hicasso.examples.ledger.events/default-total))
+  ([total] (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.ledger.views/ledger {}] {:initial-events (rf.hicasso.examples.ledger.app/initial-events total)})))
 
 (defn- window-at
   "The window `views/ledger`'s geometry puts on screen at scroll offset
   `top`, derived rather than typed — `ledger.l0-cljs-test` is where the
   arithmetic itself is held."
   [top total]
-  (vendor/window-from top
-                      {:row-height      views/row-height
-                       :viewport-height views/viewport-height
-                       :overscan        views/overscan
+  (rf.hicasso.examples.ledger.vendor/window-from top
+                      {:row-height      rf.hicasso.examples.ledger.views/row-height
+                       :viewport-height rf.hicasso.examples.ledger.views/viewport-height
+                       :overscan        rf.hicasso.examples.ledger.views/overscan
                        :total           total}))
 
 (defn- tell-the-vendor-it-scrolled!
@@ -277,8 +277,8 @@
   (let [^js vp (viewport-in m)]
     (react-dom/flushSync
       (fn [] (.dispatchEvent vp (js/Event. "scroll" #js {:bubbles true}))))
-    (hm/settle! m)
-    (hm/settle! m)
+    (rf.hicasso.test.mounted/settle! m)
+    (rf.hicasso.test.mounted/settle! m)
     m))
 
 (defn- controls-of-rows
@@ -290,7 +290,7 @@
   here and a row rendered there cannot disagree about the spelling."
   [from to]
   (into []
-        (mapcat (fn [i] [(events/note-id i) "ledger-flag"]))
+        (mapcat (fn [i] [(rf.hicasso.examples.ledger.events/note-id i) "ledger-flag"]))
         (range from (inc to))))
 
 ;; ---------------------------------------------------------------------------
@@ -303,7 +303,7 @@
   ;; would satisfy all of them at once.
   (if-not (browser?)
     (skip! "the instruments")
-    (let [m (hm/mount! [a-page-of-near-misses {}])]
+    (let [m (rf.hicasso.test.mounted/mount! [a-page-of-near-misses {}])]
       (testing "focusability is the ENGINE's answer and it goes both ways"
         (is (true? (focusable? (query-node m "#real"))))
         (is (true? (focusable? (query-node m "#half")))
@@ -323,7 +323,7 @@
             "and the real button is NOT among them, so the sweep is
              discriminating rather than reporting every element it
              ranges over"))
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 (deftest the-ledgers-controls-are-reachable-and-its-chrome-is-not
   (if-not (browser?)
@@ -364,7 +364,7 @@
         (is (false? (focusable? (query-node m "[role='grid']"))))
         (is (false? (focusable? (query-node m "[role='gridcell']")))))
 
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
 ;; A REAL Tab — and the synthetic one it has to be told apart from
@@ -383,11 +383,11 @@
   ;; of virtualizer would only make it slower to read.
   (if-not (browser?)
     (skip! "a real key press")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "sequential navigation on this screen")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "sequential navigation on this screen")
       (async done
-        (let [m      (hm/mount! [a-page-of-near-misses {}])
-              finish (fn [] (hm/unmount! m) (done))]
+        (let [m      (rf.hicasso.test.mounted/mount! [a-page-of-near-misses {}])
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (let [real (query-node m "#real")]
               (.focus real)
@@ -410,7 +410,7 @@
                       "and focus has not moved: a `pressed Tab` row built this
                        way would be measuring its own dispatcher")))
 
-              (trusted/press-once!
+              (rf.hicasso.trusted-input-support/press-once!
                 "Tab"
                 (fn []
                   (try
@@ -443,21 +443,21 @@
   ;; differs on the first step or not at all.
   (if-not (browser?)
     (skip! "the traversal")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "the traversal")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "the traversal")
       (async done
         (let [m      (mount-ledger!)
-              finish (fn [] (hm/unmount! m) (done))
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))
               steps  5]
           (try
             (let [order (keyboard-order m)
                   start (note-node m 0)]
-              (is (= (first order) (events/note-id 0))
+              (is (= (first order) (rf.hicasso.examples.ledger.events/note-id 0))
                   "premise: the instrument puts row 0's note field first")
               (.focus start)
               (is (identical? start (active)) "premise: the walk starts there")
 
-              (trusted/walk!
+              (rf.hicasso.trusted-input-support/walk!
                 "Tab" steps
                 (fn [] (some-> (active) label-of))
                 (fn [landings]
@@ -482,7 +482,7 @@
   (if-not (browser?)
     (skip! "the order")
     (let [m         (mount-ledger!)
-          [from to] (window-at 0 events/default-total)]
+          [from to] (window-at 0 rf.hicasso.examples.ledger.events/default-total)]
       (is (= (controls-of-rows from to) (keyboard-order m))
           "THE COMPLETE SEQUENCE rather than a membership test — a
            control that joined the order, left it, or moved within it is
@@ -497,14 +497,14 @@
                        (filterv #(pos? (.-tabIndex ^js %)))
                        (mapv label-of)))))
 
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 (deftest the-keyboard-reachable-set-is-the-window-and-not-the-model
   (if-not (browser?)
     (skip! "the bound")
     (let [small   (mount-ledger! 100)
           n-100   (count (keyboard-order small))
-          _       (hm/unmount! small)
+          _       (rf.hicasso.test.mounted/unmount! small)
           big     (mount-ledger! 10000)
           n-10k   (count (keyboard-order big))]
       (is (= n-100 n-10k)
@@ -525,7 +525,7 @@
         (is (nil? (note-node big 9999)))
         (is (= "10000" (.getAttribute (query-node big "[role='grid']") "aria-rowcount"))))
 
-      (hm/unmount! big))))
+      (rf.hicasso.test.mounted/unmount! big))))
 
 ;; ---------------------------------------------------------------------------
 ;; Traversal drives the virtualizer — which is what makes the model reachable
@@ -534,7 +534,7 @@
 (deftest traversing-to-the-window-edge-scrolls-and-extends-the-reachable-set
   (if-not (browser?)
     (skip! "the mitigation")
-    (let [total     events/default-total
+    (let [total     rf.hicasso.examples.ledger.events/default-total
           m         (mount-ledger! total)
           [_ to]    (window-at 0 total)
           ^js vp    (viewport-in m)
@@ -545,7 +545,7 @@
                 pixel viewport"
         (is (zero? (.-scrollTop vp)))
         (is (some? edge))
-        (is (> (* to views/row-height) views/viewport-height)))
+        (is (> (* to rf.hicasso.examples.ledger.views/row-height) rf.hicasso.examples.ledger.views/viewport-height)))
 
       (.focus edge)
 
@@ -585,7 +585,7 @@
                 "the far edge advanced past where the first window
                  ended"))))
 
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 (deftest the-field-a-user-was-typing-in-stays-reachable-after-any-scroll
   ;; The keyboard half of Rule 3. `virtualized-dom-cljs-test` shows the
@@ -594,14 +594,14 @@
   ;; then tabs away — whether they can ever get back.
   (if-not (browser?)
     (skip! "the pin's keyboard consequence")
-    (let [total     events/default-total
+    (let [total     rf.hicasso.examples.ledger.events/default-total
           m         (mount-ledger! total)
           ^js vp    (viewport-in m)
           field     (note-node m 5)
-          top       (* 500 views/row-height)
+          top       (* 500 rf.hicasso.examples.ledger.views/row-height)
           [from to] (window-at top total)]
       (.focus field)
-      (hm/settle! m)
+      (rf.hicasso.test.mounted/settle! m)
       (set! (.-scrollTop vp) top)
       (tell-the-vendor-it-scrolled! m)
 
@@ -610,7 +610,7 @@
            ninety-five rows after the window left it")
 
       (let [order (keyboard-order m)]
-        (is (= (events/note-id 5) (last (butlast order)))
+        (is (= (rf.hicasso.examples.ledger.events/note-id 5) (last (butlast order)))
             "THE PIN'S PLACE IN THE ORDER. The vendor appends the pinned
              row after the window's rows, so the field the user was
              typing in is the second-to-last stop rather than the first
@@ -627,7 +627,7 @@
              constant would be asserting about whichever offset it was
              written at"))
 
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
 ;; Activation — bought by the tag, not by a handler
@@ -655,4 +655,4 @@
                (into #{} (map #(.getAttribute ^js % "role"))
                      (query-nodes m "[role]")))))
 
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))

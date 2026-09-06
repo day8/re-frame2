@@ -9,23 +9,23 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.dom.client :as rdc]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent-slim :as slim]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
 
 (defn- with-fresh-slim-adapter [test-fn]
-  (reset! frame/frames {})
+  (reset! rf.frame/frames {})
   ;; Drain Roots earlier suites stranded in the slim adapter's singleton
   ;; active set (see the Reagent twin), so the counts are this test's own.
   (with-redefs [rdc/unmount (fn [_] nil)]
-    (adapter/reset-lifecycle-state-for-tests!)
-    (adapter/install-adapter! slim/adapter)
-    (adapter/dispose-adapter!))
-  (adapter/reset-lifecycle-state-for-tests!)
-  (adapter/install-adapter! slim/adapter)
+    (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+    (rf.substrate.adapter/install-adapter! rf.adapter.reagent-slim/adapter)
+    (rf.substrate.adapter/dispose-adapter!))
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+  (rf.substrate.adapter/install-adapter! rf.adapter.reagent-slim/adapter)
   (test-fn)
-  (reset! frame/frames {})
-  (adapter/reset-lifecycle-state-for-tests!))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!))
 
 (use-fixtures :each with-fresh-slim-adapter)
 
@@ -73,7 +73,7 @@
 
 (deftest client-root-does-no-dom-work
   (testing "allocating a handle touches none of the Root API"
-    (is (empty? (record-root-api-calls [] (fn [] (slim/client-root)))))))
+    (is (empty? (record-root-api-calls [] (fn [] (rf.adapter.reagent-slim/client-root)))))))
 
 (deftest cold-first-render-creates-once-later-renders-update-the-same-root
   (testing "first render! creates once; later renders reuse the identical Root"
@@ -81,10 +81,10 @@
           mount #js {:rf-test-mount :cold}
           calls (record-root-api-calls [root (make-fake-root :never)]
                   (fn []
-                    (let [h (slim/client-root)]
-                      (slim/render! h [:div "v1"] mount)
-                      (slim/render! h [:div "v2"] mount)
-                      (slim/render! h [:div "v3"] mount))))]
+                    (let [h (rf.adapter.reagent-slim/client-root)]
+                      (rf.adapter.reagent-slim/render! h [:div "v1"] mount)
+                      (rf.adapter.reagent-slim/render! h [:div "v2"] mount)
+                      (rf.adapter.reagent-slim/render! h [:div "v3"] mount))))]
       (is (= [[:create-root mount]] (calls-of-kind calls :create-root)))
       (is (empty? (calls-of-kind calls :hydrate-root)))
       (is (= [[:render root [:div "v1"]] [:render root [:div "v2"]] [:render root [:div "v3"]]]
@@ -98,10 +98,10 @@
           mount #js {:rf-test-mount :hydrated}
           calls (record-root-api-calls [root (make-fake-root :never)]
                   (fn []
-                    (let [h (slim/client-root)]
-                      (slim/render! h [:div "ssr"] mount {:hydrate? true})
-                      (slim/render! h [:div "v2"] mount {:hydrate? true})
-                      (slim/render! h [:div "v3"] mount))))]
+                    (let [h (rf.adapter.reagent-slim/client-root)]
+                      (rf.adapter.reagent-slim/render! h [:div "ssr"] mount {:hydrate? true})
+                      (rf.adapter.reagent-slim/render! h [:div "v2"] mount {:hydrate? true})
+                      (rf.adapter.reagent-slim/render! h [:div "v3"] mount))))]
       (is (= [[:hydrate-root mount [:div "ssr"]]]
              (calls-of-kind calls :hydrate-root)))
       (is (empty? (calls-of-kind calls :create-root)))
@@ -115,11 +115,11 @@
           mount  #js {:rf-test-mount :again}
           calls  (record-root-api-calls [root-1 root-2]
                    (fn []
-                     (let [h (slim/client-root)]
-                       (slim/render! h [:div "v1"] mount)
-                       (slim/unmount! h)
-                       (slim/unmount! h)
-                       (slim/render! h [:div "v2"] mount))))]
+                     (let [h (rf.adapter.reagent-slim/client-root)]
+                       (rf.adapter.reagent-slim/render! h [:div "v1"] mount)
+                       (rf.adapter.reagent-slim/unmount! h)
+                       (rf.adapter.reagent-slim/unmount! h)
+                       (rf.adapter.reagent-slim/render! h [:div "v2"] mount))))]
       (is (= [[:unmount root-1]] (calls-of-kind calls :unmount)))
       (is (= [[:create-root mount] [:create-root mount]]
              (calls-of-kind calls :create-root)))
@@ -132,14 +132,14 @@
           root-gone (make-fake-root :gone)
           calls     (record-root-api-calls [root-live root-gone]
                       (fn []
-                        (let [live (slim/client-root)
-                              gone (slim/client-root)]
-                          (slim/render! live [:div "live"] #js {})
-                          (slim/render! gone [:div "gone"] #js {})
-                          (slim/unmount! gone)
-                          (adapter/dispose-adapter!)
-                          (slim/unmount! live)
-                          (slim/unmount! gone))))]
+                        (let [live (rf.adapter.reagent-slim/client-root)
+                              gone (rf.adapter.reagent-slim/client-root)]
+                          (rf.adapter.reagent-slim/render! live [:div "live"] #js {})
+                          (rf.adapter.reagent-slim/render! gone [:div "gone"] #js {})
+                          (rf.adapter.reagent-slim/unmount! gone)
+                          (rf.substrate.adapter/dispose-adapter!)
+                          (rf.adapter.reagent-slim/unmount! live)
+                          (rf.adapter.reagent-slim/unmount! gone))))]
       (is (= 1 (count (filter #(identical? root-live (second %))
                               (calls-of-kind calls :unmount)))))
       (is (= 1 (count (filter #(identical? root-gone (second %))

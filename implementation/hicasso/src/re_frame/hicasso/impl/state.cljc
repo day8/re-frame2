@@ -81,9 +81,9 @@
   is a fail-silent hazard of exactly the class this namespace exists to
   delete, so there is no sentinel here and no \"convenience\" arity that
   accepts one."
-  (:require [re-frame.events :as events]
+  (:require [re-frame.events :as rf.events]
             [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.subs :as subs]))
+            [re-frame.subs :as rf.subs]))
 
 ;; ---------------------------------------------------------------------------
 ;; The spellings
@@ -181,7 +181,7 @@
   "Register `[::h/clear ::concern ikey]`. Idempotent — one handler serves
   every concern, and re-registration replaces it with an identical one."
   []
-  (events/reg-event clear-event-id
+  (rf.events/reg-event clear-event-id
     (fn clear-handler [{:keys [db]} [_ concern ikey]]
       (check-key! concern ikey :clear)
       {:db (clear-entry db concern ikey)})))
@@ -243,11 +243,11 @@
                    "believes is in force.")
               {:concern concern :unknown (vec (sort-by str unknown))})))
    (let [default (:default opts)]
-     (subs/reg-sub concern
+     (rf.subs/reg-sub concern
        (fn read-state [db query-v]
          (let [ikey (check-key! concern (nth query-v 1 nil) :read)]
            (get-in db [ui-root concern ikey] default))))
-     (events/reg-event concern
+     (rf.events/reg-event concern
        (fn write-state [{:keys [db]} [_ ikey v]]
          (check-key! concern ikey :write)
          {:db (assoc-in db [ui-root concern ikey] v)}))

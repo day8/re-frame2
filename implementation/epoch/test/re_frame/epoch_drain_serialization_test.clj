@@ -27,11 +27,11 @@
   the frame `:drain-lock` discipline (`re-frame.frame/call-serialized-with-drain!`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch]
-            [re-frame.epoch.state :as state]
-            [re-frame.epoch.tool-pair :as tool-pair]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; machines is pulled in for parity with the rest of the epoch
             ;; suite so the ns-load registrar snapshot the fixture restores is
             ;; the same shape (the reconcile hooks stay nil-safe here).
@@ -39,8 +39,8 @@
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- orchestration helpers -------------------------------------------------
 
@@ -95,12 +95,12 @@
         (rf/dispatch-sync [:set 1] {:frame frame-id})
         (rf/dispatch-sync [:set 2] {:frame frame-id})
         (let [eid-1 (target-epoch-id frame-id {:n 1})
-              orig-check tool-pair/check-restore-preconditions!]
+              orig-check rf.epoch.tool-pair/check-restore-preconditions!]
           (is (some? eid-1) "seeded an epoch whose db-after is {:n 1}")
           (is (= {:n 2} (rf/app-db-value frame-id)) "current db is {:n 2}")
 
           (with-redefs
-            [tool-pair/check-restore-preconditions!
+            [rf.epoch.tool-pair/check-restore-preconditions!
              (fn [f e]
                (let [result (orig-check f e)]
                  (when (compare-and-set! barrier-armed? true false)
@@ -183,10 +183,10 @@
         (is (= :r0 (:rf.runtime/marker (:rf.db/runtime (rf/frame-state-value frame-id))))
             "seeded runtime-db marker :r0")
 
-        (let [orig-check tool-pair/check-replace-frame-state-preconditions!
+        (let [orig-check rf.epoch.tool-pair/check-replace-frame-state-preconditions!
               history-before (count (rf/epoch-history frame-id))]
           (with-redefs
-            [tool-pair/check-replace-frame-state-preconditions!
+            [rf.epoch.tool-pair/check-replace-frame-state-preconditions!
              (fn [f fs]
                (let [result (orig-check f fs)]
                  (when (compare-and-set! barrier-armed? true false)

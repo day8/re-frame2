@@ -55,16 +55,16 @@
   reach. `kernel_commit_owns_cljs_test` takes the same view for the same
   reason."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.hook-probe :as probe]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
 
@@ -75,10 +75,10 @@
 (rf/reg-event :hookbudget/seed (fn [_ [_ db]] {:db db}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -86,7 +86,7 @@
 
 (defn- seeded!
   []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id
     (rf/dispatch-sync [:hookbudget/seed {:items (vec (range 20))}]))
@@ -97,7 +97,7 @@
   Every count in this file is worthless if this is not true, so it is
   asserted rather than branched on."
   []
-  (is (true? (probe/install!))
+  (is (true? (rf.hicasso.hook-probe/install!))
       "React's client-internals dispatcher slot was not found — the hook
        budget is UNWITNESSED, not satisfied"))
 
@@ -107,31 +107,31 @@
   while it ran, in call order."
   [hiccup]
   (let [!html (volatile! nil)
-        hooks (probe/record!
+        hooks (rf.hicasso.hook-probe/record!
                 (fn []
                   (vreset! !html
                            (react-dom-server/renderToString
-                             (mount/provider frame-id
-                                             (codec/root-element frame-id hiccup))))))]
+                             (rf.hicasso.impl.mount/provider frame-id
+                                             (rf.hicasso.impl.codec/root-element frame-id hiccup))))))]
     {:html @!html :hooks hooks}))
 
 ;; ---------------------------------------------------------------------------
 ;; The boundaries under the probe
 ;; ---------------------------------------------------------------------------
 
-(h/defview reader
+(rf.hicasso/defview reader
   "One boundary reading `n` subscriptions through the ambient collector.
   The reads sit in a `for` — which no hook-shaped read surface can do,
   and which is exactly why the count is interesting."
   [{:keys [n]}]
   [:ul.reads
    (for [i (range n)]
-     [:li.read {:key i} (str (h/sub [:hookbudget/item i]))])])
+     [:li.read {:key i} (str (rf.hicasso/sub [:hookbudget/item i]))])])
 
-(h/defview outer
+(rf.hicasso/defview outer
   "A boundary whose body mints another boundary's element."
   [_]
-  [:div.outer (str (h/sub [:hookbudget/item 0])) [reader {:n 1}]])
+  [:div.outer (str (rf.hicasso/sub [:hookbudget/item 0])) [reader {:n 1}]])
 
 (defn- three-hook-control
   "A plain React component calling three hooks, two of which HD-020(b)
@@ -162,25 +162,25 @@
   (react/useEffect (fn [] js/undefined) #js [])
   (react/createElement "p" #js {:className "hosted"} (.-label props)))
 
-(h/defhost gated-host
+(rf.hicasso/defhost gated-host
   "The RULED DEFAULT policy, `:client-only`, which mints a gate."
   hosted-widget)
 
-(h/defhost render-host
+(rf.hicasso/defhost render-host
   "The same component under `:server :render` — the policy that mints NO
   gate, so the head's slot carries the foreign component itself."
   hosted-widget
   {:server :render})
 
-(h/defview gated-page
+(rf.hicasso/defview gated-page
   "One boundary, one read, one gated crossing."
   [_]
-  [:div.page (str (h/sub [:hookbudget/item 0])) [gated-host {:label "hi"}]])
+  [:div.page (str (rf.hicasso/sub [:hookbudget/item 0])) [gated-host {:label "hi"}]])
 
-(h/defview render-page
+(rf.hicasso/defview render-page
   "The same page with the crossing's policy the only thing changed."
   [_]
-  [:div.page (str (h/sub [:hookbudget/item 0])) [render-host {:label "hi"}]])
+  [:div.page (str (rf.hicasso/sub [:hookbudget/item 0])) [render-host {:label "hi"}]])
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The instrument can count, and can count past the budget
@@ -189,7 +189,7 @@
 (deftest the-probe-answers-what-react-was-asked-for-and-can-count-to-three
   (seeded!)
   (armed!)
-  (let [hooks (probe/record!
+  (let [hooks (rf.hicasso.hook-probe/record!
                 (fn [] (react-dom-server/renderToString
                          (react/createElement three-hook-control nil))))]
 
@@ -228,7 +228,7 @@
     (testing "and the ledger the shell declares agrees with what React was
               asked for — which is what makes the declaration a checked
               statement rather than a comment that can rot"
-      (is (= (count runtime/shell-hook-ledger) (count hooks))))
+      (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) (count hooks))))
 
     (testing "neither is `useRef` and neither is `useState`: HD-020(b)'s
               two named prohibitions, stated as themselves rather than
@@ -327,7 +327,7 @@
 
     (testing "and the shell's ledger is what it was: the crossing added a
               fiber and a hook to the PAGE, not to the boundary"
-      (is (= 2 (count runtime/shell-hook-ledger))))))
+      (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger))))))
 
 (deftest an-ssr-render-crossing-costs-no-hook-and-the-hosted-hooks-are-its-own
   (seeded!)
@@ -357,4 +357,4 @@
     (testing "and the budget is still the budget — the component brought
               three hooks through the door and the shell's ledger did not
               move"
-      (is (= 2 (count runtime/shell-hook-ledger))))))
+      (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger))))))

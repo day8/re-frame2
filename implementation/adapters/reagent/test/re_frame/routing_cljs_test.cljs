@@ -23,11 +23,11 @@
   §Multi-frame routing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.subs :as subs]
-            [re-frame.routing :as routing]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.subs :as rf.subs]
+            [re-frame.routing :as rf.routing]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT
 ;; call (registrar/clear-all!): it would wipe routing's framework events
@@ -36,9 +36,9 @@
 ;; them. routing/reset-counters! runs in :init-fn so per-test counter
 ;; sequences (nav-token, pending-nav, …) start from zero.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :init-fn routing/reset-counters!}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
+     :init-fn rf.routing/reset-counters!}))
 
 ;; ---- Spec 012 §URL changes are events / §Reading the route is a sub -----
 
@@ -52,7 +52,7 @@
     ;;
     ;; Test isolation: a fresh frame so prior tests' [:rf.db/runtime :rf.runtime/routing :current]
     ;; slices don't leak in.
-    (let [f (frame/make-anon-frame-record! {:doc "isolated frame for this test"})]
+    (let [f (rf.frame/make-anon-frame-record! {:doc "isolated frame for this test"})]
       (rf/reg-route :route.cljs/home
                     {} "/cljs/home")
       (rf/reg-route :route.cljs/article
@@ -62,9 +62,9 @@
                        (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state — these custom subs read the runtime-db partition.
-      (subs/reg-runtime-sub :rf.cljs.route/id
+      (rf.subs/reg-runtime-sub :rf.cljs.route/id
                   (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
-      (subs/reg-runtime-sub :rf.cljs.route/params
+      (rf.subs/reg-runtime-sub :rf.cljs.route/params
                   (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
       ;; URL-driven nav. The slice is set; :on-match dispatches.
@@ -98,10 +98,10 @@
     (rf/reg-route :route.cljs2/home          {} "/cljs2/")
     (rf/reg-route :route.cljs2/articles      {} "/cljs2/articles")
     (rf/reg-route :route.cljs2/article       {:params [:map [:id :string]]} "/cljs2/articles/:id")
-    (subs/reg-runtime-sub :rf.cljs2/route (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
+    (rf.subs/reg-runtime-sub :rf.cljs2/route (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
 
-    (let [left  (frame/make-anon-frame-record! {:doc "left tab frame"})
-          right (frame/make-anon-frame-record! {:doc "right tab frame"})]
+    (let [left  (rf.frame/make-anon-frame-record! {:doc "left tab frame"})
+          right (rf.frame/make-anon-frame-record! {:doc "right tab frame"})]
 
       ;; Each frame navigates independently.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs2/articles"]

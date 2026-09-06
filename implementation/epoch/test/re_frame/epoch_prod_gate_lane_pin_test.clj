@@ -65,7 +65,7 @@
   PROPERTY did not arrive; the second when it arrived but the framework did not
   read it. They are different defects and they get different messages."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as rf.interop]))
 
 (deftest ^:prod-gate the-property-really-reached-this-jvm
   (testing "rf2-bo8lq — `-Dre-frame.debug=false` is on THIS JVM's command line.
@@ -82,5 +82,5 @@
             assertion above green means the property arrived but
             `re-frame.interop` did not honour it, which is the load-order defect
             class rf2-9c2jf belonged to."
-    (is (false? interop/debug-enabled?)
+    (is (false? rf.interop/debug-enabled?)
         "re-frame.interop/debug-enabled? must be false under the production gate")))

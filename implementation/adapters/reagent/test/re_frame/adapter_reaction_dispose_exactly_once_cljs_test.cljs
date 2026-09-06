@@ -34,10 +34,10 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
@@ -47,15 +47,15 @@
 ;; up so a re-run is idempotent.
 
 (defn- cold-start-fixture [test-fn]
-  (adapter/reset-lifecycle-state-for-tests!)
-  (reset! frame/frames {})
-  (rf/init! reagent-adapter/adapter)
-  (frame/ensure-default-frame!)
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+  (reset! rf.frame/frames {})
+  (rf/init! rf.adapter.reagent/adapter)
+  (rf.frame/ensure-default-frame!)
   (test-fn)
-  (when (adapter/current-adapter)
-    (adapter/dispose-adapter!))
-  (reset! frame/frames {})
-  (adapter/reset-lifecycle-state-for-tests!))
+  (when (rf.substrate.adapter/current-adapter)
+    (rf.substrate.adapter/dispose-adapter!))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!))
 
 (use-fixtures :each cold-start-fixture)
 
@@ -66,8 +66,8 @@
   map's own contract slots. `compute-count` observes recomputes so tests
   can assert the source wire is released by disposal."
   [initial compute-count]
-  (let [make-container (:make-state-container reagent-adapter/adapter)
-        make-derived   (:make-derived-value reagent-adapter/adapter)
+  (let [make-container (:make-state-container rf.adapter.reagent/adapter)
+        make-derived   (:make-derived-value rf.adapter.reagent/adapter)
         src            (make-container initial)
         rx             (make-derived [src] (fn [v]
                                              (swap! compute-count inc)
@@ -77,7 +77,7 @@
 (defn- cached-reaction
   "The `:reaction` cached for `frame-id`'s single sub-cache entry."
   [frame-id]
-  (let [cache (:sub-cache (frame/frame frame-id))]
+  (let [cache (:sub-cache (rf.frame/frame frame-id))]
     (some (fn [[_k entry]] (:reaction entry)) @cache)))
 
 ;; ---- 1. double dispose --------------------------------------------------
@@ -89,12 +89,12 @@
           {:keys [rx]}  (make-source-and-derived 1 compute-count)
           fired         (atom [])]
       (is (= 2 @rx) "precondition: the derived value computes")
-      (interop/add-on-dispose! rx (fn [_] (swap! fired conj :cb-1)))
-      (interop/add-on-dispose! rx (fn [_] (swap! fired conj :cb-2)))
-      (interop/dispose! rx)
+      (rf.interop/add-on-dispose! rx (fn [_] (swap! fired conj :cb-1)))
+      (rf.interop/add-on-dispose! rx (fn [_] (swap! fired conj :cb-2)))
+      (rf.interop/dispose! rx)
       (is (= [:cb-1 :cb-2] @fired)
           "first dispose! fired both callbacks, in registration order")
-      (interop/dispose! rx)
+      (rf.interop/dispose! rx)
       (is (= [:cb-1 :cb-2] @fired)
           "second dispose! re-fired nothing (exactly-once)"))))
 
@@ -110,14 +110,14 @@
       (is (= 2 @rx) "precondition: the derived value computes")
       ;; Conditional re-entry (first invocation only) so that WITHOUT the
       ;; guard this proof goes red by count rather than by stack overflow.
-      (interop/add-on-dispose! rx
+      (rf.interop/add-on-dispose! rx
         (fn [r]
           (swap! fired conj :re-entrant-cb)
           (when-not @re-entered?
             (reset! re-entered? true)
-            (interop/dispose! r))))
-      (interop/add-on-dispose! rx (fn [_] (swap! fired conj :after-cb)))
-      (interop/dispose! rx)
+            (rf.interop/dispose! r))))
+      (rf.interop/add-on-dispose! rx (fn [_] (swap! fired conj :after-cb)))
+      (rf.interop/dispose! rx)
       (is (= [:re-entrant-cb :after-cb] @fired)
           "each callback fired exactly once despite the re-entrant dispose!"))))
 
@@ -136,11 +136,11 @@
           fired         (atom 0)]
       (is (= 2 @rx) "precondition: the derived value computes")
       ;; Put the Reaction on the push path so it holds a live source watch.
-      (interop/activate-derived-value! rx)
-      (interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
+      (rf.interop/activate-derived-value! rx)
+      (rf.interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
       (add-watch rx ::owner (fn [_ _ _ _] nil))
       (let [computes-before-dispose @compute-count]
-        (interop/dispose! rx)
+        (rf.interop/dispose! rx)
         (is (= 1 @fired) "explicit disposal fired the callback once")
         ;; One-shot path intact: the source wire is released, so a source
         ;; write no longer recomputes the disposed Reaction.
@@ -160,11 +160,11 @@
           {:keys [rx]}  (make-source-and-derived 1 compute-count)
           fired         (atom 0)]
       (is (= 2 @rx) "precondition: the derived value computes")
-      (interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
+      (rf.interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
       (add-watch rx ::owner (fn [_ _ _ _] nil))
       (remove-watch rx ::owner)
       (is (= 1 @fired) "stock auto-disposal fired the callback once")
-      (interop/dispose! rx)
+      (rf.interop/dispose! rx)
       (is (= 1 @fired)
           "explicit disposal after stock auto-disposal re-fired nothing"))))
 
@@ -188,10 +188,10 @@
           rx     (cached-reaction :once/a)
           fired  (atom 0)]
       (is (some? rx) "precondition: the sub-cache holds the Reaction")
-      (interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
+      (rf.interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
       ;; A mounted owner watches the cached Reaction across shutdown.
       (add-watch rx ::owner (fn [_ _ _ _] nil))
-      (adapter/dispose-adapter!)
+      (rf.substrate.adapter/dispose-adapter!)
       (is (= 1 @fired)
           "claimed-generation shutdown disposed the cached Reaction once")
       ;; The owner unmounts after shutdown: stock auto-disposal re-enters
@@ -212,7 +212,7 @@
           rx     (cached-reaction :once/b)
           fired  (atom 0)]
       (is (some? rx) "precondition: the sub-cache holds the Reaction")
-      (interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
+      (rf.interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
       (add-watch rx ::owner (fn [_ _ _ _] nil))
       ;; The owner unmounts first: stock auto-disposal fires the teardown,
       ;; whose sub-cache closure evicts the slot (pre-existing behaviour).
@@ -222,6 +222,6 @@
           "auto-disposal evicted the sub-cache slot (teardown preserved)")
       ;; Adapter shutdown then walks a cache that no longer holds it — and
       ;; even a direct second disposal of the same Reaction is a no-op.
-      (adapter/dispose-adapter!)
+      (rf.substrate.adapter/dispose-adapter!)
       (is (= 1 @fired)
           "adapter shutdown after unmount re-fired no teardown callback"))))

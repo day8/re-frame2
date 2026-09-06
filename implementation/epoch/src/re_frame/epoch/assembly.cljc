@@ -17,13 +17,13 @@
 
   `current-schema-digest` pins the schema identity later compared by restore
   preconditions."
-  (:require [re-frame.elision :as elision]
-            [re-frame.epoch.capture :as capture]
-            [re-frame.epoch.state :as state]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.privacy :as privacy]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.epoch.capture :as rf.epoch.capture]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- consumer-facing outcome enum ----------------------------------------
 ;;
@@ -75,7 +75,7 @@
                               (constantly true)))
   ([frame-id epoch-id event-id outcome continue?]
    (when (continue?)
-     (trace/emit! :rf.epoch :rf.epoch/snapshotted
+     (rf.trace/emit! :rf.epoch :rf.epoch/snapshotted
                   {:frame             frame-id
                    :rf.epoch/id       epoch-id
                    :rf.trace/event-id event-id
@@ -83,7 +83,7 @@
    ;; Trace listeners are synchronous. A snapshotted listener may destroy the
    ;; exact frame owner, in which case the paired outcome fact is suppressed.
    (when (continue?)
-     (trace/emit! :rf.epoch :rf.epoch/outcome
+     (rf.trace/emit! :rf.epoch :rf.epoch/outcome
                   {:frame             frame-id
                    :rf.epoch/id       epoch-id
                    :rf.trace/event-id event-id
@@ -100,7 +100,7 @@
   egress; raw replay storage and listener delivery are never changed. Callers
   own the shared debug gate."
   [record]
-  (if-let [redact-fn (state/redact-fn)]
+  (if-let [redact-fn (rf.epoch.state/redact-fn)]
     (if (some? record)
       (try
         (redact-fn record)
@@ -112,7 +112,7 @@
           ;; elides the warning emit + literals under :advanced +
           ;; goog.DEBUG=false.
           ;; Trace identity is qualified; the record field read below is bare.
-          (trace/emit! :warning :rf.warning/epoch-redact-fn-exception
+          (rf.trace/emit! :warning :rf.warning/epoch-redact-fn-exception
                        {:frame       (:frame record)
                         :rf.epoch/id (:epoch-id record)
                         :ex-msg      #?(:clj (.getMessage ^Throwable redaction-error)
@@ -133,7 +133,7 @@
    (current-schema-digest frame-id (constantly true)))
   ([frame-id continue?]
    (when (continue?)
-     (when-let [schema-digest-fn (late-bind/get-fn :schemas/app-schemas-digest)]
+     (when-let [schema-digest-fn (rf.late-bind/get-fn :schemas/app-schemas-digest)]
        (try
          (schema-digest-fn frame-id)
          (catch #?(:clj Throwable :cljs :default) _
@@ -167,7 +167,7 @@
   "True when any captured trace event carries a top-level `:sensitive?
   true` stamp. The trace surface hoists this boolean from handler scope."
   [events]
-  (boolean (some privacy/sensitive? events)))
+  (boolean (some rf.privacy/sensitive? events)))
 
 (defn- sensitive-paths-for
   "Return the classified sensitive paths for `frame-id`. Empty when
@@ -175,7 +175,7 @@
   `[:rf.runtime/elision :sensitive-declarations]` registry is written by the
   commit-plane classification effects, not schema-populated)."
   [frame-id]
-  (try (keys (elision/sensitive-declarations frame-id))
+  (try (keys (rf.elision/sensitive-declarations frame-id))
        (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 (defn- any-sensitive-leaf?
@@ -319,13 +319,13 @@
          ;; / `:db-after` slots + the sensitive-rollup signal. `frame-state`
          ;; may be nil on a halted-destroy path whose pre-cascade snapshot is
          ;; absent; `(:rf.db/app nil)` is nil, which consumers already tolerate.
-         db-before (get frame-state-before frame/app-partition-key)
-         db-after  (get frame-state-after  frame/app-partition-key)
+         db-before (get frame-state-before rf.frame/app-partition-key)
+         db-after  (get frame-state-after  rf.frame/app-partition-key)
          {:keys [event-id event dispatch-id fx-overrides interceptor-overrides]
           trigger-cofx :rf.cofx}
-         (capture/find-trigger-event events)
+         (rf.epoch.capture/find-trigger-event events)
          ;; One fused walk produces all structured projections.
-         {:keys [sub-runs renders effects]} (capture/project-all events)
+         {:keys [sub-runs renders effects]} (rf.epoch.capture/project-all events)
          ;; Listener and egress consumers can branch on one record-level slot.
          ;; Sensitive declarations target app-db paths, so it reasons over
          ;; the app-db projection (`db-before` / `db-after`).
@@ -338,7 +338,7 @@
          ;; :rf.epoch/sensitive? rollup above).
          redacted-modified-path-count (redacted-modified-paths-count
                                         frame-id db-before db-after)]
-     (cond-> {:epoch-id           (state/next-epoch-id)
+     (cond-> {:epoch-id           (rf.epoch.state/next-epoch-id)
               :frame              frame-id
               ;; Durable causal time is supplied from envelope construction;
               ;; assembly never re-reads the host clock.

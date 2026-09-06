@@ -56,15 +56,15 @@
   minted in this namespace too — a cell in the application cannot be
   written coarsely without somebody adding one."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.grid.app :as app]
-            [re-frame.hicasso.examples.grid.events :as events]
-            [re-frame.hicasso.examples.grid.subs :as subs]
-            [re-frame.hicasso.examples.grid.views :as views]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.grid.app :as rf.hicasso.examples.grid.app]
+            [re-frame.hicasso.examples.grid.events :as rf.hicasso.examples.grid.events]
+            [re-frame.hicasso.examples.grid.subs :as rf.hicasso.examples.grid.subs]
+            [re-frame.hicasso.examples.grid.views :as rf.hicasso.examples.grid.views]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The two coarse shapes — the guide's named anti-patterns, as controls
@@ -77,14 +77,14 @@
   the shapes below coarse."}
   (fn [db _] (:cells db)))
 
-(h/defview coarse-cell
+(rf.hicasso/defview coarse-cell
   "A cell rendered FROM PROPS. Reads nothing; its value arrives from a
   parent that read the whole grid."
   [{:keys [row col value]}]
   [:td [:input {:type "text" :value value
-                :on-input [::events/edit row col ::h/value]}]])
+                :on-input [::rf.hicasso.examples.grid.events/edit row col ::rf.hicasso/value]}]])
 
-(h/defview coarse-closure-cell
+(rf.hicasso/defview coarse-closure-cell
   "The same, plus the thing the guide names as the case where nothing
   bails: a callback minted in the parent's render.
 
@@ -96,12 +96,12 @@
   [:td [:input {:type "text" :value value :data-row (str row) :data-col (str col)
                 :on-input on-edit}]])
 
-(h/defview coarse-grid
+(rf.hicasso/defview coarse-grid
   "The guide's `;; Don't` shape: one whole-grid read at the top, cells
   rendered from props."
   [{:keys [closures?]}]
-  (let [cells (h/sub [::all-cells])
-        {:keys [rows cols]} (h/sub [::subs/dimensions])]
+  (let [cells (rf.hicasso/sub [::all-cells])
+        {:keys [rows cols]} (rf.hicasso/sub [::rf.hicasso.examples.grid.subs/dimensions])]
     [:table
      [:tbody
       (for [row (range rows)]
@@ -116,7 +116,7 @@
                ;; A FRESH closure per cell per render. Written with the
                ;; one callback form, which is the spelling an author
                ;; reaches for when they want the event itself.
-               :on-edit (h/event [e] [::events/edit row col (.. e -target -value)])}]
+               :on-edit (rf.hicasso/event [e] [::rf.hicasso.examples.grid.events/edit row col (.. e -target -value)])}]
              [coarse-cell {:key   (str col)
                            :row   row
                            :col   col
@@ -127,8 +127,8 @@
 ;; at the top of the file would strand `::all-cells` and every coarse
 ;; mount would refuse.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil}))
 
 ;; ---------------------------------------------------------------------------
@@ -145,12 +145,12 @@
 (def ^:private full {:rows 10 :cols 10})
 
 (defn- mount-grid!
-  ([dimensions] (mount-grid! dimensions [views/grid {}]))
+  ([dimensions] (mount-grid! dimensions [rf.hicasso.examples.grid.views/grid {}]))
   ([dimensions form]
-   (hm/mount! form {:initial-events (app/initial-events dimensions)})))
+   (rf.hicasso.test.mounted/mount! form {:initial-events (rf.hicasso.examples.grid.app/initial-events dimensions)})))
 
 (defn- cell-node [m row col]
-  (.querySelector (:container m) (str "#" (events/cell-id row col))))
+  (.querySelector (:container m) (str "#" (rf.hicasso.examples.grid.events/cell-id row col))))
 
 (defn- set-native-value! [n v]
   (let [d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
@@ -172,8 +172,8 @@
               (nth (array-seq (.querySelectorAll (:container m) "input"))
                    (+ (* row (:cols dimensions)) col)))]
     (try
-      (hm/bodies-run #(do (type-into! n "1") (hm/settle! m)))
-      (finally (hm/unmount! m)))))
+      (rf.hicasso.test.mounted/bodies-run #(do (type-into! n "1") (rf.hicasso.test.mounted/settle! m)))
+      (finally (rf.hicasso.test.mounted/unmount! m)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The application scales
@@ -188,13 +188,13 @@
       (is (= 100 (.-length (.querySelectorAll (:container m) "input"))))
       (is (= 10 (.-length (.querySelectorAll (:container m) ".total"))))
       (is (= "34" (.-value (cell-node m 3 4))))
-      (hm/unmount! m))))
+      (rf.hicasso.test.mounted/unmount! m))))
 
 (deftest a-keystroke-costs-the-same-at-25-cells-and-at-100
   (if-not (browser?)
     (skip! "the scaling claim")
-    (let [at-25  (amplification small [views/grid {}] 3 4)
-          at-100 (amplification full [views/grid {}] 3 4)]
+    (let [at-25  (amplification small [rf.hicasso.examples.grid.views/grid {}] 3 4)
+          at-100 (amplification full [rf.hicasso.examples.grid.views/grid {}] 3 4)]
       (is (= 2 at-25 at-100)
           "THE ACCEPTANCE. Two bodies — the cell that was typed into and
            its row's total, which genuinely depends on it — at both sizes.
@@ -214,23 +214,23 @@
         ;; dispatch rather than on every changed READ would answer 2 here.
         (let [m (mount-grid! full)
               n (cell-node m 3 4)]
-          (is (= 0 (hm/bodies-run #(do (type-into! n "x") (hm/settle! m))))
+          (is (= 0 (rf.hicasso.test.mounted/bodies-run #(do (type-into! n "x") (rf.hicasso.test.mounted/settle! m))))
               "a refusal notifies nothing, because the subscription's
                equality gate stops a value that did not move")
           (is (= "34" (.-value n))
               "and the field echoes the COMMITTED value — the refusal half
                of the controlled law, on the glass")
-          (hm/unmount! m)))))
+          (rf.hicasso.test.mounted/unmount! m)))))
 
   (testing "a BROAD update costs what it changed, and not more"
     (if-not (browser?)
       (skip! "the broad contrast")
       (let [m (mount-grid! full)]
-        (is (= 11 (hm/bodies-run #(hm/dispatch-and-settle! m [::events/clear-row {:row 2}])))
+        (is (= 11 (rf.hicasso.test.mounted/bodies-run #(rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.grid.events/clear-row {:row 2}])))
             "ten cells and one total. The narrow number has something to
              be narrow COMPARED TO, and the same topology produces both —
              work follows the data, in either direction")
-        (hm/unmount! m)))))
+        (rf.hicasso.test.mounted/unmount! m)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The sabotage — a coarse read makes it red

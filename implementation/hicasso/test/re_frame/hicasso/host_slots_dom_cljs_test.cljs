@@ -78,14 +78,14 @@
   React DOM. The declaration rows and the conversion rows need no DOM
   and run under `:node-test` too."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
 (def ^:private frame-id ::host-slots)
@@ -100,10 +100,10 @@
   (fn [{:keys [db]} [_ what]] {:db (assoc db :picked what)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The vendor family — a provider, two members, and the two prop KINDS
@@ -150,19 +150,19 @@
 ;; The declarations
 ;; ---------------------------------------------------------------------------
 
-(h/defhost panel-host panel {:slots #{:title :footer}})
+(rf.hicasso/defhost panel-host panel {:slots #{:title :footer}})
 
-(h/defhost bare-panel
+(rf.hicasso/defhost bare-panel
   "The SAME component, declared with no slots at all — the control the
   sabotage row needs."
   panel)
 
-(h/defhost rows-host row-list {:callbacks {:render-row :render}})
+(rf.hicasso/defhost rows-host row-list {:callbacks {:render-row :render}})
 
-(h/defhost themed (.-Provider theme-context) {:server :render})
-(h/defhost badge theme-badge {:server :render})
+(rf.hicasso/defhost themed (.-Provider theme-context) {:server :render})
+(rf.hicasso/defhost badge theme-badge {:server :render})
 
-(h/defhost suspense
+(rf.hicasso/defhost suspense
   "React's own compound, declared the way chapter 20 teaches it."
   react/Suspense
   {:slots #{:fallback}})
@@ -178,7 +178,7 @@
   (is true (str "a ReactNode-slot DOM claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.slots/seed]))
   frame-id)
@@ -193,7 +193,7 @@
   and no render: the conversion is what is under test, so the assertion
   is taken where the conversion happens."
   [hiccup]
-  (.-props (codec/root-element frame-id hiccup)))
+  (.-props (rf.hicasso.impl.codec/root-element frame-id hiccup)))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the declaration (these rows run under :node-test too)
@@ -204,15 +204,15 @@
             normalised to its canonical slot at MINT — so `:on-empty` and
             a call site writing `:onEmpty` are the one position, which is
             the rule every other roster in this codec already keeps"
-    (is (some? (codec/mint-host! "slots/kebab" panel {:slots #{:on-empty}})))
-    (is (some? (codec/mint-host! "slots/camel" panel {:slots #{:onEmpty}})))
-    (is (some? (codec/mint-host! "slots/string" panel {:slots #{"title"}})))
-    (is (some? (codec/mint-host! "slots/near-reserved" panel
+    (is (some? (rf.hicasso.impl.codec/mint-host! "slots/kebab" panel {:slots #{:on-empty}})))
+    (is (some? (rf.hicasso.impl.codec/mint-host! "slots/camel" panel {:slots #{:onEmpty}})))
+    (is (some? (rf.hicasso.impl.codec/mint-host! "slots/string" panel {:slots #{"title"}})))
+    (is (some? (rf.hicasso.impl.codec/mint-host! "slots/near-reserved" panel
                                  {:slots #{:constructor-label :prototypes}}))
         "an ordinary prop that merely reads like a reserved emitted name
          mints; the crossing's reserved skip is on the WHOLE emitted slot"))
   (testing "and it composes with the two options that were already there"
-    (is (some? (codec/mint-host! "slots/all" panel
+    (is (some? (rf.hicasso.impl.codec/mint-host! "slots/all" panel
                                  {:callbacks {:on-close :event}
                                   :slots     #{:title}
                                   :server    :render})))))
@@ -221,45 +221,45 @@
   (testing "not a set. A vector or a map would each have to be read as
             something, and neither reading is one an author could hold"
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/vec" panel {:slots [:title]}))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/vec" panel {:slots [:title]}))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/map" panel {:slots {:title true}}))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/map" panel {:slots {:title true}}))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/kw" panel {:slots :title}))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/kw" panel {:slots :title}))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/nil" panel {:slots nil})))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/nil" panel {:slots nil})))
         "an explicit nil is a value and not an absence — the same rule
          `:server nil` takes, and for the same reason: inferring the default
          from nil is how a typo becomes a setting"))
   (testing "an entry that names no prop. Normalising a number into some
             slot nobody wrote is how a declaration comes to be inert"
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/num" panel {:slots #{7}}))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/num" panel {:slots #{7}}))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/nested" panel {:slots #{[:title]}})))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/nested" panel {:slots #{[:title]}})))))
   (testing "`key` and `ref` in every spelling. They are React's structural
             slots — an identity contract and a node handle — and neither
             carries markup, so a slot declared on one is a policy that can
             never apply"
     (doseq [k [:key :ref "ref" :x/ref]]
       (is (= :rf.error/hicasso-bad-host-declaration
-             (error-id #(codec/mint-host! (str "slots/" k) panel {:slots #{k}})))
+             (error-id #(rf.hicasso.impl.codec/mint-host! (str "slots/" k) panel {:slots #{k}})))
           (str (pr-str k) " must stay refused"))))
   (testing "two spellings of one slot. Whichever the fold reached second
             would silently be the same entry, so the set would carry one
             position the author wrote twice and could not see"
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/dup" panel
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/dup" panel
                                         {:slots #{:on-empty :onEmpty}})))))
   (testing "and a position declared BOTH a callback and a slot. `:render`
             invokes the value where a slot lowers it, and nothing decides
             which the author meant — so it is refused rather than ordered"
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/both" panel
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/both" panel
                                         {:callbacks {:title :render}
                                          :slots     #{:title}}))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "slots/both-spelled" panel
+           (error-id #(rf.hicasso.impl.codec/mint-host! "slots/both-spelled" panel
                                         {:callbacks {:on-empty :event}
                                          :slots     #{:onEmpty}})))
         "and across two spellings of it, because the collision is checked
@@ -269,14 +269,14 @@
   (testing "an override and a slot roster mint together, and the override
             is two-valued — `:render` where a vendor names a render prop
             `on*`, `:event` where it names an event prop something else"
-    (is (some? (codec/mint-host! "cb/ordinary" panel
+    (is (some? (rf.hicasso.impl.codec/mint-host! "cb/ordinary" panel
                                  {:callbacks {:on-render-row :render
                                               :pick          :event}
                                   :slots     #{:title}}))))
   (testing "and a third contract is refused at mint — :handler among them,
             since a plain function already crosses untouched everywhere"
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "cb/handler" panel
+           (error-id #(rf.hicasso.impl.codec/mint-host! "cb/handler" panel
                                         {:callbacks {:on-close :handler}}))))))
 
 ;; ---------------------------------------------------------------------------
@@ -321,7 +321,7 @@
             to delete"
     (is (= :rf.error/hicasso-host-unclaimed-callback
            (error-id #(crossing-props
-                        [panel-host {:title (h/event [] [:h2 "no"])}])))))
+                        [panel-host {:title (rf.hicasso/event [] [:h2 "no"])}])))))
   (testing "while a PLAIN function at the same prop of an undeclared
             crossing is untouched, because it never asked for anything"
     (is (fn? (.-title ^js (crossing-props [bare-panel {:title (fn [] nil)}]))))))
@@ -350,7 +350,7 @@
   (testing "and the per-site recovery is the explicit conversion, which
             crosses a real element through any prop of any crossing"
     (let [^js props (crossing-props
-                      [:> panel {:title (h/as-element [:h2.t "Tasks"])}])
+                      [:> panel {:title (rf.hicasso/as-element [:h2.t "Tasks"])}])
           ^js inner (.-p props)]
       (is (react/isValidElement (.-title inner)))
       (is (= "h2" (.-type (.-title inner)))))))
@@ -367,11 +367,11 @@
 ;; 3 — the compound library, mounted
 ;; ---------------------------------------------------------------------------
 
-(h/defview compound-screen
+(rf.hicasso/defview compound-screen
   "A provider, two members, two named slots and a render prop, in one
   tree — the family exercised the way an application would use it."
   [_]
-  (let [rows (h/sub [:hicasso.slots/rows])]
+  (let [rows (rf.hicasso/sub [:hicasso.slots/rows])]
     [themed {:value "dark"}
      [panel-host {:title  [:h2.t "Feed"]
                   :footer [:button.pick {:on-click [:hicasso.slots/pick "footer"]}
@@ -379,17 +379,17 @@
       [badge {}]
       [rows-host
        {:items      (into-array rows)
-        :render-row (h/event [item _i]
-                      (h/as-element
+        :render-row (rf.hicasso/event [item _i]
+                      (rf.hicasso/as-element
                         [:span.cell {:on-click [:hicasso.slots/pick item]}
                          item]))}]]]))
 
 (deftest the-compound-family-renders-through-one-declared-door
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
                                 [compound-screen {}])]
         (try
           (testing "the two declared slots reached the component as markup
@@ -407,14 +407,14 @@
                     explicit conversion"
             (is (= 2 (.-length (.querySelectorAll (:container handle) ".row"))))
             (is (= "alpha" (text handle ".rows .row .cell"))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 (deftest an-intent-inside-a-declared-slot-fires-into-the-declaring-frame
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
                                 [compound-screen {}])]
         (try
           (is (nil? (:picked (db))) "the premise")
@@ -423,39 +423,39 @@
                     boundary's — the same frame the crossing's children
                     get, and the same one an intent in the body gets"
             (.click (query handle ".panel-footer .pick"))
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (is (= "footer" (:picked (db)))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 (deftest a-render-prop-returns-markup-through-as-element
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
                                 [compound-screen {}])]
         (try
           (testing "the row was built during the LIBRARY's render, and its
                     intent fires later, on the user's click, into the frame
                     of the boundary that supplied the callback"
             (.click (query handle ".rows .row .cell"))
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (is (= "alpha" (:picked (db)))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — adversarial: StrictMode, remount, and a throw inside a slot
 ;; ---------------------------------------------------------------------------
 
-(h/defview strict-screen [_]
+(rf.hicasso/defview strict-screen [_]
   [:> react/StrictMode {} [compound-screen {}]])
 
 (deftest strict-mode-double-invocation-changes-nothing
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
                                 [strict-screen {}])]
         (try
           (testing "React renders every component twice under StrictMode.
@@ -468,20 +468,20 @@
           (testing "and the callbacks the double pass minted twice still
                     reach the one frame"
             (.click (query handle ".panel-footer .pick"))
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (is (= "footer" (:picked (db)))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 (deftest a-remount-rebuilds-the-slots-and-nothing-leaks
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [a (mount/root! (mount/fresh-container!) frame-id [compound-screen {}])]
+      (let [a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [compound-screen {}])]
         (is (= "Feed" (text a ".panel-title .t")))
-        (mount/release! a))
+        (rf.hicasso.impl.mount/release! a))
       (fresh!)
-      (let [b (mount/root! (mount/fresh-container!) frame-id [compound-screen {}])]
+      (let [b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [compound-screen {}])]
         (try
           (testing "a declaration is minted once and a slot is lowered per
                     crossing, so a second mount of the same declaration
@@ -489,11 +489,11 @@
                     first — including its frame"
             (is (= "Feed" (text b ".panel-title .t")))
             (.click (query b ".panel-footer .pick"))
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (is (= "footer" (:picked (db)))))
-          (finally (mount/release! b)))))))
+          (finally (rf.hicasso.impl.mount/release! b)))))))
 
-(h/defview thrown-slot-screen
+(rf.hicasso/defview thrown-slot-screen
   "A slot whose markup is malformed. The refusal is raised while the
   CROSSING is lowered, which is inside this boundary's own render — so a
   React error boundary above it is what catches, exactly as it would for
@@ -504,13 +504,13 @@
 (def ^:private !caught (atom nil))
 
 (deftest a-refusal-inside-a-slot-escapes-to-the-boundary-above
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (reset! !caught nil)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id
-                                [h/error-boundary
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+                                [rf.hicasso/error-boundary
                                  {:fallback [:p.escaped "the slot refused"]
                                   :on-error (fn [e] (reset! !caught e))}
                                  [thrown-slot-screen {}]])]
@@ -522,4 +522,4 @@
             (is (some? (query handle ".escaped")))
             (is (= :rf.error/hicasso-empty-vector
                    (:rf.error/id (ex-data @!caught)))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))

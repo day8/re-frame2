@@ -186,7 +186,7 @@
   terminal bound and a witness. Composing the two is worth doing and is
   not this module's; a second retention clock inside it would be the
   duplicate `motion` exists to prevent."
-  (:require [re-frame.hicasso.impl.overlay :as impl-overlay]))
+  (:require [re-frame.hicasso.impl.overlay :as rf.hicasso.impl.overlay]))
 
 (def ^{:doc "`overlay/popover` — an anchored, light-dismissable panel on
   the browser's own top layer.
@@ -209,7 +209,7 @@
   without one it is `popover=\"manual\"` and dismisses for nothing, because
   a dismissal with nowhere to go is how an open flag acquires a second
   owner. `re-frame.hicasso.impl.overlay/popover`."}
-  popover impl-overlay/popover)
+  popover rf.hicasso.impl.overlay/popover)
 
 (def ^{:doc "`overlay/modal` — a blocking dialog on the browser's own top
   layer, opened with `showModal`.
@@ -234,4 +234,4 @@
   `:light-dismiss? true`, because a destructive confirmation must not go
   away on a stray click. Without `:on-dismiss` the dialog honours no close
   request at all. `re-frame.hicasso.impl.overlay/modal`."}
-  modal impl-overlay/modal)
+  modal rf.hicasso.impl.overlay/modal)

@@ -97,17 +97,17 @@
   `react-dom/server` render and none of them touches a document, so the
   browser lane would add cost and decide nothing. `:node-test` runs it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.forms :as forms]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.overlay :as overlay]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.forms :as rf.hicasso.forms]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.overlay :as rf.hicasso.overlay]
             [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
-            [re-frame.hicasso.test.forms :as tf]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso.test.forms :as rf.hicasso.test.forms]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
 
@@ -130,10 +130,10 @@
   (fn [_ [_ open?]] {:db {:title "milk" :revision 3 :open? open?}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- fresh!
   "A frame seeded to one immutable request snapshot.
@@ -144,7 +144,7 @@
   documents."
   [open?]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (h/reg-state :re-frame.hicasso.forms/drafts {:default nil})
+  (rf.hicasso/reg-state :re-frame.hicasso.forms/drafts {:default nil})
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.arms/seed open?]))
   frame-id)
@@ -167,100 +167,100 @@
   [hiccup]
   (rf.hicasso.roots-frames-support/without-view-annotations
     (react-dom-server/renderToString
-      (mount/provider frame-id (codec/root-element frame-id hiccup)))))
+      (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The subjects — one surface per view, so a red row names a surface
 ;; ---------------------------------------------------------------------------
 
-(h/defview field-page
+(rf.hicasso/defview field-page
   "HS-31's subject: the optional forms module's one view."
   []
   [:div.owner
-   [forms/buffered-field
+   [rf.hicasso.forms/buffered-field
     {:control     control
-     :value       (h/sub [:hicasso.arms/title])
-     ::h/revision (h/sub [:hicasso.arms/revision])
+     :value       (rf.hicasso/sub [:hicasso.arms/title])
+     ::rf.hicasso/revision (rf.hicasso/sub [:hicasso.arms/revision])
      :on-commit   [:todo/committed 7]
      :placeholder "What needs doing?"}]])
 
-(h/defview anchored-popover-page
+(rf.hicasso/defview anchored-popover-page
   "HS-32's subject with an `:anchor`, which is the arm that bakes a
   generated CSS anchor name into the `style` attribute."
   []
   [:div.owner
    [:button {:id "trigger"} "Filter"]
-   [overlay/popover {:open?      (h/sub [:hicasso.arms/open?])
+   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [:hicasso.arms/open?])
                      :on-dismiss [:menu/dismissed]
                      :anchor     "trigger"
                      :placement  :bottom-start}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(h/defview unanchored-popover-page
+(rf.hicasso/defview unanchored-popover-page
   "The same surface with no `:anchor` — the control that keeps §5 a fact
   about the anchor ident rather than about popovers."
   []
   [:div.owner
-   [overlay/popover {:open?      (h/sub [:hicasso.arms/open?])
+   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [:hicasso.arms/open?])
                      :on-dismiss [:menu/dismissed]}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(h/defview modal-page
+(rf.hicasso/defview modal-page
   "HS-32's other door. A modal takes no `:anchor`, so it mints no ident."
   []
   [:div.owner
-   [overlay/modal {:open?      (h/sub [:hicasso.arms/open?])
+   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [:hicasso.arms/open?])
                    :on-dismiss [:invoice/cancelled]
                    :label      "Confirm deletion"}
     [:h2.title "Delete this invoice?"]
     [:button.confirm "Delete"]]])
 
-(h/defview undismissable-modal-page
+(rf.hicasso/defview undismissable-modal-page
   "The `closedby` ladder's no-dismissal arm: with no `:on-dismiss` there
   is nowhere to route a close request, so the dialog is told to honour
   none and the open flag cannot acquire a second owner."
   []
   [:div.owner
-   [overlay/modal {:open? (h/sub [:hicasso.arms/open?])
+   [rf.hicasso.overlay/modal {:open? (rf.hicasso/sub [:hicasso.arms/open?])
                    :label "Processing"}
     [:p.wait "Do not close this tab."]]])
 
-(h/defview light-dismiss-modal-page
+(rf.hicasso/defview light-dismiss-modal-page
   "The ladder's opt-in arm: `:light-dismiss?` widens `closedby` to the
   platform's `any`, so a backdrop click can dismiss."
   []
   [:div.owner
-   [overlay/modal {:open?          (h/sub [:hicasso.arms/open?])
+   [rf.hicasso.overlay/modal {:open?          (rf.hicasso/sub [:hicasso.arms/open?])
                    :on-dismiss     [:invoice/cancelled]
                    :light-dismiss? true
                    :label          "Quick filter"}
     [:p.hint "Click anywhere outside to dismiss."]]])
 
-(h/defview manual-popover-page
+(rf.hicasso/defview manual-popover-page
   "The popover half of the same choice: no `:on-dismiss` means `manual` —
   in the top layer, dismissing for nothing."
   []
   [:div.owner
-   [overlay/popover {:open? (h/sub [:hicasso.arms/open?])}
+   [rf.hicasso.overlay/popover {:open? (rf.hicasso/sub [:hicasso.arms/open?])}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(h/defview author-placed-popover-page
+(rf.hicasso/defview author-placed-popover-page
   "An author's `:style {:position-area …}` written beside the
   `:placement` that also produces one — `element-attrs`' documented
   precedence subject."
   []
   [:div.owner
-   [overlay/popover {:open?      (h/sub [:hicasso.arms/open?])
+   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [:hicasso.arms/open?])
                      :on-dismiss [:menu/dismissed]
                      :placement  :bottom-start
                      :style      {:position-area "block-start"}}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(h/defview island
+(rf.hicasso/defview island
   "The Hicasso boundary that sits UNDER the Activity host, so that a row
   measuring bytes is measuring a real read rather than a literal."
   []
-  [:p.inner (str "title=" (h/sub [:hicasso.arms/title]))])
+  [:p.inner (str "title=" (rf.hicasso/sub [:hicasso.arms/title]))])
 
 (def ^:private Activity
   "React 19.2's own `<Activity>`, reached by interop. It is a symbol
@@ -268,15 +268,15 @@
   which door it goes through."
   (.-Activity react))
 
-(h/defhost activity-bare Activity)
+(rf.hicasso/defhost activity-bare Activity)
 
-(h/defhost activity-with-fallback Activity
+(rf.hicasso/defhost activity-with-fallback Activity
   {:fallback [:div.activity-skeleton "loading"]})
 
-(h/defhost activity-render Activity
+(rf.hicasso/defhost activity-render Activity
   {:server :render})
 
-(h/defview activity-host-page
+(rf.hicasso/defview activity-host-page
   "HS-23 through `h/defhost` — the third of the three routes the lane
   note names, and the only one that carries a server policy at all."
   [{:keys [head mode]}]
@@ -284,7 +284,7 @@
    [head {:mode mode}
     [island {}]]])
 
-(h/defview activity-native-page
+(rf.hicasso/defview activity-native-page
   "HS-23 through raw React construction, which the lane note recommends
   first and which the client witness uses: a boundary body returning the
   `<Activity>` element itself, with the hosted subtree crossed through
@@ -292,7 +292,7 @@
   [{:keys [mode]}]
   [:div.owner
    (react/createElement Activity #js {:mode mode}
-                        (codec/as-element [island {}]))])
+                        (rf.hicasso.impl.codec/as-element [island {}]))])
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — HS-31, the optional forms module
@@ -343,7 +343,7 @@
             the protocol and not this file's idea of it"
     (fresh! true)
     (rf/with-frame frame-id
-      (rf/dispatch-sync [tf/edit-id control 3 "half-typed"]))
+      (rf/dispatch-sync [rf.hicasso.test.forms/edit-id control 3 "half-typed"]))
     (let [html (server-html [field-page {}])]
       (is (re-find #"<input[^>]*value=\"half-typed\"" html)
           (str "the draft, not the committed value: " html))
@@ -354,7 +354,7 @@
             commit a no-op, answered while producing bytes"
     (fresh! true)
     (rf/with-frame frame-id
-      (rf/dispatch-sync [tf/edit-id control 2 "stale"]))
+      (rf/dispatch-sync [rf.hicasso.test.forms/edit-id control 2 "stale"]))
     (let [html (server-html [field-page {}])]
       (is (re-find #"<input[^>]*value=\"milk\"" html)
           (str "the committed value, because revision 2 is not 3: " html)))))

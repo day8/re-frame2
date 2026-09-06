@@ -17,14 +17,14 @@
   business, so it returns before the tree is adopted and a witness waits
   for the adoption window to close. The mechanism record is
   docs/design/hicasso/architecture.md, section The root."
-  (:require [re-frame.adapter.context :as adapter-context]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.roots :as roots]
-            [re-frame.interop :as interop]
-            [re-frame.trace :as trace]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace :as rf.trace]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
@@ -36,7 +36,7 @@
   Renders no DOM of its own, so it cannot move a canonical-DOM parity
   comparison."
   [frame-kw child]
-  (react/createElement (.-Provider adapter-context/frame-context)
+  (react/createElement (.-Provider rf.adapter.context/frame-context)
                        #js {:value frame-kw}
                        child))
 
@@ -73,12 +73,12 @@
   witnesses in docs/design/hicasso/architecture.md, section The root)."
   [handle hiccup]
   (let [app (provider (:frame handle)
-                      (codec/root-element (:frame handle) hiccup))]
+                      (rf.hicasso.impl.codec/root-element (:frame handle) hiccup))]
     (if-some [window (:adoption handle)]
       (react/createElement (.-Fragment react) nil
                            (react/createElement adoption-window-closer
                                                 #js {:rfWindow window})
-                           (roots/with-adoption window app))
+                           (rf.hicasso.impl.roots/with-adoption window app))
       app)))
 
 (defn render!
@@ -131,7 +131,7 @@
   returns, so the first paint is the seeded one
   (docs/design/hicasso/architecture.md, section The root)."
   [frame-kw initial-events]
-  (when (nil? (frame/frame-incarnation-token frame-kw))
+  (when (nil? (rf.frame/frame-incarnation-token frame-kw))
     (rf/make-frame (cond-> {:id frame-kw}
                      (seq initial-events) (assoc :initial-events initial-events))))
   frame-kw)
@@ -175,7 +175,7 @@
   (docs/design/hicasso/architecture.md, section The root)."
   [^js props]
   (react/useEffect (fn close-window []
-                     (roots/close-adoption-window! (.-rfWindow props))
+                     (rf.hicasso.impl.roots/close-adoption-window! (.-rfWindow props))
                      js/undefined)
                    #js [])
   nil)
@@ -203,7 +203,7 @@
   an event and mints no epoch: it fires from a root-error callback,
   outside any dispatch scope."
   [error]
-  (trace/emit! :warning :rf.ssr/hydration-mismatch
+  (rf.trace/emit! :warning :rf.ssr/hydration-mismatch
                {:error    (some-> error .-message)
                 :where    're-frame.hicasso.impl.mount/hydrate-root!
                 :recovery :warned-and-replaced}))
@@ -229,7 +229,7 @@
   boundary."
   [^js window]
   (fn on-recoverable [error _error-info]
-    (when (roots/adopting? window)
+    (when (rf.hicasso.impl.roots/adopting? window)
       (emit-hydration-mismatch! error))
     (report-recoverable-default! error)))
 
@@ -242,7 +242,7 @@
   hydrate every server `useId` into a mismatch."
   [window opts]
   (root-options (:identifier-prefix opts)
-                (when interop/debug-enabled? (hydration-reporter window))))
+                (when rf.interop/debug-enabled? (hydration-reporter window))))
 
 (defn hydrate-root!
   "Associate `container`'s existing server-rendered DOM with `frame-kw`
@@ -277,7 +277,7 @@
   witnesses: docs/design/hicasso/architecture.md, section The root."
   ([container frame-kw hiccup] (hydrate-root! container frame-kw hiccup nil))
   ([container frame-kw hiccup opts]
-   (let [window  (roots/open-adoption-window!)
+   (let [window  (rf.hicasso.impl.roots/open-adoption-window!)
          handle  {:frame frame-kw :container container :adoption window}
          element (tree handle hiccup)
          ropts   (hydrate-root-options window opts)]
@@ -302,7 +302,7 @@
   `release!`'s (docs/design/hicasso/product/globals.md, the
   `reset-runtime!` paragraph)."
   [handle]
-  (roots/close-adoption-window! (:adoption handle))
+  (rf.hicasso.impl.roots/close-adoption-window! (:adoption handle))
   (when-some [r (:root handle)]
     (react-dom/flushSync (fn [] (.unmount r))))
   nil)
@@ -319,7 +319,7 @@
   (unmount! handle)
   (when-some [c (:container handle)]
     (when-some [p (.-parentNode c)] (.removeChild p c)))
-  (collector/reset-runtime!)
+  (rf.hicasso.impl.collector/reset-runtime!)
   nil)
 
 (defn dispatch!
@@ -327,7 +327,7 @@
   The witness door; an intent written in a view reaches
   `collector/dispatch!` on its own."
   [handle event]
-  (collector/dispatch! (:frame handle) event)
+  (rf.hicasso.impl.collector/dispatch! (:frame handle) event)
   (settle!)
   nil)
 

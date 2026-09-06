@@ -28,13 +28,13 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.trace :as trace]
-   [re-frame.test-support :as test-support]
+   [re-frame.trace :as rf.trace]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter substrate/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter substrate/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Recorders.  The reset fixture clears both registries between tests, so each
@@ -44,7 +44,7 @@
 (defn- record-flow-traces!
   "Capture every `:flow`-op-type trace event into `sink`."
   [sink]
-  (trace/register-listener!
+  (rf.trace/register-listener!
     ::flow-trace-recorder
     (fn [ev]
       (when (= :flow (:op-type ev))

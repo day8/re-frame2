@@ -49,9 +49,9 @@
   `deftest` runs. A consumer never meets this; a test does, on its first
   row. `reg-route` is idempotent for an unchanged registration, so
   calling both costs nothing."
-  (:require [re-frame.hicasso.examples.navigation.events :as events]
-            [re-frame.hicasso.examples.navigation.subs :as subs]
-            [re-frame.routing :as routing]))
+  (:require [re-frame.hicasso.examples.navigation.events :as rf.hicasso.examples.navigation.events]
+            [re-frame.hicasso.examples.navigation.subs :as rf.hicasso.examples.navigation.subs]
+            [re-frame.routing :as rf.routing]))
 
 (def feed
   "The list page. `/navigation`."
@@ -65,17 +65,17 @@
   "Register the witness's routes. Idempotent; see the namespace docstring
   on why it is a function as well as a load-time effect."
   []
-  (routing/reg-route feed
+  (rf.routing/reg-route feed
     {:doc      "The article list."
-     :on-match [[::events/pane-shown]]}
+     :on-match [[::rf.hicasso.examples.navigation.events/pane-shown]]}
     "/navigation")
-  (routing/reg-route article
+  (rf.routing/reg-route article
     {:doc "One article, with its title editor."
      ;; The guard is on the route being LEFT, which is the article: a
      ;; typed-and-unsaved title is what must not be walked away from. The
      ;; feed carries none — there is nothing on it to lose.
-     :can-leave [::subs/may-leave?]
-     :on-match  [[::events/pane-shown]]}
+     :can-leave [::rf.hicasso.examples.navigation.subs/may-leave?]
+     :on-match  [[::rf.hicasso.examples.navigation.events/pane-shown]]}
     "/navigation/article/:slug")
   nil)
 

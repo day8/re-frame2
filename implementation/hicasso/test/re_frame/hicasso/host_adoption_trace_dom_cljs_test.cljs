@@ -67,14 +67,14 @@
   takes the `-dom-cljs-test` suffix and that row skips in Node, in the
   shape the sibling `host-ssr-dom-cljs-test` established."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]
             ["react-dom/server" :as react-dom-server]))
@@ -84,17 +84,17 @@
 (rf/reg-event :hicasso.adoption/seed (fn [_ _] {:db {:title "quarterly"}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why]
   (is true (str "an adoption-trace DOM claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.adoption/seed]))
   frame-id)
@@ -115,7 +115,7 @@
   "A declaration nobody else has touched — the same door `defhost`
   expands to. `n` keeps the `displayName` legible in a failure."
   [n]
-  (codec/mint-host! n chart {:fallback [:div.chart-skeleton "loading"]}))
+  (rf.hicasso.impl.codec/mint-host! n chart {:fallback [:div.chart-skeleton "loading"]}))
 
 ;; ---------------------------------------------------------------------------
 ;; Watching the instrumentation channel
@@ -128,14 +128,14 @@
   []
   (let [seen (atom [])
         lk   (keyword (gensym "rf.oaksj-adopt-"))]
-    (trace/register-listener!
+    (rf.trace/register-listener!
       lk (fn [ev] (when (= :rf.ssr/host-adopted (:operation ev))
                     (swap! seen conj ev))))
-    {:seen seen :stop (fn [] (trace/unregister-listener! lk))}))
+    {:seen seen :stop (fn [] (rf.trace/unregister-listener! lk))}))
 
 (defn- render-html [hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
 
 (defn- render-as
   "One render of `hiccup` with React's adoption answer FORCED — the whole
@@ -143,7 +143,7 @@
   not Hicasso's state. Everything downstream of it here — the gate
   closure, the crossing cell, the emit — is the shipping code."
   [adopted? hiccup]
-  (with-redefs [codec/adopted? (fn [] adopted?)]
+  (with-redefs [rf.hicasso.impl.codec/adopted? (fn [] adopted?)]
     (render-html hiccup)))
 
 (defn- query-node [root selector] (.querySelector root selector))
@@ -169,7 +169,7 @@
           (is (empty? @seen) (pr-str @seen))))
       (finally
         (stop)
-        (collector/reset-runtime!)))))
+        (rf.hicasso.impl.collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — a crossing announces ONCE, and carries the facts a tool reads
@@ -219,7 +219,7 @@
         (is (= 1 (count @seen)) (pr-str @seen)))
       (finally
         (stop)
-        (collector/reset-runtime!)))))
+        (rf.hicasso.impl.collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — nothing crossed, so nothing is announced
@@ -244,7 +244,7 @@
         (is (empty? @seen) (pr-str @seen)))
       (finally
         (stop)
-        (collector/reset-runtime!)))))
+        (rf.hicasso.impl.collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — the same claim, unstubbed, through a real hydration
@@ -252,19 +252,19 @@
 
 (deftest a-hydrated-crossing-announces-once
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (let [host      (mint! "hydrated-chart")
               page      [:div [host {:label "revenue"}] [host {:label "costs"}]]
               html      (render-html page)
-              container (mount/fresh-container!)
+              container (rf.hicasso.impl.mount/fresh-container!)
               {:keys [seen stop]} (watch-adoptions!)]
           (set! (.-innerHTML container) html)
           (let [root (react-dom-client/hydrateRoot
                        container
-                       (mount/provider frame-id (codec/root-element frame-id page)))]
+                       (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id page)))]
             (js/setTimeout
               (fn []
                 (try
@@ -282,6 +282,6 @@
                     (stop)
                     (.unmount root)
                     (when-some [p (.-parentNode container)] (.removeChild p container))
-                    (collector/reset-runtime!)
+                    (rf.hicasso.impl.collector/reset-runtime!)
                     (done))))
               150)))))))

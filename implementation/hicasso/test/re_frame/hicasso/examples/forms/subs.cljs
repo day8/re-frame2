@@ -23,7 +23,7 @@
   notify every field's error region at once — which is exactly what it is
   for."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.examples.forms.db :as db]))
+            [re-frame.hicasso.examples.forms.db :as rf.hicasso.examples.forms.db]))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 1 — the buffered field
@@ -32,7 +32,7 @@
 (rf/reg-sub ::subject-shown
   {:doc "What the subject field shows — the draft while a session is open,
          the committed subject otherwise."}
-  (fn [db [_ ikey]] (db/subject-shown db ikey)))
+  (fn [db [_ ikey]] (rf.hicasso.examples.forms.db/subject-shown db ikey)))
 
 (rf/reg-sub ::subject-revision
   {:doc "The subject field's reset trigger. A COUNTER, not a value: the
@@ -47,7 +47,7 @@
   {:doc "Is a subject session open for `ikey`? Read by the region that
          explains Enter and Escape, so the hint is absent until it
          applies."}
-  (fn [db [_ ikey]] (some? (get-in db (db/draft-path ikey)))))
+  (fn [db [_ ikey]] (some? (get-in db (rf.hicasso.examples.forms.db/draft-path ikey)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 2 — the ordinary fields and the gate
@@ -60,11 +60,11 @@
 (rf/reg-sub ::shown-problem
   {:doc "The problem to DISPLAY for `field`, gated by touch and submit
          attempt — nil until the user has earned it."}
-  (fn [db [_ field]] (db/shown-problem (:form db) field)))
+  (fn [db [_ field]] (rf.hicasso.examples.forms.db/shown-problem (:form db) field)))
 
 (rf/reg-sub ::can-submit?
   {:doc "The submit gate, as a read. Calls the same `db/can-submit?` the
          submit handler calls, so no reader can disagree with the
          refusal. The save button deliberately does NOT read it — see
          the views namespace."}
-  (fn [db _] (db/can-submit? db)))
+  (fn [db _] (rf.hicasso.examples.forms.db/can-submit? db)))

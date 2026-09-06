@@ -12,13 +12,13 @@
   re-frame-10x v2's flow panel."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.privacy :as privacy]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 ;;
@@ -37,7 +37,7 @@
   [test-fn]
   (let [captured (atom [])]
     (binding [*captured* captured]
-      (trace/register-listener!
+      (rf.trace/register-listener!
         ::flow-trace-recorder
         (fn [ev]
           ;; Filter to flow op-type only — keeps assertions tight.
@@ -46,10 +46,10 @@
       (try
         (test-fn)
         (finally
-          (trace/unregister-listener! ::flow-trace-recorder))))))
+          (rf.trace/unregister-listener! ::flow-trace-recorder))))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   with-flow-trace-recorder)
 
 (defn- by-op
@@ -71,8 +71,8 @@
   "Seed the frame's large app-db classification via the commit-plane effect
   path (`:source :effect`). Marker `:reason` for these paths is `:effect`."
   [frame-id & paths]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:large (mapv vec paths)}))))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec paths)}))))
 
 (defn- install-sensitive!
   "Seed the frame's sensitive app-db classification via the commit-plane
@@ -80,17 +80,17 @@
   stamp + on-wire redaction, the same way schema-sensitive slots formerly
   did."
   [frame-id & paths]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
 
 (defn- record-all-traces
   "Capture every emitted trace event (not just `:op-type :flow`) for the
   ordered-stream tests. The `*captured*` fixture recorder is flow-only."
   [body-fn]
   (let [seen (atom [])]
-    (trace/register-listener! ::all-trace-recorder (fn [ev] (swap! seen conj ev)))
+    (rf.trace/register-listener! ::all-trace-recorder (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (trace/unregister-listener! ::all-trace-recorder)))
+         (finally (rf.trace/unregister-listener! ::all-trace-recorder)))
     @seen))
 
 ;; ---------------------------------------------------------------------------
@@ -425,7 +425,7 @@
     (rf/reg-flow :area {:inputs [[:rect :w] [:rect :h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:seed])
     (reset! *captured* [])
-    (flows/clear-flow :area)
+    (rf.flows/clear-flow :area)
     (let [evs (by-op :rf.flow/cleared)]
       (is (= 1 (count evs)))
       (let [tags (:tags (first evs))]
@@ -435,7 +435,7 @@
 
 (deftest clear-flow-on-unknown-id-emits-nothing
   (testing "clear-flow on an unregistered id is a no-op and emits no trace"
-    (flows/clear-flow :no-such-flow)
+    (rf.flows/clear-flow :no-such-flow)
     (is (zero? (count (by-op :rf.flow/cleared))))))
 
 ;; ---------------------------------------------------------------------------
@@ -661,7 +661,7 @@
       (rf/register-listener! :errors
         :test/recorder
         (fn [record] (reset! listener-saw record)))
-      (trace/register-listener!
+      (rf.trace/register-listener!
         ::flow-eval-trace-recorder
         (fn [ev]
           (when (= :rf.error/flow-eval-exception (:operation ev))
@@ -676,7 +676,7 @@
             "corpus-wide listener saw the record — always-on substrate path fired")
         (is (= :rf.error/flow-eval-exception (:error @listener-saw)))
         (finally
-          (trace/unregister-listener! ::flow-eval-trace-recorder))))))
+          (rf.trace/unregister-listener! ::flow-eval-trace-recorder))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. End-to-end sample: all five events fire across a typical lifecycle
@@ -690,7 +690,7 @@
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:replace-n 3])     ;; same → skip
     (rf/dispatch-sync [:replace-n 4])     ;; change → compute
-    (flows/clear-flow :double)
+    (rf.flows/clear-flow :double)
     (is (= 1 (count (by-op :rf.flow/registered))))
     (is (pos?  (count (by-op :rf.flow/computed))))
     (is (= 1 (count (by-op :rf.flow/skip))))
@@ -728,7 +728,7 @@
     (let [ev   (last (by-op :rf.flow/computed))
           tags (:tags ev)]
       (is (some? ev) ":rf.flow/computed fired")
-      (is (elision/marker? (:result tags))
+      (is (rf.elision/marker? (:result tags))
           ":result is replaced by the `:rf.size/large-elided` marker")
       (let [marker (:rf.size/large-elided (:result tags))]
         (is (= [:derived :blob] (:path marker))
@@ -751,7 +751,7 @@
       (is (some? ev) ":rf.flow/failed fired")
       (is (vector? (:inputs tags))
           ":inputs vector preserves the per-input slot shape")
-      (is (elision/marker? first-input)
+      (is (rf.elision/marker? first-input)
           "the elided input-value is substituted with the wire marker"))))
 
 ;; ---------------------------------------------------------------------------
@@ -1086,9 +1086,9 @@
           last-ev  (last computes)
           tags     (:tags last-ev)]
       (is (some? last-ev) ":rf.flow/computed fired on the recompute")
-      (is (elision/marker? (:before tags))
+      (is (rf.elision/marker? (:before tags))
           ":before is replaced by the `:rf.size/large-elided` marker — the slot is frame-large")
-      (is (elision/marker? (:result tags))
+      (is (rf.elision/marker? (:result tags))
           ":result is similarly elided (sanity)")
       (let [marker (:rf.size/large-elided (:before tags))]
         (is (= [:derived :blob] (:path marker))
@@ -1138,7 +1138,7 @@
     (rf/reg-flow :payload {:inputs [[:n]] :output-path [:derived :blob] :large? true} (fn [_] {:bytes "BIG"}))
     ;; Precondition: the flow's own registration installed the :source :flow
     ;; declaration (not a helper, not an effect).
-    (is (some #(= :flow (:source %)) (get (elision/declarations :rf/default) [:derived :blob]))
+    (is (some #(= :flow (:source %)) (get (rf.elision/declarations :rf/default) [:derived :blob]))
         "precondition: the reg-flow :large? mark stands as a :source :flow owner")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
@@ -1146,7 +1146,7 @@
     (let [ev     (last (by-op :rf.flow/computed))
           result (:result (:tags ev))]
       (is (some? ev) ":rf.flow/computed fired")
-      (is (elision/marker? result)
+      (is (rf.elision/marker? result)
           ":result is replaced by the :rf.size/large-elided marker")
       (let [marker (:rf.size/large-elided result)]
         (is (= [:derived :blob] (:path marker))
@@ -1156,9 +1156,9 @@
              declaration, NOT the :reason :effect of the install-large! helper path")))
     ;; (b) the app-db destination channel — the slot at :output-path projects
     ;; the marker through the SAME per-frame elision registry.
-    (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))
+    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))
           slot (get-in wire [:derived :blob])]
-      (is (elision/marker? slot)
+      (is (rf.elision/marker? slot)
           "the app-db destination slot egresses as the large marker")
       (is (= :flow (:reason (:rf.size/large-elided slot)))
           "the app-db-slot marker is also :reason :flow (same flow-sourced declaration)"))))
@@ -1173,7 +1173,7 @@
     (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]} (fn [n] {:secret (str "Bearer-" n)}))
     ;; Precondition: the sensitive sub-slot roots at :output-path ++ [:secret]
     ;; and is a :source :flow declaration.
-    (is (some #(= :flow (:source %)) (get (elision/sensitive-declarations :rf/default)
+    (is (some #(= :flow (:source %)) (get (rf.elision/sensitive-declarations :rf/default)
                                           [:auth :creds :secret]))
         "precondition: the reg-flow :sensitive mark stands as a :source :flow owner")
     (reset! *captured* [])
@@ -1183,12 +1183,12 @@
     (let [ev     (last (by-op :rf.flow/computed))
           result (:result (:tags ev))]
       (is (some? ev) ":rf.flow/computed fired")
-      (is (= privacy/redacted-sentinel (:secret result))
+      (is (= rf.privacy/redacted-sentinel (:secret result))
           ":result's sensitive sub-slot is redacted to :rf/redacted on the trace bus"))
     ;; (b) the app-db destination channel — the destination sub-slot projects
     ;; :rf/redacted through the SAME per-frame elision registry.
-    (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))]
-      (is (= privacy/redacted-sentinel (get-in wire [:auth :creds :secret]))
+    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
+      (is (= rf.privacy/redacted-sentinel (get-in wire [:auth :creds :secret]))
           "the app-db destination sub-slot egresses as :rf/redacted (flow-sourced)"))))
 
 ;; ---------------------------------------------------------------------------
@@ -1304,7 +1304,7 @@
       ;; The ex-data is redacted wholesale — the sensitive frame handles
       ;; secrets, so the framework cannot prove the author-keyed ex-data map
       ;; is secret-free (mirrors project-machine-error-tags).
-      (is (= privacy/redacted-sentinel (:exception-data tags))
+      (is (= rf.privacy/redacted-sentinel (:exception-data tags))
           ":exception-data is redacted to the sentinel for a sensitive frame")
       ;; The raw token must NOT appear anywhere in the delivered tags.
       (is (not (contains? (set (tree-seq coll? seq tags)) "TOP-SECRET"))
@@ -1537,7 +1537,7 @@
             leaves the effect claim. The path stays classified while any owner
             claims it."
     (let [p      [:auth :creds :secret]
-          owners #(get (elision/sensitive-declarations :rf/default) p)]
+          owners #(get (rf.elision/sensitive-declarations :rf/default) p)]
       ;; a flow classifies its own output sub-slot :sensitive at registration
       (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]}
                    (fn [n] {:secret (str "Bearer-" n)}))
@@ -1554,6 +1554,6 @@
       (is (some #(= :flow (:source %)) (owners)) "the flow claim SURVIVES the effect clear")
       ;; re-add the effect, then clear-flow — the effect survives the flow teardown
       (rf/dispatch-sync [:flow-union/classify])
-      (flows/clear-flow :creds {:frame :rf/default})
+      (rf.flows/clear-flow :creds {:frame :rf/default})
       (is (contains? (owners) {:source :effect}) "the effect claim SURVIVES clear-flow")
       (is (not (some #(= :flow (:source %)) (owners))) "the flow owner is dropped by clear-flow"))))

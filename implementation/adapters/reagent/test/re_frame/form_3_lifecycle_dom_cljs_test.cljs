@@ -18,15 +18,15 @@
             [reagent.dom.client :as rdc]
             ["react" :as React]
             ["react-dom" :as react-dom]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
 
 (def ^:private frame-a ::frame-a)
 (def ^:private frame-b ::frame-b)
@@ -81,7 +81,7 @@
   (into {}
         (map (fn [[query-v {:keys [inputs ref-count]}]]
                [query-v {:inputs inputs :ref-count ref-count}]))
-        @(:sub-cache (frame/frame frame-id))))
+        @(:sub-cache (rf.frame/frame frame-id))))
 
 (defn- ref-count [cache query-v]
   (or (get-in cache [query-v :ref-count]) 0))

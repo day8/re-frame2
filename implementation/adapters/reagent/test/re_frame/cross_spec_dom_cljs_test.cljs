@@ -26,13 +26,13 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             ;; rf2-2hrj8 — the `:browser-test` build was narrowed to
             ;; `-dom-cljs-test$` so the full implementation/test corpus no
             ;; longer fans `re-frame.machines` / `re-frame.flows` /
@@ -43,11 +43,11 @@
             [re-frame.machines]
             [re-frame.flows]
             [re-frame.epoch]
-            [re-frame.ssr :as ssr]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -92,8 +92,8 @@
 ;; locally with `(binding [frame/*current-frame* nil] …)` where tier-2 is under
 ;; test.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :async? true}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :async? true}))
 
 ;; ---- deferred-teardown await (rf2-7r78l) ----------------------------------
 ;;
@@ -227,7 +227,7 @@
   ;; rf2-cufbh) between a synchronous top-level drain and an async child-frame
   ;; queue. This test models a TOP-LEVEL boot — clear the ambient scope so the
   ;; `:initial-events` cascade drains synchronously and its seed is observable.
-  (binding [frame/*current-frame* nil]
+  (binding [rf.frame/*current-frame* nil]
     (rf/make-frame {:id :booted :initial-events [[:init-shape]]}))
   (let [rt (:rf.db/runtime (rf/frame-state-value :booted))]
     (is (= :armed (get-in rt [:rf.runtime/machines :snapshots :flow/boot :state]))
@@ -324,7 +324,7 @@
   ;; Re-register the framework nav fx (reset-runtime cleared the
   ;; registrar) so this test exercises the same platform-gating shape
   ;; the production fx use.
-  (fx/reg-fx :rf.nav/push-url
+  (rf.fx/reg-fx :rf.nav/push-url
     {:platforms #{:client}}
     (fn [_ _] :should-not-run-on-server))
   (rf/reg-event :emit-nav
@@ -337,7 +337,7 @@
               @traces)
         ":rf.nav/push-url emits :rf.fx/skipped-on-platform under :server"))
   (testing "routes round-trip the same as on the client"
-    (let [m (routing/match-url "/users/42")]
+    (let [m (rf.routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42" (:id (:params m)))))))
 
@@ -351,14 +351,14 @@
    match-url returns nil-id for an unmatched URL; route-not-found is
    normal control flow, not an :rf.error trace."
   (rf/reg-route :user/show {} "/users/:id")
-  (let [m (routing/match-url "/no-such-thing")]
+  (let [m (rf.routing/match-url "/no-such-thing")]
     (is (nil? (:route-id m))
         "match-url surfaces no route-id for an unmatched URL"))
   ;; The error-projector contract is the user-side concern; here we
   ;; confirm that match-url itself does not emit :rf.error traces for
   ;; an unmatched URL — i.e., a missing route is signal, not an error.
   (with-trace-recorder! [traces]
-    (routing/match-url "/no-such-thing")
+    (rf.routing/match-url "/no-such-thing")
     (is (empty? (filter #(= :error (:op-type %)) @traces))
         "match-url is pure: route-not-found does not emit error traces")))
 
@@ -398,7 +398,7 @@
           ;; commit-then-dispose ordering.
           render-fn    (fn []
                          (let [n (swap! render-count inc)
-                               container (frame/app-db-container target-frame)
+                               container (rf.frame/app-db-container target-frame)
                                db (when container @container)]
                            (when (= 1 n)
                              ;; Mid-render destroy. Per Spec 002 §Destroy
@@ -460,7 +460,7 @@
                             (= target-frame (get-in % [:tags :frame])))
                       @traces)
                 ":rf.frame/destroyed trace fired — destroy-frame! ran the disposal pipeline")
-            (is (nil? (frame/frame target-frame))
+            (is (nil? (rf.frame/frame target-frame))
                 "the frame is gone from the registry after destroy")
             ;; Post-destroy dispatch raises :rf.error/frame-destroyed (per
             ;; Spec 002 §Destroy). The trace channel is the public surface.
@@ -559,7 +559,7 @@
           ;; test would never fire. With the scope cleared the plain fn (no
           ;; :contextType) cannot read context and resolves nil → the loud
           ;; :rf.error/no-frame-context this test pins.
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
                 (rdc/render root
@@ -599,7 +599,7 @@
           ;; :rf/default scope around the synchronous render so the
           ;; no-provider → no-frame-context contract is actually exercised
           ;; (the ambient scope would otherwise resolve :rf/default at tier 1).
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
                 ;; No frame-provider — the React-context tier resolves to
@@ -684,7 +684,7 @@
             mount-node  (make-mount-node!)
             root        (rdc/create-root mount-node)]
         (try
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
                 (rdc/render root [rf/frame-provider {:frame target-frame}
@@ -725,7 +725,7 @@
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)]
         (try
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
                 (rdc/render root [rf/frame-provider {:frame target-frame}
@@ -772,7 +772,7 @@
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)]
         (try
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
                 (rdc/render root [rf/frame-provider {:frame target-frame}
@@ -829,7 +829,7 @@
         (try
           ;; Ambient scope cleared: the ONLY thing that can route these
           ;; reads is the explicit authority — not any leaked default.
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
                 (rdc/render root [rf/frame-provider {:frame target-frame}
@@ -880,13 +880,13 @@
               finish     (fn []
                            (-> (await-teardown! root)
                                (.then (fn [_]
-                                        (trace-tooling/unregister-listener! ::reg-view-no-warn-unmounts)
+                                        (rf.trace.tooling/unregister-listener! ::reg-view-no-warn-unmounts)
                                         (is (= 1 (count @unmounts))
                                             (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
                                                  ":rf.cross-spec-10/registered-view WITHIN the awaited window "
                                                  "— teardown awaited, not leaked; got " (count @unmounts)))
                                         (done)))))]
-          (trace-tooling/register-listener! ::reg-view-no-warn-unmounts
+          (rf.trace.tooling/register-listener! ::reg-view-no-warn-unmounts
             (fn [ev]
               (when (and (= :rf.view/unmounted (:operation ev))
                          (= :rf.cross-spec-10/registered-view (-> ev :tags :rf.view/id)))
@@ -962,13 +962,13 @@
                 finish     (fn []
                              (-> (await-teardown! root)
                                  (.then (fn [_]
-                                          (trace-tooling/unregister-listener! ::d4sf-probe-unmounts)
+                                          (rf.trace.tooling/unregister-listener! ::d4sf-probe-unmounts)
                                           (is (= 1 (count @unmounts))
                                               (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
                                                    ":rf.cross-spec-d4sf/probe WITHIN the awaited window; got "
                                                    (count @unmounts)))
                                           (done)))))]
-            (trace-tooling/register-listener! ::d4sf-probe-unmounts
+            (rf.trace.tooling/register-listener! ::d4sf-probe-unmounts
               (fn [ev]
                 (when (and (= :rf.view/unmounted (:operation ev))
                            (= :rf.cross-spec-d4sf/probe (-> ev :tags :rf.view/id)))
@@ -983,7 +983,7 @@
               ;; (tier 2) under test. Clear the ambient scope around the render so
               ;; the provider's frame is actually resolved via React context —
               ;; the contract this test pins.
-              (binding [frame/*current-frame* nil]
+              (binding [rf.frame/*current-frame* nil]
                 (react-dom/flushSync
                   (fn []
                     (rdc/render root [rf/frame-provider {:frame target-frame}
@@ -1022,13 +1022,13 @@
               finish     (fn []
                            (-> (await-teardown! root)
                                (.then (fn [_]
-                                        (trace-tooling/unregister-listener! ::d4sf-probe-no-provider-unmounts)
+                                        (rf.trace.tooling/unregister-listener! ::d4sf-probe-no-provider-unmounts)
                                         (is (= 1 (count @unmounts))
                                             (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
                                                  ":rf.cross-spec-d4sf/probe-no-provider WITHIN the awaited window; got "
                                                  (count @unmounts)))
                                         (done)))))]
-          (trace-tooling/register-listener! ::d4sf-probe-no-provider-unmounts
+          (rf.trace.tooling/register-listener! ::d4sf-probe-no-provider-unmounts
             (fn [ev]
               (when (and (= :rf.view/unmounted (:operation ev))
                          (= :rf.cross-spec-d4sf/probe-no-provider (-> ev :tags :rf.view/id)))
@@ -1085,28 +1085,28 @@
   ;; so the `_currentValue` read (the contract under test) is actually
   ;; exercised; otherwise the dynamic-var tier shadows it and every read
   ;; resolves to :rf/default before the context is inspected.
-  (binding [frame/*current-frame* nil]
-  (let [original (.-_currentValue ^js adapter-context/frame-context)]
+  (binding [rf.frame/*current-frame* nil]
+  (let [original (.-_currentValue ^js rf.adapter.context/frame-context)]
     (try
       ;; String shape — what Reagent's prop-conversion produces.
-      (set! (.-_currentValue ^js adapter-context/frame-context) "tenant-prop-converted")
-      (is (= :tenant-prop-converted (adapter-context/function-component-current-frame))
+      (set! (.-_currentValue ^js rf.adapter.context/frame-context) "tenant-prop-converted")
+      (is (= :tenant-prop-converted (rf.adapter.context/function-component-current-frame))
           "stringified keyword is round-tripped back to a keyword")
       ;; Keyword shape — what the createContext default and CLJS-direct
       ;; paths produce.
-      (set! (.-_currentValue ^js adapter-context/frame-context) :tenant-keyword-shape)
-      (is (= :tenant-keyword-shape (adapter-context/function-component-current-frame))
+      (set! (.-_currentValue ^js rf.adapter.context/frame-context) :tenant-keyword-shape)
+      (is (= :tenant-keyword-shape (rf.adapter.context/function-component-current-frame))
           "keyword shape is preserved")
       ;; Empty-string shape — EP-0002 (rf2-9o48ih): an empty string is not a
       ;; coercible keyword and not the no-provider sentinel, so it is a
       ;; corrupted `_currentValue`. The reader returns nil (no synthesised
       ;; :rf/default floor); a public op reading nil then raises
       ;; :rf.error/no-frame-context.
-      (set! (.-_currentValue ^js adapter-context/frame-context) "")
-      (is (nil? (adapter-context/function-component-current-frame))
+      (set! (.-_currentValue ^js rf.adapter.context/frame-context) "")
+      (is (nil? (rf.adapter.context/function-component-current-frame))
           "empty-string is corrupted — resolves to nil, no :rf/default floor")
       (finally
-        (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
+        (set! (.-_currentValue ^js rf.adapter.context/frame-context) original))))))
 
 (deftest dispatch-default-frame-routes-via-react-context
   "rf2-d4sf — the dispatch envelope's `:frame` default is built via the
@@ -1132,13 +1132,13 @@
               finish     (fn []
                            (-> (await-teardown! root)
                                (.then (fn [_]
-                                        (trace-tooling/unregister-listener! ::d4sf-dispatcher-probe-unmounts)
+                                        (rf.trace.tooling/unregister-listener! ::d4sf-dispatcher-probe-unmounts)
                                         (is (= 1 (count @unmounts))
                                             (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
                                                  ":rf.cross-spec-d4sf/dispatcher-probe WITHIN the awaited window; got "
                                                  (count @unmounts)))
                                         (done)))))]
-          (trace-tooling/register-listener! ::d4sf-dispatcher-probe-unmounts
+          (rf.trace.tooling/register-listener! ::d4sf-dispatcher-probe-unmounts
             (fn [ev]
               (when (and (= :rf.view/unmounted (:operation ev))
                          (= :rf.cross-spec-d4sf/dispatcher-probe (-> ev :tags :rf.view/id)))
@@ -1148,7 +1148,7 @@
             ;; :rf/default scope around the synchronous render so the dispatch's
             ;; `:frame` default resolves via the React-context tier (the provider's
             ;; frame), not the ambient :rf/default that tier 1 would otherwise win.
-            (binding [frame/*current-frame* nil]
+            (binding [rf.frame/*current-frame* nil]
               (react-dom/flushSync
                 (fn []
                   (rdc/render root [rf/frame-provider {:frame target-frame}
@@ -1313,7 +1313,7 @@
       ;; Tool-Pair-style revert: write the RUNTIME-DB PARTITION to a snapshot
       ;; where the machine is in :idle (EP-0001 rf2-vzld77 — machine snapshots
       ;; are durable runtime-db state, so revert via swap-runtime-db!).
-      (frame/swap-runtime-db! :rf/default
+      (rf.frame/swap-runtime-db! :rf/default
         (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :test/m :state] :idle)))
       (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/machines :snapshots :test/m :state]))
@@ -1370,7 +1370,7 @@
       ;; AND the resolved response carries that projection's :status.
       ;; This is the seam an SSR host uses to build the wire response.
       (let [err          (first errs)
-            public-error (ssr/apply-error-projection! :req err)]
+            public-error (rf.ssr/apply-error-projection! :req err)]
         (is (= 500 (:status public-error))
             "default projector maps :rf.error/handler-exception → :status 500")
         (is (= :internal-error (:code public-error))
@@ -1379,7 +1379,7 @@
             "default projector's :retryable? is false (handler exception is not retryable)")
         (is (string? (:message public-error))
             "default projector emits a one-sentence human :message")
-        (is (= 500 (:status (ssr/get-response :req)))
+        (is (= 500 (:status (rf.ssr/get-response :req)))
             "the projector's :status is stamped onto the [:rf/response] accumulator")))))
 
 ;; ---------------------------------------------------------------------------
@@ -1472,7 +1472,7 @@
   ;; reset-runtime has already installed the Reagent adapter; calling
   ;; install-adapter! again should throw.
   (let [thrown? (try
-                  (rf/install-adapter! reagent-adapter/adapter)
+                  (rf/install-adapter! rf.adapter.reagent/adapter)
                   false
                   (catch :default e
                     ;; rf2-vvixub — branch on the canonical :rf.error/id
@@ -1483,6 +1483,6 @@
         "second install-adapter! raises :rf.error/adapter-already-installed"))
   ;; Sanity-check the destroy-then-install path remains valid.
   (rf/destroy-adapter!)
-  (rf/install-adapter! reagent-adapter/adapter)
-  (is (some? (adapter/current-adapter))
+  (rf/install-adapter! rf.adapter.reagent/adapter)
+  (is (some? (rf.substrate.adapter/current-adapter))
       "after destroy, install succeeds again — clean swap path"))

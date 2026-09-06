@@ -37,15 +37,15 @@
   grammar declarative. Nothing about the resource story changes: a
   dismissal is an intent either way, and the census row is the release
   beside it."
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.typeahead.events :as events]
-            [re-frame.hicasso.examples.typeahead.subs :as subs]))
+  (:require [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.typeahead.events :as rf.hicasso.examples.typeahead.events]
+            [re-frame.hicasso.examples.typeahead.subs :as rf.hicasso.examples.typeahead.subs]))
 
 ;; ---------------------------------------------------------------------------
 ;; The field
 ;; ---------------------------------------------------------------------------
 
-(h/defview field
+(rf.hicasso/defview field
   "The controlled search box, and the two buttons that end a read.
 
   `::h/revision` is what makes *clear* work: dropping the model's text
@@ -53,51 +53,51 @@
   showing an empty string React would see nothing to do. A changed
   revision re-baselines the field without remounting it (HD-019)."
   [_]
-  (let [term     (h/sub [::subs/term])
-        revision (h/sub [::subs/revision])]
+  (let [term     (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/term])
+        revision (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/revision])]
     [:div.typeahead-field
      [:label {:for "typeahead-term"} "Search"]
      [:input#typeahead-term.term
       {:type        "text"
        :value       term
-       ::h/revision revision
+       ::rf.hicasso/revision revision
        ;; Positional, because `::h/value` substitutes at the intent
        ;; vector's top level only.
-       :on-input    [::events/typed ::h/value]
-       :on-focus    [::events/focus {}]}]
-     [:button.clear {:type "button" :on-click [::events/clear {}]} "clear"]
-     [:button.dismiss {:type "button" :on-click [::events/dismiss {}]} "close"]]))
+       :on-input    [::rf.hicasso.examples.typeahead.events/typed ::rf.hicasso/value]
+       :on-focus    [::rf.hicasso.examples.typeahead.events/focus {}]}]
+     [:button.clear {:type "button" :on-click [::rf.hicasso.examples.typeahead.events/clear {}]} "clear"]
+     [:button.dismiss {:type "button" :on-click [::rf.hicasso.examples.typeahead.events/dismiss {}]} "close"]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The suggestions
 ;; ---------------------------------------------------------------------------
 
-(h/defview suggestion-row
+(rf.hicasso/defview suggestion-row
   "One suggestion. Hovering it warms the row's detail — a demand no read
   expresses, and the reason C4 records prefetch as out of scope."
   [{:keys [id name]}]
   [:li.suggestion
    [:button.suggestion-choose
     {:type           "button"
-     :on-click       [::events/choose {:id id}]
-     :on-mouse-enter [::events/hover {:id id}]}
+     :on-click       [::rf.hicasso.examples.typeahead.events/choose {:id id}]
+     :on-mouse-enter [::rf.hicasso.examples.typeahead.events/hover {:id id}]}
     name]])
 
-(h/defview panel
+(rf.hicasso/defview panel
   "The suggestion list. Rendered only while a read wants a term, so its
   body's `[::subs/suggestions term]` is live exactly when the resource is
   wanted and not otherwise."
   [{:keys [term]}]
-  (let [rows   (h/sub [::subs/suggestions term])
-        status (h/sub [::subs/status])
+  (let [rows   (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/suggestions term])
+        status (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/status])
         ;; CENSUS P5 | POLICY | refresh-with-data | keep painting the rows held while a request for a NEW term is out
-        painted (or rows (h/sub [::subs/held-rows]))
+        painted (or rows (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/held-rows]))
         ;; /CENSUS P5
         ]
     [:div.typeahead-panel
      (cond
        (= :failed status)
-       [:p.panel-problem {:role "alert"} (str (h/sub [::subs/problem]))]
+       [:p.panel-problem {:role "alert"} (str (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/problem]))]
 
        (nil? painted)
        [:p.panel-loading "searching"]
@@ -117,11 +117,11 @@
 ;; The detail
 ;; ---------------------------------------------------------------------------
 
-(h/defview detail-pane
+(rf.hicasso/defview detail-pane
   "The chosen row. Its read is `[::subs/detail id]` — the second resource,
   parameterised by the id rather than by the term."
   [{:keys [id]}]
-  (let [detail (h/sub [::subs/detail id])]
+  (let [detail (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/detail id])]
     [:section.typeahead-detail
      (cond
        (= :pending detail) [:p.detail-pending "loading"]
@@ -134,7 +134,7 @@
 ;; The shell
 ;; ---------------------------------------------------------------------------
 
-(h/defview screen
+(rf.hicasso/defview screen
   "The whole application.
 
   Two conditional children, and each one is a resource read appearing and
@@ -142,9 +142,9 @@
   something is chosen. Those two `when`s are the read liveness the census
   is trying to keep a request in step with."
   [_]
-  (let [term   (h/sub [::subs/wanted])
-        open?  (h/sub [::subs/open?])
-        chosen (h/sub [::subs/chosen])]
+  (let [term   (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/wanted])
+        open?  (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/open?])
+        chosen (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/chosen])]
     [:main.typeahead
      [field {}]
      (cond

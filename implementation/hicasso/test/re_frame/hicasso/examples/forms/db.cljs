@@ -35,7 +35,7 @@
   application does not pay for it — and the reason is written down
   because *which of the two* is the question a reader arrives with."
   (:require [clojure.string :as str]
-            [re-frame.hicasso :as h]))
+            [re-frame.hicasso :as rf.hicasso]))
 
 ;; ---------------------------------------------------------------------------
 ;; The shape
@@ -81,7 +81,7 @@
   `h/reg-state`'s own stated reason: a fixed `[:ui :subject-draft]` would
   be ONE draft shared by every ticket on the page, opening them all
   together with nothing on screen to say so."
-  (h/reg-state ::subject-draft {:default nil}))
+  (rf.hicasso/reg-state ::subject-draft {:default nil}))
 
 (defn draft-path
   "`h/reg-state`'s documented `app-db` layout for [[subject-draft]] — the

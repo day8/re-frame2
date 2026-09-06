@@ -75,10 +75,10 @@
   when that lands, the sweep renames these witnesses with everything else."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
 
@@ -89,7 +89,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest hfn-mints-an-ordinary-function-that-a-position-can-recognise
-  (let [picked (h/event [e] [:door/picked (.-value e)])]
+  (let [picked (rf.hicasso/event [e] [:door/picked (.-value e)])]
 
     (testing "the value is an ordinary function — no carrier object, nothing
               that can fail to be callable where Hicasso does not walk"
@@ -100,11 +100,11 @@
 
     (testing "the mark the expansion applies is on it, so a walked position
               can impose its contract"
-      (is (true? (intent/callback? picked))))
+      (is (true? (rf.hicasso.impl.intent/callback? picked))))
 
     (testing "and the witness discriminates rather than restating `fn?`: a
               plain `fn` written the same way is NOT the callback form"
-      (is (false? (intent/callback? (fn [e] [:door/picked (.-value e)])))))))
+      (is (false? (rf.hicasso.impl.intent/callback? (fn [e] [:door/picked (.-value e)])))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Witness B — `h/defhost`, the interop door
@@ -117,16 +117,16 @@
   [^js props]
   (react/createElement "b" #js {"className" "badge"} (.-label props)))
 
-(h/defhost badge badge-component {:server :render})
+(rf.hicasso/defhost badge badge-component {:server :render})
 
 (defn- html
   [hiccup]
-  (react-dom-server/renderToString (codec/root-element frame-id hiccup)))
+  (react-dom-server/renderToString (rf.hicasso.impl.codec/root-element frame-id hiccup)))
 
 (deftest defhost-mints-a-host-head-that-carries-the-option-it-was-declared-with
   (testing "the door hands back a minted host head, not the component the
             author named"
-    (is (true? (codec/host-head? badge)))
+    (is (true? (rf.hicasso.impl.codec/host-head? badge)))
     (is (not (identical? badge badge-component))))
 
   (testing "the `opts` argument reaches the declaration: the policy read back
@@ -134,7 +134,7 @@
             only reason the server render below produces anything at all —
             `:client-only`, the default a dropped argument would leave,
             renders no host region on the server"
-    (is (= :render (codec/host-server badge))))
+    (is (= :render (rf.hicasso.impl.codec/host-server badge))))
 
   (testing "and the minted var is a legal hiccup head inside an ordinary tree,
             with the crossing rendering the foreign component's own markup"
@@ -162,7 +162,7 @@
   [{:keys [id]}]
   [:li.ticket (str "ticket " id)])
 
-(h/defview ticket [props] (ticket-body props))
+(rf.hicasso/defview ticket [props] (ticket-body props))
 
 (defn- rendered
   "One boundary, server-rendered under a frame — React running the body
@@ -175,12 +175,12 @@
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id frame-id})
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
 
 (deftest the-fn-defview-emits-binds-no-name-a-body-could-reach
   (testing "the door hands back a minted boundary, so what renders below is
             the expansion's own product"
-    (is (true? (codec/boundary-head? ticket))))
+    (is (true? (rf.hicasso.impl.codec/boundary-head? ticket))))
 
   (testing "a body that calls a helper named after its view resolves the
             AUTHOR's helper: React runs the body once and the markup is the
@@ -225,7 +225,7 @@
             DISCARDED, so the declaration is refused at the door rather than
             minting a head whose declared slots silently do not exist"
     (let [data (error-data
-                 #(h/defhost two-options-host badge-component
+                 #(rf.hicasso/defhost two-options-host badge-component
                     {:server :render}
                     {:slots #{:title}}))]
       (is (= :rf.error/hicasso-bad-host-declaration (:rf.error/id data))
@@ -241,9 +241,9 @@
             exact: the legal three-form shape — docstring, component, options
             — is one form longer than the refused two-form one and must still
             mint, keep its `opts`, and carry its docstring"
-    (is (true? (codec/host-head? badge))
+    (is (true? (rf.hicasso.impl.codec/host-head? badge))
         "the two-argument shape, declared at the top of this file")
-    (is (= :render (codec/host-server badge))
+    (is (= :render (rf.hicasso.impl.codec/host-server badge))
         "with its options intact")))
 
 (deftest defhost-refuses-options-that-are-not-a-map
@@ -252,7 +252,7 @@
             raised was not a declaration refusal. `h/reg-state` has had this
             guard since it was written; this is the same guard on the
             comparable surface"
-    (let [data (error-data #(codec/mint-host! "doc/in-the-wrong-place"
+    (let [data (error-data #(rf.hicasso.impl.codec/mint-host! "doc/in-the-wrong-place"
                                               badge-component
                                               "a docstring in the wrong place"))]
       (is (= :rf.error/hicasso-bad-host-declaration (:rf.error/id data))
@@ -263,18 +263,18 @@
 
   (testing "and every other non-map is refused the same way"
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "bad/vec" badge-component [:server :render]))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "bad/vec" badge-component [:server :render]))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "bad/kw" badge-component :render))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "bad/kw" badge-component :render))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "bad/set" badge-component #{:server})))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "bad/set" badge-component #{:server})))))
 
   (testing "THE NEAR MISS. `nil` is *no options*, which is exactly what the
             two-arity call means, so a guard that refused it would refuse the
             door's own commonest shape. All three legal spellings still mint"
-    (is (true? (codec/host-head? (codec/mint-host! "ok/nil" badge-component nil))))
-    (is (true? (codec/host-head? (codec/mint-host! "ok/empty" badge-component {}))))
-    (is (true? (codec/host-head? (codec/mint-host! "ok/arity2" badge-component))))
-    (is (= :render (codec/host-server (codec/mint-host! "ok/opts" badge-component
+    (is (true? (rf.hicasso.impl.codec/host-head? (rf.hicasso.impl.codec/mint-host! "ok/nil" badge-component nil))))
+    (is (true? (rf.hicasso.impl.codec/host-head? (rf.hicasso.impl.codec/mint-host! "ok/empty" badge-component {}))))
+    (is (true? (rf.hicasso.impl.codec/host-head? (rf.hicasso.impl.codec/mint-host! "ok/arity2" badge-component))))
+    (is (= :render (rf.hicasso.impl.codec/host-server (rf.hicasso.impl.codec/mint-host! "ok/opts" badge-component
                                                      {:server :render})))
         "and a real options map still reaches the declaration")))

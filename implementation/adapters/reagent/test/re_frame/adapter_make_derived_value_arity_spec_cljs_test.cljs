@@ -17,16 +17,16 @@
     * mid-render mutation of a source produces a new derived value
       on next deref (no caching at the substrate layer)"
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.adapter.reagent :as adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 (defn- make-source [v]
-  ((:make-state-container adapter/adapter) v))
+  ((:make-state-container rf.adapter.reagent/adapter) v))
 
 (defn- write! [c v]
-  ((:replace-container! adapter/adapter) c v))
+  ((:replace-container! rf.adapter.reagent/adapter) c v))
 
 (defn- derive [sources f]
-  ((:make-derived-value adapter/adapter) sources f))
+  ((:make-derived-value rf.adapter.reagent/adapter) sources f))
 
 (deftest derived-zero-arity-cljs-test
   (testing "0 sources — compute-fn called with no args"

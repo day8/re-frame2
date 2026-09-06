@@ -11,8 +11,8 @@
 
   docs/design/hicasso/product/lanes/design-laws.md, Native boundary."
   #?(:cljs (:require ["react" :as react]
-                     [re-frame.adapter.context :as adapter-context]
-                     [re-frame.hicasso.impl.collector :as collector])))
+                     [re-frame.adapter.context :as rf.adapter.context]
+                     [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector])))
 
 #?(:cljs
    (do
@@ -38,10 +38,10 @@
 
   docs/design/hicasso/product/lanes/design-laws.md, Native boundary."
        []
-       (let [frame-kw (collector/resolve-frame!
-                        (react/useContext adapter-context/frame-context)
+       (let [frame-kw (rf.hicasso.impl.collector/resolve-frame!
+                        (react/useContext rf.adapter.context/frame-context)
                         're-frame.hicasso.native/use-frame)]
-         (:ops (collector/frame-row frame-kw))))
+         (:ops (rf.hicasso.impl.collector/frame-row frame-kw))))
 
      (defn use-sub
        "The current value of the subscription `query-v` names, read under
@@ -65,18 +65,18 @@
 
   docs/design/hicasso/product/lanes/design-laws.md, Native boundary."
        [query-v]
-       (let [frame-kw  (collector/resolve-frame!
-                         (react/useContext adapter-context/frame-context)
+       (let [frame-kw  (rf.hicasso.impl.collector/resolve-frame!
+                         (react/useContext rf.adapter.context/frame-context)
                          're-frame.hicasso.native/use-sub)
              ;; The refusal sits BEFORE the store hook: a render that throws
              ;; never reaches React's hook reconciliation, so no hook count
              ;; can disagree with a previous render's.
              sub-key   [frame-kw query-v]
-             ^js entry (collector/hook-entry sub-key)]
+             ^js entry (rf.hicasso.impl.collector/hook-entry sub-key)]
          ;; The snapshot is an epoch, not the value: one monotone number
          ;; React compares with `Object.is`, and the value is read after it
          ;; from the same synchronous instant. The third argument is the
          ;; same closure for the same reason.
          (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry)
                                      (.-snapshot entry))
-         (collector/hook-read sub-key)))))
+         (rf.hicasso.impl.collector/hook-read sub-key)))))

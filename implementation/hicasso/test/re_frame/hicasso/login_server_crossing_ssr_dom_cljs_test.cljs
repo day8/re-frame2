@@ -71,16 +71,16 @@
             [clojure.string :as str]
             [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.roots-frames-support :as sup]
-            [re-frame.hicasso.substrate :as substrate]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.render-state :as render-state]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.hicasso.substrate :as rf.hicasso.substrate]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.render-state :as rf.ssr.render-state]
+            [re-frame.test-support :as rf.test-support]
             ;; The example, whole: views + SSR coordinates, the server module's
             ;; entry table, and the substrate-free model every `auth.login`
             ;; registration lives in.
@@ -103,16 +103,16 @@
   (fn [{:keys [db]} [_ k v]] {:db (assoc db k v)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; The example's OWN adapter — `hicasso.login.core/run` installs this one.
-    {:adapter       substrate/adapter
+    {:adapter       rf.hicasso.substrate/adapter
      ;; The witness makes its own top-level frames, so the fixture's carried
      ;; `:rf/default` stamp would be a scope no request is rendering; and
      ;; `:initial-events` must drain synchronously rather than be treated as
      ;; a mid-cascade child-frame creation.
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The JVM half
@@ -147,14 +147,14 @@
   under `payload-policy-opts`, plus the durable runtime-db slice, exactly as
   `ssr-ring` assembles one. Anonymous server frame, so no `:rf/frame-id`."
   [frame-id]
-  (let [runtime (payload-policy/project-runtime-db
-                  (frame/frame-runtime-db-value frame-id) frame-id)
+  (let [runtime (rf.ssr.payload-policy/project-runtime-db
+                  (rf.frame/frame-runtime-db-value frame-id) frame-id)
         opts    (cond-> payload-policy-opts
                   (some? runtime) (assoc :runtime-db runtime))]
-    (payload-policy/build-payload
+    (rf.ssr.payload-policy/build-payload
       nil
-      (payload-policy/project-app-db-egress
-        (payload-policy/apply-policy (rf/app-db-value frame-id) opts) frame-id)
+      (rf.ssr.payload-policy/project-app-db-egress
+        (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) opts) frame-id)
       nil
       opts)))
 
@@ -222,8 +222,8 @@
   "The JVM half: project the settled frame under the host's `:render-state`
   policy and serialize both partitions to per-key EDN text."
   [frame-id]
-  (render-state/serialize
-    (render-state/project frame-id {:render-state app-policy/render-state-policy})))
+  (rf.ssr.render-state/serialize
+    (rf.ssr.render-state/project frame-id {:render-state app-policy/render-state-policy})))
 
 (defn- hand-to-module!
   "Hand the module the frozen call shape `worker.cjs` builds, and answer
@@ -300,7 +300,7 @@
   [f]
   (if (node-lane?)
     (f)
-    (sup/skip! "a crossing goes through the service's own validator, a CommonJS module off the CLJS classpath")))
+    (rf.hicasso.roots-frames-support/skip! "a crossing goes through the service's own validator, a CommonJS module off the CLJS classpath")))
 
 ;; ---------------------------------------------------------------------------
 ;; §1 - the module is one the sidecar will load
@@ -446,35 +446,35 @@
   clean adoption raises nothing to swallow, and arming the swallow there
   would hide a real regression."
   [html payload {:keys [swallow-uncaught?]}]
-  (let [container (sup/server-dom! html)
+  (let [container (rf.hicasso.roots-frames-support/server-dom! html)
         cfid      (keyword "rf.login-crossing" (str (gensym "client-")))
-        watch     (sup/watch-mismatches!)
-        console   (sup/open-console-capture! {:swallow-uncaught? swallow-uncaught?})]
+        watch     (rf.hicasso.roots-frames-support/watch-mismatches!)
+        console   (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? swallow-uncaught?})]
     (rf/make-frame (merge {:id cfid} model/frame-config))
-    (ssr/hydrate! {:frame cfid :payload payload})
-    (let [handle (h/hydrate! container
+    (rf.ssr/hydrate! {:frame cfid :payload payload})
+    (let [handle (rf.hicasso/hydrate! container
                              {:frame             cfid
                               :identifier-prefix views/identifier-prefix}
                              [views/root-view])]
-      (.then (sup/adopted! handle)
+      (.then (rf.hicasso.roots-frames-support/adopted! handle)
              (fn [_]
                (let [seen  ((:stop! watch))
                      shown (.-innerHTML container)]
                  ((:close! console))
-                 (h/unmount! handle)
+                 (rf.hicasso/unmount! handle)
                  (rf/destroy-frame! cfid)
                  {:seen seen :adopted-html shown}))))))
 
 (deftest the-client-adopts-the-server-bytes-with-no-recoverable-error
-  (if-not (mount/browser?)
-    (sup/skip! "adoption is React's own DOM business")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! "adoption is React's own DOM business")
     (async done
-      (sup/leave-act-environment!)
+      (rf.hicasso.roots-frames-support/leave-act-environment!)
       (let [fid     (server-frame! authed-events)
             html    (rendered! fid)
             payload (payload-of fid)]
         (rf/destroy-frame! fid)
-        (sup/settle-row!
+        (rf.hicasso.roots-frames-support/settle-row!
           (.then (hydrate-row! html payload {:swallow-uncaught? false})
                  (fn [{:keys [seen adopted-html]}]
                    (is (= [] seen)
@@ -486,10 +486,10 @@
 
 (deftest a-render-state-key-the-payload-omits-costs-one-recovered-adoption
   ;; §6's control, and the measurement the example's README turns into a rule.
-  (if-not (mount/browser?)
-    (sup/skip! "a recoverable error is React's own DOM business")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! "a recoverable error is React's own DOM business")
     (async done
-      (sup/leave-act-environment!)
+      (rf.hicasso.roots-frames-support/leave-act-environment!)
       (let [fid     (server-frame! authed-events server-only-db)
             html    (rendered! fid)
             payload (payload-of fid)]
@@ -497,7 +497,7 @@
         (is (str/includes? html notice) "the server rendered the notice")
         (is (not (str/includes? (pr-str payload) notice))
             "and the client will not be handed it")
-        (sup/settle-row!
+        (rf.hicasso.roots-frames-support/settle-row!
           (.then (hydrate-row! html payload {:swallow-uncaught? true})
                  (fn [{:keys [seen]}]
                    (is (seq seen)

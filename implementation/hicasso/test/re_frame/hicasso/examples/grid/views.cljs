@@ -38,28 +38,28 @@
   reset), no `h/event` (every intent is a vector, including the
   three-argument one), and nothing at all from the optional modules or
   the native tier — the `:require` below is the whole of it."
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.grid.events :as events]
-            [re-frame.hicasso.examples.grid.subs :as subs]))
+  (:require [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.grid.events :as rf.hicasso.examples.grid.events]
+            [re-frame.hicasso.examples.grid.subs :as rf.hicasso.examples.grid.subs]))
 
-(h/defview cell
+(rf.hicasso/defview cell
   "One controlled cell. Two props, one read, one intent.
 
   The intent carries THREE arguments — the row, the column and the
   marker — and is therefore positional. See `grid.events` §`::h/value` is
   positional here too."
   [{:keys [row col]}]
-  (let [id (events/cell-id row col)]
+  (let [id (rf.hicasso.examples.grid.events/cell-id row col)]
     [:td
      [:input {:id           id
               :type         "text"
               :size         4
-              :aria-label   (events/cell-label row col)
+              :aria-label   (rf.hicasso.examples.grid.events/cell-label row col)
               :data-cell    id
-              :value        (h/sub [::subs/cell row col])
-              :on-input     [::events/edit row col ::h/value]}]]))
+              :value        (rf.hicasso/sub [::rf.hicasso.examples.grid.subs/cell row col])
+              :on-input     [::rf.hicasso.examples.grid.events/edit row col ::rf.hicasso/value]}]]))
 
-(h/defview row-total
+(rf.hicasso/defview row-total
   "One row's sum.
 
   Its own boundary, reading its own row's derived value. Fold it into
@@ -67,24 +67,24 @@
   layout body and props-compare ten cells; here it re-runs one body that
   renders one number."
   [{:keys [row]}]
-  [:td.total {:data-total (str row)} (str (h/sub [::subs/row-total row]))])
+  [:td.total {:data-total (str row)} (str (rf.hicasso/sub [::rf.hicasso.examples.grid.subs/row-total row]))])
 
-(h/defview grid-row
+(rf.hicasso/defview grid-row
   "One row: its cells and its total.
 
   Reads the dimensions, which do not move while anybody is typing, so
   this body runs at mount and not again."
   [{:keys [row]}]
-  (let [{:keys [cols]} (h/sub [::subs/dimensions])]
+  (let [{:keys [cols]} (rf.hicasso/sub [::rf.hicasso.examples.grid.subs/dimensions])]
     [:tr {:data-row (str row)}
      (for [col (range cols)]
        [cell {:key (str col) :row row :col col}])
      [row-total {:key "total" :row row}]]))
 
-(h/defview grid
+(rf.hicasso/defview grid
   "The whole application."
   [_]
-  (let [{:keys [rows]} (h/sub [::subs/dimensions])]
+  (let [{:keys [rows]} (rf.hicasso/sub [::rf.hicasso.examples.grid.subs/dimensions])]
     [:main#hundred-cell-grid
      [:h1 "Grid"]
      [:table

@@ -71,8 +71,8 @@
   closure that calls it can never describe different incarnations: the
   coupling is structural, not a rule somebody has to keep."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; frame-kw -> {:incarnation <token or nil>   the exact incarnation this row
 ;;                                            was minted under
@@ -126,7 +126,7 @@
   superseded); this table's only job is to hand out a bundle that was captured
   while the frame it names was alive."
   [frame-kw mint-dispatch]
-  (let [incarnation (frame/frame-incarnation-token frame-kw)
+  (let [incarnation (rf.frame/frame-incarnation-token frame-kw)
         row         (get @!frame-ops frame-kw)]
     (cond
       (nil? incarnation)
@@ -166,4 +166,4 @@
   [frame-kw]
   (forget-frame-ops! frame-kw))
 
-(late-bind/set-fn! :hicasso/on-frame-destroyed! on-frame-destroyed!)
+(rf.late-bind/set-fn! :hicasso/on-frame-destroyed! on-frame-destroyed!)

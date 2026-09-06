@@ -37,16 +37,16 @@
    the `:mutation` registrar kind alongside `:resource` (the write counterpart)."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.fx :as fx]
-            [re-frame.registrar :as registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.registrar :as rf.registrar]
             ;; the provenance store behind the registrar — section 0's control
             ;; reads it to find WHICH namespace owns each rival "/" route row,
             ;; so it can drop them through the ownership-guarded two-leg pairing
             ;; below rather than by a raw registrar write.
-            [re-frame.source-store :as source-store]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             ;; production HTTP + resources surfaces (so the resource runtime,
             ;; the mutation runtime, managed-HTTP lowering, and the late-bound
@@ -55,14 +55,14 @@
             [re-frame.http.managed]
             [re-frame.http.test-support]
             [re-frame.resources]
-            [re-frame.resources.route :as resources-route]
-            [re-frame.resources.state :as state]
+            [re-frame.resources.route :as rf.resources.route]
+            [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             ;; the framework trace-ring buffer (Spec 009) — cleared around each
             ;; test so this resource/mutation-registering suite leaves no trace
             ;; residue for later cross-cutting tooling tests.
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; the example's production source — registers its :linearlite/board
             ;; resource, the three optimistic mutations, routes, events, subs,
             ;; and views at ns-load.
@@ -83,7 +83,7 @@
 ;; registrations — not test-local copies. See the infinite-feed / realworld-
 ;; resources siblings for the full rationale.
 (def ^:private resource-kind-snapshots
-  (select-keys @registrar/kind->id->metadata [:resource :mutation]))
+  (select-keys @rf.registrar/kind->id->metadata [:resource :mutation]))
 
 ;; AT NS LOAD, remove THIS example's `:resource` / `:mutation` registrations (by
 ;; id) from the SHARED live registrar — after snapshotting them above. Reinstated
@@ -92,7 +92,7 @@
 ;; registrar until some OTHER suite's reset clears them, mirroring a frameless
 ;; `:rf.registry/handler-cleared` burst into a cross-cutting tooling test's
 ;; cascade seed. We remove only OUR ids (not the whole kind).
-(swap! registrar/kind->id->metadata
+(swap! rf.registrar/kind->id->metadata
        (fn [reg]
          (reduce (fn [r [kind id->meta]]
                    (update r kind (fn [m] (apply dissoc m (keys id->meta)))))
@@ -143,11 +143,11 @@
   ;; frame's next resolution sees the reinstated registrations.
   (doseq [[kind id->meta] resource-kind-snapshots
           [id meta] id->meta]
-    (registrar/register! kind id meta))
-  (routing/reset-counters!)
-  (resources-route/install-routing-integration!)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.registrar/register! kind id meta))
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   ;; LAST — see the ordering note in the docstring. Everything the frame's
   ;; construction-time URL sync needs (the reinstated `:resource` / `:mutation`
   ;; rows, the routing integration, the stubbed fx) is registered above.
@@ -159,15 +159,15 @@
    trace residue into later cross-cutting tooling tests (see the infinite-feed /
    realworld-resources siblings for the frameless-handler-cleared burst)."
   [f]
-  (trace-tooling/clear-listeners!)
-  (trace-tooling/clear-trace-rings!)
+  (rf.trace.tooling/clear-listeners!)
+  (rf.trace.tooling/clear-trace-rings!)
   (f)
-  (trace-tooling/clear-listeners!)
-  (trace-tooling/clear-trace-rings!))
+  (rf.trace.tooling/clear-listeners!)
+  (rf.trace.tooling/clear-trace-rings!))
 
 (use-fixtures :each
   isolate-trace-bus-fixture
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; BUNDLE CO-LOAD HYGIENE: this app registers the reserved per-app
     ;; `:rf.route/not-found` route at ns load, and every co-loaded example app
     ;; does the same — two provenance rows for one id fail default-image
@@ -175,7 +175,7 @@
     ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
     ;; keeps its rows out of every suite's baseline and reinstates them for
     ;; this suite's own tests (rf2-kuky.27).
-    {:adapter reagent-adapter/adapter
+    {:adapter rf.adapter.reagent/adapter
      :app-ns  "linearlite."
      :init-fn init!}))
 
@@ -189,9 +189,9 @@
   {:resource :linearlite/board :scope :rf.scope/global :params {}})
 
 (defn- board-key []
-  (state/scoped-resource-key :rf.scope/global :linearlite/board {}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :linearlite/board {}))
 
-(defn- entry [] (get-in (runtime-db) (state/entry-path (board-key))))
+(defn- entry [] (get-in (runtime-db) (rf.resources.state/entry-path (board-key))))
 
 (defn- board-data
   "The passive board `:data` the example's view reads (the `:rf.resource/data`
@@ -291,10 +291,10 @@
   "The `[route-id provenance-ns]` source slots of every OTHER app that also owns
    \"/\" in this consolidated bundle."
   []
-  (for [[id metadata] (registrar/registrations :route)
+  (for [[id metadata] (rf.registrar/registrations :route)
         :when         (and (= "/" (:path metadata))
                            (not= :linearlite.app/board id))
-        provenance-ns (keys (source-store/descriptors-for :route id))]
+        provenance-ns (keys (rf.source-store/descriptors-for :route id))]
     [id provenance-ns]))
 
 (defn- drop-route-row!
@@ -316,17 +316,17 @@
    only when that writer IS `provenance-ns`. `registrar/unregister!` would be
    wrong here — it forgets EVERY provenance slot for the id."
   [id provenance-ns]
-  (when-let [row (get-in @source-store/kind->id->ns->descriptor
+  (when-let [row (get-in @rf.source-store/kind->id->ns->descriptor
                          [:route id provenance-ns])]
-    (swap! registrar/kind->id->metadata update :route
+    (swap! rf.registrar/kind->id->metadata update :route
            (fn [m]
              (let [cur    (get m id)
-                   cur-ns (or (get cur source-store/provenance-ns-key)
+                   cur-ns (or (get cur rf.source-store/provenance-ns-key)
                               (some-> (:ns cur) str))]
                (if (and cur (= cur-ns (str provenance-ns)))
                  (dissoc m id)
                  m))))
-    (source-store/forget-descriptor! :route id provenance-ns)
+    (rf.source-store/forget-descriptor! :route id provenance-ns)
     row))
 
 (defn- restore-route-row!
@@ -336,7 +336,7 @@
    would be invisible to its generation. No-op on nil."
   [descriptor]
   (when descriptor
-    (registrar/register! (:kind descriptor) (:id descriptor) descriptor))
+    (rf.registrar/register! (:kind descriptor) (:id descriptor) descriptor))
   nil)
 
 (deftest init-refills-the-registrar-before-it-makes-the-url-bound-frame
@@ -350,9 +350,9 @@
         (doseq [[id provenance-ns] (root-path-rivals)]
           (when-let [row (drop-route-row! id provenance-ns)]
             (swap! removed conj row)))
-        (registrar/clear-kind! :resource)
-        (registrar/clear-kind! :mutation)
-        (reset! frame/frames {})
+        (rf.registrar/clear-kind! :resource)
+        (rf.registrar/clear-kind! :mutation)
+        (reset! rf.frame/frames {})
         (init!)
         (let [slice (get-in (runtime-db) [:rf.runtime/routing :current])]
           (is (= :linearlite.app/board (:route-id slice))
@@ -370,7 +370,7 @@
                clears it"))
         (finally
           (run! restore-route-row! @removed)
-          (reset! frame/frames {}))))))
+          (reset! rf.frame/frames {}))))))
 
 ;; ============================================================================
 ;; 1. ROUTE ENTRY ensures the board resource (the route OWNS the read)
@@ -567,7 +567,7 @@
    the args it built — and deliver nothing."
   []
   (doseq [fx-id canned-fx-ids]
-    (fx/reg-fx fx-id
+    (rf.fx/reg-fx fx-id
       {:doc "linearlite armed-demo-backend test parker (per-test; section 5)."}
       (fn [_ctx args]
         (swap! parked-replies conj {:fx-id    fx-id
@@ -582,7 +582,7 @@
    the example's own mutation produces."
   [request]
   (reset! parked-replies [])
-  ((registrar/handler :fx :linearlite.demo/http-stub)
+  ((rf.registrar/handler :fx :linearlite.demo/http-stub)
    {:frame :rf/default}
    {:request  request
     :decode   :json
@@ -931,7 +931,7 @@
   [{:keys [writer peer dispatch-a! reply-a dispatch-b! reply-b
            peer-desc peer-holds? writer-desc writer-committed? final]}
    order]
-  (reset! frame/frames {})
+  (reset! rf.frame/frames {})
   (init!)
   (load-board!)
   (let [inst-a (dispatch-a!)

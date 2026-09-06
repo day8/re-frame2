@@ -58,8 +58,8 @@
             [clojure.string :as str]
             [reagent.dom.server :as rds]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private test-frame :ssr-keyword-head-contract-cljs-test/frame)
 
@@ -71,8 +71,8 @@
                 (fn [card-id] [:div.card [:h3 (str card-id)]])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn init!}))
 
 (defn- render

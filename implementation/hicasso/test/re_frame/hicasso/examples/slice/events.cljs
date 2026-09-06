@@ -72,7 +72,7 @@
   problem, and leaving it out would have made the slice evidence for an
   API that had never met one."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.examples.slice.db :as db]))
+            [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
@@ -80,7 +80,7 @@
 
 (rf/reg-event ::seed
   {:doc "Install the starting app-db. The frame's `:initial-events` step."}
-  (fn [_ _] {:db db/seed}))
+  (fn [_ _] {:db rf.hicasso.examples.slice.db/seed}))
 
 ;; ---------------------------------------------------------------------------
 ;; Editing — the controlled fields write straight into the draft
@@ -98,13 +98,13 @@
     ;; draft yet, so the article's own fields are what the edit lands on
     ;; top of. Without it the first character would arrive into an empty
     ;; map and the other fields would blank themselves.
-    {:db (assoc-in db [:drafts slug] (assoc (db/draft-for db slug) field value))}))
+    {:db (assoc-in db [:drafts slug] (assoc (rf.hicasso.examples.slice.db/draft-for db slug) field value))}))
 
 (rf/reg-event ::toggle-published
   {:doc "Take the checkbox's state. Positional because it carries `::h/checked`."}
   (fn [{:keys [db]} [_ slug published?]]
     {:db (assoc-in db [:drafts slug]
-                   (assoc (db/draft-for db slug) :published? (boolean published?)))}))
+                   (assoc (rf.hicasso.examples.slice.db/draft-for db slug) :published? (boolean published?)))}))
 
 (rf/reg-event ::discard
   {:doc "Throw a draft away — the reset, and it is one move."}
@@ -132,8 +132,8 @@
 (rf/reg-event ::save
   {:doc "Validate a draft locally; if it passes, ask the server."}
   (fn [{:keys [db]} [_ {:keys [slug]}]]
-    (let [draft    (db/draft-for db slug)
-          problems (db/problems draft)]
+    (let [draft    (rf.hicasso.examples.slice.db/draft-for db slug)
+          problems (rf.hicasso.examples.slice.db/problems draft)]
       (if (seq problems)
         ;; The local half. No request is made, so there is nothing in
         ;; flight and nothing to arrive late: the status goes straight to
@@ -143,7 +143,7 @@
         {:db (assoc db :save {:status :saving :slug slug})
          :fx [[::persist {:slug    slug
                           :draft   draft
-                          :taken?  (db/title-taken? db slug (:title draft))
+                          :taken?  (rf.hicasso.examples.slice.db/title-taken? db slug (:title draft))
                           :delay   save-delay-ms
                           :on-ok   ::saved
                           :on-fail ::save-failed}]]}))))
@@ -152,7 +152,7 @@
   {:doc "The server accepted a draft. Fold it in."}
   (fn [{:keys [db]} [_ {:keys [slug draft]}]]
     (if (= slug (get-in db [:save :slug]))
-      {:db (-> (db/commit db slug draft)
+      {:db (-> (rf.hicasso.examples.slice.db/commit db slug draft)
                (assoc :save {:status :saved :slug slug}))}
       ;; A reply for an article this frame is no longer saving. Dropping
       ;; it is the whole of stale-reply suppression at this size, and it
@@ -233,7 +233,7 @@
   (fn [ctx {:keys [delay on-ok]}]
     (js/setTimeout
       (fn []
-        (rf/dispatch [on-ok {:blocks db/digest}] {:frame (:frame ctx)}))
+        (rf/dispatch [on-ok {:blocks rf.hicasso.examples.slice.db/digest}] {:frame (:frame ctx)}))
       delay)))
 
 ;; ---------------------------------------------------------------------------

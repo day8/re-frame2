@@ -188,18 +188,18 @@
   runs under `:node-test`; §2–§4 hydrate and state their skip there
   rather than reporting a false green."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.roots :as roots]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.motion :as motion]
-            [re-frame.hicasso.roots-frames-support :as sup]
-            [re-frame.hicasso.server :as server]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.motion :as rf.hicasso.motion]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
 
 (def ^:private frame-id ::seam)
@@ -214,11 +214,11 @@
 (rf/reg-event ::seed (fn [_ [_ label]] {:db {:label label}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The app
@@ -235,7 +235,7 @@
   ;; is the entire question on both sides of this seam.
   (atom {}))
 
-(h/defview phase-probe
+(rf.hicasso/defview phase-probe
   "A presence child that is a BOUNDARY, so the machine merges the phase's
   override map into its PROPS (`impl.presence/with-phase`, HD-030) rather
   than into a node's attributes. The tray below declares `{:phase …}`
@@ -252,35 +252,35 @@
   (swap! !phases update tag (fnil conj []) phase)
   [:span.probe (name phase)])
 
-(h/defview tray-screen
+(rf.hicasso/defview tray-screen
   "A screen with a presence tray in it — the surface this row is about."
   [{:keys [tag]}]
   [:div.screen
-   [:p.value (h/sub label-q)]
-   [motion/presence {:timeout-ms 50}
+   [:p.value (rf.hicasso/sub label-q)]
+   [rf.hicasso.motion/presence {:timeout-ms 50}
     [phase-probe {:key                 "one"
                   :tag                 tag
-                  ::motion/mounting    {:phase :mounting}
-                  ::motion/unmounting  {:phase :unmounting}}]]])
+                  ::rf.hicasso.motion/mounting    {:phase :mounting}
+                  ::rf.hicasso.motion/unmounting  {:phase :unmounting}}]]])
 
-(h/defview plain-screen
+(rf.hicasso/defview plain-screen
   "The same screen with the tray removed — §4's control. Identical in
   every other respect: same frame, same subscription read, same server
   door, same hydration."
   [_]
   [:div.screen
-   [:p.value (h/sub label-q)]])
+   [:p.value (rf.hicasso/sub label-q)]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh! []
-  (sup/leave-act-environment!)
+  (rf.hicasso.roots-frames-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [::seed "alpha"]))
-  (collector/reset-runtime!)
-  (runtime/reset-body-runs!)
+  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.hicasso.test.runtime/reset-body-runs!)
   nil)
 
 (defn- app-element
@@ -295,7 +295,7 @@
   hydrates. Any divergence the rows below find is therefore attributable
   to the window and to nothing else in the tree."
   [hiccup]
-  (mount/provider frame-id (codec/root-element frame-id hiccup)))
+  (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup)))
 
 (defn- server-bytes!
   "The bytes React's ACTUAL server renderer produces for `hiccup` — the
@@ -321,11 +321,11 @@
 
   When the product grows that door this fn is deleted, not promoted."
   [hiccup]
-  (let [window (roots/open-adoption-window!)]
+  (let [window (rf.hicasso.impl.roots/open-adoption-window!)]
     (try
       (react-dom-server/renderToString
-        (roots/with-adoption window (app-element hiccup)))
-      (finally (roots/close-adoption-window! window)))))
+        (rf.hicasso.impl.roots/with-adoption window (app-element hiccup)))
+      (finally (rf.hicasso.impl.roots/close-adoption-window! window)))))
 
 (defn- probe-text
   "The phase the markup says, read out of a STRING rather than a DOM —
@@ -477,17 +477,17 @@
 ;; findable.
 (deftest the-client-settled-bytes-and-the-real-server-bytes-differ
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM, and `settled-server-html!` mounts a client root") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM, and `settled-server-html!` mounts a client root") (done))
       (do
         (fresh!)
         (reset! !phases {})
-        (-> (sup/settled-server-html!
+        (-> (rf.hicasso.roots-frames-support/settled-server-html!
               frame-id [tray-screen {:tag :settled}]
               (fn [c] (= "present" (text-in c ".probe"))))
             (.then
               (fn [settled]
-                (collector/reset-runtime!)
+                (rf.hicasso.impl.collector/reset-runtime!)
                 (reset! !phases {})
                 (let [real (server-bytes! [tray-screen {:tag :server}])]
 
@@ -514,7 +514,7 @@
             ;; `settled-server-html!` releases the client root it used to
             ;; produce the settled bytes, and `server-bytes!` is a
             ;; `renderToString` with no DOM behind it.
-            (sup/settle-row!
+            (rf.hicasso.roots-frames-support/settle-row!
               {:row  "§2 — the client's settled bytes are not the server's"
                :done done}))))))
 
@@ -551,29 +551,29 @@
 ;; the only row in the file that catches it.
 (deftest hydrating-the-real-server-bytes-diverges-and-discards-the-adoption
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (reset! !phases {})
         (let [html (server-bytes! [tray-screen {:tag :server}])]
           (is (= "mounting" (probe-text html))
               (str "premise: these are the real server's bytes — " html))
-          (collector/reset-runtime!)
+          (rf.hicasso.impl.collector/reset-runtime!)
           (reset! !phases {})
-          (let [ca (sup/stamp-server-nodes! (sup/server-dom! html))
-                {:keys [seen stop!]} (sup/watch-mismatches!)
+          (let [ca (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
+                {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
                 ;; MANUFACTURED here and asserted on here — the only shape of
                 ;; call site at which swallowing an uncaught error is not the
                 ;; fail-open the pageerror rule forbids. The divergence is the
                 ;; subject of the row, not an accident inside it.
-                {:keys [captured close!]} (sup/open-console-capture! {:swallow-uncaught? true})
-                ha (mount/hydrate-root! ca frame-id [tray-screen {:tag :client}])]
-            (is (true? (roots/adopting? (:adoption ha)))
+                {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? true})
+                ha (rf.hicasso.impl.mount/hydrate-root! ca frame-id [tray-screen {:tag :client}])]
+            (is (true? (rf.hicasso.impl.roots/adopting? (:adoption ha)))
                 "premise: the client root DID mint a window — the client half
                  of the seam is present and working; it is the server half
                  that is missing")
-            (-> (sup/adopted! ha)
+            (-> (rf.hicasso.roots-frames-support/adopted! ha)
                 (.then
                   (fn [ok]
                     ;; Closed and stopped HERE, and named in `:release!` as
@@ -616,7 +616,7 @@
                             (str "React said " (count complaints)
                                  ", the framework said " (count @seen)))
                         (doseq [ev @seen]
-                          (let [tags (sup/tags-of ev)]
+                          (let [tags (rf.hicasso.roots-frames-support/tags-of ev)]
                             (is (= :rf.ssr/hydration-mismatch (:operation ev)))
                             (is (= 're-frame.hicasso.impl.mount/hydrate-root! (:where tags)))
                             (is (= :warned-and-replaced (:recovery tags)))
@@ -631,9 +631,9 @@
                       (is (some? (.querySelector ca ".probe"))
                           "premise: something is there to check, so the
                            negative below is not vacuous")
-                      (is (false? (sup/server-node? (.querySelector ca ".probe")))
+                      (is (false? (rf.hicasso.roots-frames-support/server-node? (.querySelector ca ".probe")))
                           "the probe node was re-created")
-                      (is (false? (sup/every-server-node? ca ".screen, .probe"))))
+                      (is (false? (rf.hicasso.roots-frames-support/every-server-node? ca ".screen, .probe"))))
 
                     (testing "while the FINAL DOM reads exactly what a healthy
                               adoption would have left — React's repair. This
@@ -642,13 +642,13 @@
                               file rests on it"
                       (is (= "present" (text-in ca ".probe")))
                       (is (= "alpha" (text-in ca ".value"))))))
-                (sup/settle-row!
+                (rf.hicasso.roots-frames-support/settle-row!
                   {:row      "§3 — hydrating the real server bytes diverges"
                    :done     done
                    :release! (fn []
                                (close!)
                                (stop!)
-                               (mount/release! ha))}))))))))
+                               (rf.hicasso.impl.mount/release! ha))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; §4 — the control: the same real server path, with no tray in the tree
@@ -668,19 +668,19 @@
 ;; has changed ordinary hydration, which is not what it was for.
 (deftest the-same-real-server-path-hydrates-a-tray-free-tree-with-no-divergence
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (let [html (server-bytes! [plain-screen {}])]
           (is (re-find #"alpha" html)
               (str "premise: the real server renderer produced this tree — " html))
-          (collector/reset-runtime!)
-          (let [ca (sup/stamp-server-nodes! (sup/server-dom! html))
-                {:keys [seen stop!]}      (sup/watch-mismatches!)
-                {:keys [captured close!]} (sup/open-console-capture!)
-                ha (mount/hydrate-root! ca frame-id [plain-screen {}])]
-            (-> (sup/adopted! ha)
+          (rf.hicasso.impl.collector/reset-runtime!)
+          (let [ca (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
+                {:keys [seen stop!]}      (rf.hicasso.roots-frames-support/watch-mismatches!)
+                {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture!)
+                ha (rf.hicasso.impl.mount/hydrate-root! ca frame-id [plain-screen {}])]
+            (-> (rf.hicasso.roots-frames-support/adopted! ha)
                 (.then
                   (fn [ok]
                     ;; Closed and stopped here and named in `:release!` too,
@@ -696,18 +696,18 @@
                           (str "no complaint expected; captured " (pr-str @captured)))
                       (is (= 0 (count @seen))
                           (str "and no framework diagnostic; got "
-                               (pr-str (mapv (comp :error sup/tags-of) @seen)))))
+                               (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of) @seen)))))
 
                     (testing "and kept the server's own nodes, which is what
                               adoption MEANS and what §3 lost"
-                      (is (sup/every-server-node? ca ".screen, .value")))))
-                (sup/settle-row!
+                      (is (rf.hicasso.roots-frames-support/every-server-node? ca ".screen, .value")))))
+                (rf.hicasso.roots-frames-support/settle-row!
                   {:row      "§4 — the same real server path with no tray"
                    :done     done
                    :release! (fn []
                                (close!)
                                (stop!)
-                               (mount/release! ha))}))))))))
+                               (rf.hicasso.impl.mount/release! ha))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; §5 — the PRODUCT server door, which does scope a window, and what that
@@ -737,7 +737,7 @@
 (deftest the-product-server-door-scopes-a-window-so-presence-is-present-in-its-bytes
   (fresh!)
   (reset! !phases {})
-  (let [{:keys [html]} (server/render {:hiccup   [tray-screen {:tag :product}]
+  (let [{:keys [html]} (rf.hicasso.server/render {:hiccup   [tray-screen {:tag :product}]
                                        :snapshot {:label "alpha"}
                                        :payload  [:label]})]
 
@@ -794,35 +794,35 @@
 ;; replaced for whatever runs next.
 
 (deftest a-rejected-adoption-still-releases-the-root-console-and-watcher
-  (if-not (mount/browser?)
-    (sup/skip! "what a rejection can leak here is a real root and a real console")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! "what a rejection can leak here is a real root and a real console")
     (async done
       (fresh!)
       (let [html           (server-bytes! [plain-screen {}])
-            ca             (sup/stamp-server-nodes! (sup/server-dom! html))
-            watch          (sup/watch-mismatches!)
+            ca             (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
+            watch          (rf.hicasso.roots-frames-support/watch-mismatches!)
             ;; NOT `:swallow-uncaught? true`: this row manufactures a rejected
             ;; PROMISE, which `sup/settle-row!` handles, and no uncaught window
             ;; error at all. Swallowing anywhere else is the fail-open the
             ;; browser runner's pageerror rule forbids.
             console-before (.-error js/console)
-            capture        (sup/open-console-capture!)
+            capture        (rf.hicasso.roots-frames-support/open-console-capture!)
             stops          (atom 0)
             finishes       (atom 0)
             reports        (atom [])]
-        (collector/reset-runtime!)
-        (let [ha (mount/hydrate-root! ca frame-id [plain-screen {}])]
-          (-> (sup/adopted! ha)
+        (rf.hicasso.impl.collector/reset-runtime!)
+        (let [ha (rf.hicasso.impl.mount/hydrate-root! ca frame-id [plain-screen {}])]
+          (-> (rf.hicasso.roots-frames-support/adopted! ha)
               (.then
                 (fn [ok]
                   (is (true? ok) "premise: the root really did adopt")
-                  (is (not= sup/released (sup/census))
+                  (is (not= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/census))
                       (str "premise: the runtime is holding this root's cells "
                            "and edges, so the census taken after the rejection "
                            "is a RELEASE and not an empty page; got "
-                           (pr-str (sup/census))))
+                           (pr-str (rf.hicasso.roots-frames-support/census))))
                   (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
-              (sup/settle-row!
+              (rf.hicasso.roots-frames-support/settle-row!
                 {:row      "the rejected-adoption control"
                  :done     (fn [] (swap! finishes inc))
                  :report!  (fn [e] (swap! reports conj e))
@@ -830,11 +830,11 @@
                              ((:close! capture))
                              (swap! stops inc)
                              ((:stop! watch))
-                             (mount/release! ha))})
+                             (rf.hicasso.impl.mount/release! ha))})
               ;; The cell reapers are armed at unmount and run past a bare
               ;; macrotask, so the tables are read at the runtime's own horizon
               ;; rather than one tick after the release.
-              (.then (fn [_] (sup/quiesced!)))
+              (.then (fn [_] (rf.hicasso.roots-frames-support/quiesced!)))
               (.then
                 (fn [_]
                   (testing "the rejection is REPORTED — which is the whole of
@@ -857,21 +857,21 @@
                             all the same, because a row that leans on the
                             fixture to stop its own watcher is measuring the
                             fixture)"
-                    (is (= sup/released (sup/census))
-                        (str "no root: residue was " (pr-str (sup/census))))
-                    (is (empty? (sup/cell-frames))
+                    (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/census))
+                        (str "no root: residue was " (pr-str (rf.hicasso.roots-frames-support/census))))
+                    (is (empty? (rf.hicasso.roots-frames-support/cell-frames))
                         (str "no frame: the cell table still mentions "
-                             (pr-str (sup/cell-frames))))
+                             (pr-str (rf.hicasso.roots-frames-support/cell-frames))))
                     (is (= 1 @stops)
                         (str "the mismatch watcher was stopped — `stop!` is what "
                              "unregisters the trace listener; it ran "
                              @stops " times"))
                     (is (identical? console-before (.-error js/console))
                         "`console.error` is the page's own again"))))
-              (sup/settle-row!
+              (rf.hicasso.roots-frames-support/settle-row!
                 {:row      "the rejected-adoption control's own settlement"
                  :done     done
                  :release! (fn []
                              ((:close! capture))
                              ((:stop! watch))
-                             (mount/release! ha))})))))))
+                             (rf.hicasso.impl.mount/release! ha))})))))))

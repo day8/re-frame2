@@ -27,17 +27,17 @@
   exactly once, during the first-time mark write under test."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.flows :as flows]
-            [re-frame.flows.registry :as registry]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- install-watching-adapter!
   "Install a plain-atom-backed adapter whose `replace-container!` runs `on-write`
@@ -45,11 +45,11 @@
   `armed?` holds true. The physical write always lands FIRST so A's write that
   linearized before the loss stands."
   [armed? on-write]
-  (let [base-replace (:replace-container! plain-atom/adapter)]
-    (adapter/dispose-adapter!)
-    (reset! frame/frames {})
-    (adapter/install-adapter!
-      (assoc plain-atom/adapter
+  (let [base-replace (:replace-container! rf.substrate.plain-atom/adapter)]
+    (rf.substrate.adapter/dispose-adapter!)
+    (reset! rf.frame/frames {})
+    (rf.substrate.adapter/install-adapter!
+      (assoc rf.substrate.plain-atom/adapter
              :kind :custom
              :replace-container!
              (fn [container value]
@@ -58,9 +58,9 @@
                  (on-write)))))))
 
 (defn- restore-plain-adapter! []
-  (reset! frame/frames {})
-  (adapter/dispose-adapter!)
-  (adapter/install-adapter! plain-atom/adapter))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))
 
 (defn- registered-events
   "The captured `:rf.flow/registered` events, in emission order."
@@ -94,21 +94,21 @@
         ;; The mark-write watch: destroy A, publish same-id B with its own
         ;; first-time flow state (B's reg-flow emits B's own :rf.flow/registered),
         ;; and snapshot B's stores for the byte-identical assertions.
-        (frame/destroy-frame! id)
+        (rf.frame/destroy-frame! id)
         (rf/make-frame {:id id})
         (rf/reg-flow :flow.incarnation/f
           {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
           (fn [n] (or n 0)))
-        (registry/set-frame-flow-last-inputs! id :flow.incarnation/f [::b-input])
-        (reset! b-token (frame/frame-incarnation-token id))
-        (reset! b-flow-row (get-in (registry/flows-snapshot)
+        (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/f [::b-input])
+        (reset! b-token (rf.frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (rf.flows.registry/flows-snapshot)
                                    [id :flow.incarnation/f]))
-        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
-        (reset! b-commit (frame/frame-commit-epoch id))
-        (reset! b-sensitive (elision/sensitive-declarations id))))
+        (reset! b-dirty (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+        (reset! b-commit (rf.frame/frame-commit-epoch id))
+        (reset! b-sensitive (rf.elision/sensitive-declarations id))))
     (try
       (rf/make-frame {:id id})
-      (trace/register-listener!
+      (rf.trace/register-listener!
         ::first-registration-recorder
         (fn [ev]
           (when (= :flow (:op-type ev))
@@ -125,7 +125,7 @@
       (let [token-b @b-token
             regs    (registered-events captured)]
         (is (some? token-b) "the mark-write watch published a same-id B")
-        (is (identical? token-b (frame/frame-incarnation-token id))
+        (is (identical? token-b (rf.frame/frame-incarnation-token id))
             "B remains the live incarnation")
         ;; The core assertion: zero A :rf.flow/registered deliveries after loss.
         (is (= 1 (count regs))
@@ -138,17 +138,17 @@
             "the sole delivered registration is B's (:bout), emitted by B's own
              reg-flow inside the watch")
         ;; B's evidence stays byte-identical — A's stale tail touches nothing.
-        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/f]))
+        (is (= @b-flow-row (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/f]))
             "A's stale first-registration tail never rewrites B's flow row")
         (is (= @b-dirty
-               (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+               (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/f))
             "A's stale tail never drops B's dirty-check cache")
-        (is (= @b-commit (frame/frame-commit-epoch id))
+        (is (= @b-commit (rf.frame/frame-commit-epoch id))
             "A's stale mark write never bumps B's commit epoch")
-        (is (= @b-sensitive (elision/sensitive-declarations id))
+        (is (= @b-sensitive (rf.elision/sensitive-declarations id))
             "A's stale tail never rewrites B's output-mark declaration"))
       (finally
-        (trace/unregister-listener! ::first-registration-recorder)
+        (rf.trace/unregister-listener! ::first-registration-recorder)
         (restore-plain-adapter!)))))
 
 ;; ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@
       (fn [] (swap! watch-runs inc)))          ; observe only — A stays live
     (try
       (rf/make-frame {:id id})
-      (trace/register-listener!
+      (rf.trace/register-listener!
         ::first-registration-live-recorder
         (fn [ev]
           (when (= :flow (:op-type ev))
@@ -188,5 +188,5 @@
           (is (= [:out] (:path tags))                 "A's own :output-path")
           (is (= id (:frame tags))                    "A's own frame")))
       (finally
-        (trace/unregister-listener! ::first-registration-live-recorder)
+        (rf.trace/unregister-listener! ::first-registration-live-recorder)
         (restore-plain-adapter!)))))

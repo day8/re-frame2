@@ -43,17 +43,17 @@
   added tomorrow without a name reds it, and no row has to be written for
   it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso.examples.slice.i18n :as i18n]
-            [re-frame.hicasso.examples.slice.routes :as routes]
-            [re-frame.hicasso.examples.slice.subs :as subs]
-            [re-frame.hicasso.examples.slice.views :as views]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso.examples.slice.i18n :as rf.hicasso.examples.slice.i18n]
+            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
+            [re-frame.hicasso.examples.slice.subs :as rf.hicasso.examples.slice.subs]
+            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil}))
 
 ;; ---------------------------------------------------------------------------
@@ -67,13 +67,13 @@
 ;; literals — that is where the claim lives.
 
 (defn- t* [locale ks]
-  (into {} (map (fn [k] [[::subs/t k] (i18n/t locale k)])) ks))
+  (into {} (map (fn [k] [[::rf.hicasso.examples.slice.subs/t k] (rf.hicasso.examples.slice.i18n/t locale k)])) ks))
 
-(defn- classed [tree class] (ht/find tree #(= class (:class (ht/attrs %)))))
+(defn- classed [tree class] (rf.hicasso.test/find tree #(= class (:class (rf.hicasso.test/attrs %)))))
 
-(defn- named [tree class] (ht/accessible-name tree (classed tree class)))
+(defn- named [tree class] (rf.hicasso.test/accessible-name tree (classed tree class)))
 
-(defn- by-id [tree id] (ht/find tree #(= id (:id (ht/attrs %)))))
+(defn- by-id [tree id] (rf.hicasso.test/find tree #(= id (:id (rf.hicasso.test/attrs %)))))
 
 (defn- theme-buttons
   "The chrome's two theme choices, in menu order. Reached through the
@@ -86,9 +86,9 @@
 ;; --- chrome ----------------------------------------------------------------
 
 (defn- chrome-tree [locale]
-  (ht/tree [views/chrome {}]
-           {:subs (merge {[::subs/locale] locale
-                          [::subs/theme]  :light}
+  (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/chrome {}]
+           {:subs (merge {[::rf.hicasso.examples.slice.subs/locale] locale
+                          [::rf.hicasso.examples.slice.subs/theme]  :light}
                          (t* locale [:app/title :app/locale :app/theme
                                      :theme/light :theme/dark]))}))
 
@@ -98,15 +98,15 @@
   {:slug "intents" :title "Intents are data" :published? true :tags ["intents" "data"]})
 
 (defn- row-tree [locale open?]
-  (ht/tree [views/article-row row-props]
-           {:subs (merge {[::subs/tags-open? "intents"] open?}
+  (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/article-row row-props]
+           {:subs (merge {[::rf.hicasso.examples.slice.subs/tags-open? "intents"] open?}
                          (t* locale [:feed/tags]))}))
 
 ;; --- the feed page ---------------------------------------------------------
 
 (defn- feed-tree [locale rows]
-  (ht/tree [views/feed-page {}]
-           {:subs (merge {[::subs/feed] rows}
+  (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/feed-page {}]
+           {:subs (merge {[::rf.hicasso.examples.slice.subs/feed] rows}
                          (t* locale [:feed/heading :feed/empty]))}))
 
 ;; --- the pager -------------------------------------------------------------
@@ -117,21 +117,21 @@
   which is inert markup this tier reads as data rather than a node the
   sweep can walk."
   [locale page]
-  (ht/tree [views/pager {}]
-           {:subs (merge {[::subs/current-page] page
-                          [::subs/page-count]   3}
+  (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/pager {}]
+           {:subs (merge {[::rf.hicasso.examples.slice.subs/current-page] page
+                          [::rf.hicasso.examples.slice.subs/page-count]   3}
                          (t* locale [:feed/pagination :feed/previous :feed/next]))}))
 
 ;; --- the editor ------------------------------------------------------------
 
 (defn- editor-tree
   [locale save]
-  (ht/tree [views/editor {:slug "intents"}]
-           {:subs (merge {[::subs/draft "intents"]      {:title "T" :body "B"
+  (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/editor {:slug "intents"}]
+           {:subs (merge {[::rf.hicasso.examples.slice.subs/draft "intents"]      {:title "T" :body "B"
                                                          :published? true}
-                          [::subs/dirty? "intents"]     false
-                          [::subs/save-state "intents"] save
-                          [::subs/token :danger]        "rgb(176, 32, 32)"}
+                          [::rf.hicasso.examples.slice.subs/dirty? "intents"]     false
+                          [::rf.hicasso.examples.slice.subs/save-state "intents"] save
+                          [::rf.hicasso.examples.slice.subs/token :danger]        "rgb(176, 32, 32)"}
                          (t* locale [:editor/heading :editor/title :editor/body
                                      :editor/published :editor/save :editor/saving
                                      :editor/discard :editor/saved :editor/retry
@@ -140,16 +140,16 @@
 ;; --- the article page and the shell ----------------------------------------
 
 (defn- article-tree [locale article]
-  (ht/tree [views/article-page {}]
+  (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/article-page {}]
            {:subs (merge {[:rf.route/params]         {:slug "intents"}
-                          [::subs/article "intents"] article}
+                          [::rf.hicasso.examples.slice.subs/article "intents"] article}
                          (t* locale [:article/back :article/missing]))}))
 
 (defn- shell-tree [locale route]
-  (ht/tree [views/app {}]
+  (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/app {}]
            {:subs (merge {[:rf.route/id]          route
-                          [::subs/token :surface] "rgb(255, 255, 255)"
-                          [::subs/token :ink]     "rgb(26, 26, 26)"}
+                          [::rf.hicasso.examples.slice.subs/token :surface] "rgb(255, 255, 255)"
+                          [::rf.hicasso.examples.slice.subs/token :ink]     "rgb(26, 26, 26)"}
                          (t* locale [:app/pane-error]))}))
 
 ;; ---------------------------------------------------------------------------
@@ -158,33 +158,33 @@
 
 (deftest every-field-in-the-editor-is-named-by-the-label-that-points-at-it
   (let [tree (editor-tree :en {:status :idle :problem nil})]
-    (is (= "Title" (ht/accessible-name tree (by-id tree "slice-title")))
+    (is (= "Title" (rf.hicasso.test/accessible-name tree (by-id tree "slice-title")))
         "the `<label for=\"slice-title\">` and the `<input id=\"slice-title\">`
          are two elements and one pairing, and only the resolved name can
          tell a correct pairing from two attributes that happen to sit in
          the same form")
-    (is (= "Body" (ht/accessible-name tree (by-id tree "slice-body")))
+    (is (= "Body" (rf.hicasso.test/accessible-name tree (by-id tree "slice-body")))
         "and a textarea is labelled the same way")
-    (is (= "Published" (ht/accessible-name tree (by-id tree "slice-published")))
+    (is (= "Published" (rf.hicasso.test/accessible-name tree (by-id tree "slice-published")))
         "the checkbox is inside its label AND carries the `for` — the two
          mechanisms at once, and the name is the label's text once rather
          than twice")))
 
 (deftest the-locale-select-is-named-by-the-chromes-own-label
   (let [tree (chrome-tree :en)]
-    (is (= :combobox (ht/role (by-id tree "slice-locale"))))
-    (is (= "Language" (ht/accessible-name tree (by-id tree "slice-locale"))))))
+    (is (= :combobox (rf.hicasso.test/role (by-id tree "slice-locale"))))
+    (is (= "Language" (rf.hicasso.test/accessible-name tree (by-id tree "slice-locale"))))))
 
 (deftest a-name-follows-the-string-table-into-the-other-language
   (testing "the same three fields, the same three pairings, one locale
             later — which is what says the name is READ from the label
             rather than baked beside the control"
     (let [tree (editor-tree :fr {:status :idle :problem nil})]
-      (is (= "Titre" (ht/accessible-name tree (by-id tree "slice-title"))))
-      (is (= "Corps" (ht/accessible-name tree (by-id tree "slice-body"))))
-      (is (= "Publié" (ht/accessible-name tree (by-id tree "slice-published"))))))
+      (is (= "Titre" (rf.hicasso.test/accessible-name tree (by-id tree "slice-title"))))
+      (is (= "Corps" (rf.hicasso.test/accessible-name tree (by-id tree "slice-body"))))
+      (is (= "Publié" (rf.hicasso.test/accessible-name tree (by-id tree "slice-published"))))))
   (is (= "Langue" (let [tree (chrome-tree :fr)]
-                    (ht/accessible-name tree (by-id tree "slice-locale"))))))
+                    (rf.hicasso.test/accessible-name tree (by-id tree "slice-locale"))))))
 
 (deftest the-buttons-are-named-by-what-they-say
   (let [tree (editor-tree :en {:status :idle :problem nil})]
@@ -197,18 +197,18 @@
             anywhere — content is their whole name and the row proves the
             content path is live"
     (let [tree (chrome-tree :en)]
-      (is (= ["Light" "Dark"] (mapv #(ht/accessible-name tree %) (theme-buttons tree)))))
+      (is (= ["Light" "Dark"] (mapv #(rf.hicasso.test/accessible-name tree %) (theme-buttons tree)))))
     (let [tree (chrome-tree :fr)]
-      (is (= ["Clair" "Sombre"] (mapv #(ht/accessible-name tree %) (theme-buttons tree)))))))
+      (is (= ["Clair" "Sombre"] (mapv #(rf.hicasso.test/accessible-name tree %) (theme-buttons tree)))))))
 
 (deftest the-article-link-is-a-link-because-routing-gave-it-an-href
   (let [tree (row-tree :en false)
-        link (ht/find tree #(= :a (:tag %)))]
-    (is (= :link (ht/role link))
+        link (rf.hicasso.test/find tree #(= :a (:tag %)))]
+    (is (= :link (rf.hicasso.test/role link))
         "an `<a>` with no href is not a link, and this one's href is the
          routing artefact's synthesis rather than a string the view
          wrote — so the role is evidence that the crossing happened")
-    (is (= "Intents are data" (ht/accessible-name tree link))
+    (is (= "Intents are data" (rf.hicasso.test/accessible-name tree link))
         "named by the article's own title, which is CONTENT and is
          therefore not translated")))
 
@@ -220,8 +220,8 @@
   (let [closed (row-tree :en false)
         open   (row-tree :en true)]
     (testing "the state, both ways"
-      (is (= "false" (:aria-expanded (ht/attrs (classed closed "tags-toggle")))))
-      (is (= "true" (:aria-expanded (ht/attrs (classed open "tags-toggle"))))))
+      (is (= "false" (:aria-expanded (rf.hicasso.test/attrs (classed closed "tags-toggle")))))
+      (is (= "true" (:aria-expanded (rf.hicasso.test/attrs (classed open "tags-toggle"))))))
     (testing "and the NAME, unchanged across the flip — a control that
               renames itself as its state changes is a control a
               screen-reader user has to re-find, and the two halves of
@@ -242,7 +242,7 @@
 
   (testing "failed: an ALERT, which interrupts"
     (let [tree (editor-tree :en {:status :failed :problem :problem/title-taken})]
-      (is (= :alert (ht/role (classed tree "save-problem"))))
+      (is (= :alert (rf.hicasso.test/role (classed tree "save-problem"))))
       (is (nil? (classed tree "save-ok")))))
 
   (testing "saved: a STATUS, which does not — the two roles are different
@@ -250,14 +250,14 @@
             row asserting only that `a role is present` could not tell
             them apart"
     (let [tree (editor-tree :en {:status :saved :problem nil})]
-      (is (= :status (ht/role (classed tree "save-ok"))))
+      (is (= :status (rf.hicasso.test/role (classed tree "save-ok"))))
       (is (nil? (classed tree "save-problem")))))
 
   (testing "and a live region takes no name from its own text: it is
             announced BECAUSE it appeared, and naming it would be this
             kit inventing something the platform does not give"
     (let [tree (editor-tree :en {:status :failed :problem :problem/title-taken})]
-      (is (nil? (ht/accessible-name tree (classed tree "save-problem")))))))
+      (is (nil? (rf.hicasso.test/accessible-name tree (classed tree "save-problem")))))))
 
 (deftest the-save-button-renames-itself-while-it-is-working
   (testing "the one control in the application whose NAME is supposed to
@@ -270,14 +270,14 @@
 (deftest the-retry-appears-with-the-failure-and-is-named
   (let [tree (editor-tree :en {:status :failed :problem :problem/title-taken})]
     (is (= "Try again" (named tree "retry")))
-    (is (= :button (ht/role (classed tree "retry")))))
+    (is (= :button (rf.hicasso.test/role (classed tree "retry")))))
   (is (nil? (classed (editor-tree :en {:status :idle :problem nil}) "retry"))))
 
 (deftest the-shell-is-a-main-landmark-and-the-feed-is-a-list
-  (is (= :main (ht/role (shell-tree :en routes/feed))))
+  (is (= :main (rf.hicasso.test/role (shell-tree :en rf.hicasso.examples.slice.routes/feed))))
   (let [tree (feed-tree :en [{:slug "a" :title "A" :published? true :tags []}])]
-    (is (= :list (ht/role (ht/find tree #(= :ul (:tag %))))))
-    (is (= :heading (ht/role (ht/find tree #(= :h2 (:tag %))))))))
+    (is (= :list (rf.hicasso.test/role (rf.hicasso.test/find tree #(= :ul (:tag %))))))
+    (is (= :heading (rf.hicasso.test/role (rf.hicasso.test/find tree #(= :h2 (:tag %))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The sweep — the bead's acceptance, as one assertion per rendering
@@ -296,14 +296,14 @@
      ["a feed row, closed" (row-tree locale false)]
      ["a feed row, open" (row-tree locale true)]
      ["a feed row, unpublished"
-      (ht/tree [views/article-row (assoc row-props :published? false)]
-               {:subs (merge {[::subs/tags-open? "intents"] false}
+      (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/article-row (assoc row-props :published? false)]
+               {:subs (merge {[::rf.hicasso.examples.slice.subs/tags-open? "intents"] false}
                              (t* locale [:feed/tags]))})]
      ;; Both reads sit at the top of the row's `let`, so they run whether
      ;; or not the row has tags, and a tagless row owes both fixtures too.
      ["a feed row with no tags"
-      (ht/tree [views/article-row (assoc row-props :tags [])]
-               {:subs (merge {[::subs/tags-open? "intents"] false}
+      (rf.hicasso.test/tree [rf.hicasso.examples.slice.views/article-row (assoc row-props :tags [])]
+               {:subs (merge {[::rf.hicasso.examples.slice.subs/tags-open? "intents"] false}
                              (t* locale [:feed/tags]))})]
      ["the feed, populated" (feed-tree locale [{:slug "a" :title "A"
                                                 :published? true :tags []}])]
@@ -311,8 +311,8 @@
      ["the article page" (article-tree locale {:slug "intents"
                                                :title "Intents are data"})]
      ["the article page, no such article" (article-tree locale nil)]
-     ["the shell, on the feed" (shell-tree locale routes/feed)]
-     ["the shell, on an article" (shell-tree locale routes/article)]
+     ["the shell, on the feed" (shell-tree locale rf.hicasso.examples.slice.routes/feed)]
+     ["the shell, on an article" (shell-tree locale rf.hicasso.examples.slice.routes/article)]
      ["the shell, before the first navigation" (shell-tree locale nil)]]
     (for [save [{:status :idle :problem nil}
                 {:status :saving :problem nil}
@@ -321,9 +321,9 @@
       [(str "the editor, " (name (:status save))) (editor-tree locale save)])))
 
 (deftest every-operable-control-in-the-application-has-a-name
-  (doseq [locale i18n/locales
+  (doseq [locale rf.hicasso.examples.slice.i18n/locales
           [what tree] (states locale)]
-    (is (= [] (ht/unnamed-controls tree))
+    (is (= [] (rf.hicasso.test/unnamed-controls tree))
         (str what ", in " (name locale)
              " — every button, link, field and select a user can operate "
              "must carry an accessible name, and this is the whole "
@@ -338,13 +338,13 @@
             equally consistent with `unnamed-controls` never finding
             anything at all"
     (let [tree     (editor-tree :en {:status :idle :problem nil})
-          detached (ht/find tree #(and (= :label (:tag %))
-                                       (= "slice-title" (:for (ht/attrs %)))))
+          detached (rf.hicasso.test/find tree #(and (= :label (:tag %))
+                                       (= "slice-title" (:for (rf.hicasso.test/attrs %)))))
           sabotaged (update tree :children
                             (fn [cs] (mapv #(if (identical? % detached)
                                               (assoc % :attrs {:for "elsewhere"})
                                               %)
                                            cs)))
-          found     (ht/unnamed-controls sabotaged)]
+          found     (rf.hicasso.test/unnamed-controls sabotaged)]
       (is (= 1 (count found)))
-      (is (= "slice-title" (:id (ht/attrs (first found))))))))
+      (is (= "slice-title" (:id (rf.hicasso.test/attrs (first found))))))))

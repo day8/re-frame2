@@ -45,13 +45,13 @@
   paraphrase would carry `re-frame.hicasso.test` and red."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
 (def ^:private frame-id ::parity)
@@ -61,12 +61,12 @@
 ;; frame because this suite seats its own, the collector emptied between
 ;; rows.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (collector/reset-runtime!))}))
+                      (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The two probes
@@ -104,8 +104,8 @@
   nothing about Hicasso. What the row is about is that the value crosses
   UNFORCED, and the token says exactly that."
   [x]
-  (let [o (outcome #(intent/with-frame frame-id (collector/frame-dispatch frame-id)
-                      (fn [] (codec/as-element x))))]
+  (let [o (outcome #(rf.hicasso.impl.intent/with-frame frame-id (rf.hicasso.impl.collector/frame-dispatch frame-id)
+                      (fn [] (rf.hicasso.impl.codec/as-element x))))]
     (if-some [d (:refused o)]
       [:refused (:rf.error/id d)]
       (let [v (:returned o)]
@@ -131,7 +131,7 @@
   travels the kit's real path rather than a walk reached behind its
   door."
   [form]
-  (let [o (outcome #(ht/tree [(fn [_] form)]))]
+  (let [o (outcome #(rf.hicasso.test/tree [(fn [_] form)]))]
     (if-some [d (:refused o)]
       {:refused (select-keys d [:rf.error/id :where])}
       {:tree (:returned o)})))
@@ -140,13 +140,13 @@
 ;; The table
 ;; ---------------------------------------------------------------------------
 
-(h/defhost a-host js/Object {:server :client-only})
+(rf.hicasso/defhost a-host js/Object {:server :client-only})
 
-(h/defview a-boundary [props] [:i (str (:x props))])
+(rf.hicasso/defview a-boundary [props] [:i (str (:x props))])
 
 (defn- raw-component [] nil)
 
-(def ^:private v ht/tree-version)
+(def ^:private v rf.hicasso.test/tree-version)
 
 (def ^:private rows
   [{:case    "a body that renders nothing roots in an EMPTY FRAGMENT"

@@ -50,19 +50,19 @@
   CLJS is single-threaded; this race is JVM-only by construction."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.flows :as flows]
-            [re-frame.flows.registry :as registry]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.elision :as rf.elision]
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---- per-test reset -------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- await! [^CountDownLatch latch where]
   (is (.await latch 30 TimeUnit/SECONDS)
@@ -87,7 +87,7 @@
 
 (deftest reg-flow-losing-to-destroy-in-the-mutation-window-refuses-no-ghost
   (testing "destroy between reg-flow's pin and its serialized mutation -> refuse, no ghost row"
-    (let [orig-token frame/frame-incarnation-token
+    (let [orig-token rf.frame/frame-incarnation-token
           calls      (atom 0)
           entered    (CountDownLatch. 1) ;; reg-flow captured its pin, is parked before the mutation
           release    (CountDownLatch. 1)] ;; let reg-flow resume into the mutation
@@ -100,7 +100,7 @@
       ;; itself now routes its liveness flip through `call-serialized-with-drain!`,
       ;; so the pause seam MUST NOT be that helper (it would park destroy too);
       ;; `frame-incarnation-token` is called only by reg-flow here.
-      (with-redefs [frame/frame-incarnation-token
+      (with-redefs [rf.frame/frame-incarnation-token
                     (fn [id]
                       (let [tok (orig-token id)]
                         (when (= 1 (swap! calls inc)) ;; #1 = reg-flow's outer pin
@@ -120,23 +120,23 @@
                                     (fn [n] (* 2 (or n 0))))))]
           (await! entered "reg-flow parked past its pin")
           ;; Destroy completes FULLY while reg-flow is parked past its pin.
-          (frame/destroy-frame! :fc/scratch)
-          (is (nil? (frame/frame :fc/scratch))
+          (rf.frame/destroy-frame! :fc/scratch)
+          (is (nil? (rf.frame/frame :fc/scratch))
               "precondition: destroy fully torn the frame down before reg-flow resumes")
           (.countDown release)
           (is (= :rf.error/flow-frame-not-live (deref reg 30000 ::timeout))
               "reg-flow that lost the race to destroy refuses with the stable discriminator")))
 
       ;; --- The load-bearing post-conditions (no ghost on ANY surface) ------
-      (is (not (contains? (flows/flows-snapshot) :fc/scratch))
+      (is (not (contains? (rf.flows/flows-snapshot) :fc/scratch))
           "flows-snapshot: no ghost flow row survives the destroyed frame")
-      (is (not (contains? (flows/last-inputs-snapshot) :ghost))
+      (is (not (contains? (rf.flows/last-inputs-snapshot) :ghost))
           "last-inputs-snapshot: no dirty-check row for the ghost flow")
-      (is (empty? (registry/abandoned-output-paths-snapshot :fc/scratch))
+      (is (empty? (rf.flows.registry/abandoned-output-paths-snapshot :fc/scratch))
           "no pending abandoned output paths for the destroyed frame")
-      (is (empty? (elision/sensitive-declarations :fc/scratch))
+      (is (empty? (rf.elision/sensitive-declarations :fc/scratch))
           "no flow-sourced :sensitive declaration survives")
-      (is (nil? (registrar/lookup :flow :ghost))
+      (is (nil? (rf.registrar/lookup :flow :ghost))
           "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
 
 ;; ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@
 
 (deftest stale-reg-flow-does-not-clobber-a-re-registered-new-incarnation
   (testing "reg-flow pinned to incarnation X refuses when X is destroyed and the id is re-registered to X+1"
-    (let [orig-token frame/frame-incarnation-token
+    (let [orig-token rf.frame/frame-incarnation-token
           calls      (atom 0)
           entered    (CountDownLatch. 1)
           release    (CountDownLatch. 1)]
@@ -156,7 +156,7 @@
       ;; Park reg-flow right after its outer pin (captures incarnation X's token)
       ;; via `frame-incarnation-token` — NOT `call-serialized-with-drain!`, which
       ;; `destroy-frame!` now also uses.
-      (with-redefs [frame/frame-incarnation-token
+      (with-redefs [rf.frame/frame-incarnation-token
                     (fn [id]
                       (let [tok (orig-token id)]
                         (when (= 1 (swap! calls inc)) ;; #1 = reg-flow's outer pin
@@ -172,9 +172,9 @@
           (await! entered "stale reg-flow parked past its pin")
           ;; X is destroyed, then the SAME id is re-registered as a FRESH
           ;; incarnation X+1 (new :drain-lock -> new incarnation token).
-          (frame/destroy-frame! :fc/reused)
+          (rf.frame/destroy-frame! :fc/reused)
           (rf/make-frame {:id :fc/reused :doc "incarnation X+1"})
-          (is (some? (frame/frame :fc/reused))
+          (is (some? (rf.frame/frame :fc/reused))
               "precondition: a NEW incarnation is live under the reused id")
           (.countDown release)
           ;; The stale reg-flow's revalidation sees a DIFFERENT incarnation
@@ -185,10 +185,10 @@
               "the stale reg-flow refuses rather than clobbering incarnation X+1")))
 
       ;; The fresh incarnation inherited NO flow; a drive proves nothing runs.
-      (is (not (contains? (flows/flows-snapshot) :fc/reused))
+      (is (not (contains? (rf.flows/flows-snapshot) :fc/reused))
           "the re-registered incarnation has no inherited flow-registry slot")
       (rf/dispatch-sync [:fc/set-n 5] {:frame :fc/reused})
-      (is (nil? (get (frame/frame-app-db-value :fc/reused) :out))
+      (is (nil? (get (rf.frame/frame-app-db-value :fc/reused) :out))
           "the stale flow did not run — no [:out] write in the new incarnation's app-db"))))
 
 ;; ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@
 
 (deftest reg-flow-holding-the-gate-blocks-destroy-then-teardown-removes-the-row
   (testing "reg-flow committing under the lock succeeds; a racing destroy blocks, then tears the row down"
-    (let [orig-token frame/frame-incarnation-token
+    (let [orig-token rf.frame/frame-incarnation-token
           in-thunk   (CountDownLatch. 1) ;; reg-flow is inside its serialized thunk, holding :drain-lock
           release    (CountDownLatch. 1) ;; let reg-flow finish the thunk
           calls      (atom 0)]
@@ -208,7 +208,7 @@
       ;; the revalidation read. The FIRST token read is reg-flow's outer pin
       ;; (before the lock); the SECOND is the revalidation (under the lock) —
       ;; park on the second so destroy blocks on the lock reg-flow holds.
-      (with-redefs [frame/frame-incarnation-token
+      (with-redefs [rf.frame/frame-incarnation-token
                     (fn [id]
                       (let [n (swap! calls inc)]
                         (when (= n 2)
@@ -224,7 +224,7 @@
           ;; Destroy on this thread must BLOCK on the drain-lock reg-flow holds
           ;; (its mark-frame-destroyed! now takes the same lock). Prove it can't
           ;; complete while reg-flow is parked.
-          (let [destroyer (future (frame/destroy-frame! :fc/winner))]
+          (let [destroyer (future (rf.frame/destroy-frame! :fc/winner))]
             (is (= ::still-blocked (deref destroyer 1000 ::still-blocked))
                 "destroy is blocked on the :drain-lock reg-flow holds")
             (.countDown release)
@@ -234,9 +234,9 @@
                 "destroy completed once reg-flow released the lock"))))
 
       ;; reg-flow's row was published, then the destroy's teardown removed it.
-      (is (nil? (frame/frame :fc/winner))
+      (is (nil? (rf.frame/frame :fc/winner))
           "the frame is destroyed")
-      (is (not (contains? (flows/flows-snapshot) :fc/winner))
+      (is (not (contains? (rf.flows/flows-snapshot) :fc/winner))
           "no leftover flow row — the destroy's flows-teardown removed the committed row"))))
 
 ;; ---------------------------------------------------------------------------
@@ -260,7 +260,7 @@
                                         (fn [n] (* 2 (or n 0))))))
               destroy (future
                         (.await start 5 TimeUnit/SECONDS)
-                        (frame/destroy-frame! fid))]
+                        (rf.frame/destroy-frame! fid))]
           (.countDown start)
           (let [reg-result     (deref reg 30000 ::timeout)
                 destroy-result (deref destroy 30000 ::timeout)]
@@ -273,7 +273,7 @@
                      i " (got " reg-result ")"))))
         ;; The load-bearing invariant: whoever won, the destroyed frame carries
         ;; NO flow row (registration refused, or registered-then-torn-down).
-        (is (not (contains? (flows/flows-snapshot) fid))
+        (is (not (contains? (rf.flows/flows-snapshot) fid))
             (str "no ghost flow row for the destroyed frame on iteration " i))))))
 
 ;; ---------------------------------------------------------------------------
@@ -297,9 +297,9 @@
                     {:db db}))
     (rf/dispatch-sync [:fc/seed] {:frame :fc/live})
     (rf/dispatch-sync [:fc/install-flow] {:frame :fc/live})
-    (is (contains? (get (flows/flows-snapshot) :fc/live) :mid)
+    (is (contains? (get (rf.flows/flows-snapshot) :fc/live) :mid)
         "the mid-drain reg-flow registered its row")
-    (is (= 15 (:out (frame/frame-app-db-value :fc/live)))
+    (is (= 15 (:out (rf.frame/frame-app-db-value :fc/live)))
         "the mid-drain flow materialised its output (3 × 5 = 15) on the same drain")))
 
 ;; ---------------------------------------------------------------------------
@@ -310,10 +310,10 @@
 (deftest clear-flow-idempotent-for-absent-frame
   (testing "clear-flow against a destroyed / never-registered frame is a silent no-op"
     (rf/make-frame {:id :fc/gone :doc "frame to destroy"})
-    (frame/destroy-frame! :fc/gone)
-    (is (nil? (flows/clear-flow :whatever {:frame :fc/gone}))
+    (rf.frame/destroy-frame! :fc/gone)
+    (is (nil? (rf.flows/clear-flow :whatever {:frame :fc/gone}))
         "clear-flow on a DESTROYED frame returns nil (idempotent no-op)")
-    (is (nil? (flows/clear-flow :whatever {:frame :fc/never-existed}))
+    (is (nil? (rf.flows/clear-flow :whatever {:frame :fc/never-existed}))
         "clear-flow on a NEVER-registered frame returns nil (idempotent no-op)")))
 
 ;; ---------------------------------------------------------------------------
@@ -335,13 +335,13 @@
     (let [;; A cold serialized critical section (no active drain) whose body
           ;; calls destroy-frame! on the SAME frame — the Tool-Pair write shape.
           done (future
-                 (frame/call-serialized-with-drain! :fc/nested
+                 (rf.frame/call-serialized-with-drain! :fc/nested
                    (fn []
-                     (frame/destroy-frame! :fc/nested)
+                     (rf.frame/destroy-frame! :fc/nested)
                      :ok)))]
       (is (= :ok (deref done 30000 ::timeout))
           "the nested destroy ran reentrantly and the serialized write returned (pre-fix: deadlock)"))
-    (is (nil? (frame/frame :fc/nested))
+    (is (nil? (rf.frame/frame :fc/nested))
         "the frame was destroyed")
-    (is (not (contains? (flows/flows-snapshot) :fc/nested))
+    (is (not (contains? (rf.flows/flows-snapshot) :fc/nested))
         "its flow row was torn down by destroy — no leak")))

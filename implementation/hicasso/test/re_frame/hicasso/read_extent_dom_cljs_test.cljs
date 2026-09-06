@@ -120,14 +120,14 @@
   controls that need no DOM run in both lanes."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [clojure.set :as set]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]))
 
@@ -155,11 +155,11 @@
 ;; pass vacuously by never firing. `:ambient-frame nil` because this suite
 ;; seats its own.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The exercised population — a MEASUREMENT, not a claim
@@ -235,16 +235,16 @@
   [o]
   (dissoc (:refused o) :reason))
 
-(defn- readers-of [query-v] (count (runtime/cell-readers (sub-key query-v))))
+(defn- readers-of [query-v] (count (rf.hicasso.test.runtime/cell-readers (sub-key query-v))))
 
 (def ^:private nothing-owned {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
-(defn- ownership [] (dissoc (runtime/residue) :entries))
+(defn- ownership [] (dissoc (rf.hicasso.test.runtime/residue) :entries))
 
 (defn- app
   "The hicasso subtree: the frame provider over a root element."
   [hiccup]
-  (mount/provider frame-id (codec/root-element frame-id hiccup)))
+  (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup)))
 
 (defn- mount-concurrent!
   "A concurrent root, rendered WITHOUT `flushSync`.
@@ -269,7 +269,7 @@
 
 (defn- poll
   [pred label]
-  (test-support/poll-until pred {:label label :timeout-ms 4000}))
+  (rf.test-support/poll-until pred {:label label :timeout-ms 4000}))
 
 (defn- prove-live!
   "Settle the commit's PASSIVE phase on a condition, never on a duration,
@@ -290,7 +290,7 @@
   under test, since a second reader changes a count without changing any
   text."
   [handle expected label]
-  (collector/dispatch! frame-id [:red/bump])
+  (rf.hicasso.impl.collector/dispatch! frame-id [:red/bump])
   (poll #(= expected (text-at handle "#painted")) label))
 
 (defn- teardown-census!
@@ -299,13 +299,13 @@
   reads zeros whether teardown released anything or not — the shape of
   gate that cannot go red (`impl.mount/unmount!`)."
   [handle]
-  (mount/unmount! handle)
-  (.then (runtime/quiesced!)
+  (rf.hicasso.impl.mount/unmount! handle)
+  (.then (rf.hicasso.test.runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (runtime/residue))
+                  (rf.hicasso.test.runtime/residue))
                "teardown is exact: zero residue after quiescence")
-           (mount/release! handle)
+           (rf.hicasso.impl.mount/release! handle)
            nil)))
 
 (defn- report-failure!
@@ -331,14 +331,14 @@
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | ownership " (pr-str (ownership))))
-    (when handle (mount/release! handle))
+    (when handle (rf.hicasso.impl.mount/release! handle))
     nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The views
 ;; ---------------------------------------------------------------------------
 
-(h/defview sibling-line
+(rf.hicasso/defview sibling-line
   "A second boundary reading a DIFFERENT key, and it is load-bearing
   rather than scenery.
 
@@ -350,13 +350,13 @@
   nothing will ever release. That is a number, and it is the smallest tree
   in which it is one."
   [_]
-  [:p {:id "sibling"} (str "sibling=" (h/sub [:red/sibling]))])
+  [:p {:id "sibling"} (str "sibling=" (rf.hicasso/sub [:red/sibling]))])
 
 (def ^:private !effect-runs (atom 0))
 (def ^:private !layout-read (atom nil))
 (def ^:private !passive-read (atom nil))
 
-(h/defview effect-deferring-line
+(rf.hicasso/defview effect-deferring-line
   "A boundary that reads legally and then defers two reads into React's
   own post-body phases — the mutation phase (`useLayoutEffect`) and the
   passive phase (`useEffect`).
@@ -372,18 +372,18 @@
   about effects: the same escaped extent, the same instant, and the write
   goes through."
   [_]
-  (let [v (h/sub [:red/painted])]
+  (let [v (rf.hicasso/sub [:red/painted])]
     (react/useLayoutEffect
       (fn []
         (swap! !effect-runs inc)
-        (reset! !layout-read (outcome (fn [] (h/sub [:red/escaped-2]))))
+        (reset! !layout-read (outcome (fn [] (rf.hicasso/sub [:red/escaped-2]))))
         js/undefined)
       #js [])
     (react/useEffect
       (fn []
         (swap! !effect-runs inc)
-        (reset! !passive-read (outcome (fn [] (h/sub [:red/escaped]))))
-        (collector/dispatch! frame-id [:red/bump])
+        (reset! !passive-read (outcome (fn [] (rf.hicasso/sub [:red/escaped]))))
+        (rf.hicasso.impl.collector/dispatch! frame-id [:red/bump])
         js/undefined)
       #js [])
     [:p {:id "painted"} (str "painted=" v)]))
@@ -409,7 +409,7 @@
 
 (defn- release-gate! [] (reset! !released? true) (@!resolve-gate nil) nil)
 
-(h/defview suspending-line
+(rf.hicasso/defview suspending-line
   "A boundary that reads, defers a read onto the very thenable it is about
   to throw, and suspends.
 
@@ -425,7 +425,7 @@
   is what keeps the deferral single, so `1` is an assertable count rather
   than a schedule-dependent one."
   [_]
-  (let [v (h/sub [:red/painted])]
+  (let [v (rf.hicasso/sub [:red/painted])]
     (when-not @!released?
       (when-not @!attached?
         (reset! !attached? true)
@@ -433,7 +433,7 @@
             (.then (fn [_]
                      (swap! !resume-runs inc)
                      (reset! !resume-read
-                             (outcome (fn [] (h/sub [:red/escaped]))))))))
+                             (outcome (fn [] (rf.hicasso/sub [:red/escaped]))))))))
       (throw @!gate-promise))
     [:p {:id "painted"} (str "painted=" v)]))
 
@@ -441,15 +441,15 @@
 (def ^:private !activity-read (atom nil))
 (def ^:private !set-visible (atom nil))
 
-(h/defview activity-deferring-line
+(rf.hicasso/defview activity-deferring-line
   "A boundary inside an `Activity` subtree, deferring a read into the
   effect React withholds for as long as the subtree is hidden."
   [_]
-  (let [v (h/sub [:red/painted])]
+  (let [v (rf.hicasso/sub [:red/painted])]
     (react/useEffect
       (fn []
         (swap! !activity-runs inc)
-        (reset! !activity-read (outcome (fn [] (h/sub [:red/escaped]))))
+        (reset! !activity-read (outcome (fn [] (rf.hicasso/sub [:red/escaped]))))
         js/undefined)
       #js [])
     [:p {:id "painted"} (str "painted=" v)]))
@@ -474,7 +474,7 @@
 
 (deftest a-read-deferred-into-a-react-effect-refuses
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM, so React commits nothing and no effect runs")
           (done))
       (let [_ (seeded!)
@@ -482,7 +482,7 @@
                   (reset! !layout-read nil)
                   (reset! !passive-read nil))
             handle (mount-concurrent!
-                     (mount/fresh-container!)
+                     (rf.hicasso.impl.mount/fresh-container!)
                      (app [:div [effect-deferring-line {}] [sibling-line {}]]))]
         ;; The poll condition is three premises at once: the tree
         ;; committed, the passive effect ran to completion PAST its refused
@@ -518,7 +518,7 @@
                           of the mount"
                   (is (zero? (readers-of [:red/escaped])))
                   (is (zero? (readers-of [:red/escaped-2])))
-                  (is (nil? (runtime/cell-reaction (sub-key [:red/escaped])))))
+                  (is (nil? (rf.hicasso.test.runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "while each body's own read is acquired exactly
                           once, and the runtime holds the two boundaries and
@@ -532,15 +532,15 @@
                 ;; and not about two queries that were broken anyway. The
                 ;; identical reads, inside a body's window, resolve to their
                 ;; values and record their edges.
-                (let [_     (collector/render-body
+                (let [_     (rf.hicasso.impl.collector/render-body
                               frame-id
-                              (fn [_] [:p (h/sub [:red/escaped])
-                                       (h/sub [:red/escaped-2])])
+                              (fn [_] [:p (rf.hicasso/sub [:red/escaped])
+                                       (rf.hicasso/sub [:red/escaped-2])])
                               {})
-                      entry (collector/last-reads)]
+                      entry (rf.hicasso.impl.collector/last-reads)]
                   (testing "the identical reads are legal in a window"
                     (is (= #{(sub-key [:red/escaped]) (sub-key [:red/escaped-2])}
-                           (runtime/reads-of entry)))))
+                           (rf.hicasso.test.runtime/reads-of entry)))))
 
                 (exercised! :effect/layout)
                 (exercised! :effect/passive)
@@ -554,14 +554,14 @@
 
 (deftest a-read-deferred-across-a-suspense-retry-refuses
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM, so nothing suspends and nothing retries")
           (done))
       (let [_      (seeded!)
             _      (arm-gate!)
-            before (runtime/body-runs)
+            before (rf.hicasso.test.runtime/body-runs)
             handle (mount-concurrent!
-                     (mount/fresh-container!)
+                     (rf.hicasso.impl.mount/fresh-container!)
                      (react/createElement
                        (.-Suspense react)
                        #js {:fallback (react/createElement
@@ -573,7 +573,7 @@
                 (testing "the premise: React RAN the body — it took its read
                           and then threw the thenable — and then threw the
                           attempt away"
-                  (is (pos? (- (runtime/body-runs) before)))
+                  (is (pos? (- (rf.hicasso.test.runtime/body-runs) before)))
                   (is (nil? (text-at handle "#painted"))))
 
                 (testing "and the abandoned attempt acquired nothing, so the
@@ -602,7 +602,7 @@
                 (testing "the refused key was not acquired by the retry that
                           followed it"
                   (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (runtime/cell-reaction (sub-key [:red/escaped])))))
+                  (is (nil? (rf.hicasso.test.runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "and the retry acquired exactly its own read set:
                           one reader per key, with no second registration
@@ -623,7 +623,7 @@
 
 (deftest a-read-deferred-across-an-activity-reveal-refuses
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM, so nothing is hidden and nothing is revealed")
           (done))
       (let [_ (seeded!)
@@ -631,7 +631,7 @@
                   (reset! !activity-read nil)
                   (reset! !set-visible nil))
             handle (mount-concurrent!
-                     (mount/fresh-container!)
+                     (rf.hicasso.impl.mount/fresh-container!)
                      (react/createElement
                        activity-host
                        #js {:child (app [:div
@@ -669,7 +669,7 @@
 
                 (testing "the refused key was not acquired at the reveal"
                   (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (runtime/cell-reaction (sub-key [:red/escaped])))))
+                  (is (nil? (rf.hicasso.test.runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "while each revealed boundary holds exactly its own
                           read, once. Measured: with one boundary here this
@@ -701,10 +701,10 @@
   ;; runtime's conduct.
   (seeded!)
   (let [!seen (atom nil)]
-    (collector/render-body
+    (rf.hicasso.impl.collector/render-body
       frame-id
       (fn [_]
-        (reset! !seen (outcome (fn [] (h/sub [:red/escaped]))))
+        (reset! !seen (outcome (fn [] (rf.hicasso/sub [:red/escaped]))))
         [:p "x"])
       {})
 
@@ -723,7 +723,7 @@
 
 (deftest the-declared-population-was-actually-exercised
   ;; Declared LAST so every row above has run.
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM, so no carrier is driven there")
     (is (= declared-population @!exercised)
         (str "every declared deferral carrier must be reached; missing: "

@@ -103,17 +103,17 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.conformance :as conformance]
+            [re-frame.conformance :as rf.conformance]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.flows :as flows]
-            [re-frame.flows.topo :as topo]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.topo :as rf.flows.topo]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- runtime reset --------------------------------------------------------
 ;;
@@ -141,12 +141,12 @@
 ;; `run-flows-conformance-corpus` to reset between the fixtures it iterates
 ;; inside a single deftest.
 (def ^:private reset-runtime-fixture
-  (let [standard (test-support/make-reset-runtime-fixture
-                   {:adapter       plain-atom/adapter
+  (let [standard (rf.test-support/make-reset-runtime-fixture
+                   {:adapter       rf.substrate.plain-atom/adapter
                     :ambient-frame nil})]
     (fn [test-fn]
       (standard (fn []
-                  (error-emit/clear-error-listeners!)
+                  (rf.error-emit/clear-error-listeners!)
                   (test-fn))))))
 
 (use-fixtures :each reset-runtime-fixture)
@@ -291,11 +291,11 @@
   to the frame's app-db via the substrate adapter and to the dispatch
   surface. Mirrors core's runner shape."
   []
-  {:read-db!  (fn [frame-id] (frame/frame-app-db-value frame-id))
+  {:read-db!  (fn [frame-id] (rf.frame/frame-app-db-value frame-id))
    ;; EP-0001: write the app-db PARTITION via swap-frame-db! — app-db-container
    ;; is a read-only projection over the one physical frame-state container.
    :write-db! (fn [frame-id new-db]
-                (frame/swap-frame-db! frame-id (constantly new-db)))
+                (rf.frame/swap-frame-db! frame-id (constantly new-db)))
    :dispatch! (fn [event frame-id] (rf/dispatch event {:frame frame-id}))})
 
 (defn- realise-event-sub-fx-handlers
@@ -317,7 +317,7 @@
         helpers       (adapter-helpers)]
     ;; ---- events --------------------------------------------------------
     (doseq [[id steps] (:event hmap)]
-      (let [[kind handler] (conformance/realise-event-handler steps)
+      (let [[kind handler] (rf.conformance/realise-event-handler steps)
             meta           (get event-meta id {})]
         (case kind
           ;; EP-0018 Slice Z: one public `reg-event` (cofx-in, effects-map-out).
@@ -333,14 +333,14 @@
                 (rf/reg-event id handler)))))
     ;; ---- subs ----------------------------------------------------------
     (doseq [[id steps] (:sub hmap)]
-      (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
+      (let [{:keys [kind inputs body]} (rf.conformance/realise-sub steps)
             meta                       (get sub-meta id {})]
         (case kind
           :layer-1 (if (seq meta) (rf/reg-sub id meta body) (rf/reg-sub id body))
           ;; Use the fn-form `subs/reg-sub` — the public `rf/reg-sub`
           ;; is a JVM macro (Spec 001 §Source-coordinate capture); a
           ;; macro var isn't `apply`-able.
-          :layer-2 (apply subs/reg-sub id
+          :layer-2 (apply rf.subs/reg-sub id
                           (concat (when (seq meta) [meta])
                                   (interleave (repeat :<-) inputs)
                                   [body])))))
@@ -356,7 +356,7 @@
       (doseq [id custom-ids]
         (let [body    (get fx-bodies id [[:noop]])
               meta    (get fx-registry id {})
-              handler (conformance/realise-fx-handler id body helpers)]
+              handler (rf.conformance/realise-fx-handler id body helpers)]
           (rf/reg-fx id (assoc meta :handler-fn handler) handler))))))
 
 (defn- realise-flows!
@@ -373,7 +373,7 @@
         flow-bodies   (or (:fixture/flow-bodies fixture) {})]
     (doseq [[flow-id flow-meta] flow-registry]
       (when-let [body (get flow-bodies flow-id)]
-        (let [output-fn (conformance/realise-flow-output-fn body)]
+        (let [output-fn (rf.conformance/realise-flow-output-fn body)]
           ;; rf2-bqstzr — the 3-slot grammar: `(reg-flow flow-id metadata
           ;; derive-fn)`. The fixture `flow-meta` carries the reflection keys
           ;; (`:inputs` / `:output-path` / …) as the metadata middle slot; the
@@ -387,7 +387,7 @@
   accumulates every captured trace event."
   [fixture-id]
   (let [traces (atom [])]
-    (trace/register-listener! [fixture-id]
+    (rf.trace/register-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
@@ -408,7 +408,7 @@
   returns the captured-records atom."
   [fixture-id]
   (let [records (atom [])]
-    (error-emit/register-error-listener!
+    (rf.error-emit/register-error-listener!
       [::flows-conformance fixture-id]
       (fn [r] (swap! records conj r)))
     records))
@@ -510,7 +510,7 @@
   flows. Fixtures that register on a non-default frame would extend
   this; today's flow-*.edn fixtures all target `:rf/default`."
   []
-  (let [registry (get (flows/flows-snapshot) :rf/default {})]
+  (let [registry (get (rf.flows/flows-snapshot) :rf/default {})]
     (into {}
           (for [[id flow] registry]
             [id (into #{}
@@ -519,7 +519,7 @@
                             ;; `topo/depends-on?` takes `(b-flow a-flow)`
                             ;; — "b depends on a". We want "this-flow
                             ;; depends on other-flow", so b=flow, a=other.
-                            :when (topo/depends-on? flow other-flow)]
+                            :when (rf.flows.topo/depends-on? flow other-flow)]
                         other-id))]))))
 
 (defn- flow-registry-ids
@@ -529,7 +529,7 @@
   fixtures (per Spec 013 §Frame-scoping)."
   ([] (flow-registry-ids :rf/default))
   ([frame-id]
-   (into #{} (keys (get (flows/flows-snapshot) frame-id {})))))
+   (into #{} (keys (get (rf.flows/flows-snapshot) frame-id {})))))
 
 (defn- last-inputs-frame-set
   "Per-flow set of frame-ids currently present in `last-inputs[flow-id]`.
@@ -537,7 +537,7 @@
   destroyed frame's row in every `last-inputs[flow-id]` MUST be dropped;
   the whole flow-id key drops when no other frame still holds an entry."
   [flow-id]
-  (into #{} (keys (get (flows/last-inputs-snapshot) flow-id {}))))
+  (into #{} (keys (get (rf.flows/last-inputs-snapshot) flow-id {}))))
 
 (defn- registrar-flow-slot-ids
   "The id set of the REAL `:flow` registrar slot, read from the authoritative
@@ -560,7 +560,7 @@
   `re-frame.flows-destroy-frame-teardown-test` reads the registrar the same way
   (`registrar/lookup :flow …`)."
   []
-  (registrar/ids :flow))
+  (rf.registrar/ids :flow))
 
 ;; ---- single-fixture execution -------------------------------------------
 
@@ -614,7 +614,7 @@
       ;; no-explicit-frame calls below. Multi-frame fixtures
       ;; pass explicit `{:frame …}` envelopes (the override), which win over
       ;; this ambient binding.
-      (binding [frame/*current-frame* :rf/default]
+      (binding [rf.frame/*current-frame* :rf/default]
        (realise-flows! fixture)
       ;; Dispatches may be:
       ;;   - a bare event vector (single-frame default)
@@ -630,7 +630,7 @@
           (map? ev)
           (cond
             (contains? ev :destroy-frame)
-            (frame/destroy-frame! (:destroy-frame ev))
+            (rf.frame/destroy-frame! (:destroy-frame ev))
 
             :else
             (let [{event :event :as opts} ev]
@@ -727,8 +727,8 @@
             expected-err     (:error-emit-records expect)
             err-failures     (when expected-err
                                (check-trace-stream @err-records expected-err))]
-        (trace/clear-listeners!)
-        (error-emit/clear-error-listeners!)
+        (rf.trace/clear-listeners!)
+        (rf.error-emit/clear-error-listeners!)
         {:fixture-id        fid
          :passed?           (and (or (nil? expected-db)  (submap? expected-db final-db))
                                  (or (nil? expected-dbs) (every? (fn [[fid db]] (submap? db (get final-dbs fid)))
@@ -940,7 +940,7 @@
     ;; and the pre-fix matcher could not observe.
     (reset-runtime-fixture
       (fn []
-        (registrar/register! :flow :rf.test/forbidden-registrar-row
+        (rf.registrar/register! :flow :rf.test/forbidden-registrar-row
                              {:doc "rf2-3neiv pollution control — teardown must not leave this behind"})
         (let [result (run-fixture destroy-fixture)]
           (is (not (:passed? result))

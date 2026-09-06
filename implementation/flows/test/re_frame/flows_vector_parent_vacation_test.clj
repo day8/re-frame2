@@ -16,12 +16,12 @@
   mirroring `re-frame.path/container-for`'s vector-index semantics."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; clear-flow vacates a vector-index output leaf (the repro).
@@ -37,7 +37,7 @@
     (is (= [10 20 30 99] (:cells (rf/app-db-value :rf/default)))
         "precondition: the flow wrote its derived value into vector index 3")
 
-    (flows/clear-flow :cell3)
+    (rf.flows/clear-flow :cell3)
     (let [cells (:cells (rf/app-db-value :rf/default))]
       (is (nil? (get cells 3))
           (str "index 3 was vacated (assoc'd nil) — the stranded derived value "
@@ -46,7 +46,7 @@
           "the sibling vector entries are untouched (no dissoc/shift)")
       (is (= 4 (count cells))
           "vacation is local: the vector keeps its length (nil at the index, not a shift)"))
-    (is (not (contains? (get (flows/flows-snapshot) :rf/default) :cell3))
+    (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :cell3))
         "the flow's registry row is gone")))
 
 ;; ---------------------------------------------------------------------------

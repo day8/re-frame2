@@ -30,11 +30,11 @@
             ["react-dom/client" :as react-dom-client]
             [uix.core :as uix :refer-macros [defui $]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.react-shared-suite :as suite]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.react-shared-suite :as rf.adapter.react-shared-suite]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; MAP-FORM fixture with `:async? true` (rf2-2rtt6.25): the provisional-horizon
 ;; assertions below are `(async done …)` tests, and cljs.test refuses to run an
@@ -44,8 +44,8 @@
 ;; `setTimeout 4` since rf2-2rtt6.71 — and nothing synchronous crosses it; the
 ;; suite's own settles wait PAST it (`settle-past-the-horizon!`).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter :async? true}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter :async? true}))
 
 ;; ---- side-channel atoms ----------------------------------------------------
 ;; Read by the UIx probe components below. The probes are defui top-levels
@@ -68,12 +68,12 @@
 
 (defui Probe []
   (let [target @refcount-target
-        v (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/n])]
+        v (rf.adapter.uix/use-subscribe target [:rf.uix-use-subscribe-test/n])]
     (swap! probe-observed conj v)
     ($ :div (str "n=" v))))
 
 (defui ProbeFrameProvider []
-  (let [v (uix-adapter/use-subscribe [:rf.uix-use-subscribe-test/k])]
+  (let [v (rf.adapter.uix/use-subscribe [:rf.uix-use-subscribe-test/k])]
     (swap! probe-frame-provider-observed conj v)
     ($ :div (str "k=" v))))
 
@@ -96,13 +96,13 @@
 (def ^:private ssr-slot-observed (atom nil))
 
 (defui ProbeSsrSlots []
-  (let [ctx adapter-context/frame-context]
+  (let [ctx rf.adapter.context/frame-context]
     (reset! ssr-slot-observed
             {:current-value  (.-_currentValue ^js ctx)
              :current-value2 (.-_currentValue2 ^js ctx)
              :use-context    (React/useContext ctx)
-             :reader         (adapter-context/function-component-current-frame)
-             :resolve        (frame/resolve-current-frame)})
+             :reader         (rf.adapter.context/function-component-current-frame)
+             :resolve        (rf.frame/resolve-current-frame)})
     ($ :div "slots")))
 
 ;; ---- use-frame probe (rf2-y6dz8t) ------------------------------------------
@@ -113,13 +113,13 @@
 (def ^:private use-frame-observed (atom []))
 
 (defui ProbeUseFrame []
-  (let [ops (uix-adapter/use-frame)]
+  (let [ops (rf.adapter.uix/use-frame)]
     (swap! use-frame-observed conj ops)
     ($ :div "uf")))
 
 (defui ProbeRefcount []
   (let [target @refcount-target
-        v (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/m])]
+        v (rf.adapter.uix/use-subscribe target [:rf.uix-use-subscribe-test/m])]
     ($ :div (str "m=" v))))
 
 ;; ---- Suspense abort-before-commit probes (rf2-es09qq) ---------------------
@@ -145,7 +145,7 @@
   ;; Render-phase use-subscribe acquisition happens HERE, before the
   ;; suspending child unwinds the subtree.
   (let [target @refcount-target
-        _v (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/m])]
+        _v (rf.adapter.uix/use-subscribe target [:rf.uix-use-subscribe-test/m])]
     ($ :div ($ ProbeSuspender))))
 
 (defn- uix-suspense-abort-element
@@ -170,13 +170,13 @@
 
 (defui ProbeSiblingA []
   (let [target @refcount-target
-        v (uix-adapter/use-subscribe target [:rf.uix-siblings/n])]
+        v (rf.adapter.uix/use-subscribe target [:rf.uix-siblings/n])]
     (swap! siblings-observed-a conj v)
     ($ :span (str "a=" v))))
 
 (defui ProbeSiblingB []
   (let [target @refcount-target
-        v (uix-adapter/use-subscribe target [:rf.uix-siblings/n])]
+        v (rf.adapter.uix/use-subscribe target [:rf.uix-siblings/n])]
     (swap! siblings-observed-b conj v)
     ($ :span (str " b=" v))))
 
@@ -186,12 +186,12 @@
 (def ^:private probe-2arg-b-observed (atom []))
 
 (defui Probe2ArgA []
-  (let [v (uix-adapter/use-subscribe :rf.uix-explicit-pin/tenant-a [:rf.uix-explicit-pin/n])]
+  (let [v (rf.adapter.uix/use-subscribe :rf.uix-explicit-pin/tenant-a [:rf.uix-explicit-pin/n])]
     (swap! probe-2arg-a-observed conj v)
     ($ :div (str "a=" v))))
 
 (defui Probe2ArgB []
-  (let [v (uix-adapter/use-subscribe :rf.uix-explicit-pin/tenant-b [:rf.uix-explicit-pin/n])]
+  (let [v (rf.adapter.uix/use-subscribe :rf.uix-explicit-pin/tenant-b [:rf.uix-explicit-pin/n])]
     (swap! probe-2arg-b-observed conj v)
     ($ :div (str "b=" v))))
 
@@ -204,7 +204,7 @@
 ;; forced re-renders from outside.
 
 (defui ProbeStableDepsChild []
-  (let [v (uix-adapter/use-subscribe :rf.uix-stable-deps/probe-frame [:rf.uix-stable-deps/p])]
+  (let [v (rf.adapter.uix/use-subscribe :rf.uix-stable-deps/probe-frame [:rf.uix-stable-deps/p])]
     ($ :div (str "p=" v))))
 
 (defui ProbeStableDepsParent []
@@ -228,7 +228,7 @@
 (defui ProbeKeyChangeChild []
   (let [fr @key-change-frame
         qv @key-change-query
-        v  (uix-adapter/use-subscribe fr qv)]
+        v  (rf.adapter.uix/use-subscribe fr qv)]
     (swap! key-change-observed conj v)
     ($ :div (str "v=" v))))
 
@@ -257,7 +257,7 @@
 (def ^:private gap-observed     (atom []))
 
 (defui ProbeGapSubscriber []
-  (let [v (uix-adapter/use-subscribe @refcount-target [:rf.uix-gap/n])]
+  (let [v (rf.adapter.uix/use-subscribe @refcount-target [:rf.uix-gap/n])]
     (swap! gap-observed conj v)
     ($ :div (str "g=" v))))
 
@@ -303,7 +303,7 @@
   ;; subscribe. That ordering, not a timer, is what makes the suite's snapshot
   ;; of the numbers deterministic.
   (let [target @refcount-target
-        v      (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/m])]
+        v      (rf.adapter.uix/use-subscribe target [:rf.uix-use-subscribe-test/m])]
     (uix/use-effect
       (fn [] (when-let [f @pm-on-commit] (f)) js/undefined)
       [])
@@ -328,14 +328,14 @@
 ;; ---- cfg + forwarded deftests ---------------------------------------------
 
 (def ^:private cfg
-  {:adapter               uix-adapter/adapter
+  {:adapter               rf.adapter.uix/adapter
    :name                  "UIx"
    ;; rf2-z7hfp / rf2-7kii2 — mount the NATIVE frame-provider component via
    ;; UIx's `$` using the idiomatic TRAILING-CHILDREN shape (no `:children`
    ;; prop-map key), not a direct CLJS-fn invocation.
    :frame-provider-mount-element
    (fn [frame-kw child-el]
-     ($ uix-adapter/frame-provider {:frame frame-kw} child-el))
+     ($ rf.adapter.uix/frame-provider {:frame frame-kw} child-el))
    ;; tracks-app-db
    :probe-element         (fn [] (uix/$ Probe))
    :probe-observed        probe-observed
@@ -451,88 +451,88 @@
    :fr-query              :rf.uix-use-subscribe-test/n})
 
 (deftest use-subscribe-tracks-app-db-changes
-  (suite/assert-use-subscribe-tracks-app-db-changes cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-tracks-app-db-changes cfg))
 
 (deftest use-subscribe-frame-provider-resolution
-  (suite/assert-use-subscribe-frame-provider-resolution cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-frame-provider-resolution cfg))
 
 (deftest use-subscribe-ambient-under-ssr
-  (suite/assert-use-subscribe-ambient-under-ssr cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-ambient-under-ssr cfg))
 
 (deftest use-subscribe-2-arg-pins-explicit-frame
-  (suite/assert-use-subscribe-2-arg-pins-explicit-frame cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-2-arg-pins-explicit-frame cfg))
 
 ;; rf2-y6dz8t — use-frame returns EXACTLY the capture-frame ops map for the
 ;; ambient provider frame: shape, provider resolution, dispatch lock, and
 ;; reference stability across re-renders.
 (deftest use-frame-capture-frame-in-hook-position
-  (suite/assert-use-frame-capture-frame-in-hook-position cfg))
+  (rf.adapter.react-shared-suite/assert-use-frame-capture-frame-in-hook-position cfg))
 
 ;; rf2-40kv — the same memo across a same-id REINCARNATION. The row above
 ;; pins that a re-render returns the identical map; this one pins what that
 ;; memo is keyed on, because a frame keyword is `=` across a destroy +
 ;; same-id create and the bundle is pinned to an incarnation.
 (deftest use-frame-retargets-across-a-same-id-reincarnation
-  (suite/assert-use-frame-retargets-across-a-same-id-reincarnation cfg))
+  (rf.adapter.react-shared-suite/assert-use-frame-retargets-across-a-same-id-reincarnation cfg))
 
 ;; rf2-4mi2zj — 1-arg full frame-resolution chain (the bug: spine fed the
 ;; raw use-context read into the explicit 2-arg path, bypassing the chain).
 (deftest use-subscribe-provider-tier-resolution-ambient-cleared
-  (suite/assert-use-subscribe-provider-tier-resolution-ambient-cleared cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-provider-tier-resolution-ambient-cleared cfg))
 
 (deftest use-subscribe-dynamic-var-precedence-over-provider
-  (suite/assert-use-subscribe-dynamic-var-precedence-over-provider cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-dynamic-var-precedence-over-provider cfg))
 
 (deftest use-subscribe-no-provider-no-dynamic-raises-no-frame-context
-  (suite/assert-use-subscribe-no-provider-no-dynamic-raises-no-frame-context cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-no-provider-no-dynamic-raises-no-frame-context cfg))
 
 (deftest use-subscribe-cleanup-decrements-sub-cache-refcount
-  (suite/assert-use-subscribe-cleanup-decrements-refcount cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-cleanup-decrements-refcount cfg))
 
 ;; rf2-e4pyb — two sibling components subscribing to the SAME cached
 ;; reaction must BOTH receive invalidation after one dispatch (the
 ;; hash-of-reaction watch key let the last-mounted sibling overwrite the
 ;; earlier one's useSyncExternalStore callback → stale UI).
 (deftest use-subscribe-siblings-same-query-both-invalidate
-  (suite/assert-use-subscribe-siblings-same-query-both-invalidate cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-siblings-same-query-both-invalidate cfg))
 
 ;; rf2-nymuy — StrictMode double-mount: the refcount/disposal dance under
 ;; React's default-dev double-invoke (the riskiest seam, previously
 ;; untested). Reuses the refcount-probe cfg surface.
 (deftest use-subscribe-strictmode-double-mount-refcount-balances
-  (suite/assert-use-subscribe-strictmode-double-mount-refcount-balances cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-strictmode-double-mount-refcount-balances cfg))
 
 ;; rf2-8u8tx.2 — a useMemo factory re-run on unchanged deps (React's
 ;; documented perf-opt discard) must not leak a sub-cache ref-count.
 (deftest use-subscribe-memo-recompute-no-refcount-leak
-  (suite/assert-use-subscribe-memo-recompute-no-refcount-leak cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-memo-recompute-no-refcount-leak cfg))
 
 ;; rf2-879fe — an abandoned/restarted render that ran use-subscribe before
 ;; commit must leave no pinned sub-cache ref-count.
 (deftest use-subscribe-abandoned-render-no-refcount-leak
-  (suite/assert-use-subscribe-abandoned-render-no-refcount-leak cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-abandoned-render-no-refcount-leak cfg))
 
 ;; rf2-es09qq — a first-mount render aborted BEFORE commit via Suspense must
 ;; leak no sub-cache ref-count (the real abort-before-commit path the rf2-879fe
 ;; ledger could not reach — React discards the never-committed fiber).
 (deftest use-subscribe-suspense-abort-before-commit-no-refcount-leak
-  (suite/assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak cfg))
 
 (deftest use-subscribe-stable-deps-key
-  (suite/assert-use-subscribe-stable-deps-key cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-stable-deps-key cfg))
 
 ;; rf2-sqhjtu — getSnapshot must deref the durable COMMITTED reaction, not the
 ;; disposed render-phase handle (the React useSyncExternalStore disposed-
 ;; reaction hazard). Object-identity proof; reuses the refcount-probe surface.
 (deftest use-subscribe-getsnapshot-tracks-committed-reaction
-  (suite/assert-use-subscribe-getsnapshot-tracks-committed-reaction cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-getsnapshot-tracks-committed-reaction cfg))
 
 ;; rf2-2rtt6.13 — the disposed render-phase reaction must be unreachable: every
 ;; deref the spine performs hits the sub-cache's CURRENT tenant, and the cold
 ;; mount itself shows a deref of the committed reaction (React's post-subscribe
 ;; getSnapshot call, which is what still catches a render→commit write).
 (deftest use-subscribe-render-phase-reaction-not-retained
-  (suite/assert-use-subscribe-render-phase-reaction-not-retained cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-render-phase-reaction-not-retained cfg))
 
 ;; rf2-2rtt6.13 (merged-PR audit of #7304) — a write landing in the
 ;; render→commit gap, observed AT THE FIRST COMMIT (layout-visible, i.e.
@@ -542,7 +542,7 @@
 ;; REPORT the movement, so React discards the torn render instead of painting
 ;; state the app-db has already revoked.
 (deftest use-subscribe-render-to-commit-window-first-commit
-  (suite/assert-use-subscribe-render-to-commit-window-first-commit cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-render-to-commit-window-first-commit cfg))
 
 ;; rf2-2rtt6.25 — the hook-scoped provisional hand-off. A cold mount's commit
 ;; ADOPTS the reaction its render built (one construction, not two); the reaper
@@ -550,7 +550,7 @@
 ;; abandoned layer-2 cold render releases parent AND inputs at the horizon; and
 ;; a server render, which never commits at all, nets zero there too.
 (deftest use-subscribe-commit-adopts-the-render-phase-reaction
-  (suite/assert-use-subscribe-commit-adopts-the-render-phase-reaction cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-commit-adopts-the-render-phase-reaction cfg))
 
 ;; rf2-2rtt6.25 (merged-PR audit of #7305) — the same two integers, on the
 ;; PUBLIC mount schedule: `re-frame.substrate.adapter/render`, no act, no
@@ -565,16 +565,16 @@
 ;; pre-commit consistency check runs in the render's own task, before any
 ;; macrotask can reap.
 (deftest use-subscribe-browser-runner-schedule-rebuilds
-  (suite/assert-use-subscribe-browser-runner-schedule-rebuilds cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-browser-runner-schedule-rebuilds cfg))
 
 (deftest use-subscribe-escrow-leg-answers-on-the-public-mount-schedule
-  (suite/assert-use-subscribe-escrow-leg-answers-on-the-public-mount-schedule cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-escrow-leg-answers-on-the-public-mount-schedule cfg))
 
 (deftest use-subscribe-adopted-provisional-reaper-is-a-noop
-  (suite/assert-use-subscribe-adopted-provisional-reaper-is-a-noop cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-adopted-provisional-reaper-is-a-noop cfg))
 
 (deftest use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
-  (suite/assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon cfg))
 
 ;; rf2-2rtt6.25 (merged-PR audit of #7326) — the adversarial row, and the reason
 ;; the ruled horizon is a performance bet and never a correctness one. A
@@ -584,34 +584,34 @@
 ;; — so whichever way the race turns, what changes is a construction and never
 ;; a stale paint.
 (deftest use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount
-  (suite/assert-use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount cfg))
 
 (deftest use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon
-  (suite/assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon cfg))
 
 ;; rf2-naz09e — a query-v / frame change on a MOUNTED component must render the
 ;; NEW target's value on the change-commit (parity with Reagent's in-render
 ;; recompute), never the previous target's. Value + object-identity proof, plus
 ;; a stable-key control (no over-invalidation).
 (deftest use-subscribe-key-change-serves-new-target
-  (suite/assert-use-subscribe-key-change-serves-new-target cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-key-change-serves-new-target cfg))
 
 ;; rf2-40a84 — flush-render! synchronously commits a pending render (the
 ;; proof the pair-MCP headless dispatch→render loop depends on).
 (deftest flush-render-synchronously-commits
-  (suite/assert-flush-render-synchronously-commits cfg))
+  (rf.adapter.react-shared-suite/assert-flush-render-synchronously-commits cfg))
 
 ;; rf2-gizlj — lock the rf2-cmfln 2-arity contract at the spine cleanup
 ;; call site (regression: the 3-arity grace-opts shape sneaking back in
 ;; would break sync-dispose silently).
 (deftest use-subscribe-cleanup-calls-unsubscribe-with-2-args
-  (suite/assert-use-subscribe-cleanup-calls-unsubscribe-with-2-args cfg))
+  (rf.adapter.react-shared-suite/assert-use-subscribe-cleanup-calls-unsubscribe-with-2-args cfg))
 
 ;; rf2-te71r — :rf.view/unmounted parity for the React-hook spine. The
 ;; probe view + element are built in the suite (raw React/createElement),
 ;; so this forwards on :substrate-kw alone (no substrate `defui`/`$`).
 (deftest view-unmount-emits-on-react-hook-teardown
-  (suite/assert-view-unmount-emits-on-react-hook-teardown
+  (rf.adapter.react-shared-suite/assert-view-unmount-emits-on-react-hook-teardown
     {:substrate-kw :uix :name "UIx"}))
 
 ;; rf2-ghfkkk — a registered view returning a VOID DOM root (<input>) mounts
@@ -619,7 +619,7 @@
 ;; exactly one :rf.view/unmounted (the unmount sentinel rides as a Fragment
 ;; sibling, not a child of the void element). Probe built in the suite.
 (deftest void-root-view-unmount-no-warning
-  (suite/assert-void-root-view-unmount-no-warning
+  (rf.adapter.react-shared-suite/assert-void-root-view-unmount-no-warning
     {:substrate-kw :uix :name "UIx"}))
 
 ;; ---- regression: frame-provider under the idiomatic `$` trailing-children shape (rf2-8svnm / rf2-z7hfp / rf2-7kii2) -
@@ -672,7 +672,7 @@
             ;; resolves via the React-context (provider) tier rather than
             ;; reading the shadowing :rf/default frame. See the suite's
             ;; assert-use-subscribe-frame-provider-resolution masking note.
-            (binding [frame/*current-frame* nil]
+            (binding [rf.frame/*current-frame* nil]
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (reset! probe-frame-provider-observed [])
               (rf/make-frame {:id frame-kw :doc "rf2-7kii2 trailing-children frame-provider probe"})
@@ -688,7 +688,7 @@
                       ;; children (no `:children` key), flowing through UIx's
                       ;; `$` → `glue-args` → the native `defui` shell.
                       (.render root
-                        ($ uix-adapter/frame-provider
+                        ($ rf.adapter.uix/frame-provider
                            {:frame frame-kw}
                            ($ ProbeFrameProvider)
                            ($ ProbeFrameProvider)))))

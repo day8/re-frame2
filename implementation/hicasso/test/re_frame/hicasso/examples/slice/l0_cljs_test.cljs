@@ -20,25 +20,25 @@
   interceptor chain has run — a test that called the handler function by
   hand would be green for a registration that never happened."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.slice.db :as db]
-            [re-frame.hicasso.examples.slice.events :as events]
-            [re-frame.hicasso.examples.slice.i18n :as i18n]
-            [re-frame.hicasso.examples.slice.routes :as routes]
-            [re-frame.hicasso.examples.slice.subs :as subs]
-            [re-frame.routing :as routing]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]
+            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
+            [re-frame.hicasso.examples.slice.i18n :as rf.hicasso.examples.slice.i18n]
+            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
+            [re-frame.hicasso.examples.slice.subs :as rf.hicasso.examples.slice.subs]
+            [re-frame.routing :as rf.routing]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; The reset restores the registrar to a baseline captured when this
      ;; form was EVALUATED, which is before `routes` finished loading — so
      ;; the URL rows below would meet an empty route registry. See that
      ;; namespace on why `register!` is exposed at all.
-     :init-fn       (fn [] (routes/register!))}))
+     :init-fn       (fn [] (rf.hicasso.examples.slice.routes/register!))}))
 
 (defn- with-app
   "Run `f` against a fresh frame seeded with the slice's own starting
@@ -47,7 +47,7 @@
   The seed is `[::events/seed]` rather than `[:rf/set-db db/seed]` so the
   rows below exercise the handler the application actually boots with."
   [f]
-  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[::events/seed]]})]
+  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[::rf.hicasso.examples.slice.events/seed]]})]
     (f frame)))
 
 (defn- read-sub
@@ -66,31 +66,31 @@
     (is (= {:title "Intents are data"
             :body  "A click carries a vector, and two renders are equal."
             :published? true}
-           (db/draft-for db/seed "intents")))
-    (is (false? (db/dirty? db/seed "intents"))
+           (rf.hicasso.examples.slice.db/draft-for rf.hicasso.examples.slice.db/seed "intents")))
+    (is (false? (rf.hicasso.examples.slice.db/dirty? rf.hicasso.examples.slice.db/seed "intents"))
         "reading the article is not editing it"))
 
   (testing "a slug the URL invented has no draft and no article"
-    (is (nil? (db/draft-for db/seed "nonsense")))
-    (is (nil? (db/article db/seed "nonsense")))))
+    (is (nil? (rf.hicasso.examples.slice.db/draft-for rf.hicasso.examples.slice.db/seed "nonsense")))
+    (is (nil? (rf.hicasso.examples.slice.db/article rf.hicasso.examples.slice.db/seed "nonsense")))))
 
 (deftest the-feed-takes-its-order-from-order
   (is (= ["hicasso" "intents" "controls" "keys" "boundaries" "revision" "pages"]
-         (mapv :slug (db/listed db/seed))))
+         (mapv :slug (rf.hicasso.examples.slice.db/listed rf.hicasso.examples.slice.db/seed))))
   (testing "an article missing from :articles is skipped rather than nil-padded"
-    (is (= ["intents"] (mapv :slug (db/listed (assoc db/seed :order ["gone" "intents"])))))))
+    (is (= ["intents"] (mapv :slug (rf.hicasso.examples.slice.db/listed (assoc rf.hicasso.examples.slice.db/seed :order ["gone" "intents"])))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination — arithmetic, and a page number nobody may trust
 ;; ---------------------------------------------------------------------------
 
-(def ^:private slugs (mapv :slug (db/listed db/seed)))
+(def ^:private slugs (mapv :slug (rf.hicasso.examples.slice.db/listed rf.hicasso.examples.slice.db/seed)))
 
-(defn- page-slugs [n] (mapv :slug (db/page-rows (db/listed db/seed) n)))
+(defn- page-slugs [n] (mapv :slug (rf.hicasso.examples.slice.db/page-rows (rf.hicasso.examples.slice.db/listed rf.hicasso.examples.slice.db/seed) n)))
 
 (deftest pages-are-cut-from-the-order-and-the-last-one-is-short
   (is (= 7 (count slugs)) "the seed's roster, which the sizes below are read against")
-  (is (= 3 (db/page-count (db/listed db/seed)))
+  (is (= 3 (rf.hicasso.examples.slice.db/page-count (rf.hicasso.examples.slice.db/listed rf.hicasso.examples.slice.db/seed)))
       "seven articles at a page size of three")
   (is (= ["hicasso" "intents" "controls"] (page-slugs 1)))
   (is (= ["keys" "boundaries" "revision"] (page-slugs 2)))
@@ -102,22 +102,22 @@
        none is on none"))
 
 (deftest an-empty-feed-is-one-empty-page-rather-than-zero-pages
-  (let [empty-db (assoc db/seed :order [])]
-    (is (= 1 (db/page-count (db/listed empty-db)))
+  (let [empty-db (assoc rf.hicasso.examples.slice.db/seed :order [])]
+    (is (= 1 (rf.hicasso.examples.slice.db/page-count (rf.hicasso.examples.slice.db/listed empty-db)))
         "zero pages would make `page 1` a question with no answer, and the
          pager would have no number to call the page the user is on")
-    (is (= [] (db/page-rows (db/listed empty-db) 1)))))
+    (is (= [] (rf.hicasso.examples.slice.db/page-rows (rf.hicasso.examples.slice.db/listed empty-db) 1)))))
 
 (deftest a-page-number-off-the-url-is-clamped-rather-than-trusted
-  (let [rows (db/listed db/seed)]
-    (is (= 1 (db/clamp-page rows nil)) "no ?page= at all is the first page")
-    (is (= 1 (db/clamp-page rows 1)))
-    (is (= 3 (db/clamp-page rows 3)))
+  (let [rows (rf.hicasso.examples.slice.db/listed rf.hicasso.examples.slice.db/seed)]
+    (is (= 1 (rf.hicasso.examples.slice.db/clamp-page rows nil)) "no ?page= at all is the first page")
+    (is (= 1 (rf.hicasso.examples.slice.db/clamp-page rows 1)))
+    (is (= 3 (rf.hicasso.examples.slice.db/clamp-page rows 3)))
     (testing "a number outside the range is a PAGE, not an error — a URL is
               user input and `/slice?page=900` is something anybody can type"
-      (is (= 1 (db/clamp-page rows 0)))
-      (is (= 1 (db/clamp-page rows -3)))
-      (is (= 3 (db/clamp-page rows 900)))
+      (is (= 1 (rf.hicasso.examples.slice.db/clamp-page rows 0)))
+      (is (= 1 (rf.hicasso.examples.slice.db/clamp-page rows -3)))
+      (is (= 3 (rf.hicasso.examples.slice.db/clamp-page rows 900)))
       (is (= ["pages"] (page-slugs 900))
           "and the rows follow the clamp, so the page renders the nearest
            thing that exists rather than nothing at all"))))
@@ -135,11 +135,11 @@
   ;; navigation event of the application's own is involved, and there is
   ;; none in this slice to involve.
   (testing "the pager's own destination becomes a URL that carries the page"
-    (is (= "/slice?page=2" (routing/route-url {:to routes/feed :query {:page 2}}))))
+    (is (= "/slice?page=2" (rf.routing/route-url {:to rf.hicasso.examples.slice.routes/feed :query {:page 2}}))))
 
   (testing "and the URL comes back as the same page, as a NUMBER"
-    (let [match (routing/match-url "/slice?page=2")]
-      (is (= routes/feed (:route-id match)))
+    (let [match (rf.routing/match-url "/slice?page=2")]
+      (is (= rf.hicasso.examples.slice.routes/feed (:route-id match)))
       (is (= {:page 2} (:query match))
           "`:int` coercion is what makes this a 2 rather than a \"2\" — the
            subscription that reads it does arithmetic, and a string would
@@ -147,31 +147,31 @@
 
   (testing "a bare /slice is page one, because :query-defaults says so
             rather than because a view remembered to"
-    (is (= {:page 1} (:query (routing/match-url "/slice")))))
+    (is (= {:page 1} (:query (rf.routing/match-url "/slice")))))
 
   (testing "the article route is untouched by any of it"
-    (is (= routes/article (:route-id (routing/match-url "/slice/article/intents"))))))
+    (is (= rf.hicasso.examples.slice.routes/article (:route-id (rf.routing/match-url "/slice/article/intents"))))))
 
 (deftest validation-answers-keywords-in-a-stable-order
-  (is (= [] (db/problems {:title "t" :body "b"})))
-  (is (= [:problem/title-blank] (db/problems {:title "  " :body "b"})))
-  (is (= [:problem/body-blank] (db/problems {:title "t" :body nil})))
-  (is (= [:problem/title-blank :problem/body-blank] (db/problems {}))
+  (is (= [] (rf.hicasso.examples.slice.db/problems {:title "t" :body "b"})))
+  (is (= [:problem/title-blank] (rf.hicasso.examples.slice.db/problems {:title "  " :body "b"})))
+  (is (= [:problem/body-blank] (rf.hicasso.examples.slice.db/problems {:title "t" :body nil})))
+  (is (= [:problem/title-blank :problem/body-blank] (rf.hicasso.examples.slice.db/problems {}))
       "title first, always — the editor shows the first problem and a set
        would make which one it shows depend on hashing"))
 
 (deftest a-title-is-taken-only-by-another-article
-  (is (true? (db/title-taken? db/seed "controls" "Intents are data")))
-  (is (false? (db/title-taken? db/seed "intents" "Intents are data"))
+  (is (true? (rf.hicasso.examples.slice.db/title-taken? rf.hicasso.examples.slice.db/seed "controls" "Intents are data")))
+  (is (false? (rf.hicasso.examples.slice.db/title-taken? rf.hicasso.examples.slice.db/seed "intents" "Intents are data"))
       "an article does not collide with itself, or no article could ever
        be saved without renaming it")
-  (is (true? (db/title-taken? db/seed "controls" "  intents ARE data  "))
+  (is (true? (rf.hicasso.examples.slice.db/title-taken? rf.hicasso.examples.slice.db/seed "controls" "  intents ARE data  "))
       "case and surrounding space are not what makes two titles different"))
 
 (deftest commit-folds-the-draft-and-clears-it
-  (let [db' (db/commit db/seed "intents" {:title "Renamed" :body "New body" :published? false})]
-    (is (= "Renamed" (:title (db/article db' "intents"))))
-    (is (false? (db/dirty? db' "intents")))
+  (let [db' (rf.hicasso.examples.slice.db/commit rf.hicasso.examples.slice.db/seed "intents" {:title "Renamed" :body "New body" :published? false})]
+    (is (= "Renamed" (:title (rf.hicasso.examples.slice.db/article db' "intents"))))
+    (is (false? (rf.hicasso.examples.slice.db/dirty? db' "intents")))
     (is (= #{:articles :order :drafts :save :digest :locale :theme}
            (set (keys db')))
         "a commit moves two keys and mints none — in particular no
@@ -183,23 +183,23 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-missing-translation-shows-itself
-  (is (= "Articles" (i18n/t :en :feed/heading)))
-  (is (= "Rien de publié pour l'instant." (i18n/t :fr :feed/empty)))
-  (is (= "‹feed/heading›" (i18n/t :de :feed/heading))
+  (is (= "Articles" (rf.hicasso.examples.slice.i18n/t :en :feed/heading)))
+  (is (= "Rien de publié pour l'instant." (rf.hicasso.examples.slice.i18n/t :fr :feed/empty)))
+  (is (= "‹feed/heading›" (rf.hicasso.examples.slice.i18n/t :de :feed/heading))
       "an unknown locale answers the sentinel rather than falling back to
        English, because a silent fallback makes a hole and a translation
        look identical on screen and in a test")
-  (is (= "‹app/nonexistent›" (i18n/t :en :app/nonexistent))))
+  (is (= "‹app/nonexistent›" (rf.hicasso.examples.slice.i18n/t :en :app/nonexistent))))
 
 (deftest every-locale-carries-every-key
-  (let [ks (set (keys (:en i18n/strings)))]
-    (doseq [locale i18n/locales]
-      (is (= ks (set (keys (get i18n/strings locale))))
+  (let [ks (set (keys (:en rf.hicasso.examples.slice.i18n/strings)))]
+    (doseq [locale rf.hicasso.examples.slice.i18n/locales]
+      (is (= ks (set (keys (get rf.hicasso.examples.slice.i18n/strings locale))))
           (str "locale " locale " and :en disagree about which strings exist")))))
 
 (deftest every-theme-carries-every-token
-  (let [ks (set (keys (:light i18n/themes)))]
-    (doseq [[theme tokens] i18n/themes]
+  (let [ks (set (keys (:light rf.hicasso.examples.slice.i18n/themes)))]
+    (doseq [[theme tokens] rf.hicasso.examples.slice.i18n/themes]
       (is (= ks (set (keys tokens)))
           (str "theme " theme " and :light disagree about which tokens exist")))))
 
@@ -210,49 +210,49 @@
 (deftest the-first-keystroke-edits-on-top-of-the-article
   (with-app
     (fn [frame]
-      (rf/dispatch-sync [::events/edit "intents" :title "Intents, revisited"] {:frame frame})
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/edit "intents" :title "Intents, revisited"] {:frame frame})
       (is (= {:title "Intents, revisited"
               :body  "A click carries a vector, and two renders are equal."
               :published? true}
-             (read-sub frame [::subs/draft "intents"]))
+             (read-sub frame [::rf.hicasso.examples.slice.subs/draft "intents"]))
           "the body and the published flag survive an edit that named
            neither — without db/draft-for underneath, the first character
            would land in an empty map and blank them")
-      (is (true? (read-sub frame [::subs/dirty? "intents"]))))))
+      (is (true? (read-sub frame [::rf.hicasso.examples.slice.subs/dirty? "intents"]))))))
 
 (deftest discarding-restores-the-article
   (with-app
     (fn [frame]
-      (rf/dispatch-sync [::events/edit "intents" :title "typed"] {:frame frame})
-      (is (true? (read-sub frame [::subs/dirty? "intents"])))
-      (rf/dispatch-sync [::events/discard {:slug "intents"}] {:frame frame})
-      (is (= "Intents are data" (:title (read-sub frame [::subs/draft "intents"])))
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/edit "intents" :title "typed"] {:frame frame})
+      (is (true? (read-sub frame [::rf.hicasso.examples.slice.subs/dirty? "intents"])))
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/discard {:slug "intents"}] {:frame frame})
+      (is (= "Intents are data" (:title (read-sub frame [::rf.hicasso.examples.slice.subs/draft "intents"])))
           "the MODEL moved, which is the whole of the reset here — the
            counter this handler used to bump beside it was measured inert
            and removed (rf2-36bd)")
-      (is (false? (read-sub frame [::subs/dirty? "intents"]))))))
+      (is (false? (read-sub frame [::rf.hicasso.examples.slice.subs/dirty? "intents"]))))))
 
 (deftest a-local-problem-never-reaches-the-server
   (with-app
     (fn [frame]
-      (rf/dispatch-sync [::events/edit "intents" :title "   "] {:frame frame})
-      (rf/dispatch-sync [::events/save {:slug "intents"}] {:frame frame})
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/edit "intents" :title "   "] {:frame frame})
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/save {:slug "intents"}] {:frame frame})
       (is (= {:status :failed :problem :problem/title-blank}
-             (read-sub frame [::subs/save-state "intents"]))
+             (read-sub frame [::rf.hicasso.examples.slice.subs/save-state "intents"]))
           "no request is made, so the status goes straight to :failed —
            there is nothing in flight and nothing that can arrive late")
-      (is (true? (read-sub frame [::subs/dirty? "intents"]))
+      (is (true? (read-sub frame [::rf.hicasso.examples.slice.subs/dirty? "intents"]))
           "a refused save keeps the draft; losing what the user typed
            because it was invalid is the cruellest form of validation"))))
 
 (deftest a-save-that-passes-validation-goes-in-flight
   (with-app
     (fn [frame]
-      (rf/dispatch-sync [::events/edit "intents" :title "Fine"] {:frame frame})
-      (rf/dispatch-sync [::events/save {:slug "intents"}] {:frame frame})
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/edit "intents" :title "Fine"] {:frame frame})
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/save {:slug "intents"}] {:frame frame})
       (is (= {:status :saving :problem nil}
-             (read-sub frame [::subs/save-state "intents"])))
-      (is (true? (read-sub frame [::subs/dirty? "intents"]))
+             (read-sub frame [::rf.hicasso.examples.slice.subs/save-state "intents"])))
+      (is (true? (read-sub frame [::rf.hicasso.examples.slice.subs/dirty? "intents"]))
           "the draft is kept until the reply lands, so a failure has
            something to fail back to"))))
 
@@ -260,36 +260,36 @@
   (testing "a reply for the article this frame is saving is folded in"
     (with-app
       (fn [frame]
-        (rf/dispatch-sync [::events/edit "intents" :title "Fine"] {:frame frame})
-        (rf/dispatch-sync [::events/save {:slug "intents"}] {:frame frame})
-        (rf/dispatch-sync [::events/saved {:slug "intents" :draft {:title "Fine"}}]
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/edit "intents" :title "Fine"] {:frame frame})
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/save {:slug "intents"}] {:frame frame})
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/saved {:slug "intents" :draft {:title "Fine"}}]
                           {:frame frame})
-        (is (= "Fine" (:title (db/article (app-db-of frame) "intents"))))
-        (is (= :saved (:status (read-sub frame [::subs/save-state "intents"])))))))
+        (is (= "Fine" (:title (rf.hicasso.examples.slice.db/article (app-db-of frame) "intents"))))
+        (is (= :saved (:status (read-sub frame [::rf.hicasso.examples.slice.subs/save-state "intents"])))))))
 
   (testing "a reply for an article it is no longer saving is DROPPED"
     (with-app
       (fn [frame]
-        (rf/dispatch-sync [::events/edit "intents" :title "Fine"] {:frame frame})
-        (rf/dispatch-sync [::events/save {:slug "intents"}] {:frame frame})
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/edit "intents" :title "Fine"] {:frame frame})
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/save {:slug "intents"}] {:frame frame})
         ;; The user moved on and started saving a different article.
-        (rf/dispatch-sync [::events/edit "controls" :title "Also fine"] {:frame frame})
-        (rf/dispatch-sync [::events/save {:slug "controls"}] {:frame frame})
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/edit "controls" :title "Also fine"] {:frame frame})
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/save {:slug "controls"}] {:frame frame})
         ;; …and now the first request's reply lands.
-        (rf/dispatch-sync [::events/saved {:slug "intents" :draft {:title "Fine"}}]
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/saved {:slug "intents" :draft {:title "Fine"}}]
                           {:frame frame})
-        (is (= "Intents are data" (:title (db/article (app-db-of frame) "intents")))
+        (is (= "Intents are data" (:title (rf.hicasso.examples.slice.db/article (app-db-of frame) "intents")))
             "the stale reply moved nothing")
-        (is (= :saving (:status (read-sub frame [::subs/save-state "controls"])))
+        (is (= :saving (:status (read-sub frame [::rf.hicasso.examples.slice.subs/save-state "controls"])))
             "and did not disturb the save that is actually in flight")))))
 
 (deftest the-save-region-is-projected-per-article
   (with-app
     (fn [frame]
-      (rf/dispatch-sync [::events/edit "intents" :title "Fine"] {:frame frame})
-      (rf/dispatch-sync [::events/save {:slug "intents"}] {:frame frame})
-      (is (= {:status :saving :problem nil} (read-sub frame [::subs/save-state "intents"])))
-      (is (= {:status :idle :problem nil} (read-sub frame [::subs/save-state "controls"]))
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/edit "intents" :title "Fine"] {:frame frame})
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/save {:slug "intents"}] {:frame frame})
+      (is (= {:status :saving :problem nil} (read-sub frame [::rf.hicasso.examples.slice.subs/save-state "intents"])))
+      (is (= {:status :idle :problem nil} (read-sub frame [::rf.hicasso.examples.slice.subs/save-state "controls"]))
           "the projection is what keeps the stale-reply rule out of the
            view: an editor asks one question, not two"))))
 
@@ -300,18 +300,18 @@
 (deftest switching-the-locale-moves-every-string
   (with-app
     (fn [frame]
-      (is (= "Articles" (read-sub frame [::subs/t :feed/heading])))
-      (rf/dispatch-sync [::events/set-locale "fr"] {:frame frame})
-      (is (= :fr (read-sub frame [::subs/locale]))
+      (is (= "Articles" (read-sub frame [::rf.hicasso.examples.slice.subs/t :feed/heading])))
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/set-locale "fr"] {:frame frame})
+      (is (= :fr (read-sub frame [::rf.hicasso.examples.slice.subs/locale]))
           "the handler keywords the string a <select> hands it")
-      (is (= "Modifier" (read-sub frame [::subs/t :editor/heading]))))))
+      (is (= "Modifier" (read-sub frame [::rf.hicasso.examples.slice.subs/t :editor/heading]))))))
 
 (deftest switching-the-theme-moves-every-token
   (with-app
     (fn [frame]
-      (is (= "rgb(255, 255, 255)" (read-sub frame [::subs/token :surface])))
-      (rf/dispatch-sync [::events/set-theme {:theme :dark}] {:frame frame})
-      (is (= "rgb(18, 21, 26)" (read-sub frame [::subs/token :surface]))))))
+      (is (= "rgb(255, 255, 255)" (read-sub frame [::rf.hicasso.examples.slice.subs/token :surface])))
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/set-theme {:theme :dark}] {:frame frame})
+      (is (= "rgb(18, 21, 26)" (read-sub frame [::rf.hicasso.examples.slice.subs/token :surface]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination and the digest, through the frame
@@ -323,9 +323,9 @@
   [n f]
   (rf/with-new-frame
     [frame (rf/make-frame
-             {:initial-events [[::events/seed]
+             {:initial-events [[::rf.hicasso.examples.slice.events/seed]
                                [:rf.route/navigate
-                                (cond-> {:to routes/feed}
+                                (cond-> {:to rf.hicasso.examples.slice.routes/feed}
                                   (some? n) (assoc :query {:page n}))]]})]
     (f frame)))
 
@@ -333,18 +333,18 @@
   (testing "a bare /slice"
     (at-page nil
       (fn [frame]
-        (is (= 1 (read-sub frame [::subs/current-page])))
-        (is (= 3 (read-sub frame [::subs/page-count])))
+        (is (= 1 (read-sub frame [::rf.hicasso.examples.slice.subs/current-page])))
+        (is (= 3 (read-sub frame [::rf.hicasso.examples.slice.subs/page-count])))
         (is (= ["hicasso" "intents" "controls"]
-               (mapv :slug (read-sub frame [::subs/feed])))))))
+               (mapv :slug (read-sub frame [::rf.hicasso.examples.slice.subs/feed])))))))
 
   (testing "?page=2 moves the list and nothing else"
     (at-page 2
       (fn [frame]
-        (is (= 2 (read-sub frame [::subs/current-page])))
+        (is (= 2 (read-sub frame [::rf.hicasso.examples.slice.subs/current-page])))
         (is (= ["keys" "boundaries" "revision"]
-               (mapv :slug (read-sub frame [::subs/feed]))))
-        (is (= 7 (count (read-sub frame [::subs/listed])))
+               (mapv :slug (read-sub frame [::rf.hicasso.examples.slice.subs/feed]))))
+        (is (= 7 (count (read-sub frame [::rf.hicasso.examples.slice.subs/listed])))
             "the whole list is still the whole list — pagination is a
              projection over it, not a filter applied to `app-db`")
         (is (nil? (:page (app-db-of frame)))
@@ -356,35 +356,35 @@
   (testing "?page=900 clamps, and the RAW ask stays visible beside it"
     (at-page 900
       (fn [frame]
-        (is (= 900 (read-sub frame [::subs/page])) "what the URL asked for")
-        (is (= 3 (read-sub frame [::subs/current-page])) "what exists")
-        (is (= ["pages"] (mapv :slug (read-sub frame [::subs/feed]))))))))
+        (is (= 900 (read-sub frame [::rf.hicasso.examples.slice.subs/page])) "what the URL asked for")
+        (is (= 3 (read-sub frame [::rf.hicasso.examples.slice.subs/current-page])) "what exists")
+        (is (= ["pages"] (mapv :slug (read-sub frame [::rf.hicasso.examples.slice.subs/feed]))))))))
 
 (deftest the-digest-is-seeded-whole-and-a-partial-delivery-is-taken-as-it-came
   (with-app
     (fn [frame]
-      (is (= db/digest (read-sub frame [::subs/digest-blocks]))
+      (is (= rf.hicasso.examples.slice.db/digest (read-sub frame [::rf.hicasso.examples.slice.subs/digest-blocks]))
           "the application opens with content; the digest ships with the page")
-      (is (false? (read-sub frame [::subs/digest-loading?])))
+      (is (false? (read-sub frame [::rf.hicasso.examples.slice.subs/digest-loading?])))
 
       (testing "a delivery that arrived cut short is stored UNINSPECTED —
                 the client validates no block, and the region's own error
                 boundary is why it does not have to"
-        (rf/dispatch-sync [::events/digest-arrived {:blocks db/digest-truncated}]
+        (rf/dispatch-sync [::rf.hicasso.examples.slice.events/digest-arrived {:blocks rf.hicasso.examples.slice.db/digest-truncated}]
                           {:frame frame})
-        (is (= db/digest-truncated (read-sub frame [::subs/digest-blocks])))
-        (is (nil? (:block/items (second (read-sub frame [::subs/digest-blocks]))))
+        (is (= rf.hicasso.examples.slice.db/digest-truncated (read-sub frame [::rf.hicasso.examples.slice.subs/digest-blocks])))
+        (is (nil? (:block/items (second (read-sub frame [::rf.hicasso.examples.slice.subs/digest-blocks]))))
             "the list block lost its items, which is the shape a renderer
              refuses")))))
 
 (deftest reloading-the-digest-goes-in-flight-and-keeps-what-is-on-screen
   (with-app
     (fn [frame]
-      (rf/dispatch-sync [::events/digest-arrived {:blocks db/digest-truncated}]
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/digest-arrived {:blocks rf.hicasso.examples.slice.db/digest-truncated}]
                         {:frame frame})
-      (rf/dispatch-sync [::events/reload-digest] {:frame frame})
-      (is (true? (read-sub frame [::subs/digest-loading?])))
-      (is (= db/digest-truncated (read-sub frame [::subs/digest-blocks]))
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/reload-digest] {:frame frame})
+      (is (true? (read-sub frame [::rf.hicasso.examples.slice.subs/digest-loading?])))
+      (is (= rf.hicasso.examples.slice.db/digest-truncated (read-sub frame [::rf.hicasso.examples.slice.subs/digest-blocks]))
           "the blocks did not move. Emptying them would clear the region's
            error boundary — its reset key is the CONTENT — so a failed
            region would blink through an empty success on its way back, and
@@ -398,13 +398,13 @@
 (deftest per-row-disclosure-state-is-per-row
   (with-app
     (fn [frame]
-      (is (false? (read-sub frame [::subs/tags-open? "intents"]))
+      (is (false? (read-sub frame [::rf.hicasso.examples.slice.subs/tags-open? "intents"]))
           "the registered :default, with nothing in app-db")
-      (rf/dispatch-sync [::subs/tags-open? "intents" true] {:frame frame})
-      (is (true? (read-sub frame [::subs/tags-open? "intents"])))
-      (is (false? (read-sub frame [::subs/tags-open? "hicasso"]))
+      (rf/dispatch-sync [::rf.hicasso.examples.slice.subs/tags-open? "intents" true] {:frame frame})
+      (is (true? (read-sub frame [::rf.hicasso.examples.slice.subs/tags-open? "intents"])))
+      (is (false? (read-sub frame [::rf.hicasso.examples.slice.subs/tags-open? "hicasso"]))
           "the bug h/reg-state deletes: a hand-rolled [:ui :tags-open?]
            path would have opened every row on the page at once")
-      (is (= {"intents" true} (get-in (app-db-of frame) [:ui ::subs/tags-open?]))
+      (is (= {"intents" true} (get-in (app-db-of frame) [:ui ::rf.hicasso.examples.slice.subs/tags-open?]))
           "and it lives in app-space at [:ui ::concern ikey], readable by
            an ordinary handler and dumpable in a tool"))))

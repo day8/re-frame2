@@ -5,26 +5,26 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.source-store :as source-store]
+            [re-frame.source-store :as rf.source-store]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; rf2-bmzq0: sub-cache-snapshot lives in re-frame.subs.tooling.
-            [re-frame.subs.tooling :as subs-tooling]
+            [re-frame.subs.tooling :as rf.subs.tooling]
             ;; rf2-0sr0ai: reg-runtime-sub (framework runtime-db sub) is an
             ;; internal subs surface, not on the rf/ facade — required for
             ;; the two-partition projection-equality invalidation pins below.
-            [re-frame.subs :as subs]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
+            [re-frame.subs :as rf.subs]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route call.
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             ;; rf2-tfw3: flows ships in day8/re-frame2-flows.
             ;; Required here so its load-time hook registrations
             ;; fire before this ns's reg-flow call.
             [re-frame.flows]
-            [re-frame.ssr :as ssr]
+            [re-frame.ssr :as rf.ssr]
             ;; rf2-lt4e: epoch ships in day8/re-frame2-epoch.
             ;; Required here so its load-time hook publications
             ;; (`:epoch/settle!`, `:epoch/capture-event`,
@@ -33,8 +33,8 @@
             ;; fire before the epoch-history-cljs / restore-* tests
             ;; below reach into the late-bind table at call time.
             [re-frame.epoch]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [with-frame with-new-frame
                                           reg-view]]))
@@ -46,8 +46,8 @@
 ;; once cleared they're gone for the rest of the test run. Snapshot/restore
 ;; preserves them while still rolling back per-test registrations.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- shared dispatch + sub --------------------------------------------------
 
@@ -172,9 +172,9 @@
           ;; keyword form. If the runtime were intercepting, both would
           ;; render through the same registered fn and produce identical
           ;; structure (the registered body); they wouldn't differ.
-          h-keyword-form   (ssr/render-tree-hash [:foo/intercept-me 1])
-          h-other-form     (ssr/render-tree-hash [:foo/some-other-tag 1])
-          h-via-var        (ssr/render-tree-hash registered-body)]
+          h-keyword-form   (rf.ssr/render-tree-hash [:foo/intercept-me 1])
+          h-other-form     (rf.ssr/render-tree-hash [:foo/some-other-tag 1])
+          h-via-var        (rf.ssr/render-tree-hash registered-body)]
       ;; Keyword-form hashes differ — they are HTML element tags,
       ;; structurally distinct based on the tag keyword.
       (is (not= h-keyword-form h-other-form)
@@ -206,7 +206,7 @@
     (doseq [[kind id] [[:event :counter/init]
                        [:event :counter/inc]
                        [:sub   :count]]]
-      (source-store/forget-id! kind id))
+      (rf.source-store/forget-id! kind id))
     (rf/make-frame {:id :left :doc "left frame"})
     (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
@@ -276,10 +276,10 @@
 (deftest match-and-unparse-routes
   (testing "match-url and route-url round-trip on CLJS"
     (rf/reg-route :user/show {} "/users/:id")
-    (let [m (routing/match-url "/users/42")]
+    (let [m (rf.routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42"       (:id (:params m)))))
-    (is (= "/users/42" (routing/route-url {:to :user/show :params {:id 42}})))))
+    (is (= "/users/42" (rf.routing/route-url {:to :user/show :params {:id 42}})))))
 
 ;; ---- machines (pure machine-transition) -----------------------------------
 
@@ -291,7 +291,7 @@
              {:red    {:on {:tick {:target :green}}}
               :green  {:on {:tick {:target :yellow}}}
               :yellow {:on {:tick {:target :red}}}}}
-          {s :snapshot} (machines/machine-transition m {:state :red :data {}} [:tick])]
+          {s :snapshot} (rf.machines/machine-transition m {:state :red :data {}} [:tick])]
       (is (= :green (:state s))))))
 
 ;; ---- error paths ----------------------------------------------------------
@@ -306,11 +306,11 @@
         (count (.something items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (trace-tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
       (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v)
             "the sub returns nil under :replaced-with-default recovery"))
-      (trace-tooling/unregister-listener! ::sub-err)
+      (rf.trace.tooling/unregister-listener! ::sub-err)
       (is (some (fn [ev]
                   (= :rf.error/sub-exception (:operation ev)))
                 @traces)
@@ -324,9 +324,9 @@
 
 (deftest render-tree-hash-cljs
   (testing "render-tree-hash returns 8-char lowercase hex deterministically"
-    (let [r2h   (ssr/render-tree-hash [:div {:class "x"} [:p "hi"]])
-          r2h-2 (ssr/render-tree-hash [:div {:class "x"} [:p "hi"]])
-          r2h-3 (ssr/render-tree-hash [:div {:class "y"} [:p "hi"]])]
+    (let [r2h   (rf.ssr/render-tree-hash [:div {:class "x"} [:p "hi"]])
+          r2h-2 (rf.ssr/render-tree-hash [:div {:class "x"} [:p "hi"]])
+          r2h-3 (rf.ssr/render-tree-hash [:div {:class "y"} [:p "hi"]])]
       (is (= r2h r2h-2))
       (is (not= r2h r2h-3))
       (is (re-matches #"[0-9a-f]{8}" r2h)))))
@@ -530,7 +530,7 @@
       (reg-fw-runtime-handler! :inval/seed-rt
         (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
       (rf/dispatch-sync [:inval/seed-rt])
-      (subs/reg-runtime-sub :inval/rt-sub
+      (rf.subs/reg-runtime-sub :inval/rt-sub
         (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :route-id])))
       (let [r (rf/subscribe [:inval/rt-sub])]
         (add-watch r ::touch (fn [_ _ _ _] nil))
@@ -560,7 +560,7 @@
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
       (rf/dispatch-sync [:inval/seed-rt2])
       (rf/reg-sub :inval/app-sub2 (fn [db _] (swap! app-runs inc) (:n db)))
-      (subs/reg-runtime-sub :inval/rt-sub2
+      (rf.subs/reg-runtime-sub :inval/rt-sub2
         (fn [runtime-db _] (swap! rt-runs inc) (get-in runtime-db [:rf.runtime/machines :m])))
       (let [ra (rf/subscribe [:inval/app-sub2])
             rr (rf/subscribe [:inval/rt-sub2])]
@@ -597,14 +597,14 @@
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
-      (trace-tooling/register-listener! ::dsih (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::dsih (fn [ev] (swap! traces conj ev)))
       (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
       (rf/reg-event :nested
         (fn [_ _]
           (rf/dispatch-sync [:outer])
           {}))
       (rf/dispatch-sync [:nested])
-      (trace-tooling/unregister-listener! ::dsih)
+      (rf.trace.tooling/unregister-listener! ::dsih)
       (is (some (fn [ev]
                   (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                        (= :error (:op-type ev))))
@@ -624,12 +624,12 @@
     (rf/reg-sub :name* (fn [db _] (:name db)))
     (rf/dispatch-sync [:seed])
     ;; Empty cache is the {} baseline.
-    (is (= {} (subs-tooling/sub-cache-snapshot :rf/default))
+    (is (= {} (rf.subs.tooling/sub-cache-snapshot :rf/default))
         "no subs materialised yet → empty map")
     (let [r1 (rf/subscribe [:n])
           r2 (rf/subscribe [:n])
           r3 (rf/subscribe [:name*])
-          snapshot (subs-tooling/sub-cache-snapshot :rf/default)]
+          snapshot (rf.subs.tooling/sub-cache-snapshot :rf/default)]
       (is (= 2 (count snapshot))
           "snapshot contains one entry per materialised query-v")
       (is (= 7     (get-in snapshot [[:n]     :value])))
@@ -643,13 +643,13 @@
       (is (= []  (get-in snapshot [[:n]     :realized-inputs]))
           "layer-1 reader has no realized input edges")
       ;; Default no-arg form uses the active frame.
-      (is (= snapshot (subs-tooling/sub-cache-snapshot (rf/current-frame-id)))
+      (is (= snapshot (rf.subs.tooling/sub-cache-snapshot (rf/current-frame-id)))
           "no-arg form returns the active frame's snapshot")
       (rf/unsubscribe [:n])
       (rf/unsubscribe [:n])
       (rf/unsubscribe [:name*]))
     ;; Missing frame yields nil rather than throwing.
-    (is (nil? (subs-tooling/sub-cache-snapshot :no-such-frame))
+    (is (nil? (rf.subs.tooling/sub-cache-snapshot :no-such-frame))
         "missing frame returns nil")))
 
 (deftest sub-cache-surfaces-static-realized-inputs
@@ -663,7 +663,7 @@
                 (fn [[items _filter] _] items))
     (rf/dispatch-sync [:seed2])
     (let [r (rf/subscribe [:visible-items])
-          snapshot (subs-tooling/sub-cache-snapshot :rf/default)
+          snapshot (rf.subs.tooling/sub-cache-snapshot :rf/default)
           entry (get snapshot [:visible-items])]
       (is (= :static (:input-kind entry))
           "a :<- sub is :input-kind :static")
@@ -689,7 +689,7 @@
                   {:article article :comments comments :viewer viewer}))
     (rf/dispatch-sync [:seed3])
     (let [r (rf/subscribe [:article/page :a1])
-          snapshot (subs-tooling/sub-cache-snapshot :rf/default)
+          snapshot (rf.subs.tooling/sub-cache-snapshot :rf/default)
           entry (get snapshot [:article/page :a1])]
       (is (= :parametric (:input-kind entry))
           "the input-fn sub is :input-kind :parametric")
@@ -700,7 +700,7 @@
           "realized-inputs are the (input-fn query-v) result — concrete edges for :a1")
       ;; The static topology must NOT enumerate these — only the live cache does.
       ;; CLJS calls the tooling ns directly (rf/sub-topology is a JVM-only alias).
-      (is (= :parametric (:inputs ((subs-tooling/sub-topology) :article/page)))
+      (is (= :parametric (:inputs ((rf.subs.tooling/sub-topology) :article/page)))
           "static sub-topology reports the :parametric sentinel, not the realized edges")
       (rf/unsubscribe [:article/page :a1]))))
 
@@ -722,12 +722,12 @@
     (rf/reg-sub :name* (fn [db _] (:name db)))
     (rf/dispatch-sync [:seed-av])
     ;; Empty cache is the {} baseline.
-    (is (= {} (subs-tooling/sub-cache-algebra-view :rf/default))
+    (is (= {} (rf.subs.tooling/sub-cache-algebra-view :rf/default))
         "no subs materialised yet → empty map")
     (let [r1   (rf/subscribe [:n])
           r2   (rf/subscribe [:n])
           r3   (rf/subscribe [:name*])
-          view (subs-tooling/sub-cache-algebra-view :rf/default)]
+          view (rf.subs.tooling/sub-cache-algebra-view :rf/default)]
       (is (= 2 (count view))
           "one algebra node per materialised query-v")
       (let [node-n (get view [:n])]
@@ -749,13 +749,13 @@
         (is (= 2 (:ref-count node-n))
             "ref-count is the lifecycle evidence the cache-entry owner is kept alive")))
     ;; No-arg-by-id parity with the active frame.
-    (is (= (subs-tooling/sub-cache-algebra-view :rf/default)
-           (subs-tooling/sub-cache-algebra-view (rf/current-frame-id)))
+    (is (= (rf.subs.tooling/sub-cache-algebra-view :rf/default)
+           (rf.subs.tooling/sub-cache-algebra-view (rf/current-frame-id)))
         "the named-frame view equals the active-frame view")
     (rf/unsubscribe [:n])
     (rf/unsubscribe [:n])
     (rf/unsubscribe [:name*])
-    (is (nil? (subs-tooling/sub-cache-algebra-view :no-such-frame))
+    (is (nil? (rf.subs.tooling/sub-cache-algebra-view :no-such-frame))
         "missing frame returns nil")))
 
 (deftest sub-cache-algebra-view-lowers-static-realized-edges
@@ -769,7 +769,7 @@
                 (fn [[items _filter] _] items))
     (rf/dispatch-sync [:seed-av2])
     (let [r    (rf/subscribe [:visible-items])
-          view (subs-tooling/sub-cache-algebra-view :rf/default)
+          view (rf.subs.tooling/sub-cache-algebra-view :rf/default)
           node (get view [:visible-items])]
       (is (= :static (:input-kind node)))
       (is (= [[:sub [:items]] [:sub [:filter]]] (:inputs node))
@@ -793,7 +793,7 @@
                   {:article article :comments comments}))
     (rf/dispatch-sync [:seed-av3])
     (let [r    (rf/subscribe [:article/page :a1])
-          view (subs-tooling/sub-cache-algebra-view :rf/default)
+          view (rf.subs.tooling/sub-cache-algebra-view :rf/default)
           node (get view [:article/page :a1])]
       (is (= [:article/page :a1] (:id node))
           "the live node id is the concrete parametric query vector")
@@ -803,7 +803,7 @@
              (:inputs node))
           "the live view reports the REALIZED [:sub …] edges for :a1")
       ;; The static view reports the marker, never these realized edges.
-      (is (= :parametric (:inputs (subs-tooling/sub-algebra-view :article/page)))
+      (is (= :parametric (:inputs (rf.subs.tooling/sub-algebra-view :article/page)))
           "the static algebra view reports the :parametric marker, not the realized edges")
       (rf/unsubscribe [:article/page :a1]))))
 
@@ -992,7 +992,7 @@
 
 (defn- cache-keys-of
   [frame-id]
-  (set (keys @(:sub-cache (frame/frame frame-id)))))
+  (set (keys @(:sub-cache (rf.frame/frame frame-id)))))
 
 (deftest sub-cache-sync-disposes-on-last-unsubscribe
   (testing "ref-count → 0 disposes the slot synchronously (rf2-cmfln)"

@@ -26,12 +26,12 @@
   lagging runtime and green against the settling one."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private sum-flow
   [:step-2/computed
@@ -52,7 +52,7 @@
 
     (rf/dispatch-sync [:enter])
 
-    (is (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed)
+    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed)
         "the registry carries the flow after the registering dispatch")
     ;; THE CONTROL, register arm. Red under the one-event lag: the flow
     ;; transform for :enter ran before `:fx` registered the flow, so nothing
@@ -74,7 +74,7 @@
 
     (rf/dispatch-sync [:leave])
 
-    (is (not (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed))
+    (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed))
         "the registry row is gone — this half was never lagged")
     ;; THE CONTROL, clear arm. Red under the one-event lag: the vacation was
     ;; recorded as a pending abandoned path and only dissoc'd from the pending

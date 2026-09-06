@@ -42,14 +42,14 @@
   node lane is the one that decides the server claims** — a green
   browser lane says nothing about `renderToString`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.roots-frames-support :as sup]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
 
 (def ^:private frame-id ::core-ssr)
@@ -84,13 +84,13 @@
 (rf/reg-event :hicasso.core-ssr/edit (fn [{:keys [db]} _] {:db db}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; the hydration rows wait on a real clock, and `cljs.test`
      ;; hard-errors on a fn-form fixture in a suite with an async test.
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why]
   (is true (str "a hydration claim needs a real React DOM — " why)))
@@ -110,7 +110,7 @@
 ;; The views — one surface per view, so a red row names a surface
 ;; ---------------------------------------------------------------------------
 
-(h/defview article
+(rf.hicasso/defview article
   "HS-01 and HS-02. A boundary whose whole content is subscription
   reads, one of them behind a `when` — because §2.4's snapshot clause is
   about *conditional* reads as much as unconditional ones, and a page
@@ -118,11 +118,11 @@
   taken contributes nothing."
   [_]
   [:article.article
-   [:h1.title (h/sub [:hicasso.core-ssr/title])]
-   (when (h/sub [:hicasso.core-ssr/done?])
-     [:span.badge (h/sub [:hicasso.core-ssr/badge])])])
+   [:h1.title (rf.hicasso/sub [:hicasso.core-ssr/title])]
+   (when (rf.hicasso/sub [:hicasso.core-ssr/done?])
+     [:span.badge (rf.hicasso/sub [:hicasso.core-ssr/badge])])])
 
-(h/defview chrome
+(rf.hicasso/defview chrome
   "HS-04 and HS-05. The intrinsic head in its three shapes — an HTML
   element, an SVG subtree, and a custom element — under a fragment head
   that must contribute no wrapper of its own. The two bare strings are
@@ -137,7 +137,7 @@
     [:path {:d "M0 0 L10 10" :stroke-width 2 :stroke "currentColor"}]]
    [:my-widget {:data-kind "custom" :aria-label "widget"} "inside"]])
 
-(h/defview slots
+(rf.hicasso/defview slots
   "HS-06 and HS-15. One canonical slot per value however the key was
   written — kebab keyword, camel keyword and string all name the same
   React prop — and the caller's attributes forwarded with an ordinary
@@ -152,7 +152,7 @@
                    :defaultValue "typed"})]
    [:span {:style {:font-weight 700 :margin-top 4}} "styled"]])
 
-(h/defview intents
+(rf.hicasso/defview intents
   "HS-03 and HS-07. Every intent spelling the grammar has — a literal
   vector, the `::h/prevent` decorator head, and the `::h/value` and
   `::h/checked` placeholders — plus `::h/revision`, the controlled
@@ -161,7 +161,7 @@
   lowering that let any of these through would ship the application's
   event vocabulary to the browser as markup."
   [_]
-  [:form.intents {:on-submit [::h/prevent [:hicasso.core-ssr/edit]]}
+  [:form.intents {:on-submit [::rf.hicasso/prevent [:hicasso.core-ssr/edit]]}
    ;; CONTROLLED, and it has to be: `::h/revision` re-baselines a
    ;; controlled field to its model, so `impl.controlled/install!`
    ;; refuses it on a field with no `:value` to re-baseline TO. Measured
@@ -169,15 +169,15 @@
    ;; [[a-revision-on-an-uncontrolled-field-is-refused-at-source]] is
    ;; that refusal kept as a row rather than merely designed around.
    [:input.text {:type        "text"
-                 :value       (h/sub [:hicasso.core-ssr/draft])
-                 :on-change   [:hicasso.core-ssr/edit ::h/value]
-                 ::h/revision 7}]
+                 :value       (rf.hicasso/sub [:hicasso.core-ssr/draft])
+                 :on-change   [:hicasso.core-ssr/edit ::rf.hicasso/value]
+                 ::rf.hicasso/revision 7}]
    [:input.check {:type "checkbox" :defaultChecked true
-                  :on-change [:hicasso.core-ssr/edit ::h/checked]}]
-   [:a.link {:href "#x" :on-click [::h/prevent [:hicasso.core-ssr/finish]]} "veto"]
+                  :on-change [:hicasso.core-ssr/edit ::rf.hicasso/checked]}]
+   [:a.link {:href "#x" :on-click [::rf.hicasso/prevent [:hicasso.core-ssr/finish]]} "veto"]
    [:button.go {:on-click [:hicasso.core-ssr/finish]} "go"]])
 
-(h/defview bad-revision
+(rf.hicasso/defview bad-revision
   "`::h/revision` on an UNCONTROLLED field — `:defaultValue`, so there is
   no model to re-baseline to. The refusal this shape draws is HS-07's
   own, and it fires during the SERVER render, which is the half worth
@@ -185,9 +185,9 @@
   ship this page and fail at adoption."
   [_]
   [:div.bad
-   [:input {:type "text" :defaultValue "x" ::h/revision 7}]])
+   [:input {:type "text" :defaultValue "x" ::rf.hicasso/revision 7}]])
 
-(h/defview controls
+(rf.hicasso/defview controls
   "HS-08 as a class. Section 2.3 dispositions each control type for the
   controlled-field law; this row is the *server* half §2.1 owns — the
   value a control carries has to be IN the bytes, or the page paints
@@ -195,26 +195,26 @@
   contract exists to prevent."
   [_]
   [:div.controls
-   [:input.c-text {:type "text" :value (h/sub [:hicasso.core-ssr/draft])
-                   :on-change [:hicasso.core-ssr/edit ::h/value]}]
+   [:input.c-text {:type "text" :value (rf.hicasso/sub [:hicasso.core-ssr/draft])
+                   :on-change [:hicasso.core-ssr/edit ::rf.hicasso/value]}]
    [:input.c-check {:type "checkbox" :checked true
-                    :on-change [:hicasso.core-ssr/edit ::h/checked]}]
+                    :on-change [:hicasso.core-ssr/edit ::rf.hicasso/checked]}]
    [:textarea.c-area {:value "area-text"
-                      :on-change [:hicasso.core-ssr/edit ::h/value]}]
-   [:select.c-select {:value "b" :on-change [:hicasso.core-ssr/edit ::h/value]}
+                      :on-change [:hicasso.core-ssr/edit ::rf.hicasso/value]}]
+   [:select.c-select {:value "b" :on-change [:hicasso.core-ssr/edit ::rf.hicasso/value]}
     [:option {:value "a"} "A"]
     [:option {:value "b"} "B"]]])
 
-(h/defview guarded
+(rf.hicasso/defview guarded
   "HS-09, the succeeding arm: `h/error-boundary` around a child that
   does not throw contributes its child's output and no wrapper element
   of its own."
   [_]
   [:div.guarded
-   [h/error-boundary {:fallback [:p.fellback "fell back"]}
-    [:p.kid (h/sub [:hicasso.core-ssr/title])]]])
+   [rf.hicasso/error-boundary {:fallback [:p.fellback "fell back"]}
+    [:p.kid (rf.hicasso/sub [:hicasso.core-ssr/title])]]])
 
-(h/defview exploding
+(rf.hicasso/defview exploding
   "HS-09, the throwing arm. React is explicit that a CLIENT error
   boundary does not catch a SERVER rendering error, so the declared
   `:fallback` is not what stands in the bytes — the render fails. A row
@@ -222,10 +222,10 @@
   does not exist."
   [_]
   [:div.guarded
-   [h/error-boundary {:fallback [:p.fellback "fell back"]}
+   [rf.hicasso/error-boundary {:fallback [:p.fellback "fell back"]}
     [:p.kid (throw (js/Error. "server render exploded"))]]])
 
-(h/defview page
+(rf.hicasso/defview page
   "The hydration rows' page: the reading boundary, the intrinsic chrome
   and the intent grammar in one tree, so ONE adoption covers HS-01 to
   HS-07 rather than leaving most of them witnessed on the server side
@@ -246,7 +246,7 @@
   ([hiccup] (server-html frame-id hiccup))
   ([kw hiccup]
    (react-dom-server/renderToString
-     (mount/provider kw (codec/root-element kw hiccup)))))
+     (rf.hicasso.impl.mount/provider kw (rf.hicasso.impl.codec/root-element kw hiccup)))))
 
 (defn- page-bytes
   "`server-html` with Spec 006's dev-mode view annotations taken out — for
@@ -258,7 +258,7 @@
   they baked, and a client render annotates too, so stripping one side
   would manufacture the mismatch those rows exist to rule out."
   [hiccup]
-  (sup/without-view-annotations (server-html hiccup)))
+  (rf.hicasso.roots-frames-support/without-view-annotations (server-html hiccup)))
 
 (defn- query-node [root selector] (.querySelector root selector))
 
@@ -284,17 +284,17 @@
   [hiccup done after]
   (fresh!)
   (let [html      (server-html hiccup)
-        container (sup/stamp-server-nodes! (sup/server-dom! html))
-        {:keys [seen stop!]} (sup/watch-mismatches!)
-        handle    (mount/hydrate-root! container frame-id hiccup)]
+        container (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
+        {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
+        handle    (rf.hicasso.impl.mount/hydrate-root! container frame-id hiccup)]
     (js/setTimeout
       (fn []
         (stop!)
         (try
           (after container @seen html)
           (finally
-            (mount/release! handle)
-            (collector/reset-runtime!)
+            (rf.hicasso.impl.mount/release! handle)
+            (rf.hicasso.impl.collector/reset-runtime!)
             (done))))
       200)))
 
@@ -565,7 +565,7 @@
 
 (deftest the-page-adopts-the-servers-own-nodes
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [page {}]
@@ -579,36 +579,36 @@
               (str "**REACT FOUND NOTHING TO RECONCILE.** The client's
                     first pass rendered what the server did, so the two
                     agreed by construction: " (pr-str seen)))
-          (is (sup/every-server-node? container ".title")
+          (is (rf.hicasso.roots-frames-support/every-server-node? container ".title")
               "and the title is the SERVER'S node, still carrying the
                expando — adoption, not a re-render that looks the same")
-          (is (sup/every-server-node? container ".adjacent")
+          (is (rf.hicasso.roots-frames-support/every-server-node? container ".adjacent")
               "as is the adjacent-text paragraph, which is the node the
                comment separator exists for")
-          (is (sup/every-server-node? container "my-widget")
+          (is (rf.hicasso.roots-frames-support/every-server-node? container "my-widget")
               "and the custom element, whose head React does not know")
           (is (= "quarterly" (.-textContent (query-node container ".title")))
               "carrying the request's value"))))))
 
 (deftest a-deliberate-mismatch-is-attributed-to-the-root-that-owns-it
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (let [html      (server-html [page {}])
-              container (sup/server-dom! html)
-              {:keys [seen stop!]} (sup/watch-mismatches!)
+              container (rf.hicasso.roots-frames-support/server-dom! html)
+              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
               ;; MANUFACTURED here and asserted on here — the only shape
               ;; of call site at which swallowing an uncaught error is
               ;; not the fail-open the pageerror rule forbids.
-              {:keys [captured close!]} (sup/open-console-capture!
+              {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture!
                                           {:swallow-uncaught? true})]
           ;; The request the client renders is not the request the server
           ;; rendered — the divergence a stale cache or a clock produces.
           (rf/with-frame frame-id
             (rf/dispatch-sync [:hicasso.core-ssr/retitle "annual"]))
-          (let [handle (mount/hydrate-root! container frame-id [page {}])]
+          (let [handle (rf.hicasso.impl.mount/hydrate-root! container frame-id [page {}])]
             (js/setTimeout
               (fn []
                 (close!)
@@ -629,37 +629,37 @@
                     (is (= 1 (count @seen))
                         (str "the framework's Spec 011 diagnostic fired
                               exactly once, for this one root; got "
-                             (pr-str (mapv (comp :error sup/tags-of) @seen))))
+                             (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of) @seen))))
                     (is (= 're-frame.hicasso.impl.mount/hydrate-root!
-                           (:where (sup/tags-of (first @seen))))
+                           (:where (rf.hicasso.roots-frames-support/tags-of (first @seen))))
                         "attributed to the door that owns the adoption")
                     (is (= :warned-and-replaced
-                           (:recovery (sup/tags-of (first @seen))))
+                           (:recovery (rf.hicasso.roots-frames-support/tags-of (first @seen))))
                         "with the recovery React had already performed")
                     (is (= "annual" (.-textContent (query-node container ".title")))
                         "and the repaired DOM carries the CLIENT's value,
                          which is what 'warned and replaced' means"))
                   (finally
-                    (mount/release! handle)
-                    (collector/reset-runtime!)
+                    (rf.hicasso.impl.mount/release! handle)
+                    (rf.hicasso.impl.collector/reset-runtime!)
                     (done))))
               300)))))))
 
 (deftest two-overlapping-roots-adopt-under-distinct-prefixes
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh! frame-id "quarterly")
         (fresh! other-frame-id "annual")
         (let [html-a (server-html frame-id [page {}])
               html-b (server-html other-frame-id [page {}])
-              ca     (sup/stamp-server-nodes! (sup/server-dom! html-a))
-              cb     (sup/stamp-server-nodes! (sup/server-dom! html-b))
-              {:keys [seen stop!]} (sup/watch-mismatches!)
-              ha     (mount/hydrate-root! ca frame-id [page {}]
+              ca     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-a))
+              cb     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-b))
+              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
+              ha     (rf.hicasso.impl.mount/hydrate-root! ca frame-id [page {}]
                                           {:identifier-prefix "pfx-a-"})
-              hb     (mount/hydrate-root! cb other-frame-id [page {}]
+              hb     (rf.hicasso.impl.mount/hydrate-root! cb other-frame-id [page {}]
                                           {:identifier-prefix "pfx-b-"})]
           (js/setTimeout
             (fn []
@@ -683,14 +683,14 @@
                       "root A settled on its own request")
                   (is (= "annual" (.-textContent (query-node cb ".title")))
                       "root B on its own")
-                  (is (sup/every-server-node? ca ".title")
+                  (is (rf.hicasso.roots-frames-support/every-server-node? ca ".title")
                       "root A adopted the server's nodes")
-                  (is (sup/every-server-node? cb ".title")
+                  (is (rf.hicasso.roots-frames-support/every-server-node? cb ".title")
                       "and so did root B, concurrently"))
                 (finally
-                  (mount/release! ha)
-                  (mount/release! hb)
-                  (collector/reset-runtime!)
+                  (rf.hicasso.impl.mount/release! ha)
+                  (rf.hicasso.impl.mount/release! hb)
+                  (rf.hicasso.impl.collector/reset-runtime!)
                   (done))))
             300))))))
 
@@ -700,42 +700,42 @@
 
 (deftest a-server-render-acquires-no-reader-and-an-adoption-acquires-one
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [page {}]
         done
         (fn [_container _seen _html]
-          (is (= 1 (sup/readers-of [frame-id [:hicasso.core-ssr/title]]))
+          (is (= 1 (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.core-ssr/title]]))
               (str "exactly ONE reader after adoption. The server render
                     ran the same body and registered NONE — there is no
                     subscription to release on a server, and a tier that
                     acquired one there would leak a cell per request —
                     so a count of two would mean both halves acquired
                     and the server's was never released; cells: "
-                   (pr-str (sup/cell-keys))))
-          (is (zero? (sup/readers-of [frame-id [:hicasso.core-ssr/badge]]))
+                   (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
+          (is (zero? (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.core-ssr/badge]]))
               (str "and the key only the untaken branch reads has no
                     reader at all, on either side: "
-                   (pr-str (sup/cell-keys)))))))))
+                   (pr-str (rf.hicasso.roots-frames-support/cell-keys)))))))))
 
 (deftest an-adopted-page-releases-exactly-what-it-acquired
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (collector/reset-runtime!)
+      (rf.hicasso.impl.collector/reset-runtime!)
       (testing "§2.4's last clause: exact cleanup. Narrowing caught:
                 a teardown that empties the runtime's tables rather than
                 releasing the subscriptions — it answers zero whether it
                 released anything or not, which is a gate that cannot go
                 red (`impl.mount/unmount!`, rf2-2rtt6.48)"
-        (let [h (mount/root! (mount/fresh-container!) frame-id [page {}])]
-          (is (= 1 (sup/readers-of [frame-id [:hicasso.core-ssr/title]]))
+        (let [h (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [page {}])]
+          (is (= 1 (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.core-ssr/title]]))
               (str "one reader while mounted; cells: "
-                   (pr-str (sup/cell-keys))))
-          (mount/unmount! h)
-          (is (zero? (sup/readers-of [frame-id [:hicasso.core-ssr/title]]))
+                   (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
+          (rf.hicasso.impl.mount/unmount! h)
+          (is (zero? (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.core-ssr/title]]))
               (str "and none after the PUBLIC teardown door, which
                     touches nothing the runtime holds; cells: "
-                   (pr-str (sup/cell-keys)))))))))
+                   (pr-str (rf.hicasso.roots-frames-support/cell-keys)))))))))

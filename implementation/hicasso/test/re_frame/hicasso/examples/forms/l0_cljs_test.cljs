@@ -25,22 +25,22 @@
   nothing, so each row below is written to state what it would take to
   make it red."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.hicasso.examples.forms.db :as db]
-            [re-frame.hicasso.examples.forms.events :as events]
-            [re-frame.hicasso.examples.forms.subs :as subs]
+            [re-frame.fx :as rf.fx]
+            [re-frame.hicasso.examples.forms.db :as rf.hicasso.examples.forms.db]
+            [re-frame.hicasso.examples.forms.events :as rf.hicasso.examples.forms.events]
+            [re-frame.hicasso.examples.forms.subs :as rf.hicasso.examples.forms.subs]
             ;; The production managed-HTTP fx surface, so the mutation's
             ;; transport probe resolves. The fetch itself never happens —
             ;; `capture-transport!` below replaces the effect with a
             ;; recorder and the rows replay the transport's own reply shape.
             [re-frame.http.managed]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; The reset restores the registrar to a baseline and the resources
      ;; artefact clears the mutation kind, so the ns-load registration may
@@ -48,7 +48,7 @@
      ;; not in the browser one, which is exactly the kind of luck a
      ;; witness should not be standing on — see `events/register-save!`
      ;; for what its absence costs.
-     :init-fn       (fn [] (events/register-save!))}))
+     :init-fn       (fn [] (rf.hicasso.examples.forms.events/register-save!))}))
 
 (def ^:private ticket 7)
 
@@ -56,7 +56,7 @@
   "Run `f` against a fresh frame booted with the application's own seed
   event, and destroy it afterwards."
   [f]
-  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[::events/seed]]})]
+  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[::rf.hicasso.examples.forms.events/seed]]})]
     (f frame)))
 
 (defn- read-sub [frame query-v] (rf/subscribe-once query-v {:frame frame}))
@@ -67,39 +67,39 @@
   "Type `text` into the buffered subject field — `h/reg-state`'s own
   setter event, which is what `:on-input` dispatches."
   [frame text]
-  (send! frame [db/subject-draft ticket text]))
+  (send! frame [rf.hicasso.examples.forms.db/subject-draft ticket text]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure — the rules, with no runtime anywhere
 ;; ---------------------------------------------------------------------------
 
 (deftest the-rules-are-a-function-of-the-draft-alone
-  (is (= {} (db/problems {:assignee "ada" :notes ""})))
-  (is (= {:assignee :problem/assignee-blank} (db/problems {:assignee "  " :notes ""})))
+  (is (= {} (rf.hicasso.examples.forms.db/problems {:assignee "ada" :notes ""})))
+  (is (= {:assignee :problem/assignee-blank} (rf.hicasso.examples.forms.db/problems {:assignee "  " :notes ""})))
   (is (= {:notes :problem/notes-too-long}
-         (db/problems {:assignee "ada" :notes (apply str (repeat (inc db/notes-limit) "x"))})))
+         (rf.hicasso.examples.forms.db/problems {:assignee "ada" :notes (apply str (repeat (inc rf.hicasso.examples.forms.db/notes-limit) "x"))})))
   (testing "exactly at the limit is legal — the near-miss the guard must not catch"
-    (is (= {} (db/problems {:assignee "ada" :notes (apply str (repeat db/notes-limit "x"))}))))
+    (is (= {} (rf.hicasso.examples.forms.db/problems {:assignee "ada" :notes (apply str (repeat rf.hicasso.examples.forms.db/notes-limit "x"))}))))
   (testing "both at once, because a submit attempt reveals every one of them"
     (is (= #{:assignee :notes}
-           (set (keys (db/problems {:assignee "" :notes (apply str (repeat 200 "x"))})))))))
+           (set (keys (rf.hicasso.examples.forms.db/problems {:assignee "" :notes (apply str (repeat 200 "x"))})))))))
 
 (deftest a-problem-is-not-shown-until-it-is-earned
   (let [form {:draft {:assignee "" :notes ""} :touched #{} :attempted? false}]
     (testing "R-A5 — a blank form on first paint reports nothing"
-      (is (nil? (db/shown-problem form :assignee))
+      (is (nil? (rf.hicasso.examples.forms.db/shown-problem form :assignee))
           "the problem EXISTS; showing it before the user has been near the
            field is the defect this gate deletes"))
     (testing "touching the field it belongs to reveals it"
       (is (= :problem/assignee-blank
-             (db/shown-problem (assoc form :touched #{:assignee}) :assignee))))
+             (rf.hicasso.examples.forms.db/shown-problem (assoc form :touched #{:assignee}) :assignee))))
     (testing "and touching its NEIGHBOUR does not — the gate is per field"
-      (is (nil? (db/shown-problem (assoc form :touched #{:notes}) :assignee))))
+      (is (nil? (rf.hicasso.examples.forms.db/shown-problem (assoc form :touched #{:notes}) :assignee))))
     (testing "a submit attempt reveals every field at once"
       (is (= :problem/assignee-blank
-             (db/shown-problem (assoc form :attempted? true) :assignee))))
+             (rf.hicasso.examples.forms.db/shown-problem (assoc form :attempted? true) :assignee))))
     (testing "and reveals nothing that is not a problem"
-      (is (nil? (db/shown-problem (-> form
+      (is (nil? (rf.hicasso.examples.forms.db/shown-problem (-> form
                                       (assoc :attempted? true)
                                       (assoc-in [:draft :assignee] "ada"))
                                   :assignee))
@@ -112,10 +112,10 @@
 (deftest the-field-is-populated-before-anybody-types
   (with-app
     (fn [frame]
-      (is (= "Login page hangs on submit" (read-sub frame [::subs/subject-shown ticket]))
+      (is (= "Login page hangs on submit" (read-sub frame [::rf.hicasso.examples.forms.subs/subject-shown ticket]))
           "no draft, so the committed subject is what the field shows —
            there is no load-the-form step to forget")
-      (is (false? (read-sub frame [::subs/editing? ticket]))
+      (is (false? (read-sub frame [::rf.hicasso.examples.forms.subs/editing? ticket]))
           "and reading is not editing"))))
 
 (deftest a-keystroke-opens-the-session-and-nothing-else-moves
@@ -124,8 +124,8 @@
       (let [before (app-db-of frame)]
         (type-subject! frame "Login page hangs")
         (let [after (app-db-of frame)]
-          (is (= "Login page hangs" (read-sub frame [::subs/subject-shown ticket])))
-          (is (true? (read-sub frame [::subs/editing? ticket])))
+          (is (= "Login page hangs" (read-sub frame [::rf.hicasso.examples.forms.subs/subject-shown ticket])))
+          (is (true? (read-sub frame [::rf.hicasso.examples.forms.subs/editing? ticket])))
           (is (= (:ticket before) (:ticket after))
               "the committed subject has not moved — that is what BUFFERED means")
           (is (= (:subject-revision before) (:subject-revision after))
@@ -135,11 +135,11 @@
   (with-app
     (fn [frame]
       (type-subject! frame "  Login times out  ")
-      (send! frame [::events/commit-subject ticket])
+      (send! frame [::rf.hicasso.examples.forms.events/commit-subject ticket])
       (is (= "Login times out" (get-in (app-db-of frame) [:ticket :subject])))
-      (is (false? (read-sub frame [::subs/editing? ticket]))
+      (is (false? (read-sub frame [::rf.hicasso.examples.forms.subs/editing? ticket]))
           "the session is over — the draft is gone, not merely equal")
-      (is (= 1 (read-sub frame [::subs/subject-revision ticket]))
+      (is (= 1 (read-sub frame [::rf.hicasso.examples.forms.subs/subject-revision ticket]))
           "and the revision moved, which is what re-baselines a field that
            is still mounted"))))
 
@@ -150,15 +150,15 @@
   (with-app
     (fn [frame]
       (type-subject! frame "   ")
-      (send! frame [::events/commit-subject ticket])
+      (send! frame [::rf.hicasso.examples.forms.events/commit-subject ticket])
       (is (= "Login page hangs on submit" (get-in (app-db-of frame) [:ticket :subject]))
           "blank is refused — the committed subject does NOT move")
-      (is (= 1 (read-sub frame [::subs/subject-revision ticket]))
+      (is (= 1 (read-sub frame [::rf.hicasso.examples.forms.subs/subject-revision ticket]))
           "and the revision moves ANYWAY. Delete the revision bump from the
            refusing branch of `events/end-session` and this line reds; it is
            the only signal a refusal has, because value equality is blind to
            it by construction")
-      (is (false? (read-sub frame [::subs/editing? ticket]))
+      (is (false? (read-sub frame [::rf.hicasso.examples.forms.subs/editing? ticket]))
           "a refusal ends the session too — the user is shown the committed
            value back, not left holding text nothing will accept"))))
 
@@ -168,12 +168,12 @@
   (with-app
     (fn [frame]
       (type-subject! frame "half-typed nonsense")
-      (send! frame [::events/cancel-subject ticket])
-      (is (= "Login page hangs on submit" (read-sub frame [::subs/subject-shown ticket])))
-      (is (= 1 (read-sub frame [::subs/subject-revision ticket])))
+      (send! frame [::rf.hicasso.examples.forms.events/cancel-subject ticket])
+      (is (= "Login page hangs on submit" (read-sub frame [::rf.hicasso.examples.forms.subs/subject-shown ticket])))
+      (is (= 1 (read-sub frame [::rf.hicasso.examples.forms.subs/subject-revision ticket])))
       (testing "the blur that follows finds no session and commits nothing"
         (let [before (app-db-of frame)]
-          (send! frame [::events/commit-subject ticket])
+          (send! frame [::rf.hicasso.examples.forms.events/commit-subject ticket])
           (is (= before (app-db-of frame))
               "not merely 'the subject is unchanged' — NOTHING is, including
                the revision. A commit that ran and happened to write the same
@@ -184,9 +184,9 @@
   (with-app
     (fn [frame]
       (type-subject! frame "Login times out")
-      (send! frame [::events/commit-subject ticket])
+      (send! frame [::rf.hicasso.examples.forms.events/commit-subject ticket])
       (let [after-first (app-db-of frame)]
-        (send! frame [::events/commit-subject ticket])
+        (send! frame [::rf.hicasso.examples.forms.events/commit-subject ticket])
         (is (= after-first (app-db-of frame))
             "Enter then blur, or double Enter: the second finds no session")))))
 
@@ -195,14 +195,14 @@
   ;; `[:ui :subject-draft]` path would be ONE draft for the whole page.
   (with-app
     (fn [frame]
-      (send! frame [db/subject-draft 7 "seven"])
-      (send! frame [db/subject-draft 9 "nine"])
-      (is (= "seven" (read-sub frame [::subs/subject-shown 7])))
-      (is (= "nine" (read-sub frame [::subs/subject-shown 9])))
+      (send! frame [rf.hicasso.examples.forms.db/subject-draft 7 "seven"])
+      (send! frame [rf.hicasso.examples.forms.db/subject-draft 9 "nine"])
+      (is (= "seven" (read-sub frame [::rf.hicasso.examples.forms.subs/subject-shown 7])))
+      (is (= "nine" (read-sub frame [::rf.hicasso.examples.forms.subs/subject-shown 9])))
       (testing "and ending one session leaves the other's alone"
-        (send! frame [::events/cancel-subject 7])
-        (is (= "nine" (read-sub frame [::subs/subject-shown 9])))
-        (is (= 0 (read-sub frame [::subs/subject-revision 9]))
+        (send! frame [::rf.hicasso.examples.forms.events/cancel-subject 7])
+        (is (= "nine" (read-sub frame [::rf.hicasso.examples.forms.subs/subject-shown 9])))
+        (is (= 0 (read-sub frame [::rf.hicasso.examples.forms.subs/subject-revision 9]))
             "including its revision — a reset is per instance")))))
 
 ;; ---------------------------------------------------------------------------
@@ -212,12 +212,12 @@
 (deftest a-refused-submission-reveals-every-problem-and-asks-for-nothing
   (with-app
     (fn [frame]
-      (is (nil? (read-sub frame [::subs/shown-problem :assignee]))
+      (is (nil? (read-sub frame [::rf.hicasso.examples.forms.subs/shown-problem :assignee]))
           "before the attempt")
-      (send! frame [::events/submit])
-      (is (= :problem/assignee-blank (read-sub frame [::subs/shown-problem :assignee]))
+      (send! frame [::rf.hicasso.examples.forms.events/submit])
+      (is (= :problem/assignee-blank (read-sub frame [::rf.hicasso.examples.forms.subs/shown-problem :assignee]))
           "after it")
-      (is (false? (read-sub frame [::subs/can-submit?]))
+      (is (false? (read-sub frame [::rf.hicasso.examples.forms.subs/can-submit?]))
           "and the gate the button reads still says no"))))
 
 (deftest the-button-and-the-handler-read-one-definition
@@ -227,18 +227,18 @@
   (with-app
     (fn [frame]
       (doseq [text ["" "  " "ada" ""]]
-        (send! frame [::events/edit :assignee text])
-        (is (= (db/can-submit? (app-db-of frame))
-               (read-sub frame [::subs/can-submit?]))
+        (send! frame [::rf.hicasso.examples.forms.events/edit :assignee text])
+        (is (= (rf.hicasso.examples.forms.db/can-submit? (app-db-of frame))
+               (read-sub frame [::rf.hicasso.examples.forms.subs/can-submit?]))
             (str "gate agreement after typing " (pr-str text)))))))
 
 (deftest a-problem-clears-as-soon-as-the-field-is-repaired
   (with-app
     (fn [frame]
-      (send! frame [::events/touch {:field :assignee}])
-      (is (some? (read-sub frame [::subs/shown-problem :assignee])))
-      (send! frame [::events/edit :assignee "ada"])
-      (is (nil? (read-sub frame [::subs/shown-problem :assignee]))
+      (send! frame [::rf.hicasso.examples.forms.events/touch {:field :assignee}])
+      (is (some? (read-sub frame [::rf.hicasso.examples.forms.subs/shown-problem :assignee])))
+      (send! frame [::rf.hicasso.examples.forms.events/edit :assignee "ada"])
+      (is (nil? (read-sub frame [::rf.hicasso.examples.forms.subs/shown-problem :assignee]))
           "the problem is derived from the current draft, so repairing the
            field clears it without a second event to remember"))))
 
@@ -259,7 +259,7 @@
   transport would have produced."
   []
   (reset! !requests [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! !requests conj args) nil)))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! !requests conj args) nil)))
 
 (defn- reply-ok! [frame args value]
   (send! frame (conj (:on-success args) {:status :ok :value value})))
@@ -268,17 +268,17 @@
   (send! frame (conj (:on-failure args) {:status :error :error error})))
 
 (defn- fill-valid! [frame]
-  (send! frame [::events/edit :assignee "ada"])
-  (send! frame [::events/edit :notes "reproduced on staging"]))
+  (send! frame [::rf.hicasso.examples.forms.events/edit :assignee "ada"])
+  (send! frame [::rf.hicasso.examples.forms.events/edit :notes "reproduced on staging"]))
 
 (defn- status [frame]
-  (read-sub frame [:rf/mutation {:instance events/save-instance}]))
+  (read-sub frame [:rf/mutation {:instance rf.hicasso.examples.forms.events/save-instance}]))
 
 (deftest a-refused-submission-asks-the-server-for-nothing
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::events/submit])
+      (send! frame [::rf.hicasso.examples.forms.events/submit])
       (is (= [] @!requests)
           "the gate refused, so no write was executed at all")
       (is (false? (:pending? (status frame)))
@@ -293,7 +293,7 @@
   (with-app
     (fn [frame]
       (fill-valid! frame)
-      (send! frame [::events/submit])
+      (send! frame [::rf.hicasso.examples.forms.events/submit])
       (is (= 1 (count @!requests)))
       (is (true? (:pending? (status frame)))
           "pending comes from the instance; this application writes no
@@ -303,14 +303,14 @@
       (is (true? (:success? (status frame))))
       (testing "and the reply landed at the named event, which reset the form"
         (is (= "ada" (get-in (app-db-of frame) [:ticket :assignee])))
-        (is (= db/blank-form (:form (app-db-of frame))))))))
+        (is (= rf.hicasso.examples.forms.db/blank-form (:form (app-db-of frame))))))))
 
 (deftest a-failed-write-leaves-the-draft-alone-and-says-so-once
   (capture-transport!)
   (with-app
     (fn [frame]
       (fill-valid! frame)
-      (send! frame [::events/submit])
+      (send! frame [::rf.hicasso.examples.forms.events/submit])
       (reply-error! frame (last @!requests) {:message "boom"})
       (is (true? (:error? (status frame))))
       (is (false? (:pending? (status frame)))
@@ -326,10 +326,10 @@
   (with-app
     (fn [frame]
       (fill-valid! frame)
-      (send! frame [::events/submit])
+      (send! frame [::rf.hicasso.examples.forms.events/submit])
       (let [first-args (last @!requests)]
-        (send! frame [::events/edit :assignee "grace"])
-        (send! frame [::events/submit])
+        (send! frame [::rf.hicasso.examples.forms.events/edit :assignee "grace"])
+        (send! frame [::rf.hicasso.examples.forms.events/submit])
         (let [second-args (last @!requests)]
           (is (= 2 (count @!requests)) "two writes under one instance")
           (is (not= (:on-success first-args) (:on-success second-args))

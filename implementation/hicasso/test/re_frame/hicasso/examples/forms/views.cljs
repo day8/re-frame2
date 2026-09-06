@@ -54,24 +54,24 @@
   save moves their draft to a value they are not already showing, which
   React's own re-assert handles — and a revision that never has to fire
   is a prop a reader has to reason about for nothing."
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.forms.db :as db]
-            [re-frame.hicasso.examples.forms.events :as events]
-            [re-frame.hicasso.examples.forms.subs :as subs]))
+  (:require [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.forms.db :as rf.hicasso.examples.forms.db]
+            [re-frame.hicasso.examples.forms.events :as rf.hicasso.examples.forms.events]
+            [re-frame.hicasso.examples.forms.subs :as rf.hicasso.examples.forms.subs]))
 
 (def ^:private problem-text
   "Problem keyword → the sentence shown. The rules live in `db` as
   keywords; turning one into English is a rendering decision and belongs
   here, where the rest of the strings are."
   {:problem/assignee-blank "An assignee is required."
-   :problem/notes-too-long (str "Notes must be " db/notes-limit
+   :problem/notes-too-long (str "Notes must be " rf.hicasso.examples.forms.db/notes-limit
                                 " characters or fewer.")})
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 1 — the buffered subject field
 ;; ---------------------------------------------------------------------------
 
-(h/defview subject-hint
+(rf.hicasso/defview subject-hint
   "*Enter commits, Escape reverts* — present only while a session is open.
 
   Its own boundary, and that is not tidiness. It is the ONLY body that
@@ -83,10 +83,10 @@
   would make `::h/revision` inert, and a reset that only works because
   something else happened to re-render is not a reset."
   [{:keys [ikey]}]
-  (when (h/sub [::subs/editing? ikey])
+  (when (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/editing? ikey])
     [:p.subject-hint "Enter commits, Escape reverts."]))
 
-(h/defview subject-field
+(rf.hicasso/defview subject-field
   "The ticket's subject, edited in place behind a draft.
 
   The whole commit protocol is three props and no callback: Enter and
@@ -112,19 +112,19 @@
       {:id          id
        :class       "subject"
        :type        "text"
-       :value       (h/sub [::subs/subject-shown ikey])
-       ::h/revision (h/sub [::subs/subject-revision ikey])
-       :on-input    [db/subject-draft ikey ::h/value]
-       :on-blur     [::events/commit-subject ikey]
-       :on-key-down {"Enter"  [::events/commit-subject ikey]
-                     "Escape" [::events/cancel-subject ikey]}}]
+       :value       (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/subject-shown ikey])
+       ::rf.hicasso/revision (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/subject-revision ikey])
+       :on-input    [rf.hicasso.examples.forms.db/subject-draft ikey ::rf.hicasso/value]
+       :on-blur     [::rf.hicasso.examples.forms.events/commit-subject ikey]
+       :on-key-down {"Enter"  [::rf.hicasso.examples.forms.events/commit-subject ikey]
+                     "Escape" [::rf.hicasso.examples.forms.events/cancel-subject ikey]}}]
      [subject-hint {:ikey ikey}]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 2 — an ordinary field, its touch mark and its gated problem
 ;; ---------------------------------------------------------------------------
 
-(h/defview field-row
+(rf.hicasso/defview field-row
   "One label, one control, and — once the user has earned it — one
   problem.
 
@@ -134,16 +134,16 @@
   shut, so `aria-describedby` never points at a node that is not there."
   [{:keys [field label multiline?]}]
   (let [id      (str "ticket-" (name field))
-        problem (h/sub [::subs/shown-problem field])
-        busy?   (:pending? (h/sub [:rf/mutation {:instance events/save-instance}]))
+        problem (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/shown-problem field])
+        busy?   (:pending? (rf.hicasso/sub [:rf/mutation {:instance rf.hicasso.examples.forms.events/save-instance}]))
         props   {:id                id
                  :class             (name field)
-                 :value             (h/sub [::subs/field field])
+                 :value             (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/field field])
                  :disabled          busy?
                  :aria-invalid      (if problem "true" "false")
                  :aria-describedby  (when problem (str id "-problem"))
-                 :on-input          [::events/edit field ::h/value]
-                 :on-blur           [::events/touch {:field field}]}]
+                 :on-input          [::rf.hicasso.examples.forms.events/edit field ::rf.hicasso/value]
+                 :on-blur           [::rf.hicasso.examples.forms.events/touch {:field field}]}]
     [:div.field-row
      [:label {:for id} label]
      (if multiline?
@@ -157,15 +157,15 @@
 ;; Recipe 3 — the write's status, read from the write
 ;; ---------------------------------------------------------------------------
 
-(h/defview save-failure
+(rf.hicasso/defview save-failure
   "The error region. Present only while the instance says the last
   attempt failed, and gone the moment a retry starts — because it is a
   projection of the write rather than a copy of it."
   [_]
-  (when (:error? (h/sub [:rf/mutation {:instance events/save-instance}]))
+  (when (:error? (rf.hicasso/sub [:rf/mutation {:instance rf.hicasso.examples.forms.events/save-instance}]))
     [:p.save-failure {:role "alert"} "Saving failed. Nothing was lost — try again."]))
 
-(h/defview save-button
+(rf.hicasso/defview save-button
   "Submit. Disabled while the write is in flight and carrying nothing at
   all while the form is invalid — see the namespace docstring on why
   those are not two grades of the same thing.
@@ -177,7 +177,7 @@
   the submit handler and exposed at `::subs/can-submit?` for anything
   that needs the answer; `l0` pins those two agreeing."
   [_]
-  (let [busy? (:pending? (h/sub [:rf/mutation {:instance events/save-instance}]))]
+  (let [busy? (:pending? (rf.hicasso/sub [:rf/mutation {:instance rf.hicasso.examples.forms.events/save-instance}]))]
     [:button.save
      {:type     "submit"
       :disabled busy?}
@@ -187,7 +187,7 @@
 ;; The screen
 ;; ---------------------------------------------------------------------------
 
-(h/defview details-form
+(rf.hicasso/defview details-form
   "The form shell. It reads NOTHING, so a keystroke in either field
   re-renders that field's row and stops there.
 
@@ -195,13 +195,13 @@
   form and the browser does not navigate — with no `.preventDefault`
   anywhere in this file."
   [_]
-  [:form.details {:on-submit [::events/submit]}
+  [:form.details {:on-submit [::rf.hicasso.examples.forms.events/submit]}
    [field-row {:field :assignee :label "Assignee"}]
    [field-row {:field :notes :label "Notes" :multiline? true}]
    [save-failure {}]
    [save-button {}]])
 
-(h/defview screen
+(rf.hicasso/defview screen
   "The whole page: the buffered subject above, the ordinary form below."
   [{:keys [ikey]}]
   [:main.ticket-screen

@@ -41,17 +41,17 @@
   fan-out steps together. Pure-data shape of the preconditions makes
   the orchestrators a four-line case-match."
   (:require [clojure.string :as str]
-            [re-frame.elision :as elision]
-            [re-frame.epoch.assembly :as assembly]
-            [re-frame.epoch.state :as state]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.classification :as classification]
-            [re-frame.projection :as projection]
-            [re-frame.registrar :as registrar]
-            [re-frame.router :as router]
-            [re-frame.trace :as trace]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.epoch.assembly :as rf.epoch.assembly]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.classification :as rf.classification]
+            [re-frame.projection :as rf.projection]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.router :as rf.router]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- restore failure-mode predicates --------------------------------------
 
@@ -65,7 +65,7 @@
   Callers treat an unbound hook as a soft pass: without a validator they
   cannot disprove validity."
   []
-  (late-bind/get-fn :schemas/malli-validate))
+  (rf.late-bind/get-fn :schemas/malli-validate))
 
 (defn- registered-app-schemas
   "Return the {path → schema-meta} map registered against the named
@@ -74,7 +74,7 @@
   against the frame the epoch belongs to, not a process-global set."
   [frame-id]
   (if-let [schema-entries-for-frame
-           (late-bind/get-fn :schemas/frame-schema-entries)]
+           (rf.late-bind/get-fn :schemas/frame-schema-entries)]
     (schema-entries-for-frame frame-id)
     {}))
 
@@ -113,7 +113,7 @@
   Epoch restore validates against this public surface, not the unrelated
   internal `:head` registrar kind."
   [machine-id]
-  (let [registration (registrar/lookup :event machine-id)]
+  (let [registration (rf.registrar/lookup :event machine-id)]
     (when (:rf/machine? registration)
       registration)))
 
@@ -192,7 +192,7 @@
   `(empty? (failing-runtime-paths frame-id runtime-db))`."
   [frame-id runtime-db]
   (if-let [validate-machine-data!
-           (late-bind/get-fn :machines/validate-machine-data!)]
+           (rf.late-bind/get-fn :machines/validate-machine-data!)]
     (let [validation-result
           (try (validate-machine-data! runtime-db nil frame-id)
                (catch #?(:clj Throwable :cljs :default) _ true))]
@@ -229,7 +229,7 @@
   Returns a vector of {:kind <kind> :id <id>} entries. Empty when
   every reference resolves."
   [runtime-db]
-  (let [actor-resolvable? (late-bind/get-fn :machines/actor-resolvable?)
+  (let [actor-resolvable? (rf.late-bind/get-fn :machines/actor-resolvable?)
         ;; Machines under [:rf.runtime/machines :snapshots]: a singleton
         ;; references a registered machine (`:rf/machine? true`, per Spec
         ;; 005 §Registration); a spawned actor has no
@@ -245,7 +245,7 @@
         ;; Active route
         missing-route
         (when-let [route-id (get-in runtime-db route-current-id-path)]
-          (when-not (registrar/lookup :route route-id)
+          (when-not (rf.registrar/lookup :route route-id)
             [{:kind :route :id route-id}]))]
     (vec (concat missing-machines missing-route))))
 
@@ -278,7 +278,7 @@
       ;; No registered machine under the key: a spawned actor whose TYPE rides
       ;; the snapshot. Resolve the spec the dispatch-time way.
       (let [type-ref      (:rf/machine-type snapshot)
-            from-snapshot (late-bind/get-fn :machines/spec-from-snapshot)
+            from-snapshot (rf.late-bind/get-fn :machines/spec-from-snapshot)
             spec          (when from-snapshot (from-snapshot snapshot))]
         {:current (spec-snapshot-version spec)
          :type    type-ref}))))
@@ -325,7 +325,7 @@
 
 (defn emit-precondition-failure!
   [operation tags]
-  (trace/emit-error! operation
+  (rf.trace/emit-error! operation
                      (assoc tags :recovery :no-recovery)))
 
 (defn- drain-in-flight?
@@ -348,7 +348,7 @@
   time-travel write surface so the no-such-handler tag shape stays
   canonical."
   [frame-id]
-  (if-let [frame-record (frame/frame frame-id)]
+  (if-let [frame-record (rf.frame/frame frame-id)]
     {:outcome :ok :frame-record frame-record}
     {:outcome :fail
      :op      :rf.error/no-such-handler
@@ -406,7 +406,7 @@
                  :rf.epoch/id epoch-id}}
 
       :else
-      (let [history (state/history-for frame-id)
+      (let [history (rf.epoch.state/history-for frame-id)
             epoch-record (find-epoch-in history epoch-id)]
         (cond
           ;; Exact-owner gate on the history/validation snapshot (rf2-qfrh4
@@ -419,7 +419,7 @@
           ;; or validate against a stale incarnation. (Belt-and-braces with the
           ;; record-derived token above: even if a race slips past here the
           ;; ticket still carries A's token, so the exact write rejects B.)
-          (not (frame/event-continuation-live? frame-id incarnation-token))
+          (not (rf.frame/event-continuation-live? frame-id incarnation-token))
           {:outcome :fail
            :op      :rf.error/no-such-handler
            :tags    {:kind  :frame
@@ -457,9 +457,9 @@
                 ;; is malformed/unreachable on the current build path.
                 recorded-frame-state (:frame-state-after epoch-record)
                 recorded-app-db      (get recorded-frame-state
-                                          frame/app-partition-key)
+                                          rf.frame/app-partition-key)
                 recorded-runtime-db  (get recorded-frame-state
-                                          frame/runtime-partition-key)]
+                                          rf.frame/runtime-partition-key)]
             ;; Bind each probe once so each substrate is walked once.
             ;; failure path walks the recorded db / schema set / machine
             ;; map exactly once per check.
@@ -477,7 +477,7 @@
                :tags    {:frame                  frame-id
                          :rf.epoch/id            epoch-id
                          :schema-digest-recorded (:schema-digest epoch-record)
-                         :schema-digest-current  (assembly/current-schema-digest frame-id)
+                         :schema-digest-current  (rf.epoch.assembly/current-schema-digest frame-id)
                          :failing-paths          (vec failing-paths)}}
 
               (if-let [missing-reference-details
@@ -583,7 +583,7 @@
       {:outcome :fail :reason :rf.epoch/replay-during-drain :tags {}}
 
       :else
-      (let [history (state/history-for frame-id)
+      (let [history (rf.epoch.state/history-for frame-id)
             epoch   (find-epoch-in history epoch-id)
             cause   (when epoch (non-replayable-cause epoch))
             fn-ids  (when epoch (fn-override-fx-ids epoch))]
@@ -645,15 +645,15 @@
   and nothing mints."
   [frame-id record opts]
   (let [pre-replay-epoch-ids
-        (into #{} (map :epoch-id) (state/history-for frame-id))]
-    (router/dispatch-sync! (:trigger-event record)
+        (into #{} (map :epoch-id) (rf.epoch.state/history-for frame-id))]
+    (rf.router/dispatch-sync! (:trigger-event record)
                            (replay-dispatch-opts frame-id record opts))
     (let [new-record
           (some (fn [candidate-record]
                   (when-not (contains? pre-replay-epoch-ids
                                        (:epoch-id candidate-record))
                     candidate-record))
-                (state/history-for frame-id))]
+                (rf.epoch.state/history-for frame-id))]
       {:ok?             true
        :frame           frame-id
        :source-epoch-id (:epoch-id record)
@@ -733,10 +733,10 @@
   `drain-in-flight?` precondition and avoiding both self-deadlock and a
   non-linearizable mid-transition splice."
   [frame-id during-drain-op during-drain-tags op]
-  (if (frame/in-drain? frame-id)
+  (if (rf.frame/in-drain? frame-id)
     (do (emit-precondition-failure! during-drain-op during-drain-tags)
         false)
-    (frame/call-serialized-with-drain! frame-id op)))
+    (rf.frame/call-serialized-with-drain! frame-id op)))
 
 ;; ---- runtime-db subsystem reconcile on restore ----------------------------
 ;;
@@ -803,9 +803,9 @@
    (reconcile-runtime-db-on-restore frame-id frame-state restore-time-ms nil))
   ([frame-id frame-state restore-time-ms owner-token]
    (if-let [reconcile-runtime-db!
-            (late-bind/get-fn :resources/reconcile-on-restore)]
-     (if (contains? frame-state frame/runtime-partition-key)
-       (update frame-state frame/runtime-partition-key
+            (rf.late-bind/get-fn :resources/reconcile-on-restore)]
+     (if (contains? frame-state rf.frame/runtime-partition-key)
+       (update frame-state rf.frame/runtime-partition-key
                (fn [runtime-db]
                  (when (some? runtime-db)
                    (reconcile-runtime-db!
@@ -887,10 +887,10 @@
   ([frame-id incarnation-token]
    (let [still-owned? (fn []
                         (or (nil? incarnation-token)
-                            (frame/event-continuation-live? frame-id incarnation-token)))]
+                            (rf.frame/event-continuation-live? frame-id incarnation-token)))]
       (doseq [hook-key restore-quiesce-hooks
               :while   (still-owned?)]
-        (when-let [quiesce-hook (late-bind/get-fn hook-key)]
+        (when-let [quiesce-hook (rf.late-bind/get-fn hook-key)]
           (try (quiesce-hook frame-id)
                (catch #?(:clj Throwable :cljs :default) quiesce-error
                 ;; rf2-vy2hj: the SETTLED path needs the same fence as the
@@ -909,7 +909,7 @@
                 ;; incarnation is unaffected: it emits its one warning and the
                 ;; best-effort chain continues.
                 (when (still-owned?)
-                  (trace/emit-error! :rf.warning/restore-quiesce-hook-exception
+                  (rf.trace/emit-error! :rf.warning/restore-quiesce-hook-exception
                                       {:category  :rf.warning/restore-quiesce-hook-exception
                                        :hook      hook-key
                                        :frame     frame-id
@@ -938,8 +938,8 @@
   seated a same-id successor B."
   [frame-state frame-id incarnation-token]
   (when-let [commit-restore-reconcile!
-             (late-bind/get-fn :resources/commit-restore-reconcile!)]
-    (when-let [runtime-db (get frame-state frame/runtime-partition-key)]
+             (rf.late-bind/get-fn :resources/commit-restore-reconcile!)]
+    (when-let [runtime-db (get frame-state rf.frame/runtime-partition-key)]
       (commit-restore-reconcile! runtime-db frame-id
                                  {:owner-token incarnation-token})))
   nil)
@@ -1003,7 +1003,7 @@
     :rf.epoch/restore-during-drain
     {:frame frame-id :rf.epoch/id (:epoch-id epoch)}
     (fn []
-      (if-not (frame/event-continuation-live? frame-id incarnation-token)
+      (if-not (rf.frame/event-continuation-live? frame-id incarnation-token)
         ;; The incarnation these preconditions resolved against is no longer
         ;; live — a same-id SUCCESSOR was seated (or the frame was destroyed /
         ;; is being torn down) between validation and this write. Refuse BEFORE
@@ -1045,13 +1045,13 @@
               ;; non-nil changed-key-set (even empty) means it landed on the
               ;; exact incarnation.
               changed-keys
-              (frame/replace-frame-state! frame-id incarnation-token
+              (rf.frame/replace-frame-state! frame-id incarnation-token
                                           reconciled-frame-state)]
           (if (nil? changed-keys)
             (do (emit-precondition-failure! :rf.error/no-such-handler
                                             {:kind :frame :frame frame-id})
                 false)
-            (do (trace/emit! :rf.epoch :rf.epoch/restored
+            (do (rf.trace/emit! :rf.epoch :rf.epoch/restored
                              {:frame       frame-id
                               :rf.epoch/id (:epoch-id epoch)})
                 ;; The exact-incarnation install committed, so the public result
@@ -1068,15 +1068,15 @@
                 ;; remaining A-only tail work is STOPPED rather than RETARGETED
                 ;; onto B: no B anchor is stamped, no B resource trace committed,
                 ;; no B host handle released or aborted.
-                (when (frame/event-continuation-live? frame-id incarnation-token)
+                (when (rf.frame/event-continuation-live? frame-id incarnation-token)
                   ;; Restore triggers no ordinary event, so explicitly anchor its
                   ;; repaint/subscription/unmount back-fill to the restored epoch.
-                  (state/set-last-settled-epoch! frame-id (:epoch-id epoch)))
-                (when (frame/event-continuation-live? frame-id incarnation-token)
+                  (rf.epoch.state/set-last-settled-epoch! frame-id (:epoch-id epoch)))
+                (when (rf.frame/event-continuation-live? frame-id incarnation-token)
                   ;; Deferred subsystem success traces are valid only after install.
                   (commit-resources-restore-traces! reconciled-frame-state
                                                      frame-id incarnation-token))
-                (when (frame/event-continuation-live? frame-id incarnation-token)
+                (when (rf.frame/event-continuation-live? frame-id incarnation-token)
                   ;; Host timers and HTTP handles are not frame state; cancel the
                   ;; abandoned timeline only after the new state is installed.
                   (quiesce-orphaned-async-host-work! frame-id incarnation-token))
@@ -1092,7 +1092,7 @@
   "The two recognized `replace-frame-state!` partition keys — the closed
   key-vocabulary the bad-keys precondition (below) validates a caller's
   partial frame-state map against."
-  #{frame/app-partition-key frame/runtime-partition-key})
+  #{rf.frame/app-partition-key rf.frame/runtime-partition-key})
 
 (defn- replace-frame-state-bad-keys
   "Validate `frame-state`'s key set against the closed
@@ -1216,7 +1216,7 @@
         ;; (3) History disabled (depth 0)? The synthetic undo-anchor cannot
         ;; land in the (disabled) ring, so the undo-works-after invariant is
         ;; unsatisfiable, so reject rather than return a false success.
-        (not (pos? (state/depth)))
+        (not (pos? (rf.epoch.state/depth)))
         {:outcome :fail
          :op      :rf.epoch/replace-history-disabled
          :tags    {:frame frame-id}}
@@ -1226,13 +1226,13 @@
         ;; absent key is preserved, not written.
         (let [failing-paths
               (cond-> []
-                (contains? frame-state frame/app-partition-key)
+                (contains? frame-state rf.frame/app-partition-key)
                 (into (failing-schema-paths
-                        frame-id (get frame-state frame/app-partition-key)))
+                        frame-id (get frame-state rf.frame/app-partition-key)))
 
-                (contains? frame-state frame/runtime-partition-key)
+                (contains? frame-state rf.frame/runtime-partition-key)
                 (into (failing-runtime-paths
-                        frame-id (get frame-state frame/runtime-partition-key))))]
+                        frame-id (get frame-state rf.frame/runtime-partition-key))))]
           (cond
             ;; Exact-owner gate on the validation snapshot (rf2-gj2bo,
             ;; mirroring `check-restore-preconditions!`'s history gate). The
@@ -1245,7 +1245,7 @@
             ;; successor's schema verdict. (Belt-and-braces with the
             ;; record-derived token above: even if a race slips past here the
             ;; ticket still carries A's token, so the exact write rejects B.)
-            (not (frame/event-continuation-live? frame-id incarnation-token))
+            (not (rf.frame/event-continuation-live? frame-id incarnation-token))
             {:outcome :fail
              :op      :rf.error/no-such-handler
              :tags    {:kind  :frame
@@ -1294,10 +1294,10 @@
   the error attributed to the epoch helper)."
   [profile]
   (let [profile (or profile default-egress-profile)]
-    (when-not (contains? projection/profiles profile)
+    (when-not (contains? rf.projection/profiles profile)
       ;; Share the projection layer's closed-enum error builder so wording and
       ;; the machine-readable token cannot drift.
-      (throw (projection/unknown-egress-profile-ex 'epoch/projected-record profile)))
+      (throw (rf.projection/unknown-egress-profile-ex 'epoch/projected-record profile)))
     profile))
 
 (defn- egress-opts
@@ -1332,7 +1332,7 @@
   MUST NOT fabricate a value)."
   [payload frame-id opts]
   (when (some? payload)
-    (projection/project-egress payload (egress-opts frame-id opts))))
+    (rf.projection/project-egress payload (egress-opts frame-id opts))))
 
 (defn- project-frame-state-slot
   "Project a `:frame-state-before` / `:frame-state-after` slot for off-box
@@ -1365,7 +1365,7 @@
   (when (some? frame-state)
     (cond-> frame-state
       (contains? frame-state :rf.db/app)
-      (update :rf.db/app projection/project-egress (egress-opts frame-id opts))
+      (update :rf.db/app rf.projection/project-egress (egress-opts frame-id opts))
       ;; Default-redact runtime-db off-box. The
       ;; trusted-local `:include-runtime-db? true` opt-in lifts the
       ;; partition redaction; the value still rides the value walk so its
@@ -1374,7 +1374,7 @@
       (assoc :rf.db/runtime :rf/redacted)
 
       (and (contains? frame-state :rf.db/runtime) include-runtime-db?)
-      (update :rf.db/runtime projection/project-egress (egress-opts frame-id opts)))))
+      (update :rf.db/runtime rf.projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- reroot-trace-event-db-slots
   "The `:rf.event/db-pending` (t1) and
@@ -1418,7 +1418,7 @@
                                (= operation :rf.event/db-pending-post-flow))
                            (some? (get-in trace-event [:tags :rf.event/db])))
                     (update-in trace-event [:tags :rf.event/db]
-                               projection/project-egress
+                               rf.projection/project-egress
                                wire-opts)
                     trace-event))))
             trace-events))))
@@ -1505,7 +1505,7 @@
            :rf.http/http-4xx       [[:body]]
            :rf.http/http-5xx       [[:body]]
            :rf.http/decode-failure [[:body-text]]}
-    interop/debug-enabled?
+    rf.interop/debug-enabled?
     (assoc :rf.http/retry-attempt [[:failure :body] [:failure :body-text]])))
 
 (defn- omit-off-box-http-bodies
@@ -1624,7 +1624,7 @@
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
     (if-let [project-scope-resolved-tags
-             (late-bind/get-fn :resources/project-scope-resolved-egress)]
+             (rf.late-bind/get-fn :resources/project-scope-resolved-egress)]
       (mapv (fn [trace-event]
               (if (and (map? trace-event)
                        (= :rf.resource/scope-resolved
@@ -1689,7 +1689,7 @@
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
     (if-let [project-resource-trace-tags
-             (late-bind/get-fn :resources/project-resource-trace-egress)]
+             (rf.late-bind/get-fn :resources/project-resource-trace-egress)]
       (mapv (fn [trace-event]
               (if (and (map? trace-event)
                        (resource-family-op? (:operation trace-event))
@@ -1737,7 +1737,7 @@
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
     (if-let [project-fx-arg-tags
-             (late-bind/get-fn :resources/project-fx-args-egress)]
+             (rf.late-bind/get-fn :resources/project-fx-args-egress)]
       (mapv (fn [trace-event]
               (if (and (map? trace-event) (map? (:tags trace-event)))
                 (update trace-event :tags project-fx-arg-tags
@@ -1800,9 +1800,9 @@
   (let [mark-slot-value
         (fn [slot-key]
           (fn [slot-value]
-            (if (elision/marker? slot-value)
+            (if (rf.elision/marker? slot-value)
               slot-value
-              (classification/large-marker slot-value [slot-key]))))]
+              (rf.classification/large-marker slot-value [slot-key]))))]
     (cond
       (not (:large? slot-map)) slot-map
       include-large?            (dissoc slot-map :large?)
@@ -1889,7 +1889,7 @@
         ;; `project-egress` has no sub-specific arm, so ordering is otherwise
         ;; immaterial.
         (elide-large-sub-trace-values opts)
-        (projection/project-egress (egress-opts frame-id opts)))))
+        (rf.projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- elide-sub-run-row
   "Project a structured `:sub-runs` row. Its `:prev-value` / `:value`
@@ -2068,7 +2068,7 @@
              (contains? record :effects)
              (update :effects elide-effects-slot opts))]
        ;; Apply the advanced override only to the projected copy.
-       (assembly/apply-redact-fn built-in-projected-record)))))
+       (rf.epoch.assembly/apply-redact-fn built-in-projected-record)))))
 
 (defn projected-history
   "INTERNAL — the public contract lives on
@@ -2077,4 +2077,4 @@
   the 1-arity is the fully-redacted off-box path."
   ([frame-id] (projected-history frame-id nil))
   ([frame-id opts]
-   (mapv #(projected-record % opts) (state/history-for frame-id))))
+   (mapv #(projected-record % opts) (rf.epoch.state/history-for frame-id))))

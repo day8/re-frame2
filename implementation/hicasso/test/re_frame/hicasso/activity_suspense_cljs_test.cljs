@@ -101,15 +101,15 @@
   horizon — and never a `setTimeout` of this file's choosing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [clojure.set :as set]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.frames :as frames]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::activity-suspense)
 
@@ -142,13 +142,13 @@
 ;; ambient scope the instant it returns. `:ambient-frame nil` because this
 ;; suite seats its own top-level frame.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
-                      (collector/reset-runtime!)
-                      (error-emit/clear-error-listeners!))}))
+                      (rf.hicasso.impl.collector/reset-runtime!)
+                      (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The exercised population — a MEASUREMENT, not a claim
@@ -187,8 +187,8 @@
   tree's helper, which the freeze gate forbids this package to require."
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (when (frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
-  (frames/forget-frame-ops! frame-id)
+  (when (rf.frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
+  (rf.hicasso.impl.frames/forget-frame-ops! frame-id)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id
     (rf/dispatch-sync [:acs/seed {:which :a :a 1 :b 100}]))
@@ -205,12 +205,12 @@
   render-phase CACHE, not ownership, so the rows that care about it name
   it separately."
   []
-  (dissoc (runtime/residue) :entries))
+  (dissoc (rf.hicasso.test.runtime/residue) :entries))
 
 (defn- readers
   "The registrations currently reading `query-v`, as a snapshot vector."
   [query-v]
-  (runtime/cell-readers (sub-key query-v)))
+  (rf.hicasso.test.runtime/cell-readers (sub-key query-v)))
 
 (defn- reader-count
   "How many registrations read `query-v`.
@@ -266,7 +266,7 @@
 (defn- panel-body
   "One unconditional read."
   [_]
-  [:p (str "a=" (h/sub [:acs/a]))])
+  [:p (str "a=" (rf.hicasso/sub [:acs/a]))])
 
 (defn- conditional-body
   "A read set that MOVES. The selector is itself a read, so the boundary
@@ -275,9 +275,9 @@
   through the ambient collector, so a branch not taken contributes no
   edge."
   [_]
-  (let [which (h/sub [:acs/which])]
+  (let [which (rf.hicasso/sub [:acs/which])]
     [:p (str (name which) "="
-             (if (= :a which) (h/sub [:acs/a]) (h/sub [:acs/b])))]))
+             (if (= :a which) (rf.hicasso/sub [:acs/a]) (rf.hicasso/sub [:acs/b])))]))
 
 (defn- render!
   "Run ONE body under the real generation fence — the same call
@@ -285,8 +285,8 @@
   and answer the read-set entry the render resolved. Commits nothing:
   `subscribe` is React's to call, and nothing here calls it."
   [body-fn]
-  (collector/render-body frame-id body-fn {})
-  (collector/last-reads))
+  (rf.hicasso.impl.collector/render-body frame-id body-fn {})
+  (rf.hicasso.impl.collector/last-reads))
 
 (defn- commit!
   "React's commit: call the entry's own `subscribe` and keep the cleanup.
@@ -294,7 +294,7 @@
   `onStoreChange` calls the registration has received."
   [entry]
   (let [!notified (atom 0)]
-    {:cleanup   (collector/commit-boundary! entry (fn [] (swap! !notified inc)))
+    {:cleanup   (rf.hicasso.impl.collector/commit-boundary! entry (fn [] (swap! !notified inc)))
      :notified  !notified}))
 
 (defn- hide!
@@ -314,15 +314,15 @@
     (let [entry     (render! panel-body)
           committed (commit! entry)
           visible   (sole-reader [:acs/a])
-          token     (frame/frame-incarnation-token frame-id)]
+          token     (rf.frame/frame-incarnation-token frame-id)]
 
       (testing "VISIBLE-CONNECTED — the commit acquired exactly the read
                 set, and the registration holding it is the one this
                 commit minted"
-        (is (= #{(sub-key [:acs/a])} (runtime/reads-of entry)))
+        (is (= #{(sub-key [:acs/a])} (rf.hicasso.test.runtime/reads-of entry)))
         (is (some? visible))
         (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-        (is (= #{(sub-key [:acs/a])} (runtime/boundary-reads visible))
+        (is (= #{(sub-key [:acs/a])} (rf.hicasso.test.runtime/boundary-reads visible))
             "and its forward edge is the entry's own key set"))
 
       (testing "it is LIVE, not merely present — a write to its key
@@ -351,7 +351,7 @@
                 incarnation, its app-db is intact, and the write above
                 landed in it — a hide releases this arm's ownership and
                 touches nothing the substrate owns"
-        (is (true? (identical? token (frame/frame-incarnation-token frame-id)))
+        (is (true? (identical? token (rf.frame/frame-incarnation-token frame-id)))
             "same incarnation — a hide is not a teardown")
         (is (= 3 (:a (app-db)))
             "seeded 1, bumped twice, and the second bump landed AFTER the
@@ -360,13 +360,13 @@
 
       (exercised! :activity/hide-releases)
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and at the runtime's own horizon the hidden
                          boundary's residue is exactly zero — a hide that
                          retained a cell would show here"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -426,7 +426,7 @@
 
       (exercised! :activity/hide-inside-a-deferred-notification-window)
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and the deferred notification is not delivered to
                          it. React has torn this subscription down; calling
@@ -453,7 +453,7 @@
                           (rf/with-frame frame-id (rf/dispatch-sync [:acs/bump :a]))
                           [:p "writer"])
           data          (try
-                          (collector/render-body frame-id always-writer {})
+                          (rf.hicasso.impl.collector/render-body frame-id always-writer {})
                           ::returned-without-refusing
                           (catch :default e (ex-data e)))]
       (is (= :rf.error/hicasso-generation-fence-exhausted (:rf.error/id data)))
@@ -471,18 +471,18 @@
     (let [committed (commit! (render! panel-body))]
       (hide! committed)
 
-      (let [before (runtime/body-runs)
+      (let [before (rf.hicasso.test.runtime/body-runs)
             ;; React renders hidden children at lower priority. Three runs,
             ;; because a leak of one membership per hidden render is
             ;; invisible in a single one.
             entries (doall (repeatedly 3 #(render! conditional-body)))
-            delta   (- (runtime/body-runs) before)]
+            delta   (- (rf.hicasso.test.runtime/body-runs) before)]
 
         (testing "the premise: the bodies genuinely RAN. Without this the
                   zeros below are the zeros of a render that never
                   happened, which is the cheapest possible false green"
           (is (= 3 delta))
-          (is (every? #(= #{(sub-key [:acs/which]) (sub-key [:acs/a])} (runtime/reads-of %))
+          (is (every? #(= #{(sub-key [:acs/which]) (sub-key [:acs/a])} (rf.hicasso.test.runtime/reads-of %))
                       entries)
               "and each one resolved a real, non-empty read set"))
 
@@ -501,7 +501,7 @@
                   thing a probing render leaves, and calling it out is what
                   keeps the zeros above honest — but not one of them is
                   CLAIMED"
-          (is (pos? (:entries (runtime/residue))))
+          (is (pos? (:entries (rf.hicasso.test.runtime/residue))))
           (is (every? #(zero? (entry-refs %)) entries)
               "zero refs on every hidden render's entry: React never called
                `subscribe`, so nothing above counted a claim that was
@@ -509,12 +509,12 @@
 
       (exercised! :activity/hidden-render-publishes-nothing)
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and the speculative cache evaporates at the
                          runtime's own horizon"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -567,10 +567,10 @@
 
       (exercised! :activity/reveal-reacquires)
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                      (runtime/residue))
+                      (rf.hicasso.test.runtime/residue))
                    "teardown after a hide/reveal/hide cycle is exact")
                (done))))))
 
@@ -610,8 +610,8 @@
       (testing "the premise: the read set really did MOVE across the hidden
                 window. Without this the row is a hide/reveal of one
                 unchanged set, which section 3 already covers"
-        (is (= #{(sub-key [:acs/which]) (sub-key [:acs/a])} (runtime/reads-of entry-a)))
-        (is (= #{(sub-key [:acs/which]) (sub-key [:acs/b])} (runtime/reads-of entry-b)))
+        (is (= #{(sub-key [:acs/which]) (sub-key [:acs/a])} (rf.hicasso.test.runtime/reads-of entry-a)))
+        (is (= #{(sub-key [:acs/which]) (sub-key [:acs/b])} (rf.hicasso.test.runtime/reads-of entry-b)))
         (is (some? pre-hide)))
 
       (testing "THE ROW. `:acs/a` was read before the hide and is not read
@@ -630,7 +630,7 @@
             "one registration per boundary, holding both its keys — not two
              registrations holding one each")
         (is (= #{(sub-key [:acs/which]) (sub-key [:acs/b])}
-               (runtime/boundary-reads reveal-reg))))
+               (rf.hicasso.test.runtime/boundary-reads reveal-reg))))
 
       (testing "so the census is the reveal's read set and nothing else.
                 `:cells` is 3 because `:acs/a`'s cell is still inside its
@@ -651,13 +651,13 @@
       (hide! revealed)
       (exercised! :activity/conditional-read-moved-while-hidden)
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and the dropped key's cell is gone at the horizon,
                          so nothing survives the transition on `:acs/a`'s
                          behalf"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
                (done))))))
 
 (deftest NEGATIVE-CONTROL-skipping-the-release-on-hide-resurrects-the-stale-membership
@@ -703,9 +703,9 @@
       ;; Release the visible one only. The leak is the point of the row, so
       ;; it is left for quiescence to fail to collect.
       (hide! revealed)
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
-               (is (pos? (:cell-refs (runtime/residue)))
+               (is (pos? (:cell-refs (rf.hicasso.test.runtime/residue)))
                    "and the leak OUTLIVES quiescence — a reaper cannot
                     collect a cell that still has a reader, which is
                     precisely why the release is the invariant")
@@ -755,10 +755,10 @@
   [thunk]
   (let [seen (atom [])
         key  (keyword "rf2-hic-014" (name (gensym "refusal")))]
-    (error-emit/register-error-listener!
+    (rf.error-emit/register-error-listener!
       key (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! seen conj r))))
     (try {:result (thunk) :refusals @seen}
-         (finally (error-emit/unregister-error-listener! key)))))
+         (finally (rf.error-emit/unregister-error-listener! key)))))
 
 (deftest an-intent-retained-across-a-hidden-window-obeys-the-incarnation-rule
   ;; The Activity form of the reincarnation rule. A hidden subtree keeps its
@@ -771,7 +771,7 @@
   (let [committed (commit! (render! panel-body))
         ;; The ambient dispatch this render bound — exactly what every
         ;; callback the body lowered retains.
-        retained  (collector/frame-dispatch frame-id)]
+        retained  (rf.hicasso.impl.collector/frame-dispatch frame-id)]
     (hide! committed)
 
     ;; The reincarnation, inside the hidden window: same public id, new
@@ -803,7 +803,7 @@
     (testing "LIVENESS — the reveal lowers a fresh callback, and it routes
               into the incarnation that is live now"
       (let [revealed  (commit! (render! panel-body))
-            on-reveal (collector/frame-dispatch frame-id)
+            on-reveal (rf.hicasso.impl.collector/frame-dispatch frame-id)
             {:keys [refusals]} (with-refusals #(on-reveal [:acs/mark :revealed]))]
         (is (= :revealed (:marked (app-db)))
             "the revealed subtree's own control writes its own app-db")
@@ -865,12 +865,12 @@
 
       (exercised! :activity/repeated-hide-reveal-cycles)
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and the census after four full cycles is the census
                          after none: exact ownership does not accumulate"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -892,7 +892,7 @@
                 lists, its forward edge answers its read set, and the
                 entry it was minted from is CLAIMED"
         (is (some? connected))
-        (is (= #{(sub-key [:acs/a])} (runtime/boundary-reads connected)))
+        (is (= #{(sub-key [:acs/a])} (rf.hicasso.test.runtime/boundary-reads connected)))
         (is (= 1 (entry-refs entry))))
 
       (hide! committed)
@@ -903,7 +903,7 @@
                 `subscribe` is what a reveal calls"
         (is (zero? (reader-count [:acs/a])))
         (is (= 0 (entry-refs entry)))
-        (is (= #{(sub-key [:acs/a])} (runtime/boundary-reads connected))
+        (is (= #{(sub-key [:acs/a])} (rf.hicasso.test.runtime/boundary-reads connected))
             "the released registration still answers its read set — the
              forward edge is the entry's key set, shared by reference and
              never cleared, so a projection can still say WHAT a hidden
@@ -919,12 +919,12 @@
 
       (exercised! :lifecycle/three-states-distinguished)
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "UNMOUNTED — every table is empty, and the entry has
                          been evicted from the cache"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
 
                (testing "THE FINDING, stated where a reader of this file will
                          meet it. Between the hide above and the quiescence

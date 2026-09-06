@@ -31,9 +31,9 @@
   dynamic-binding tier."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Per cljs.test: async tests require fixtures supplied as a MAP — a
 ;; fn-form fixture's teardown runs before an `(async done)` body
@@ -44,8 +44,8 @@
 ;; behaviour — every dispatch here carries an explicit `{:frame …}`.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -65,7 +65,7 @@
 (defn- received
   "Return the :received vector for a frame's current app-db."
   [frame-id]
-  (let [db (frame/frame-app-db-value frame-id)]
+  (let [db (rf.frame/frame-app-db-value frame-id)]
     (:received db)))
 
 ;; ---- 1. Synchronous direct rf/dispatch ------------------------------------

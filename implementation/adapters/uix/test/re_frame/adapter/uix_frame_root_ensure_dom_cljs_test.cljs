@@ -34,13 +34,13 @@
             ["react-dom/client" :as react-dom-client]
             [uix.core :as uix :refer-macros [defui $]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- side-channel atom + descendant probe ---------------------------------
 ;; The probe is a top-level `defui` reading the ENSURED frame's value via the
@@ -50,7 +50,7 @@
 (def ^:private ensure-observed (atom []))
 
 (defui ProbeEnsure []
-  (let [v (uix-adapter/use-subscribe [:rf.uix-ensure/k])]
+  (let [v (rf.adapter.uix/use-subscribe [:rf.uix-ensure/k])]
     (swap! ensure-observed conj v)
     ($ :div (str "k=" v))))
 
@@ -86,7 +86,7 @@
           ;; 1-arg `use-subscribe` in ProbeEnsure resolves through the ENSURE
           ;; provider's React-context tier (the created frame), not a
           ;; shadowing dynamic frame. Mirrors the SCOPE-arm regression's note.
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (reset! ensure-observed [])
             ;; Register the layer-1 db-reader the descendant reads. Default
@@ -106,7 +106,7 @@
                     ;; must survive `glue-args` before the `defui` hands them
                     ;; to `frame-root-react-element`.
                     (.render root
-                      ($ uix-adapter/frame-root
+                      ($ rf.adapter.uix/frame-root
                          {:id             frame-kw
                           :initial-events [[:rf/set-db {:k :ensured}]]
                           :url-bound?     false}
@@ -114,7 +114,7 @@
                 ;; :id survived $ as a KEYWORD — a stringified id would have
                 ;; thrown :rf.error/frame-root-missing-id, and the frame would
                 ;; not be registered under the keyword.
-                (is (some? (frame/frame frame-kw))
+                (is (some? (rf.frame/frame frame-kw))
                     "ENSURE created a live frame under the keyword :id (proves :id survived $ as a keyword)")
                 ;; The nested [[:rf/set-db {:k :ensured}]] vector + namespaced
                 ;; keyword + nested map survived glue-args: the seed ran at
@@ -138,7 +138,7 @@
       (let [act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (let [frame-kw   :rf.uix-ensure/image-frame
                   mount-node (.createElement js/document "div")
@@ -153,12 +153,12 @@
                     ;; validate-images! would throw here; if the inline event
                     ;; id were lost, the seed would not apply below.
                     (.render root
-                      ($ uix-adapter/frame-root
+                      ($ rf.adapter.uix/frame-root
                          {:id             frame-kw
                           :images         [ensure-image]
                           :initial-events [[:rf.uix-ensure/seed :img-ensured]]}
                          ($ :div "ensure-images-child")))))
-                (is (some? (frame/frame frame-kw))
+                (is (some? (rf.frame/frame frame-kw))
                     "ENSURE created a live frame under the keyword :id")
                 ;; The image's inline :reg-event resolved in the ensured
                 ;; frame's generation and the :initial-events dispatch seeded

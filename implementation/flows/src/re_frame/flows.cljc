@@ -11,17 +11,17 @@
   This namespace is the public facade for the optional
   `day8/re-frame2-flows` artefact. It publishes its core integration points
   through `re-frame.late-bind`."
-  (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.flows.registry :as registry]
-            [re-frame.flows.topo :as topo]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace]
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.flows.topo :as rf.flows.topo]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.trace :as rf.trace]
             ;; Keep tooling unreachable from the CLJS facade so Closure can
             ;; remove it when no tool requires the sibling namespace.
-            #?@(:clj [[re-frame.flows.tooling :as flows-tooling]])))
+            #?@(:clj [[re-frame.flows.tooling :as rf.flows.tooling]])))
 
 (def ^:no-doc stale-incarnation
   "Internal return marker: the exact frame owner vanished during a flow pass."
@@ -30,29 +30,29 @@
 (defn- owner-live?
   [frame-id owner-token exact-owner?]
   (or (not exact-owner?)
-      (frame/event-continuation-live? frame-id owner-token)))
+      (rf.frame/event-continuation-live? frame-id owner-token)))
 
 ;; ---- public-surface re-exports -------------------------------------------
 ;;
 ;; `last-inputs-snapshot` exposes raw cached values for tests and rollback. It
 ;; is not a tooling or egress surface; trace payloads use the elided path.
 
-(def flows-snapshot       registry/flows-snapshot)
-(def ^:no-doc last-inputs-snapshot registry/last-inputs-snapshot)
+(def flows-snapshot       rf.flows.registry/flows-snapshot)
+(def ^:no-doc last-inputs-snapshot rf.flows.registry/last-inputs-snapshot)
 
 ;; Flow metadata is frame-scoped and therefore cannot use the frame-blind
 ;; registrar metadata slot.
-(def flow-meta-at       registry/flow-meta-at)
+(def flow-meta-at       rf.flows.registry/flow-meta-at)
 
-(def reg-flow           registry/reg-flow)
-(def clear-flow         registry/clear-flow)
-(def reset-flows!       registry/reset-flows!)
-(def reset-last-inputs! registry/reset-last-inputs!)
+(def reg-flow           rf.flows.registry/reg-flow)
+(def clear-flow         rf.flows.registry/clear-flow)
+(def reset-flows!       rf.flows.registry/reset-flows!)
+(def reset-last-inputs! rf.flows.registry/reset-last-inputs!)
 
 ;; JVM tools get a convenience alias. CLJS tools require the bundle-isolated
 ;; sibling directly.
 #?(:clj
-   (def flow-algebra-view flows-tooling/flow-algebra-view))
+   (def flow-algebra-view rf.flows.tooling/flow-algebra-view))
 
 ;; ---- partition-qualified input resolution -------------------------------
 ;;
@@ -66,8 +66,8 @@
 (defn- resolve-input
   "Read a bare input from app-db or a qualified input from runtime-db."
   [db runtime-db path]
-  (if (registry/runtime-input? path)
-    (get-in runtime-db (registry/partition-relative-input-path path))
+  (if (rf.flows.registry/runtime-input? path)
+    (get-in runtime-db (rf.flows.registry/partition-relative-input-path path))
     (get-in db path)))
 
 (defn- read-inputs
@@ -83,9 +83,9 @@
   inside a `debug-enabled?` branch so Closure can remove the walk."
   [frame-id flow input-values]
   (mapv (fn [input-path v]
-          (elision/elide-wire-value
+          (rf.elision/elide-wire-value
             v {:frame frame-id
-               :path  (registry/partition-relative-input-path input-path)}))
+               :path  (rf.flows.registry/partition-relative-input-path input-path)}))
         (:inputs flow)
         input-values))
 
@@ -105,7 +105,7 @@
       ;; means no declaration.
       (not (contains? flow :schema)) true
       :else
-      (if-let [validate (late-bind/get-fn-cached
+      (if-let [validate (rf.late-bind/get-fn-cached
                           :schemas/validate-with-registered-fn)]
         (let [valid? (validate schema new-output)]
           ;; Registered schema functions are authored callback boundaries.
@@ -114,12 +114,12 @@
             (not (live?)) false
             valid? true
             :else
-            (let [explain     (late-bind/get-fn-cached
+            (let [explain     (rf.late-bind/get-fn-cached
                                 :schemas/explain-with-registered-fn)
                   explanation (when explain (explain schema new-output))]
               (if-not (live?)
                 false
-                (let [redact (late-bind/get-fn-cached
+                (let [redact (rf.late-bind/get-fn-cached
                                :schemas/redact-validation-tags)
                       tags   {:category   :rf.error/schema-validation-failure
                               :where      :flow-output
@@ -127,7 +127,7 @@
                               :failing-id (:id flow)
                               :schema-id  (:id flow)
                               :path       (:output-path flow)
-                              :value      (elision/elide-wire-value
+                              :value      (rf.elision/elide-wire-value
                                             new-output
                                             {:frame frame-id
                                              :path (:output-path flow)})
@@ -141,7 +141,7 @@
                   (if-not (live?)
                     false
                     (do
-                      (trace/emit-error!
+                      (rf.trace/emit-error!
                         :rf.error/schema-validation-failure tags)
                       (live?))))))))
         true))))
@@ -235,8 +235,8 @@
     stale-incarnation
     (let [flow-id     (:id flow)
           output-path (:output-path flow)]
-      (when interop/debug-enabled?
-        (trace/emit! :flow :rf.flow/failed
+      (when rf.interop/debug-enabled?
+        (rf.trace/emit! :flow :rf.flow/failed
                      {:flow-id           flow-id
                       :phase             phase
                       :path              output-path
@@ -247,7 +247,7 @@
                       :frame             frame-id}))
       (if-not (owner-live? frame-id owner-token exact-owner?)
         stale-incarnation
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/flow-eval-exception
           'rf/run-flows-on-db
           (if (= :derive phase)
@@ -295,11 +295,11 @@
           new-inputs (read-inputs db runtime-db flow)
           ;; Read and write the captured A-owned cell, never a bare-id lookup
           ;; that could resolve to replacement B after a callback.
-          old-inputs (registry/pass-flow-last-inputs pass flow-id)]
+          old-inputs (rf.flows.registry/pass-flow-last-inputs pass flow-id)]
       (if (= new-inputs old-inputs)
         (do
-          (when interop/debug-enabled?
-            (trace/emit! :flow :rf.flow/skip
+          (when rf.interop/debug-enabled?
+            (rf.trace/emit! :flow :rf.flow/skip
                          {:flow-id               flow-id
                           :reason                :inputs-value-equal
                           :input-paths-unchanged (:inputs flow)
@@ -313,7 +313,7 @@
         ;; declared `:output-path` into the pending app-db is structurally
         ;; unreachable from the derive handler, so it can never be reported as
         ;; the programmer's `:derive` fn throwing (rf2-gpj9r).
-        (let [started-at-ms  (when interop/debug-enabled? (interop/now-ms))
+        (let [started-at-ms  (when rf.interop/debug-enabled? (rf.interop/now-ms))
               derive-outcome (try
                                {::output (apply (:derive flow) new-inputs)}
                                (catch #?(:clj Throwable :cljs :default) e
@@ -328,23 +328,23 @@
               stale-incarnation
               (try
                 (let [new-output      (::output derive-outcome)
-                      flow-elapsed-ms (when interop/debug-enabled?
-                                        (- (interop/now-ms) started-at-ms))
-                      old-output      (when interop/debug-enabled?
+                      flow-elapsed-ms (when rf.interop/debug-enabled?
+                                        (- (rf.interop/now-ms) started-at-ms))
+                      old-output      (when rf.interop/debug-enabled?
                                         (get-in db (:output-path flow)))
                       new-db          (assoc-in db (:output-path flow)
                                                 new-output)]
-                  (registry/pass-set-flow-last-inputs!
+                  (rf.flows.registry/pass-set-flow-last-inputs!
                     pass flow-id new-inputs)
-                  (when interop/debug-enabled?
-                    (trace/emit! :flow :rf.flow/computed
+                  (when rf.interop/debug-enabled?
+                    (rf.trace/emit! :flow :rf.flow/computed
                                  {:flow-id      flow-id
                                   :input-values (elide-inputs frame-id flow new-inputs)
-                                  :before       (elision/elide-wire-value
+                                  :before       (rf.elision/elide-wire-value
                                                   old-output
                                                   {:frame frame-id
                                                    :path (:output-path flow)})
-                                  :result       (elision/elide-wire-value
+                                  :result       (rf.elision/elide-wire-value
                                                   new-output
                                                   {:frame frame-id
                                                    :path (:output-path flow)})
@@ -353,7 +353,7 @@
                                   :frame        frame-id}))
                   (if-not (owner-live? frame-id owner-token exact-owner?)
                     stale-incarnation
-                    (if (or (not interop/debug-enabled?)
+                    (if (or (not rf.interop/debug-enabled?)
                             (validate-output! frame-id owner-token exact-owner?
                                               flow new-output))
                       new-db
@@ -367,21 +367,21 @@
   (if-not (owner-live? frame-id owner-token exact-owner?)
     stale-incarnation
     (let [pass (if exact-owner?
-                 (registry/capture-flow-pass-state frame-id owner-token)
-                 (registry/legacy-flow-pass-state frame-id))]
+                 (rf.flows.registry/capture-flow-pass-state frame-id owner-token)
+                 (rf.flows.registry/legacy-flow-pass-state frame-id))]
       (if-not pass
         stale-incarnation
         (let [flow-map          (:flow-map pass)
-              abandoned-before (registry/pass-abandoned-paths-snapshot pass)
-              abandoned-paths  (registry/pass-drain-abandoned-paths! pass)
-              db               (reduce registry/vacate-path-in-db
+              abandoned-before (rf.flows.registry/pass-abandoned-paths-snapshot pass)
+              abandoned-paths  (rf.flows.registry/pass-drain-abandoned-paths! pass)
+              db               (reduce rf.flows.registry/vacate-path-in-db
                                        db abandoned-paths)]
           (if-not (owner-live? frame-id owner-token exact-owner?)
             stale-incarnation
             (if-not (seq flow-map)
               db
-              (let [ordered            (topo/topo-sort flow-map)
-                    last-inputs-before (registry/pass-last-inputs-snapshot pass)]
+              (let [ordered            (rf.flows.topo/topo-sort flow-map)
+                    last-inputs-before (rf.flows.registry/pass-last-inputs-snapshot pass)]
                 (try
                   (loop [remaining ordered
                          db        db]
@@ -408,9 +408,9 @@
                     (if-not (owner-live? frame-id owner-token exact-owner?)
                       stale-incarnation
                       (do
-                        (registry/pass-reset-last-inputs!
+                        (rf.flows.registry/pass-reset-last-inputs!
                           pass last-inputs-before)
-                        (registry/pass-restore-abandoned-paths!
+                        (rf.flows.registry/pass-restore-abandoned-paths!
                           pass abandoned-before)
                         (throw e)))))))))))))
 
@@ -427,7 +427,7 @@
    ;; Preserve the established three-argument late-bind contract. Inside an
    ;; event, core's private owner binding supplies the exact A token; direct
    ;; callers have no token and retain the legacy frame-id-scoped behaviour.
-   (if-let [owner-token (frame/current-event-owner-token)]
+   (if-let [owner-token (rf.frame/current-event-owner-token)]
      (run-flows-on-db* frame-id db runtime-db owner-token true)
      (run-flows-on-db* frame-id db runtime-db nil false)))
   ([frame-id db runtime-db {:keys [exact-owner-token]}]
@@ -464,34 +464,34 @@
   `registry/clear-flow` calls this through the seam it publishes; the
   `:require` runs the other way."
   [frame-id owner-token]
-  (when-let [db (frame/frame-app-db-value frame-id)]
-    (let [runtime-db (frame/frame-runtime-db-value frame-id)
+  (when-let [db (rf.frame/frame-app-db-value frame-id)]
+    (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
           settled    (binding [*pass-caller* :direct-clear]
                        (run-flows-on-db frame-id db runtime-db
                                         {:exact-owner-token owner-token}))]
       (when-not (or (= stale-incarnation settled)
                     (identical? settled db))
-        (frame/swap-frame-db-exact! frame-id owner-token (constantly settled)))))
+        (rf.frame/swap-frame-db-exact! frame-id owner-token (constantly settled)))))
   nil)
 
-(registry/set-settle-fn! settle-frame-flows!)
+(rf.flows.registry/set-settle-fn! settle-frame-flows!)
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
 ;; Core cannot statically require this optional artefact. Keep each publication
 ;; as a literal call so the late-bind drift gate can discover it.
 
-(late-bind/set-fn! :flows/reg-flow           reg-flow)
-(late-bind/set-fn! :flows/clear-flow         clear-flow)
-(late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
-(late-bind/set-fn! :flows/reset-flows!       reset-flows!)
+(rf.late-bind/set-fn! :flows/reg-flow           reg-flow)
+(rf.late-bind/set-fn! :flows/clear-flow         clear-flow)
+(rf.late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
+(rf.late-bind/set-fn! :flows/reset-flows!       reset-flows!)
 ;; The router owns post-transform commit rollback. These pairs let it restore
 ;; the eager dirty-check advances and consumed path vacations that this
 ;; artefact cannot otherwise observe after returning.
-(late-bind/set-fn! :flows/snapshot-last-inputs registry/frame-last-inputs-snapshot)
-(late-bind/set-fn! :flows/restore-last-inputs!  registry/reset-frame-last-inputs-to!)
-(late-bind/set-fn! :flows/snapshot-abandoned-paths registry/abandoned-output-paths-snapshot)
-(late-bind/set-fn! :flows/restore-abandoned-paths!  registry/restore-abandoned-output-paths!)
+(rf.late-bind/set-fn! :flows/snapshot-last-inputs rf.flows.registry/frame-last-inputs-snapshot)
+(rf.late-bind/set-fn! :flows/restore-last-inputs!  rf.flows.registry/reset-frame-last-inputs-to!)
+(rf.late-bind/set-fn! :flows/snapshot-abandoned-paths rf.flows.registry/abandoned-output-paths-snapshot)
+(rf.late-bind/set-fn! :flows/restore-abandoned-paths!  rf.flows.registry/restore-abandoned-output-paths!)
 ;; Frame destruction must release registry rows and caches owned by that frame.
-(late-bind/set-fn! :flows/teardown-on-frame-destroy!
-                   registry/teardown-on-frame-destroy!)
+(rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
+                   rf.flows.registry/teardown-on-frame-destroy!)

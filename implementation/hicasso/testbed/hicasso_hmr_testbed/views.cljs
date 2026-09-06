@@ -54,7 +54,7 @@
   preserved."
   (:require ["react" :as react]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.hicasso :as rf.hicasso]))
 
 ;; ---------------------------------------------------------------------------
 ;; The hot line
@@ -316,17 +316,17 @@
 ;; `(defhost sym "doc" Component opts?)`. Written the other way round the
 ;; docstring lands in the `opts` position and `mint-host!` walks a string
 ;; as an option map.
-(h/defhost hook-host
+(rf.hicasso/defhost hook-host
   "The host crossing the hook child sits inside, so the row is `child hook
   state IN A HOST` and not merely `hook state somewhere on the page`."
   HookChild)
 
-(h/defhost note-host
+(rf.hicasso/defhost note-host
   "The imperative host. Its instance arrives through a callback `:ref` —
   HD-022's v0 spelling, a function and never a vector."
   imperative-note)
 
-(h/defhost suspense-host
+(rf.hicasso/defhost suspense-host
   "React's own Suspense, wrapping the split region and NOTHING else. The
   scope is deliberate: this region shows its fallback on every save, and a
   boundary drawn any wider would take the controlled field, the hook child
@@ -335,7 +335,7 @@
   (.-Suspense react)
   {:slots #{:fallback}})
 
-(h/defhost island-host
+(rf.hicasso/defhost island-host
   "The `defhost` crossing over the lazy head — a declaration, with the
   island's server policy written where a crossing declares one.
   `:server :client-only` is the default and needs no writing; it is
@@ -345,26 +345,26 @@
   host-head
   {:server :client-only})
 
-(h/defview field
+(rf.hicasso/defview field
   "The focused controlled input. An ordinary `:value` off a subscription
   and an intent vector at `:on-input`; nothing test-only on it."
   [_]
   [:input {:data-testid "field"
            :type        "text"
-           :value       (h/sub [:hmr/text])
-           :on-input    [:hmr/edit ::h/value]}])
+           :value       (rf.hicasso/sub [:hmr/text])
+           :on-input    [:hmr/edit ::rf.hicasso/value]}])
 
-(h/defview digits-field
+(rf.hicasso/defview digits-field
   "The refusing field the composition row is driven on — the case
   `hmr_registry`'s browser sibling could not reach, and the one where a
   held draft is provably the model's refusal rather than its agreement."
   [_]
   [:input {:data-testid "digits"
            :type        "text"
-           :value       (h/sub [:hmr/digits])
-           :on-input    [:hmr/edit-digits ::h/value]}])
+           :value       (rf.hicasso/sub [:hmr/digits])
+           :on-input    [:hmr/edit-digits ::rf.hicasso/value]}])
 
-(h/defview app
+(rf.hicasso/defview app
   "The head whose re-mint is the whole mechanism. Mounted once per frame,
   so each root reads its own frame and the routing row can compare them.
 
@@ -377,7 +377,7 @@
   [{:keys [ref-sink island-refs]}]
   [:main {:data-testid "hmr-app"}
    [:span {:data-testid "gen-label"} generation-label]
-   [:span {:data-testid "frame-label"} (h/sub [:hmr/label])]
+   [:span {:data-testid "frame-label"} (rf.hicasso/sub [:hmr/label])]
    [field {}]
    [digits-field {}]
    [hook-host {}]

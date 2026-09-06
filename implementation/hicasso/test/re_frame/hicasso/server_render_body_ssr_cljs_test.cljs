@@ -37,14 +37,14 @@
   always-on `:node-test`. Every row renders to a string; none needs a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.server :as server]
-            [re-frame.subs :as subs]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.subs :as rf.subs]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
 ;; Registered ABOVE `use-fixtures`, for the sibling suites' reason: the reset
@@ -54,7 +54,7 @@
 
 (rf/reg-sub ::greeting (fn [db _] (:greeting db)))
 
-(subs/reg-runtime-sub ::flavour
+(rf.subs/reg-runtime-sub ::flavour
   (fn [runtime-db _] (get-in runtime-db [::kitchen :flavour])))
 
 (def ^:private !boot-events-run
@@ -74,8 +74,8 @@
   (fn [_ _] (throw (js/Error. "the sub that recovers to nil"))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; `:ambient-frame nil` — `render-body` makes its own top-level frame,
      ;; and the fixture's carried `:rf/default` stamp would be a scope the
      ;; request is not rendering. The sibling `frame_doors_ssr` suite opts
@@ -83,26 +83,26 @@
      :ambient-frame nil
      :init-fn       (fn []
                       (reset! !boot-events-run [])
-                      (collector/reset-runtime!))}))
+                      (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The probes
 ;; ---------------------------------------------------------------------------
 
-(h/defview both-partitions
+(rf.hicasso/defview both-partitions
   "Reads one app-db sub and one runtime-db sub, so a row can tell WHICH
   partition failed to restore rather than only that something did."
   [_]
   [:div.page
-   [:p.greeting (str (h/sub [::greeting]))]
-   [:p.flavour (str (h/sub [::flavour]))]])
+   [:p.greeting (str (rf.hicasso/sub [::greeting]))]
+   [:p.flavour (str (rf.hicasso/sub [::flavour]))]])
 
-(h/defview detonating
+(rf.hicasso/defview detonating
   "Reads the sub that throws. The framework recovers it to `nil`, so this
   body returns normally and the render produces markup — which is exactly
   the hazard §4 is about."
   [_]
-  [:div.page [:p.greeting (str (h/sub [::detonates]))]])
+  [:div.page [:p.greeting (str (rf.hicasso/sub [::detonates]))]])
 
 (defn- id-probe
   "One `useId`, rendered as text. A React hook, so it is written where React
@@ -111,9 +111,9 @@
   [^js _props]
   (react/createElement "b" #js {:className "probe"} (react/useId)))
 
-(h/defhost id-host id-probe {:server :render})
+(rf.hicasso/defhost id-host id-probe {:server :render})
 
-(h/defview id-page
+(rf.hicasso/defview id-page
   [_]
   [:div.page [id-host {}]])
 
@@ -130,10 +130,10 @@
     :rf/runtime-db {::kitchen {:flavour "vanilla"}}}))
 
 (defn- render-body! [hiccup opts]
-  (server/render-body (merge {:hiccup hiccup :render-state (state)} opts)))
+  (rf.hicasso.server/render-body (merge {:hiccup hiccup :render-state (state)} opts)))
 
 (defn- live-frame-ids []
-  (set (keys @frame/frames)))
+  (set (keys @rf.frame/frames)))
 
 ;; ---------------------------------------------------------------------------
 ;; §1 — inner markup, and nothing else

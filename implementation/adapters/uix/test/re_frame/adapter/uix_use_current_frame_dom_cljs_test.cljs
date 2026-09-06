@@ -27,14 +27,14 @@
             ["react-dom/client" :as react-dom-client]
             [uix.core :as uix :refer-macros [defui $]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.context :as context]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- side-channel atom + probe --------------------------------------------
 ;; The probe records every `use-current-frame` return into a side-channel atom
@@ -44,7 +44,7 @@
 (def ^:private observed (atom []))
 
 (defui ProbeCurrentFrame []
-  (let [f (uix-adapter/use-current-frame)]
+  (let [f (rf.adapter.uix/use-current-frame)]
     (swap! observed conj f)
     ($ :div (str "f=" f))))
 
@@ -77,7 +77,7 @@
           ;; `:rf/default` dynamic scope is not strictly required; we do it so
           ;; the three cases turn purely on the React-context boundary above
           ;; the probe.
-          (binding [frame/*current-frame* nil]
+          (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
 
             (testing "under frame-provider (SCOPE) → the scoped frame id"
@@ -86,30 +86,30 @@
                 (rf/make-frame {:id frame-kw
                                 :doc "rf2-kopcit use-current-frame SCOPE probe"})
                 (mount-and-render! act-fn
-                  ($ uix-adapter/frame-provider {:frame frame-kw}
+                  ($ rf.adapter.uix/frame-provider {:frame frame-kw}
                      ($ ProbeCurrentFrame)))
                 (is (some #{frame-kw} @observed)
                     "use-current-frame read the SCOPE-provided frame id from the shared context")
-                (is (not-any? #{context/no-provider-sentinel} @observed)
+                (is (not-any? #{rf.adapter.context/no-provider-sentinel} @observed)
                     "no sentinel leaked while a frame-provider sat above")))
 
             (testing "under frame-root (ENSURE) → the ENSUREd frame id"
               (reset! observed [])
               (let [frame-kw :rf.uix-ucf/root-frame]
                 (mount-and-render! act-fn
-                  ($ uix-adapter/frame-root {:id frame-kw}
+                  ($ rf.adapter.uix/frame-root {:id frame-kw}
                      ($ ProbeCurrentFrame)))
-                (is (some? (frame/frame frame-kw))
+                (is (some? (rf.frame/frame frame-kw))
                     "frame-root ENSUREd a live frame at commit")
                 (is (some #{frame-kw} @observed)
                     "use-current-frame read the ENSUREd frame id from the SAME shared context — proves frame-root installs it, not only frame-provider")
-                (is (not-any? #{context/no-provider-sentinel} @observed)
+                (is (not-any? #{rf.adapter.context/no-provider-sentinel} @observed)
                     "no sentinel leaked while a frame-root sat above")))
 
             (testing "under neither boundary → the no-provider sentinel"
               (reset! observed [])
               (mount-and-render! act-fn ($ ProbeCurrentFrame))
-              (is (some #{context/no-provider-sentinel} @observed)
+              (is (some #{rf.adapter.context/no-provider-sentinel} @observed)
                   "with no boundary above, use-current-frame returns the context default sentinel (:rf.frame/no-provider)")
               (is (not-any? #{:rf/default} @observed)
                   "the sentinel is emphatically NOT the :rf/default floor"))))))))

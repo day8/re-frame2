@@ -38,15 +38,15 @@
   frame argument at all. It is one view, mounted twice; the only thing
   that differs between the two mounts is the root each one sits under."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.roots-frames-support :as sup]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
 (def ^:private frame-a ::frame-a)
@@ -67,8 +67,8 @@
 (rf/reg-event ::bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; `nil` and not the default: the default leaves a dynamic-var frame
      ;; stamp in ambient scope, and a boundary that failed to resolve its
      ;; own frame could then answer that one instead — an isolation miss
@@ -81,13 +81,13 @@
      ;; that aborts the whole browser run at this namespace, not just this
      ;; file.
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The app — ONE view, mounted twice
 ;; ---------------------------------------------------------------------------
 
-(h/defview panel
+(rf.hicasso/defview panel
   "The whole app. Reads two subscriptions and carries one intent, and
   takes no frame argument: the frame arrives from the root it is mounted
   under, through the substrate's single internal React context.
@@ -98,8 +98,8 @@
   frames or not at all."
   [{:keys [tag]}]
   [:div.panel {:data-tag tag :data-frame (str (rf/current-frame-id))}
-   [:span.label (h/sub label-q)]
-   [:span.count (str (h/sub count-q))]
+   [:span.label (rf.hicasso/sub label-q)]
+   [:span.count (str (rf.hicasso/sub count-q))]
    [:button.bump {:on-click [::bump]} "bump"]])
 
 (defn- exploding-cleanup-component
@@ -119,15 +119,15 @@
     #js [])
   nil)
 
-(h/defhost exploder exploding-cleanup-component {:server :render})
+(rf.hicasso/defhost exploder exploding-cleanup-component {:server :render})
 
-(h/defview fragile-panel
+(rf.hicasso/defview fragile-panel
   "[[panel]]'s tree with the charge attached. Same subscriptions, same
   intent, so the two roots stay comparable."
   [{:keys [tag]}]
   [:div.panel {:data-tag tag :data-frame (str (rf/current-frame-id))}
-   [:span.label (h/sub label-q)]
-   [:span.count (str (h/sub count-q))]
+   [:span.label (rf.hicasso/sub label-q)]
+   [:span.count (str (rf.hicasso/sub count-q))]
    [:button.bump {:on-click [::bump]} "bump"]
    [exploder {}]])
 
@@ -142,13 +142,13 @@
   well as in the tables; the counts start equal so a cross-frame DISPATCH
   is legible as a difference that appears."
   []
-  (sup/leave-act-environment!)
+  (rf.hicasso.roots-frames-support/leave-act-environment!)
   (rf/make-frame {:id frame-a})
   (rf/make-frame {:id frame-b})
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf/with-frame frame-b (rf/dispatch-sync [::seed "beta"]))
-  (collector/reset-runtime!)
-  (runtime/reset-body-runs!)
+  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.hicasso.test.runtime/reset-body-runs!)
   nil)
 
 (defn- text-at [handle sel]
@@ -160,27 +160,27 @@
 (defn- keys-for
   "The live sub-keys belonging to `frame-kw`."
   [frame-kw]
-  (into #{} (filter (fn [[f _]] (= frame-kw f))) (sup/cell-keys)))
+  (into #{} (filter (fn [[f _]] (= frame-kw f))) (rf.hicasso.roots-frames-support/cell-keys)))
 
 ;; ---------------------------------------------------------------------------
 ;; W1 — the cell table splits by frame
 ;; ---------------------------------------------------------------------------
 
 (deftest two-roots-under-two-frames-split-the-cell-table
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no DOM")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
     (let [_ (fresh!)
-          a (mount/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
-          b (mount/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+          a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [panel {:tag "a"}])
+          b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [panel {:tag "b"}])]
       (try
         (testing "one view, two frames, two reads each — four cells, and the
                   frame is what tells them apart"
           (is (= #{[frame-a label-q] [frame-a count-q]
                    [frame-b label-q] [frame-b count-q]}
-                 (sup/cell-keys))
+                 (rf.hicasso.roots-frames-support/cell-keys))
               (str "the cell table must be keyed by (frame, query); got "
-                   (pr-str (sup/cell-keys))))
-          (is (= #{frame-a frame-b} (sup/cell-frames))
+                   (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
+          (is (= #{frame-a frame-b} (rf.hicasso.roots-frames-support/cell-frames))
               "both frames must appear — a runtime that resolved one frame
                for both mounts would show one"))
 
@@ -188,18 +188,18 @@
                   leak destroys, because a leak is two readers on one key
                   rather than one reader on each of two"
           (is (= [1 1 1 1]
-                 [(sup/readers-of [frame-a label-q]) (sup/readers-of [frame-a count-q])
-                  (sup/readers-of [frame-b label-q]) (sup/readers-of [frame-b count-q])])
-              (str "reader counts: " (pr-str (runtime/residue)))))
+                 [(rf.hicasso.roots-frames-support/readers-of [frame-a label-q]) (rf.hicasso.roots-frames-support/readers-of [frame-a count-q])
+                  (rf.hicasso.roots-frames-support/readers-of [frame-b label-q]) (rf.hicasso.roots-frames-support/readers-of [frame-b count-q])])
+              (str "reader counts: " (pr-str (rf.hicasso.test.runtime/residue)))))
 
         (testing "and the frame-locked ambient dispatch memoised for each body
                   is keyed by frame too — a second table saying the same thing
                   on a different axis"
-          (is (= #{frame-a frame-b} (sup/frame-memo-frames))
-              (str "got " (pr-str (sup/frame-memo-frames))))
+          (is (= #{frame-a frame-b} (rf.hicasso.roots-frames-support/frame-memo-frames))
+              (str "got " (pr-str (rf.hicasso.roots-frames-support/frame-memo-frames))))
           (is (= [true true]
-                 (mapv #(frame/frame-incarnation-live?
-                          % (:incarnation (sup/frame-memo-row %)))
+                 (mapv #(rf.frame/frame-incarnation-live?
+                          % (:incarnation (rf.hicasso.roots-frames-support/frame-memo-row %)))
                        [frame-a frame-b]))
               "and each row is pinned to the incarnation that is LIVE under its
                id (rf2-x874) — the reading that replaced 'the bundle memo is
@@ -214,24 +214,24 @@
           (is (= (str frame-a) (attr-at a ".panel" "data-frame")))
           (is (= (str frame-b) (attr-at b ".panel" "data-frame"))))
 
-        (finally (mount/release! a) (mount/release! b))))))
+        (finally (rf.hicasso.impl.mount/release! a) (rf.hicasso.impl.mount/release! b))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W2 — a dispatch moves one frame, and re-runs one body
 ;; ---------------------------------------------------------------------------
 
 (deftest a-dispatch-is-frame-local-in-bodies-and-in-state
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no DOM")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
     (let [_ (fresh!)
-          a (mount/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
-          b (mount/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])
+          a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [panel {:tag "a"}])
+          b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [panel {:tag "b"}])
           ;; Sampled BEFORE the dispatch, because the property below is that
           ;; the dispatch did not disturb it.
-          row-b-before (sup/frame-memo-row frame-b)]
+          row-b-before (rf.hicasso.roots-frames-support/frame-memo-row frame-b)]
       (try
         (testing "one dispatch into frame A re-runs exactly one body"
-          (let [ran (sup/body-runs-delta! (fn [] (mount/dispatch! a [::bump])))]
+          (let [ran (rf.hicasso.roots-frames-support/body-runs-delta! (fn [] (rf.hicasso.impl.mount/dispatch! a [::bump])))]
             (is (= 1 ran)
                 (str "a commit in one frame must notify only that frame's
                       readers; " ran " bodies ran"))))
@@ -243,33 +243,33 @@
         (testing "and the dispatch touched frame A's memo row alone — B's row is
                   the SAME object it was before, so one frame's traffic cannot
                   re-pin another's"
-          (is (identical? row-b-before (sup/frame-memo-row frame-b))
+          (is (identical? row-b-before (rf.hicasso.roots-frames-support/frame-memo-row frame-b))
               "frame B's row was replaced by a dispatch into frame A")
-          (is (= #{frame-a frame-b} (sup/frame-memo-frames))
-              (str "got " (pr-str (sup/frame-memo-frames)))))
+          (is (= #{frame-a frame-b} (rf.hicasso.roots-frames-support/frame-memo-frames))
+              (str "got " (pr-str (rf.hicasso.roots-frames-support/frame-memo-frames)))))
 
         (testing "the counter can read 2, so `1` above was a discrimination
                   and not a ceiling — both frames are exercised, which is
                   what stops this row passing vacuously"
-          (let [ran (sup/body-runs-delta!
-                      (fn [] (mount/dispatch! a [::bump])
-                             (mount/dispatch! b [::bump])))]
+          (let [ran (rf.hicasso.roots-frames-support/body-runs-delta!
+                      (fn [] (rf.hicasso.impl.mount/dispatch! a [::bump])
+                             (rf.hicasso.impl.mount/dispatch! b [::bump])))]
             (is (= 2 ran)))
           (is (= "2" (text-at a ".count")))
           (is (= "1" (text-at b ".count"))))
 
-        (finally (mount/release! a) (mount/release! b))))))
+        (finally (rf.hicasso.impl.mount/release! a) (rf.hicasso.impl.mount/release! b))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W3 — the shipped intent path, driven by a real DOM click
 ;; ---------------------------------------------------------------------------
 
 (deftest a-real-click-dispatches-into-its-own-root-and-no-other
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no DOM")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
     (let [_ (fresh!)
-          a (mount/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
-          b (mount/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+          a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [panel {:tag "a"}])
+          b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [panel {:tag "b"}])]
       (try
         (testing "a click on root A's button — the shipped intent path, on a
                   real discrete browser event — reaches frame A alone"
@@ -277,9 +277,9 @@
           ;; synchronously inside the discrete event, but React schedules
           ;; the store notification at the SYNC lane rather than committing
           ;; it inline, and the body-run happens on that commit.
-          (let [ran (sup/body-runs-delta!
+          (let [ran (rf.hicasso.roots-frames-support/body-runs-delta!
                       (fn [] (.click (.querySelector (:container a) ".bump"))
-                             (mount/settle!)))]
+                             (rf.hicasso.impl.mount/settle!)))]
             (is (= 1 ran) "one body ran"))
           (is (= "1" (text-at a ".count")))
           (is (= "0" (text-at b ".count"))))
@@ -288,11 +288,11 @@
                   are clicked, so an intent that had resolved one
                   last-rendered frame for both would show here"
           (.click (.querySelector (:container b) ".bump"))
-          (mount/settle!)
+          (rf.hicasso.impl.mount/settle!)
           (is (= "1" (text-at a ".count")))
           (is (= "1" (text-at b ".count"))))
 
-        (finally (mount/release! a) (mount/release! b))))))
+        (finally (rf.hicasso.impl.mount/release! a) (rf.hicasso.impl.mount/release! b))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W4 — independent unmount
@@ -300,16 +300,16 @@
 
 (deftest unmounting-one-root-releases-its-keys-and-leaves-the-other-live
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       (let [_ (fresh!)
-            a (mount/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
-            b (mount/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+            a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [panel {:tag "a"}])
+            b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [panel {:tag "b"}])]
         ;; `unmount!` and NOT `release!`: `release!` resets the runtime, so
         ;; every count below would read zero whether the teardown released
         ;; anything or not.
-        (mount/unmount! a)
-        (-> (sup/quiesced!)
+        (rf.hicasso.impl.mount/unmount! a)
+        (-> (rf.hicasso.roots-frames-support/quiesced!)
             (.then
               (fn [_]
                 (try
@@ -320,20 +320,20 @@
                     (is (= #{[frame-b label-q] [frame-b count-q]} (keys-for frame-b))
                         (str "frame B's cells must survive its sibling's
                               teardown; got " (pr-str (keys-for frame-b))))
-                    (is (= #{frame-b} (sup/cell-frames))))
+                    (is (= #{frame-b} (rf.hicasso.roots-frames-support/cell-frames))))
 
                   (testing "and the survivor is LIVE, not merely present — it
                             still re-runs its body and still moves its DOM"
-                    (let [ran (sup/body-runs-delta! (fn [] (mount/dispatch! b [::bump])))]
+                    (let [ran (rf.hicasso.roots-frames-support/body-runs-delta! (fn [] (rf.hicasso.impl.mount/dispatch! b [::bump])))]
                       (is (= 1 ran)))
                     (is (= "1" (text-at b ".count")))
                     (is (= "beta" (text-at b ".label"))))
 
                   (testing "and tearing the survivor down leaves nothing at all"
-                    (is (= sup/released (sup/teardown-census! b))))
+                    (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! b))))
                   (finally
-                    (mount/release! a)
-                    (mount/release! b)
+                    (rf.hicasso.impl.mount/release! a)
+                    (rf.hicasso.impl.mount/release! b)
                     (done))))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -342,19 +342,19 @@
 
 (deftest a-root-whose-teardown-throws-cannot-strand-its-siblings-state
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       (let [_ (fresh!)
-            a (mount/root! (mount/fresh-container!) frame-a [fragile-panel {:tag "a"}])
-            b (mount/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])
+            a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [fragile-panel {:tag "a"}])
+            b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [panel {:tag "b"}])
             ;; `:swallow-uncaught?` is legitimate at exactly this call site
             ;; and nowhere else in these suites: the error below is
             ;; MANUFACTURED by this row and asserted on by this row.
-            {:keys [captured close!]} (sup/open-console-capture! {:swallow-uncaught? true})]
-        (is (= #{frame-a frame-b} (sup/cell-frames))
+            {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? true})]
+        (is (= #{frame-a frame-b} (rf.hicasso.roots-frames-support/cell-frames))
             "precondition: both roots are live before the charge goes off")
-        (mount/unmount! a)
-        (-> (sup/quiesced!)
+        (rf.hicasso.impl.mount/unmount! a)
+        (-> (rf.hicasso.roots-frames-support/quiesced!)
             (.then
               (fn [_]
                 (close!)
@@ -369,14 +369,14 @@
                             reader counts, and the frame-op bundle it dispatches
                             through"
                     (is (= #{[frame-b label-q] [frame-b count-q]} (keys-for frame-b)))
-                    (is (= [1 1] [(sup/readers-of [frame-b label-q])
-                                  (sup/readers-of [frame-b count-q])]))
-                    (is (contains? (sup/cell-frames) frame-b)))
+                    (is (= [1 1] [(rf.hicasso.roots-frames-support/readers-of [frame-b label-q])
+                                  (rf.hicasso.roots-frames-support/readers-of [frame-b count-q])]))
+                    (is (contains? (rf.hicasso.roots-frames-support/cell-frames) frame-b)))
 
                   (testing "and it is still LIVE — a dispatch still re-runs its
                             body and still moves its DOM, which a stranded
                             runtime could not do"
-                    (let [ran (sup/body-runs-delta! (fn [] (mount/dispatch! b [::bump])))]
+                    (let [ran (rf.hicasso.roots-frames-support/body-runs-delta! (fn [] (rf.hicasso.impl.mount/dispatch! b [::bump])))]
                       (is (= 1 ran)))
                     (is (= "1" (text-at b ".count"))))
 
@@ -386,6 +386,6 @@
                     (is (= #{} (keys-for frame-a))
                         (str "got " (pr-str (keys-for frame-a)))))
                   (finally
-                    (mount/release! a)
-                    (mount/release! b)
+                    (rf.hicasso.impl.mount/release! a)
+                    (rf.hicasso.impl.mount/release! b)
                     (done))))))))))

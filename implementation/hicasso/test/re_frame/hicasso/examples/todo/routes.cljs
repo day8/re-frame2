@@ -46,7 +46,7 @@
   `deftest` runs. The slice authoring report found this and it reproduces
   here unchanged: `reg-sub` and `reg-event` survive, routes do not. A
   consumer never meets it; a test meets it on its first row."
-  (:require [re-frame.routing :as routing]))
+  (:require [re-frame.routing :as rf.routing]))
 
 (def all
   "Every to-do. `/hicasso-todo`."
@@ -62,10 +62,10 @@
   "Register both routes. Idempotent for an unchanged registration, so
   calling it from a test fixture as well as at load costs nothing."
   []
-  (routing/reg-route all
+  (rf.routing/reg-route all
     {:doc "Show every to-do."}
     "/hicasso-todo")
-  (routing/reg-route filtered
+  (rf.routing/reg-route filtered
     {:doc "Show the active or the completed to-dos."}
     "/hicasso-todo/:filter")
   nil)

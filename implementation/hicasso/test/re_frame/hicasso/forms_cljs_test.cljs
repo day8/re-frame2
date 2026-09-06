@@ -37,25 +37,25 @@
   would be green against a module that had stopped using it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
+            [re-frame.error-emit :as rf.error-emit]
             ;; Side-effecting: the `:dispatch` fx a commit hands the
             ;; caller's event to. The module names it too; a suite that
             ;; relied on some other namespace having loaded it would be
             ;; asserting about the bundle rather than about the module.
             [re-frame.fx]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.forms :as forms]
-            [re-frame.hicasso.hook-probe :as probe]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.forms :as tf]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.forms :as rf.hicasso.forms]
+            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.forms :as rf.hicasso.test.forms]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
 
 ;; ---------------------------------------------------------------------------
@@ -125,25 +125,25 @@
 (rf/reg-event ::typed
   (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:todo 7 :title] v)}))
 
-(h/defview hand-written-field
+(rf.hicasso/defview hand-written-field
   "A controlled field written BY HAND — the arrangement `buffered-field`
   replaces, minus the buffering. One boundary, one read, one controlled
   element."
   [_]
-  [:input {:type "text" :value (h/sub [::title]) :on-input [::typed ::h/value]}])
+  [:input {:type "text" :value (rf.hicasso/sub [::title]) :on-input [::typed ::rf.hicasso/value]}])
 
-(h/defview uncontrolled-field
+(rf.hicasso/defview uncontrolled-field
   "The same boundary and the same read over an UNCONTROLLED element, so
   §5's third hook can be shown to belong to the controlled element rather
   than to the shell."
   [_]
-  [:input {:type "text" :placeholder (h/sub [::title])}])
+  [:input {:type "text" :placeholder (rf.hicasso/sub [::title])}])
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Driving one, and reading what it would show
@@ -155,7 +155,7 @@
 
 (defn- db-of [frame] (rf/app-db-value frame))
 (defn- send! [frame event-v] (rf/dispatch-sync event-v {:frame frame}))
-(defn- draft-at [frame ctl] (rf/subscribe-once [forms/drafts ctl] {:frame frame}))
+(defn- draft-at [frame ctl] (rf/subscribe-once [rf.hicasso.forms/drafts ctl] {:frame frame}))
 (defn- record-of [frame] (draft-at frame control))
 (defn- title-of [frame] (get-in (db-of frame) [:todo 7 :title]))
 (defn- revision-of [frame] (get-in (db-of frame) [:todo 7 :title-revision]))
@@ -163,15 +163,15 @@
 (defn- cancelled-log [frame] (vec (:cancelled (db-of frame))))
 
 (defn- type! [frame revision text]
-  (send! frame [tf/edit-id control revision text]))
+  (send! frame [rf.hicasso.test.forms/edit-id control revision text]))
 
 (defn- commit! [frame revision]
-  (send! frame [tf/commit-id control revision [::title-committed 7]]))
+  (send! frame [rf.hicasso.test.forms/commit-id control revision [::title-committed 7]]))
 
 (defn- cancel!
   ([frame revision] (cancel! frame revision nil))
   ([frame revision on-cancel]
-   (send! frame [tf/cancel-id control revision on-cancel])))
+   (send! frame [rf.hicasso.test.forms/cancel-id control revision on-cancel])))
 
 (defn- field-tree
   "One `buffered-field` body, under its EXACT read set. `ht/tree` refuses
@@ -179,13 +179,13 @@
   out — and a body that grew a second read would red this file rather
   than quietly cost a re-render per keystroke."
   [props record]
-  (ht/tree [forms/buffered-field (merge {:control   control
+  (rf.hicasso.test/tree [rf.hicasso.forms/buffered-field (merge {:control   control
                                          :value     committed
                                          :on-commit [::title-committed 7]}
                                         props)]
-           {:subs {[forms/drafts control] record}}))
+           {:subs {[rf.hicasso.forms/drafts control] record}}))
 
-(defn- input-attrs [tree] (ht/attrs (ht/find tree #(= :input (:tag %)))))
+(defn- input-attrs [tree] (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= :input (:tag %)))))
 
 (defn- shown
   "What the field would DISPLAY for `record` under `revision`, against a
@@ -194,7 +194,7 @@
   leave this helper agreeing with it."
   ([record revision] (shown record revision committed))
   ([record revision value]
-   (:value (input-attrs (field-tree {::h/revision revision :value value} record)))))
+   (:value (input-attrs (field-tree {::rf.hicasso/revision revision :value value} record)))))
 
 (defn- shown-now
   "What the field shows against this frame's own record, revision and
@@ -212,10 +212,10 @@
   names that trap at length; this is its narrow form."
   [thunk]
   (let [records (volatile! [])]
-    (error-emit/register-error-listener! ::forms (fn [r] (vswap! records conj r)))
+    (rf.error-emit/register-error-listener! ::forms (fn [r] (vswap! records conj r)))
     (try
       (try (thunk) (catch :default _ nil))
-      (finally (error-emit/unregister-error-listener! ::forms)))
+      (finally (rf.error-emit/unregister-error-listener! ::forms)))
     (->> (concat (map (comp ex-data :exception) @records)
                  (map (comp ex-data ex-cause :exception) @records))
          (filter #(some-> % :rf.error/id namespace (= "rf.error")))
@@ -232,8 +232,8 @@
   ;; is the other end of the pin: the written spelling really is this
   ;; namespace's own `::drafts`, so a namespace rename cannot leave the
   ;; gate scanning for a string nobody emits any more.
-  (is (= ::forms/drafts forms/drafts))
-  (is (= "re-frame.hicasso.forms/drafts" (str (symbol forms/drafts)))))
+  (is (= ::rf.hicasso.forms/drafts rf.hicasso.forms/drafts))
+  (is (= "re-frame.hicasso.forms/drafts" (str (symbol rf.hicasso.forms/drafts)))))
 
 (deftest the-draft-does-not-live-at-the-control-address
   (with-app
@@ -241,7 +241,7 @@
       (type! frame 0 "Buy oat milk")
       (testing "the record is under the MODULE's key, addressed by the control"
         (is (= {:revision 0 :draft "Buy oat milk"}
-               (get-in (db-of frame) [:ui ::forms/drafts control]))
+               (get-in (db-of frame) [:ui ::rf.hicasso.forms/drafts control]))
             "the chapter's `app-db` promise, literally: the draft appears
              in snapshots, headless tests and Xray, at an address a reader
              can predict from the props it wrote"))
@@ -430,7 +430,7 @@
   (with-app
     (fn [frame]
       (type! frame 0 "Buy oat milk")
-      (send! frame [tf/commit-id control 0 nil])
+      (send! frame [rf.hicasso.test.forms/commit-id control 0 nil])
       (is (nil? (record-of frame)))
       (is (= [] (committed-log frame))
           "`:on-commit` is required by the chapter, and this module cannot
@@ -447,7 +447,7 @@
   (with-app
     (fn [frame]
       (type! frame 0 "abandoned on navigation")
-      (send! frame [:re-frame.hicasso/clear forms/drafts control])
+      (send! frame [:re-frame.hicasso/clear rf.hicasso.forms/drafts control])
       (is (nil? (record-of frame)))
       (is (= {} (:ui (db-of frame)))
           "and the concern map is pruned rather than left holding an empty
@@ -468,12 +468,12 @@
   ;; shares, and two rows open together with nothing on screen to say so.
   (with-app
     (fn [frame]
-      (send! frame [tf/edit-id [:todo 7 :title] 0 "seven"])
-      (send! frame [tf/edit-id [:todo 8 :title] 0 "eight"])
+      (send! frame [rf.hicasso.test.forms/edit-id [:todo 7 :title] 0 "seven"])
+      (send! frame [rf.hicasso.test.forms/edit-id [:todo 8 :title] 0 "eight"])
       (is (= "seven" (:draft (draft-at frame [:todo 7 :title]))))
       (is (= "eight" (:draft (draft-at frame [:todo 8 :title]))))
       (testing "and one field's commit does not end the other's session"
-        (send! frame [tf/commit-id [:todo 7 :title] 0 [::title-committed 7]])
+        (send! frame [rf.hicasso.test.forms/commit-id [:todo 7 :title] 0 [::title-committed 7]])
         (is (nil? (draft-at frame [:todo 7 :title])))
         (is (some? (draft-at frame [:todo 8 :title])))))))
 
@@ -488,7 +488,7 @@
         (is (some? d) "a nil control refuses rather than sharing a draft")
         (is (= :rf.error/hicasso-state-bad-argument (:rf.error/id d))
             "by an id that is already shipped and already catalogued")
-        (is (= ::forms/drafts (:concern d))
+        (is (= ::rf.hicasso.forms/drafts (:concern d))
             "and it names THIS module's concern, so the message points at
              the field the author wrote")))))
 
@@ -528,18 +528,18 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-field-renders-value-revision-and-three-intents
-  (let [attrs (input-attrs (field-tree {::h/revision 4} nil))]
+  (let [attrs (input-attrs (field-tree {::rf.hicasso/revision 4} nil))]
     (is (= committed (:value attrs)) "no record, so the committed value")
-    (is (= 4 (::h/revision attrs))
+    (is (= 4 (::rf.hicasso/revision attrs))
         "the caller's revision reaches the element — this module adds no
          reset vocabulary of its own and forwards the controlled law's")
-    (is (= [tf/edit-id control 4 ::h/value] (:on-input attrs))
+    (is (= [rf.hicasso.test.forms/edit-id control 4 ::rf.hicasso/value] (:on-input attrs))
         "the keystroke carries the address and the generation it was typed
          under — POSITIONAL, because a marker inside a payload map is
          substituted nowhere and would arrive as the keyword itself")
-    (is (= [tf/commit-id control 4 [::title-committed 7]] (:on-blur attrs)))
-    (is (= {"Enter"  [tf/commit-id control 4 [::title-committed 7]]
-            "Escape" [tf/cancel-id control 4 nil]}
+    (is (= [rf.hicasso.test.forms/commit-id control 4 [::title-committed 7]] (:on-blur attrs)))
+    (is (= {"Enter"  [rf.hicasso.test.forms/commit-id control 4 [::title-committed 7]]
+            "Escape" [rf.hicasso.test.forms/cancel-id control 4 nil]}
            (:on-key-down attrs))
         "the key MAP, not a callback reading `.key` — which is what keeps
          the substrate's own composition gate, and why this file finds no
@@ -558,13 +558,13 @@
   ;; `ht/controlled?` and `ht/revision` ask the RUNTIME which component
   ;; the codec installs and what it read pre-merge, so this is the
   ;; substrate's own answer rather than a re-reading of what was written.
-  (let [form [:input {:type "text" :value committed ::h/revision 4
-                      :on-input [tf/edit-id control 4 ::h/value]}]]
-    (is (true? (ht/controlled? form)))
-    (is (= 4 (ht/revision form)))))
+  (let [form [:input {:type "text" :value committed ::rf.hicasso/revision 4
+                      :on-input [rf.hicasso.test.forms/edit-id control 4 ::rf.hicasso/value]}]]
+    (is (true? (rf.hicasso.test/controlled? form)))
+    (is (= 4 (rf.hicasso.test/revision form)))))
 
 (deftest other-props-pass-through-and-the-owned-slots-do-not
-  (let [attrs (input-attrs (field-tree {::h/revision 0
+  (let [attrs (input-attrs (field-tree {::rf.hicasso/revision 0
                                         :on-cancel   [::title-cancelled 7]
                                         :placeholder "What needs doing?"
                                         :class       "title"
@@ -588,7 +588,7 @@
           "`:control` on a DOM node is a React warning at best and a
            serialized vector in the markup at worst"))
     (testing "`:on-cancel` reached the Escape branch instead"
-      (is (= [tf/cancel-id control 0 [::title-cancelled 7]]
+      (is (= [rf.hicasso.test.forms/cancel-id control 0 [::title-cancelled 7]]
              (get (:on-key-down attrs) "Escape"))))))
 
 (deftest the-owned-slots-win-a-collision
@@ -596,15 +596,15 @@
   ;; it. A caller who writes `:value` has misunderstood the field rather
   ;; than configured it, and the field's answer is to keep owning the slot
   ;; rather than to render a value nothing can update.
-  (let [attrs (input-attrs (field-tree {::h/revision 0
+  (let [attrs (input-attrs (field-tree {::rf.hicasso/revision 0
                                         :value       "written by the caller"
                                         :on-input    [:app/typed]
                                         :on-blur     [:app/blurred]
                                         :on-key-down {"Enter" [:app/entered]}}
                                        {:revision 0 :draft "half typed"}))]
     (is (= "half typed" (:value attrs)))
-    (is (= [tf/edit-id control 0 ::h/value] (:on-input attrs)))
-    (is (= [tf/commit-id control 0 [::title-committed 7]] (:on-blur attrs)))
+    (is (= [rf.hicasso.test.forms/edit-id control 0 ::rf.hicasso/value] (:on-input attrs)))
+    (is (= [rf.hicasso.test.forms/commit-id control 0 [::title-committed 7]] (:on-blur attrs)))
     (is (= #{"Enter" "Escape"} (set (keys (:on-key-down attrs)))))))
 
 (deftest trap-arity-sniffed-done-fn-every-handler-site-is-data
@@ -615,19 +615,19 @@
   ;; `ht/tree` installs no React dispatcher, so a body holding local state
   ;; would not have run — a statement by the instrument rather than by the
   ;; author.
-  (let [trees  [(field-tree {::h/revision 0} nil)
-                (field-tree {::h/revision 0 :on-cancel [::title-cancelled 7]}
+  (let [trees  [(field-tree {::rf.hicasso/revision 0} nil)
+                (field-tree {::rf.hicasso/revision 0 :on-cancel [::title-cancelled 7]}
                             {:revision 0 :draft "half typed"})]
         opaque (for [tree  trees
-                     node  (ht/find-all tree map?)
-                     [k v] (ht/attrs node)
+                     node  (rf.hicasso.test/find-all tree map?)
+                     [k v] (rf.hicasso.test/attrs node)
                      :when (= {:rf.ui/opaque :fn} v)]
                  [(:tag node) k])]
     (is (= [] (vec opaque))
         "not one function-valued prop. Give any slot a `(h/event …)` and this
          row names the tag and the prop it appeared on")
     (testing "and every intent the field offers is a vector of data"
-      (is (= 4 (count (ht/intents (first trees))))
+      (is (= 4 (count (rf.hicasso.test/intents (first trees))))
           "input, blur, Enter, Escape — four sites, four vectors, and the
            Escape one carries a `nil` `:on-cancel` rather than a closure"))))
 
@@ -655,19 +655,19 @@
 (def ^:private frame-id ::forms-hooks)
 
 (defn- server-render! [hiccup]
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [::seed]))
-  (is (true? (probe/install!))
+  (is (true? (rf.hicasso.hook-probe/install!))
       "React's client-internals dispatcher slot was not found — the hook
        budget is UNWITNESSED, not satisfied")
   (let [!html (volatile! nil)
-        hooks (probe/record!
+        hooks (rf.hicasso.hook-probe/record!
                 (fn []
                   (vreset! !html
                            (react-dom-server/renderToString
-                             (mount/provider frame-id
-                                             (codec/root-element frame-id hiccup))))))]
+                             (rf.hicasso.impl.mount/provider frame-id
+                                             (rf.hicasso.impl.codec/root-element frame-id hiccup))))))]
     {:html @!html :hooks hooks}))
 
 (deftest the-third-hook-belongs-to-the-controlled-element-not-to-the-shell
@@ -680,7 +680,7 @@
       (is (some? (re-find #"<input" (:html controlled)))))
     (testing "an uncontrolled element costs the shell's two and nothing"
       (is (= ["useContext" "useSyncExternalStore"] (:hooks bare)))
-      (is (= (count runtime/shell-hook-ledger) (count (:hooks bare)))))
+      (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) (count (:hooks bare)))))
     (testing "a HAND-WRITTEN controlled field costs a third — the shadow
               `useState` the codec's controlled component holds, which
               every controlled field on any page pays and which I9 does
@@ -689,10 +689,10 @@
 
 (deftest the-field-costs-what-a-hand-written-controlled-field-costs
   (let [{:keys [html hooks]} (server-render!
-                               [forms/buffered-field
+                               [rf.hicasso.forms/buffered-field
                                 {:control     control
                                  :value       committed
-                                 ::h/revision 0
+                                 ::rf.hicasso/revision 0
                                  :on-commit   [::title-committed 7]}])]
     (testing "the premise: React really rendered the field"
       (is (some? (re-find #"<input" html))))
@@ -709,6 +709,6 @@
                     (count (:hooks (server-render! [hand-written-field {}])))))))
     (testing "and the shell's ledger did not move — no `useRef`, and the
               one `useState` is the element's rather than a boundary's"
-      (is (= 2 (count runtime/shell-hook-ledger)))
+      (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger)))
       (is (= [] (filterv #{"useRef"} hooks)))
       (is (= 1 (count (filterv #{"useState"} hooks)))))))

@@ -8,13 +8,13 @@
   layers that have their own opinions. What React then does with these
   elements is the arms' browser witness set, not this file's."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.slot :as slot]
-            [re-frame.hicasso.slot-corpus :as slot-corpus]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]
+            [re-frame.hicasso.slot-corpus :as rf.hicasso.slot-corpus]
             ["react" :as react]))
 
-(use-fixtures :each {:before (fn [] (codec/reset-caches!))})
+(use-fixtures :each {:before (fn [] (rf.hicasso.impl.codec/reset-caches!))})
 
 ;; ---------------------------------------------------------------------------
 ;; Reading an element
@@ -32,46 +32,46 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-bare-tag-becomes-an-element-of-that-type
-  (let [e (codec/as-element [:div])]
+  (let [e (rf.hicasso.impl.codec/as-element [:div])]
     (is (= "div" (el-type e)))
     (is (= [] (prop-names e)))))
 
 (deftest the-id-and-class-shorthand-is-parsed-and-folded-into-the-props
   (testing "id alone"
-    (is (= "main" (prop (codec/as-element [:div#main]) "id"))))
+    (is (= "main" (prop (rf.hicasso.impl.codec/as-element [:div#main]) "id"))))
   (testing "classes alone, dot-separated"
-    (is (= "wide tall" (prop (codec/as-element [:div.wide.tall]) "className"))))
+    (is (= "wide tall" (prop (rf.hicasso.impl.codec/as-element [:div.wide.tall]) "className"))))
   (testing "id then classes, in the one spelling the donor supports"
-    (let [e (codec/as-element [:section#main.wide.tall])]
+    (let [e (rf.hicasso.impl.codec/as-element [:section#main.wide.tall])]
       (is (= "section" (el-type e)))
       (is (= "main" (prop e "id")))
       (is (= "wide tall" (prop e "className")))))
   (testing "an explicit :id wins over the shorthand"
-    (is (= "explicit" (prop (codec/as-element [:div#short {:id "explicit"}]) "id"))))
+    (is (= "explicit" (prop (rf.hicasso.impl.codec/as-element [:div#short {:id "explicit"}]) "id"))))
   (testing "the shorthand class is prepended to an explicit one"
-    (is (= "short explicit" (prop (codec/as-element [:div.short {:class "explicit"}]) "className"))))
+    (is (= "short explicit" (prop (rf.hicasso.impl.codec/as-element [:div.short {:class "explicit"}]) "className"))))
   (testing "a collection class value joins, dropping nils"
-    (is (= "a b" (prop (codec/as-element [:div {:class ["a" nil :b]}]) "className")))))
+    (is (= "a b" (prop (rf.hicasso.impl.codec/as-element [:div {:class ["a" nil :b]}]) "className")))))
 
 (deftest the-tag-cache-holds-one-entry-per-distinct-literal
-  (is (= 0 (:tags (codec/cache-sizes))))
-  (codec/as-element [:div.row])
-  (codec/as-element [:div.row])
-  (codec/as-element [:div.row])
-  (is (= 1 (:tags (codec/cache-sizes))) "three renders of one literal, one entry")
-  (codec/as-element [:span])
-  (is (= 2 (:tags (codec/cache-sizes))))
+  (is (= 0 (:tags (rf.hicasso.impl.codec/cache-sizes))))
+  (rf.hicasso.impl.codec/as-element [:div.row])
+  (rf.hicasso.impl.codec/as-element [:div.row])
+  (rf.hicasso.impl.codec/as-element [:div.row])
+  (is (= 1 (:tags (rf.hicasso.impl.codec/cache-sizes))) "three renders of one literal, one entry")
+  (rf.hicasso.impl.codec/as-element [:span])
+  (is (= 2 (:tags (rf.hicasso.impl.codec/cache-sizes))))
   (testing "a cached parse produces the same element a fresh parse does"
-    (is (= "row" (prop (codec/as-element [:div.row]) "className")))))
+    (is (= "row" (prop (rf.hicasso.impl.codec/as-element [:div.row]) "className")))))
 
 (deftest the-caches-refuse-the-prototype-poisoning-keys
   (testing "a tag named __proto__ parses without being cached"
-    (is (= "__proto__" (el-type (codec/as-element [:__proto__]))))
-    (is (= 0 (:tags (codec/cache-sizes)))))
+    (is (= "__proto__" (el-type (rf.hicasso.impl.codec/as-element [:__proto__]))))
+    (is (= 0 (:tags (rf.hicasso.impl.codec/cache-sizes)))))
   (testing "a prop named __proto__ is neither cached nor set"
-    (let [e (codec/as-element [:div {:__proto__ "nope"}])]
+    (let [e (rf.hicasso.impl.codec/as-element [:div {:__proto__ "nope"}])]
       (is (= [] (prop-names e))))
-    (is (= 3 (:props (codec/cache-sizes)))
+    (is (= 3 (:props (rf.hicasso.impl.codec/cache-sizes)))
         "the three seeded entries and nothing else — the refusal is on the write")))
 
 (deftest a-literal-named-after-an-inherited-property-cannot-be-served-one
@@ -85,44 +85,44 @@
   ;; construction answers it now, so it is witnessed rather than assumed.
   (testing "a TAG named after an Object.prototype member parses as itself"
     (doseq [n ["toString" "valueOf" "hasOwnProperty" "isPrototypeOf" "constructor"]]
-      (is (= n (el-type (codec/as-element [(keyword n)])))
+      (is (= n (el-type (rf.hicasso.impl.codec/as-element [(keyword n)])))
           (str "tag " n " must render as itself"))))
   (testing "and the second render of one reads its own cached entry"
-    (codec/reset-caches!)
-    (codec/as-element [:toString])
-    (is (= 1 (:tags (codec/cache-sizes))))
-    (is (= "toString" (el-type (codec/as-element [:toString]))))
-    (is (= 1 (:tags (codec/cache-sizes)))))
+    (rf.hicasso.impl.codec/reset-caches!)
+    (rf.hicasso.impl.codec/as-element [:toString])
+    (is (= 1 (:tags (rf.hicasso.impl.codec/cache-sizes))))
+    (is (= "toString" (el-type (rf.hicasso.impl.codec/as-element [:toString]))))
+    (is (= 1 (:tags (rf.hicasso.impl.codec/cache-sizes)))))
   (testing "a PROP named after an Object.prototype member converts as itself"
-    (codec/reset-caches!)
-    (let [e (codec/as-element [:div {:toString "a" :valueOf "b" :hasOwnProperty "c"}])]
+    (rf.hicasso.impl.codec/reset-caches!)
+    (let [e (rf.hicasso.impl.codec/as-element [:div {:toString "a" :valueOf "b" :hasOwnProperty "c"}])]
       (is (= ["hasOwnProperty" "toString" "valueOf"] (prop-names e)))
       (is (= "a" (prop e "toString")))
       (is (= "b" (prop e "valueOf")))
       (is (= "c" (prop e "hasOwnProperty"))))
     (testing "and the second element reads the cached slots"
-      (is (= "d" (prop (codec/as-element [:div {:toString "d"}]) "toString"))))))
+      (is (= "d" (prop (rf.hicasso.impl.codec/as-element [:div {:toString "d"}]) "toString"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Prop names
 ;; ---------------------------------------------------------------------------
 
 (deftest prop-names-follow-the-donors-kebab-to-camel-rule
-  (is (= "onClick" (slot/prop-name :on-click)))
-  (is (= "tabIndex" (slot/prop-name :tab-index)))
-  (is (= "className" (codec/cached-prop-name :class)))
-  (is (= "htmlFor" (codec/cached-prop-name :for)))
-  (is (= "charSet" (codec/cached-prop-name :charset)))
+  (is (= "onClick" (rf.hicasso.impl.slot/prop-name :on-click)))
+  (is (= "tabIndex" (rf.hicasso.impl.slot/prop-name :tab-index)))
+  (is (= "className" (rf.hicasso.impl.codec/cached-prop-name :class)))
+  (is (= "htmlFor" (rf.hicasso.impl.codec/cached-prop-name :for)))
+  (is (= "charSet" (rf.hicasso.impl.codec/cached-prop-name :charset)))
   (testing "aria and data are HTML attribute names in React too"
-    (is (= "aria-label" (slot/prop-name :aria-label)))
-    (is (= "data-index" (slot/prop-name :data-index))))
+    (is (= "aria-label" (rf.hicasso.impl.slot/prop-name :aria-label)))
+    (is (= "data-index" (rf.hicasso.impl.slot/prop-name :data-index))))
   (testing "a CSS custom property is preserved verbatim"
-    (is (= "--gap" (slot/prop-name :--gap))))
+    (is (= "--gap" (rf.hicasso.impl.slot/prop-name :--gap))))
   (testing "the three seeded entries are the rule, not a memo of one"
-    (is (= 3 (:props (codec/cache-sizes))))
-    (codec/cached-prop-name :on-click)
-    (codec/cached-prop-name :on-click)
-    (is (= 4 (:props (codec/cache-sizes))))))
+    (is (= 3 (:props (rf.hicasso.impl.codec/cache-sizes))))
+    (rf.hicasso.impl.codec/cached-prop-name :on-click)
+    (rf.hicasso.impl.codec/cached-prop-name :on-click)
+    (is (= 4 (:props (rf.hicasso.impl.codec/cache-sizes))))))
 
 (deftest the-codecs-cached-slot-is-the-shared-rules-answer
   (testing "THE OTHER HALF OF THE EQUIVALENCE PIN (rf2-ani6y). The rule
@@ -136,13 +136,13 @@
             So the codec's own doors are asked the same corpus: whatever
             the rule answers, `cached-prop-name` and `canonical-slot`
             answer, for every spelling the codec accepts."
-    (doseq [[k expected] slot-corpus/corpus]
-      (is (= expected (codec/cached-prop-name k) (codec/canonical-slot k))
+    (doseq [[k expected] rf.hicasso.slot-corpus/corpus]
+      (is (= expected (rf.hicasso.impl.codec/cached-prop-name k) (rf.hicasso.impl.codec/canonical-slot k))
           (str "codec slot for " (pr-str k)))))
   (testing "and again warm, because the first ask is the one that writes
             the cache and the second is the one that reads it"
-    (doseq [[k expected] slot-corpus/corpus]
-      (is (= expected (codec/cached-prop-name k))
+    (doseq [[k expected] rf.hicasso.slot-corpus/corpus]
+      (is (= expected (rf.hicasso.impl.codec/cached-prop-name k))
           (str "warm codec slot for " (pr-str k))))))
 
 (deftest the-slot-is-a-pure-function-of-the-key-and-a-string-cannot-poison-it
@@ -153,19 +153,19 @@
             keyword — emitting every handler written the taught way into a
             slot React ignores, and making the canonical slot depend on what
             the page happened to render first."
-    (is (= "on-input" (codec/cached-prop-name "on-input")))
-    (is (= "onInput" (codec/cached-prop-name :on-input))
+    (is (= "on-input" (rf.hicasso.impl.codec/cached-prop-name "on-input")))
+    (is (= "onInput" (rf.hicasso.impl.codec/cached-prop-name :on-input))
         "the keyword still camelCases, whatever was asked before it")
-    (is (= "on-input" (codec/cached-prop-name "on-input"))
+    (is (= "on-input" (rf.hicasso.impl.codec/cached-prop-name "on-input"))
         "and the string is still itself, whatever was asked before IT"))
   (testing "the other way round, from a cold cache"
-    (codec/reset-caches!)
-    (is (= "onInput" (codec/cached-prop-name :on-input)))
-    (is (= "on-input" (codec/cached-prop-name "on-input"))))
+    (rf.hicasso.impl.codec/reset-caches!)
+    (is (= "onInput" (rf.hicasso.impl.codec/cached-prop-name :on-input)))
+    (is (= "on-input" (rf.hicasso.impl.codec/cached-prop-name "on-input"))))
   (testing "the three React renames are the rule, so they hold for every
             spelling of the one attribute"
     (doseq [k [:class :className "class" :x/class 'class]]
-      (is (= "className" (codec/canonical-slot k)) (str "spelled " (pr-str k))))))
+      (is (= "className" (rf.hicasso.impl.codec/canonical-slot k)) (str "spelled " (pr-str k))))))
 
 (deftest the-cached-classification-is-spelling-aware-and-no-spelling-poisons-another
   ;; The prop cache's entries carry the POSITION CLASSIFICATION
@@ -177,18 +177,18 @@
   ;; exactly the order dependence the string/keyword law above exists to
   ;; remove. Both directions, both from a cold cache.
   (testing "a symbol minted FIRST does not cost the keyword its event lowering"
-    (codec/reset-caches!)
-    (codec/cached-prop-name 'on-click)
+    (rf.hicasso.impl.codec/reset-caches!)
+    (rf.hicasso.impl.codec/cached-prop-name 'on-click)
     (let [!seen (atom [])
-          e     (intent/with-frame (fn [ev] (swap! !seen conj ev))
-                                   (fn [] (codec/as-element [:button {:on-click [:go]}])))]
+          e     (rf.hicasso.impl.intent/with-frame (fn [ev] (swap! !seen conj ev))
+                                   (fn [] (rf.hicasso.impl.codec/as-element [:button {:on-click [:go]}])))]
       (is (fn? (prop e "onClick")) "the keyword position still lowers to a handler")
       ((prop e "onClick") #js {:target #js {}})
       (is (= [[:go]] @!seen))))
   (testing "a keyword minted FIRST does not make the symbol an event position"
-    (codec/reset-caches!)
-    (codec/cached-prop-name :on-click)
-    (let [e (codec/as-element [:div {'on-click [:go]}])]
+    (rf.hicasso.impl.codec/reset-caches!)
+    (rf.hicasso.impl.codec/cached-prop-name :on-click)
+    (let [e (rf.hicasso.impl.codec/as-element [:div {'on-click [:go]}])]
       (is (array? (prop e "onClick"))
           "a symbol key is never an event position (event-prop? says so), so
            the vector is a plain prop value and converts through clj->js —
@@ -207,21 +207,21 @@
   ;; and `[:div.a {:x/class "b"}]` pins at "a".
   (testing "a namespaced class spelling composes with the shorthand rather
             than losing to it"
-    (is (= "a b" (prop (codec/as-element [:div.a {:x/class "b"}]) "className"))))
+    (is (= "a b" (prop (rf.hicasso.impl.codec/as-element [:div.a {:x/class "b"}]) "className"))))
   (testing "and so does every other spelling the codec accepts"
     (doseq [k [:class :className "class" "className" 'class :x/class :class-name]]
-      (is (= "a b" (prop (codec/as-element [:div.a {k "b"}]) "className"))
+      (is (= "a b" (prop (rf.hicasso.impl.codec/as-element [:div.a {k "b"}]) "className"))
           (str "spelled " (pr-str k)))))
   (testing "the class value is coerced at the slot, so a collection joins
             whatever key carried it — the coercion used to live in the map
             surgery, where only `:class` and `:className` reached it"
     (doseq [k [:class "className" :x/class]]
-      (is (= "a x y" (prop (codec/as-element [:div.a {k ["x" nil :y]}]) "className"))
+      (is (= "a x y" (prop (rf.hicasso.impl.codec/as-element [:div.a {k ["x" nil :y]}]) "className"))
           (str "spelled " (pr-str k)))))
   (testing "two spellings of the one slot COMPOSE rather than the last write
             silently winning — a dropped class is the failure class the
             ruling exists to delete"
-    (is (= "a b c" (prop (codec/as-element [:div.a {:class "b" :x/class "c"}]) "className")))))
+    (is (= "a b c" (prop (rf.hicasso.impl.codec/as-element [:div.a {:class "b" :x/class "c"}]) "className")))))
 
 (deftest the-shorthand-id-loses-to-an-explicit-one-however-it-is-spelled
   ;; The other half of the spelling-aware rule. `#tag` is the weakest
@@ -231,12 +231,12 @@
   ;; which one survives to the order the props map happens to iterate in.
   (testing "written on the element"
     (doseq [k [:id "id" 'id :x/id]]
-      (is (= "explicit" (prop (codec/as-element [:div#tag {k "explicit"}]) "id"))
+      (is (= "explicit" (prop (rf.hicasso.impl.codec/as-element [:div#tag {k "explicit"}]) "id"))
           (str "spelled " (pr-str k)))))
   (testing "and the shorthand still lands when nothing claims the slot"
-    (is (= "tag" (prop (codec/as-element [:div#tag {:title "t"}]) "id"))))
+    (is (= "tag" (prop (rf.hicasso.impl.codec/as-element [:div#tag {:title "t"}]) "id"))))
   (testing "a near miss is not the id slot and keeps its own name"
-    (let [e (codec/as-element [:div#tag {:data-id "d" :ids "many"}])]
+    (let [e (rf.hicasso.impl.codec/as-element [:div#tag {:data-id "d" :ids "many"}])]
       (is (= "tag" (prop e "id")))
       (is (= "d" (prop e "data-id")))
       (is (= "many" (prop e "ids"))))))
@@ -250,37 +250,37 @@
   (let [expected {"id" "caller" "className" "foo bar"}
         emitted  (fn [e] {"id" (prop e "id") "className" (prop e "className")})]
     (testing "the audit's own witness, both ways round"
-      (is (= expected (emitted (codec/as-element
+      (is (= expected (emitted (rf.hicasso.impl.codec/as-element
                                 [:div#tag.foo {"id" "caller" "className" "bar"}]))))
-      (is (= expected (emitted (codec/as-element
+      (is (= expected (emitted (rf.hicasso.impl.codec/as-element
                                 [:div#tag.foo {"className" "bar" "id" "caller"}])))))
     (testing "and out of a hash map, whose iteration order is neither"
       (let [caller (into {} (map (fn [i] [(keyword (str "data-" i)) i])) (range 12))]
-        (is (= expected (emitted (codec/as-element
+        (is (= expected (emitted (rf.hicasso.impl.codec/as-element
                                   [:div#tag.foo (assoc caller "id" "caller" :x/class "bar")]))))))
     (testing "renders are independent of what the caches were asked first"
-      (codec/reset-caches!)
-      (codec/cached-prop-name "class")
-      (codec/cached-prop-name :x/id)
-      (is (= expected (emitted (codec/as-element
+      (rf.hicasso.impl.codec/reset-caches!)
+      (rf.hicasso.impl.codec/cached-prop-name "class")
+      (rf.hicasso.impl.codec/cached-prop-name :x/id)
+      (is (= expected (emitted (rf.hicasso.impl.codec/as-element
                                 [:div#tag.foo {"id" "caller" "className" "bar"}])))))))
 
 (deftest prop-values-are-converted-in-the-shapes-react-wants
   (testing "a style map becomes a JS object with camelCased keys"
-    (let [style (prop (codec/as-element [:div {:style {:font-size "12px" :color :red}}]) "style")]
+    (let [style (prop (rf.hicasso.impl.codec/as-element [:div {:style {:font-size "12px" :color :red}}]) "style")]
       (is (= "12px" (aget style "fontSize")))
       (is (= "red" (aget style "color")) "a keyword value stringifies")))
   (testing "a CSS custom property survives inside style"
-    (let [style (prop (codec/as-element [:div {:style {:--gap "4px"}}]) "style")]
+    (let [style (prop (rf.hicasso.impl.codec/as-element [:div {:style {:--gap "4px"}}]) "style")]
       (is (= "4px" (aget style "--gap")))))
   (testing "a function passes through BY IDENTITY, so downstream bail-outs still work"
     (let [f (fn [_])]
-      (is (identical? f (prop (codec/as-element [:div {:on-click f}]) "onClick")))))
+      (is (identical? f (prop (rf.hicasso.impl.codec/as-element [:div {:on-click f}]) "onClick")))))
   (testing "a ref is an ordinary prop — callback refs are legal on native tags"
     (let [r (fn [_node])]
-      (is (identical? r (prop (codec/as-element [:div {:ref r}]) "ref")))))
+      (is (identical? r (prop (rf.hicasso.impl.codec/as-element [:div {:ref r}]) "ref")))))
   (testing "scalars are left alone"
-    (let [e (codec/as-element [:input {:value "x" :disabled true :tab-index 3}])]
+    (let [e (rf.hicasso.impl.codec/as-element [:input {:value "x" :disabled true :tab-index 3}])]
       (is (= "x" (prop e "value")))
       (is (= true (prop e "disabled")))
       (is (= 3 (prop e "tabIndex"))))))
@@ -290,7 +290,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-native-elements-key-is-key-in-the-props-map-and-is-not-an-attribute
-  (let [e (codec/as-element [:li {:key 7 :class "row"}])]
+  (let [e (rf.hicasso.impl.codec/as-element [:li {:key 7 :class "row"}])]
     (is (= "7" (el-key e)) "React stringifies keys")
     (is (= ["className"] (prop-names e)) ":key never reaches the DOM props")))
 
@@ -300,13 +300,13 @@
 
 (deftest children-are-realized-once-and-flattened-one-level
   (testing "one child arrives as the single child, not an array"
-    (let [e (codec/as-element [:p "text"])]
+    (let [e (rf.hicasso.impl.codec/as-element [:p "text"])]
       (is (= "text" (children e)))))
   (testing "several children arrive in order"
-    (let [e (codec/as-element [:p "a" "b" "c"])]
+    (let [e (rf.hicasso.impl.codec/as-element [:p "a" "b" "c"])]
       (is (= ["a" "b" "c"] (child-vec e)))))
   (testing "a seq is expanded, and an interior nil does NOT truncate it"
-    (let [e (codec/as-element [:ul (for [i (range 4)] (when (odd? i) [:li {:key i} i]))])
+    (let [e (rf.hicasso.impl.codec/as-element [:ul (for [i (range 4)] (when (odd? i) [:li {:key i} i]))])
           expanded (vec (children e))]
       (is (= 4 (count expanded)) "all four slots survive the single pass")
       (is (nil? (nth expanded 0)))
@@ -314,39 +314,39 @@
       (is (nil? (nth expanded 2)))
       (is (= "li" (el-type (nth expanded 3))))))
   (testing "nil and false render nothing"
-    (is (nil? (codec/as-element nil)))
-    (is (nil? (codec/as-element false)))
-    (is (= [nil nil "x"] (child-vec (codec/as-element [:p nil false "x"])))))
+    (is (nil? (rf.hicasso.impl.codec/as-element nil)))
+    (is (nil? (rf.hicasso.impl.codec/as-element false)))
+    (is (= [nil nil "x"] (child-vec (rf.hicasso.impl.codec/as-element [:p nil false "x"])))))
   (testing "true is an error"
-    (is (thrown-with-msg? js/Error #"true is an error" (codec/as-element true)))
+    (is (thrown-with-msg? js/Error #"true is an error" (rf.hicasso.impl.codec/as-element true)))
     (try
-      (codec/as-element true)
+      (rf.hicasso.impl.codec/as-element true)
       (is false "should have thrown")
       (catch :default e
         (is (= :rf.error/hicasso-true-child (:rf.error/id (ex-data e)))))))
   (testing "an existing React element is a legal child anywhere"
     (let [foreign (react/createElement "b" nil "bold")
-          e       (codec/as-element [:p foreign])]
+          e       (rf.hicasso.impl.codec/as-element [:p foreign])]
       (is (identical? foreign (children e))))))
 
 (deftest a-map-in-the-first-slot-is-props-and-anything-else-is-a-child
   (testing "a map is props"
-    (is (= "row" (prop (codec/as-element [:div {:class "row"}]) "className"))))
+    (is (= "row" (prop (rf.hicasso.impl.codec/as-element [:div {:class "row"}]) "className"))))
   (testing "a string in the first slot is a child, not props"
-    (is (= "hello" (children (codec/as-element [:div "hello"])))))
+    (is (= "hello" (children (rf.hicasso.impl.codec/as-element [:div "hello"])))))
   (testing "a vector in the first slot is a child"
-    (is (= "b" (el-type (children (codec/as-element [:div [:b]])))))))
+    (is (= "b" (el-type (children (rf.hicasso.impl.codec/as-element [:div [:b]])))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fragments
 ;; ---------------------------------------------------------------------------
 
 (deftest the-fragment-spelling-is-a-fragment
-  (let [e (codec/as-element [:<> [:li "a"] [:li "b"]])]
+  (let [e (rf.hicasso.impl.codec/as-element [:<> [:li "a"] [:li "b"]])]
     (is (identical? (.-Fragment react) (el-type e)))
     (is (= 2 (count (child-vec e)))))
   (testing "a keyed fragment carries its key"
-    (is (= "k" (el-key (codec/as-element [:<> {:key "k"} [:li "a"]]))))))
+    (is (= "k" (el-key (rf.hicasso.impl.codec/as-element [:<> {:key "k"} [:li "a"]]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boundaries — the HD-016 head rules
@@ -359,36 +359,36 @@
   [_js-props]
   nil)
 
-(codec/mark-boundary! a-view)
+(rf.hicasso.impl.codec/mark-boundary! a-view)
 
 (deftest a-marked-view-in-head-position-is-a-boundary-child
-  (let [e (codec/as-element [a-view {:id 7}])]
+  (let [e (rf.hicasso.impl.codec/as-element [a-view {:id 7}])]
     (is (identical? a-view (el-type e)))
     (is (= {:id 7} (prop e "rfProps")) "the body receives one CLJS props map")))
 
 (deftest a-boundarys-key-is-extracted-before-the-body-sees-props
-  (let [e (codec/as-element [a-view {:key 3 :id 7}])]
+  (let [e (rf.hicasso.impl.codec/as-element [a-view {:key 3 :id 7}])]
     (is (= "3" (el-key e)))
     (is (= {:id 7} (prop e "rfProps")) ":key is React's contract, not the body's")))
 
 (deftest a-boundarys-children-arrive-as-a-realized-vector-of-hiccup
   (testing "trailing forms become (:children props)"
-    (let [e (codec/as-element [a-view {:id 7} [:li "a"] [:li "b"]])]
+    (let [e (rf.hicasso.impl.codec/as-element [a-view {:id 7} [:li "a"] [:li "b"]])]
       (is (= {:id 7 :children [[:li "a"] [:li "b"]]} (prop e "rfProps")))))
   (testing "a seq child is realized once and flattened exactly one level"
-    (let [e (codec/as-element [a-view {} (for [i (range 2)] [:li i])])]
+    (let [e (rf.hicasso.impl.codec/as-element [a-view {} (for [i (range 2)] [:li i])])]
       (is (= [[:li 0] [:li 1]] (:children (prop e "rfProps"))))))
   (testing "with no trailing forms there is no :children key at all"
-    (is (= {:id 7} (prop (codec/as-element [a-view {:id 7}]) "rfProps"))))
+    (is (= {:id 7} (prop (rf.hicasso.impl.codec/as-element [a-view {:id 7}]) "rfProps"))))
   (testing "a boundary with no props map still works"
-    (is (= {} (prop (codec/as-element [a-view]) "rfProps")))))
+    (is (= {} (prop (rf.hicasso.impl.codec/as-element [a-view]) "rfProps")))))
 
 (deftest a-plain-function-in-head-position-is-a-loud-error
   (let [helper (fn [_] [:div])]
-    (is (false? (codec/boundary-head? helper)))
-    (is (thrown-with-msg? js/Error #"never a silent" (codec/as-element [helper {}])))
+    (is (false? (rf.hicasso.impl.codec/boundary-head? helper)))
+    (is (thrown-with-msg? js/Error #"never a silent" (rf.hicasso.impl.codec/as-element [helper {}])))
     (try
-      (codec/as-element [helper {}])
+      (rf.hicasso.impl.codec/as-element [helper {}])
       (is false "should have thrown")
       (catch :default e
         (is (= :rf.error/hicasso-bad-head (:rf.error/id (ex-data e))))))))
@@ -397,13 +397,13 @@
   ;; The prose is the CATALOGUED prose (the package's refusals are minted
   ;; by `impl.error/fail!` under `check_complaint_catalogue.py`),
   ;; so each row pins the id — the stable contract — beside the wording.
-  (is (thrown-with-msg? js/Error #"must have a head" (codec/as-element [])))
+  (is (thrown-with-msg? js/Error #"must have a head" (rf.hicasso.impl.codec/as-element [])))
   (is (= :rf.error/hicasso-empty-vector
-         (try (codec/as-element []) nil (catch :default e (:rf.error/id (ex-data e))))))
+         (try (rf.hicasso.impl.codec/as-element []) nil (catch :default e (:rf.error/id (ex-data e))))))
   (is (thrown-with-msg? js/Error #"Hiccup head must be a tag keyword"
-                        (codec/as-element [42 {}])))
+                        (rf.hicasso.impl.codec/as-element [42 {}])))
   (is (= :rf.error/hicasso-bad-head
-         (try (codec/as-element [42 {}]) nil (catch :default e (:rf.error/id (ex-data e)))))))
+         (try (rf.hicasso.impl.codec/as-element [42 {}]) nil (catch :default e (:rf.error/id (ex-data e)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical structural-slot filter
@@ -416,18 +416,18 @@
             namespaced keyword, and a rule that names `#{:key :ref}` sees
             exactly one of the four."
     (doseq [k [:key "key" 'key :x/key :re-frame.hicasso/key]]
-      (is (true? (codec/structural-slot? k)) (str "key, spelled " (pr-str k))))
+      (is (true? (rf.hicasso.impl.codec/structural-slot? k)) (str "key, spelled " (pr-str k))))
     (doseq [k [:ref "ref" 'ref :x/ref]]
-      (is (true? (codec/structural-slot? k)) (str "ref, spelled " (pr-str k))))
+      (is (true? (rf.hicasso.impl.codec/structural-slot? k)) (str "ref, spelled " (pr-str k))))
     (doseq [k [:id :class :on-click :data-key "aria-ref" :keyboard]]
-      (is (false? (codec/structural-slot? k))
+      (is (false? (rf.hicasso.impl.codec/structural-slot? k))
           (str "and nothing else is structural: " (pr-str k)))))
   (testing "the filter drops every one of them and returns the map by
             identity when there is nothing to drop"
-    (is (= {:class "x"} (codec/without-structural
+    (is (= {:class "x"} (rf.hicasso.impl.codec/without-structural
                           {:class "x" :key 1 "key" 2 :x/key 3 :ref (fn [_]) "ref" 4 :x/ref 5})))
     (let [clean {:class "x" :id "y"}]
-      (is (identical? clean (codec/without-structural clean))))))
+      (is (identical? clean (rf.hicasso.impl.codec/without-structural clean))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:ref` — React's own slot, forwarded untouched
@@ -438,7 +438,7 @@
             function at :ref arrives at React as the same function object —
             rewrapping it would detach and reattach the node every render."
     (let [f (fn [_node] nil)
-          e (codec/as-element [:div {:ref f}])]
+          e (rf.hicasso.impl.codec/as-element [:div {:ref f}])]
       (is (identical? f (prop e "ref"))))))
 
 (deftest a-ref-crosses-by-identity-however-it-is-spelled
@@ -447,18 +447,18 @@
             ref slot by identity too — wrapping would both forbid a dispatch
             that is legitimate there and change the identity React uses to
             decide whether to re-attach the node"
-    (let [f (intent/callback (fn [_node]))]
-      (is (identical? f (prop (codec/as-element [:div {"ref" f}]) "ref")))
-      (is (identical? f (prop (codec/as-element [:div {:x/ref f}]) "ref")))))
+    (let [f (rf.hicasso.impl.intent/callback (fn [_node]))]
+      (is (identical? f (prop (rf.hicasso.impl.codec/as-element [:div {"ref" f}]) "ref")))
+      (is (identical? f (prop (rf.hicasso.impl.codec/as-element [:div {:x/ref f}]) "ref")))))
   (testing "every :ref value passes through the ordinary conversion — the
             codec claims nothing about the slot's value-space"
-    (is (nil? (prop (codec/as-element [:div {:ref nil}]) "ref")))
-    (is (= "legacy" (prop (codec/as-element [:div {:ref "legacy"}]) "ref")))
-    (is (some? (prop (codec/as-element [:div {:ref {:a 1}}]) "ref")))
-    (is (some? (prop (codec/as-element [:div {:ref [::autosize {:max-rows 8}]}]) "ref"))
+    (is (nil? (prop (rf.hicasso.impl.codec/as-element [:div {:ref nil}]) "ref")))
+    (is (= "legacy" (prop (rf.hicasso.impl.codec/as-element [:div {:ref "legacy"}]) "ref")))
+    (is (some? (prop (rf.hicasso.impl.codec/as-element [:div {:ref {:a 1}}]) "ref")))
+    (is (some? (prop (rf.hicasso.impl.codec/as-element [:div {:ref [::autosize {:max-rows 8}]}]) "ref"))
         "a vector converts as any collection does; nothing is reserved"))
   (testing "and :ref is not an event position, so intent lowering never sees it"
-    (is (false? (intent/event-prop? :ref)))))
+    (is (false? (rf.hicasso.impl.intent/event-prop? :ref)))))
 
 ;; ---------------------------------------------------------------------------
 ;; A presence override no tray reached
@@ -480,19 +480,19 @@
 
 (deftest an-override-outside-a-trays-direct-child-is-skipped-rather-than-emitted
   (testing "a native node: the key is dropped and no attribute reaches the page"
-    (let [e (codec/as-element [:div {:re-frame.hicasso.motion/mounting {:class "in"} :id "x"}])]
+    (let [e (rf.hicasso.impl.codec/as-element [:div {:re-frame.hicasso.motion/mounting {:class "in"} :id "x"}])]
       (is (= ["id"] (vec (js/Object.keys (.-props e)))))))
   (testing "both keys, and at any depth — a tray walks its direct children and
             nothing below them, so a grandchild is as unreachable as an
             element with no tray above it at all"
-    (let [e     (codec/as-element [:section [:div {:re-frame.hicasso.motion/unmounting {:class "out"}}]])
+    (let [e     (rf.hicasso.impl.codec/as-element [:section [:div {:re-frame.hicasso.motion/unmounting {:class "out"}}]])
           child (aget (.-props e) "children")]
       (is (= [] (vec (js/Object.keys (.-props child)))))))
   (testing "the crossing skips it at the same position — a [:>] head that IS a
             tray's direct child has its overrides stripped and merged exactly
             as a native node does, so one arriving here is misplaced for the
             identical reason"
-    (let [e (codec/as-element [:> an-override-crossing
+    (let [e (rf.hicasso.impl.codec/as-element [:> an-override-crossing
                                {:re-frame.hicasso.motion/mounting {:class "in"} :size 1}])]
       (is (= ["size"] (vec (js/Object.keys (raw-props e))))))))
 
@@ -501,12 +501,12 @@
             under its own name; the skip is on the EXACT keyword and not on
             the canonical slot, because these two are Hicasso's own private
             keys where `ref` and `className` are React's positions"
-    (is (= "x" (prop (codec/as-element [:div {:mounting "x"}]) "mounting")))
-    (is (= "x" (prop (codec/as-element [:div {:unmounting "x"}]) "unmounting")))
+    (is (= "x" (prop (rf.hicasso.impl.codec/as-element [:div {:mounting "x"}]) "mounting")))
+    (is (= "x" (prop (rf.hicasso.impl.codec/as-element [:div {:unmounting "x"}]) "unmounting")))
     (doseq [spelling [:mounting "mounting" 'mounting :x/mounting :data-mounting]]
-      (is (= "x" (prop (codec/as-element [:div {spelling "x"}]) (name spelling)))
+      (is (= "x" (prop (rf.hicasso.impl.codec/as-element [:div {spelling "x"}]) (name spelling)))
           (str "emitted, spelled " (pr-str spelling))))
-    (is (= "x" (aget (raw-props (codec/as-element [:> an-override-crossing {:mounting "x"}])) "mounting"))
+    (is (= "x" (aget (raw-props (rf.hicasso.impl.codec/as-element [:> an-override-crossing {:mounting "x"}])) "mounting"))
         "and the same at the crossing, where a foreign ABI may genuinely
          name a prop `mounting`")))
 
@@ -516,8 +516,8 @@
 
 (deftest event-vectors-in-attributes-lower-during-prop-conversion
   (let [!seen (atom [])
-        e     (intent/with-frame (fn [ev] (swap! !seen conj ev))
-                                 (fn [] (codec/as-element
+        e     (rf.hicasso.impl.intent/with-frame (fn [ev] (swap! !seen conj ev))
+                                 (fn [] (rf.hicasso.impl.codec/as-element
                                          [:button {:on-click [:todo/toggle 7] :class "btn"}
                                           "done"])))]
     (is (= "btn" (prop e "className")))
@@ -528,8 +528,8 @@
 
 (deftest a-controlled-field-lowers-its-marker-through-the-codec
   (let [!seen (atom [])
-        e     (intent/with-frame (fn [ev] (swap! !seen conj ev))
-                                 (fn [] (codec/as-element
+        e     (rf.hicasso.impl.intent/with-frame (fn [ev] (swap! !seen conj ev))
+                                 (fn [] (rf.hicasso.impl.codec/as-element
                                          [:input {:value "milk"
                                                   :on-input [:todo.ui/edit 7 :re-frame.hicasso/value]}])))]
     (is (= "milk" (prop e "value")))
@@ -547,14 +547,14 @@
   [_js-props]
   nil)
 
-(def ^:private a-host (codec/mint-host! "AHost" a-foreign-component))
+(def ^:private a-host (rf.hicasso.impl.codec/mint-host! "AHost" a-foreign-component))
 
 (defn- host-prop
   "The value the codec emitted at `slot` for a one-prop host crossing.
   Reads the GATE element's props, which are the props object the foreign
   component receives — the gate forwards it verbatim."
   [k v slot]
-  (prop (codec/as-element [a-host {k v}]) slot))
+  (prop (rf.hicasso.impl.codec/as-element [a-host {k v}]) slot))
 
 (deftest a-namespaced-keyword-keeps-its-namespace-at-a-host-prop
   (testing "the shape rf2-vrvv9 names. `(name :theme/dark)` is \"dark\", so
@@ -595,7 +595,7 @@
   (testing "the namespace drop survives ONLY here, and it is the same answer
             the native walk gives at the same name"
     (is (= "dark" (host-prop :class :theme/dark "className")))
-    (is (= "dark" (prop (codec/as-element [:div {:class :theme/dark}]) "className"))
+    (is (= "dark" (prop (rf.hicasso.impl.codec/as-element [:div {:class :theme/dark}]) "className"))
         "the native crossing, unchanged")))
 
 ;; ---------------------------------------------------------------------------
@@ -611,7 +611,7 @@
             the DOM as \"a,,b\" wherever the component passes it on: nothing
             threw and the styling was simply wrong."
     (let [crossed (host-prop :class ["a" nil :b] "className")
-          native  (prop (codec/as-element [:div {:class ["a" nil :b]}]) "className")]
+          native  (prop (rf.hicasso.impl.codec/as-element [:div {:class ["a" nil :b]}]) "className")]
       (is (string? crossed)
           "a class string, not the JS array clj->js used to build here")
       (is (= "a b" crossed))
@@ -633,13 +633,13 @@
             two spellings of one element's class are two map keys and one
             React slot, so letting the last write win would drop a class
             silently"
-    (let [e (codec/as-element [a-host {:class "a" :x/class ["b" :c]}])]
+    (let [e (rf.hicasso.impl.codec/as-element [a-host {:class "a" :x/class ["b" :c]}])]
       (is (= "a b c" (prop e "className"))))
     ;; the crossing rule as a worked case — the guide states it as a rule
     ;; (docs/core/hicasso/09-interop.md §Crossing rules) and no longer carries
     ;; the example this once quoted verbatim
     (is (= "btn on wide"
-           (prop (codec/as-element [a-host {:class ["btn" nil :on] :className "wide"}])
+           (prop (rf.hicasso.impl.codec/as-element [a-host {:class ["btn" nil :on] :className "wide"}])
                  "className"))))
   (testing "nothing else at the slot moves. A string is verbatim, a keyword
             still stringifies (rf2-vrvv9's rule, unchanged), and a
@@ -652,7 +652,7 @@
             hand a collection to `clj->js` at BOTH positions, so there is
             nothing to reconcile there and nothing here that changed them"
     (is (array? (host-prop :id ["a" "b"] "id")))
-    (is (array? (prop (codec/as-element [:div {:id ["a" "b"]}]) "id"))
+    (is (array? (prop (rf.hicasso.impl.codec/as-element [:div {:id ["a" "b"]}]) "id"))
         "the native walk's own answer, quoted so the claim is not asserted
          about a function nobody ran")))
 
@@ -665,9 +665,9 @@
             the value that tells the two orders apart, because
             `class-names` would quietly answer it \"a b\" where a `:render`
             override leaves it a value that crosses as DATA."
-    (let [declared (codec/mint-host! "ClassContractHost" a-foreign-component
+    (let [declared (rf.hicasso.impl.codec/mint-host! "ClassContractHost" a-foreign-component
                                      {:callbacks {:class :render}})]
-      (is (array? (prop (codec/as-element [declared {:class ["a" "b"]}]) "className"))
+      (is (array? (prop (rf.hicasso.impl.codec/as-element [declared {:class ["a" "b"]}]) "className"))
           "the declaration decided, not the slot")))
   (testing "and an undeclared host is unaffected — the same value at the
             same slot is an ordinary class collection"
@@ -681,17 +681,17 @@
         d     (fn [ev] (swap! !seen conj ev))]
     (testing "an on*-spelled prop is an EVENT position with no declaration
               at all: an h/event there dispatches its return"
-      (let [f (intent/with-frame d (fn [] (host-prop :on-pick (intent/callback (fn [x] [:row/pick x])) "onPick")))]
+      (let [f (rf.hicasso.impl.intent/with-frame d (fn [] (host-prop :on-pick (rf.hicasso.impl.intent/callback (fn [x] [:row/pick x])) "onPick")))]
         (f 1)
         (is (= [[:row/pick 1]] @!seen))))
     (testing "and so are the vector and key-map spellings, exactly as at a
               native tag"
       (reset! !seen [])
-      (let [f (intent/with-frame d (fn [] (host-prop :on-close [:dialog/cancel] "onClose")))]
+      (let [f (rf.hicasso.impl.intent/with-frame d (fn [] (host-prop :on-close [:dialog/cancel] "onClose")))]
         (f #js {:target #js {}})
         (is (= [[:dialog/cancel]] @!seen)))
       (reset! !seen [])
-      (let [f (intent/with-frame d (fn [] (host-prop :on-key-down {"Enter" [:go]} "onKeyDown")))]
+      (let [f (rf.hicasso.impl.intent/with-frame d (fn [] (host-prop :on-key-down {"Enter" [:go]} "onKeyDown")))]
         (f #js {:key "Enter" :isComposing false :target #js {}})
         (is (= [[:go]] @!seen))))
     (testing "any other prop is a RENDER position: the h/event takes the
@@ -700,13 +700,13 @@
               into that frame when clicked — after the render extent has
               unwound"
       (reset! !seen [])
-      (let [render-row (intent/with-frame d
+      (let [render-row (rf.hicasso.impl.intent/with-frame d
                          (fn [] (host-prop :render-row
-                                           (intent/callback
-                                             (fn [i] (codec/as-element [:li {:on-click [:row/pick i]}])))
+                                           (rf.hicasso.impl.intent/callback
+                                             (fn [i] (rf.hicasso.impl.codec/as-element [:li {:on-click [:row/pick i]}])))
                                            "renderRow")))
             row        (render-row 9)]
-        (is (nil? intent/*dispatch*) "precondition: no ambient dispatch here")
+        (is (nil? rf.hicasso.impl.intent/*dispatch*) "precondition: no ambient dispatch here")
         (is (= "li" (.-type row)))
         ((aget (.-props row) "onClick") #js {:target #js {}})
         (is (= [[:row/pick 9]] @!seen))))
@@ -717,13 +717,13 @@
               is the render output (an event wrapper returns nil) and it
               still dispatches on click"
       (reset! !seen [])
-      (let [fluent    (codec/mint-host! "FluentList" a-foreign-component
+      (let [fluent    (rf.hicasso.impl.codec/mint-host! "FluentList" a-foreign-component
                                         {:callbacks {:on-render-item :render}})
-            render-fn (intent/with-frame d
-                        (fn [] (prop (codec/as-element
+            render-fn (rf.hicasso.impl.intent/with-frame d
+                        (fn [] (prop (rf.hicasso.impl.codec/as-element
                                        [fluent {:on-render-item
-                                                (intent/callback
-                                                  (fn [item] (codec/as-element [:li {:on-click [:row/pick item]}])))}])
+                                                (rf.hicasso.impl.intent/callback
+                                                  (fn [item] (rf.hicasso.impl.codec/as-element [:li {:on-click [:row/pick item]}])))}])
                                      "onRenderItem")))
             row       (render-fn "x")]
         (is (= "li" (.-type row)) "the render output came back")
@@ -733,8 +733,8 @@
               render, and the vector spelling then lowers as at a native
               event position"
       (reset! !seen [])
-      (let [h (codec/mint-host! "PickHost" a-foreign-component {:callbacks {:pick :event}})
-            f (intent/with-frame d (fn [] (prop (codec/as-element [h {:pick [:row/pick 2]}]) "pick")))]
+      (let [h (rf.hicasso.impl.codec/mint-host! "PickHost" a-foreign-component {:callbacks {:pick :event}})
+            f (rf.hicasso.impl.intent/with-frame d (fn [] (prop (rf.hicasso.impl.codec/as-element [h {:pick [:row/pick 2]}]) "pick")))]
         (f #js {:target #js {}})
         (is (= [[:row/pick 2]] @!seen))))
     (testing "a PLAIN function crosses by identity at an event position and
@@ -746,11 +746,11 @@
     (testing "a vector at an inferred render position crosses as DATA, as
               at a native tag; so does one at a declared :render override"
       (is (array? (host-prop :columns ["a" "b"] "columns")))
-      (let [h (codec/mint-host! "ColumnsHost" a-foreign-component {:callbacks {:render-row :render}})]
-        (is (array? (prop (codec/as-element [h {:render-row ["a" "b"]}]) "renderRow")))))
+      (let [h (rf.hicasso.impl.codec/mint-host! "ColumnsHost" a-foreign-component {:callbacks {:render-row :render}})]
+        (is (array? (prop (rf.hicasso.impl.codec/as-element [h {:render-row ["a" "b"]}]) "renderRow")))))
     (testing "and a contract outside the two is a bad declaration, refused
               at mint where the author's stack is the declaration"
-      (let [data (try (codec/mint-host! "HandlerHost" a-foreign-component
+      (let [data (try (rf.hicasso.impl.codec/mint-host! "HandlerHost" a-foreign-component
                                         {:callbacks {:on-pick :handler}})
                       nil
                       (catch :default e (ex-data e)))]
@@ -791,7 +791,7 @@
             oversight: a later refusal cannot land silently, because it has
             to delete these rows first."
     (let [r (react/createRef)]
-      (is (identical? r (prop (codec/as-element [:div {:ref r}]) "ref"))
+      (is (identical? r (prop (rf.hicasso.impl.codec/as-element [:div {:ref r}]) "ref"))
           "a native tag")
       (is (identical? r (host-prop :ref r "ref"))
           "and a defhost crossing — HD-011's conversion parity, which is
@@ -800,12 +800,12 @@
   (testing "and it is one rule at one slot, so an alternate spelling of the
             ref position answers the same way"
     (let [r (react/createRef)]
-      (is (identical? r (prop (codec/as-element [:div {"ref" r}]) "ref")))
+      (is (identical? r (prop (rf.hicasso.impl.codec/as-element [:div {"ref" r}]) "ref")))
       (is (identical? r (host-prop :x/ref r "ref")))))
   (testing "and a VECTOR crosses at both as the author wrote it — nothing
             about the slot's value-space is reserved"
     (let [v [::autosize {:max-rows 8}]]
-      (is (some? (prop (codec/as-element [:div {:ref v}]) "ref")))
+      (is (some? (prop (rf.hicasso.impl.codec/as-element [:div {:ref v}]) "ref")))
       (is (= v (host-prop :ref v "ref"))))))
 
 ;; ---------------------------------------------------------------------------
@@ -837,7 +837,7 @@
   "The value the escape emitted at `slot` for a one-prop crossing —
   [[host-prop]]'s twin, so the two can be read against each other."
   [k v slot]
-  (aget (raw-props (codec/as-element [:> a-foreign-component {k v}])) slot))
+  (aget (raw-props (rf.hicasso.impl.codec/as-element [:> a-foreign-component {k v}])) slot))
 
 (defn- crossed-same?
   "Did the two crossings answer the same thing? Functions by identity —
@@ -855,7 +855,7 @@
             `hiccup-tag?` accepted any keyword that is not `:<>`, so
             `[:> Foo {}]` routed to the native path and asked React for
             an element literally named `<>`"
-    (let [e (codec/as-element [:> a-foreign-component {}])]
+    (let [e (rf.hicasso.impl.codec/as-element [:> a-foreign-component {}])]
       (is (not= ">" (el-type e)) "not a native tag any more")
       (is (fn? (el-type e)) "a component — the shared gate")
       (is (= "[:>]" (.-displayName (el-type e)))
@@ -874,11 +874,11 @@
       (is (not (identical? :> computed))
           "precondition: the row is only meaningful because these are two
            objects")
-      (is (= "[:>]" (.-displayName (el-type (codec/as-element [computed a-foreign-component {}])))))))
+      (is (= "[:>]" (.-displayName (el-type (rf.hicasso.impl.codec/as-element [computed a-foreign-component {}])))))))
   (testing "and the arms either side of the new one are untouched"
-    (is (= (.-Fragment react) (el-type (codec/as-element [:<> "x"]))))
-    (is (= "div" (el-type (codec/as-element [:div]))))
-    (is (= "toString" (el-type (codec/as-element [:toString])))
+    (is (= (.-Fragment react) (el-type (rf.hicasso.impl.codec/as-element [:<> "x"]))))
+    (is (= "div" (el-type (rf.hicasso.impl.codec/as-element [:div]))))
+    (is (= "toString" (el-type (rf.hicasso.impl.codec/as-element [:toString])))
         "the redundant second fragment test that paid for this arm is
          gone; a native tag still parses as itself")))
 
@@ -906,8 +906,8 @@
                    :count      7
                    :open       true
                    :ref        ref-fn}
-          door    (.-props (codec/as-element [a-host corpus]))
-          raw     (raw-props (codec/as-element [:> a-foreign-component corpus]))]
+          door    (.-props (rf.hicasso.impl.codec/as-element [a-host corpus]))
+          raw     (raw-props (rf.hicasso.impl.codec/as-element [:> a-foreign-component corpus]))]
       (is (= (vec (sort (js/Object.keys door))) (vec (sort (js/Object.keys raw))))
           "prop for prop, the same emitted slots")
       (doseq [k (js/Object.keys door)]
@@ -922,7 +922,7 @@
         "and NOT at an ordinary slot: the keyword crosses whole"))
   (testing "the class slot composes across spellings here too, because the
             rule is on the SLOT and the walk is the door's"
-    (let [e (codec/as-element [:> a-foreign-component {:class "a" :x/class ["b" :c]}])]
+    (let [e (rf.hicasso.impl.codec/as-element [:> a-foreign-component {:class "a" :x/class ["b" :c]}])]
       (is (= "a b c" (aget (raw-props e) "className"))))))
 
 (deftest the-carrier-never-leaks-and-key-rides-the-outer-element
@@ -931,17 +931,17 @@
             stripping it inside would cost a shallow copy per crossing
             per render and leave the key one bug away from React; two
             slots make the leak unrepresentable instead"
-    (let [p (raw-props (codec/as-element [:> a-foreign-component {:label "x"}]))]
+    (let [p (raw-props (rf.hicasso.impl.codec/as-element [:> a-foreign-component {:label "x"}]))]
       (is (= ["label"] (vec (sort (js/Object.keys p)))))))
   (testing "and the carrier itself holds exactly the two slots, plus
             children when there are any"
-    (is (= ["c" "p"] (vec (sort (js/Object.keys (raw-carrier (codec/as-element [:> a-foreign-component {}])))))))
+    (is (= ["c" "p"] (vec (sort (js/Object.keys (raw-carrier (rf.hicasso.impl.codec/as-element [:> a-foreign-component {}])))))))
     (is (= ["c" "children" "p"]
-           (vec (sort (js/Object.keys (raw-carrier (codec/as-element [:> a-foreign-component {} [:span]]))))))))
+           (vec (sort (js/Object.keys (raw-carrier (rf.hicasso.impl.codec/as-element [:> a-foreign-component {} [:span]]))))))))
   (testing "`:key` is React's contract on the crossing's own element, not
             an attribute and not a carrier slot — the door's rule,
             unchanged"
-    (let [e (codec/as-element [:> a-foreign-component {:key "k7" :label "x"}])]
+    (let [e (rf.hicasso.impl.codec/as-element [:> a-foreign-component {:key "k7" :label "x"}])]
       (is (= "k7" (el-key e)))
       ;; `Object.keys` rather than a read of `.key`: React 19 defines a
       ;; DEV warning getter at that name on any props object it built
@@ -955,7 +955,7 @@
   (testing "a childless crossing does not write `children` onto the props
             the component receives — which is what makes the parity row
             above a claim about the object rather than about our walk"
-    (is (not (contains? (set (js/Object.keys (raw-props (codec/as-element [:> a-foreign-component {}]))))
+    (is (not (contains? (set (js/Object.keys (raw-props (rf.hicasso.impl.codec/as-element [:> a-foreign-component {}]))))
                         "children")))))
 
 (deftest the-escape-infers-every-contract-exactly-as-the-door-does
@@ -967,14 +967,14 @@
     (testing "an intent vector at an event-SPELLED slot lowers to a
               dispatching handler, exactly as at a native tag"
       (let [!seen (atom [])
-            f     (intent/with-frame (fn [ev] (swap! !seen conj ev))
+            f     (rf.hicasso.impl.intent/with-frame (fn [ev] (swap! !seen conj ev))
                                      (fn [] (raw-prop :on-pick [:row/pick 7] "onPick")))]
         (is (fn? f))
         (f #js {:target #js {}})
         (is (= [[:row/pick 7]] @!seen))))
     (testing "and so does an event-spelled key-map"
       (let [!seen (atom [])
-            f     (intent/with-frame (fn [ev] (swap! !seen conj ev))
+            f     (rf.hicasso.impl.intent/with-frame (fn [ev] (swap! !seen conj ev))
                                      (fn [] (raw-prop :on-key-down {"Enter" [:go]} "onKeyDown")))]
         (f #js {:key "Enter" :isComposing false :target #js {}})
         (is (= [[:go]] @!seen))))
@@ -984,9 +984,9 @@
               the spelling selects the contract, never a declaration"
       (let [!seen  (atom [])
             d      (fn [ev] (swap! !seen conj ev))
-            marked (intent/callback (fn [x] [:row/pick x]))
-            on     (intent/with-frame d (fn [] (raw-prop :on-value-change marked "onValueChange")))
-            row    (intent/with-frame d (fn [] (raw-prop :row-formatter marked "rowFormatter")))]
+            marked (rf.hicasso.impl.intent/callback (fn [x] [:row/pick x]))
+            on     (rf.hicasso.impl.intent/with-frame d (fn [] (raw-prop :on-value-change marked "onValueChange")))
+            row    (rf.hicasso.impl.intent/with-frame d (fn [] (raw-prop :row-formatter marked "rowFormatter")))]
         (on 3)
         (is (= [[:row/pick 3]] @!seen) "the event wrapper dispatched")
         (is (= [:row/pick 4] (row 4)) "the render wrapper returned the value")
@@ -1011,26 +1011,26 @@
             existing three arms — so an intent closure in a child
             captures the owner's frame-locked dispatch at LOWERING time
             (the two-frame proof of that is the DOM witness)"
-    (let [one (raw-carrier (codec/as-element [:> a-foreign-component {} [:span "x"]]))]
+    (let [one (raw-carrier (rf.hicasso.impl.codec/as-element [:> a-foreign-component {} [:span "x"]]))]
       (is (= "span" (.-type (aget one "children")))
           "one child: an element, not hiccup"))
-    (let [many (raw-carrier (codec/as-element [:> a-foreign-component {} [:span "a"] [:b "c"]]))
+    (let [many (raw-carrier (rf.hicasso.impl.codec/as-element [:> a-foreign-component {} [:span "a"] [:b "c"]]))
           kids (aget many "children")]
       (is (array? kids))
       (is (= ["span" "b"] (mapv #(.-type %) (vec kids))))))
   (testing "the attribute map is optional, and the indices shift by one
             from the door's: component at 1, props at 2 when it is a map,
             children from 3 or from 2"
-    (let [e (codec/as-element [:> a-foreign-component [:span "no props"]])]
+    (let [e (rf.hicasso.impl.codec/as-element [:> a-foreign-component [:span "no props"]])]
       (is (= "span" (.-type (aget (raw-carrier e) "children"))))
       (is (= [] (vec (sort (js/Object.keys (raw-props e)))))))
-    (is (some? (codec/as-element [:> a-foreign-component]))
+    (is (some? (rf.hicasso.impl.codec/as-element [:> a-foreign-component]))
         "[:> Component] with neither props nor children is legal"))
   (testing "a lowered intent inside a `[:>]` child is the ordinary
             frame-locked one — the crossing is transparent to it"
     (let [!seen (atom [])
-          e     (intent/with-frame (fn [ev] (swap! !seen conj ev))
-                                   (fn [] (codec/as-element
+          e     (rf.hicasso.impl.intent/with-frame (fn [ev] (swap! !seen conj ev))
+                                   (fn [] (rf.hicasso.impl.codec/as-element
                                             [:> a-foreign-component {}
                                              [:button {:on-click [:go]}]])))
           child (aget (raw-carrier e) "children")]
@@ -1047,7 +1047,7 @@
 ;; that each category crosses, and the refusals assert the id AND the
 ;; discriminating reason rather than merely "it threw".
 
-(defn- accepts? [c] (identical? c (raw-component-of (codec/as-element [:> c {}]))))
+(defn- accepts? [c] (identical? c (raw-component-of (rf.hicasso.impl.codec/as-element [:> c {}]))))
 
 (deftest every-category-react-mints-a-fiber-for-crosses
   (testing "functions and classes"
@@ -1072,7 +1072,7 @@
             a Suspense ancestor, and HD-011 names that pairing as a reason
             the escape exists, so a roster that took one and not the other
             would be unsound"
-    (is (some? (codec/as-element [:> (.-Suspense react) {}
+    (is (some? (rf.hicasso.impl.codec/as-element [:> (.-Suspense react) {}
                                   [:> (react/lazy (fn [] (js/Promise.resolve #js {:default a-foreign-component}))) {}]])))))
 
 (deftest the-three-values-react-would-accept-or-misreport-are-refused-at-the-crossing
@@ -1080,29 +1080,29 @@
             rather than by React — whose own refusal is minted at fiber
             creation, post-adoption and client-only"
     (testing "nil, and the bare form: the broken-import diagnosis"
-      (let [d (ex-data (try (codec/as-element [:> nil {}]) nil (catch :default e e)))]
+      (let [d (ex-data (try (rf.hicasso.impl.codec/as-element [:> nil {}]) nil (catch :default e e)))]
         (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)))
         (is (= 3 (:argv-count d)))
         (is (re-find #"no default export" (:reason d))))
-      (is (= :rf.error/hicasso-raw-not-a-component (error-id #(codec/as-element [:>])))))
+      (is (= :rf.error/hicasso-raw-not-a-component (error-id #(rf.hicasso.impl.codec/as-element [:>])))))
     (testing "a defview head, which React WOULD accept — it is fn?-true,
               so a bare 'is it a function' test mounts the shell raw, the
               body reads rfProps, gets undefined, and receives nil props"
-      (let [d (ex-data (try (codec/as-element [:> a-view {}]) nil (catch :default e e)))]
+      (let [d (ex-data (try (rf.hicasso.impl.codec/as-element [:> a-view {}]) nil (catch :default e e)))]
         (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)))
         (is (identical? a-view (:component d)))
         (is (re-find #"a defview product" (:reason d)))
         (is (re-find #"\[my-view" (:reason d)))))
     (testing "a defhost head — the escape is for what a declaration cannot
               express, and this one already IS a declaration"
-      (let [d (ex-data (try (codec/as-element [:> a-host {}]) nil (catch :default e e)))]
+      (let [d (ex-data (try (rf.hicasso.impl.codec/as-element [:> a-host {}]) nil (catch :default e e)))]
         (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)))
         (is (re-find #"a defhost product" (:reason d)))))
     (testing "everything else is React's to judge — a keyword, a map or a
               React element crosses, and React reports it at fiber creation
               with its own 'Element type is invalid'"
-      (doseq [c [:div {:a 1} (codec/as-element [:div])]]
-        (is (identical? c (raw-component-of (codec/as-element [:> c {}])))
+      (doseq [c [:div {:a 1} (rf.hicasso.impl.codec/as-element [:div])]]
+        (is (identical? c (raw-component-of (rf.hicasso.impl.codec/as-element [:> c {}])))
             (str "crosses: " (pr-str c)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1112,15 +1112,15 @@
 (deftest the-codec-mints-a-fresh-props-object-per-element-and-memoizes-no-element
   (testing "two renders of the same hiccup are two elements with two props objects"
     (let [hiccup [:div {:class "row"} "x"]
-          a      (codec/as-element hiccup)
-          b      (codec/as-element hiccup)]
+          a      (rf.hicasso.impl.codec/as-element hiccup)
+          b      (rf.hicasso.impl.codec/as-element hiccup)]
       (is (not (identical? a b)) "no element memoization — HD-006 stands")
       (is (not (identical? (.-props a) (.-props b))) "no props-object cache")
       (is (= (prop-names a) (prop-names b)))))
   (testing "only the two codec-work caches grow — tags and prop names (HD-004)"
-    (codec/reset-caches!)
-    (dotimes [i 20] (codec/as-element [:div.row {:class (str "c" i)} i]))
-    (is (= {:tags 1 :props 3} (codec/cache-sizes))
+    (rf.hicasso.impl.codec/reset-caches!)
+    (dotimes [i 20] (rf.hicasso.impl.codec/as-element [:div.row {:class (str "c" i)} i]))
+    (is (= {:tags 1 :props 3} (rf.hicasso.impl.codec/cache-sizes))
         "one tag literal; `:class` is one of the three seeded prop names, so
          twenty renders with twenty distinct class VALUES add nothing")))
 
@@ -1140,7 +1140,7 @@
   [nm]
   (let [f (fn [_js-props] nil)]
     (unchecked-set f "displayName" nm)
-    (codec/mark-boundary! f)))
+    (rf.hicasso.impl.codec/mark-boundary! f)))
 
 (defn- warnings-during
   "Everything the codec said on `console.warn` while `f` ran. The channel
@@ -1156,17 +1156,17 @@
 (deftest an-unkeyed-boundary-seq-is-reacts-to-warn-about-and-the-codec-is-silent
   (let [row (named-view "w1.ns/row")]
     (is (= [] (warnings-during
-                #(codec/as-element [:ul (for [i (range 3)] [row {:id i}])])))
+                #(rf.hicasso.impl.codec/as-element [:ul (for [i (range 3)] [row {:id i}])])))
         "React already warns about a missing key; the codec adds nothing")
     (is (= [] (warnings-during
-                #(codec/as-element [:ul (list [row {:key nil :id 1}])])))
+                #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key nil :id 1}])])))
         "and `:key nil` is the same absent key")))
 
 (deftest a-keyed-boundary-seq-is-silent-and-so-is-every-legitimate-key-shape
   (testing "the canonical keyed list says nothing at all"
     (let [row (named-view "w2.ns/row")]
       (is (= [] (warnings-during
-                  #(codec/as-element [:ul (for [i (range 300)] [row {:key i}])]))))))
+                  #(rf.hicasso.impl.codec/as-element [:ul (for [i (range 300)] [row {:key i}])]))))))
   (testing "each primitive key shape individually — a warning that fired on
             valid code would be worse than no warning"
     (doseq [[label k] [["number" 1] ["string" "a"] ["keyword" :a]
@@ -1174,14 +1174,14 @@
                        ["zero" 0] ["empty-string" ""]]]
       (let [row (named-view (str "w2b.ns/" label))]
         (is (= [] (warnings-during
-                    #(codec/as-element [:ul (list [row {:key k}])])))
+                    #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key k}])])))
             (str "a " label " key is a legitimate key"))))))
 
 (deftest the-site-warns-exactly-once-however-many-renders-it-takes
   (let [row     (named-view "w3.ns/row")
         hiccup  [:ul (list [row {:key {:id 1}}] [row {:key {:id 2}}])]
-        first-r (warnings-during #(codec/as-element hiccup))
-        again   (warnings-during #(codec/as-element hiccup))]
+        first-r (warnings-during #(rf.hicasso.impl.codec/as-element hiccup))
+        again   (warnings-during #(rf.hicasso.impl.codec/as-element hiccup))]
     (is (= 1 (count first-r)) "two entity-keyed members of one head are one site")
     (is (= [] again) "a second render of the same site re-fires nothing")))
 
@@ -1190,18 +1190,18 @@
     (let [a   (named-view "w4.ns/a")
           b   (named-view "w4.ns/b")
           out (warnings-during
-                #(codec/as-element [:ul (list [a {:key {:id 1}}] [b {:key {:id 2}}])]))]
+                #(rf.hicasso.impl.codec/as-element [:ul (list [a {:key {:id 1}}] [b {:key {:id 2}}])]))]
       (is (= 2 (count out)) "scanning past the first offender is what finds the second")))
   (testing "one member head, two hazards — two sites"
     (let [row (named-view "w5.ns/row")
           out (warnings-during
-                #(codec/as-element [:ul (list [row {:key {:id 1}}] [row {:key [1 2]}])]))]
+                #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key {:id 1}}] [row {:key [1 2]}])]))]
       (is (= 2 (count out))))))
 
 (deftest a-mixed-seq-names-the-first-entity-keyed-member
   (let [row (named-view "w8.ns/row")
         out (warnings-during
-              #(codec/as-element
+              #(rf.hicasso.impl.codec/as-element
                  [:ul (list [row {:key 0}] [row {:key 1}]
                             [row {:key {:id 2}}] [row {:key 3}])]))]
     (is (= 1 (count out)))
@@ -1213,7 +1213,7 @@
             its own CONTENT and an edit silently remounts the row"
     (let [row  (named-view "w9.ns/row")
           out  (warnings-during
-                 #(codec/as-element [:ul (list [row {:key {:id 1 :label "a"}}])]))
+                 #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key {:id 1 :label "a"}}])]))
           line (first out)]
       (is (= 1 (count out)))
       (is (re-find #"^\[hicasso\] Entity-valued :key" line)
@@ -1228,7 +1228,7 @@
   (testing "a vector and a set are the same hazard, and two distinct sites"
     (let [row (named-view "w10.ns/row")
           out (warnings-during
-                #(codec/as-element [:ul (list [row {:key [1 2]}] [row {:key #{1}}])]))]
+                #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key [1 2]}] [row {:key #{1}}])]))]
       (is (= 2 (count out)))
       (is (re-find #"carries a vector at :key" (first out)))
       (is (re-find #"carries a set at :key" (second out))))))
@@ -1253,7 +1253,7 @@
           seen (atom nil)]
       (warnings-during
         #(reset! seen (child-vec
-                        (codec/as-element
+                        (rf.hicasso.impl.codec/as-element
                           [:ul (list [row {:key #js {:id 1}}]
                                      [row {:key #js {:id 2}}])]))))
       (is (= 2 (count @seen)))
@@ -1264,7 +1264,7 @@
   (testing "and it warns, naming the shape without ever printing the value"
     (let [row  (named-view "w25.ns/row")
           out  (warnings-during
-                 #(codec/as-element [:ul (list [row {:key #js {:secret "s3cr3t"}}])]))
+                 #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key #js {:secret "s3cr3t"}}])]))
           line (first out)]
       (is (= 1 (count out)))
       (is (re-find #"w25\.ns/row" line) "the member head")
@@ -1282,7 +1282,7 @@
           cyclic (js-obj "id" 1)]
       (unchecked-set cyclic "self" cyclic)
       (let [out (warnings-during
-                  #(codec/as-element [:ul (list [row {:key cyclic}])]))]
+                  #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key cyclic}])]))]
         (is (= 1 (count out)))
         (is (re-find #"carries a foreign object at :key" (first out)))))))
 
@@ -1295,7 +1295,7 @@
              ["js-array" #js [1 2]    #"carries a foreign object at :key"]]]
       (let [row (named-view (str "w27.ns/" label))
             out (warnings-during
-                  #(codec/as-element [:ul (list [row {:key k}])]))]
+                  #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key k}])]))]
         (is (= 1 (count out)) (str "a " label " key must not fall through"))
         (is (re-find pattern (first out)) (str "a " label " key is named"))))))
 
@@ -1310,7 +1310,7 @@
       (is (= [] (warnings-during
                   #(reset! seen
                            (child-vec
-                             (codec/as-element
+                             (rf.hicasso.impl.codec/as-element
                                [:ul (for [id ids] [row {:key id}])]))))))
       (is (= "00000000-0000-0000-0000-000000000001" (el-key (first @seen)))
           "the coercion is the identity itself — this is WHY it is classified safe")
@@ -1320,37 +1320,37 @@
             `plain-key?` already admits does"
     (let [row (named-view "w29.ns/row")]
       (is (= [] (warnings-during
-                  #(codec/as-element [:ul (list [row {:key 'a}] [row {:key 'ns/b}])])))))))
+                  #(rf.hicasso.impl.codec/as-element [:ul (list [row {:key 'a}] [row {:key 'ns/b}])])))))))
 
 (deftest the-scope-line-holds-in-both-directions
   (testing "native-tag members are React's beat — there is no boundary head to name"
     (is (= [] (warnings-during
-                #(codec/as-element [:ul (for [i (range 3)] [:li {:key {:id i}} i])])))))
+                #(rf.hicasso.impl.codec/as-element [:ul (for [i (range 3)] [:li {:key {:id i}} i])])))))
   (testing "host-headed members are silent"
     (is (= [] (warnings-during
-                #(codec/as-element [:ul (list [a-host {:key {:id 1}}])])))))
+                #(rf.hicasso.impl.codec/as-element [:ul (list [a-host {:key {:id 1}}])])))))
   (testing "strings, numbers and nils in a seq are not elements"
     (is (= [] (warnings-during
-                #(codec/as-element [:ul (list "a" 1 nil false)])))))
+                #(rf.hicasso.impl.codec/as-element [:ul (list "a" 1 nil false)])))))
   (testing "a headless vector is somebody else's refusal — the check tolerates
             it silently and leaves `vec->element`'s loud error to speak"
     (is (= [] (warnings-during
-                #(try (codec/as-element [:ul (list [])])
+                #(try (rf.hicasso.impl.codec/as-element [:ul (list [])])
                       (catch :default _ nil)))))))
 
 (deftest every-parent-class-reaches-the-check-through-the-one-site
   (testing "a fragment parent"
     (let [row (named-view "w15.ns/row")]
       (is (= 1 (count (warnings-during
-                        #(codec/as-element [:<> (list [row {:key {:id 1}}])])))))))
+                        #(rf.hicasso.impl.codec/as-element [:<> (list [row {:key {:id 1}}])])))))))
   (testing "a host parent — this is what the [:>] crossing will inherit"
     (let [row (named-view "w16.ns/row")]
       (is (= 1 (count (warnings-during
-                        #(codec/as-element [a-host {} (list [row {:key {:id 1}}])])))))))
+                        #(rf.hicasso.impl.codec/as-element [a-host {} (list [row {:key {:id 1}}])])))))))
   (testing "a nested seq is checked at its own level, one level at a time"
     (let [row (named-view "w17.ns/row")]
       (is (= 1 (count (warnings-during
-                        #(codec/as-element [:ul (list (list [row {:key {:id 1}}]))]))))))))
+                        #(rf.hicasso.impl.codec/as-element [:ul (list (list [row {:key {:id 1}}]))]))))))))
 
 (deftest the-crossing-into-a-boundary-warns-where-nothing-else-can
   (testing "`[a-view {} (for …)]` — realize-children flattens the seq into
@@ -1359,20 +1359,20 @@
     (let [outer (named-view "w18.ns/outer")
           row   (named-view "w18.ns/row")
           out   (warnings-during
-                  #(codec/as-element [outer {} (for [i (range 3)] [row {:key {:id i}}])]))]
+                  #(rf.hicasso.impl.codec/as-element [outer {} (for [i (range 3)] [row {:key {:id i}}])]))]
       (is (= 1 (count out)))
       (is (re-find #"w18\.ns/row" (first out)))))
   (testing "a keyed crossing seq is silent"
     (let [outer (named-view "w19.ns/outer")
           row   (named-view "w19.ns/row")]
       (is (= [] (warnings-during
-                  #(codec/as-element [outer {} (for [i (range 3)] [row {:key i}])]))))))
+                  #(rf.hicasso.impl.codec/as-element [outer {} (for [i (range 3)] [row {:key i}])]))))))
   (testing "a crossing seq of native members is silent — the presence fixture's
             own shape, and every `[presence {…} (for … [:div.toast {:key id}])]`
             the guide teaches"
     (let [tray (named-view "w20.ns/tray")]
       (is (= [] (warnings-during
-                  #(codec/as-element
+                  #(rf.hicasso.impl.codec/as-element
                      [tray {:timeout-ms 300}
                       (for [i (range 3)]
                         [:div.toast {:key i} "x"])])))))))

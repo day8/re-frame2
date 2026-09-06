@@ -34,19 +34,19 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect require — publishes the machines late-bind hooks
             ;; for the restore→replay composition proof below.
             [re-frame.machines]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (epoch/clear-history!)
-                (epoch/clear-epoch-listeners!))}))
+                (rf.epoch/clear-history!)
+                (rf.epoch/clear-epoch-listeners!))}))
 
 (def ^:private frame-id :epoch-replay/main)
 
@@ -378,6 +378,6 @@
   (testing "rf/replay-epoch! late-binds to re-frame.epoch/replay-epoch!"
     (rf/make-frame {:id frame-id})
     (let [res-facade   (rf/replay-epoch! frame-id ::nope)
-          res-artefact (epoch/replay-epoch! frame-id ::nope)]
+          res-artefact (rf.epoch/replay-epoch! frame-id ::nope)]
       (is (= res-facade res-artefact))
       (is (= :rf.epoch/replay-unknown-epoch (:reason res-facade))))))

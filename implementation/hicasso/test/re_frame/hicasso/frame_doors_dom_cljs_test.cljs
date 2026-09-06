@@ -47,25 +47,25 @@
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every claim degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.hook-probe :as probe]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.todo-support :as todo]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.todo-support :as rf.hicasso.todo-support]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; The hook-ledger fixture's reason, and it bites harder here: the
      ;; default leaves a dynamic-var frame stamp in scope, which tier 1
      ;; would answer — so an isolation miss could read as a rendering
@@ -78,7 +78,7 @@
      ;; be specified as maps. Testing aborted." — which aborts the WHOLE
      ;; browser run at this namespace, not just this file.
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (def ^:private frame-a ::doors-dom-a)
 (def ^:private frame-b ::doors-dom-b)
@@ -101,11 +101,11 @@
        (catch :default e (ex-data e))))
 
 (defn- frames! []
-  (support/leave-act-environment!)
-  (todo/make-frame! frame-a todos)
-  (todo/make-frame! frame-b todos)
-  (todo/reseed! frame-a todos)
-  (todo/reseed! frame-b todos)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.hicasso.todo-support/make-frame! frame-a todos)
+  (rf.hicasso.todo-support/make-frame! frame-b todos)
+  (rf.hicasso.todo-support/reseed! frame-a todos)
+  (rf.hicasso.todo-support/reseed! frame-b todos)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -118,9 +118,9 @@
   rather than a degenerate one."
   [{:keys [id]}]
   [:span.row {:data-frame (str (rf/current-frame-id))
-              :data-done  (str (collector/sub [:hicasso.todo/done? id]))}])
+              :data-done  (str (rf.hicasso.impl.collector/sub [:hicasso.todo/done? id]))}])
 
-(h/defview context-row
+(rf.hicasso/defview context-row
   "The shell: the frame arrives through `useContext`."
   [props]
   (printing-body props))
@@ -133,30 +133,30 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-identity-door-answers-under-the-shell
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (frames!)
       (testing "the shell"
-        (let [handle (mount/root! (mount/fresh-container!) frame-a [context-row {:id 0}])]
+        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [context-row {:id 0}])]
           (try (is (= (str frame-a) (frame-attr handle)))
-               (finally (mount/release! handle)))))
+               (finally (rf.hicasso.impl.mount/release! handle)))))
 
       (testing "and it FOLLOWS the frame — mounted under a second frame it
                answers the second. A constant would have passed the row
                above"
-        (let [handle (mount/root! (mount/fresh-container!) frame-b [context-row {:id 0}])]
+        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [context-row {:id 0}])]
           (try (is (= (str frame-b) (frame-attr handle)))
-               (finally (mount/release! handle))))))))
+               (finally (rf.hicasso.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The hook ledger does not move
 ;; ---------------------------------------------------------------------------
 
 (deftest the-identity-door-spends-no-hook
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (probe/install!)
+    (if-not (rf.hicasso.hook-probe/install!)
       (unwitnessed!)
       (do
         (frames!)
@@ -167,14 +167,14 @@
                  boundary and already declared to core, so there is
                  nothing for a hook to hold"
           (let [handle (volatile! nil)
-                names  (probe/record!
+                names  (rf.hicasso.hook-probe/record!
                          (fn [] (vreset! handle
-                                         (mount/root! (mount/fresh-container!)
+                                         (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!)
                                                       frame-a [context-row {:id 0}]))))]
-            (mount/release! @handle)
+            (rf.hicasso.impl.mount/release! @handle)
             (is (= ["useContext" "useSyncExternalStore"] names)
                 (str "hooks React was asked for: " (pr-str names)))
-            (is (= (count runtime/shell-hook-ledger) (count names))
+            (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) (count names))
                 "and the declared ledger is still the measured one")))))))
 
 ;; ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@
   it ever gets to the dispatch."
   (atom {}))
 
-(h/defview reusable
+(rf.hicasso/defview reusable
   "ONE view, mounted under N frames — the case the seam exists for. It
   does not know its own frame id, which is exactly why neither
   `rf/with-frame` nor a `{:frame …}` opt can serve it: both presuppose
@@ -199,16 +199,16 @@
   (let [{:keys [frame] :as api} (rf/capture-frame)]
     (swap! !captures assoc frame api)
     [:span.row {:data-frame (str frame)
-                :data-done  (str (collector/sub [:hicasso.todo/done? id]))}]))
+                :data-done  (str (rf.hicasso.impl.collector/sub [:hicasso.todo/done? id]))}]))
 
 (deftest a-capture-built-in-a-body-fires-into-its-own-frame-after-the-render
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (frames!)
       (reset! !captures {})
-      (let [a (mount/root! (mount/fresh-container!) frame-a [reusable {:id 0}])
-            b (mount/root! (mount/fresh-container!) frame-b [reusable {:id 0}])]
+      (let [a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [reusable {:id 0}])
+            b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [reusable {:id 0}])]
         (is (= #{frame-a frame-b} (set (keys @!captures)))
             (str "two mounts of ONE view must have captured two different frames; got "
                  (pr-str (keys @!captures))))
@@ -220,10 +220,10 @@
         (js/setTimeout
           (fn []
             (try
-              (is (nil? intent/*frame*)
+              (is (nil? rf.hicasso.impl.intent/*frame*)
                   "precondition: no render extent is live inside the timeout")
               ((:dispatch-sync (get @!captures frame-a)) [:hicasso.todo/toggle 0])
-              (mount/settle!)
+              (rf.hicasso.impl.mount/settle!)
               (is (= "true" (.getAttribute (.querySelector (:container a) ".row") "data-done"))
                   "the closure dispatched into the frame its own boundary rendered under")
               (is (= "false" (.getAttribute (.querySelector (:container b) ".row") "data-done"))
@@ -231,8 +231,8 @@
                    contexts, and a capture that had resolved a process-wide
                    or a last-rendered frame would have moved both")
               (finally
-                (mount/release! a)
-                (mount/release! b)
+                (rf.hicasso.impl.mount/release! a)
+                (rf.hicasso.impl.mount/release! b)
                 (done))))
           0)))))
 
@@ -243,13 +243,13 @@
 (def ^:private !runs (atom 0))
 (def ^:private !seen (atom []))
 
-(h/defview strict-reader
+(rf.hicasso/defview strict-reader
   "Records the frame `rf/current-frame-id` answered on EVERY body run, so
   the double-invoke is a measured premise rather than an assumed one."
   [{:keys [id]}]
   (swap! !runs inc)
   (swap! !seen conj (rf/current-frame-id))
-  [:span.row {:data-done (str (collector/sub [:hicasso.todo/done? id]))}])
+  [:span.row {:data-done (str (rf.hicasso.impl.collector/sub [:hicasso.todo/done? id]))}])
 
 (defn- strict-root!
   "`mount/root!`, wrapped in `React.StrictMode`. Written here rather than
@@ -260,17 +260,17 @@
     (react-dom/flushSync
       (fn [] (.render root (react/createElement
                              react/StrictMode nil
-                             (mount/provider frame-kw (codec/as-element hiccup))))))
+                             (rf.hicasso.impl.mount/provider frame-kw (rf.hicasso.impl.codec/as-element hiccup))))))
     {:root root :frame frame-kw :container container}))
 
 (deftest strictmodes-double-invoke-reads-the-same-frame-and-adds-nothing
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (frames!)
       (reset! !runs 0)
       (reset! !seen [])
-      (let [handle (strict-root! (mount/fresh-container!) frame-a [strict-reader {:id 0}])]
+      (let [handle (strict-root! (rf.hicasso.impl.mount/fresh-container!) frame-a [strict-reader {:id 0}])]
         (try
           (testing "the premise: React really did invoke the body twice"
             (is (= 2 @!runs)
@@ -285,11 +285,11 @@
                    one boundary, one edge per read. The identity door
                    appends no sub-key, so a double-invoke cannot double
                    anything it contributes — because it contributes nothing"
-            (let [{:keys [entries boundaries edges]} (runtime/stats)]
+            (let [{:keys [entries boundaries edges]} (rf.hicasso.test.runtime/stats)]
               (is (= 1 entries))
               (is (= 1 boundaries))
               (is (= 1 edges) "the one real read, counted once")))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W7 — the `[:>]` value-first door, and the plain closure over the capture
@@ -335,7 +335,7 @@
       #js {:className "pick" :onClick (fn [_e] (on-pick))}
       "pick")))
 
-(h/defview escape-picker
+(rf.hicasso/defview escape-picker
   "`reusable`'s body at the foreign edge: ONE view, mounted under N
   frames, that does not know its own frame id — and now has to hand a
   dispatching closure to a caller it does not control.
@@ -349,7 +349,7 @@
         on-pick (fn [] (dispatch-sync [:hicasso.todo/toggle id]))]
     (swap! !built assoc (str frame) on-pick)
     [:span.row {:data-frame (str frame)
-                :data-done  (str (collector/sub [:hicasso.todo/done? id]))}
+                :data-done  (str (rf.hicasso.impl.collector/sub [:hicasso.todo/done? id]))}
      [:> foreign-picker {:label (str frame) :on-pick on-pick}]]))
 
 (defn- refusal-id [f]
@@ -360,11 +360,11 @@
 
 (defn- pick! [handle]
   (.click (.querySelector (:container handle) ".pick"))
-  (mount/settle!)
+  (rf.hicasso.impl.mount/settle!)
   nil)
 
 (deftest the-escapes-value-first-door-dispatches-through-a-plain-closure-over-the-capture
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (frames!)
@@ -378,21 +378,21 @@
                 three, and W7 measures that one on purpose, because it is
                 the door that carries no frame of its own"
         (is (= ::did-not-throw
-               (refusal-id #(intent/with-frame (fn [_] nil)
-                              (fn [] (codec/as-element
+               (refusal-id #(rf.hicasso.impl.intent/with-frame (fn [_] nil)
+                              (fn [] (rf.hicasso.impl.codec/as-element
                                        [:> foreign-picker {:on-pick [:hicasso.todo/toggle 0]}])))))
             "an intent vector at an event-spelled slot lowers rather than
              refusing — under a frame, as at a native tag; outside one it is
              the ordinary outside-boundary refusal, which is the same proof")
         (is (= ::did-not-throw
-               (refusal-id #(intent/with-frame (fn [_] nil)
-                              (fn [] (codec/as-element
+               (refusal-id #(rf.hicasso.impl.intent/with-frame (fn [_] nil)
+                              (fn [] (rf.hicasso.impl.codec/as-element
                                        [:> foreign-picker
-                                        {:on-pick (intent/callback (fn [] [:hicasso.todo/toggle 0]))}])))))
+                                        {:on-pick (rf.hicasso.impl.intent/callback (fn [] [:hicasso.todo/toggle 0]))}])))))
             "and so does a marked h/event, which takes the event wrapper"))
 
-      (let [a (mount/root! (mount/fresh-container!) frame-a [escape-picker {:id 0}])
-            b (mount/root! (mount/fresh-container!) frame-b [escape-picker {:id 0}])]
+      (let [a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [escape-picker {:id 0}])
+            b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [escape-picker {:id 0}])]
         (is (= #{(str frame-a) (str frame-b)} (set (keys @!handed)))
             (str "two mounts of ONE view crossed under two different frames; got "
                  (pr-str (keys @!handed))))
@@ -410,7 +410,7 @@
         (js/setTimeout
           (fn []
             (try
-              (is (nil? intent/*frame*)
+              (is (nil? rf.hicasso.impl.intent/*frame*)
                   "precondition: no render extent is live inside the timeout")
               (pick! a)
               (is (= "true" (done-attr a))
@@ -425,8 +425,8 @@
                    toggled that one frame twice and left this pair reading
                    false/false — which is why BOTH crossings are clicked")
               (finally
-                (mount/release! a)
-                (mount/release! b)
+                (rf.hicasso.impl.mount/release! a)
+                (rf.hicasso.impl.mount/release! b)
                 (done))))
           0)))))
 
@@ -453,27 +453,27 @@
   (let [render-row (.-renderRow props)]
     (react/createElement "ul" #js {:className "list"} (render-row 0))))
 
-(h/defview supplier
+(rf.hicasso/defview supplier
   "Supplies a render callback to a foreign component. Inside the callback
   it reads both doors and tries an ambient read, and records all three."
   [_]
   [:div.host
    [:> foreign-list
-    {:render-row (h/event [i]
+    {:render-row (rf.hicasso/event [i]
                    (let [id-seen (rf/current-frame-id)]
                      (swap! !callback-seen assoc id-seen
                             {:capture (:frame (rf/capture-frame))
                              :read    (outcome #(rf/subscribe [:hicasso.todo/done? i]))})
-                     (h/as-element [:li.row {:data-frame (str id-seen)} (str i)])))}]])
+                     (rf.hicasso/as-element [:li.row {:data-frame (str id-seen)} (str i)])))}]])
 
 (deftest a-render-callback-invoked-by-a-foreign-render-answers-the-supplying-boundary
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (frames!)
       (reset! !callback-seen {})
-      (let [a (mount/root! (mount/fresh-container!) frame-a [supplier {}])
-            b (mount/root! (mount/fresh-container!) frame-b [supplier {}])]
+      (let [a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-a [supplier {}])
+            b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b [supplier {}])]
         (try
           (is (= #{frame-a frame-b} (set (keys @!callback-seen)))
               (str "two suppliers under two frames must have answered two
@@ -491,5 +491,5 @@
                         render happens to be under; got " (pr-str read)))
               (is (= f (:extent-frame read)) "naming the supplying boundary as the extent")))
           (finally
-            (mount/release! a)
-            (mount/release! b)))))))
+            (rf.hicasso.impl.mount/release! a)
+            (rf.hicasso.impl.mount/release! b)))))))

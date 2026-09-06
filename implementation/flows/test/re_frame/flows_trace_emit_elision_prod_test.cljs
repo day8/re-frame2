@@ -37,23 +37,23 @@
   `re-frame.flow-eval-exception-elision-prod-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; Require flows directly so its ns body — including every
             ;; gated trace/emit! call site — sits in the reachability
             ;; graph for the closure compiler.
-            [re-frame.flows :as flows]
+            [re-frame.flows :as rf.flows]
             [re-frame.flows.registry]
             ;; Require schemas so a registered validator IS available —
             ;; the prod test must prove the validation surface elides even
             ;; when the seam is wired, not merely when it is absent.
-            [re-frame.schemas :as schemas]
+            [re-frame.schemas :as rf.schemas]
             ;; The listener surface lives in `re-frame.trace.tooling`.
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -64,14 +64,14 @@
   [body-fn]
   (let [captured-traces (atom [])
         listener-id     (keyword (str "elision-prod-" (gensym)))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       listener-id
       (fn [event] (swap! captured-traces conj event)))
     (try
       (body-fn)
       @captured-traces
       (finally
-        (trace-tooling/unregister-listener! listener-id)))))
+        (rf.trace.tooling/unregister-listener! listener-id)))))
 
 ;; ---- :rf.flow/registered elides under prod --------------------------------
 
@@ -94,7 +94,7 @@
     ;; registry (read via `flows/flows-snapshot`) is keyed
     ;; `{frame-id {flow-id flow}}`; the flow registers under
     ;; `:rf/default` by default.
-    (is (some? (get-in (flows/flows-snapshot) [:rf/default :prod-elision/area]))
+    (is (some? (get-in (rf.flows/flows-snapshot) [:rf/default :prod-elision/area]))
         "flow registered in the per-frame index — only trace surface elided")))
 
 ;; ---- :rf.flow/computed elides under prod ----------------------------------
@@ -185,10 +185,10 @@
       (fn [w] (or w 0)))
     (let [traces (capture-traces
                  (fn []
-                   (flows/clear-flow :prod-elision/clearable)))]
+                   (rf.flows/clear-flow :prod-elision/clearable)))]
       (is (empty? traces)
           "no :rf.flow/cleared trace under prod"))
-    (is (nil? (get-in (flows/flows-snapshot) [:rf/default :prod-elision/clearable]))
+    (is (nil? (get-in (rf.flows/flows-snapshot) [:rf/default :prod-elision/clearable]))
         "flow removed from per-frame index — only trace surface elided")))
 
 ;; ---- :schema output validation elides under prod --------------------------
@@ -204,7 +204,7 @@
             written (recompute is never gated)."
     ;; Register a validator that REJECTS every value — if validation ran,
     ;; a violation would surface.
-    (schemas/set-schema-fns! {:validate (fn [_ _] false)})
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)})
     (rf/reg-event :prod-elision/seed-validate
       (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
     (rf/reg-flow :prod-elision/validated

@@ -76,14 +76,14 @@
     the teardown row with the retention timer named."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set :as set]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.presence :as presence]
-            [re-frame.hicasso.motion :as motion]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.presence :as rf.hicasso.impl.presence]
+            [re-frame.hicasso.motion :as rf.hicasso.motion]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-kw ::frame)
 
@@ -98,10 +98,10 @@
 ;; no reactivity layer, so a subscription under it never notifies and the
 ;; DOM row's "the tray re-rendered" premise would pass by never firing.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The headless half — the machine, with no React and no clock
@@ -121,37 +121,37 @@
 (defn- painted
   "Two toasts, both settled — the state every headless row starts from."
   []
-  (presence/settle (presence/step presence/initial (toasts :a :b) 0 retention-ms)))
+  (rf.hicasso.impl.presence/settle (rf.hicasso.impl.presence/step rf.hicasso.impl.presence/initial (toasts :a :b) 0 retention-ms)))
 
 (deftest an-exit-interrupted-by-re-entry-cancels-on-the-node-it-already-had
   (let [start   (painted)
-        exiting (presence/step start (toasts :a) 1000 retention-ms)
-        back    (presence/step exiting (toasts :a :b) 1100 retention-ms)]
+        exiting (rf.hicasso.impl.presence/step start (toasts :a) 1000 retention-ms)
+        back    (rf.hicasso.impl.presence/step exiting (toasts :a :b) 1100 retention-ms)]
     (testing "premise: :b is genuinely mid-exit, on a deadline, before it returns"
-      (is (= {:a :present :b :unmounting} (presence/phases exiting)))
-      (is (= 1300 (presence/next-deadline exiting))))
+      (is (= {:a :present :b :unmounting} (rf.hicasso.impl.presence/phases exiting)))
+      (is (= 1300 (rf.hicasso.impl.presence/next-deadline exiting))))
 
     (testing "the claim: it returns to :present rather than finishing and remounting"
-      (is (= {:a :present :b :present} (presence/phases back)))
+      (is (= {:a :present :b :present} (rf.hicasso.impl.presence/phases back)))
       (is (nil? (:deadline (get (:entries back) :b)))
           "a cancelled exit leaves no deadline behind"))
 
     (testing "and it returns to the SAME node — the key never left, and order is frozen"
       (is (= [:a :b] (:order back))
           "first-appearance order is frozen, so an exiting child cannot jump slot")
-      (is (nil? (presence/next-deadline back))
+      (is (nil? (rf.hicasso.impl.presence/next-deadline back))
           "nothing is outstanding, so the React half's effect arms no timer at all"))))
 
 (deftest a-rapid-toggle-arms-one-deadline-per-exit-and-never-extends-a-live-one
   (let [start (painted)
         ;; out, back, out, and then two ordinary re-renders while the second
         ;; exit is in flight — the shape a user produces by clicking twice.
-        s1    (presence/step start (toasts :a)    1000 retention-ms)
-        s2    (presence/step s1    (toasts :a :b) 1050 retention-ms)
-        s3    (presence/step s2    (toasts :a)    1100 retention-ms)
-        s4    (presence/step s3    (toasts :a)    1150 retention-ms)
-        s5    (presence/step s4    (toasts :a)    1200 retention-ms)
-        seen  (mapv presence/next-deadline [s1 s2 s3 s4 s5])]
+        s1    (rf.hicasso.impl.presence/step start (toasts :a)    1000 retention-ms)
+        s2    (rf.hicasso.impl.presence/step s1    (toasts :a :b) 1050 retention-ms)
+        s3    (rf.hicasso.impl.presence/step s2    (toasts :a)    1100 retention-ms)
+        s4    (rf.hicasso.impl.presence/step s3    (toasts :a)    1150 retention-ms)
+        s5    (rf.hicasso.impl.presence/step s4    (toasts :a)    1200 retention-ms)
+        seen  (mapv rf.hicasso.impl.presence/next-deadline [s1 s2 s3 s4 s5])]
     (is (= [1300 nil 1400 1400 1400] seen)
         "one deadline per exit — and the second exit's is fixed at the instant it started")
     (is (= 2 (count (remove nil? (distinct seen))))
@@ -160,9 +160,9 @@
         "the deadline is the absolute instant :b started exiting, 50 ms of re-renders later")))
 
 (deftest re-deriving-mid-flight-is-a-no-op-on-every-frame-of-the-window
-  (let [exiting (presence/step (painted) (toasts :a) 1000 retention-ms)
+  (let [exiting (rf.hicasso.impl.presence/step (painted) (toasts :a) 1000 retention-ms)
         frames  (vec (range 1016 1300 16))
-        redone  (rest (reductions (fn [s now] (presence/step s (toasts :a) now retention-ms))
+        redone  (rest (reductions (fn [s now] (rf.hicasso.impl.presence/step s (toasts :a) now retention-ms))
                                   exiting
                                   frames))]
     (testing "premise: the window really is walked frame by frame at 60 Hz"
@@ -172,10 +172,10 @@
     (testing "THE FRAME BUDGET: every frame of the retention window costs nothing"
       (is (= #{exiting} (set redone))
           "the machine is idempotent, so re-deriving mid-flight changes no value")
-      (is (= #{(presence/pending-signature exiting)}
-             (set (map presence/pending-signature redone)))
+      (is (= #{(rf.hicasso.impl.presence/pending-signature exiting)}
+             (set (map rf.hicasso.impl.presence/pending-signature redone)))
           "the effect's own dependency never moves: no timer re-armed, no render forced")
-      (is (= #{1300} (set (map presence/next-deadline redone)))
+      (is (= #{1300} (set (map rf.hicasso.impl.presence/next-deadline redone)))
           "an absolute deadline cannot be pushed forward by the passage of frames"))))
 
 ;; ---------------------------------------------------------------------------
@@ -190,14 +190,14 @@
 
 (def ^:private retention-floor 1000)
 
-(h/defview tray
+(rf.hicasso/defview tray
   "A toast tray: presence over the keyed children a subscription supplies,
   each declaring its own exit appearance as data."
   [_]
-  [motion/presence {:timeout-ms dom-retention-ms}
-   (for [t (h/sub [::toasts])]
+  [rf.hicasso.motion/presence {:timeout-ms dom-retention-ms}
+   (for [t (rf.hicasso/sub [::toasts])]
      [:div.toast {:key            t
-                  ::motion/unmounting {:class       "toast toast--exit"
+                  ::rf.hicasso.motion/unmounting {:class       "toast toast--exit"
                                   :inert       true
                                   :aria-hidden true}}
       (name t)])])
@@ -269,23 +269,23 @@
 (defn- toast-nodes [container] (.querySelectorAll container ".toast"))
 
 (deftest an-unmount-mid-transition-clears-the-timer-it-armed
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM, so no effect runs and no timer is armed")
     (let [{:keys [log restore!]} (install-clock-ledger!)]
       (try
         (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
         (rf/make-frame {:id frame-kw})
         (rf/with-frame frame-kw (rf/dispatch-sync [::seed [:a :b]]))
-        (let [container (mount/fresh-container!)
-              handle    (mount/root! container frame-kw [tray])]
+        (let [container (rf.hicasso.impl.mount/fresh-container!)
+              handle    (rf.hicasso.impl.mount/root! container frame-kw [tray])]
           (try
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (is (= 2 (.-length (toast-nodes container)))
                 "premise: both toasts painted before anything leaves")
             (let [frames-before (select-keys @log [:rafs :intervals])]
 
               (rf/with-frame frame-kw (rf/dispatch-sync [::set [:a]]))
-              (mount/settle!)
+              (rf.hicasso.impl.mount/settle!)
 
               (testing "RETENTION: the node outlives the data, wearing the exit phase"
                 (is (= 2 (.-length (toast-nodes container)))
@@ -306,14 +306,14 @@
                 (is (= frames-before (select-keys @log [:rafs :intervals]))
                     "zero requestAnimationFrame and zero setInterval across the whole window"))
 
-              (mount/unmount! handle)
+              (rf.hicasso.impl.mount/unmount! handle)
 
               (testing "TEARDOWN: an unmount mid-transition leaves no timer behind"
                 (is (= #{} (orphans @log))
                     "every retention timer armed was cleared by the effect's own cleanup")
                 (is (= 0 (.-length (toast-nodes container)))
                     "and the retained node went with the root rather than outliving it")))
-            (finally (mount/release! handle))))
+            (finally (rf.hicasso.impl.mount/release! handle))))
         (finally (restore!))))))
 
 ;; ---------------------------------------------------------------------------
@@ -335,7 +335,7 @@
 ;; rather than an inference.
 
 (deftest an-override-no-tray-can-reach-never-becomes-an-attribute
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test sees the props object, not a painted attribute")
     (do
       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
@@ -345,46 +345,46 @@
                 the page, so the namespaced key that shared its emitted
                 name really did leak. Without this row the refusal below
                 could be guarding a route that was never open"
-        (let [container (mount/fresh-container!)
-              handle    (mount/root! container frame-kw [:div.probe {:mounting "x"}])]
+        (let [container (rf.hicasso.impl.mount/fresh-container!)
+              handle    (rf.hicasso.impl.mount/root! container frame-kw [:div.probe {:mounting "x"}])]
           (try
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (let [node (.querySelector container ".probe")]
               (is (some? node))
               (is (= "x" (.getAttribute node "mounting"))
                   "an author's own `:mounting` attribute — untouched, and
                    painted, which is exactly the shape `::motion/mounting` took"))
-            (finally (mount/release! handle)))))
+            (finally (rf.hicasso.impl.mount/release! handle)))))
 
       (testing "and the override key itself is SKIPPED by the walk, so the
                 node paints and nothing carries the key to the DOM by that
                 route"
-        (let [container (mount/fresh-container!)
-              handle    (mount/root! container frame-kw
+        (let [container (rf.hicasso.impl.mount/fresh-container!)
+              handle    (rf.hicasso.impl.mount/root! container frame-kw
                                      [:div.probe {:re-frame.hicasso.motion/mounting {:class "in"}}])]
           (try
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (let [node (.querySelector container ".probe")]
               (is (some? node) "the element painted — nothing refused it")
               (is (nil? (.getAttribute node "mounting"))
                   "and the private key is not on it")
               (is (zero? (.-length (.querySelectorAll container "[mounting]")))))
-            (finally (mount/release! handle)))))
+            (finally (rf.hicasso.impl.mount/release! handle)))))
 
       (testing "while the LEGAL placement paints the override as appearance
                 and as nothing else: the merged class is on the node, and
                 neither key survives as an attribute"
         (rf/with-frame frame-kw (rf/dispatch-sync [::seed [:a :b]]))
-        (let [container (mount/fresh-container!)
-              handle    (mount/root! container frame-kw [tray])]
+        (let [container (rf.hicasso.impl.mount/fresh-container!)
+              handle    (rf.hicasso.impl.mount/root! container frame-kw [tray])]
           (try
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (rf/with-frame frame-kw (rf/dispatch-sync [::set [:a]]))
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (let [exiting (.querySelector container ".toast--exit")]
               (is (some? exiting) "premise: the exit phase is on the page")
               (is (zero? (.-length (.querySelectorAll container "[unmounting]")))
                   "the override arrived as `toast--exit`, never as an
                    `unmounting` attribute")
               (is (zero? (.-length (.querySelectorAll container "[mounting]")))))
-            (finally (mount/release! handle))))))))
+            (finally (rf.hicasso.impl.mount/release! handle))))))))

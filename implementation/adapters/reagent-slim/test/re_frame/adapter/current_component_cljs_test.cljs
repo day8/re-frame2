@@ -31,7 +31,7 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.core :as r]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; ns-load registers the :adapter/current-component hook.
             [re-frame.adapter.reagent-slim]))
 
@@ -41,27 +41,27 @@
   even when the bridge's ns-load registered a different reader after the
   slim ns loaded."
   [f]
-  (let [original (late-bind/get-fn :adapter/current-component)]
+  (let [original (rf.late-bind/get-fn :adapter/current-component)]
     (try
-      (late-bind/set-fn! :adapter/current-component r/current-component)
+      (rf.late-bind/set-fn! :adapter/current-component r/current-component)
       (f)
       (finally
-        (late-bind/set-fn! :adapter/current-component original)))))
+        (rf.late-bind/set-fn! :adapter/current-component original)))))
 
 (deftest slim-adapter-installs-hook
   (testing "requiring re-frame.adapter.reagent-slim registers a current-component hook"
     (with-slim-hook
       (fn []
-        (is (some? (late-bind/get-fn :adapter/current-component))
+        (is (some? (rf.late-bind/get-fn :adapter/current-component))
             "the hook is installed")
         (is (identical? r/current-component
-                        (late-bind/get-fn :adapter/current-component))
+                        (rf.late-bind/get-fn :adapter/current-component))
             "the hook points at reagent2.core/current-component (the slim build)")))))
 
 (deftest slim-hook-returns-nil-outside-render
   (testing "calling the installed slim hook outside a render returns nil"
     (with-slim-hook
       (fn []
-        (let [hook (late-bind/get-fn :adapter/current-component)]
+        (let [hook (rf.late-bind/get-fn :adapter/current-component)]
           (is (nil? (hook))
               "no in-flight slim component → nil"))))))

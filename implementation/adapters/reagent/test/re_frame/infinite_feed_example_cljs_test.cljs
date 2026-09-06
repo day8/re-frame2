@@ -33,10 +33,10 @@
    isolation discipline."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.fx :as rf.fx]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             ;; production HTTP + resources surfaces (so the resource runtime,
             ;; managed-HTTP lowering, the infinite sub family, and the
@@ -45,15 +45,15 @@
             [re-frame.http.managed]
             [re-frame.http.test-support]
             [re-frame.resources]
-            [re-frame.resources.route :as resources-route]
-            [re-frame.resources.state :as state]
+            [re-frame.resources.route :as rf.resources.route]
+            [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             ;; the framework trace-ring buffer (Spec 009) — cleared around each
             ;; test so this resource-registering suite leaves no trace residue
             ;; for later cross-cutting tooling tests (same leak the resources-
             ;; example suite closes).
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; the example's production source — registers its :feed/timeline
             ;; infinite resource, routes, and views at ns-load.
             [infinite-feed.core]))
@@ -73,7 +73,7 @@
 ;; registration — not a test-local copy. See the resources-example sibling for
 ;; the full rationale.
 (def ^:private resource-kind-snapshot
-  (get @registrar/kind->id->metadata :resource))
+  (get @rf.registrar/kind->id->metadata :resource))
 
 ;; AT NS LOAD, remove THIS example's `:resource` registration (by id) from the
 ;; SHARED live registrar — after snapshotting it above. Reinstated per-test by
@@ -82,7 +82,7 @@
 ;; registrar until some OTHER suite's reset clears it, mirroring a frameless
 ;; `:rf.registry/handler-cleared` burst into a cross-cutting tooling test's
 ;; cascade seed. We remove only OUR ids (not the whole kind).
-(swap! registrar/kind->id->metadata update :resource
+(swap! rf.registrar/kind->id->metadata update :resource
        (fn [m] (apply dissoc m (keys resource-kind-snapshot))))
 
 (defn- init!
@@ -120,13 +120,13 @@
   ;; store in lockstep and marks the live-frame projection dirty, so the
   ;; frame's next resolution sees the reinstated registrations.
   (doseq [[id meta] resource-kind-snapshot]
-    (registrar/register! :resource id meta))
-  (routing/reset-counters!)
-  (resources-route/install-routing-integration!)
+    (rf.registrar/register! :resource id meta))
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
   ;; Capturing no-op: the reply is replayed explicitly by the test so the
   ;; 3-element internal reply event matches what the live transport produces.
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   ;; LAST — see the ordering note in the docstring. Everything the frame's
   ;; construction-time URL sync needs (the reinstated `:resource` rows, the
   ;; routing integration, the stubbed fx) is registered above.
@@ -138,15 +138,15 @@
    residue into later cross-cutting tooling tests (see the resources-example
    sibling for the full rationale of the frameless-handler-cleared burst)."
   [f]
-  (trace-tooling/clear-listeners!)
-  (trace-tooling/clear-trace-rings!)
+  (rf.trace.tooling/clear-listeners!)
+  (rf.trace.tooling/clear-trace-rings!)
   (f)
-  (trace-tooling/clear-listeners!)
-  (trace-tooling/clear-trace-rings!))
+  (rf.trace.tooling/clear-listeners!)
+  (rf.trace.tooling/clear-trace-rings!))
 
 (use-fixtures :each
   isolate-trace-bus-fixture
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; BUNDLE CO-LOAD HYGIENE: this app registers the reserved per-app
     ;; `:rf.route/not-found` route at ns load, and every co-loaded example app
     ;; does the same — two provenance rows for one id fail default-image
@@ -154,7 +154,7 @@
     ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
     ;; keeps its rows out of every suite's baseline and reinstates them for
     ;; this suite's own tests (rf2-kuky.27).
-    {:adapter reagent-adapter/adapter
+    {:adapter rf.adapter.reagent/adapter
      :app-ns  "infinite-feed."
      :init-fn init!}))
 
@@ -165,9 +165,9 @@
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (defn- feed-key []
-  (state/scoped-resource-key :rf.scope/global :feed/timeline {}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :feed/timeline {}))
 
-(defn- entry [] (get-in (runtime-db) (state/entry-path (feed-key))))
+(defn- entry [] (get-in (runtime-db) (rf.resources.state/entry-path (feed-key))))
 
 (def ^:private feed-query
   {:resource :feed/timeline :scope :rf.scope/global :params {}})
@@ -221,7 +221,7 @@
     (let [slice     (get-in (runtime-db) [:rf.runtime/routing :current])
           nav-token (:nav-token slice)
           e         (entry)]
-      (is (state/infinite-entry? e) "seeded an infinite feed entry (R1 — one entry per feed)")
+      (is (rf.resources.state/infinite-entry? e) "seeded an infinite feed entry (R1 — one entry per feed)")
       (is (= :loading (:status e)) "first load (page 0) → :loading")
       (is (contains? (:active-owners e) [:route :infinite-feed.app/timeline nav-token])
           "owned by the route nav-token owner [:route route-id nav-token]")

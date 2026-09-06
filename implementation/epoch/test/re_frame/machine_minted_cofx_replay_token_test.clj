@@ -11,20 +11,20 @@
   decision without another host read."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect require — loads the machines late-bind hooks
             ;; (`:machines/reg-machine`, etc.). The capture/restore fixture
             ;; preserves these ns-load-time registrations across each test.
             [re-frame.machines]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (epoch/clear-history!)
-                (epoch/clear-epoch-listeners!))}))
+                (rf.epoch/clear-history!)
+                (rf.epoch/clear-epoch-listeners!))}))
 
 (defn- machine-state [machine-id]
   (-> (:rf.db/runtime (rf/frame-state-value :test/main))

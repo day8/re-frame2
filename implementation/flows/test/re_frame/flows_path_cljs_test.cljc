@@ -21,14 +21,14 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.flows :as flows]
-   [re-frame.flows.topo :as topo]
-   [re-frame.test-support :as test-support]
+   [re-frame.flows :as rf.flows]
+   [re-frame.flows.topo :as rf.flows.topo]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter substrate/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter substrate/adapter}))
 
 (defn- error-id [ex]
   (:rf.error/id (ex-data ex)))
@@ -50,11 +50,11 @@
 (deftest output-paths-overlap-on-cljs
   (testing "the shared prefix-in-either-direction relation (Spec 013
             §Disjoint output paths) computes identically on this host"
-    (is (true?  (topo/output-paths-overlap? [:x] [:x]))       "identical paths overlap")
-    (is (true?  (topo/output-paths-overlap? [:x] [:x :y]))    "parent/child overlap")
-    (is (true?  (topo/output-paths-overlap? [:x :y] [:x]))    "symmetric parent/child")
-    (is (false? (topo/output-paths-overlap? [:x :y] [:x :z])) "siblings are disjoint")
-    (is (false? (topo/output-paths-overlap? [:a] [:b]))       "unrelated are disjoint")))
+    (is (true?  (rf.flows.topo/output-paths-overlap? [:x] [:x]))       "identical paths overlap")
+    (is (true?  (rf.flows.topo/output-paths-overlap? [:x] [:x :y]))    "parent/child overlap")
+    (is (true?  (rf.flows.topo/output-paths-overlap? [:x :y] [:x]))    "symmetric parent/child")
+    (is (false? (rf.flows.topo/output-paths-overlap? [:x :y] [:x :z])) "siblings are disjoint")
+    (is (false? (rf.flows.topo/output-paths-overlap? [:a] [:b]))       "unrelated are disjoint")))
 
 ;; ===========================================================================
 ;; 1b. topo-sort self-cycle rejection (pure data, host-portable) — rf2-j538f7.6
@@ -72,7 +72,7 @@
   "Run `topo/topo-sort` and return the thrown ExceptionInfo (or nil)."
   [flow-map]
   (try
-    (topo/topo-sort flow-map)
+    (rf.flows.topo/topo-sort flow-map)
     nil
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
 
@@ -112,7 +112,7 @@
             with A first and D last — no false-positive self/cycle rejection"
     ;; A: source, writes [:a]. B,C: read [:a], write [:b]/[:c]. D: reads [:b]
     ;; and [:c], writes [:d]. No self-overlap anywhere.
-    (let [order (topo/topo-sort
+    (let [order (rf.flows.topo/topo-sort
                   {:a {:id :a :inputs [[:src]]      :derive identity :output-path [:a]}
                    :b {:id :b :inputs [[:a]]        :derive identity :output-path [:b]}
                    :c {:id :c :inputs [[:a]]        :derive identity :output-path [:c]}
@@ -134,7 +134,7 @@
     (let [ex (reg-flow-throws {:id :probe/self :inputs [[:x]] :derive inc :output-path [:x]})]
       (is (some? ex) "the self-cyclic registration throws")
       (is (= :rf.error/flow-cycle (error-id ex)) "structured :rf.error/flow-cycle")
-      (is (not (contains? (get (flows/flows-snapshot) :rf/default) :probe/self))
+      (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :probe/self))
           "the rejected self-cyclic flow is absent from the registry"))))
 
 (deftest reg-flow-runtime-input-overlapping-app-db-output-is-not-a-self-cycle-on-this-host
@@ -143,7 +143,7 @@
             not a self-cycle — it registers cleanly (rf2-j538f7.6, Spec 013)"
     (is (some? (rf/reg-flow :probe/runtime {:inputs [[:rf.db/runtime :x]] :output-path [:x]} identity))
         "the runtime-input flow registers (its input reads runtime-db, its output writes app-db)")
-    (is (contains? (get (flows/flows-snapshot) :rf/default) :probe/runtime)
+    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :probe/runtime)
         "the flow row is present after clean registration")))
 
 ;; ===========================================================================
@@ -167,7 +167,7 @@
       (let [flow-id (keyword "elt" (name label))]
         (is (some? (rf/reg-flow flow-id {:inputs [[:root elt]] :output-path [:out elt]} identity))
             (str "shared-domain segment " (pr-str elt) " is accepted on this host"))
-        (flows/clear-flow flow-id)))))
+        (rf.flows/clear-flow flow-id)))))
 
 ;; ===========================================================================
 ;; 3. reg-flow REJECTS host / composite segments (CLJS host — the gap)

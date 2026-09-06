@@ -16,7 +16,7 @@
   Per audit `ai/findings/flows-slice-audit-2026-05-15.md` §T2 (prior
   round) + audit-r2 carried forward."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.flows.topo :as topo]))
+            [re-frame.flows.topo :as rf.flows.topo]))
 
 ;; ---------------------------------------------------------------------------
 ;; extract-cycle-path defensive throw
@@ -44,7 +44,7 @@
     (let [graph     {:a #{}}
           remaining #{:a}
           thrown    (try
-                      (#'topo/extract-cycle-path graph remaining)
+                      (#'rf.flows.topo/extract-cycle-path graph remaining)
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown)
@@ -76,16 +76,16 @@
 
 (deftest topo-sort-empty-and-singleton
   (testing "empty flow-map yields empty order"
-    (is (= [] (topo/topo-sort {}))))
+    (is (= [] (rf.flows.topo/topo-sort {}))))
   (testing "single flow yields itself in order"
     (is (= [:a]
-           (topo/topo-sort {:a {:id :a :inputs [[:n]] :derive identity :output-path [:a]}})))))
+           (rf.flows.topo/topo-sort {:a {:id :a :inputs [[:n]] :derive identity :output-path [:a]}})))))
 
 (deftest topo-sort-detects-cycle
   (testing "two flows forming a cycle raise :rf.error/flow-cycle with the canonical thrown-error shape (per Spec 009 §The thrown-error shape)"
     (let [flow-map {:a {:id :a :inputs [[:b]] :derive identity :output-path [:a]}
                     :b {:id :b :inputs [[:a]] :derive identity :output-path [:b]}}
-          thrown   (try (topo/topo-sort flow-map)
+          thrown   (try (rf.flows.topo/topo-sort flow-map)
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown) "cycle raises")
@@ -134,7 +134,7 @@
             A writes)"
     (let [a {:id :a :output-path [:foo]   :inputs [[:other]]}
           b {:id :b :output-path [:bar]   :inputs [[:foo]]}]
-      (is (true? (topo/depends-on? b a))
+      (is (true? (rf.flows.topo/depends-on? b a))
           "B's :inputs include A's :output-path exactly → B depends on A"))))
 
 (deftest depends-on?-true-when-input-is-prefix-of-output-path
@@ -143,7 +143,7 @@
             writes — Spec 013 'prefix in either direction')"
     (let [a {:id :a :output-path [:foo :bar :baz] :inputs []}
           b {:id :b :output-path [:other]         :inputs [[:foo]]}]
-      (is (true? (topo/depends-on? b a))
+      (is (true? (rf.flows.topo/depends-on? b a))
           "B reads :foo (a prefix of A's :output-path [:foo :bar :baz])"))))
 
 (deftest depends-on?-true-when-output-path-is-prefix-of-input
@@ -152,7 +152,7 @@
             writes — also covered by 'prefix in either direction')"
     (let [a {:id :a :output-path [:foo]              :inputs []}
           b {:id :b :output-path [:other]            :inputs [[:foo :bar :baz]]}]
-      (is (true? (topo/depends-on? b a))
+      (is (true? (rf.flows.topo/depends-on? b a))
           "A writes [:foo] which is a prefix of B's input [:foo :bar :baz]"))))
 
 (deftest depends-on?-self-edge-via-overlapping-path
@@ -163,7 +163,7 @@
             derivation of independently-owned facts, not a recurrence over its
             own prior output — Spec 013 §Dependency rule)."
     (let [a {:id :a :output-path [:foo] :inputs [[:foo]]}]
-      (is (true? (topo/depends-on? a a))
+      (is (true? (rf.flows.topo/depends-on? a a))
           "A's own :inputs include A's own :output-path → depends-on? returns
            true; topo-sort retains this self-edge to reject the self-cycle"))))
 
@@ -172,7 +172,7 @@
             a prefix with A's :output-path in either direction"
     (let [a {:id :a :output-path [:foo :bar] :inputs []}
           b {:id :b :output-path [:other]    :inputs [[:unrelated] [:other-thing]]}]
-      (is (false? (topo/depends-on? b a))
+      (is (false? (rf.flows.topo/depends-on? b a))
           "B's inputs are disjoint from A's :output-path tree → no dependency"))))
 
 (deftest depends-on?-false-when-paths-share-no-prefix-but-share-element
@@ -183,7 +183,7 @@
           ;; B's input [:bar :foo] shares both elements with A's :output-path
           ;; but neither is a prefix of the other → no dependency.
           b {:id :b :output-path [:other]    :inputs [[:bar :foo]]}]
-      (is (false? (topo/depends-on? b a))
+      (is (false? (rf.flows.topo/depends-on? b a))
           "shared elements without a prefix relationship → false"))))
 
 (deftest depends-on?-empty-inputs
@@ -191,7 +191,7 @@
             (cannot depend on anything if it reads nothing)"
     (let [a {:id :a :output-path [:foo] :inputs []}
           b {:id :b :output-path [:bar] :inputs []}]
-      (is (false? (topo/depends-on? b a))
+      (is (false? (rf.flows.topo/depends-on? b a))
           "B has no :inputs → cannot depend on A (or anything else)"))))
 
 (deftest depends-on?-multiple-inputs-any-match-wins
@@ -200,6 +200,6 @@
             dependency edge"
     (let [a {:id :a :output-path [:foo] :inputs []}
           b {:id :b :output-path [:bar] :inputs [[:unrelated] [:foo] [:other]]}]
-      (is (true? (topo/depends-on? b a))
+      (is (true? (rf.flows.topo/depends-on? b a))
           "B's second input matches A's :output-path → dependency established
            despite the surrounding non-matching inputs"))))

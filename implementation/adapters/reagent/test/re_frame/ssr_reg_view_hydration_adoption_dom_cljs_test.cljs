@@ -52,10 +52,10 @@
             ["react-dom/client" :as react-dom-client]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.views :as views]
-            [re-frame.views.source-coord-annotation :as source-coord]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.views :as rf.views]
+            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private test-frame :ssr-reg-view-hydration-adoption/frame)
 (def ^:private test-view-id :adoption-demo/card)
@@ -71,8 +71,8 @@
                 (fn [label] [:div.card [:h3 label]])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn init!}))
 
 (defn- browser? []
@@ -85,8 +85,8 @@
 ;; The values the CLIENT reg-view render stamps for `test-view-id` — read
 ;; off the SAME shared formatters the JVM emitter uses, so the GREEN server
 ;; fixture below is the real cross-host dialect, not a hand-typed guess.
-(def ^:private expected-coord (views/format-source-coord test-view-id {}))
-(def ^:private expected-view  (source-coord/format-view-id test-view-id))
+(def ^:private expected-coord (rf.views/format-source-coord test-view-id {}))
+(def ^:private expected-view  (rf.views.source-coord-annotation/format-view-id test-view-id))
 
 ;; ---------------------------------------------------------------------------
 ;; The harness

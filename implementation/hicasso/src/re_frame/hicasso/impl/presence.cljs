@@ -73,7 +73,7 @@
   spend an effect on it. Deadlines are absolute instants stored when a
   key starts exiting, so a timer re-armed for an unrelated reason cannot
   extend a child's retention past its terminal bound."
-  (:require [re-frame.hicasso.impl.codec :as codec]
+  (:require [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
             [re-frame.hicasso.impl.error :refer [fail!]]))
 
 ;; ---------------------------------------------------------------------------
@@ -89,12 +89,12 @@
 (def mounting-key
   "`::motion/mounting` — the attribute overrides applied while a child is
   entering."
-  codec/mounting-key)
+  rf.hicasso.impl.codec/mounting-key)
 
 (def unmounting-key
   "`::motion/unmounting` — the attribute overrides applied while a child
   is being retained on its way out."
-  codec/unmounting-key)
+  rf.hicasso.impl.codec/unmounting-key)
 
 (def override-keys #{mounting-key unmounting-key})
 
@@ -174,7 +174,7 @@
         base     (when props (apply dissoc props override-keys))]
     (cond
       (map? override)
-      (with-props child (merge base (codec/without-structural override)))
+      (with-props child (merge base (rf.hicasso.impl.codec/without-structural override)))
 
       ;; Nothing to strip and nothing to merge: the child is already
       ;; exactly what it should render as, so it comes back untouched

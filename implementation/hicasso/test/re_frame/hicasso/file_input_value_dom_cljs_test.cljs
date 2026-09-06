@@ -36,8 +36,8 @@
   document; the real-control rows are skipped there rather than faked,
   the same shape `controlled_dom_cljs_test` uses for its caret rows."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.intent :as intent]))
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]))
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))
@@ -136,10 +136,10 @@
            model, and a file input with no :value at all is the supported
            path — uncontrolled, with the selection read off `.files` in an
            h/event. The codec lowers both without comment."
-    (is (nil? (thrown-by #(codec/as-element
+    (is (nil? (thrown-by #(rf.hicasso.impl.codec/as-element
                            [:input {:type :file :value ""
                                     :on-change noop-change}]))))
-    (is (nil? (thrown-by #(codec/as-element
+    (is (nil? (thrown-by #(rf.hicasso.impl.codec/as-element
                            [:input {:type :file :on-change noop-change}]))))))
 
 (deftest every-other-controlled-field-is-untouched
@@ -154,7 +154,7 @@
                      :on-change noop-change}]]
            ["a textarea" [:textarea {:value "x" :on-input noop-change}]]
            ["a select" [:select {:value "x" :on-change noop-change}]]]]
-    (is (nil? (thrown-by #(codec/as-element hiccup))) what)))
+    (is (nil? (thrown-by #(rf.hicasso.impl.codec/as-element hiccup))) what)))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — THE MARKER
@@ -168,7 +168,7 @@
           "the stand-in is the platform's rule written down")
       (is (= :rf.error/hicasso-file-input-value-marker
              (id-of (thrown-by
-                     #(intent/materialize [:app/upload :re-frame.hicasso/value]
+                     #(rf.hicasso.impl.intent/materialize [:app/upload :re-frame.hicasso/value]
                                           (ev target)))))
           "the marker used to lower to that string")))
   (testing "three files picked: it names the FIRST, and discards the rest"
@@ -176,7 +176,7 @@
       (is (= "C:\\fakepath\\a.csv" (.-value target)))
       (is (= :rf.error/hicasso-file-input-value-marker
              (id-of (thrown-by
-                     #(intent/materialize [:app/upload :re-frame.hicasso/value]
+                     #(rf.hicasso.impl.intent/materialize [:app/upload :re-frame.hicasso/value]
                                           (ev target))))))))
   (testing "nothing picked is refused too — the control is the wrong one
            for this marker whatever it currently holds, and a refusal that
@@ -186,7 +186,7 @@
       (is (= "" (.-value target)))
       (is (= :rf.error/hicasso-file-input-value-marker
              (id-of (thrown-by
-                     #(intent/materialize [:app/upload :re-frame.hicasso/value]
+                     #(rf.hicasso.impl.intent/materialize [:app/upload :re-frame.hicasso/value]
                                           (ev target)))))))))
 
 (deftest the-checked-marker-is-not-the-value-marker
@@ -194,7 +194,7 @@
            this reader and is not refused by it"
     (let [target #js {:files (array) :checked true}]
       (is (= [:app/pick true]
-             (intent/materialize [:app/pick :re-frame.hicasso/checked]
+             (rf.hicasso.impl.intent/materialize [:app/pick :re-frame.hicasso/checked]
                                  (ev target)))))))
 
 (deftest the-marker-is-untouched-on-every-other-control
@@ -213,7 +213,7 @@
               ["a" "c"]]
              ["a single <select>" #js {:value "urgent"} "urgent"]]]
       (is (= [:app/pick expected]
-             (intent/materialize [:app/pick :re-frame.hicasso/value]
+             (rf.hicasso.impl.intent/materialize [:app/pick :re-frame.hicasso/value]
                                  (ev target)))
           what))))
 
@@ -229,7 +229,7 @@
           (is (= 0 (.-length (.-files n))))
           (is (= :rf.error/hicasso-file-input-value-marker
                  (id-of (thrown-by
-                         #(intent/materialize
+                         #(rf.hicasso.impl.intent/materialize
                            [:app/upload :re-frame.hicasso/value] (ev n)))))))
         (testing "and with a file selected, the engine's own answer is the
                  fakepath fiction the spec mandates"
@@ -243,7 +243,7 @@
                    `.files`, which is what an h/event reads")
               (is (= :rf.error/hicasso-file-input-value-marker
                      (id-of (thrown-by
-                             #(intent/materialize
+                             #(rf.hicasso.impl.intent/materialize
                                [:app/upload :re-frame.hicasso/value]
                                (ev n)))))))))
         (finally (drop! n))))))
@@ -271,7 +271,7 @@
               "so the discriminator the marker reads is present, unshouted")
           (is (= :rf.error/hicasso-file-input-value-marker
                  (id-of (thrown-by
-                         #(intent/materialize
+                         #(rf.hicasso.impl.intent/materialize
                            [:app/upload :re-frame.hicasso/value] (ev n)))))
               "and the marker refusal fires at this spelling exactly as at
                the lowercase one — it always did")

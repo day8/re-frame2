@@ -30,12 +30,12 @@
   projection. It never runs at storage time."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.epoch :as epoch]
-            [re-frame.frame :as frame]
-            [re-frame.privacy :as privacy]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision :as rf.elision]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.frame :as rf.frame]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect requires (mirror epoch_test.clj fixture).
             [re-frame.machines]))
 
@@ -49,8 +49,8 @@
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
@@ -66,16 +66,16 @@
 (defn- install-sensitive-schema!
   "Declare a `[:auth :password]` sensitive path against `frame-id`."
   [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   nil)
 
 (defn- install-two-sensitive-paths-schema!
   "Declare two sensitive paths against `frame-id` — `[:auth :password]`
   and `[:auth :token]`."
   [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:auth :password] [:auth :token]]})))
   nil)
 
@@ -109,7 +109,7 @@
       (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
 
       (let [r         (last-record :test/main)
-            projected (epoch/projected-record r)]
+            projected (rf.epoch/projected-record r)]
         (is (= :rf/redacted @observed)
             "the override saw :password ALREADY :rf/redacted — it ran after
              the frame/profile projection")
@@ -139,8 +139,8 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r          (last-record :test/main)
-          projected  (epoch/projected-record r)
-          projected2 (epoch/projected-record projected)]
+          projected  (rf.epoch/projected-record r)
+          projected2 (rf.epoch/projected-record projected)]
       (is (= {:auth {:password "topsecret"}} (:db-after r))
           "the RAW ring :db-after is unredacted")
       (is (= :rf/redacted (:db-after projected))
@@ -176,7 +176,7 @@
     (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
-          projected (epoch/projected-record r)]
+          projected (rf.epoch/projected-record r)]
       (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
           "frame/profile projection redacted the frame-declared :password")
       (is (= :rf/redacted (get-in projected [:db-after :session :token]))
@@ -187,7 +187,7 @@
           "the RAW ring record carries the verbatim password")
 
       (testing "second projection pass is a no-op (idempotent fixpoint)"
-        (is (= projected (epoch/projected-record projected)))))))
+        (is (= projected (rf.epoch/projected-record projected)))))))
 
 ;; ============================================================================
 ;;  D. Rollup is raw-signal-derived — projection (both stages) preserve it
@@ -206,7 +206,7 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
-          projected (epoch/projected-record r)]
+          projected (rf.epoch/projected-record r)]
       (is (true? (:rf.epoch/sensitive? r))
           "rollup true on the raw ring record (raw-signal-derived)")
       (is (true? (:rf.epoch/sensitive? projected))
@@ -217,7 +217,7 @@
             privacy/redacted-sentinel. Pinning the identity prevents future
             divergence (a separate sentinel would break the idempotency
             story)."
-    (is (= :rf/redacted privacy/redacted-sentinel)
+    (is (= :rf/redacted rf.privacy/redacted-sentinel)
         "privacy/redacted-sentinel is the keyword :rf/redacted")))
 
 ;; ============================================================================
@@ -327,13 +327,13 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
-          projected (epoch/projected-record r)]
+          projected (rf.epoch/projected-record r)]
       (is (= 1 (:rf.epoch/redacted-modified-paths-count r)))
       (is (= 1 (:rf.epoch/redacted-modified-paths-count projected))
           "projection preserves the counter verbatim")
       (is (= (:rf.epoch/redacted-modified-paths-count r)
              (:rf.epoch/redacted-modified-paths-count
-               (epoch/projected-record projected)))
+               (rf.epoch/projected-record projected)))
           "idempotent under a second projection pass"))))
 
 (deftest G7-counter-handles-nil-db-edge
@@ -341,7 +341,7 @@
             (rf2-v0jwt). The counter handles the nil edge."
     (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
-    (require '[re-frame.epoch.assembly :as assembly])
+    (require '[re-frame.epoch.assembly :as rf.epoch.assembly])
     (let [count-fn (resolve 're-frame.epoch.assembly/redacted-modified-paths-count)]
       (is (= 0 (count-fn :test/main nil nil))
           "nil → nil at every path: 0 changes")
@@ -376,14 +376,14 @@
            :renders         []
            :effects         []
            :rf.epoch/sensitive? false}
-          projected (epoch/projected-record partial)]
+          projected (rf.epoch/projected-record partial)]
       (is (some? projected) "projection over a nil-slot record returns
                              a non-nil value")
       (is (nil? (:db-before projected)) "nil :db-before stays nil")
       (is (nil? (:db-after projected))  "nil :db-after stays nil")
       (is (= :halted-destroy (:outcome projected))
           "bookkeeping passes through unchanged")
-      (is (= projected (epoch/projected-record projected))
+      (is (= projected (rf.epoch/projected-record projected))
           "idempotent under a second projection pass"))))
 
 (deftest E-projected-record-on-record-with-sentinel-db-after
@@ -413,14 +413,14 @@
            :sub-runs      []
            :renders       []
            :effects       []}
-          projected (epoch/projected-record synthetic)]
+          projected (rf.epoch/projected-record synthetic)]
       (is (= :rf/redacted (:db-after projected))
           "wholly-sentinel'd payload slot stays as the scalar through
            the projection walker")
       (is (= {:n 0} (:db-before projected))
           "the other payload slot is walked normally — the per-slot
            guards do not cross-contaminate")
-      (is (= projected (epoch/projected-record projected))
+      (is (= projected (rf.epoch/projected-record projected))
           "idempotent over the synthetic mixed shape"))))
 
 ;; ============================================================================
@@ -451,7 +451,7 @@
     (rf/dispatch-sync [:login "secret-3"]  {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)
-          ph      (epoch/projected-history :test/main)]
+          ph      (rf.epoch/projected-history :test/main)]
       (is (= (count history) (count ph))
           "one projected record per ring entry")
       (is (= (mapv :epoch-id history) (mapv :epoch-id ph))
@@ -475,14 +475,14 @@
 
       (testing "projected-history is idempotent — re-projecting each
                 entry produces a structurally-equal vector"
-        (is (= ph (mapv epoch/projected-record ph)))))))
+        (is (= ph (mapv rf.epoch/projected-record ph)))))))
 
 (deftest F-projected-history-empty-with-redact-fn-installed
   (testing "with a redact-fn installed but no cascades recorded,
             projected-history is the empty vector — the override is inert
             until a record exists to project"
     (rf/configure! {:epoch-history {:redact-fn (fn [r] r)}})
-    (is (= [] (epoch/projected-history :rf/no-such-frame)))))
+    (is (= [] (rf.epoch/projected-history :rf/no-such-frame)))))
 
 ;; ============================================================================
 ;;  Composition fixpoint — the core idempotency claim
@@ -510,9 +510,9 @@
     (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
 
     (let [r          (last-record :test/main)
-          projected1 (epoch/projected-record r)
-          projected2 (epoch/projected-record projected1)
-          projected3 (epoch/projected-record projected2)]
+          projected1 (rf.epoch/projected-record r)
+          projected2 (rf.epoch/projected-record projected1)
+          projected3 (rf.epoch/projected-record projected2)]
       (is (= projected1 projected2)
           "second projection pass is a no-op (fixpoint)")
       (is (= projected2 projected3)

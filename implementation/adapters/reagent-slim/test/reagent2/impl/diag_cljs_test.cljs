@@ -39,7 +39,7 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.diag :as diag]
-            [re-frame.error :as error]))
+            [re-frame.error :as rf.error]))
 
 ;; ---- per-branch shape coverage --------------------------------------------
 
@@ -170,11 +170,11 @@
   (testing "the slim mirror agrees with re-frame.error/diag-value-summary
             byte-for-byte over the corpus (drift guard for the hand-copy)"
     (doseq [v parity-corpus]
-      (is (= (error/diag-value-summary v) (diag/value-summary v))
+      (is (= (rf.error/diag-value-summary v) (diag/value-summary v))
           (str "mirror drift for value: " (pr-str v))))))
 
 (deftest value-summary-mirrors-on-fn-and-lambda
   (testing "a fn value summarises to the SAME bare {:type :fn} on both twins"
     (let [f (fn [] :x)]
-      (is (= (error/diag-value-summary f) (diag/value-summary f)))
+      (is (= (rf.error/diag-value-summary f) (diag/value-summary f)))
       (is (= {:type :fn} (diag/value-summary f))))))

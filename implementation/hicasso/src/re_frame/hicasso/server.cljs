@@ -46,13 +46,13 @@
   (`docs/design/hicasso/studio/ssr-spike-witness.md`). It is not a
   production HTTP host: the response contract is `re-frame.ssr.ring`'s."
   (:require [re-frame.core :as rf]
-            [re-frame.error :as error]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.roots :as roots]
-            [re-frame.ssr.constants :as ssr-constants]
-            [re-frame.ssr.html-helpers :as ssr-html]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.render-state :as render-state]
+            [re-frame.error :as rf.error]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.ssr.constants :as rf.ssr.constants]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.render-state :as rf.ssr.render-state]
             ["react-dom/server" :as rdom-server]))
 
 ;; ---------------------------------------------------------------------------
@@ -99,8 +99,8 @@
   breakout. That shell namespace is JVM-only, so the three lines are
   re-spelled here on the two shared constants rather than required."
   [payload-edn]
-  (str "<script id=\"" ssr-constants/payload-script-id "\" type=\"application/edn\">"
-       (ssr-html/escape-edn-script-body payload-edn)
+  (str "<script id=\"" rf.ssr.constants/payload-script-id "\" type=\"application/edn\">"
+       (rf.ssr.html-helpers/escape-edn-script-body payload-edn)
        "</script>"))
 
 (defn document
@@ -116,14 +116,14 @@
   (str "<!DOCTYPE html>"
        "<html lang=\"en\">"
        "<head><meta charset=\"utf-8\"><title>"
-       (ssr-html/escape-html (or title "Hicasso SSR")) "</title></head>"
+       (rf.ssr.html-helpers/escape-html (or title "Hicasso SSR")) "</title></head>"
        "<body>"
-       "<div id=\"" (ssr-html/escape-attr (or app-element-id "app")) "\">"
+       "<div id=\"" (rf.ssr.html-helpers/escape-attr (or app-element-id "app")) "\">"
        html
        "</div>"
        script
        (when script-src
-         (str "<script src=\"" (ssr-html/escape-attr script-src) "\"></script>"))
+         (str "<script src=\"" (rf.ssr.html-helpers/escape-attr script-src) "\"></script>"))
        "</body></html>"))
 
 ;; ---------------------------------------------------------------------------
@@ -237,7 +237,7 @@
   Hicasso's: it is the framework's render-failure category, raised from
   the hosts that have to raise it by hand."
   [where frame-id {:keys [error] :as record} recorded]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ssr-render-failed
     where
     (str "the render completed but the runtime recorded " recorded
@@ -352,7 +352,7 @@
         ;; Per REQUEST and reachable from nothing else — never a
         ;; module-level flag, which would let one request's throw leave
         ;; every later request born-present.
-        window    (roots/open-adoption-window!)
+        window    (rf.hicasso.impl.roots/open-adoption-window!)
         ;; Keyed on THIS invocation's frame, so a re-entrant `render`
         ;; cannot unregister the outer one's listener — see `listener-key`.
         listener  (listener-key render-listener-tag frame-id)
@@ -384,7 +384,7 @@
             ;; door calls: `:adoption` is what it branches on, so this is
             ;; the Fragment-plus-closer tree `hydrate-root!` will adopt,
             ;; position for position.
-            element (mount/tree {:frame frame-id :adoption window} hiccup)
+            element (rf.hicasso.impl.mount/tree {:frame frame-id :adoption window} hiccup)
             ropts   (render-options identifier-prefix)
             html    (if ropts
                       (rdom-server/renderToString element ropts)
@@ -401,12 +401,12 @@
                             (some? client-frame-id) (assoc :client-frame-id client-frame-id)
                             (some? version)         (assoc :version version)
                             (some? schema-digest)   (assoc :schema-digest schema-digest))
-              payload-map (payload-policy/build-payload
+              payload-map (rf.ssr.payload-policy/build-payload
                             ;; WIRE id — the caller's stable one or nil.
                             ;; NEVER `frame-id`.
                             (:client-frame-id policy-opts)
-                            (payload-policy/project-app-db-egress
-                              (payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
+                            (rf.ssr.payload-policy/project-app-db-egress
+                              (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
                               ;; PROJECTION frame — the real per-request one.
                               frame-id)
                             ;; NO RENDER HASH — nil, and `build-payload`
@@ -433,7 +433,7 @@
         (rf/unregister-listener! :errors listener)
         ;; The window before the frame — `destroy-frame!` may itself throw,
         ;; and the window must already be shut when it runs.
-        (roots/close-adoption-window! window)
+        (rf.hicasso.impl.roots/close-adoption-window! window)
         (rf/destroy-frame! frame-id)))))
 
 ;; ---------------------------------------------------------------------------
@@ -496,7 +496,7 @@
   more than one that returned."
   [{:keys [hiccup render-state identifier-prefix frame-opts]}]
   (let [frame-id  (fresh-frame-id)
-        window    (roots/open-adoption-window!)
+        window    (rf.hicasso.impl.roots/open-adoption-window!)
         ;; Keyed on THIS invocation's frame — see `listener-key`.
         listener  (listener-key render-body-listener-tag frame-id)
         ;; Armed BEFORE the frame is made, so a fault in construction or in
@@ -511,8 +511,8 @@
                             ;; This module's, and not overridable — see the
                             ;; docstring's first bullet.
                             :initial-events []))
-      (render-state/restore! frame-id render-state)
-      (let [element (mount/tree {:frame frame-id :adoption window} hiccup)
+      (rf.ssr.render-state/restore! frame-id render-state)
+      (let [element (rf.hicasso.impl.mount/tree {:frame frame-id :adoption window} hiccup)
             ropts   (render-options identifier-prefix)
             html    (if ropts
                       (rdom-server/renderToString element ropts)
@@ -530,5 +530,5 @@
         (rf/unregister-listener! :errors listener)
         ;; The window before the frame — `destroy-frame!` may itself throw,
         ;; and the window must already be shut when it runs.
-        (roots/close-adoption-window! window)
+        (rf.hicasso.impl.roots/close-adoption-window! window)
         (rf/destroy-frame! frame-id)))))

@@ -30,7 +30,7 @@
   faked where there is no document — the same shape
   `controlled_dom_cljs_test` uses for its caret rows."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.impl.intent :as intent]))
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]))
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))
@@ -89,7 +89,7 @@
   (testing "two options picked materialize as two values, in tree order"
     (let [target (select-stand-in true ["a" "c"])]
       (is (= [:tb/pick ["a" "c"]]
-             (intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
+             (rf.hicasso.impl.intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
           (str "`.value` answers \"a\" for this target because HTML says the "
                "first selected option is the value; the SELECTION is both, and "
                "an intent that lowers to the first one discards the author's "
@@ -97,12 +97,12 @@
   (testing "one option picked is still a vector — the shape follows the control"
     (let [target (select-stand-in true ["b"])]
       (is (= [:tb/pick ["b"]]
-             (intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
+             (rf.hicasso.impl.intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
           "a one-option selection is a selection of one, not a bare value")))
   (testing "nothing picked is an empty selection, not the empty string"
     (let [target (select-stand-in true [])]
       (is (= [:tb/pick []]
-             (intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
+             (rf.hicasso.impl.intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
           "`.value` would answer \"\" here, which is indistinguishable from a
            selected option whose value is empty"))))
 
@@ -110,7 +110,7 @@
   (testing "no :multiple means `.value`, exactly as before"
     (let [target (select-stand-in false ["a"])]
       (is (= [:tb/pick "a"]
-             (intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
+             (rf.hicasso.impl.intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
           "the ordinary select is the overwhelming case and answers a string"))))
 
 (deftest an-input-carrying-multiple-is-not-a-select
@@ -122,7 +122,7 @@
             row (rf2-lhsvs)."
     (let [target #js {:files nil :multiple true :value "a@b.com,c@d.com"}]
       (is (= [:tb/pick "a@b.com,c@d.com"]
-             (intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
+             (rf.hicasso.impl.intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
           (str "`.multiple` alone is the WRONG test — it is an <input> "
                "attribute too. Only a <select> has `.selectedOptions`, and "
                "asking for it is what keeps every input on the fast path")))))
@@ -137,6 +137,6 @@
               (str "the browser's own answer, and the reason the naive reader "
                    "looks right: `.value` is a plausible non-empty string"))
           (is (= [:tb/pick ["a" "c"]]
-                 (intent/materialize [:tb/pick :re-frame.hicasso/value] (ev n)))
+                 (rf.hicasso.impl.intent/materialize [:tb/pick :re-frame.hicasso/value] (ev n)))
               "the selection the user actually made")
           (finally (drop! n)))))))

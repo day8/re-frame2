@@ -37,15 +37,15 @@
   trace fires for every render."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.views :as views]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.views :as rf.views]
             ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- :view/render trace does not fire under prod -------------------------
 
@@ -58,7 +58,7 @@
             renders. The wrapper still calls the user fn — only the
             trace metadata elides."
     (let [seen (atom [])]
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         ::prod-view-listener
         (fn [ev] (swap! seen conj ev)))
       (rf/reg-view* :prod-frame-provider/sample
@@ -70,7 +70,7 @@
       (is (empty? @seen)
           "no trace events delivered — :view/render elides under
            :advanced + goog.DEBUG=false")
-      (trace-tooling/unregister-listener! ::prod-view-listener))))
+      (rf.trace.tooling/unregister-listener! ::prod-view-listener))))
 
 ;; ---- current-render-key still binds under prod ---------------------------
 
@@ -87,7 +87,7 @@
     (let [observed-key (atom nil)]
       (rf/reg-view* :prod-frame-provider/key-reader
         (fn []
-          (reset! observed-key (views/current-render-key))
+          (reset! observed-key (rf.views/current-render-key))
           [:span "key-reader"]))
       (let [wrapper (rf/view :prod-frame-provider/key-reader)
             _out    (wrapper)]
@@ -107,8 +107,8 @@
             under prod returns a fresh integer. The token's only
             consumer (the trace emit and the dev source-coord stamp)
             elides, but the mint surface itself is safe to call."
-    (let [t1 (views/mint-instance-token!)
-          t2 (views/mint-instance-token!)]
+    (let [t1 (rf.views/mint-instance-token!)
+          t2 (rf.views/mint-instance-token!)]
       (is (integer? t1) "mint returns an integer under prod")
       (is (integer? t2) "second call also returns an integer")
       (is (not= t1 t2)
@@ -128,6 +128,6 @@
             shape too (e.g. headless tests calling `current-render-key`
             outside any reg-view* wrapper)."
     (is (= [:rf.view/anonymous nil]
-           (views/current-render-key))
+           (rf.views/current-render-key))
         "current-render-key returns the anonymous fallback outside a
          render under prod")))

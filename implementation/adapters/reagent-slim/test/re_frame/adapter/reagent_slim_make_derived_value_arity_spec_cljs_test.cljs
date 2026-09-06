@@ -18,16 +18,16 @@
     * ≥3-arity: fallback path
     * source-vector order preserved through the recompute closure"
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.adapter.reagent-slim :as adapter]))
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
 
 (defn- make-source [v]
-  ((:make-state-container adapter/adapter) v))
+  ((:make-state-container rf.adapter.reagent-slim/adapter) v))
 
 (defn- write! [c v]
-  ((:replace-container! adapter/adapter) c v))
+  ((:replace-container! rf.adapter.reagent-slim/adapter) c v))
 
 (defn- make-derived-value [sources f]
-  ((:make-derived-value adapter/adapter) sources f))
+  ((:make-derived-value rf.adapter.reagent-slim/adapter) sources f))
 
 (deftest derived-zero-arity-cljs-test
   (testing "0 sources — compute-fn called with no args"

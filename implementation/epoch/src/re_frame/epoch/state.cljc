@@ -21,7 +21,7 @@
   per-registration GENERATION token (see the listener-registry section) rather
   than a cross-atom update, so no operation requires an atomic update across two
   of these stores."
-  (:require [re-frame.privacy :as privacy]))
+  (:require [re-frame.privacy :as rf.privacy]))
 
 ;; ---- configuration --------------------------------------------------------
 
@@ -693,7 +693,7 @@
         ;; swap fn ORs it into the rollup fail closed. The OR is
         ;; monotonic/idempotent (only flips false→true, never clears a
         ;; settle-time true), so it rides safely inside the CAS-retried swap.
-        trace-sensitive? (privacy/sensitive? trace-event)
+        trace-sensitive? (rf.privacy/sensitive? trace-event)
         structured-row?  (some? structured-row)
         append-slot-value (fn [record target-slot slot-value]
                             (cond

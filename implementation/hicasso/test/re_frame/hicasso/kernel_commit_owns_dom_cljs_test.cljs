@@ -84,14 +84,14 @@
   than to an assertion that passes because nothing ran."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [clojure.set :as set]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]))
 
@@ -105,11 +105,11 @@
 (rf/reg-event :kcod/bump-right (fn [{:keys [db]} _] {:db (update db :right inc)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The exercised population — a MEASUREMENT, not a claim
@@ -149,14 +149,14 @@
 
 (def ^:private nothing-owned {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
-(defn- ownership [] (dissoc (runtime/residue) :entries))
+(defn- ownership [] (dissoc (rf.hicasso.test.runtime/residue) :entries))
 
-(defn- readers-of [query-v] (count (runtime/cell-readers (sub-key query-v))))
+(defn- readers-of [query-v] (count (rf.hicasso.test.runtime/cell-readers (sub-key query-v))))
 
 (defn- app
   "The hicasso subtree: the frame provider over a root element."
   [hiccup]
-  (mount/provider frame-id (codec/root-element frame-id hiccup)))
+  (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup)))
 
 (defn- mount-concurrent!
   "A concurrent root, rendered WITHOUT `flushSync`.
@@ -176,7 +176,7 @@
 
 (defn- poll
   [pred label]
-  (test-support/poll-until pred {:label label :timeout-ms 4000}))
+  (rf.test-support/poll-until pred {:label label :timeout-ms 4000}))
 
 (defn- prove-live!
   "Settle the commit's PASSIVE phase on a condition, never on a duration —
@@ -207,7 +207,7 @@
   quantity under test: the count is asserted afterwards, and a second
   reader changes the count without changing the text."
   [handle event expected label]
-  (mount/dispatch! handle event)
+  (rf.hicasso.impl.mount/dispatch! handle event)
   (poll #(= expected (text handle)) label))
 
 (defn- teardown-census!
@@ -215,13 +215,13 @@
   release. `mount/release!` resets the runtime, so a census taken after it
   cannot go red — see the namespace docstring."
   [handle]
-  (mount/unmount! handle)
-  (.then (runtime/quiesced!)
+  (rf.hicasso.impl.mount/unmount! handle)
+  (.then (rf.hicasso.test.runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (runtime/residue))
+                  (rf.hicasso.test.runtime/residue))
                "teardown is exact: zero residue after quiescence")
-           (mount/release! handle)
+           (rf.hicasso.impl.mount/release! handle)
            nil)))
 
 (defn- report-failure!
@@ -248,7 +248,7 @@
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (text handle)))
                    " | ownership " (pr-str (ownership))))
-    (when handle (mount/release! handle))
+    (when handle (rf.hicasso.impl.mount/release! handle))
     nil))
 
 (defn- make-gate
@@ -268,17 +268,17 @@
 ;; The views
 ;; ---------------------------------------------------------------------------
 
-(h/defview left-line  [_] [:p {:id "left"} (str "left=" (h/sub [:kcod/left]))])
-(h/defview right-line [_] [:p {:id "right"} (str "right=" (h/sub [:kcod/right]))])
+(rf.hicasso/defview left-line  [_] [:p {:id "left"} (str "left=" (rf.hicasso/sub [:kcod/left]))])
+(rf.hicasso/defview right-line [_] [:p {:id "right"} (str "right=" (rf.hicasso/sub [:kcod/right]))])
 
 (def ^:private !throw? (atom false))
 
-(h/defview thrower
+(rf.hicasso/defview thrower
   "Reads FIRST and throws SECOND — the bead's rollback shape. The reads are
   real reads, taken before the failure, so a runtime that acquired at
   render would have acquired them."
   [_]
-  (let [v (h/sub [:kcod/right])]
+  (let [v (rf.hicasso/sub [:kcod/right])]
     (when @!throw? (throw (js/Error. "planted kernel-commit-owns throw")))
     [:p {:id "right"} (str "right=" v)]))
 
@@ -288,13 +288,13 @@
 
 (deftest a-suspended-attempt-acquires-nothing-and-its-retry-acquires-exactly-once
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             gate   (make-gate)
-            before (runtime/body-runs)
+            before (rf.hicasso.test.runtime/body-runs)
             handle (mount-concurrent!
-                     (mount/fresh-container!)
+                     (rf.hicasso.impl.mount/fresh-container!)
                      (react/createElement
                        (.-Suspense react)
                        #js {:fallback (react/createElement "p" nil "waiting")}
@@ -307,7 +307,7 @@
                 (testing "the premise: React RAN the boundary body before it
                           threw the attempt away. Without this the zeros
                           below are the zeros of a render that never was"
-                  (is (pos? (- (runtime/body-runs) before))))
+                  (is (pos? (- (rf.hicasso.test.runtime/body-runs) before))))
 
                 (testing "and the attempt was genuinely abandoned — the
                           fallback is on the page, the boundary's markup is
@@ -359,7 +359,7 @@
 
 (deftest an-aborted-transition-acquires-nothing-and-its-completion-acquires-exactly-once
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_    (seeded!)
             gate (make-gate)
@@ -367,7 +367,7 @@
                                       (app [right-line {}])
                                       (:element gate))
             handle (mount-concurrent!
-                     (mount/fresh-container!)
+                     (rf.hicasso.impl.mount/fresh-container!)
                      (react/createElement
                        (.-Suspense react)
                        #js {:fallback (react/createElement "p" nil "fallback")}
@@ -376,14 +376,14 @@
                   "the old tree commits")
             (.then
               (fn [_]
-                (let [before (runtime/body-runs)]
+                (let [before (rf.hicasso.test.runtime/body-runs)]
                   ;; A REAL transition. React renders the new tree at
                   ;; transition priority; it suspends; React keeps the
                   ;; committed UI and throws the new render away.
                   ((.-startTransition react) (fn [] (@!set-phase 1)))
                   ;; The poll condition IS the premise — the row cannot
                   ;; proceed until React has actually run the new body.
-                  (-> (poll #(> (runtime/body-runs) before)
+                  (-> (poll #(> (rf.hicasso.test.runtime/body-runs) before)
                             "the transition renders the new body")
                       (.then
                         (fn [_]
@@ -424,10 +424,10 @@
 
 (deftest strictmodes-double-invoke-is-not-additive
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
-            before (runtime/body-runs)
+            before (rf.hicasso.test.runtime/body-runs)
             ;; TWO boundaries reading DIFFERENT keys, and that is the whole
             ;; design of this row rather than incidental scenery.
             ;;
@@ -442,7 +442,7 @@
             ;; this row is named for, and this is the smallest tree in which
             ;; it can be seen.
             handle (mount-concurrent!
-                     (mount/fresh-container!)
+                     (rf.hicasso.impl.mount/fresh-container!)
                      (react/createElement (.-StrictMode react) nil
                                           (app [:div
                                                 [left-line {}]
@@ -455,7 +455,7 @@
                           StrictMode really did run BOTH bodies twice. A green
                           here with a delta of 2 would be a green for a
                           StrictMode that never engaged"
-                  (is (= 4 (- (runtime/body-runs) before))))
+                  (is (= 4 (- (rf.hicasso.test.runtime/body-runs) before))))
                 (prove-live! handle [:kcod/bump-left] "left=2right=7"
                              "the strict boundaries are subscribed and live")))
             (.then
@@ -471,7 +471,7 @@
                   (is (= 1 (readers-of [:kcod/right])))
                   (is (= {:cells 2 :cell-refs 2 :boundaries 2 :edges 2}
                          (ownership)))
-                  (is (= 2 (:entries (runtime/residue)))))
+                  (is (= 2 (:entries (rf.hicasso.test.runtime/residue)))))
                 (exercised! :strict-mode/double-invoke)
                 (teardown-census! handle)))
             (.catch (report-failure! "strictmode witness" handle))
@@ -483,24 +483,24 @@
 
 (defn- guarded
   [reset-key]
-  (app [h/error-boundary {:fallback  [:p {:id "fb"} "caught"]
+  (app [rf.hicasso/error-boundary {:fallback  [:p {:id "fb"} "caught"]
                           :reset-key reset-key}
         [thrower {}]]))
 
 (deftest a-body-that-throws-after-its-reads-is-caught-and-the-retry-acquires-exactly-once
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             _      (reset! !throw? true)
-            before (runtime/body-runs)
-            handle (mount-concurrent! (mount/fresh-container!) (guarded 0))]
+            before (rf.hicasso.test.runtime/body-runs)
+            handle (mount-concurrent! (rf.hicasso.impl.mount/fresh-container!) (guarded 0))]
         (-> (poll #(= "caught" (text handle)) "the error boundary catches")
             (.then
               (fn [_]
                 (testing "the premise: the body RAN, took its read, and then
                           threw"
-                  (is (pos? (- (runtime/body-runs) before))))
+                  (is (pos? (- (rf.hicasso.test.runtime/body-runs) before))))
 
                 (testing "the throwing attempt is rolled back to nothing —
                           there is nothing to roll back, because a
@@ -544,7 +544,7 @@
   and this is a real write landing inside it."
   [_]
   (react/useLayoutEffect
-    (fn [] (collector/dispatch! frame-id [:kcod/bump-left]) js/undefined)
+    (fn [] (rf.hicasso.impl.collector/dispatch! frame-id [:kcod/bump-left]) js/undefined)
     #js [])
   nil)
 
@@ -552,11 +552,11 @@
 
 (deftest a-write-landing-in-the-render-to-commit-gap-heals-the-boundary
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             handle (mount-concurrent!
-                     (mount/fresh-container!)
+                     (rf.hicasso.impl.mount/fresh-container!)
                      (react/createElement (.-Fragment react) nil
                                           (app [left-line {}])
                                           (react/createElement gap-writer nil)))]
@@ -595,7 +595,7 @@
   ;; mechanism that stops being reached — a row deleted, a row that returns
   ;; early, a row whose poll silently degrades — fails here instead of
   ;; quietly shrinking what the suite covers.
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM, so no mechanism is exercised there")
     (is (= declared-population @!exercised)
         (str "every declared abandonment mechanism must be reached; missing: "

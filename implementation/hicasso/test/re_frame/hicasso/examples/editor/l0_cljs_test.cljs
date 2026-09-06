@@ -30,16 +30,16 @@
   controlled keystroke describes. It is asserted here rather than there
   because it is a property of the model and needs no React to be true."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.editor.app :as app]
-            [re-frame.hicasso.examples.editor.events :as events]
-            [re-frame.hicasso.examples.editor.subs :as subs]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso.examples.editor.app :as rf.hicasso.examples.editor.app]
+            [re-frame.hicasso.examples.editor.events :as rf.hicasso.examples.editor.events]
+            [re-frame.hicasso.examples.editor.subs :as rf.hicasso.examples.editor.subs]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil}))
 
 (defn- with-app
@@ -47,26 +47,26 @@
   itself — `app/initial-events`, not a hand-written `:rf/set-db`, so
   these rows exercise the boot the application actually has."
   [f]
-  (rf/with-new-frame [frame (rf/make-frame {:initial-events app/initial-events})]
+  (rf/with-new-frame [frame (rf/make-frame {:initial-events rf.hicasso.examples.editor.app/initial-events})]
     (f frame)))
 
 (defn- read-sub [frame query-v] (rf/subscribe-once query-v {:frame frame}))
 
 (defn- type! [frame field text]
-  (rf/dispatch-sync [::events/edit field text] {:frame frame}))
+  (rf/dispatch-sync [::rf.hicasso.examples.editor.events/edit field text] {:frame frame}))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure — the policies
 ;; ---------------------------------------------------------------------------
 
 (deftest slugify-lower-cases-and-collapses
-  (is (= "hello-world" (events/slugify "Hello, World")))
-  (is (= "a-b" (events/slugify "A   B"))
+  (is (= "hello-world" (rf.hicasso.examples.editor.events/slugify "Hello, World")))
+  (is (= "a-b" (rf.hicasso.examples.editor.events/slugify "A   B"))
       "a RUN of non-alphanumerics collapses to one dash, so this
        normalisation changes the length — which is what makes the slug
        field's echo row distinguishable from a field that echoed nothing")
-  (is (= "" (events/slugify "")))
-  (is (= "-" (events/slugify "!!!"))
+  (is (= "" (rf.hicasso.examples.editor.events/slugify "")))
+  (is (= "-" (rf.hicasso.examples.editor.events/slugify "!!!"))
       "recorded rather than defended: a leading or trailing dash is what
        this policy produces mid-typing, and trimming it would make the
        field fight the user's next keystroke"))
@@ -75,17 +75,17 @@
   ;; `editable-fields` is derived from `field-policy`, so a field added
   ;; without a policy would answer nil and take nothing. This is the row
   ;; that says so rather than leaving it to be discovered on screen.
-  (is (= (set events/editable-fields) (set (keys events/field-policy))))
-  (doseq [field events/editable-fields]
-    (is (ifn? (get events/field-policy field))
+  (is (= (set rf.hicasso.examples.editor.events/editable-fields) (set (keys rf.hicasso.examples.editor.events/field-policy))))
+  (doseq [field rf.hicasso.examples.editor.events/editable-fields]
+    (is (ifn? (get rf.hicasso.examples.editor.events/field-policy field))
         (str "field " field " has no policy function"))))
 
 (deftest the-seed-carries-no-revision-key
   ;; The premise of the `fnil` below, stated where a reader meets the
   ;; seed. A consumer copying a starting `app-db` from a guide would not
   ;; put a counter in it either.
-  (is (not (contains? events/seed :revision)))
-  (is (= (:article events/seed) (:draft events/seed))
+  (is (not (contains? rf.hicasso.examples.editor.events/seed :revision)))
+  (is (= (:article rf.hicasso.examples.editor.events/seed) (:draft rf.hicasso.examples.editor.events/seed))
       "draft and article begin equal; the distance between them is what
        `echoes only committed state` is a claim about"))
 
@@ -97,14 +97,14 @@
   (with-app
     (fn [frame]
       (type! frame :title "Intents, revisited")
-      (is (= "Intents, revisited" (read-sub frame [::subs/field :title])))
-      (is (true? (read-sub frame [::subs/dirty?]))))))
+      (is (= "Intents, revisited" (read-sub frame [::rf.hicasso.examples.editor.subs/field :title])))
+      (is (true? (read-sub frame [::rf.hicasso.examples.editor.subs/dirty?]))))))
 
 (deftest a-normalising-field-commits-the-normalised-value
   (with-app
     (fn [frame]
       (type! frame :slug "Hello, World")
-      (is (= "hello-world" (read-sub frame [::subs/field :slug]))
+      (is (= "hello-world" (read-sub frame [::rf.hicasso.examples.editor.subs/field :slug]))
           "the MODEL holds the normalised value, which is what the field
            will be handed back and therefore what it echoes — the
            controlled law's `a normalised value echoes as the committed
@@ -114,10 +114,10 @@
 (deftest the-checkbox-commits-a-boolean-and-not-a-truthy
   (with-app
     (fn [frame]
-      (rf/dispatch-sync [::events/set-published true] {:frame frame})
-      (is (true? (read-sub frame [::subs/field :published?])))
-      (rf/dispatch-sync [::events/set-published nil] {:frame frame})
-      (is (false? (read-sub frame [::subs/field :published?]))
+      (rf/dispatch-sync [::rf.hicasso.examples.editor.events/set-published true] {:frame frame})
+      (is (true? (read-sub frame [::rf.hicasso.examples.editor.subs/field :published?])))
+      (rf/dispatch-sync [::rf.hicasso.examples.editor.events/set-published nil] {:frame frame})
+      (is (false? (read-sub frame [::rf.hicasso.examples.editor.subs/field :published?]))
           "`nil` coerces to false rather than being stored. An owned
            `:checked` wins by PRESENCE and not by truthiness, so a model
            holding nil would leave the control uncontrolled"))))
@@ -141,34 +141,34 @@
   (with-app
     (fn [frame]
       (type! frame :title "Committed")
-      (is (= "Intents are data" (read-sub frame [::subs/committed :title]))
+      (is (= "Intents are data" (read-sub frame [::rf.hicasso.examples.editor.subs/committed :title]))
           "typing does not move the article")
-      (rf/dispatch-sync [::events/save] {:frame frame})
-      (is (= "Committed" (read-sub frame [::subs/committed :title])))
-      (is (= "Committed" (read-sub frame [::subs/field :title]))
+      (rf/dispatch-sync [::rf.hicasso.examples.editor.events/save] {:frame frame})
+      (is (= "Committed" (read-sub frame [::rf.hicasso.examples.editor.subs/committed :title])))
+      (is (= "Committed" (read-sub frame [::rf.hicasso.examples.editor.subs/field :title]))
           "and the draft still holds it — a save is not a reset")
-      (is (false? (read-sub frame [::subs/dirty?]))))))
+      (is (false? (read-sub frame [::rf.hicasso.examples.editor.subs/dirty?]))))))
 
 (deftest discarding-restores-the-draft-and-bumps-the-revision-from-absent
   (with-app
     (fn [frame]
       (type! frame :title "typed")
       (type! frame :slug "Typed Slug")
-      (is (= 0 (read-sub frame [::subs/revision]))
+      (is (= 0 (read-sub frame [::rf.hicasso.examples.editor.subs/revision]))
           "the subscription's own default answers 0 for the absent key, so
            the fields have a revision to render before any discard")
-      (rf/dispatch-sync [::events/discard] {:frame frame})
-      (is (= (get-in events/seed [:article :title])
-             (read-sub frame [::subs/field :title]))
+      (rf/dispatch-sync [::rf.hicasso.examples.editor.events/discard] {:frame frame})
+      (is (= (get-in rf.hicasso.examples.editor.events/seed [:article :title])
+             (read-sub frame [::rf.hicasso.examples.editor.subs/field :title]))
           "the model is back")
-      (is (= "intents-are-data" (read-sub frame [::subs/field :slug])))
-      (is (false? (read-sub frame [::subs/dirty?])))
-      (is (= 1 (read-sub frame [::subs/revision]))
+      (is (= "intents-are-data" (read-sub frame [::rf.hicasso.examples.editor.subs/field :slug])))
+      (is (false? (read-sub frame [::rf.hicasso.examples.editor.subs/dirty?])))
+      (is (= 1 (read-sub frame [::rf.hicasso.examples.editor.subs/revision]))
           "ONE, from a key that did not exist. `(fnil inc 0)` is what makes
            the FIRST discard a reset rather than a nil arithmetic error,
            and nothing on the public door says an application needs a
            counter at all — rf2-hic-025 finding 5, confirmed")
-      (rf/dispatch-sync [::events/discard] {:frame frame})
-      (is (= 2 (read-sub frame [::subs/revision]))
+      (rf/dispatch-sync [::rf.hicasso.examples.editor.events/discard] {:frame frame})
+      (is (= 2 (read-sub frame [::rf.hicasso.examples.editor.subs/revision]))
           "and a second discard bumps again, so two resets in a row are two
            distinct triggers rather than one repeated value"))))

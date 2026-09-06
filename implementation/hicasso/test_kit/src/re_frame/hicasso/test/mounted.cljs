@@ -187,12 +187,12 @@
             [clojure.walk :as walk]
             [cljs.test :as t]
             [re-frame.core :as rf]
-            [re-frame.error :as error]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.roots :as roots]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]
+            [re-frame.error :as rf.error]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
 
@@ -478,7 +478,7 @@
   facade does not visit should read it through the same door the report
   does, rather than through a second assembly of the same numbers."
   []
-  (assoc (runtime/residue) :frames (set (rf/frame-ids))))
+  (assoc (rf.hicasso.test.runtime/residue) :frames (set (rf/frame-ids))))
 
 ;; ---------------------------------------------------------------------------
 ;; The work counter — the census's opposite number
@@ -568,9 +568,9 @@
   where this counter bumps once per body INVOCATION — so on a body the
   fence re-ran the two disagree by design."
   [f]
-  (runtime/reset-body-runs!)
+  (rf.hicasso.test.runtime/reset-body-runs!)
   (f)
-  (runtime/body-runs))
+  (rf.hicasso.test.runtime/body-runs))
 
 (defn- leaked
   "What `now` has that `baseline` did not — the report's `:leaked` map, or
@@ -720,7 +720,7 @@
                              #js {:onUncaughtError (fn [error _info] (catch! error))})
                 :frame     frame-kw
                 :container container}]
-    (try (mount/render! handle hiccup)
+    (try (rf.hicasso.impl.mount/render! handle hiccup)
          (catch :default e (catch! e)))
     handle))
 
@@ -750,7 +750,7 @@
   So the rollback takes it down and the complaint is the honest residue
   of a hydration that failed."
   [frame-kw node supplied? root]
-  (when (some? root) (mount/unmount! root))
+  (when (some? root) (rf.hicasso.impl.mount/unmount! root))
   (when-not supplied?
     (when-some [p (.-parentNode node)] (.removeChild p node)))
   (swap! !facade-frames disj frame-kw)
@@ -842,7 +842,7 @@
    (try
      (let [[frame-kw ordinal] (mint-frame! initial-events)
            baseline           (census)
-           node               (or container (mount/fresh-container!))
+           node               (or container (rf.hicasso.impl.mount/fresh-container!))
            !refusal           (volatile! nil)
            root               (catching-root! node frame-kw form
                                               (fn [error]
@@ -914,11 +914,11 @@
   ([form {:keys [initial-events container html clock]} budget-ms]
    (let [[frame-kw ordinal] (mint-frame! initial-events)
          baseline  (census)
-         node      (or container (mount/fresh-container!))
+         node      (or container (rf.hicasso.impl.mount/fresh-container!))
          supplied? (some? container)
          _         (when (some? html) (set! (.-innerHTML node) html))
          !refusal  (volatile! nil)
-         root      (try (mount/hydrate-root! node frame-kw form)
+         root      (try (rf.hicasso.impl.mount/hydrate-root! node frame-kw form)
                         (catch :default e (vreset! !refusal e) nil))]
      (if-some [refusal @!refusal]
        (do (abandon! frame-kw node supplied? nil)
@@ -929,7 +929,7 @@
            (fn [resolve reject]
              (letfn [(tick []
                        (cond
-                         (not (roots/adopting? window))
+                         (not (rf.hicasso.impl.roots/adopting? window))
                          ;; Past the closer AND past the reap horizon, so the
                          ;; handle a caller receives is one whose tables have
                          ;; settled. This is also where the construction
@@ -974,7 +974,7 @@
 
   Takes a hydrated handle unchanged."
   [handle form]
-  (mount/render! handle form)
+  (rf.hicasso.impl.mount/render! handle form)
   handle)
 
 (defn settle!
@@ -1019,7 +1019,7 @@
   The flush is React's and is therefore page-wide; the handle is taken so
   that every door in this facade reads the same way."
   [handle]
-  (mount/settle!)
+  (rf.hicasso.impl.mount/settle!)
   handle)
 
 (defn settle-until!
@@ -1082,7 +1082,7 @@
   calls `done`; `re-frame.test-support/poll-until` says why."
   ([handle pred] (settle-until! handle pred nil))
   ([handle pred opts]
-   (.then (test-support/poll-until pred opts)
+   (.then (rf.test-support/poll-until pred opts)
           (fn [_] (settle! handle)))))
 
 (defn advance-clock!
@@ -1172,7 +1172,7 @@
 
   It is not `act`: see the namespace docstring."
   [handle event]
-  (mount/dispatch! handle event)
+  (rf.hicasso.impl.mount/dispatch! handle event)
   handle)
 
 (defn unmount!
@@ -1201,7 +1201,7 @@
   Idempotent: unmounting twice is not an error, and only the first call
   counts against the standing-mount census."
   [handle]
-  (mount/unmount! handle)
+  (rf.hicasso.impl.mount/unmount! handle)
   (when (= :mounted @(get handle state-key))
     (vreset! (get handle state-key) :unmounted)
     (swap! !standing dec))
@@ -1257,7 +1257,7 @@
   (release-clock-for! handle)
   (let [baseline (get handle baseline-key)
         mounted? (= :mounted @(get handle state-key))]
-    (.then (runtime/quiesced!)
+    (.then (rf.hicasso.test.runtime/quiesced!)
            (fn [_]
              (let [now (census)
                    l   (leaked baseline now)]
@@ -1339,7 +1339,7 @@
            (when (= :unmounted @(get handle state-key))
              (vreset! (get handle state-key) :read)
              (when (zero? (swap! !open dec))
-               (collector/reset-runtime!))
+               (rf.hicasso.impl.collector/reset-runtime!))
              (swap! !facade-frames disj (:frame handle))
              (rf/destroy-frame! (:frame handle)))
            report)))
@@ -1408,7 +1408,7 @@
   `:rf.error/hicasso-test-bad-option`. See the namespace docstring §Refusals
   on why this door refuses at all and why it mints no id to do it."
   [reason extra]
-  (throw (error/ex-info-from-data
+  (throw (rf.error/ex-info-from-data
            (merge extra
                   {:rf.error/id :rf.error/hicasso-test-bad-option
                    :where       're-frame.hicasso.test.mounted
@@ -1510,7 +1510,7 @@
   (persistent!
     (reduce (fn [attributes attribute]
               (let [attribute-name (.-name attribute)]
-                (if (contains? runtime/annotation-attributes attribute-name)
+                (if (contains? rf.hicasso.test.runtime/annotation-attributes attribute-name)
                   attributes
                   (assoc! attributes
                           attribute-name

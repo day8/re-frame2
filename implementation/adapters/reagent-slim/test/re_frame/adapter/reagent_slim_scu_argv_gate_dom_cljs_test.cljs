@@ -36,8 +36,8 @@
             [reagent2.core :as r]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
 ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's
@@ -45,8 +45,8 @@
 ;; subscribes resolve their frame from the enclosing `frame-provider` via the
 ;; React-context tier (mirrors the flush-render DOM twin).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-slim-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter
      :ambient-frame nil}))
 
 (defn- browser? []
@@ -62,7 +62,7 @@
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [frame-kw     :rf.reagent-slim-scu/probe-frame
-            flush!       (:flush-render! reagent-slim-adapter/adapter)
+            flush!       (:flush-render! rf.adapter.reagent-slim/adapter)
             render-count (atom 0)
             update-count (atom 0)
             ;; The child's ONLY input is the arg its parent passes down — it

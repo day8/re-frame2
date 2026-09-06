@@ -54,12 +54,12 @@
   published witness readers, which is what they are for."
   (:require ["react" :as react]
             [hicasso-hmr-testbed.views :as views]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]))
 
 ;; ---------------------------------------------------------------------------
 ;; The two frames — the routing row's whole premise
@@ -244,7 +244,7 @@
   nothing is claimed here about whether the runtime should also protect
   this one."
   [frame-kw query]
-  (mapv identity (runtime/cell-readers (sub-key frame-kw query))))
+  (mapv identity (rf.hicasso.test.runtime/cell-readers (sub-key frame-kw query))))
 
 (defn- capture-baseline!
   "Freeze the objects the next comparison is made against: the view head
@@ -254,10 +254,10 @@
   (reset! !baseline
           {:head     views/app
            :tokens   (into {} (map (fn [{:keys [frame]}]
-                                     [frame (frame/frame-incarnation-token frame)]))
+                                     [frame (rf.frame/frame-incarnation-token frame)]))
                            frames)
            :rows     (into {} (map (fn [{:keys [frame]}]
-                                     [frame (collector/frame-row frame)]))
+                                     [frame (rf.hicasso.impl.collector/frame-row frame)]))
                            frames)
            :readers  (into {} (for [{:keys [frame]} frames
                                     query watched-queries]
@@ -329,9 +329,9 @@
        (into {} (map (fn [{:keys [frame]}]
                        [(name frame)
                         {:token-same?    (identical? (get-in base [:tokens frame])
-                                                     (frame/frame-incarnation-token frame))
+                                                     (rf.frame/frame-incarnation-token frame))
                          :row-same?      (identical? (get-in base [:rows frame])
-                                                     (collector/frame-row frame))
+                                                     (rf.hicasso.impl.collector/frame-row frame))
                          :instance-same? (identical? (get-in base [:instances frame])
                                                      (get-in @!instances [frame :current]))}]))
              frames)
@@ -352,7 +352,7 @@
   []
   (doseq [{:keys [frame]} frames]
     (when-some [handle (get @!handles frame)]
-      (h/render! handle [views/app {:ref-sink    (get ref-sinks frame)
+      (rf.hicasso/render! handle [views/app {:ref-sink    (get ref-sinks frame)
                                     :island-refs (island-refs-for frame)}]))))
 
 (defn- seed!
@@ -414,7 +414,7 @@
     #js {:reloads       (fn [] @!reloads)
          :model         (fn [frame-name]
                           (js/JSON.stringify (clj->js (rf/app-db-value (frame-of frame-name)))))
-         :residue       (fn [] (clj->js (runtime/residue)))
+         :residue       (fn [] (clj->js (rf.hicasso.test.runtime/residue)))
          :capture       (fn [] (capture-baseline!))
          :identity      (fn [] (identity-report))
          :instance      (fn [frame-name]
@@ -425,7 +425,7 @@
          :note          (fn [frame-name text]
                           (some-> ^js (get-in @!instances [(frame-of frame-name) :current])
                                   (.note text)))
-         :quiesce       (fn [] (runtime/quiesced!))
+         :quiesce       (fn [] (rf.hicasso.test.runtime/quiesced!))
          :sabotage      (fn [on?] (vreset! !sabotage? (boolean on?)) @!sabotage?)
          :staleNotified (fn [] @!stale-notified)
          :setLabel      (fn [frame-name label]
@@ -446,12 +446,12 @@
 (defn ^:export init
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (doseq [{:keys [frame container label]} frames]
     (rf/make-frame {:id frame})
     (seed! frame label)
     (swap! !handles assoc frame
-           (h/mount! (js/document.getElementById container)
+           (rf.hicasso/mount! (js/document.getElementById container)
                      {:frame frame}
                      [views/app {:ref-sink    (get ref-sinks frame)
                                  :island-refs (island-refs-for frame)}])))

@@ -35,14 +35,14 @@
   is written on, and the validation and submit orchestration it
   deliberately leaves to them, are
   `docs/design/hicasso/product/forms-recipes.md`."
-  (:require [re-frame.events :as events]
+  (:require [re-frame.events :as rf.events]
             ;; Side-effecting: registers `:dispatch`, which the commit and
             ;; cancel handlers emit. Named here so the module is correct
             ;; standing alone rather than through `re-frame.core`.
             [re-frame.fx]
-            [re-frame.hicasso :as h]
+            [re-frame.hicasso :as rf.hicasso]
             ;; For `ui-root` alone — see `draft-path`.
-            [re-frame.hicasso.impl.state :as impl-state]))
+            [re-frame.hicasso.impl.state :as rf.hicasso.impl.state]))
 
 ;; ---------------------------------------------------------------------------
 ;; The draft's home
@@ -66,7 +66,7 @@
   release bundle for this exact string; a namespace rename would move a
   `::drafts` keyword while the scan went on matching nothing
   (`forms-cljs-test/the-concern-is-what-the-bundle-gate-pins`)."
-  (h/reg-state :re-frame.hicasso.forms/drafts {:default nil}))
+  (rf.hicasso/reg-state :re-frame.hicasso.forms/drafts {:default nil}))
 
 (defn- draft-path
   "`reg-state`'s `[:ui <concern> <ikey>]` layout for `control`. The
@@ -76,7 +76,7 @@
   shows a field whose session has ended and whose draft has not. The `:ui`
   tier is app-space by `reg-state`'s own contract."
   [control]
-  [impl-state/ui-root drafts control])
+  [rf.hicasso.impl.state/ui-root drafts control])
 
 (defn- record-of [db control] (get-in db (draft-path control)))
 
@@ -108,7 +108,7 @@
 ;; the field by hand.
 ;; ---------------------------------------------------------------------------
 
-(events/reg-event ::edit
+(rf.events/reg-event ::edit
   {:doc "`[::edit control revision text]` — the keystroke event, on
          `:on-input`. Write `{:revision revision :draft text}` at `control`, replacing
          whole whatever was there: a record a reset made ineligible is
@@ -118,7 +118,7 @@
   (fn [{:keys [db]} [_ control revision text]]
     {:db (assoc-in db (draft-path control) {:revision revision :draft text})}))
 
-(events/reg-event ::commit
+(rf.events/reg-event ::commit
   {:doc "`[::commit control revision on-commit]` — Enter and blur alike,
          since D016 makes them one operation.
          End the session at `control` and hand the caller its candidate:
@@ -145,7 +145,7 @@
           (seq on-commit)
           (assoc :fx [[:dispatch (conj (vec on-commit) (:draft record))]]))))))
 
-(events/reg-event ::cancel
+(rf.events/reg-event ::cancel
   {:doc "`[::cancel control revision on-cancel]` — Escape.
          Abandon the session at `control`: when the record is live under
          `revision`, remove it and dispatch `on-cancel` if one was given;
@@ -168,9 +168,9 @@
   "The props `buffered-field` consumes rather than forwards to the
   `<input>`; `:key` is here because it would be actively wrong on a DOM
   node."
-  [:control :value :on-commit :on-cancel :key ::h/revision])
+  [:control :value :on-commit :on-cancel :key ::rf.hicasso/revision])
 
-(h/defview buffered-field
+(rf.hicasso/defview buffered-field
   "A controlled `<input>` with an app-db draft in front of the committed
   value. Takes a stable `:control` address, the committed `:value`, its
   `::h/revision`, and the `:on-commit` event that receives a candidate:
@@ -216,14 +216,14 @@
   grid where that is too much, use an uncontrolled input or a native
   island. Chapter: `docs/core/hicasso/05-forms.md`."
   [{:keys [control value on-commit on-cancel] :as props}]
-  (let [revision (::h/revision props)
-        record   (h/sub [drafts control])]
+  (let [revision (::rf.hicasso/revision props)
+        record   (rf.hicasso/sub [drafts control])]
     [:input
      (merge {:type "text"}
             (apply dissoc props module-props)
             {:value       (if (live? record revision) (:draft record) value)
-             ::h/revision revision
-             :on-input    [::edit control revision ::h/value]
+             ::rf.hicasso/revision revision
+             :on-input    [::edit control revision ::rf.hicasso/value]
              :on-blur     [::commit control revision on-commit]
              ;; The key MAP rather than a callback reading `.key`: the
              ;; substrate's composition gate answers a key event there, so

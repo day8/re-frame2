@@ -6,8 +6,8 @@
   closing-repeat path for tools. Registration separately rejects overlapping
   output paths because output/output overlap creates no dependency edge and
   would otherwise leave write order undefined."
-  (:require [re-frame.error :as error]
-            [re-frame.path :as path]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.path :as rf.path]))
 
 (defn depends-on?
   "True when B reads a path overlapping A's output path."
@@ -15,14 +15,14 @@
   (let [a-path (:output-path a-flow)]
     (boolean
       (some (fn [b-input]
-              (or (path/prefix? a-path b-input)
-                  (path/prefix? b-input a-path)))
+              (or (rf.path/prefix? a-path b-input)
+                  (rf.path/prefix? b-input a-path)))
             (:inputs b-flow)))))
 
 (defn output-paths-overlap?
   "True when two output paths are equal or one is a prefix of the other."
   [a-path b-path]
-  (path/overlap? a-path b-path))
+  (rf.path/overlap? a-path b-path))
 
 (defn- first-overlapping-pair
   "Return a stable description of the first overlapping output pair, or nil.
@@ -57,7 +57,7 @@
   last-write order depend on map iteration. Returns `flow-map` when valid."
   [flow-map]
   (when-let [overlap (first-overlapping-pair flow-map)]
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/flow-path-overlap 'rf/reg-flow
       "Two flows in the same frame have overlapping output :output-paths (one is a prefix of the other, identical included). Their relative evaluation order is undefined — the topo-sort dependency rule compares :output-path against :inputs, never :output-path against :output-path, so no edge orders them and the shared slot would be written last-write-wins in map-iteration order (per Spec 013 §Disjoint output paths). Give each flow a disjoint :output-path."
       {:recovery :fix-registration
@@ -83,7 +83,7 @@
         (cond
           (nil? next-dependency-id)
           ;; Every unpeeled node must have an unpeeled dependency.
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/flow-cycle-extract-invariant 'rf/reg-flow
             "Cycle-path extraction reached a dead end: a stuck node found no stuck dependency to follow. Internal topo invariant violated — report with the :node / :stack / :seen / :remaining payload."
             {:extra {:node      node-id
@@ -159,7 +159,7 @@
             (if (seq remaining)
               ;; Registration validates the prospective map before mutation,
               ;; so callers can correct the graph and retry.
-              (error/throw-error!
+              (rf.error/throw-error!
                 :rf.error/flow-cycle 'rf/reg-flow
                 "Cyclic flow dependency — either two-or-more flows' :output-path / :inputs overlap mutually, or one flow's :inputs overlap its own :output-path (a self-cycle) (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain; a self-cycle repeats one id, e.g. [id id]."
                 {:recovery :fix-registration

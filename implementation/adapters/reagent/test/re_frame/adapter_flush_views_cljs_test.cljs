@@ -20,14 +20,14 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 (deftest flush-views-canonical-shape
   (testing "Reagent — flush-views! surfaced from the adapter ns with the
             canonical nil-return shape (rf2-b6nm5 / Decision 6)"
-    (is (fn? reagent-adapter/flush-views!)
+    (is (fn? rf.adapter.reagent/flush-views!)
         "the Reagent adapter ns exposes flush-views! as a fn (previously absent)")
-    (is (nil? (reagent-adapter/flush-views!))
+    (is (nil? (rf.adapter.reagent/flush-views!))
         "0-arity flush-views! returns nil — the converged contract across all four substrates")
-    (is (nil? (reagent-adapter/flush-views! (fn [] nil)))
+    (is (nil? (rf.adapter.reagent/flush-views! (fn [] nil)))
         "1-arity flush-views! also returns nil")))

@@ -35,11 +35,11 @@
 
   Listener registry and observation bookkeeping live in
   `re-frame.epoch.state`."
-  (:require [re-frame.epoch.assembly :as assembly]
-            [re-frame.epoch.capture :as capture]
-            [re-frame.epoch.state :as state]
-            [re-frame.interop :as interop]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.epoch.assembly :as rf.epoch.assembly]
+            [re-frame.epoch.capture :as rf.epoch.capture]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace :as rf.trace]))
 
 (defn- deliver-listener-snapshot!
   "Deliver `record` to an already-snapshotted listener generation.
@@ -65,7 +65,7 @@
    (let [frame-id (:frame record)
          emit-listener-exception!
          (fn [callback-id listener-error]
-           (trace/emit-error! :rf.epoch.cb/listener-exception
+           (rf.trace/emit-error! :rf.epoch.cb/listener-exception
                                {:frame       frame-id
                                 :cb-id       callback-id
                                 :rf.epoch/id (:epoch-id record)
@@ -78,7 +78,7 @@
             ;; Stamp only the callback that is actually about to run. A later
             ;; listener suppressed by owner loss must not be reported observed.
             (when record-observation?
-              (state/record-observation! callback-id generation frame-id))
+              (rf.epoch.state/record-observation! callback-id generation frame-id))
             (try
               (callback record)
               (catch #?(:clj Throwable :cljs :default) listener-error
@@ -89,7 +89,7 @@
                    ;; A's terminal callback fault is A's own diagnostic. A same-id
                    ;; B that a listener just installed (possibly no-emit) must not
                    ;; suppress or capture it (rf2-vxgfnd.152).
-                    (trace/call-with-structural-delivery
+                    (rf.trace/call-with-structural-delivery
                       #(emit-listener-exception! callback-id listener-error))
                     (emit-listener-exception! callback-id listener-error)))))
            (recur (next entries))))))))
@@ -113,7 +113,7 @@
   ([record]
    (notify-listeners! record (constantly true)))
   ([record continue?]
-   (let [listener-snapshot (state/listeners-snapshot)]
+   (let [listener-snapshot (rf.epoch.state/listeners-snapshot)]
      (when (continue?)
        (deliver-listener-snapshot! record listener-snapshot continue? true)))))
 
@@ -154,13 +154,13 @@
   first cascade) or when the target epoch has been evicted from the ring
   — `back-fill-render!` returns nil and we skip the re-notify."
   [frame-id event]
-  (when interop/debug-enabled?
-    (when-let [default-epoch-id (state/last-settled-epoch-id frame-id)]
+  (when rf.interop/debug-enabled?
+    (when-let [default-epoch-id (rf.epoch.state/last-settled-epoch-id frame-id)]
       (let [render-key (-> event :tags :rf.view/render-key)
-            target-epoch-id (state/resolve-render-epoch frame-id render-key
+            target-epoch-id (rf.epoch.state/resolve-render-epoch frame-id render-key
                                                          default-epoch-id)]
         ;; Record the mount anchor on first sighting; never overwrites.
-        (state/record-mount-epoch! frame-id render-key target-epoch-id)
+        (rf.epoch.state/record-mount-epoch! frame-id render-key target-epoch-id)
         ;; De-dup a mount-burst tail ONLY when it was REDIRECTED away from
         ;; the settling cascade (`target-epoch-id` ≠ `default-epoch-id`) back to a
         ;; mount epoch where the instance already rendered. A genuine
@@ -170,13 +170,13 @@
         ;; ride their cascade (only the late mount-burst tail is absorbed).
         (when-not (and render-key
                        (not= target-epoch-id default-epoch-id)
-                       (state/render-key-already-in-epoch?
+                       (rf.epoch.state/render-key-already-in-epoch?
                          frame-id target-epoch-id render-key))
           ;; Back-fill stores the raw event and row; egress projection remains
           ;; the only redaction boundary.
           (when-let [updated-record
-                     (state/back-fill-render! frame-id target-epoch-id event
-                                              (capture/render-row event))]
+                     (rf.epoch.state/back-fill-render! frame-id target-epoch-id event
+                                              (rf.epoch.capture/render-row event))]
             ;; Re-fan the corrected record so snapshot consumers re-read
             ;; the ring. The fan-out is failure-isolated per listener
             ;; (same contract as the settle-time fan-out); a render-driven
@@ -202,12 +202,12 @@
   first cascade) or when the target epoch has been evicted from the ring
   — `back-fill-sub-run!` returns nil and we skip the re-notify."
   [frame-id event]
-  (when interop/debug-enabled?
-    (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
+  (when rf.interop/debug-enabled?
+    (when-let [epoch-id (rf.epoch.state/last-settled-epoch-id frame-id)]
       ;; Store raw; projection remains the egress boundary.
       (when-let [updated-record
-                 (state/back-fill-sub-run! frame-id epoch-id event
-                                           (capture/sub-run-row event))]
+                 (rf.epoch.state/back-fill-sub-run! frame-id epoch-id event
+                                           (rf.epoch.capture/sub-run-row event))]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render back-fill above.
@@ -257,11 +257,11 @@
   target epoch has been evicted from the ring — `back-fill-unmount!` returns
   nil and we skip the re-notify."
   [frame-id event]
-  (when interop/debug-enabled?
-    (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
+  (when rf.interop/debug-enabled?
+    (when-let [epoch-id (rf.epoch.state/last-settled-epoch-id frame-id)]
       ;; Unmount has no structured row, so only retained raw trace is updated.
       (when-let [updated-record
-                 (state/back-fill-unmount! frame-id epoch-id event)]
+                 (rf.epoch.state/back-fill-unmount! frame-id epoch-id event)]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render / sub-run back-fill above.
@@ -270,7 +270,7 @@
     ;; the map stays bounded across instance churn (NOT retained until
     ;; whole-frame destroy). Runs whether or not the back-fill found a live
     ;; epoch — the entry is dead once the instance unmounts.
-    (state/drop-render-key-mount-attribution!
+    (rf.epoch.state/drop-render-key-mount-attribution!
       frame-id (-> event :tags :rf.view/render-key))))
 
 (defn snapshot-terminal-destroy-evidence!
@@ -315,12 +315,12 @@
   Schema digesting is intentionally omitted: A's schemas are already torn down
   and a bare-id digest could only resolve absent state or a same-id B."
   [frame-id fs-before fs-after committed-at]
-  (when interop/debug-enabled?
-    (let [buffered-events   (state/buffer-for frame-id)
+  (when rf.interop/debug-enabled?
+    (let [buffered-events   (rf.epoch.state/buffer-for frame-id)
           in-flight?        (some #(= :rf.event/run-start (:operation %))
                                   buffered-events)
           record            (when in-flight?
-                              (assembly/build-record
+                              (rf.epoch.assembly/build-record
                                 frame-id fs-before fs-after buffered-events
                                 committed-at :halted-destroy
                                 {:operation :rf.frame/destroyed-mid-drain}
@@ -329,7 +329,7 @@
           ;; owed-observer generations come from the SAME registry read used to
           ;; qualify them, so a replacement mid-snapshot can never attribute A's
           ;; observation to a fresh generation it never observed under.
-          {:keys [listeners observing]} (state/snapshot-terminal-observers frame-id)
+          {:keys [listeners observing]} (rf.epoch.state/snapshot-terminal-observers frame-id)
           ;; A mid-drain record is fanned to every current listener, so each owes
           ;; a silence under ITS live generation (from the same `listeners` read).
           listener-snapshot (if record listeners {})
@@ -337,11 +337,11 @@
                               record (into (map (fn [[cb {:keys [generation]}]]
                                                   [cb generation]))
                                            listeners))
-          baseline          (state/current-terminal-silence-seq)]
+          baseline          (rf.epoch.state/current-terminal-silence-seq)]
       ;; Open the frame's deferred-silence window BEFORE dissoc so its
       ;; terminal-silence marks survive until this predecessor publishes; the
       ;; paired `close-silence-lineage!` runs in `on-frame-destroyed!`.
-      (state/open-silence-lineage! frame-id)
+      (rf.epoch.state/open-silence-lineage! frame-id)
       {:record               record
        :listener-snapshot    listener-snapshot
        :silenced-cbs         silenced-cbs
@@ -423,7 +423,7 @@
    ;; UNCONDITIONALLY of terminal-evidence; (2) terminal-record/silencing
    ;; PUBLICATION stays conditional on a non-nil bundle. Neither is folded into
    ;; the gate condition itself.
-   (when interop/debug-enabled?
+   (when rf.interop/debug-enabled?
      ;; (1) EXACT-OWNER STORE CLEANUP — runs whether or not terminal-evidence is
      ;; nil. Cleanup authority is the frame-id + owner-token, NOT the snapshot
      ;; bundle: a throwing `:epoch/snapshot-frame-destroyed` hook yields nil
@@ -438,16 +438,16 @@
      ;; winning this comparison is NOT the same fact as "no successor re-armed the
      ;; observers" (a claim without delivery loses it; a re-arm-then-destroy wins
      ;; it), which the per-identity claim resolves precisely.
-     (state/cleanup-frame-owner!
+     (rf.epoch.state/cleanup-frame-owner!
        frame-id owner-token
        (fn []
          ;; Data-only exact-owner transaction: no external callback runs
          ;; between owner comparison and the complete drop.
-         (state/drop-frame-observation! frame-id)
-         (state/drop-frame-history! frame-id)
-         (state/drop-frame-buffer! frame-id)
-         (state/drop-last-settled-epoch! frame-id)
-         (state/drop-frame-mount-attribution! frame-id)
+         (rf.epoch.state/drop-frame-observation! frame-id)
+         (rf.epoch.state/drop-frame-history! frame-id)
+         (rf.epoch.state/drop-frame-buffer! frame-id)
+         (rf.epoch.state/drop-last-settled-epoch! frame-id)
+         (rf.epoch.state/drop-frame-mount-attribution! frame-id)
          true))
      ;; (2) TERMINAL-RECORD + SILENCING PUBLICATION — conditional on a non-nil
      ;; bundle. A non-nil bundle means `snapshot-terminal-destroy-evidence!`
@@ -470,8 +470,8 @@
            ;; Same detailed/coarse trailer pair as normal commits, delivered
            ;; structurally: excluded from capture ownership and immune to a same-id
            ;; B's frame-no-emit policy.
-           (trace/call-with-structural-delivery
-             #(assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
+           (rf.trace/call-with-structural-delivery
+             #(rf.epoch.assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
                                                   (:event-id record) :halted-destroy))
            (deliver-listener-snapshot! record listener-snapshot))
          ;; PER-IDENTITY atomic-claim-THEN-PUBLISH silencing (rf2-vxgfnd.285 /
@@ -502,18 +502,18 @@
          ;; delivery throws, the reservation is rolled back (under silence-lock)
          ;; and the fault propagates.
          (doseq [[cb-id observed-gen] (sort-by (comp str key) silenced-cbs)]
-           (state/claim-and-publish-delayed-silence!
+           (rf.epoch.state/claim-and-publish-delayed-silence!
              frame-id cb-id observed-gen baseline-silence-seq
              ;; The silencing fact belongs to destroyed A too; never let a
              ;; same-id successor's trace policy suppress or capture it. The
              ;; `:observed-gen` qualifier is what lets the emit run outside the
              ;; ledger locks without reopening the G→H window (rf2-8b9twg).
-             #(trace/call-with-structural-delivery
+             #(rf.trace/call-with-structural-delivery
                 (fn []
-                  (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
+                  (rf.trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
                                {:frame frame-id :cb-id cb-id
                                 :observed-gen observed-gen}))))))
         (finally
           ;; Close the deferred-silence window opened at snapshot time. When the
           ;; frame's last outstanding predecessor resolves, its marks are reclaimed.
-          (state/close-silence-lineage! frame-id)))))))
+          (rf.epoch.state/close-silence-lineage! frame-id)))))))

@@ -46,11 +46,11 @@
   CLJS is single-threaded; this race is JVM-only by construction."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.flows.registry :as registry]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---- per-test reset -------------------------------------------------------
@@ -61,7 +61,7 @@
 ;; ambient `reg-flow` calls in the bodies below carry a frame stamp.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- await! [^CountDownLatch latch where]
   (is (.await latch 30 TimeUnit/SECONDS)
@@ -119,7 +119,7 @@
       (try
         (let [clearer
               (future
-                (flows/clear-flow :doubled {:frame :rf/default}))
+                (rf.flows/clear-flow :doubled {:frame :rf/default}))
               ;; Thread B: once clear-flow has vacated (and is parked under
               ;; the drain-lock), fire an input-changing event. It
               ;; spin-CAS-waits on the drain-lock until clear-flow finishes,
@@ -151,15 +151,15 @@
           (alter-var-root vacate-var (constantly orig-vacate))))
 
       ;; --- The load-bearing post-conditions (bead acceptance) -----------
-      (is (not (contains? (get (flows/flows-snapshot) :rf/default) :doubled))
+      (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :doubled))
           "registry row gone: clear-flow removed :doubled from the per-frame registry")
-      (is (not (contains? (flows/last-inputs-snapshot) :doubled))
+      (is (not (contains? (rf.flows/last-inputs-snapshot) :doubled))
           "last-inputs row gone: clear-flow dropped the dirty-check row")
       (is (not (contains? (rf/app-db-value :rf/default) :out))
           (str "output path ABSENT after clear-flow returned — the racing "
                "drain did NOT re-commit the vacated :out. Pre-fix it would "
                "hold the stale value " (:out (rf/app-db-value :rf/default))))
-      (is (nil? (registrar/lookup :flow :doubled))
+      (is (nil? (rf.registrar/lookup :flow :doubled))
           "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
 
 ;; ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@
   ;; here — the original `reg-flow` is a first-time registration and the seed
   ;; dispatch advances the row directly, neither routing through this fn.)
   (testing "an unrelated dispatch racing the invalidate window still gets a fresh recompute"
-    (let [orig-drop @#'registry/drop-frame-flow-last-inputs!
+    (let [orig-drop @#'rf.flows.registry/drop-frame-flow-last-inputs!
           published     (CountDownLatch. 1)
           raced         (CountDownLatch. 1)
           release       (CountDownLatch. 1)]
@@ -199,7 +199,7 @@
       (is (= 10 (:out (rf/app-db-value :rf/default)))
           "precondition: the original flow materialised :out = 2 × :n = 10")
 
-      (with-redefs [registry/drop-frame-flow-last-inputs!
+      (with-redefs [rf.flows.registry/drop-frame-flow-last-inputs!
                     (fn [frame-id flow-id]
                       ;; The new flow is ALREADY published into `flows` by
                       ;; reg-flow's swap! before this call; parking here opens
@@ -323,7 +323,7 @@
         ;; Thread B: clear :scaled. A pre-lock read would capture the OLD
         ;; `[:out-a]` now (A hasn't swapped yet); B then blocks on the
         ;; drain-lock A's drain holds.
-        (let [clearer (future (flows/clear-flow :scaled {:frame :rf/default}))]
+        (let [clearer (future (rf.flows/clear-flow :scaled {:frame :rf/default}))]
           ;; B must NOT complete while A holds the lock — it's blocked on the
           ;; drain-lock (bounded wait; B's pre-lock read, if any, is a few
           ;; instructions before the blocking acquire).
@@ -339,11 +339,11 @@
               "clear-flow completed within 30s")))
 
       ;; --- The load-bearing post-conditions (bead acceptance) -----------
-      (is (not (contains? (get (flows/flows-snapshot) :rf/default) :scaled))
+      (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :scaled))
           "registry row gone: clear-flow removed :scaled")
-      (is (not (contains? (flows/last-inputs-snapshot) :scaled))
+      (is (not (contains? (rf.flows/last-inputs-snapshot) :scaled))
           "last-inputs row gone")
-      (is (nil? (registrar/lookup :flow :scaled))
+      (is (nil? (rf.registrar/lookup :flow :scaled))
           "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk single-store)")
       ;; THE LOAD-BEARING ASSERT: clear-flow vacated the REPLACEMENT's live
       ;; path (:out-b), not the stale pre-lock :out-a. A stale pre-lock read
@@ -405,7 +405,7 @@
                "as " (:out-a db) "."))
       (is (= 500 (:out-b db))
           ":out-b = 100 × :n = 500 — the moved flow materialised on its new path")
-      (is (= [:out-b] (:output-path (get-in (flows/flows-snapshot) [:rf/default :scaled])))
+      (is (= [:out-b] (:output-path (get-in (rf.flows/flows-snapshot) [:rf/default :scaled])))
           "the live registry points :scaled at its new path [:out-b]"))))
 
 (deftest reg-flow-path-move-out-of-drain-vacates-directly
@@ -472,7 +472,7 @@
     ;; A handler that, mid-drain, clears :scaled and returns its db UNCHANGED.
     (rf/reg-event :clear-scaled
                   (fn [{:keys [db]} _]
-                    (flows/clear-flow :scaled {:frame :rf/default})
+                    (rf.flows/clear-flow :scaled {:frame :rf/default})
                     {:db db}))
     (rf/dispatch-sync [:clear-scaled] {:frame :rf/default})
 
@@ -484,9 +484,9 @@
                "and :out-a resurrected as " (:out-a db) "."))
       (is (= 35 (:out-kept db))
           ":out-kept (the sibling flow, never cleared) is untouched")
-      (is (not (contains? (get (flows/flows-snapshot) :rf/default) :scaled))
+      (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :scaled))
           "registry row gone: clear-flow removed :scaled")
-      (is (contains? (get (flows/flows-snapshot) :rf/default) :kept)
+      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :kept)
           "the sibling flow's registry row survives"))))
 
 (deftest clear-flow-in-drain-last-flow-on-frame-does-not-resurrect-cleared-output
@@ -507,7 +507,7 @@
     ;; returns its db UNCHANGED.
     (rf/reg-event :clear-solo
                   (fn [{:keys [db]} _]
-                    (flows/clear-flow :solo {:frame :rf/default})
+                    (rf.flows/clear-flow :solo {:frame :rf/default})
                     {:db db}))
     (rf/dispatch-sync [:clear-solo] {:frame :rf/default})
 
@@ -517,7 +517,7 @@
                "LAST flow still vacated through the deferred commit (the "
                "empty-flow-map drain BEFORE the early return). Pre-fix it "
                "resurrected as " (:out-solo db) "."))
-      (is (not (contains? (flows/flows-snapshot) :rf/default))
+      (is (not (contains? (rf.flows/flows-snapshot) :rf/default))
           "the per-frame flows entry is pruned entirely — clearing the last flow drops the frame key")
-      (is (empty? (registry/abandoned-output-paths-snapshot :rf/default))
+      (is (empty? (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))
           "the abandoned-path bookkeeping was drained, not left pending forever"))))

@@ -87,29 +87,29 @@
   was adopting for as long as any root anywhere was hydrating, and the
   tray would skip its enter transition for a hydration it had nothing to
   do with. The window this reads can only be its own root's."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.presence :as presence]
-            [re-frame.hicasso.impl.roots :as roots]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.presence :as rf.hicasso.impl.presence]
+            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
             ["react" :as react]))
 
 (defn- now [] (js/Date.now))
 
 (defn- presence-body [js-props]
   (let [props      (or (unchecked-get js-props "rfProps") {})
-        timeout-ms (presence/check-timeout! (:timeout-ms props))
+        timeout-ms (rf.hicasso.impl.presence/check-timeout! (:timeout-ms props))
         children   (:children props)
         ;; The frame hook. Classified through the shared reader the whole
         ;; substrate uses, so the no-provider sentinel resolves to nil
         ;; ("no scope") rather than being mistaken for a frame keyword.
-        frame-kw   (adapter-context/context-value->current-frame
-                     (react/useContext adapter-context/frame-context))
-        hook       (react/useState presence/initial)
+        frame-kw   (rf.adapter.context/context-value->current-frame
+                     (react/useContext rf.adapter.context/frame-context))
+        hook       (react/useState rf.hicasso.impl.presence/initial)
         state      (aget hook 0)
         set-state  (aget hook 1)
-        stepped    (presence/step state children (now) timeout-ms)
+        stepped    (rf.hicasso.impl.presence/step state children (now) timeout-ms)
         ;; BORN PRESENT UNDER ADOPTION. A child a render
         ;; meets for the first time is `:mounting`, which is right for a
         ;; child that is genuinely appearing and wrong for one that is
@@ -150,27 +150,27 @@
         ;; paths are measured in
         ;; `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`: §1 the
         ;; windowless one, §5 the product door.
-        next       (if (roots/adopting-here?) (presence/settle stepped) stepped)]
+        next       (if (rf.hicasso.impl.roots/adopting-here?) (rf.hicasso.impl.presence/settle stepped) stepped)]
     ;; Adjusting state while rendering — React's own answer to "a value
     ;; derived from props that must persist". `step` is idempotent, so the
     ;; equality test converges rather than looping.
     (when-not (= next state) (set-state next))
     (react/useEffect
       (fn []
-        (let [expiry (when-some [d (presence/next-deadline next)]
+        (let [expiry (when-some [d (rf.hicasso.impl.presence/next-deadline next)]
                        (js/setTimeout
-                         (fn [] (set-state (fn [s] (presence/expire s (now)))))
+                         (fn [] (set-state (fn [s] (rf.hicasso.impl.presence/expire s (now)))))
                          (max 0 (- d (now)))))
               ;; The enter flip lands on a macrotask rather than a layout
               ;; effect: a class flip that beats the browser's first paint
               ;; of the mounting styles animates nothing, and this is the
               ;; weak half the guide teaches around.
-              enter  (when (presence/mounting? next)
-                       (js/setTimeout (fn [] (set-state presence/settle)) 0))]
+              enter  (when (rf.hicasso.impl.presence/mounting? next)
+                       (js/setTimeout (fn [] (set-state rf.hicasso.impl.presence/settle)) 0))]
           (fn []
             (when expiry (js/clearTimeout expiry))
             (when enter (js/clearTimeout enter)))))
-      #js [(presence/pending-signature next)])
+      #js [(rf.hicasso.impl.presence/pending-signature next)])
     ;; THE LOWERING, inside the frame. These children were
     ;; written in the parent's body and are walked here, so the ambient
     ;; frame the codec's intent lowering reads has to be re-established
@@ -178,8 +178,8 @@
     ;; the tray — the binding is unconditional so the branch does not
     ;; exist, and an intent written under a frameless tray still lands on
     ;; the existing loud error naming the intent.
-    (intent/with-frame frame-kw (when frame-kw (collector/frame-dispatch frame-kw))
-      (fn [] (codec/as-element (into [:<>] (presence/render next)))))))
+    (rf.hicasso.impl.intent/with-frame frame-kw (when frame-kw (rf.hicasso.impl.collector/frame-dispatch frame-kw))
+      (fn [] (rf.hicasso.impl.codec/as-element (into [:<>] (rf.hicasso.impl.presence/render next)))))))
 
 (def presence
   "`h/presence` — a boundary that retains exiting keyed children for
@@ -199,4 +199,4 @@
   subscription and holds no cell. It inserts no wrapper node and stamps
   no `data-*`; every child it renders is the author's own node with the
   author's own attributes merged."
-  (codec/mark-boundary! (doto presence-body (aset "displayName" "hicasso/presence"))))
+  (rf.hicasso.impl.codec/mark-boundary! (doto presence-body (aset "displayName" "hicasso/presence"))))

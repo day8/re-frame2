@@ -80,15 +80,15 @@
   keeps the claim and changes the condition: a frame running an EXPLICIT
   image, where a selection is a thing a read can get wrong."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.interop :as interop]
-            [re-frame.subs :as subs]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.interop :as rf.interop]
+            [re-frame.subs :as rf.subs]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::cold-probe)
 
@@ -104,10 +104,10 @@
 (rf/reg-event :coldprobe/seed (fn [_ [_ db]] {:db db}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!) (vreset! !runs 0))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!) (vreset! !runs 0))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -130,9 +130,9 @@
   about."
   [fid f]
   (let [!seen (volatile! [])]
-    (collector/render-body
+    (rf.hicasso.impl.collector/render-body
       fid
-      (fn [_] (f (fn [query-v] (vswap! !seen conj (collector/sub query-v)))) [:p])
+      (fn [_] (f (fn [query-v] (vswap! !seen conj (rf.hicasso.impl.collector/sub query-v)))) [:p])
       {})
     @!seen))
 
@@ -159,7 +159,7 @@
   [fid selected-ns]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id fid :images [(rf/image {:select-ns {:include [selected-ns]}})]})
-  (frame/replace-app-db! fid {:v 7})
+  (rf.frame/replace-app-db! fid {:v 7})
   (vreset! !runs 0)
   fid)
 
@@ -167,16 +167,16 @@
   "The frame's own sub-cache slot for `query-v`, or nil. The probe
   promises not to create one; `subs/subscribe` is what does."
   [query-v]
-  (get @(:sub-cache (frame/frame frame-id)) query-v))
+  (get @(:sub-cache (rf.frame/frame frame-id)) query-v))
 
 (defn- errors-during
   "Run `thunk` with the always-on error listener attached; answer the
   records it emitted."
   [thunk]
   (let [!records (volatile! [])]
-    (error-emit/register-error-listener! ::cold-probe (fn [r] (vswap! !records conj r)))
+    (rf.error-emit/register-error-listener! ::cold-probe (fn [r] (vswap! !records conj r)))
     (try (thunk)
-         (finally (error-emit/unregister-error-listener! ::cold-probe)))
+         (finally (rf.error-emit/unregister-error-listener! ::cold-probe)))
     @!records))
 
 ;; ---------------------------------------------------------------------------
@@ -192,25 +192,25 @@
             reverse edge and no watch; no sub-cache slot, so no reaction
             and no ref-count. An abandoned render pays for its reads and
             keeps none of them"
-    (is (nil? (get @collector/!cells (sub-key [:coldprobe/plain]))))
+    (is (nil? (get @rf.hicasso.impl.collector/!cells (sub-key [:coldprobe/plain]))))
     (is (nil? (sub-cache-entry [:coldprobe/plain])))
-    (is (= [] (runtime/cell-readers (sub-key [:coldprobe/plain]))))
+    (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-           (dissoc (runtime/residue) :entries))))
+           (dissoc (rf.hicasso.test.runtime/residue) :entries))))
 
   ;; THE CONTROL, and the reason the four nils above mean anything. Both
   ;; tables are perfectly capable of holding this key; what decides is
   ;; whether React committed the render.
-  (let [entry   (do (collector/render-body
-                      frame-id (fn [_] (collector/sub [:coldprobe/plain]) [:p]) {})
-                    (collector/last-reads))
-        release (collector/commit-boundary! entry (fn []))]
+  (let [entry   (do (rf.hicasso.impl.collector/render-body
+                      frame-id (fn [_] (rf.hicasso.impl.collector/sub [:coldprobe/plain]) [:p]) {})
+                    (rf.hicasso.impl.collector/last-reads))
+        release (rf.hicasso.impl.collector/commit-boundary! entry (fn []))]
     (testing "committing the very same read fills both tables — so the
               emptiness above is the probe's promise, not an instrument
               that cannot see"
-      (is (some? (get @collector/!cells (sub-key [:coldprobe/plain]))))
+      (is (some? (get @rf.hicasso.impl.collector/!cells (sub-key [:coldprobe/plain]))))
       (is (some? (sub-cache-entry [:coldprobe/plain])))
-      (is (= 1 (count (runtime/cell-readers (sub-key [:coldprobe/plain]))))))
+      (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))))
     (release)))
 
 (deftest a-cold-read-answers-what-the-committed-path-answers
@@ -219,15 +219,15 @@
   ;; probe's pure compute and the reactive build share the input grammar,
   ;; so a value must not depend on which rung answered it.
   (let [cold (first (run-body! (fn [read] (read [:coldprobe/plain]))))]
-    (let [entry   (do (collector/render-body
-                        frame-id (fn [_] (collector/sub [:coldprobe/plain]) [:p]) {})
-                      (collector/last-reads))
-          release (collector/commit-boundary! entry (fn []))
+    (let [entry   (do (rf.hicasso.impl.collector/render-body
+                        frame-id (fn [_] (rf.hicasso.impl.collector/sub [:coldprobe/plain]) [:p]) {})
+                      (rf.hicasso.impl.collector/last-reads))
+          release (rf.hicasso.impl.collector/commit-boundary! entry (fn []))
           warm    (first (run-body! (fn [read] (read [:coldprobe/plain]))))]
       (testing "the warm read really is warm — a committed cell now holds
                 the key, so this second read is a pure deref and not a
                 second cold one"
-        (is (some? (get @collector/!cells (sub-key [:coldprobe/plain])))))
+        (is (some? (get @rf.hicasso.impl.collector/!cells (sub-key [:coldprobe/plain])))))
       (is (= cold warm))
       (is (= 7 warm))
       (release))))
@@ -255,7 +255,7 @@
             scratch's sub-keys are values: a repeated read is a repeated
             entry in the sequence and one member of the set"
     (is (= #{(sub-key [:coldprobe/counted])}
-           (runtime/reads-of (collector/last-reads)))))
+           (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads)))))
 
   ;; THE OTHER HALF, and it is the half a global memo would break. The box
   ;; is reset by every body run, so a LATER render computes again rather
@@ -312,8 +312,8 @@
   ;; only through a capturing deref, and an unactivated container
   ;; recomputes on every deref, which would make the count below say
   ;; nothing.
-  (let [reaction (subs/subscribe [:coldprobe/counted] {:frame frame-id})]
-    (interop/activate-derived-value! reaction)
+  (let [reaction (rf.subs/subscribe [:coldprobe/counted] {:frame frame-id})]
+    (rf.interop/activate-derived-value! reaction)
     @reaction
     (vreset! !runs 0)
 
@@ -321,7 +321,7 @@
               cell holds the key, so this read is cold by the runtime's
               own definition and rung 1 is the rung it must take"
       (is (some? (sub-cache-entry [:coldprobe/counted])))
-      (is (nil? (get @collector/!cells (sub-key [:coldprobe/counted])))))
+      (is (nil? (get @rf.hicasso.impl.collector/!cells (sub-key [:coldprobe/counted])))))
 
     (testing "the read answers the reaction's own value"
       (is (= [7] (run-body! (fn [read] (read [:coldprobe/counted]))))))
@@ -331,7 +331,7 @@
               rung 1 buys over the pure compute beneath it"
       (is (= 0 @!runs)))
 
-    (subs/unsubscribe frame-id [:coldprobe/counted]))
+    (rf.subs/unsubscribe frame-id [:coldprobe/counted]))
 
   ;; THE CONTROL. Same key, same body, same value — with the warm reaction
   ;; released, so rung 1 has nothing to find and the read falls to the

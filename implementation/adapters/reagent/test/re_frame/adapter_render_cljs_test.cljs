@@ -26,7 +26,7 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent.dom.client :as rdc]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -77,7 +77,7 @@
                     rdc/unmount       (fn [arg]
                                         (swap! calls conj [:unmount arg])
                                         nil)]
-        (let [render-fn (:render reagent-adapter/adapter)
+        (let [render-fn (:render rf.adapter.reagent/adapter)
               unmount   (render-fn fake-tree fake-mount nil)]
           (is (fn? unmount)
               "render returns an unmount thunk")
@@ -142,7 +142,7 @@
                     rdc/unmount      (fn [arg]
                                        (swap! calls conj [:unmount arg])
                                        nil)]
-        (let [render-fn (:render reagent-adapter/adapter)
+        (let [render-fn (:render rf.adapter.reagent/adapter)
               unmount   (render-fn fake-tree fake-mount {:hydrate? true})]
           (is (fn? unmount))
           (is (= 1 (count @calls))
@@ -181,7 +181,7 @@
                                        ([_ _]   fake-root)
                                        ([_ _ _] fake-root))
                     rdc/unmount      (fn [_] nil)]
-        (let [render-fn (:render reagent-adapter/adapter)]
+        (let [render-fn (:render rf.adapter.reagent/adapter)]
           (render-fn [:div] fake-mount nil)
           (is (= 1 (count @render-calls)))
           (let [[root tree] (first @render-calls)]

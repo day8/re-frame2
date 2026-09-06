@@ -69,14 +69,14 @@
   React DOM. The declaration rows and the `renderToString` rows need no
   DOM and run under `:node-test` too."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.checkpoint-support :as support]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]
             ["react-dom/server" :as react-dom-server]))
@@ -95,19 +95,19 @@
   (fn [{:keys [db]} [_ what]] {:db (update db :log conj what)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; the hydration row waits on a real clock, and `cljs.test` hard-errors
      ;; on a fn-form fixture in a suite with an async test.
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why]
   (is true (str "a portal claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.portal/seed]))
   frame-id)
@@ -131,8 +131,8 @@
 
 (defn- click! [node]
   (.click node)
-  (mount/settle!)
-  (mount/settle!))
+  (rf.hicasso.impl.mount/settle!)
+  (rf.hicasso.impl.mount/settle!))
 
 ;; ---------------------------------------------------------------------------
 ;; The pages
@@ -148,9 +148,9 @@
   (react/useEffect (fn [] (swap! !child-mounts inc) js/undefined) #js [])
   (react/createElement "span" #js {:className "counted"} "in the rack"))
 
-(h/defhost counted-host counted {:server :render})
+(rf.hicasso/defhost counted-host counted {:server :render})
 
-(h/defview toast-body
+(rf.hicasso/defview toast-body
   "A BOUNDARY inside the portal, and a second claim from the first one.
   An intent is lowered EAGERLY, in the writing window, and carries its
   frame-locked dispatch with it — so the intent row below would stay
@@ -160,9 +160,9 @@
   context. Context that did not reach here would be
   `:rf.error/no-frame-context` at the shell, before the body ran."
   [_]
-  [:p.deep (str (collector/sub [:hicasso.portal/message]))])
+  [:p.deep (str (rf.hicasso.impl.collector/sub [:hicasso.portal/message]))])
 
-(h/defview toast-page
+(rf.hicasso/defview toast-page
   "THE PAGE, used on both sides of the hydration row and on the client
   rows alike. `:target` arrives as a prop because a server pass has no
   container to name and the remount row needs to hand the same page a
@@ -170,26 +170,26 @@
   two sides render identically whatever is passed."
   [{:keys [target]}]
   [:div.owner {:on-click [:hicasso.portal/note "ancestor"]}
-   [:h1.title (str (collector/sub [:hicasso.portal/message]))]
-   [h/portal {:target   target
+   [:h1.title (str (rf.hicasso.impl.collector/sub [:hicasso.portal/message]))]
+   [rf.hicasso/portal {:target   target
               :fallback [:div.rack-placeholder "rack loading"]}
     [:button.toast {:on-click [:hicasso.portal/note "toast"]}
-     (str (collector/sub [:hicasso.portal/message]))]
+     (str (rf.hicasso.impl.collector/sub [:hicasso.portal/message]))]
     [toast-body {}]]])
 
-(h/defview bare-page
+(rf.hicasso/defview bare-page
   "No `:fallback` — the DEFAULT arm, and the shape most portals ship in:
   the tree position is genuinely empty in the response."
   [_]
   [:div.owner
-   [:h1.title (str (collector/sub [:hicasso.portal/message]))]
-   [h/portal {:target nil}
+   [:h1.title (str (rf.hicasso.impl.collector/sub [:hicasso.portal/message]))]
+   [rf.hicasso/portal {:target nil}
     [:button.toast "THE PORTALLED SUBTREE"]]])
 
-(h/defview counted-page
+(rf.hicasso/defview counted-page
   [{:keys [target]}]
   [:div.owner
-   [h/portal {:target target}
+   [rf.hicasso/portal {:target target}
     [counted-host {}]]])
 
 ;; ---------------------------------------------------------------------------
@@ -198,7 +198,7 @@
 
 (defn- server-html [hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the declaration (runs under :node-test too)
@@ -211,13 +211,13 @@
             ReactNode slot, props by identity. There is no fifth element
             class here, and no new head kind for a reader or the test kit
             to learn"
-    (is (codec/host-head? h/portal)))
+    (is (rf.hicasso.impl.codec/host-head? rf.hicasso/portal)))
   (testing "and its declared policy reads `:render`, which is a claim about
             the head's COMPONENT — safe on the server, where it renders the
             caller's fallback and never reaches for a container. The
             SURFACE is Client-only, and §2 is where that is measured rather
             than declared"
-    (is (= :render (codec/host-server h/portal)))))
+    (is (= :render (rf.hicasso.impl.codec/host-server rf.hicasso/portal)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the server render: Client-only, on both arms (no DOM needed)
@@ -259,12 +259,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-subtree-renders-into-the-target-and-not-into-the-root
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [rack (rack!)
-            h    (mount/root! (mount/fresh-container!) frame-id [toast-page {:target rack}])]
+            h    (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toast-page {:target rack}])]
         (try
           (testing "a fresh `createRoot` mount consults no server snapshot, so
                     the portal is there on the first pass — asserted on the
@@ -300,21 +300,21 @@
                     live in somebody else's container, so nothing but React's
                     own cleanup can remove them — a portal that leaked here
                     would leave a page that grows one toast rack per mount"
-            (mount/unmount! h)
-            (mount/settle!)
+            (rf.hicasso.impl.mount/unmount! h)
+            (rf.hicasso.impl.mount/settle!)
             (is (nil? (query-node rack ".toast"))
                 "the target container is empty after unmount"))
           (finally
-            (mount/release! h)
+            (rf.hicasso.impl.mount/release! h)
             (drop-rack! rack)))))))
 
 (deftest an-intent-inside-a-portal-fires-into-the-owners-frame
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [rack (rack!)
-            h    (mount/root! (mount/fresh-container!) frame-id [toast-page {:target rack}])]
+            h    (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toast-page {:target rack}])]
         (try
           (testing "THE FRAME IS PRESERVED. The children are lowered in the
                     render window of the boundary that wrote the crossing, so
@@ -327,16 +327,16 @@
             (is (some #{"toast"} (log))
                 (str "the intent reached the owner's frame: " (pr-str (log)))))
           (finally
-            (mount/release! h)
+            (rf.hicasso.impl.mount/release! h)
             (drop-rack! rack)))))))
 
 (deftest a-click-inside-the-portal-reaches-a-react-ancestor-that-is-no-dom-ancestor
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [rack (rack!)
-            h    (mount/root! (mount/fresh-container!) frame-id [toast-page {:target rack}])]
+            h    (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toast-page {:target rack}])]
         (try
           (let [owner (query-node (:container h) ".owner")
                 toast (query-node rack ".toast")]
@@ -357,21 +357,21 @@
               (is (some #{"toast"} (log))
                   (str "and so did the clicked node's own: " (pr-str (log))))))
           (finally
-            (mount/release! h)
+            (rf.hicasso.impl.mount/release! h)
             (drop-rack! rack)))))))
 
 (deftest a-changed-target-is-a-remount
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (reset! !child-mounts 0)
       (let [rack-a (rack!)
             rack-b (rack!)
-            h      (mount/root! (mount/fresh-container!) frame-id
+            h      (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
                                 [counted-page {:target rack-a}])]
         (try
-          (mount/settle!)
+          (rf.hicasso.impl.mount/settle!)
           (let [first-node (query-node rack-a ".counted")]
             (testing "one mount, in the first container"
               (is (some? first-node))
@@ -382,9 +382,9 @@
                       fiber and the whole subtree is destroyed and rebuilt with
                       its state and its effects. Keep the target stable rather
                       than computing one per render"
-              (mount/render! h [counted-page {:target rack-b}])
-              (mount/settle!)
-              (mount/settle!)
+              (rf.hicasso.impl.mount/render! h [counted-page {:target rack-b}])
+              (rf.hicasso.impl.mount/settle!)
+              (rf.hicasso.impl.mount/settle!)
               (is (nil? (query-node rack-a ".counted"))
                   "the subtree left the first container")
               (is (some? (query-node rack-b ".counted"))
@@ -396,7 +396,7 @@
                         computes a fresh target per render pays this on every
                         one. Read " @!child-mounts))))
           (finally
-            (mount/release! h)
+            (rf.hicasso.impl.mount/release! h)
             (drop-rack! rack-a)
             (drop-rack! rack-b)))))))
 
@@ -424,7 +424,7 @@
 
 (deftest a-fallback-hydrates-as-the-placeholder-and-the-portal-arrives-at-adoption
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
@@ -434,13 +434,13 @@
               ;; sides of the hydration are the SAME page rendering the same
               ;; markup, which is the only honest way to take this claim.
               html      (server-html [toast-page {:target nil}])
-              container (mount/fresh-container!)
+              container (rf.hicasso.impl.mount/fresh-container!)
               {:keys [seen restore]} (watch-errors!)]
           (set! (.-innerHTML container) html)
           (let [root (react-dom-client/hydrateRoot
                        container
-                       (mount/provider frame-id
-                                       (codec/root-element frame-id [toast-page {:target rack}]))
+                       (rf.hicasso.impl.mount/provider frame-id
+                                       (rf.hicasso.impl.codec/root-element frame-id [toast-page {:target rack}]))
                        #js {:onRecoverableError
                             (fn [err _info]
                               (swap! seen conj (str "onRecoverableError: " (ex-message err))))})]
@@ -467,6 +467,6 @@
                     (.unmount root)
                     (when-some [p (.-parentNode container)] (.removeChild p container))
                     (drop-rack! rack)
-                    (collector/reset-runtime!)
+                    (rf.hicasso.impl.collector/reset-runtime!)
                     (done))))
               150)))))))

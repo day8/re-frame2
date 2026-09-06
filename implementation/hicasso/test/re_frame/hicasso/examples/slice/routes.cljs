@@ -30,7 +30,7 @@
   guide (`reg-route` at the top level, once) does not survive the
   supported test fixture without a second door being exposed for the
   test's sake."
-  (:require [re-frame.routing :as routing]))
+  (:require [re-frame.routing :as rf.routing]))
 
 (def feed
   "The list page. `/slice`, optionally `/slice?page=N`."
@@ -92,12 +92,12 @@
   [[re-frame.hicasso.examples.slice.db/clamp-page]] brings it inside,
   because a URL is user input and a typo is a page rather than an error."
   []
-  (routing/reg-route feed
+  (rf.routing/reg-route feed
     {:doc            "The article list, one page at a time."
      :query          [:map [:page {:optional true} :int]]
      :query-defaults {:page 1}}
     "/slice")
-  (routing/reg-route article
+  (rf.routing/reg-route article
     {:doc "One article, with its editor."}
     "/slice/article/:slug")
   nil)

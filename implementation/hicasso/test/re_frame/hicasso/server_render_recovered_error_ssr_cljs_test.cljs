@@ -52,14 +52,14 @@
   always-on `:node-test`. Every row renders to a string; none needs a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.server :as server]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Registered ABOVE `use-fixtures`, for the sibling suites' reason: the reset
 ;; fixture captures its source-store baseline when the `use-fixtures` form is
@@ -102,7 +102,7 @@
     ;; Re-enter the SAME door. Under the fixed-key form this REPLACED the outer
     ;; listener, and the inner `finally` then removed it outright.
     (reset! !inner-outcome
-            (try (server/render {:hiccup   [:div.inner "inner"]
+            (try (rf.hicasso.server/render {:hiccup   [:div.inner "inner"]
                                  :snapshot {:label "inner"}
                                  :payload  [:label]})
                  :returned
@@ -118,14 +118,14 @@
 (def ^:private no-handler-event ::deliberately-unregistered)
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; `:ambient-frame nil` — `render` makes its own top-level frame, and
      ;; the fixture's carried `:rf/default` stamp would be a scope the
      ;; request is not rendering. The sibling `server_render_body_ssr` and
      ;; `frame_doors_ssr` suites opt out for the same reason.
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The listener keys, spelled out
@@ -159,40 +159,40 @@
 ;; `re-frame.trace.tooling/listeners` for the same reason.
 #_{:clj-kondo/ignore [:private-call]}
 (defn- live-error-listener-ids []
-  (set (keys @error-emit/listeners)))
+  (set (keys @rf.error-emit/listeners)))
 
 (defn- live-frame-ids []
-  (set (keys @frame/frames)))
+  (set (keys @rf.frame/frames)))
 
 ;; ---------------------------------------------------------------------------
 ;; The probes
 ;; ---------------------------------------------------------------------------
 
-(h/defview page
+(rf.hicasso/defview page
   "Reads one ordinary sub. The tree the control renders and the tree the
   refusal renders differ in the SUB and nothing else."
   [_]
-  [:div.page [:p.label (str (h/sub [::label]))]])
+  [:div.page [:p.label (str (rf.hicasso/sub [::label]))]])
 
-(h/defview detonating
+(rf.hicasso/defview detonating
   "Reads the sub that throws. The framework recovers it to `nil`, so this
   body returns normally and the render produces markup — which is exactly
   the hazard §1 is about."
   [_]
-  [:div.page [:p.label (str (h/sub [::detonates]))]])
+  [:div.page [:p.label (str (rf.hicasso/sub [::detonates]))]])
 
 (def ^:private !listeners-mid-render
   "What the `:errors` registry held while a render was in flight. §4's
   whole instrument."
   (atom ::unset))
 
-(h/defview watching
+(rf.hicasso/defview watching
   "Reads the live `:errors` listener registry from INSIDE the render — a
   view body is a callback React runs during `renderToString`, so this is
   the one moment the door's window is observably open."
   [_]
   (reset! !listeners-mid-render (live-error-listener-ids))
-  [:div.page [:p.label (str (h/sub [::label]))]])
+  [:div.page [:p.label (str (rf.hicasso/sub [::label]))]])
 
 ;; ---------------------------------------------------------------------------
 ;; The request
@@ -216,7 +216,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-recovered-render-error-fails-the-whole-page-render
-  (let [thrown (try (server/render (request :hiccup [detonating {}]))
+  (let [thrown (try (rf.hicasso.server/render (request :hiccup [detonating {}]))
                     (catch :default e e))]
     (is (instance? ExceptionInfo thrown)
         "a sub that throws mid-render must not answer a document with a hole in the page")
@@ -237,14 +237,14 @@
             refusal mask the render's. Omitting `:payload` from a
             DETONATING request must still answer the render's verdict, not
             the policy's"
-    (let [data (try (server/render (dissoc (request :hiccup [detonating {}]) :payload))
+    (let [data (try (rf.hicasso.server/render (dissoc (request :hiccup [detonating {}]) :payload))
                     (catch :default e (ex-data e)))]
       (is (= :rf.error/ssr-render-failed (:rf.error/id data))
           "the render's verdict wins"))
     (testing "control: the same omission on a CLEAN render does reach the
               policy, so the row above is about ordering and not about
               `:payload` being optional"
-      (let [data (try (server/render (dissoc (request) :payload))
+      (let [data (try (rf.hicasso.server/render (dissoc (request) :payload))
                       (catch :default e (ex-data e)))]
         (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data)))))))
 
@@ -254,7 +254,7 @@
 
 (deftest the-control-a-tree-with-no-recovered-error-returns-the-existing-shape
   (let [{:keys [frame-id html payload payload-edn payload-script document] :as result}
-        (server/render (request))]
+        (rf.hicasso.server/render (request))]
     (is (= #{:frame-id :html :payload :payload-edn :payload-script :document}
            (set (keys result)))
         "the response map's keys are exactly the six the door has always answered")
@@ -289,26 +289,26 @@
          the `finally` doing its job and not a vacuous never-registered")
 
     (testing "success"
-      (server/render (request))
+      (rf.hicasso.server/render (request))
       (is (= frames-before (live-frame-ids))    "no frame left behind")
       (is (= listeners-before (live-error-listener-ids)) "and no listener"))
 
     (testing "recovered-error refusal"
-      (is (thrown? :default (server/render (request :hiccup [detonating {}]))))
+      (is (thrown? :default (rf.hicasso.server/render (request :hiccup [detonating {}]))))
       (is (= frames-before (live-frame-ids)))
       (is (= listeners-before (live-error-listener-ids))))
 
     (testing "a direct render throw — the view takes the render down, so the
               verdict is never reached and only the `finally` can clean up"
       (is (thrown? :default
-                   (server/render (request :hiccup [(fn [] (throw (js/Error. "boom")))]))))
+                   (rf.hicasso.server/render (request :hiccup [(fn [] (throw (js/Error. "boom")))]))))
       (is (= frames-before (live-frame-ids)))
       (is (= listeners-before (live-error-listener-ids))))
 
     (testing "and the runtime is not left mid-render: the next request still
               renders, which is what makes the three rows above evidence of
               cleanup rather than of a door that stopped working"
-      (is (str/includes? (:html (server/render (request))) "alpha")))))
+      (is (str/includes? (:html (rf.hicasso.server/render (request))) "alpha")))))
 
 ;; ---------------------------------------------------------------------------
 ;; §4 — the doors do not share a listener key
@@ -324,7 +324,7 @@
 (deftest each-door-arms-its-own-listener-and-only-its-own
   (testing "`render`'s window, observed from inside `render`"
     (reset! !listeners-mid-render ::unset)
-    (server/render (request :hiccup [watching {}]))
+    (rf.hicasso.server/render (request :hiccup [watching {}]))
     (let [live @!listeners-mid-render]
       (is (set? live) "the probe ran inside the render")
       (is (= 1 (count (door-keys render-listener-tag live)))
@@ -335,7 +335,7 @@
 
   (testing "`render-body`'s window, observed from inside `render-body`"
     (reset! !listeners-mid-render ::unset)
-    (server/render-body {:hiccup       [watching {}]
+    (rf.hicasso.server/render-body {:hiccup       [watching {}]
                          :render-state {:rf/app-db {:label "alpha"} :rf/runtime-db {}}})
     (let [live @!listeners-mid-render]
       (is (set? live))
@@ -389,7 +389,7 @@
         ;; Two boot events, in order: the first re-enters the door and returns,
         ;; the second emits the recovered error the outer listener must still be
         ;; alive to see.
-        thrown           (try (server/render
+        thrown           (try (rf.hicasso.server/render
                                 (request :initial-events [[::re-enter-then-recover]
                                                           [no-handler-event]]))
                               (catch :default e e))]
@@ -418,7 +418,7 @@
             door gaining the same verdict, and running one after the other
             leaves nothing behind"
     (let [listeners-before (live-error-listener-ids)
-          data             (try (server/render-body
+          data             (try (rf.hicasso.server/render-body
                                   {:hiccup       [detonating {}]
                                    :render-state {:rf/app-db {:label "alpha"} :rf/runtime-db {}}})
                                 (catch :default e (ex-data e)))]
@@ -426,7 +426,7 @@
       (is (= 're-frame.hicasso.server/render-body (:where data))
           "still the body-only door's own symbol")
       (is (= listeners-before (live-error-listener-ids)))
-      (is (thrown? :default (server/render (request :hiccup [detonating {}])))
+      (is (thrown? :default (rf.hicasso.server/render (request :hiccup [detonating {}])))
           "and the whole-page door refuses right after it")
       (is (= listeners-before (live-error-listener-ids))
           "with both registries back where they started"))))

@@ -23,13 +23,13 @@
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.subs :as subs]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.frame :as frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.subs :as rf.subs]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             [websocket.schema :as ws.schema]
             [websocket.connection :as ws.connection]
@@ -76,24 +76,24 @@
    the `:rf.machine/has-tag?` sub returns false even when the tag is in
    the snapshot."
   []
-  (when-let [spawn-fx (late-bind/get-fn :machines/spawn-fx)]
-    (fx/reg-fx :rf.machine/spawn spawn-fx))
-  (when-let [destroy-fx (late-bind/get-fn :machines/destroy-machine-fx)]
-    (fx/reg-fx :rf.machine/destroy destroy-fx))
-  (when-let [spawn-all-init-fx (late-bind/get-fn :machines/spawn-all-init-fx)]
-    (fx/reg-fx :rf.machine/spawn-all-init spawn-all-init-fx))
-  (when-let [after-schedule-fx (late-bind/get-fn :machines/after-schedule-fx)]
-    (fx/reg-fx :rf.machine/after-schedule after-schedule-fx))
-  (when-let [after-cancel-fx (late-bind/get-fn :machines/after-cancel-fx)]
-    (fx/reg-fx :rf.machine/after-cancel after-cancel-fx))
+  (when-let [spawn-fx (rf.late-bind/get-fn :machines/spawn-fx)]
+    (rf.fx/reg-fx :rf.machine/spawn spawn-fx))
+  (when-let [destroy-fx (rf.late-bind/get-fn :machines/destroy-machine-fx)]
+    (rf.fx/reg-fx :rf.machine/destroy destroy-fx))
+  (when-let [spawn-all-init-fx (rf.late-bind/get-fn :machines/spawn-all-init-fx)]
+    (rf.fx/reg-fx :rf.machine/spawn-all-init spawn-all-init-fx))
+  (when-let [after-schedule-fx (rf.late-bind/get-fn :machines/after-schedule-fx)]
+    (rf.fx/reg-fx :rf.machine/after-schedule after-schedule-fx))
+  (when-let [after-cancel-fx (rf.late-bind/get-fn :machines/after-cancel-fx)]
+    (rf.fx/reg-fx :rf.machine/after-cancel after-cancel-fx))
   ;; The framework subs that read machine state — both registered at
   ;; machines.cljc ns-load time and equally vulnerable to `clear-all!`.
   ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
   ;; these are runtime-db subs (the `db`-position arg is the runtime-db value).
-  (subs/reg-runtime-sub :rf/machine
+  (rf.subs/reg-runtime-sub :rf/machine
     (fn [rt [_ machine-id]]
       (get-in rt [:rf.runtime/machines :snapshots machine-id])))
-  (subs/reg-runtime-sub :rf.machine/has-tag?
+  (rf.subs/reg-runtime-sub :rf.machine/has-tag?
     (fn [rt [_ machine-id tag]]
       (contains? (get-in rt [:rf.runtime/machines :snapshots machine-id :tags]) tag))))
 
@@ -147,8 +147,8 @@
 ;; this reset the prior tests' mock-socket entries are still in the table
 ;; and `send-server-push!` ends up delivering N copies of every push.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
                 (register-all!)
                 (messages/reset-mock-server!))}))
@@ -194,7 +194,7 @@
   ;; way. (We DO need the synthetic `[:rf.machine.timer/after-elapsed
   ;; delay epoch]` events to drive `:after` directly, which we do by
   ;; dispatching them ourselves.)
-  (frame/make-anon-frame-record! {:initial-events [[:ws.app/initialise]]
+  (rf.frame/make-anon-frame-record! {:initial-events [[:ws.app/initialise]]
                   :fx-overrides {:dispatch-later nil}}))
 
 (defn- with-sync-mock! [f]

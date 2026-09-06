@@ -74,8 +74,8 @@
   cancelled it. See intent.cljs §The navigate head for the click-time
   half."
   (:require [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.late-bind :as rf.late-bind]))
 
 (def ^:private routing-artefact
   "The optional-artefact identity the fail-loud missing-hook error
@@ -113,23 +113,23 @@
   — the route-click one-intent law."
   [on-click]
   (when-not (or (nil? on-click)
-                (intent/prevent-head? on-click)
-                (intent/callback? on-click)
+                (rf.hicasso.impl.intent/prevent-head? on-click)
+                (rf.hicasso.impl.intent/callback? on-click)
                 (fn? on-click))
     (fail! :rf.error/hicasso-route-link-bad-on-click
            're-frame.hicasso.impl.route-link/route-link
            (str "route-link's :on-click is the pre-navigation veto; it takes nil, "
-                "[" (pr-str intent/prevent-head) " [:my-event …]] (cancel the "
+                "[" (pr-str rf.hicasso.impl.intent/prevent-head) " [:my-event …]] (cancel the "
                 "navigation and dispatch this instead), h/event, or a plain function — "
                 "never " (pr-str on-click) ". A bare intent vector is refused "
                 "because the click already produces the one routing intent; an "
                 "application reaction belongs behind the routing event, or inside "
-                (pr-str intent/prevent-head) " if it replaces the navigation.")
+                (pr-str rf.hicasso.impl.intent/prevent-head) " if it replaces the navigation.")
            {:on-click on-click}))
   on-click)
 
 (defn- require-frame! [to]
-  (or intent/*frame*
+  (or rf.hicasso.impl.intent/*frame*
       (fail! :rf.error/hicasso-route-link-outside-boundary
              're-frame.hicasso.impl.route-link/route-link
              (str "route-link {:to " (pr-str to) "} was rendered with no ambient "
@@ -153,14 +153,14 @@
   (let [frame-kw (require-frame! to)
         _        (on-click-roster! on-click)
         {:keys [href payload native?]}
-        ((late-bind/require-fn! :routing/link-model
+        ((rf.late-bind/require-fn! :routing/link-model
                                 'route-link
                                 routing-artefact
                                 {:to to})
          (dissoc props :on-click) frame-kw)
         attrs    (-> (apply dissoc props control-keys)
                      (assoc :href href
-                            :on-click [intent/navigate-head
+                            :on-click [rf.hicasso.impl.intent/navigate-head
                                        {:frame    frame-kw
                                         :payload  payload
                                         :native?  native?

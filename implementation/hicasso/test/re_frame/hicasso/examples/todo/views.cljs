@@ -52,11 +52,11 @@
   only place it lives. (The one `:ref` in this file touches focus and
   nothing else.)"
   (:require [clojure.string :as str]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.todo.db :as db]
-            [re-frame.hicasso.examples.todo.events :as events]
-            [re-frame.hicasso.examples.todo.routes :as routes]
-            [re-frame.hicasso.examples.todo.subs :as subs]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.todo.db :as rf.hicasso.examples.todo.db]
+            [re-frame.hicasso.examples.todo.events :as rf.hicasso.examples.todo.events]
+            [re-frame.hicasso.examples.todo.routes :as rf.hicasso.examples.todo.routes]
+            [re-frame.hicasso.examples.todo.subs :as rf.hicasso.examples.todo.subs]))
 
 (def ^:private focus-on-mount
   "React's own `:ref` contract: called in the commit phase with the node,
@@ -69,7 +69,7 @@
 ;; The header — one controlled box in a form
 ;; ---------------------------------------------------------------------------
 
-(h/defview new-todo-box
+(rf.hicasso/defview new-todo-box
   "The box you type a new to-do into.
 
   It is a `<form>`, and that is the whole of *Enter adds a to-do*: a text
@@ -77,19 +77,19 @@
   so the intent is `[::events/add]` with no key test, no callback and no
   `.preventDefault` anywhere in this file."
   [_]
-  [:form.new-todo-form {:on-submit [::events/add]}
+  [:form.new-todo-form {:on-submit [::rf.hicasso.examples.todo.events/add]}
    [:label {:for "new-todo"} "What needs to be done?"]
    [:input#new-todo.new-todo
     {:type        "text"
      :placeholder "What needs to be done?"
-     :value       (h/sub [::subs/new-todo])
-     :on-input    [::events/typed ::h/value]}]])
+     :value       (rf.hicasso/sub [::rf.hicasso.examples.todo.subs/new-todo])
+     :on-input    [::rf.hicasso.examples.todo.events/typed ::rf.hicasso/value]}]])
 
 ;; ---------------------------------------------------------------------------
 ;; One row — and the whole of edit-in-place
 ;; ---------------------------------------------------------------------------
 
-(h/defview todo-row
+(rf.hicasso/defview todo-row
   "One to-do: a checkbox, its title, a delete button, and — when this
   row's draft is set — an edit box in place of the title.
 
@@ -106,7 +106,7 @@
   the other side: the revision counter is what a reset needs when the field
   SURVIVES it."
   [{:keys [id title done?]}]
-  (let [draft (h/sub [db/draft id])]
+  (let [draft (rf.hicasso/sub [rf.hicasso.examples.todo.db/draft id])]
     [:li.todo-row {:class (str/join " " (cond-> []
                                           done?         (conj "completed")
                                           (some? draft) (conj "editing")))}
@@ -115,27 +115,27 @@
        {:type      "checkbox"
         :aria-label (str "Done: " title)
         :checked   done?
-        :on-change [::events/toggle id ::h/checked]}]
-      [:label.todo-title {:on-double-click [db/draft id title]} title]
+        :on-change [::rf.hicasso.examples.todo.events/toggle id ::rf.hicasso/checked]}]
+      [:label.todo-title {:on-double-click [rf.hicasso.examples.todo.db/draft id title]} title]
       [:button.destroy {:type       "button"
                         :aria-label (str "Delete " title)
-                        :on-click   [::events/destroy id]}]]
+                        :on-click   [::rf.hicasso.examples.todo.events/destroy id]}]]
      (when (some? draft)
        [:input.edit
         {:type        "text"
          :aria-label  "Edit to-do"
          :ref         focus-on-mount
          :value       draft
-         :on-input    [db/draft id ::h/value]
-         :on-blur     [::events/commit-edit id]
-         :on-key-down {"Enter"  [::events/commit-edit id]
-                       "Escape" [::h/clear db/draft id]}}])]))
+         :on-input    [rf.hicasso.examples.todo.db/draft id ::rf.hicasso/value]
+         :on-blur     [::rf.hicasso.examples.todo.events/commit-edit id]
+         :on-key-down {"Enter"  [::rf.hicasso.examples.todo.events/commit-edit id]
+                       "Escape" [::rf.hicasso/clear rf.hicasso.examples.todo.db/draft id]}}])]))
 
 ;; ---------------------------------------------------------------------------
 ;; The list
 ;; ---------------------------------------------------------------------------
 
-(h/defview todo-list
+(rf.hicasso/defview todo-list
   "The rows, keyed by the to-do's own id.
 
   The key is the domain id and never the position. A list keyed by its
@@ -148,11 +148,11 @@
   [:section.main
    [:input#toggle-all.toggle-all
     {:type      "checkbox"
-     :checked   (h/sub [::subs/all-done?])
-     :on-change [::events/toggle-all ::h/checked]}]
+     :checked   (rf.hicasso/sub [::rf.hicasso.examples.todo.subs/all-done?])
+     :on-change [::rf.hicasso.examples.todo.events/toggle-all ::rf.hicasso/checked]}]
    [:label {:for "toggle-all"} "Mark all as complete"]
    [:ul.todo-list
-    (for [{:keys [id] :as todo} (h/sub [::subs/visible])]
+    (for [{:keys [id] :as todo} (rf.hicasso/sub [::rf.hicasso.examples.todo.subs/visible])]
       [todo-row (assoc todo :key id)])]])
 
 ;; ---------------------------------------------------------------------------
@@ -162,17 +162,17 @@
 (def ^:private tabs
   "The three filter tabs, as data: the filter each one stands for, the
   route it links to, the params that route wants, and its label."
-  [{:kind :all       :to routes/all      :params nil                   :label "All"}
-   {:kind :active    :to routes/filtered :params {:filter "active"}    :label "Active"}
-   {:kind :completed :to routes/filtered :params {:filter "completed"} :label "Completed"}])
+  [{:kind :all       :to rf.hicasso.examples.todo.routes/all      :params nil                   :label "All"}
+   {:kind :active    :to rf.hicasso.examples.todo.routes/filtered :params {:filter "active"}    :label "Active"}
+   {:kind :completed :to rf.hicasso.examples.todo.routes/filtered :params {:filter "completed"} :label "Completed"}])
 
-(h/defview footer
+(rf.hicasso/defview footer
   "The count, the three tabs, and *Clear completed* — which is present
   only when there is something to clear."
   [_]
-  (let [left    (h/sub [::subs/active-count])
-        done    (h/sub [::subs/completed-count])
-        showing (h/sub [::subs/showing])]
+  (let [left    (rf.hicasso/sub [::rf.hicasso.examples.todo.subs/active-count])
+        done    (rf.hicasso/sub [::rf.hicasso.examples.todo.subs/completed-count])
+        showing (rf.hicasso/sub [::rf.hicasso.examples.todo.subs/showing])]
     [:footer.footer
      [:span.todo-count
       [:strong (str left)]
@@ -182,19 +182,19 @@
         [:li {:key (name kind)}
          ;; CALLED, not a head. The href is routing's own synthesis — no
          ;; URL is written anywhere in this application.
-         (h/route-link (cond-> {:to to :class (when (= kind showing) "selected")}
+         (rf.hicasso/route-link (cond-> {:to to :class (when (= kind showing) "selected")}
                          params (assoc :params params))
                        label)])]
      (when (pos? done)
        [:button.clear-completed {:type     "button"
-                                 :on-click [::events/clear-completed]}
+                                 :on-click [::rf.hicasso.examples.todo.events/clear-completed]}
         (str "Clear completed (" done ")")])]))
 
 ;; ---------------------------------------------------------------------------
 ;; The application
 ;; ---------------------------------------------------------------------------
 
-(h/defview app
+(rf.hicasso/defview app
   "The whole page.
 
   The list and the footer are ABSENT while there is nothing to show —
@@ -202,7 +202,7 @@
   decides it is `[::subs/any?]` rather than a count, so adding a
   hundredth to-do does not re-render this boundary."
   [_]
-  (let [any? (h/sub [::subs/any?])]
+  (let [any? (rf.hicasso/sub [::rf.hicasso.examples.todo.subs/any?])]
     [:main.todo-app
      [:h1 "todos"]
      [new-todo-box {}]

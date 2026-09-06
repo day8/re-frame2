@@ -18,14 +18,14 @@
     - The instance-counter monotonically increases."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.views :as views])
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.views :as rf.views])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -40,7 +40,7 @@
     (let [observed (atom nil)]
       (rf/reg-view* :rf.test/probe
         (fn []
-          (reset! observed views/*render-key*)
+          (reset! observed rf.views/*render-key*)
           [:p "ok"]))
       (let [wrapper (rf/view :rf.test/probe)]
         (wrapper)
@@ -59,7 +59,7 @@
     (let [observed (atom [])]
       (rf/reg-view* :rf.test/two-instances
         (fn []
-          (swap! observed conj views/*render-key*)
+          (swap! observed conj rf.views/*render-key*)
           [:p "ok"]))
       (let [wrapper (rf/view :rf.test/two-instances)]
         (wrapper)                                ;; instance A
@@ -75,9 +75,9 @@
 
 (deftest dynamic-var-unbound-outside-render
   (testing "*render-key* is nil outside an in-flight render"
-    (is (nil? views/*render-key*)
+    (is (nil? rf.views/*render-key*)
         "outside any render, *render-key* is unbound (nil)")
-    (is (= [:rf.view/anonymous nil] (views/current-render-key))
+    (is (= [:rf.view/anonymous nil] (rf.views/current-render-key))
         "current-render-key returns the documented anonymous fallback
         when no render-key is bound (plain Reagent fn case)")))
 
@@ -108,9 +108,9 @@
 
 (deftest mint-instance-token-is-monotonic
   (testing "mint-instance-token! returns strictly increasing integers"
-    (let [a (views/mint-instance-token!)
-          b (views/mint-instance-token!)
-          c (views/mint-instance-token!)]
+    (let [a (rf.views/mint-instance-token!)
+          b (rf.views/mint-instance-token!)
+          c (rf.views/mint-instance-token!)]
       (is (int? a))
       (is (< a b c) "tokens monotonically increase"))))
 
@@ -122,7 +122,7 @@
             [:rf.view/anonymous nil] when *render-key* is unbound"
     (let [observed (atom nil)
           plain-fn (fn []
-                     (reset! observed (views/current-render-key))
+                     (reset! observed (rf.views/current-render-key))
                      [:p "plain"])]
       (plain-fn)
       (is (= [:rf.view/anonymous nil] @observed)

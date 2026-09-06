@@ -83,13 +83,13 @@
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.views]
-            [re-frame.views.frame-boundary :as boundary])
+            [re-frame.views.frame-boundary :as rf.views.frame-boundary])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; MAP-FORM fixture (`:async? true`): cljs.test requires `:each` fixtures to be
@@ -111,8 +111,8 @@
 ;; resolution honest. (Scenario-3 + the prop-stringified cases additionally
 ;; `(binding [*current-frame* nil] …)` for belt-and-braces; that is idempotent.)
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 
@@ -229,7 +229,7 @@
                           (reset! resolved-frame (rf/current-frame-id))
                           (reset! resolved-value @(rf/subscribe [:scenario-1/v]))
                           [:div "probe"]))
-          (trace-tooling/register-listener! ::scenario-1-unmounts
+          (rf.trace.tooling/register-listener! ::scenario-1-unmounts
             (fn [ev]
               (when (and (= :rf.view/unmounted (:operation ev))
                          (= :rf.22ds-1/probe (-> ev :tags :rf.view/id)))
@@ -243,7 +243,7 @@
                 finish     (fn []
                              (-> (await-teardown! root)
                                  (.then (fn [_]
-                                          (trace-tooling/unregister-listener! ::scenario-1-unmounts)
+                                          (rf.trace.tooling/unregister-listener! ::scenario-1-unmounts)
                                           (is (= 1 (count @unmounts))
                                               (str "SOURCE fix (rf2-vp3m9): exactly one "
                                                    ":rf.view/unmounted fired for :rf.22ds-1/probe "
@@ -389,14 +389,14 @@
   ;; corruption detection) is actually exercised; otherwise the dynamic-var
   ;; tier shadows it and the read resolves to :rf/default before the context
   ;; is ever inspected.
-  (binding [frame/*current-frame* nil]
-  (let [original (.-_currentValue ^js adapter-context/frame-context)]
+  (binding [rf.frame/*current-frame* nil]
+  (let [original (.-_currentValue ^js rf.adapter.context/frame-context)]
     (with-trace-recorder! [traces]
       (try
         (testing "nil _currentValue: error trace fires; resolves to nil (no-frame-context)"
           (reset! traces [])
-          (set! (.-_currentValue ^js adapter-context/frame-context) nil)
-          (is (nil? (adapter-context/function-component-current-frame))
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) nil)
+          (is (nil? (rf.adapter.context/function-component-current-frame))
               "returns nil — no synthesised :rf/default (EP-0002 carried invariant)")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
@@ -411,8 +411,8 @@
                 ":tags :received carries the offending value")))
         (testing "false _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
-          (set! (.-_currentValue ^js adapter-context/frame-context) false)
-          (is (nil? (adapter-context/function-component-current-frame))
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) false)
+          (is (nil? (rf.adapter.context/function-component-current-frame))
               "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
@@ -421,8 +421,8 @@
                 ":tags :type identifies false as a boolean shape")))
         (testing "numeric _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
-          (set! (.-_currentValue ^js adapter-context/frame-context) 42)
-          (is (nil? (adapter-context/function-component-current-frame))
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) 42)
+          (is (nil? (rf.adapter.context/function-component-current-frame))
               "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
@@ -433,8 +433,8 @@
                 ":tags :received echoes the offending value")))
         (testing "JS object _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
-          (set! (.-_currentValue ^js adapter-context/frame-context) #js {:not "a frame"})
-          (is (nil? (adapter-context/function-component-current-frame))
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) #js {:not "a frame"})
+          (is (nil? (rf.adapter.context/function-component-current-frame))
               "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
@@ -443,8 +443,8 @@
                 ":tags :type identifies the JS object shape")))
         (testing "empty-string _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
-          (set! (.-_currentValue ^js adapter-context/frame-context) "")
-          (is (nil? (adapter-context/function-component-current-frame))
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) "")
+          (is (nil? (rf.adapter.context/function-component-current-frame))
               "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
@@ -452,7 +452,7 @@
             (is (= :empty-string (-> errs first :tags :type))
                 ":tags :type identifies empty-string distinctly from string")))
         (finally
-          (set! (.-_currentValue ^js adapter-context/frame-context) original)))))))
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) original)))))))
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------
 ;;
@@ -693,9 +693,9 @@
             root       (react-dom-client/createRoot mount-node)
             cleanup!   (fn []
                          (try (.unmount root) (catch :default _ nil))
-                         (try (frame/destroy-frame! target) (catch :default _ nil)))
+                         (try (rf.frame/destroy-frame! target) (catch :default _ nil)))
             child      (React/createElement "div" #js {} "frame-root-strict")
-            ensure-el  (boundary/frame-root-react-element
+            ensure-el  (rf.views.frame-boundary/frame-root-react-element
                          {:id target :initial-events [[:rf/set-db {:n 7}]]}
                          child
                          'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
@@ -718,7 +718,7 @@
                 (fn [_]
                   ;; (1) Sanity: the commit-phase ensure created the frame +
                   ;; seeded durable state.
-                  (is (some? (frame/frame target))
+                  (is (some? (rf.frame/frame target))
                       "frame-root created the frame at COMMIT (useLayoutEffect)")
                   (is (= {:n 7} (rf/app-db-value target))
                       ":initial-events seeded the durable app-db ONCE")
@@ -734,7 +734,7 @@
                   ;; survives (frame-root has no destroy effect; StrictMode did
                   ;; not corrupt it or re-seed it — the double-invoked effect's
                   ;; second make-frame was idempotent, not a replay).
-                  (is (some? (frame/frame target))
+                  (is (some? (rf.frame/frame target))
                       (str "the frame-root frame is STILL LIVE after the StrictMode "
                            "cycle — frame-root has no destroy-on-unmount"))
                   (is (= {:n 7} (rf/app-db-value target))
@@ -752,7 +752,7 @@
                   ;; commit re-ensures under the same :id (idempotent make-frame),
                   ;; so durable {:n 42} is preserved, NOT re-seeded to {:n 999}.
                   (let [reload-child (React/createElement "div" #js {} "frame-root-reload")
-                        reload-el    (boundary/frame-root-react-element
+                        reload-el    (rf.views.frame-boundary/frame-root-react-element
                                        {:id target :initial-events [[:rf/set-db {:n 999}]]}
                                        reload-child
                                        'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
@@ -761,7 +761,7 @@
                     (js/Promise.resolve (act-fn (fn [] (.render root reload-tree)))))))
               (.then
                 (fn [_]
-                  (is (some? (frame/frame target))
+                  (is (some? (rf.frame/frame target))
                       "the frame is REUSED across the hot-reload remount (still live)")
                   (is (= {:n 42} (rf/app-db-value target))
                       (str "REUSE-NO-RESEED: durable {:n 42} survived the hot-reload "
@@ -807,9 +807,9 @@
             ;; Pure React mount so `frame-root-fc` commits under React's effect
             ;; passes.
             root       (react-dom-client/createRoot mount-node)
-            cleanup!   (fn [] (try (frame/destroy-frame! target) (catch :default _ nil)))
+            cleanup!   (fn [] (try (rf.frame/destroy-frame! target) (catch :default _ nil)))
             child      (React/createElement "div" #js {} "frame-root-survives")
-            ensure-el  (boundary/frame-root-react-element
+            ensure-el  (rf.views.frame-boundary/frame-root-react-element
                          {:id target :initial-events [[:rf/set-db {:n 3}]]}
                          child
                          'scenario-6-frame-root-genuine-unmount-leaves-frame-live)
@@ -824,7 +824,7 @@
           (-> (js/Promise.resolve (act-fn (fn [] (.render root ensure-el))))
               (.then
                 (fn [_]
-                  (is (some? (frame/frame target)) "frame created at commit")
+                  (is (some? (rf.frame/frame target)) "frame created at commit")
                   (is (= {:n 3} (rf/app-db-value target)) ":initial-events seeded app-db")
                   ;; Genuine unmount — frame-root does NOT destroy.
                   (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
@@ -844,7 +844,7 @@
                         4)))))
               (.then
                 (fn [_]
-                  (is (some? (frame/frame target))
+                  (is (some? (rf.frame/frame target))
                       "genuine unmount LEFT the frame live (frame-root has no destroy-on-unmount)")
                   (is (= {:n 3} (rf/app-db-value target))
                       "durable app-db survived the unmount intact")
@@ -914,7 +914,7 @@
             root       (react-dom-client/createRoot mount-node)
             cleanup!   (fn []
                          (try (.unmount root) (catch :default _ nil))
-                         (try (frame/destroy-frame! target) (catch :default _ nil)))
+                         (try (rf.frame/destroy-frame! target) (catch :default _ nil)))
             ;; frame-root beside a SIBLING that throws during render. Because
             ;; frame-root's PASS-1 render emits no descendant subtree, a THROWING
             ;; CHILD would never run (frame-root would commit fine and its effect
@@ -924,7 +924,7 @@
             ;; committing — so frame-root's layout effect never runs and no frame
             ;; is created. The error boundary catches the throw and re-renders a
             ;; fallback (which does NOT contain frame-root).
-            frame-root-el (boundary/frame-root-react-element
+            frame-root-el (rf.views.frame-boundary/frame-root-react-element
                             {:id target :initial-events [[:rf/set-db {:n 7}]]}
                             (React/createElement "div" #js {} "root-child")
                             'scenario-6-frame-root-discarded-render-creates-no-frame)
@@ -948,7 +948,7 @@
                   (js/Promise. (fn [resolve _] (js/setTimeout (fn [] (resolve nil)) 8)))))
               (.then
                 (fn [_]
-                  (is (nil? (frame/frame target))
+                  (is (nil? (rf.frame/frame target))
                       (str "GHOST-FRAME FIX: an aborted (never-committed) render "
                            "created NO frame under " (pr-str target)
                            " (frame-root ensures at commit, not during render)"))
@@ -959,7 +959,7 @@
                   ;; error-boundary timing; the invariant still holds — no frame.
                   ;; This arm ASSERTS rather than merely reports, and it still
                   ;; does not finish: the single `done!` is on the tail below.
-                  (is (nil? (frame/frame target))
+                  (is (nil? (rf.frame/frame target))
                       "aborted render created NO frame (error path)")
                   nil))
               ;; Both arms cleaned up identically, so it rides the single

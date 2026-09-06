@@ -42,9 +42,9 @@
   (a wrapper, a second argument, a metadata carrier) all cost more than
   the ambiguity does, and the marker keywords already read
   `:re-frame.hicasso/…` in every other position."
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.editor.events :as events]
-            [re-frame.hicasso.examples.editor.subs :as subs]))
+  (:require [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.editor.events :as rf.hicasso.examples.editor.events]
+            [re-frame.hicasso.examples.editor.subs :as rf.hicasso.examples.editor.subs]))
 
 (def field-labels
   "The four accessible names, as data.
@@ -64,7 +64,7 @@
 ;; The controls
 ;; ---------------------------------------------------------------------------
 
-(h/defview text-field
+(rf.hicasso/defview text-field
   "One controlled `<input type=text>`: the title and the slug.
 
   Two reads, both its own — the field's value and the reset counter. The
@@ -78,11 +78,11 @@
      [:input {:id          id
               :type        "text"
               :data-field  id
-              ::h/revision (h/sub [::subs/revision])
-              :value       (h/sub [::subs/field field])
-              :on-input    [::events/edit field ::h/value]}]]))
+              ::rf.hicasso/revision (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/revision])
+              :value       (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/field field])
+              :on-input    [::rf.hicasso.examples.editor.events/edit field ::rf.hicasso/value]}]]))
 
-(h/defview body-field
+(rf.hicasso/defview body-field
   "The same law on the other convergeable tag. Identical in every respect
   a reader would care about, which is the claim — `<textarea>` is not a
   second controlled-input story."
@@ -91,11 +91,11 @@
    [:label {:for "body"} label]
    [:textarea {:id          "body"
                :data-field  "body"
-               ::h/revision (h/sub [::subs/revision])
-               :value       (h/sub [::subs/field :body])
-               :on-input    [::events/edit :body ::h/value]}]])
+               ::rf.hicasso/revision (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/revision])
+               :value       (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/field :body])
+               :on-input    [::rf.hicasso.examples.editor.events/edit :body ::rf.hicasso/value]}]])
 
-(h/defview published-box
+(rf.hicasso/defview published-box
   "The owned `::h/checked` pair.
 
   It carries NO `::h/revision`, and the omission is not a choice: a
@@ -113,14 +113,14 @@
    [:input {:id         "published"
             :type       "checkbox"
             :data-field "published"
-            :checked    (h/sub [::subs/field :published?])
-            :on-change  [::events/set-published ::h/checked]}]])
+            :checked    (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/field :published?])
+            :on-change  [::rf.hicasso.examples.editor.events/set-published ::rf.hicasso/checked]}]])
 
 ;; ---------------------------------------------------------------------------
 ;; The form's other two boundaries
 ;; ---------------------------------------------------------------------------
 
-(h/defview buttons
+(rf.hicasso/defview buttons
   "Save and Discard, in their own boundary reading their own one value.
 
   Separate from the fields on purpose: `::subs/dirty?` moves on the
@@ -129,20 +129,20 @@
   buttons in with a field would have put that read on the field's edge
   set and re-run the field on every change to it."
   [_]
-  (let [dirty? (h/sub [::subs/dirty?])]
+  (let [dirty? (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/dirty?])]
     [:p.buttons
      [:button {:id       "save"
                :type     "button"
                :disabled (not dirty?)
-               :on-click [::events/save]}
+               :on-click [::rf.hicasso.examples.editor.events/save]}
       "Save"]
      [:button {:id       "discard"
                :type     "button"
                :disabled (not dirty?)
-               :on-click [::events/discard]}
+               :on-click [::rf.hicasso.examples.editor.events/discard]}
       "Discard"]]))
 
-(h/defview readout
+(rf.hicasso/defview readout
   "The COMMITTED article, on the page.
 
   Its own boundary reading the committed addresses, so a keystroke — which
@@ -151,17 +151,17 @@
   not move while you type, and moves when you save."
   [_]
   [:dl.committed
-   [:dt "title"] [:dd {:data-committed "title"} (h/sub [::subs/committed :title])]
-   [:dt "slug"] [:dd {:data-committed "slug"} (h/sub [::subs/committed :slug])]
-   [:dt "body"] [:dd {:data-committed "body"} (h/sub [::subs/committed :body])]
+   [:dt "title"] [:dd {:data-committed "title"} (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/committed :title])]
+   [:dt "slug"] [:dd {:data-committed "slug"} (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/committed :slug])]
+   [:dt "body"] [:dd {:data-committed "body"} (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/committed :body])]
    [:dt "published"] [:dd {:data-committed "published"}
-                      (str (boolean (h/sub [::subs/committed :published?])))]])
+                      (str (boolean (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/committed :published?])))]])
 
 ;; ---------------------------------------------------------------------------
 ;; The form
 ;; ---------------------------------------------------------------------------
 
-(h/defview editor
+(rf.hicasso/defview editor
   "The whole application, and it reads nothing.
 
   Every value on this page comes from a child's own body, so this body

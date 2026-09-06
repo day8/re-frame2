@@ -28,8 +28,8 @@
             ;; late-bind hook this test exercises (the post-flow t2 path);
             ;; the tests register flows via the `rf/reg-flow` facade.
             [re-frame.flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The standard runtime reset (registrar baseline + frames + flows/schemas +
 ;; plain-atom adapter + ambient `:rf/default` scope) is owned by
@@ -38,7 +38,7 @@
 ;; frame stamp.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- collect-traces!
   [id]

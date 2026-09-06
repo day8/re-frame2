@@ -101,14 +101,14 @@
   server renderer, and the point of using it here is that it is the
   same runtime the sibling Node entry drives."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.checkpoint-support :as support]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]
             ["react-dom/server" :as react-dom-server]))
@@ -124,18 +124,18 @@
 (rf/reg-event :hicasso.ssr/seed (fn [_ _] {:db {:title "quarterly"}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; the hydration rows wait on a real clock, and `cljs.test`
      ;; hard-errors on a fn-form fixture in a suite with an async test.
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why] (is true (str "an SSR-policy DOM claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.ssr/seed]))
   frame-id)
@@ -166,13 +166,13 @@
       (react/createElement "span" #js {:className "chart-label"} (.-label props))
       (.-children props))))
 
-(h/defhost bare-chart
+(rf.hicasso/defhost bare-chart
   "No `:server` written at all — the default is what an author gets."
   chart)
 
-(h/defhost client-only-chart chart {:server :client-only})
+(rf.hicasso/defhost client-only-chart chart {:server :client-only})
 
-(h/defhost fallback-chart chart
+(rf.hicasso/defhost fallback-chart chart
   {:fallback [:div.chart-skeleton {:data-live "no"} "loading"]})
 
 ;; --- the `:render` fixtures: a provider, and something that reads it -------
@@ -207,18 +207,18 @@
   (react/useEffect (fn [] (swap! !child-mounts inc) js/undefined) #js [])
   (theme-reader props))
 
-(h/defhost themed
+(rf.hicasso/defhost themed
   "The guide's own provider example, declared the way the ruling says to
   declare it."
   (.-Provider theme-context)
   {:server :render})
 
-(h/defhost themed-client-only
+(rf.hicasso/defhost themed-client-only
   "The SAME provider under the default policy — the control that keeps
   the row below a fact about the policy rather than about the page."
   (.-Provider theme-context))
 
-(h/defhost reader-host theme-reader {:server :render})
+(rf.hicasso/defhost reader-host theme-reader {:server :render})
 
 ;; --- the FALSE assertion, and what it costs --------------------------------
 ;;
@@ -238,40 +238,40 @@
   [_props]
   (throw (js/ReferenceError. "window is not defined")))
 
-(h/defhost unsafe-render-host browser-only {:server :render})
+(rf.hicasso/defhost unsafe-render-host browser-only {:server :render})
 
-(h/defhost unsafe-client-only-host browser-only)
+(rf.hicasso/defhost unsafe-client-only-host browser-only)
 
-(h/defhost counted-reader-host counted-reader {:server :render})
+(rf.hicasso/defhost counted-reader-host counted-reader {:server :render})
 
 ;; ---------------------------------------------------------------------------
 ;; The pages
 ;; ---------------------------------------------------------------------------
 
-(h/defview client-only-page
+(rf.hicasso/defview client-only-page
   "A native sibling beside the host, so \"the host is absent\" is
   distinguishable from \"nothing rendered at all\"."
   [_]
   [:div.page
-   [:h1.title (collector/sub [:hicasso.ssr/title])]
-   [client-only-chart {:label (collector/sub [:hicasso.ssr/title])}]])
+   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])]
+   [client-only-chart {:label (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])}]])
 
-(h/defview fallback-page
+(rf.hicasso/defview fallback-page
   [_]
   [:div.page
-   [:h1.title (collector/sub [:hicasso.ssr/title])]
-   [fallback-chart {:label (collector/sub [:hicasso.ssr/title])}]])
+   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])]
+   [fallback-chart {:label (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])}]])
 
-(h/defview slotted-page
+(rf.hicasso/defview slotted-page
   "Children and props still cross the door — the gate forwards its own
   props object, so this is the regression guard for the crossing that
   the gate now sits in front of."
   [_]
   [:div.page
-   [fallback-chart {:label (collector/sub [:hicasso.ssr/title])}
+   [fallback-chart {:label (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])}
     [:span.kid "slotted"]]])
 
-(h/defview provider-page
+(rf.hicasso/defview provider-page
   "THE PAGE THE DEFECT WAS FILED FROM, under the policy that answers it. A
   native sibling above the crossing so \"the subtree is absent\" stays
   distinguishable from \"nothing rendered\", markup inside it so the
@@ -279,50 +279,50 @@
   visible too."
   [_]
   [:div.page
-   [:h1.title (collector/sub [:hicasso.ssr/title])]
+   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])]
    [themed {:value "dark"}
     [:p.body "THE ENTIRE APPLICATION"]
     [reader-host {}]]])
 
-(h/defview provider-page-client-only
+(rf.hicasso/defview provider-page-client-only
   "The same page under the default policy — the defect, kept live."
   [_]
   [:div.page
-   [:h1.title (collector/sub [:hicasso.ssr/title])]
+   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])]
    [themed-client-only {:value "dark"}
     [:p.body "THE ENTIRE APPLICATION"]
     [reader-host {}]]])
 
-(h/defview unsafe-render-page
+(rf.hicasso/defview unsafe-render-page
   "A page whose one crossing declares `:render` over a component that is
   not server-safe."
   [_]
   [:div.page
-   [:h1.title (collector/sub [:hicasso.ssr/title])]
+   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])]
    [unsafe-render-host {}]])
 
-(h/defview unsafe-client-only-page
+(rf.hicasso/defview unsafe-client-only-page
   "The same component under the DEFAULT policy — the control that makes
   the row below a fact about the assertion rather than about the
   component."
   [_]
   [:div.page
-   [:h1.title (collector/sub [:hicasso.ssr/title])]
+   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])]
    [unsafe-client-only-host {}]])
 
-(h/defview unprovided-page
+(rf.hicasso/defview unprovided-page
   "The consumer with NO provider above it — what a policy that rendered
   the children alone would have emitted, so the `dark` below is a
   measured contrast and not an assumed one."
   [_]
   [:div.page [reader-host {}]])
 
-(h/defview counted-provider-page
+(rf.hicasso/defview counted-provider-page
   "[[provider-page]] with a mount-counting consumer, for the hydration
   row. Same shape, one extra effect."
   [_]
   [:div.page
-   [:h1.title (collector/sub [:hicasso.ssr/title])]
+   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.ssr/title])]
    [themed {:value "dark"}
     [:p.body "THE ENTIRE APPLICATION"]
     [counted-reader-host {}]]])
@@ -340,7 +340,7 @@
   to one call."
   [hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
 
 (defn- query-node [root selector] (.querySelector root selector))
 
@@ -382,32 +382,32 @@
             an author who writes it explicitly gets the same one — a
             foreign component is exactly the node whose render may reach
             for `window`, and the door does not guess"
-    (is (= :client-only (codec/host-server bare-chart)))
-    (is (= :client-only (codec/host-server client-only-chart))))
+    (is (= :client-only (rf.hicasso.impl.codec/host-server bare-chart)))
+    (is (= :client-only (rf.hicasso.impl.codec/host-server client-only-chart))))
   (testing "and a declared :fallback is MARKUP rather than a policy value
             (rf2-mo4o): the host is Client-only either way, which is what
             the two-policy matrix says and what the sibling native door
             already recorded"
-    (is (= :client-only (codec/host-server fallback-chart)))))
+    (is (= :client-only (rf.hicasso.impl.codec/host-server fallback-chart)))))
 
 (deftest the-other-policy-is-render-and-it-is-an-assertion
   (testing "rf2-l0wfx. `:render` is the second of the two — the author
             asserting that this component is safe to run on the server"
-    (is (= :render (codec/host-server themed)))
-    (is (= :render (codec/host-server reader-host))))
+    (is (= :render (rf.hicasso.impl.codec/host-server themed)))
+    (is (= :render (rf.hicasso.impl.codec/host-server reader-host))))
   (testing "and it reads back as data like the other policy, so a server
             walk that wants to state what it is honouring still can"
-    (is (= :client-only (codec/host-server themed-client-only)))
-    (is (some? (codec/mint-host! "server/render-plus-callbacks" chart
+    (is (= :client-only (rf.hicasso.impl.codec/host-server themed-client-only)))
+    (is (some? (rf.hicasso.impl.codec/mint-host! "server/render-plus-callbacks" chart
                                  {:callbacks {:on-pick :event} :server :render}))
         "and it composes with :callbacks, which is another option")))
 
 (deftest the-declaration-refuses-a-policy-it-cannot-honour
   (testing "a third value is refused at the declaration, naming the two"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "server/server" chart {:server :server}))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/server" chart {:server :server}))))
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "server/true" chart {:server true})))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/true" chart {:server true})))))
   (testing "and the three spellings an author reaches for INSTEAD of
             `:render` stay refused, every one of them (rf2-l0wfx). They
             assert a structural property nobody can check — that the
@@ -416,36 +416,36 @@
             silent wrongness"
     (doseq [v [:children :transparent :passthrough]]
       (is (= :rf.error/hicasso-host-bad-ssr-policy
-             (error-id #(codec/mint-host! (str "server/" (name v)) chart {:server v})))
+             (error-id #(rf.hicasso.impl.codec/mint-host! (str "server/" (name v)) chart {:server v})))
           (str (pr-str v) " must stay refused"))))
   (testing "a map spelling of it is not a spelling of it either —
             `:render` is a bare keyword, and a policy that admitted both
             would be two ways to say one thing"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "server/render-map" chart
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/render-map" chart
                                         {:server {:render true}})))))
   (testing "an explicit nil is a value, not an absence — `:client-only` is
             the default of an ABSENT key, and inferring it from nil is how
             a typo becomes a policy"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "server/nil" chart {:server nil})))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/nil" chart {:server nil})))))
   (testing "a :fallback belongs to Client-only ALONE (rf2-mo4o). Under
             `:render` the component itself renders on the server, so there
             is nothing for a placeholder to stand in for, and a declaration
             carrying both says two incompatible things"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "server/render-plus-fallback" chart
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/render-plus-fallback" chart
                                         {:server :render :fallback [:div.s]})))))
   (testing "while an explicit nil fallback is a value here too — it is a
             placeholder that renders nothing, written by an author who
             believes they wrote one"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "server/nil-fb" chart {:fallback nil})))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/nil-fb" chart {:fallback nil})))))
   (testing "and a fallback that is not hiccup fails HERE, at the
             declaration, rather than one render into a server response —
             it is walked once at mint, where the author's stack is"
     (is (= :rf.error/hicasso-empty-vector
-           (error-id #(codec/mint-host! "server/bad-fb" chart {:fallback []})))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/bad-fb" chart {:fallback []})))))
   (testing "as does a `defview` head written into a fallback — a fallback
             is inert markup and that is enforced (rf2-nv07k). The full
             contract, both directions, is
@@ -453,7 +453,7 @@
             the two halves were ruled together and the refusal is one of
             this declaration's own"
     (is (= :rf.error/hicasso-host-fallback-boundary-head
-           (error-id #(codec/mint-host! "server/live-fb" chart
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/live-fb" chart
                                         {:fallback [client-only-page {}]}))))))
 
 (deftest the-declaration-refuses-an-option-it-does-not-know
@@ -462,25 +462,25 @@
             defect class as an intent crossing as inert data, and it gets
             the same refusal"
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "server/typo" chart {:sserver :client-only}))))
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/typo" chart {:sserver :client-only}))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "server/legacy" chart
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/legacy" chart
                                         {:callbacks {} :hydrate? true})))))
   (testing "AND THAT IS WHERE THE RETIRED `:ssr` SPELLING LANDS (rf2-mo4o).
             There is no alias and no deprecation path — this is pre-alpha,
             so a rename is a rename — and the option roster is what says
             so, in both of the shapes `:ssr` used to take"
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "server/retired-render" chart
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/retired-render" chart
                                         {:ssr :render}))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "server/retired-client-only" chart
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/retired-client-only" chart
                                         {:ssr :client-only}))))
     (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(codec/mint-host! "server/retired-fallback" chart
+           (error-id #(rf.hicasso.impl.codec/mint-host! "server/retired-fallback" chart
                                         {:ssr {:fallback [:div.s]}})))))
   (testing "while the four it does know are accepted together"
-    (is (some? (codec/mint-host! "server/all" chart
+    (is (some? (rf.hicasso.impl.codec/mint-host! "server/all" chart
                                  {:callbacks {:on-pick :event}
                                   :slots     #{:title}
                                   :server    :client-only
@@ -607,44 +607,44 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fresh-mount-renders-the-component-on-its-first-pass
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (testing "a `createRoot` mount never consults a server snapshot, so
                 neither policy costs a placeholder pass — asserted on the
                 line after `root!` returns, which is inside its flushSync"
-        (let [a (mount/root! (mount/fresh-container!) frame-id [client-only-page {}])]
+        (let [a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [client-only-page {}])]
           (try
             (is (some? (query-node (:container a) ".chart"))
                 ":client-only mounted its component immediately")
             (is (= "yes" (.getAttribute (query-node (:container a) ".chart") "data-live"))
                 "and it is the real one")
-            (finally (mount/release! a))))
-        (let [b (mount/root! (mount/fresh-container!) frame-id [fallback-page {}])]
+            (finally (rf.hicasso.impl.mount/release! a))))
+        (let [b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [fallback-page {}])]
           (try
             (is (some? (query-node (:container b) ".chart"))
                 "{:fallback …} mounted its component immediately too")
             (is (nil? (query-node (:container b) ".chart-skeleton"))
                 "and the placeholder never flashed — a fallback is for the
                  server's markup, not for a client that has none")
-            (finally (mount/release! b))))))))
+            (finally (rf.hicasso.impl.mount/release! b))))))))
 
 (deftest the-gate-forwards-props-and-children-untouched
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (testing "the gate hands its own props straight through, so the
                 crossing is the object `host-element` built — the door's
                 contract is unchanged by the policy sitting in front of it"
-        (let [h (mount/root! (mount/fresh-container!) frame-id [slotted-page {}])]
+        (let [h (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [slotted-page {}])]
           (try
             (is (= "quarterly" (.-textContent (query-node (:container h) ".chart-label")))
                 "a declared prop reached the foreign component")
             (is (some? (query-node (:container h) ".chart .kid"))
                 "and so did the children, in the component's own slot")
-            (finally (mount/release! h))))))))
+            (finally (rf.hicasso.impl.mount/release! h))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — hydration: the first client pass matches, and adoption swaps
@@ -671,11 +671,11 @@
   (fresh!)
   (reset! !renders 0)
   (let [html      (server-html hiccup)
-        container (mount/fresh-container!)
+        container (rf.hicasso.impl.mount/fresh-container!)
         {:keys [seen restore]} (watch-errors!)]
     (set! (.-innerHTML container) html)
     (let [root (hydrate! container
-                         (mount/provider frame-id (codec/root-element frame-id hiccup))
+                         (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))
                          seen)]
       (js/setTimeout
         (fn []
@@ -685,13 +685,13 @@
               (restore)
               (.unmount root)
               (when-some [p (.-parentNode container)] (.removeChild p container))
-              (collector/reset-runtime!)
+              (rf.hicasso.impl.collector/reset-runtime!)
               (done))))
         150))))
 
 (deftest client-only-hydrates-with-nothing-there-and-mounts-after-adoption
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [client-only-page {}]
@@ -718,7 +718,7 @@
 
 (deftest a-fallback-hydrates-as-the-placeholder-and-is-swapped-after-adoption
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [fallback-page {}]
@@ -738,7 +738,7 @@
 
 (deftest a-render-crossing-hydrates-once-and-never-remounts
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (reset! !child-mounts 0)

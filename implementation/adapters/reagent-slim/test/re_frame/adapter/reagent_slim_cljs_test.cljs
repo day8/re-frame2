@@ -26,8 +26,8 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.adapter.reagent-slim :as reagent-slim]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -42,11 +42,11 @@
 (defn- with-cleared-hiccup-emitter
   "Run `f` with the adapter's hiccup-emitter forced to nil."
   [f]
-  (reagent-slim/set-hiccup-emitter! nil)
+  (rf.adapter.reagent-slim/set-hiccup-emitter! nil)
   (try
     (f)
     (finally
-      (reagent-slim/set-hiccup-emitter! nil))))
+      (rf.adapter.reagent-slim/set-hiccup-emitter! nil))))
 
 ;; ---------------------------------------------------------------------------
 ;; Adapter map shape (per IMPL-SPEC §2.1 + Spec 006 §CLJS reference)
@@ -55,7 +55,7 @@
 (deftest adapter-has-canonical-keys
   (testing "the adapter map carries the substrate-shape keys + :kind discriminator
             (incl. the optional rf2-40a84 :flush-render! slot)"
-    (let [k (set (keys reagent-slim/adapter))]
+    (let [k (set (keys rf.adapter.reagent-slim/adapter))]
       (is (= #{:kind
               :make-state-container
               :read-container
@@ -70,12 +70,12 @@
               :dispose-adapter!}
              k)
           "every slot named in re-frame.substrate.adapter is present plus :kind")
-      (is (= :rf.adapter/reagent-slim (:kind reagent-slim/adapter))
+      (is (= :rf.adapter/reagent-slim (:kind rf.adapter.reagent-slim/adapter))
           ":kind matches the canonical reagent-slim discriminator"))))
 
 (deftest adapter-slot-fns-callable
   (testing "every adapter contract slot value is a fn (excludes the :kind discriminator)"
-    (doseq [[k v] (dissoc reagent-slim/adapter :kind)]
+    (doseq [[k v] (dissoc rf.adapter.reagent-slim/adapter :kind)]
       (is (fn? v) (str "adapter slot " k " is callable")))))
 
 ;; ---------------------------------------------------------------------------
@@ -84,9 +84,9 @@
 
 (deftest state-container-roundtrip
   (testing "make-state-container / read / replace cycle"
-    (let [make    (:make-state-container reagent-slim/adapter)
-          read    (:read-container        reagent-slim/adapter)
-          replace (:replace-container!    reagent-slim/adapter)
+    (let [make    (:make-state-container rf.adapter.reagent-slim/adapter)
+          read    (:read-container        rf.adapter.reagent-slim/adapter)
+          replace (:replace-container!    rf.adapter.reagent-slim/adapter)
           c       (make {:n 0})]
       (is (= {:n 0} (read c)) "initial value flows through")
       (replace c {:n 42})
@@ -94,9 +94,9 @@
 
 (deftest state-container-subscribe
   (testing "subscribe-container fires on change; unsubscribe stops"
-    (let [make      (:make-state-container reagent-slim/adapter)
-          replace   (:replace-container!    reagent-slim/adapter)
-          subscribe (:subscribe-container  reagent-slim/adapter)
+    (let [make      (:make-state-container rf.adapter.reagent-slim/adapter)
+          replace   (:replace-container!    rf.adapter.reagent-slim/adapter)
+          subscribe (:subscribe-container  rf.adapter.reagent-slim/adapter)
           c         (make {:n 0})
           seen      (atom [])
           unsub     (subscribe c (fn [_prev nu] (swap! seen conj nu)))]
@@ -113,9 +113,9 @@
 
 (deftest derived-value-tracks-source
   (testing "make-derived-value produces a Reaction that tracks its sources"
-    (let [make-c    (:make-state-container reagent-slim/adapter)
-          replace   (:replace-container!    reagent-slim/adapter)
-          make-d    (:make-derived-value   reagent-slim/adapter)
+    (let [make-c    (:make-state-container rf.adapter.reagent-slim/adapter)
+          replace   (:replace-container!    rf.adapter.reagent-slim/adapter)
+          make-d    (:make-derived-value   rf.adapter.reagent-slim/adapter)
           src       (make-c 1)
           derived   (make-d [src] (fn [v] (* v 100)))]
       (is (= 100 @derived) "initial derived value")
@@ -130,15 +130,15 @@
   (testing "render-to-string raises when no hiccup-emitter installed"
     (with-cleared-hiccup-emitter
       (fn []
-        (let [render-to-string (:render-to-string reagent-slim/adapter)]
+        (let [render-to-string (:render-to-string rf.adapter.reagent-slim/adapter)]
           (is (thrown? :default (render-to-string [:div] {}))))))))
 
 (deftest set-hiccup-emitter-installs-fn
   (testing "set-hiccup-emitter! lets render-to-string emit"
     (with-cleared-hiccup-emitter
       (fn []
-        (reagent-slim/set-hiccup-emitter! mock-hiccup-emitter)
-        (let [render-to-string (:render-to-string reagent-slim/adapter)
+        (rf.adapter.reagent-slim/set-hiccup-emitter! mock-hiccup-emitter)
+        (let [render-to-string (:render-to-string rf.adapter.reagent-slim/adapter)
               tree             [:div "ok"]
               html             (render-to-string tree {})]
           (is (str/starts-with? html "<mock>")
@@ -153,16 +153,16 @@
             slot, so SSR's `re-frame.ssr.emit` ns-load can auto-wire
             render-to-string without a direct `set-hiccup-emitter!`
             call from user code."
-    (let [hook-fn (late-bind/get-fn :reagent/set-hiccup-emitter!)]
+    (let [hook-fn (rf.late-bind/get-fn :reagent/set-hiccup-emitter!)]
       (is (some? hook-fn)
           "the chained hook is registered after the Reagent Slim adapter ns has loaded")
       (with-cleared-hiccup-emitter
         (fn []
-          (let [render-to-string (:render-to-string reagent-slim/adapter)]
+          (let [render-to-string (:render-to-string rf.adapter.reagent-slim/adapter)]
             (is (thrown? :default (render-to-string [:div] {}))
                 "precondition: emitter cleared"))
           (hook-fn mock-hiccup-emitter)
-          (let [render-to-string (:render-to-string reagent-slim/adapter)
+          (let [render-to-string (:render-to-string rf.adapter.reagent-slim/adapter)
                 html             (render-to-string [:div "via-chain"] {})]
             (is (str/starts-with? html "<mock>")
                 "the chained hook wired the Reagent Slim adapter's emitter slot"))
@@ -174,7 +174,7 @@
 
 (deftest dispose-adapter-runs-cleanly
   (testing "dispose-adapter! returns nil and doesn't throw"
-    (let [dispose (:dispose-adapter! reagent-slim/adapter)]
+    (let [dispose (:dispose-adapter! rf.adapter.reagent-slim/adapter)]
       (is (nil? (dispose))))))
 
 ;; ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@
   ;; live in reagent2.dom.client-cljs-test (with stub roots) and
   ;; browser-test (with jsdom).
   (testing "render slot is callable"
-    (is (fn? (:render reagent-slim/adapter)))))
+    (is (fn? (:render rf.adapter.reagent-slim/adapter)))))
 
 ;; ---------------------------------------------------------------------------
 ;; register-context-provider returns the views ns's frame-provider
@@ -195,7 +195,7 @@
 
 (deftest register-context-provider-returns-component
   (testing "register-context-provider returns a component value"
-    (let [reg (:register-context-provider reagent-slim/adapter)
+    (let [reg (:register-context-provider rf.adapter.reagent-slim/adapter)
           provider (reg :rf/some-frame)]
       (is (some? provider)
           "register-context-provider returned a non-nil component"))))

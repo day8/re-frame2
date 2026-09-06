@@ -57,14 +57,14 @@
             [reagent.core :as r]
             [reagent.ratom :as ratom]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support])
+            [re-frame.interop :as rf.interop]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -322,7 +322,7 @@
         ;; install-unmount-hook! test pattern, which similarly
         ;; disposes the reaction directly to drive the on-dispose
         ;; callback chain headlessly.
-        (interop/dispose! sum-rea)
+        (rf.interop/dispose! sum-rea)
 
         ;; The cache's `add-on-dispose!` cascade ran: each input was
         ;; `unsubscribe`d, dropping their ref-counts to 0, evicting

@@ -11,8 +11,8 @@
   ns ends in -cljs-test so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
@@ -22,9 +22,9 @@
 ;; the unit under test IS init!.
 
 (defn- cold-start-fixture [test-fn]
-  (adapter/dispose-adapter!)
+  (rf.substrate.adapter/dispose-adapter!)
   (test-fn)
-  (adapter/dispose-adapter!))
+  (rf.substrate.adapter/dispose-adapter!))
 
 (use-fixtures :each cold-start-fixture)
 
@@ -32,25 +32,25 @@
 
 (deftest reagent-ns-load-has-no-side-effects
   (testing "requiring re-frame.adapter.reagent does NOT auto-install or auto-register"
-    (is (nil? (adapter/current-adapter))
+    (is (nil? (rf.substrate.adapter/current-adapter))
         "ns-load does not install the adapter")
-    (is (map? reagent-adapter/adapter)
+    (is (map? rf.adapter.reagent/adapter)
         "the adapter ns exports its spec as the public `adapter` var")
-    (is (= 10 (count (filter fn? (vals reagent-adapter/adapter))))
+    (is (= 10 (count (filter fn? (vals rf.adapter.reagent/adapter))))
         "the exported adapter map carries the full contract — the six required +
          subscribe-container + register-context-provider + dispose-adapter! +
          the optional rf2-40a84 flush-render! fn")
-    (is (= :rf.adapter/reagent (:kind reagent-adapter/adapter))
+    (is (= :rf.adapter/reagent (:kind rf.adapter.reagent/adapter))
         "the adapter map carries its discriminator keyword under :kind")))
 
 (deftest init-explicit-installs-reagent
   (testing "(rf/init! reagent/adapter) installs the Reagent adapter"
-    (is (nil? (adapter/current-adapter))
+    (is (nil? (rf.substrate.adapter/current-adapter))
         "precondition: no adapter installed")
-    (rf/init! reagent-adapter/adapter)
-    (is (identical? reagent-adapter/adapter (adapter/current-adapter-spec))
+    (rf/init! rf.adapter.reagent/adapter)
+    (is (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter-spec))
         "explicit init! installed the Reagent adapter (map identity)")
-    (is (= :rf.adapter/reagent (adapter/current-adapter))
+    (is (= :rf.adapter/reagent (rf.substrate.adapter/current-adapter))
         "current-adapter returns the discriminator keyword per Spec 006")))
 
 (deftest init-no-arg-raises-arity-error
@@ -67,7 +67,7 @@
                    (catch :default e e))]
       (is (some? thrown)
           "rf/init! with no args raises (cut arity)"))
-    (is (nil? (adapter/current-adapter))
+    (is (nil? (rf.substrate.adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 
 (deftest init-keyword-raises
@@ -84,5 +84,5 @@
       (let [data (ex-data thrown)]
         (is (= :reagent (:received data))
             "ex-data echoes the offending keyword")))
-    (is (nil? (adapter/current-adapter))
+    (is (nil? (rf.substrate.adapter/current-adapter))
         "the failed init! did NOT install any adapter")))

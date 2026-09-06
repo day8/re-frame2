@@ -13,10 +13,10 @@
   (:require [uix.core          :as uix :refer-macros [defui]]
             [uix.hooks.alpha   :as uix-hooks]
             [uix.compiler.input]
-            [re-frame.frame             :as frame]
-            [re-frame.substrate.spine   :as spine]
-            [re-frame.adapter.use-frame :as use-frame-hook]
-            [re-frame.views.frame-boundary :as boundary]))
+            [re-frame.frame             :as rf.frame]
+            [re-frame.substrate.spine   :as rf.substrate.spine]
+            [re-frame.adapter.use-frame :as rf.adapter.use-frame]
+            [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
 
 ;; ---- controlled inputs: React's implementation, not the classpath's -------
 ;;
@@ -46,7 +46,7 @@
 ;; ---- shared spine wiring --------------------------------------------------
 
 (def ^:private spine-fns
-  (spine/make-react-spine
+  (rf.substrate.spine/make-react-spine
     {:substrate-name        "UIx"
      :gensym-prefix-sub     "rf-uix-sub-"
      :gensym-prefix-derived "rf-uix-derived-"
@@ -95,15 +95,15 @@
   `:children` before this body delegates to the shared scope core."
   [props]
   (when (contains? props :id)
-    (boundary/reject-frame-provider-id!
+    (rf.views.frame-boundary/reject-frame-provider-id!
       (:id props) 're-frame.adapter.uix/frame-provider))
   ;; Validate before consulting the registry so malformed ids get the
   ;; configuration error rather than the absent-frame error.
-  (let [frame-kw (frame/require-frame-provider-target!
+  (let [frame-kw (rf.frame/require-frame-provider-target!
                    (:frame props) 're-frame.adapter.uix/frame-provider)]
-    (boundary/require-live-frame-for-scope!
+    (rf.views.frame-boundary/require-live-frame-for-scope!
       frame-kw 're-frame.adapter.uix/frame-provider)
-    (spine/build-frame-provider-element frame-kw (:children props))))
+    (rf.substrate.spine/build-frame-provider-element frame-kw (:children props))))
 
 (defui frame-root
   "ENSURE a named frame for descendant UIx components (rf2-nyea0r split) — a
@@ -132,7 +132,7 @@
   map, preserving namespaced keyword values, and folds trailing children into
   `:children` before this body delegates to the shared two-pass core."
   [props]
-  (boundary/frame-root-react-element
+  (rf.views.frame-boundary/frame-root-react-element
     props
     (:children props)
     're-frame.adapter.uix/frame-root))
@@ -168,7 +168,7 @@
   incarnation it was captured against (rf2-40kv). No options map, no
   variants — for an explicit frame call `(rf/capture-frame frame-id)`
   directly."
-  use-frame-hook/use-frame)
+  rf.adapter.use-frame/use-frame)
 
 (def flush-views!
   "Flush pending UIx renders synchronously. Wraps React's act() —
@@ -235,7 +235,7 @@
   `spine/make-react-adapter` owns the shared React-hook routing and
   lifecycle wiring. The native provider stays in this namespace so the spine
   has no dependency on UIx's element macro."
-  (spine/make-react-adapter spine-fns
+  (rf.substrate.spine/make-react-adapter spine-fns
                             {:kind              :rf.adapter/uix
                              :frame-provider    frame-provider
                              :componentize-view componentize-view}))

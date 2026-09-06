@@ -36,16 +36,16 @@
        :data."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; The schemas Malli adapter publishes the registered validator
             ;; the `:where :machine-data` boundary routes through; boot.core
             ;; pulls it transitively (via boot.schema), require explicitly so
             ;; this ns is self-sufficient.
-            [re-frame.schemas :as schemas]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.malli]
             [boot.schema :as boot-schema]
             [re-frame.views]
@@ -77,7 +77,7 @@
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [frame-ctx args]
-      (let [stub  (registrar/handler :fx :rf.http/managed-canned-success)
+      (let [stub  (rf.registrar/handler :fx :rf.http/managed-canned-success)
             url   (-> args :request :url)
             value (url->value url)]
         (stub frame-ctx (assoc args :value value))))))
@@ -88,7 +88,7 @@
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [frame-ctx args]
-      (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
         (stub frame-ctx (assoc args :kind kind :tags tags))))))
 
 ;; ============================================================================
@@ -130,14 +130,14 @@
 ;; ============================================================================
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each test spins its OWN top-level frame via
     ;; `make-frame` (inside `with-new-frame`); opt out of the ambient
     ;; `:rf/default` scope so the new frame's `:initial-events` drain
     ;; synchronously (top-level boot) rather than being treated as a
     ;; mid-cascade child-frame creation. In-body dispatches run inside the
     ;; `with-new-frame` scope, so they do not rely on the ambient frame.
-    {:adapter       reagent-adapter/adapter
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 ;; ============================================================================
@@ -154,7 +154,7 @@
   (testing "happy path: boot machine traverses :configuring → :loading-deps → :hydrating → :ready and all slices land"
     (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
@@ -183,7 +183,7 @@
   (testing "per-child :data fns thread spawn-spec identity; no cross-talk between siblings"
     (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
@@ -213,7 +213,7 @@
                          {:status 500
                           :body   "boot dependency unreachable"})
 
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-fail}})]
@@ -253,22 +253,22 @@
 
 (deftest boot-data-schema-attached
   (testing "the :app/boot machine carries BootData on its [:schemas :data] slot"
-    (let [meta (machines/machine-meta :app/boot)]
+    (let [meta (rf.machines/machine-meta :app/boot)]
       (is (some? meta) "machine-meta resolves the registered :app/boot machine")
       (is (= boot-schema/BootData (get-in meta [:schemas :data]))
           "the [:schemas :data] schema round-trips as boot.schema/BootData")))
   (testing "BootData validates the :data slot only (rejects a malformed :config)"
-    (is (true?  (schemas/validate-with-registered-fn
+    (is (true?  (rf.schemas/validate-with-registered-fn
                   boot-schema/BootData
                   {:phase :configuring :config nil :flags nil
                    :user nil :routes nil :error nil}))
         "the initial all-nil :data conforms")
-    (is (true?  (schemas/validate-with-registered-fn
+    (is (true?  (rf.schemas/validate-with-registered-fn
                   boot-schema/BootData
                   {:phase :hydrating :config test-config :flags nil
                    :user nil :routes nil :error nil}))
         "a well-formed promoted :config conforms")
-    (is (false? (schemas/validate-with-registered-fn
+    (is (false? (rf.schemas/validate-with-registered-fn
                   boot-schema/BootData
                   {:phase :loading-deps :config {:api-base "/api"} :flags nil
                    :user nil :routes nil :error nil}))
@@ -288,7 +288,7 @@
     (let [frame  (atom nil)
           traces (collect-machine-data-traces!
                    #(reset! frame
-                      (frame/make-anon-frame-record!
+                      (rf.frame/make-anon-frame-record!
                         {:initial-events [[:boot/initialise]]
                          :fx-overrides {:rf.http/managed
                                         :boot.test/canned-bad-config}})))]
@@ -317,7 +317,7 @@
                                           (= :app-db (-> ev :tags :where)))
                                  (swap! app-traces conj ev))))
       (try
-        (with-new-frame [f (frame/make-anon-frame-record! {})]
+        (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
           (rf/reg-app-schema [:config] {:frame f} [:maybe boot-schema/Config])
           (rf/dispatch-sync [::write-bad-config] {:frame f}))
         (finally (rf/unregister-listener! :trace ::app)))

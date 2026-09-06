@@ -31,12 +31,12 @@
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
             [re-frame.epoch]
-            [re-frame.epoch.state :as state]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- cb-generation
   "The live generation token under `cb-id`. Artefact-internal: rf2-uhouu retired
@@ -44,7 +44,7 @@
   two-read receiver decision). A consumer asks `rf/epoch-silence-current?`
   instead; this test names the generation only to pin the EMITTED qualifier."
   [cb-id]
-  (get-in (state/listeners-snapshot) [cb-id :generation]))
+  (get-in (rf.epoch.state/listeners-snapshot) [cb-id :generation]))
 
 ;; ---- canonical schema extraction (no drift: read the markdown) --------------
 
@@ -164,10 +164,10 @@
             emit-under-lock or reserve-only-emits authority. A regression to that
             language flips these assertions RED."
     (let [src        (state-source)
-          put-doc    (var-doc #'state/put-listener!)
-          drop-doc   (var-doc #'state/drop-listener!)
-          rec-doc    (var-doc #'state/record-observation!)
-          publish    (var-doc #'state/claim-and-publish-delayed-silence!)]
+          put-doc    (var-doc #'rf.epoch.state/put-listener!)
+          drop-doc   (var-doc #'rf.epoch.state/drop-listener!)
+          rec-doc    (var-doc #'rf.epoch.state/record-observation!)
+          publish    (var-doc #'rf.epoch.state/claim-and-publish-delayed-silence!)]
 
       ;; --- NO emit-under-lock authority (a lock spanning the external emit) ---
       (is (not (str/includes? src "across its eligibility recheck AND the external emit"))

@@ -57,13 +57,13 @@
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks, including
             ;; `:epoch/epoch-silence-current?`.
             [re-frame.epoch]
-            [re-frame.epoch.listeners :as epoch.listeners]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -73,15 +73,15 @@
   only recompose the torn decision. Artefact-internal tests read the registry
   snapshot directly."
   [cb]
-  (get-in (epoch-state/listeners-snapshot) [cb :generation]))
+  (get-in (rf.epoch.state/listeners-snapshot) [cb :generation]))
 
 (defn- observe!
   "Register `cb` as an epoch listener and let it consume one record from `frame`,
   so a silence for `(frame, cb)` is owed under `cb`'s live generation."
   [frame token cb]
   (rf/register-listener! :epoch cb (fn [_] nil))
-  (epoch-state/claim-frame-owner! frame token)
-  (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1}))
+  (rf.epoch.state/claim-frame-owner! frame token)
+  (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 1}))
 
 (defn- observing-torn
   "Reproduces the observation-continuum predicate's INTERNAL two-deref
@@ -89,9 +89,9 @@
   `mutate!` executed at the seam between them. These are the same two atoms the
   predicate reads, reached through the state ns's own snapshot fns."
   [cb frame mutate!]
-  (let [observed (epoch-state/observations-snapshot)   ; deref 1 — silence-lock domain
+  (let [observed (rf.epoch.state/observations-snapshot)   ; deref 1 — silence-lock domain
         _        (mutate!)                             ; ← THE SEAM
-        live     (epoch-state/listeners-snapshot)      ; deref 2 — registry-lock domain
+        live     (rf.epoch.state/listeners-snapshot)      ; deref 2 — registry-lock domain
         token    (get-in observed [cb frame] ::absent)]
     (and (not= token ::absent)
          (= token (:generation (get live cb))))))
@@ -179,11 +179,11 @@
       (observe! frame token cb)
       ;; Drop the live observation so a silence is genuinely owed — the state a
       ;; deferred predecessor publishes into.
-      (epoch-state/drop-frame-observation! frame)
+      (rf.epoch.state/drop-frame-observation! frame)
       (let [g      (gen cb)
             tags   {:cb-id cb :frame frame :observed-gen g}
             before (rf/epoch-silence-current? tags)
-            torn   (two-read-torn tags #(epoch-state/record-observation! cb g frame))
+            torn   (two-read-torn tags #(rf.epoch.state/record-observation! cb g frame))
             after  (rf/epoch-silence-current? tags)]
         (is (true? before) "BEFORE: genuinely silent — the decision ACCEPTS")
         (is (false? after) "AFTER: the successor's delivery re-armed it — REJECT")
@@ -208,7 +208,7 @@
             torn   (observing-torn cb frame
                      (fn []
                        (rf/register-listener! :epoch cb (fn [_] nil))   ; G → H
-                       (epoch-state/record-observation! cb (gen cb) frame)))
+                       (rf.epoch.state/record-observation! cb (gen cb) frame)))
             after  (observing-now cb frame)]
         (is (true? before) "BEFORE: the callback observes the frame under G")
         (is (true? after)  "AFTER: it observes the frame under H")
@@ -239,7 +239,7 @@
                          (not (observing-torn cb frame
                                 (fn []
                                   (rf/register-listener! :epoch cb (fn [_] nil)) ; G → H
-                                  (epoch-state/record-observation! cb (gen cb) frame))))]
+                                  (rf.epoch.state/record-observation! cb (gen cb) frame))))]
                      (and identity-ok not-observing))
             after  (rf/epoch-silence-current? tags)]
         (is (false? before) "BEFORE: reject — the callback is observing under G")
@@ -261,7 +261,7 @@
           cb    ::uhouu-genuine-cb
           token (Object.)]
       (observe! frame token cb)
-      (epoch-state/drop-frame-observation! frame)
+      (rf.epoch.state/drop-frame-observation! frame)
       (let [g (gen cb)]
         (is (true? (rf/epoch-silence-current? {:cb-id cb :frame frame :observed-gen g}))
             "registration still current, nothing re-armed it — ACCEPT")))))
@@ -276,10 +276,10 @@
           token       (Object.)
           other-token (Object.)]
       (observe! frame token cb)
-      (epoch-state/drop-frame-observation! frame)
+      (rf.epoch.state/drop-frame-observation! frame)
       (let [g (gen cb)]
-        (epoch-state/claim-frame-owner! other-frame other-token)
-        (epoch-state/record-observation! cb g other-frame)
+        (rf.epoch.state/claim-frame-owner! other-frame other-token)
+        (rf.epoch.state/record-observation! cb g other-frame)
         (is (true? (observing-now cb other-frame)) "cb IS observing the unrelated frame")
         (is (true? (rf/epoch-silence-current? {:cb-id cb :frame frame :observed-gen g}))
             "the destroyed frame's silence is still current")

@@ -57,8 +57,8 @@
             [reagent2.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
 ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
@@ -70,8 +70,8 @@
 ;; subscribe would read :rf/default's (empty) app-db instead of the provider's
 ;; (the seeded probe frame), rendering "n=" instead of the counter value.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-slim-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter
      :ambient-frame nil}))
 
 (defn- browser? []
@@ -87,7 +87,7 @@
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [frame-kw :rf.reagent-slim-flush-render/probe-frame
-            flush!   (:flush-render! reagent-slim-adapter/adapter)]
+            flush!   (:flush-render! rf.adapter.reagent-slim/adapter)]
         (is (fn? flush!)
             "the reagent-slim adapter map exposes :flush-render! (rf2-0bz5ah contract slot)")
         (rf/make-frame {:id frame-kw :doc "flush-render! synchronous-commit probe frame"})

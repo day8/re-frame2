@@ -27,18 +27,18 @@
   cold read is priced in docs/design/hicasso/studio/the-cold-read-mount-term.md;
   every module-level owner here has its row on
   docs/design/hicasso/product/globals.md."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.error :as error :refer [fail!]]
-            [re-frame.hicasso.impl.frames :as frames]
-            [re-frame.hicasso.impl.generation :as generation]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.performance :as performance :include-macros true]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.error :as rf.hicasso.impl.error :refer [fail!]]
+            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
+            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.performance :as rf.performance :include-macros true]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@
   closure factory, so every caller reads the same row and the bundle can
   never describe a different incarnation than the closure that calls it."
   [frame-kw]
-  (frames/frame-row frame-kw mint-frame-dispatch))
+  (rf.hicasso.impl.frames/frame-row frame-kw mint-frame-dispatch))
 
 (defn frame-dispatch
   "The ambient dispatch a boundary binds for its render's dynamic extent
@@ -163,7 +163,7 @@
     (set! (.-disposed cell) true)
     (when-some [r (.-reaction cell)] (remove-watch r cell-watch-key))
     (swap! !cells dissoc (.-subKey cell))
-    (subs/unsubscribe (.-frameKw cell) (.-queryV cell)))
+    (rf.subs/unsubscribe (.-frameKw cell) (.-queryV cell)))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -286,16 +286,16 @@
   [^js cell]
   (let [frame-kw (.-frameKw cell)
         query-v  (.-queryV cell)
-        reaction (subs/subscribe query-v {:frame frame-kw})]
+        reaction (rf.subs/subscribe query-v {:frame frame-kw})]
     (set! (.-reaction cell) reaction)
     (when (some? reaction)
       ;; On the substrate's PUSH path, before anything observes or watches it.
-      (interop/activate-derived-value! reaction)
+      (rf.interop/activate-derived-value! reaction)
       ;; ONE baseline deref, before the watch — see `acquire-cell!`.
       @reaction
       (add-watch reaction cell-watch-key
                  (fn [_ _ old nu] (when-not (= old nu) (mark-dirty! cell))))
-      (interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell))))
+      (rf.interop/add-on-dispose! reaction (fn [] (invalidate-cell! cell))))
     cell))
 
 (defn- invalidate-cell!
@@ -325,7 +325,7 @@
         ;; second `add-on-dispose!` hook, so the next disposal would
         ;; invalidate twice, wire twice and compound.
         (when (and (not (.-disposed cell)) (nil? (.-reaction cell)))
-          (if (nil? (frame/frame-incarnation-token (.-frameKw cell)))
+          (if (nil? (rf.frame/frame-incarnation-token (.-frameKw cell)))
             (dispose-cell! cell)
             (do (wire-cell! cell)
                 ;; Re-stamp and notify: a boundary that painted before the
@@ -374,7 +374,7 @@
   before the registration it is about to read against."
   [{:keys [kind] :as registration}]
   (when (= :sub kind)
-    (generation/bump-registry-epoch!)
+    (rf.hicasso.impl.generation/bump-registry-epoch!)
     (first-registration! registration))
   nil)
 
@@ -383,7 +383,7 @@
 ;; keyword compare per registration and the scan only on a first-time `:sub`.
 #_:clj-kondo/ignore
 (defonce ^:private first-registration-armed
-  (do (registrar/add-registration-hook! sub-registered!) true))
+  (do (rf.registrar/add-registration-hook! sub-registered!) true))
 
 (defn- acquire-cell!
   "Commit-phase only. Take (building if necessary) the durable reference
@@ -406,7 +406,7 @@
                                      ;; contributes the CURRENT basis to
                                      ;; `getSnapshot`, so a cell born at
                                      ;; the same basis reads the same.
-                                     "epoch"    (generation/commit-basis frame-kw)
+                                     "epoch"    (rf.hicasso.impl.generation/commit-basis frame-kw)
                                      ;; The key's reverse edge AND its
                                      ;; reference count, in one array —
                                      ;; see the section header.
@@ -473,7 +473,7 @@
   (let [dirty @!dirty]
     (when (seq dirty)
       (vreset! !dirty #{})
-      (generation/bump-generation!)
+      (rf.hicasso.impl.generation/bump-generation!)
       ;; Re-STAMP rather than increment, so a cell's epoch stays a
       ;; `commit-basis` reading comparable with a staged key's — floored
       ;; at one above the stamp it carried, because across a same-id frame
@@ -485,7 +485,7 @@
       ;; `reincarnation-paint-dom-cljs-test`).
       (doseq [^js cell dirty]
         (set! (.-epoch cell) (max (inc (.-epoch cell))
-                                  (generation/commit-basis (.-frameKw cell)))))
+                                  (rf.hicasso.impl.generation/commit-basis (.-frameKw cell)))))
       (let [boundaries (dirty-readers dirty)]
         (if (rendering?)
           (do (vswap! !deferred into boundaries)
@@ -542,32 +542,32 @@
   on the acceptance shape (2.75 vs 1.42 µs/read;
   docs/design/hicasso/studio/the-cold-read-mount-term.md)."
   [frame-kw query-v]
-  (let [frame-record (frame/frame frame-kw)]
+  (let [frame-record (rf.frame/frame frame-kw)]
     (if (nil? frame-record)
-      (subs/subscribe-once query-v {:frame frame-kw})
-      (live-frame/call-with-frame-resolution
+      (rf.subs/subscribe-once query-v {:frame frame-kw})
+      (rf.live-frame/call-with-frame-resolution
         frame-kw
         (fn []
           (if-some [reaction (:reaction (get @(:sub-cache frame-record) query-v))]
             @reaction
             (let [^js probe (or (.-probe rstate)
-                                (when-some [frame-state (frame/frame-state-value frame-kw)]
+                                (when-some [frame-state (rf.frame/frame-state-value frame-kw)]
                                   (let [^js fresh #js {"fs" frame-state "vals" {}}]
                                  (set! (.-probe rstate) fresh)
                                  fresh)))]
               (if (nil? probe)
                 ;; The frame died between the record resolve and the
                 ;; state read — recover exactly as rung 3 does.
-                (subs/subscribe-once query-v {:frame frame-kw})
+                (rf.subs/subscribe-once query-v {:frame frame-kw})
                 ;; `find`, not `get`: a memoised nil (an unregistered
                 ;; query's recovery) is a HIT, and the one emission per
                 ;; distinct unknown key per run rides on that.
                 (if-some [cached-value (find (unchecked-get probe "vals") query-v)]
                   (val cached-value)
-                  (let [value (subs/compute-sub-with-memo
+                  (let [value (rf.subs/compute-sub-with-memo
                                 query-v
                                 (unchecked-get probe "fs")
-                                (atom {subs/observation-opts-key
+                                (atom {rf.subs/observation-opts-key
                                        {:frame frame-kw}}))]
                     (unchecked-set probe "vals"
                                    (assoc (unchecked-get probe "vals") query-v value))
@@ -753,7 +753,7 @@
                    (if-some [^js cell (get cells read-key)]
                      (+ epoch-sum (.-epoch cell))
                      (+ epoch-sum
-                        (generation/commit-basis (nth read-key 0)))))))))))
+                        (rf.hicasso.impl.generation/commit-basis (nth read-key 0)))))))))))
 
 (defn- make-subscribe
   "React's `subscribe`, a pure function of the read set — the only
@@ -889,9 +889,9 @@
   registration that bypassed the macro path."
   [view-name]
   (let [view-id (keyword view-name)]
-    {:data-rf2-source-coord (adapter-context/format-source-coord
-                              view-id (error/source-of view-name))
-     :data-rf-view          (adapter-context/format-view-id view-id)}))
+    {:data-rf2-source-coord (rf.adapter.context/format-source-coord
+                              view-id (rf.hicasso.impl.error/source-of view-name))
+     :data-rf-view          (rf.adapter.context/format-view-id view-id)}))
 
 (defn- author-owns-slot?
   "Does `authored` already write the React prop slot `slot`, in ANY of the
@@ -900,7 +900,7 @@
   emitter itself uses — so this cannot answer differently from what
   `convert-props` will do with the map."
   [authored slot]
-  (reduce-kv (fn [_ k _] (if (= slot (codec/canonical-slot k)) (reduced true) false))
+  (reduce-kv (fn [_ k _] (if (= slot (rf.hicasso.impl.codec/canonical-slot k)) (reduced true) false))
              false
              authored))
 
@@ -922,7 +922,7 @@
   the codec was about to walk anyway."
   [attrs authored]
   (reduce-kv (fn [acc k _]
-               (if (author-owns-slot? authored (codec/canonical-slot k))
+               (if (author-owns-slot? authored (rf.hicasso.impl.codec/canonical-slot k))
                  (dissoc acc k)
                  acc))
              attrs
@@ -966,7 +966,7 @@
   [hiccup attrs]
   (if (and (vector? hiccup)
            (pos? (count hiccup))
-           (= :tag (codec/head-kind (nth hiccup 0))))
+           (= :tag (rf.hicasso.impl.codec/head-kind (nth hiccup 0))))
     (let [maybe-attrs (nth hiccup 1 nil)]
       (if (map? maybe-attrs)
         (assoc hiccup 1 (merge (without-authored-slots attrs maybe-attrs) maybe-attrs))
@@ -995,9 +995,9 @@
   ;; render, and a real count is the one that says so.
   (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
   (try
-    (intent/with-frame frame-kw (frame-dispatch frame-kw)
+    (rf.hicasso.impl.intent/with-frame frame-kw (frame-dispatch frame-kw)
       (fn []
-        (codec/as-element
+        (rf.hicasso.impl.codec/as-element
           (let [out (body-fn props)]
             (if ^boolean js/goog.DEBUG
               (if-some [attrs (unchecked-get body-fn view-attrs-slot)]
@@ -1071,10 +1071,10 @@
   (docs/design/hicasso/architecture.md, section The collector)."
   [frame-kw body-fn props]
   (loop [attempt 0]
-    (let [basis-before (generation/commit-basis frame-kw)
+    (let [basis-before (rf.hicasso.impl.generation/commit-basis frame-kw)
           element      (run-once frame-kw body-fn props)]
       (cond
-        (= basis-before (generation/commit-basis frame-kw))
+        (= basis-before (rf.hicasso.impl.generation/commit-basis frame-kw))
         (let [entry (entry-for scratch)]
           (set! (.-entry rstate) entry)
           (when ^boolean js/goog.DEBUG
@@ -1094,7 +1094,7 @@
                     (inc max-fence-retries) " consecutive runs. A body that "
                     "writes on every render cannot be fenced; move the write "
                     "out of the render.")
-               {:frame frame-kw :generation (generation/generation)})))))
+               {:frame frame-kw :generation (rf.hicasso.impl.generation/generation)})))))
 
 (defn last-reads
   "The read-set entry the most recent `render-body` resolved — what a
@@ -1121,7 +1121,7 @@
   tier can only answer for a different render than the one asking
   (docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md §3.2)."
   [frame-kw where]
-  (if (or (nil? frame-kw) (= adapter-context/no-provider-sentinel frame-kw))
+  (if (or (nil? frame-kw) (= rf.adapter.context/no-provider-sentinel frame-kw))
     (fail! :rf.error/no-frame-context
            where
            (str "A Hicasso boundary rendered with no frame in scope. Mount the "
@@ -1139,7 +1139,7 @@
   view at React's commit; in production the branch folds away and the
   entry's own is all there is."
   [body-fn js-props]
-  (let [frame-kw (resolve-frame! (react/useContext adapter-context/frame-context)
+  (let [frame-kw (resolve-frame! (react/useContext rf.adapter.context/frame-context)
                                  're-frame.hicasso.impl.collector/shell)
         props    (or (unchecked-get js-props "rfProps") {})
         element  (render-body frame-kw body-fn props)
@@ -1179,21 +1179,21 @@
     ;; as a parameter every mint would have to thread.
     (unchecked-set body-fn view-attrs-slot (view-annotations view-name)))
   (let [component (fn hicasso-boundary [js-props]
-                    (performance/mark-and-measure :render view-name
+                    (rf.performance/mark-and-measure :render view-name
                       (shell body-fn js-props)))
         ;; Dev only: the origin a refusal below names. `interop/debug-enabled?`
         ;; is `^boolean goog.DEBUG`, so under `:advanced` this `if` folds to
         ;; `component` and React calls the fn above, unchanged.
-        component (if interop/debug-enabled?
-                    (error/traced-boundary view-name component)
+        component (if rf.interop/debug-enabled?
+                    (rf.hicasso.impl.error/traced-boundary view-name component)
                     component)]
     (unchecked-set component "displayName" view-name)
-    (let [head (codec/memoize-boundary! (codec/mark-boundary! component))]
+    (let [head (rf.hicasso.impl.codec/memoize-boundary! (rf.hicasso.impl.codec/mark-boundary! component))]
       ;; The body, kept ON the head for the test kit's L2 walk alone, which
       ;; mounts nothing and would otherwise have no route back to it. One
       ;; own property; under `goog.DEBUG=false` it folds away with
       ;; `codec/retain-body!` (`view-body-retention-elision-prod-test`).
-      (when ^boolean js/goog.DEBUG (codec/retain-body! head body-fn))
+      (when ^boolean js/goog.DEBUG (rf.hicasso.impl.codec/retain-body! head body-fn))
       head)))
 
 ;; ---------------------------------------------------------------------------
@@ -1224,7 +1224,7 @@
   (`error-source-coord-elision-prod-test`). The argument:
   docs/design/hicasso/architecture.md, section The collector."
   [view-id slot head]
-  (registrar/register! :view view-id (assoc slot
+  (rf.registrar/register! :view view-id (assoc slot
                                        :hicasso/component head
                                        :executable-key    :hicasso/component))
   view-id)
@@ -1252,7 +1252,7 @@
   (vreset! !batching false)
   (reset-reapers! cell-reapers)
   (reset-reapers! entry-reapers)
-  (generation/reset-basis!)
+  (rf.hicasso.impl.generation/reset-basis!)
   (set! (.-entry rstate) nil)
   (set! (.-subscribe rstate) nil)
   (set! (.-frame rstate) nil)
@@ -1262,5 +1262,5 @@
   ;; across the thing they measure, and a teardown door that zeroed the
   ;; counter would let a reading taken on the wrong side of a reset look
   ;; like a reading. The kit's `reset-body-runs!` is the explicit zero.
-  (frames/forget-frame-ops!)
+  (rf.hicasso.impl.frames/forget-frame-ops!)
   nil)

@@ -64,11 +64,11 @@
             ;; Loading every adapter ns here forces all three to publish
             ;; their chain steps before this test's deftest runs. Every
             ;; require is load-bearing — do not trim.
-            [re-frame.adapter.reagent       :as reagent-adapter]
-            [re-frame.adapter.reagent-slim  :as reagent-slim-adapter]
-            [re-frame.adapter.uix           :as uix-adapter]
-            [re-frame.late-bind             :as late-bind]
-            [re-frame.late-bind.directory   :as directory]))
+            [re-frame.adapter.reagent       :as rf.adapter.reagent]
+            [re-frame.adapter.reagent-slim  :as rf.adapter.reagent-slim]
+            [re-frame.adapter.uix           :as rf.adapter.uix]
+            [re-frame.late-bind             :as rf.late-bind]
+            [re-frame.late-bind.directory   :as rf.late-bind.directory]))
 
 (def ^:private hook-key :reagent/set-hiccup-emitter!)
 
@@ -94,7 +94,7 @@
             a producer. If a future change drops one or flips the flag,
             this test trips before the silent-clobber bug ships."
     (let [entry (some (fn [e] (when (= hook-key (:key e)) e))
-                      directory/hooks)
+                      rf.late-bind.directory/hooks)
           producers (set (let [p (:producer-ns entry)]
                            (if (sequential? p) p [p])))
           react-adapters '#{re-frame.adapter.reagent
@@ -122,15 +122,15 @@
             the install."
     ;; Step 1: clear every adapter's emitter cell so we observe ONLY
     ;; the install driven through the chained hook below.
-    (reagent-adapter/set-hiccup-emitter! nil)
-    (reagent-slim-adapter/set-hiccup-emitter! nil)
-    (uix-adapter/set-hiccup-emitter! nil)
+    (rf.adapter.reagent/set-hiccup-emitter! nil)
+    (rf.adapter.reagent-slim/set-hiccup-emitter! nil)
+    (rf.adapter.uix/set-hiccup-emitter! nil)
     ;; Step 2: confirm the cleared state — render-to-string must throw
     ;; on every adapter. This sanity-check rules out a stale install
     ;; from a prior test masking a fan-out failure below.
-    (doseq [[adapter-name adapter-map] [["reagent"      reagent-adapter/adapter]
-                                        ["reagent-slim" reagent-slim-adapter/adapter]
-                                        ["uix"          uix-adapter/adapter]]]
+    (doseq [[adapter-name adapter-map] [["reagent"      rf.adapter.reagent/adapter]
+                                        ["reagent-slim" rf.adapter.reagent-slim/adapter]
+                                        ["uix"          rf.adapter.uix/adapter]]]
       (is (thrown-with-msg?
             js/Error
             #":rf\.error/no-hiccup-emitter-bound"
@@ -142,7 +142,7 @@
     ;; Step 3: resolve the chained hook and install the sentinel.
     ;; Every producer's chain step should run and write the sentinel
     ;; into its own adapter's cell.
-    (let [chained-install! (late-bind/get-fn hook-key)
+    (let [chained-install! (rf.late-bind/get-fn hook-key)
           marker           ::fan-out-marker
           sentinel         (sentinel-emitter marker)]
       (is (some? chained-install!)
@@ -153,9 +153,9 @@
       ;; Step 4: each adapter's render-to-string must now route through
       ;; the sentinel. If any one returns ≠ marker (or throws), that
       ;; adapter's chain step did NOT run — the chain was clobbered.
-      (doseq [[adapter-name adapter-map] [["reagent"      reagent-adapter/adapter]
-                                          ["reagent-slim" reagent-slim-adapter/adapter]
-                                          ["uix"          uix-adapter/adapter]]]
+      (doseq [[adapter-name adapter-map] [["reagent"      rf.adapter.reagent/adapter]
+                                          ["reagent-slim" rf.adapter.reagent-slim/adapter]
+                                          ["uix"          rf.adapter.uix/adapter]]]
         (is (= marker (adapter-render-to-string adapter-map))
             (str "fan-out failure: " adapter-name
                  " adapter's render-to-string did NOT route to the "
@@ -170,6 +170,6 @@
     ;; explicit emitter install does so itself, and the SSR ns-load
     ;; (if it loaded earlier in the bundle) is the only thing relied
     ;; upon to wire it for ssr-routed tests.
-    (reagent-adapter/set-hiccup-emitter! nil)
-    (reagent-slim-adapter/set-hiccup-emitter! nil)
-    (uix-adapter/set-hiccup-emitter! nil)))
+    (rf.adapter.reagent/set-hiccup-emitter! nil)
+    (rf.adapter.reagent-slim/set-hiccup-emitter! nil)
+    (rf.adapter.uix/set-hiccup-emitter! nil)))

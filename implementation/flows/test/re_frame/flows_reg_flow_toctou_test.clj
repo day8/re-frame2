@@ -26,10 +26,10 @@
   `RF2_QXWIB_TOCTOU_ROUNDS`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.flows.topo :as topo]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.topo :as rf.flows.topo]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CyclicBarrier]
            [java.util.concurrent.atomic AtomicLong]))
 
@@ -41,7 +41,7 @@
 ;; ambient `reg-flow` calls in the bodies below carry a frame stamp.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Round count. Each round opens a fresh interleaving window on the
 ;; shared frame; the race needs only ONE round where both threads read
@@ -129,9 +129,9 @@
           ;; THE load-bearing assertion: the committed registry for the
           ;; shared frame is acyclic. topo-sort throws :rf.error/flow-cycle
           ;; iff a cycle was admitted.
-          (let [committed (get (flows/flows-snapshot) frame-id)]
+          (let [committed (get (rf.flows/flows-snapshot) frame-id)]
             (try
-              (topo/topo-sort committed)
+              (rf.flows.topo/topo-sort committed)
               (catch Throwable t
                 (when (nil? @first-bad)
                   (reset! first-bad {:round    round
@@ -141,8 +141,8 @@
           ;; each round starts from the frame's pre-cycle state (the
           ;; window the race needs). clear-flow no-ops cleanly on the id
           ;; that was rejected / never committed.
-          (flows/clear-flow a-id {:frame frame-id})
-          (flows/clear-flow b-id {:frame frame-id})))
+          (rf.flows/clear-flow a-id {:frame frame-id})
+          (rf.flows/clear-flow b-id {:frame frame-id})))
 
       ;; --- Invariant 1: no round ever admitted a cycle. ---------------
       (is (nil? @first-bad)

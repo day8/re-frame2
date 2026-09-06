@@ -58,16 +58,16 @@
   and each row degrades there to a STATED skip rather than a false
   green."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.todo.app :as app]
-            [re-frame.hicasso.examples.todo.db :as db]
-            [re-frame.hicasso.examples.todo.events :as events]
-            [re-frame.hicasso.examples.todo.routes :as routes]
-            [re-frame.hicasso.examples.todo.subs :as subs]
-            [re-frame.hicasso.examples.todo.views :as views]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso.examples.todo.app :as rf.hicasso.examples.todo.app]
+            [re-frame.hicasso.examples.todo.db :as rf.hicasso.examples.todo.db]
+            [re-frame.hicasso.examples.todo.events :as rf.hicasso.examples.todo.events]
+            [re-frame.hicasso.examples.todo.routes :as rf.hicasso.examples.todo.routes]
+            [re-frame.hicasso.examples.todo.subs :as rf.hicasso.examples.todo.subs]
+            [re-frame.hicasso.examples.todo.views :as rf.hicasso.examples.todo.views]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The lane
@@ -79,8 +79,8 @@
   (is true (str "a mounted flow needs a real React DOM — " why)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; The MAP shape, because every row is `async`: `cljs.test` refuses an
      ;; async test under a fn-form fixture and aborts the namespace.
@@ -93,7 +93,7 @@
                       ;; captured when this form was EVALUATED, which is
                       ;; before `routes` finished loading. See that
                       ;; namespace on why `register!` is exposed at all.
-                      (routes/register!))}))
+                      (rf.hicasso.examples.todo.routes/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading and driving the page
@@ -118,13 +118,13 @@
   dispatch is synchronous, so the settle is all that is owed."
   [m sel]
   (.click (node m sel))
-  (hm/settle! m))
+  (rf.hicasso.test.mounted/settle! m))
 
 (defn- double-click!
   "A real `dblclick`, which `.click()` cannot synthesise."
   [m sel]
   (.dispatchEvent (node m sel) (js/MouseEvent. "dblclick" #js {:bubbles true}))
-  (hm/settle! m))
+  (rf.hicasso.test.mounted/settle! m))
 
 (defn- press!
   "A real `keydown` carrying `key`, at `sel`. React's synthetic
@@ -132,7 +132,7 @@
   lookup is the real one."
   [m sel key]
   (.dispatchEvent (node m sel) (js/KeyboardEvent. "keydown" #js {:key key :bubbles true}))
-  (hm/settle! m))
+  (rf.hicasso.test.mounted/settle! m))
 
 (defn- submit!
   "Submit the form at `sel` the way the browser's own implicit
@@ -140,7 +140,7 @@
   and cannot drive."
   [m sel]
   (.requestSubmit (node m sel))
-  (hm/settle! m))
+  (rf.hicasso.test.mounted/settle! m))
 
 (defn- type-into!
   "Type `v` into the field at `sel` — a foreign write followed by a real
@@ -155,7 +155,7 @@
         d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
     (.call (.-set d) n v)
     (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-    (hm/settle! m)))
+    (rf.hicasso.test.mounted/settle! m)))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
@@ -167,23 +167,23 @@
                 (nodes m ".filters a"))]
     (is (some? a) (str "there is a tab labelled " (pr-str label)))
     (.click a)
-    (hm/settle-until! m
-                      #(= expected-filter (read-sub m [::subs/showing]))
+    (rf.hicasso.test.mounted/settle-until! m
+                      #(= expected-filter (read-sub m [::rf.hicasso.examples.todo.subs/showing]))
                       {:label (str "the " label " filter to land")})))
 
 (defn- mount-app!
   "The whole application, on its own root and its own frame, seeded and
   pointed at *All*. `:initial-events` drain to fixed point before the
   first render, so a row opens on the seeded page."
-  ([] (mount-app! [:rf.route/navigate {:to routes/all}]))
+  ([] (mount-app! [:rf.route/navigate {:to rf.hicasso.examples.todo.routes/all}]))
   ([nav-event]
-   (hm/mount! [views/app {}]
-              {:initial-events [[::events/seed app/sample-todos] nav-event]})))
+   (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.todo.views/app {}]
+              {:initial-events [[::rf.hicasso.examples.todo.events/seed rf.hicasso.examples.todo.app/sample-todos] nav-event]})))
 
 (defn- finish
   "Tear down, assert this mount left nothing behind, and end the row."
   [m done]
-  (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))
+  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
 
 (defn- finish-after
   "End the row when `p` settles, reporting a rejected `p` as a failure
@@ -207,16 +207,16 @@
     (skip! "the seeded page and a form submission")
     (async done
       (let [m (mount-app!)]
-        (is (= app/sample-todos (titles m))
+        (is (= rf.hicasso.examples.todo.app/sample-todos (titles m))
             "the frame's :initial-events drained before the first render")
         (is (= "3 items left" (text m ".todo-count")))
 
         (type-into! m "#new-todo" "buy milk")
-        (is (= "buy milk" (read-sub m [::subs/new-todo]))
+        (is (= "buy milk" (read-sub m [::rf.hicasso.examples.todo.subs/new-todo]))
             "controlled: the keystroke reached the model, not a local draft")
 
         (submit! m ".new-todo-form")
-        (is (= (conj app/sample-todos "buy milk") (titles m)))
+        (is (= (conj rf.hicasso.examples.todo.app/sample-todos "buy milk") (titles m)))
         (is (= "" (.-value (node m "#new-todo")))
             "and the box emptied itself, because its :value IS the model")
         (finish m done)))))
@@ -231,8 +231,8 @@
     (async done
       (let [m (mount-app!)]
         (.click (node m ".todo-row .toggle"))
-        (hm/settle! m)
-        (is (= 2 (read-sub m [::subs/active-count])))
+        (rf.hicasso.test.mounted/settle! m)
+        (is (= 2 (read-sub m [::rf.hicasso.examples.todo.subs/active-count])))
         (is (= "2 items left" (text m ".todo-count")))
         (is (true? (.-checked (node m ".todo-row .toggle")))
             "the box shows what the model says, which is the same fact it
@@ -277,7 +277,7 @@
           (press! m ".edit" "Enter")
           (is (= "Read the whole spec" (first (titles m))))
           (is (nil? (node m ".edit")) "and the editor closed")
-          (is (nil? (read-sub m [db/draft 1])) "leaving no draft behind"))
+          (is (nil? (read-sub m [rf.hicasso.examples.todo.db/draft 1])) "leaving no draft behind"))
 
         (testing "Escape reverts, and the blur that follows commits nothing"
           (double-click! m ".todo-row .todo-title")
@@ -300,14 +300,14 @@
         ;; name and `closest` — no test-only attribute on the application
         (.dispatchEvent (.querySelector (row-node m "Write the witness") ".todo-title")
                         (js/MouseEvent. "dblclick" #js {:bubbles true}))
-        (hm/settle! m)
+        (rf.hicasso.test.mounted/settle! m)
         (is (= 1 (count (nodes m ".edit")))
             "one editor, because the draft is keyed by the to-do's id. A
              hand-rolled [:ui :edit-draft] path would have opened all
              three, silently")
         (is (= "Write the witness" (.-value (node m ".edit"))))
-        (is (nil? (read-sub m [db/draft 1])))
-        (is (= "Write the witness" (read-sub m [db/draft 2])))
+        (is (nil? (read-sub m [rf.hicasso.examples.todo.db/draft 1])))
+        (is (= "Write the witness" (read-sub m [rf.hicasso.examples.todo.db/draft 2])))
         (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
@@ -320,7 +320,7 @@
     (async done
       (let [m (mount-app!)]
         (.click (node m ".todo-row .toggle"))          ;; "Read the spec" is done
-        (hm/settle! m)
+        (rf.hicasso.test.mounted/settle! m)
         (let [before-witness (row-node m "Write the witness")
               before-spec    (row-node m "Read the spec")]
           (is (some? before-witness))
@@ -329,7 +329,7 @@
           (-> (follow-filter! m "Active" :active)
               (.then
                 (fn [_]
-                  (is (= routes/filtered (read-sub m [:rf.route/id]))
+                  (is (= rf.hicasso.examples.todo.routes/filtered (read-sub m [:rf.route/id]))
                       "a real click on a real anchor navigated the frame")
                   (is (= ["Write the witness" "Merge the PR"] (titles m))
                       "the completed row left the list")
@@ -385,11 +385,11 @@
       (let [m (mount-app!)]
         (.dispatchEvent (.querySelector (row-node m "Merge the PR") ".todo-title")
                         (js/MouseEvent. "dblclick" #js {:bubbles true}))
-        (hm/settle! m)
+        (rf.hicasso.test.mounted/settle! m)
         (type-into! m ".edit" "Merge it")
         (let [field (node m ".edit")]
           (.click (.querySelector (row-node m "Read the spec") ".toggle"))
-          (hm/settle! m)
+          (rf.hicasso.test.mounted/settle! m)
           (is (identical? field (node m ".edit"))
               "the editor is the same element across a commit that moved a
                different row — keyed rows again, and the reason a caret

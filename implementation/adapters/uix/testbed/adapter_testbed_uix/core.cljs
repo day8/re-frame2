@@ -12,7 +12,7 @@
   (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core    :as rf]
-            [re-frame.adapter.uix :as uix-adapter]))
+            [re-frame.adapter.uix :as rf.adapter.uix]))
 
 ;; -- Events / subs ----------------------------------------------------------
 
@@ -28,7 +28,7 @@
 ;; -- View -------------------------------------------------------------------
 
 (defui root []
-  (let [n        (uix-adapter/use-subscribe [:counter/value])
+  (let [n        (rf.adapter.uix/use-subscribe [:counter/value])
         dispatch (:dispatch (rf/capture-frame))]
     ($ :div
        ($ :h1 {:data-testid "rf-adapter-testbed-uix"}
@@ -52,9 +52,9 @@
   ;; `capture-frame` reads inside `root` resolve to it. This is the
   ;; documented boot idiom (the template scaffold's exact shape) — the
   ;; real-DOM path the smoke must cover.
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (uix-dom/render-root
-    ($ uix-adapter/frame-root {:id             :rf/default
+    ($ rf.adapter.uix/frame-root {:id             :rf/default
                                :initial-events [[:counter/init]]}
        ($ root))
     app-root))

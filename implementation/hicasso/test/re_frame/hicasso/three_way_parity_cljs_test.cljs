@@ -83,17 +83,17 @@
   file's own, and transcribing the ledger row is the ledger's, as it was
   for D10–D13."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.hook-probe :as probe]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.native :as n]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.native :as rf.hicasso.native]
+            [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -105,12 +105,12 @@
 (rf/reg-event ::seed (fn [_ [_ db]] {:db db}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :init-fn       (fn []
-                      (support/leave-act-environment!)
-                      (collector/reset-runtime!))}))
+                      (rf.hicasso.checkpoint-support/leave-act-environment!)
+                      (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The two routes, as components
@@ -141,8 +141,8 @@
   [^js props]
   (uix/$ uix-cell {:label (.-label props)}))
 
-(h/defhost react-cell-host react-cell {:server :render})
-(h/defhost uix-cell-host uix-cell-arm {:server :render})
+(rf.hicasso/defhost react-cell-host react-cell {:server :render})
+(rf.hicasso/defhost uix-cell-host uix-cell-arm {:server :render})
 
 ;; ---------------------------------------------------------------------------
 ;; The corpus
@@ -389,7 +389,7 @@
             builds has the author's own function as its type and the
             author's own slot as its props — zero wrappers, which is
             budgets.md row D14"
-    (let [^js el (codec/as-element [react-cell-host {:label "42"}])]
+    (let [^js el (rf.hicasso.impl.codec/as-element [react-cell-host {:label "42"}])]
       (is (identical? react-cell (.-type el)))
       (is (= ["label"] (slots el))))))
 
@@ -426,7 +426,7 @@
   (testing "and through the crossing the same hop is visible: the UIx arm's
             host hands React a plain shim as the element type, and it is the
             shim — not the door — that opens `argv` one level down"
-    (let [^js el (codec/as-element [uix-cell-host {:label "42"}])]
+    (let [^js el (rf.hicasso.impl.codec/as-element [uix-cell-host {:label "42"}])]
       (is (identical? uix-cell-arm (.-type el)))
       (is (= ["label"] (slots el)))))
 
@@ -450,9 +450,9 @@
   Client-only crossing would leave the premise row reading two arms and
   calling it three."
   [^js _props]
-  (react/createElement "b" #js {:className "island"} (str (n/use-sub [::price]))))
+  (react/createElement "b" #js {:className "island"} (str (rf.hicasso.native/use-sub [::price]))))
 
-(h/defhost island-host island {:server :render})
+(rf.hicasso/defhost island-host island {:server :render})
 
 (defui uix-reader
   "The UIx route's read, through the adapter's own hook, in the EXPLICIT
@@ -475,7 +475,7 @@
   the browser lane's to exercise, and `re-frame.adapter.uix`'s own
   `uix_use_subscribe_dom_cljs_test` is where it already is."
   [_]
-  (uix/$ :u {:class "uix"} (str (uix-adapter/use-subscribe frame-id [::price]))))
+  (uix/$ :u {:class "uix"} (str (rf.adapter.uix/use-subscribe frame-id [::price]))))
 
 (defn uix-reader-arm
   "The crossing into the UIx tree — a plain React shim, for
@@ -483,7 +483,7 @@
   [_props]
   (uix/$ uix-reader))
 
-(h/defhost uix-reader-host
+(rf.hicasso/defhost uix-reader-host
   "The UIx arm's crossing into the tree, through the named door.
 
   `{:server :render}` and not the default, and the reason belongs in the
@@ -496,12 +496,12 @@
   uix-reader-arm
   {:server :render})
 
-(h/defview boundary
+(rf.hicasso/defview boundary
   "The interpreted route's read: `h/sub`, the ambient collector."
   [_]
-  [:i.boundary (str (h/sub [::price]))])
+  [:i.boundary (str (rf.hicasso/sub [::price]))])
 
-(h/defview page
+(rf.hicasso/defview page
   "One tree holding all three doors, so the reads are of the same frame
   in the same render rather than three separate renders that happen to
   agree."
@@ -523,17 +523,17 @@
   order."
   [hiccup]
   (let [!html (volatile! nil)
-        hooks (probe/record!
+        hooks (rf.hicasso.hook-probe/record!
                 (fn []
                   (vreset! !html
                            (react-dom-server/renderToString
-                             (mount/provider frame-id
-                                             (codec/root-element frame-id hiccup))))))]
+                             (rf.hicasso.impl.mount/provider frame-id
+                                             (rf.hicasso.impl.codec/root-element frame-id hiccup))))))]
     {:html @!html :hooks hooks}))
 
 (deftest the-three-doors-read-one-frame-and-agree
   (seeded!)
-  (is (true? (probe/install!))
+  (is (true? (rf.hicasso.hook-probe/install!))
       "React's client-internals dispatcher slot was not found — the hook
        counts below are UNWITNESSED, not satisfied")
   (let [{:keys [html hooks]} (server-render! [page {}])]
@@ -563,7 +563,7 @@
     (testing "I9 holds at two, read off the ledger the shell declares — the
               tree above added a raw-React island and a foreign UIx subtree
               and moved it by nothing"
-      (is (= 2 (count runtime/shell-hook-ledger))))
+      (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger))))
 
     (testing "and neither `useRef` nor `useState` is among them: HD-020(b)'s
               two named prohibitions, over every hook Hicasso spent on this

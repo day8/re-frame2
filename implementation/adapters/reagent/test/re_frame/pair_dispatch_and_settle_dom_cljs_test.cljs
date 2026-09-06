@@ -47,9 +47,9 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.views :as views]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.views :as rf.views]
             [re-frame2-pair.runtime :as pair]))
 
 ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
@@ -62,8 +62,8 @@
 ;; carries explicit `{:frame …}` on its dispatch, so it does not rely on the
 ;; ambient scope either.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 (defn- browser? []
@@ -178,7 +178,7 @@
                   "child REMOVED from the DOM synchronously on the settle")
               ;; The teardown emit React fires post-commit — same surface,
               ;; fired now that [:hide] is the most-recently-settled epoch.
-              (views/emit-view-unmounted! :rf.pair-settle/child
+              (rf.views/emit-view-unmounted! :rf.pair-settle/child
                                           [:rf.pair-settle/child 1]
                                           frame-kw)
               ;; Re-read the SAME epoch the settle returned — the unmount

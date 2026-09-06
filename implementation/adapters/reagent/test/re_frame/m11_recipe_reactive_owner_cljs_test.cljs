@@ -38,14 +38,14 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [reagent.ratom :as ratom]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (def ^:private fid ::gauge-frame)
 (def ^:private gauge-query [::gauge-value])
@@ -60,10 +60,10 @@
   (rf/dispatch-sync [::seed n] {:frame fid}))
 
 (defn- ref-count []
-  (or (:ref-count (get @(:sub-cache (frame/frame fid)) gauge-query)) 0))
+  (or (:ref-count (get @(:sub-cache (rf.frame/frame fid)) gauge-query)) 0))
 
 (defn- node-reaction []
-  (:reaction (get @(:sub-cache (frame/frame fid)) gauge-query)))
+  (:reaction (get @(:sub-cache (rf.frame/frame fid)) gauge-query)))
 
 ;; White-box, and only ever CORROBORATING: `watching` is the Reagent field that
 ;; says "this reaction is subscribed to its sources". Every arm that consults it

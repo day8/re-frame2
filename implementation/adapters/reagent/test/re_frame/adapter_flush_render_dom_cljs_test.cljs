@@ -29,8 +29,8 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
 ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
@@ -41,8 +41,8 @@
 ;; :rf/default scope would shadow the React-context tier at tier 1 and the
 ;; subscribe would read :rf/default's (empty) app-db instead of the provider's.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 (defn- browser? []
@@ -58,7 +58,7 @@
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [frame-kw :rf.reagent-flush-render/probe-frame
-            flush!   (:flush-render! reagent-adapter/adapter)]
+            flush!   (:flush-render! rf.adapter.reagent/adapter)]
         (is (fn? flush!)
             "the Reagent adapter map exposes :flush-render! (rf2-40a84 contract slot)")
         (rf/make-frame {:id frame-kw :doc "flush-render! synchronous-commit probe frame"})

@@ -23,11 +23,11 @@
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks, including
             ;; `:epoch/epoch-silence-current?`.
             [re-frame.epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- silence-tags
   "Drive a frame through one cascade so `cb` observes it, destroy it, and return

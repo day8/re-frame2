@@ -43,14 +43,14 @@
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
             [re-frame.epoch]
-            [re-frame.epoch.listeners :as epoch.listeners]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- cb-generation
   "The live generation token currently registered under `cb`. This is an
@@ -62,7 +62,7 @@
   the generation directly because they are pinning the EMISSION's qualifier, not
   the receiver's decision."
   [cb]
-  (get-in (epoch-state/listeners-snapshot) [cb :generation]))
+  (get-in (rf.epoch.state/listeners-snapshot) [cb :generation]))
 
 (defn- owe-silence!
   "Register `cb`, observe `frame` under its current generation, then drop the
@@ -70,9 +70,9 @@
   exactly the state A's compare-owned cleanup leaves for a paused predecessor."
   [frame token cb]
   (rf/register-listener! :epoch cb (fn [_] nil))
-  (epoch-state/claim-frame-owner! frame token)
-  (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
-  (epoch-state/drop-frame-observation! frame))
+  (rf.epoch.state/claim-frame-owner! frame token)
+  (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
+  (rf.epoch.state/drop-frame-observation! frame))
 
 ;; ---- TEST A: the emit runs OUTSIDE the ledger locks ------------------------
 
@@ -97,8 +97,8 @@
     ;; `other` also observes and is dropped, so a re-arm is a genuine transition
     ;; that takes silence-lock (not the lock-free no-op fast path).
     (rf/register-listener! :epoch other (fn [_] nil))
-    (epoch.listeners/notify-listeners! {:frame frame :epoch-id 2})
-    (epoch-state/drop-frame-observation! frame)
+    (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 2})
+    (rf.epoch.state/drop-frame-observation! frame)
     (rf/register-listener! :epoch reg-target (fn [_] nil))
     (try
       (let [g         (cb-generation cb)
@@ -106,13 +106,13 @@
             publish!  (fn []
                         (.countDown in-claim)
                         (.await release 5 TimeUnit/SECONDS))
-            claimer   (future (epoch-state/claim-and-publish-delayed-silence!
+            claimer   (future (rf.epoch.state/claim-and-publish-delayed-silence!
                                 frame cb g 0 publish!))
             registrar (future (.await in-claim 5 TimeUnit/SECONDS)
                               (rf/register-listener! :epoch reg-target (fn [_] nil))
                               (.countDown put-done))
             observer  (future (.await in-claim 5 TimeUnit/SECONDS)
-                              (epoch-state/record-observation! other other-gen frame)
+                              (rf.epoch.state/record-observation! other other-gen frame)
                               (.countDown obs-done))]
         (is (.await in-claim 5 TimeUnit/SECONDS) "the claim is parked inside publish!")
         ;; The rf2-8b9twg guarantee: NO ledger lock is held during the emit, so
@@ -153,8 +153,8 @@
     ;; Register cb and let it OBSERVE the frame so the destroy snapshot owes it a
     ;; silence under generation G (the real listeners path bakes G onto the wire).
     (rf/register-listener! :epoch cb (fn [_] nil))
-    (epoch-state/claim-frame-owner! frame token)
-    (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
+    (rf.epoch.state/claim-frame-owner! frame token)
+    (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
     ;; The trace listener captures the silence AND parks the emit open (outside the
     ;; locks) so a concurrent registrar can land H before the emit returns.
     (rf/register-listener! :trace silence-key
@@ -170,7 +170,7 @@
             ;; per-identity claim owes cb→G. `on-frame-destroyed!` then drops the
             ;; observation (compare-owned cleanup), reserves under the locks,
             ;; releases, and emits the generation-qualified signal.
-            a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
+            a-ev (rf.epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             registrar (future
                         (.await reached-emit 5 TimeUnit/SECONDS)
                         ;; put-listener! is NOT blocked (the emit holds no lock),
@@ -178,7 +178,7 @@
                         (rf/register-listener! :epoch cb (fn [_] nil))
                         (.countDown h-installed))
             ;; Runs the real emit; blocks (in the trace listener) until H lands.
-            destroyer (future (epoch.listeners/on-frame-destroyed! frame token a-ev))]
+            destroyer (future (rf.epoch.listeners/on-frame-destroyed! frame token a-ev))]
         (is (not= ::timeout (deref registrar 5000 ::timeout))
             "the registrar installed H — put-listener! was not blocked by the emit")
         (is (not= ::timeout (deref destroyer 5000 ::timeout)) "the destroy/emit completed")

@@ -16,8 +16,8 @@
   One constructor rather than one per lane, so a field of the shape is
   added in one place. Argument: docs/design/hicasso/product/specification.md
   §3.6 (Loud, stable failure)."
-  (:require [re-frame.error :as error]
-            [re-frame.interop :as interop]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.interop :as rf.interop]))
 
 ;; ---------------------------------------------------------------------------
 ;; The declaration ledger — dev only
@@ -141,7 +141,7 @@
   is what makes that emptiness show up as an ABSENT field rather than a
   nil one."
   [m]
-  (if interop/debug-enabled?
+  (if rf.interop/debug-enabled?
     (if-some [view @!origin]
       (let [coord (source-of view)]
         (cond-> (assoc m :view view)
@@ -167,7 +167,7 @@
   throw the runtime does not recover from; the fix lives in `:reason`.
   Argument: docs/design/hicasso/product/specification.md §3.6."
   [id where reason extra]
-  (throw (error/ex-info-from-data
+  (throw (rf.error/ex-info-from-data
            (merge (apply dissoc extra ambient)
                   (with-origin {:rf.error/id id :where where
                                 :reason reason :recovery :no-recovery})))))

@@ -63,16 +63,16 @@
   de-duped; a genuine re-render never collapses back to the mount epoch."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             ;; `trace` + `state` are used in test BODIES (`trace/emit!`,
             ;; `trace/frame-trace-disabled?`, the `state/buffer-*!` /
             ;; `state/*-mount-attribution!` private-helper exercises) —
             ;; NOT for fixture config reset.
-            [re-frame.trace :as trace]
+            [re-frame.trace :as rf.trace]
             [re-frame.elision]
-            [re-frame.epoch :as epoch]
-            [re-frame.epoch.state :as state]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.machines]))
 
 ;; ---- fixture ---------------------------------------------------------------
@@ -94,11 +94,11 @@
 ;;     and NOT a reset-hook-table row; inv-7 registers a trace-disabled
 ;;     observer frame, so clear the set between tests.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
                 (rf/configure! {:epoch-history {:trace-events-keep 5}})
-                (trace/clear-frame-no-emit!))}))
+                (rf.trace/clear-frame-no-emit!))}))
 
 ;; ---- shared post-settle-emit fixture --------------------------------------
 ;;
@@ -117,7 +117,7 @@
   render-key) or a full render-key tuple."
   [frame-id view-or-rk]
   (let [render-key (if (vector? view-or-rk) view-or-rk [view-or-rk 0])]
-    (trace/emit! :rf.view :rf.view/rendered
+    (rf.trace/emit! :rf.view :rf.view/rendered
                  {:rf.view/render-key render-key
                   :frame      frame-id})))
 
@@ -132,7 +132,7 @@
   [frame-id view-or-rk]
   (let [render-key (if (vector? view-or-rk) view-or-rk [view-or-rk 0])
         view-id    (first render-key)]
-    (trace/emit! :rf.view :rf.view/unmounted
+    (rf.trace/emit! :rf.view :rf.view/unmounted
                  {:rf.view/id         view-id
                   :rf.view/render-key render-key
                   :frame              frame-id})))
@@ -147,7 +147,7 @@
   ([frame-id sub-id prev-value value]
    (emit-sub-run! frame-id sub-id prev-value value nil))
   ([frame-id sub-id prev-value value cause-sub]
-   (trace/emit! :rf.sub :rf.sub/run
+   (rf.trace/emit! :rf.sub :rf.sub/run
                 {:rf.sub/id         sub-id
                  :rf.sub/query-v        [sub-id]
                  :frame          frame-id
@@ -164,7 +164,7 @@
   which subs the view reads). The first recompute always reports
   value-changed? true."
   [frame-id sub-id reader-rk prev-value value]
-  (trace/emit! :rf.sub :rf.sub/run
+  (rf.trace/emit! :rf.sub :rf.sub/run
                {:rf.sub/id            sub-id
                 :rf.sub/query-v           [sub-id]
                 :frame             frame-id
@@ -267,7 +267,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :sub-during
       (fn [{:keys [db]} _]
-        (trace/emit! :rf.sub :rf.sub/run
+        (rf.trace/emit! :rf.sub :rf.sub/run
                      {:rf.sub/id :inline-sub :rf.sub/query-v [:inline-sub]
                       :frame :test/main :rf.sub/value-changed? true
                       :rf.sub/prev-value nil :rf.sub/value :computed
@@ -325,7 +325,7 @@
   render-key) so the runtime back-fills it into the most-recently-settled
   epoch (rf2-wi900 path)."
   [frame-id sub-id prev-value value]
-  (trace/emit! :rf.sub :rf.sub/run
+  (rf.trace/emit! :rf.sub :rf.sub/run
                {:rf.sub/id             sub-id
                 :rf.sub/query-v        [sub-id]
                 :frame                 frame-id
@@ -441,7 +441,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :render-during
       (fn [{:keys [db]} _]
-        (trace/emit! :rf.view :rf.view/rendered
+        (rf.trace/emit! :rf.view :rf.view/rendered
                      {:rf.view/render-key [:inline-view 0] :frame :test/main})
         {:db (update db :n inc)}))
 
@@ -905,10 +905,10 @@
                      :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 42 :rf.trace/event-id :inc}}
           body      {:op-type :rf.event :operation :rf.event/db-changed
                      :tags {:rf.trace/dispatch-id 42}}]
-      (state/buffer-event! frame orphan)
-      (state/buffer-event! frame run-start)
-      (state/buffer-event! frame body)
-      (let [harvested (state/harvest-buffer-for-event! frame)]
+      (rf.epoch.state/buffer-event! frame orphan)
+      (rf.epoch.state/buffer-event! frame run-start)
+      (rf.epoch.state/buffer-event! frame body)
+      (let [harvested (rf.epoch.state/harvest-buffer-for-event! frame)]
         (is (= [run-start body] harvested)
             "harvest returns ONLY the settling event's (:rf.trace/dispatch-id 42)
              traces — the orphan is left uncorrelated, not vacuumed in")
@@ -916,7 +916,7 @@
             "the orphan :rf.frame/created is not in the settling epoch's harvest")
         ;; The orphan is DISCARDED (self-cleaning harvest), not retained —
         ;; it has no settle event to ever reclaim it.
-        (is (empty? (state/buffer-for frame))
+        (is (empty? (rf.epoch.state/buffer-for frame))
             "the orphan is dropped from the buffer — the harvest is
              self-cleaning, not reliant on the upstream guard")))))
 
@@ -939,19 +939,19 @@
           child-mark {:op-type :rf.event :operation :rf.event/dispatched
                       :tags {:rf.trace/dispatch-id 2 :rf.trace/event-id :child}}
           orphan     {:op-type :rf.frame :operation :rf.frame/created :tags {}}]
-      (state/buffer-event! frame run-start)
-      (state/buffer-event! frame body)
-      (state/buffer-event! frame child-mark)
-      (state/buffer-event! frame orphan)
-      (let [harvested (state/harvest-buffer-for-event! frame)
-            retained  (state/buffer-for frame)]
+      (rf.epoch.state/buffer-event! frame run-start)
+      (rf.epoch.state/buffer-event! frame body)
+      (rf.epoch.state/buffer-event! frame child-mark)
+      (rf.epoch.state/buffer-event! frame orphan)
+      (let [harvested (rf.epoch.state/harvest-buffer-for-event! frame)
+            retained  (rf.epoch.state/buffer-for frame)]
         (is (= [run-start body] harvested)
             "the parent's harvest takes only its own (dispatch-id 1) traces")
         ;; The child marker (dispatch-id 2) is RETAINED VERBATIM; orphan DROPPED.
         (is (= [child-mark] retained)
             "exactly the child's marker stays buffered, bare (no private stamp);
              the nil-id orphan is dropped")
-        (state/drop-frame-buffer! frame)))))
+        (rf.epoch.state/drop-frame-buffer! frame)))))
 
 (deftest inv-6c-harvest-retains-child-marker-across-sibling-settles
   (testing "rf2-bhglx — a child's `:event/dispatched` marker (fired during the
@@ -980,30 +980,30 @@
           body  (fn [id]     {:op-type :rf.event :operation :rf.event/db-changed
                               :tags {:rf.trace/dispatch-id id}})]
       ;; The child marker is stranded into the buffer alongside the FIRST sibling.
-      (state/buffer-event! frame child-mark)
+      (rf.epoch.state/buffer-event! frame child-mark)
       (doseq [[id eid] [[7 :sib-1] [8 :sib-2] [9 :sib-3]]]
-        (state/buffer-event! frame (rs id eid))
-        (state/buffer-event! frame (body id))
-        (let [h (state/harvest-buffer-for-event! frame)]
+        (rf.epoch.state/buffer-event! frame (rs id eid))
+        (rf.epoch.state/buffer-event! frame (body id))
+        (let [h (rf.epoch.state/harvest-buffer-for-event! frame)]
           (is (= [(rs id eid) (body id)] h)
               (str "sibling " eid " harvests ONLY its own traces"))
           (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h)
               "the child marker is never folded into a sibling's epoch")
-          (is (= [child-mark] (state/buffer-for frame))
+          (is (= [child-mark] (rf.epoch.state/buffer-for frame))
               "rf2-bhglx — the child marker survives this sibling settle, kept
                VERBATIM for the child's own settle")))
       ;; Finally the child itself settles — its run-start claims the marker.
-      (state/buffer-event! frame (rs 99 :child))
-      (state/buffer-event! frame (body 99))
-      (let [child-harvest (state/harvest-buffer-for-event! frame)]
+      (rf.epoch.state/buffer-event! frame (rs 99 :child))
+      (rf.epoch.state/buffer-event! frame (body 99))
+      (let [child-harvest (rf.epoch.state/harvest-buffer-for-event! frame)]
         (is (= [child-mark (rs 99 :child) (body 99)] child-harvest)
             "the child's settle finally claims its dispatch marker + own traces —
              the queue-time dispatch/source row survives the FIFO interleaving")
         (is (= 1 (->> child-harvest first :tags :rf.trace/parent-dispatch-id))
             "the claimed marker still carries its parent-dispatch-id (causality)")
-        (is (empty? (state/buffer-for frame))
+        (is (empty? (rf.epoch.state/buffer-for frame))
             "buffer empty after the child settle"))
-      (state/drop-frame-buffer! frame))))
+      (rf.epoch.state/drop-frame-buffer! frame))))
 
 (deftest inv-6c-bound-stranded-marker-cleared-by-terminal-path
   (testing "rf2-bhglx — a child that NEVER runs to a settle (handler
@@ -1018,22 +1018,22 @@
           stranded {:op-type :rf.event :operation :rf.event/dispatched
                     :tags {:rf.trace/dispatch-id 99 :rf.trace/event-id :child-never-ran}}]
       ;; (a) drain-interrupt / frame-destroy terminal clear.
-      (state/buffer-event! frame stranded)
-      (is (= [stranded] (state/buffer-for frame))
+      (rf.epoch.state/buffer-event! frame stranded)
+      (is (= [stranded] (rf.epoch.state/buffer-for frame))
           "the stranded marker is buffered")
-      (state/drop-frame-buffer! frame)
-      (is (empty? (state/buffer-for frame))
+      (rf.epoch.state/drop-frame-buffer! frame)
+      (is (empty? (rf.epoch.state/buffer-for frame))
           "drop-frame-buffer! (destroy / discard) clears the stranded marker")
 
       ;; (b) rejected-dispatch terminal clear: a buffer with NO run-start (the
       ;; child's dispatch was rejected) reaches the no-run-start branch, which
       ;; clears-and-returns the whole buffer.
-      (state/buffer-event! frame stranded)
-      (let [returned (state/harvest-buffer-for-event! frame)]
+      (rf.epoch.state/buffer-event! frame stranded)
+      (let [returned (rf.epoch.state/harvest-buffer-for-event! frame)]
         (is (= [stranded] returned)
             "a no-run-start harvest returns the buffer (the degenerate record is
              suppressed downstream by settle!'s empty-buffer policy)")
-        (is (empty? (state/buffer-for frame))
+        (is (empty? (rf.epoch.state/buffer-for frame))
             "and clears it — the stranded marker does not accrete")))))
 
 (deftest inv-6c-bead-sibling-queued-behind-parent-does-not-drop-child
@@ -1067,35 +1067,35 @@
           c-body   {:op-type :rf.event :operation :rf.event/db-changed
                     :tags {:rf.trace/dispatch-id :C}}]
       ;; A settles, stranding C's marker in the buffer.
-      (state/buffer-event! frame a-rs)
-      (state/buffer-event! frame a-body)
-      (state/buffer-event! frame c-mark)
-      (let [a-harvest (state/harvest-buffer-for-event! frame)]
+      (rf.epoch.state/buffer-event! frame a-rs)
+      (rf.epoch.state/buffer-event! frame a-body)
+      (rf.epoch.state/buffer-event! frame c-mark)
+      (let [a-harvest (rf.epoch.state/harvest-buffer-for-event! frame)]
         (is (= [a-rs a-body] a-harvest) "A's epoch carries A's traces only")
         (is (not-any? #(= :C (-> % :tags :rf.trace/dispatch-id)) a-harvest)
             "A does NOT carry C's dispatch marker"))
 
       ;; B settles next (it was queued ahead of FIFO-tail C). B must leave C's
       ;; marker alone — this is the exact harvest the count-1 reclaim broke.
-      (state/buffer-event! frame b-rs)
-      (state/buffer-event! frame b-body)
-      (let [b-harvest (state/harvest-buffer-for-event! frame)]
+      (rf.epoch.state/buffer-event! frame b-rs)
+      (rf.epoch.state/buffer-event! frame b-body)
+      (let [b-harvest (rf.epoch.state/harvest-buffer-for-event! frame)]
         (is (= [b-rs b-body] b-harvest) "B's epoch carries B's traces only")
         (is (not-any? #(= :C (-> % :tags :rf.trace/dispatch-id)) b-harvest)
             "B does NOT carry C's dispatch marker")
-        (is (= [c-mark] (state/buffer-for frame))
+        (is (= [c-mark] (rf.epoch.state/buffer-for frame))
             "rf2-bhglx — C's marker SURVIVES B's intervening settle (not dropped
              by a harvest-count reclaim)"))
 
       ;; C finally settles — claims its own marker (+ queue-time dispatch row).
-      (state/buffer-event! frame c-rs)
-      (state/buffer-event! frame c-body)
-      (let [c-harvest (state/harvest-buffer-for-event! frame)]
+      (rf.epoch.state/buffer-event! frame c-rs)
+      (rf.epoch.state/buffer-event! frame c-body)
+      (let [c-harvest (rf.epoch.state/harvest-buffer-for-event! frame)]
         (is (= [c-mark c-rs c-body] c-harvest)
             "C's epoch finally claims its :event/dispatched marker + own traces")
         (is (= :A (-> c-harvest first :tags :rf.trace/parent-dispatch-id))
             "C's claimed marker still names parent A (parent-child causality kept)"))
-      (state/drop-frame-buffer! frame))))
+      (rf.epoch.state/drop-frame-buffer! frame))))
 
 ;; ---------------------------------------------------------------------------
 ;; inv-6d — a frame-LIFECYCLE emit for a SIBLING frame, fired while frame A's
@@ -1131,10 +1131,10 @@
 
     (rf/dispatch-sync [:app/reopen] {:frame :test/main})
 
-    (is (not-any? #(= :rf.frame (:op-type %)) (state/buffer-for :test/modal))
+    (is (not-any? #(= :rf.frame (:op-type %)) (rf.epoch.state/buffer-for :test/modal))
         "no frame-lifecycle marker is stranded in the sibling frame's buffer")
     (is (not-any? #(= :rf.frame/re-registered (:operation %))
-                  (state/buffer-for :test/modal))
+                  (rf.epoch.state/buffer-for :test/modal))
         "specifically, the cross-frame :rf.frame/re-registered marker is absent")))
 
 (deftest inv-6d-nested-re-registration-strand-not-swept-into-later-halt-record
@@ -1206,10 +1206,10 @@
       ;; for `:rf/xray`); make-frame routes the flag to the trace gate.
       (rf/make-frame {:id app})
       (rf/make-frame {:id observer :rf.trace/frame-no-emit? true})
-      (is (trace/frame-trace-disabled? observer)
+      (is (rf.trace/frame-trace-disabled? observer)
           "the observer frame is registered trace-disabled (make-frame honoured
            :rf.trace/frame-no-emit?)")
-      (is (not (trace/frame-trace-disabled? app))
+      (is (not (rf.trace/frame-trace-disabled? app))
           "the inspected app frame is NOT trace-disabled")
 
       (rf/reg-event :app/seed (fn [{:keys [db]} _] {:db {:counter 0}}))
@@ -1285,7 +1285,7 @@
 
     ;; Post-settle :rf.view/rendered carrying cause + timing (React-commit
     ;; timing — empty buffer, back-filled to the seed epoch).
-    (trace/emit! :rf.view :rf.view/rendered
+    (rf.trace/emit! :rf.view :rf.view/rendered
                  {:rf.view/render-key   [:counter-view 0]
                   :frame                :test/main
                   :rf.view/mount?       false
@@ -1310,7 +1310,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
-    (trace/emit! :rf.view :rf.view/rendered
+    (rf.trace/emit! :rf.view :rf.view/rendered
                  {:rf.view/render-key [:structural-view 0]
                   :frame              :test/main
                   :rf.view/mount?     false
@@ -1348,7 +1348,7 @@
 
     ;; Post-settle :rf.view/rendered carrying the cause attribution (mirrors
     ;; the reactive re-render emit at views.cljs:320-321).
-    (trace/emit! :rf.view :rf.view/rendered
+    (rf.trace/emit! :rf.view :rf.view/rendered
                  {:rf.view/render-key     [:counter-view 0]
                   :frame                  :test/main
                   :rf.view/mount?         false
@@ -1370,7 +1370,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
-    (trace/emit! :rf.view :rf.view/rendered
+    (rf.trace/emit! :rf.view :rf.view/rendered
                  {:rf.view/render-key [:structural-view 0]
                   :frame              :test/main
                   :rf.view/mount?     false})
@@ -1395,33 +1395,33 @@
           render-key [:my-view 0]]
       ;; Seed the read-set FIRST — the in-render deref typically fires
       ;; before the post-settle render commit.
-      (state/record-render-deps! frame render-key :sub/a)
-      (state/record-render-deps! frame render-key :sub/b)
-      (is (= #{:sub/a :sub/b} (state/render-deps-for frame render-key))
+      (rf.epoch.state/record-render-deps! frame render-key :sub/a)
+      (rf.epoch.state/record-render-deps! frame render-key :sub/b)
+      (is (= #{:sub/a :sub/b} (rf.epoch.state/render-deps-for frame render-key))
           "both deps recorded on the entry's :deps slot")
-      (is (nil? (state/mount-epoch-for frame render-key))
+      (is (nil? (rf.epoch.state/mount-epoch-for frame render-key))
           "mount-epoch slot is still empty — record-render-deps! did not touch it")
 
       ;; Now record the mount-epoch — populates the sibling :epoch-id slot
       ;; on the same entry without clobbering the deps set.
-      (state/record-mount-epoch! frame render-key :epoch/one)
-      (is (= :epoch/one (state/mount-epoch-for frame render-key))
+      (rf.epoch.state/record-mount-epoch! frame render-key :epoch/one)
+      (is (= :epoch/one (rf.epoch.state/mount-epoch-for frame render-key))
           "mount-epoch landed on the entry's :epoch-id slot")
-      (is (= #{:sub/a :sub/b} (state/render-deps-for frame render-key))
+      (is (= #{:sub/a :sub/b} (rf.epoch.state/render-deps-for frame render-key))
           "deps slot survived the mount-epoch write — single entry, two slots")
 
       ;; First-sighting invariant survives the merge: a second
       ;; record-mount-epoch! must NOT overwrite the anchor.
-      (state/record-mount-epoch! frame render-key :epoch/ninety-nine)
-      (is (= :epoch/one (state/mount-epoch-for frame render-key))
+      (rf.epoch.state/record-mount-epoch! frame render-key :epoch/ninety-nine)
+      (is (= :epoch/one (rf.epoch.state/mount-epoch-for frame render-key))
           "re-recording a mount epoch does not move the anchor (first-sighting)")
 
       ;; Single-wipe contract: one `drop-frame-mount-attribution!` clears
       ;; BOTH slots; the bead's "four wipers → two" lift.
-      (state/drop-frame-mount-attribution! frame)
-      (is (nil? (state/mount-epoch-for frame render-key))
+      (rf.epoch.state/drop-frame-mount-attribution! frame)
+      (is (nil? (rf.epoch.state/mount-epoch-for frame render-key))
           "mount-epoch cleared by drop-frame-mount-attribution!")
-      (is (nil? (state/render-deps-for frame render-key))
+      (is (nil? (rf.epoch.state/render-deps-for frame render-key))
           "deps cleared by the same wipe — one swap clears both slots"))))
 
 (deftest mount-attribution-frame-scoping
@@ -1429,22 +1429,22 @@
             dropping one frame's entry does not affect a sibling frame's
             anchor or read-set."
     (let [render-key [:shared-view 0]]
-      (state/record-mount-epoch!  :test/dq2b7-a render-key :epoch/a-1)
-      (state/record-render-deps!  :test/dq2b7-a render-key :sub/a)
-      (state/record-mount-epoch!  :test/dq2b7-b render-key :epoch/b-1)
-      (state/record-render-deps!  :test/dq2b7-b render-key :sub/b)
+      (rf.epoch.state/record-mount-epoch!  :test/dq2b7-a render-key :epoch/a-1)
+      (rf.epoch.state/record-render-deps!  :test/dq2b7-a render-key :sub/a)
+      (rf.epoch.state/record-mount-epoch!  :test/dq2b7-b render-key :epoch/b-1)
+      (rf.epoch.state/record-render-deps!  :test/dq2b7-b render-key :sub/b)
 
       ;; Drop only frame A.
-      (state/drop-frame-mount-attribution! :test/dq2b7-a)
-      (is (nil? (state/mount-epoch-for :test/dq2b7-a render-key)))
-      (is (nil? (state/render-deps-for :test/dq2b7-a render-key)))
+      (rf.epoch.state/drop-frame-mount-attribution! :test/dq2b7-a)
+      (is (nil? (rf.epoch.state/mount-epoch-for :test/dq2b7-a render-key)))
+      (is (nil? (rf.epoch.state/render-deps-for :test/dq2b7-a render-key)))
       ;; Frame B survives intact.
-      (is (= :epoch/b-1 (state/mount-epoch-for :test/dq2b7-b render-key)))
-      (is (= #{:sub/b}  (state/render-deps-for :test/dq2b7-b render-key)))
+      (is (= :epoch/b-1 (rf.epoch.state/mount-epoch-for :test/dq2b7-b render-key)))
+      (is (= #{:sub/b}  (rf.epoch.state/render-deps-for :test/dq2b7-b render-key)))
 
       ;; reset-mount-attribution! wipes everything left.
-      (state/reset-mount-attribution!)
-      (is (nil? (state/mount-epoch-for :test/dq2b7-b render-key))))))
+      (rf.epoch.state/reset-mount-attribution!)
+      (is (nil? (rf.epoch.state/mount-epoch-for :test/dq2b7-b render-key))))))
 
 ;; ===========================================================================
 ;; rf2-bgapd — mount-attribution is bounded across instance churn: a view
@@ -1472,26 +1472,26 @@
     (let [frame :test/bgapd
           rk-a  [:row-view 100]
           rk-b  [:row-view 101]]
-      (state/record-mount-epoch! frame rk-a :epoch/a)
-      (state/record-render-deps! frame rk-a :sub/a)
-      (state/record-mount-epoch! frame rk-b :epoch/b)
-      (state/record-render-deps! frame rk-b :sub/b)
+      (rf.epoch.state/record-mount-epoch! frame rk-a :epoch/a)
+      (rf.epoch.state/record-render-deps! frame rk-a :sub/a)
+      (rf.epoch.state/record-mount-epoch! frame rk-b :epoch/b)
+      (rf.epoch.state/record-render-deps! frame rk-b :sub/b)
 
-      (state/drop-render-key-mount-attribution! frame rk-a)
-      (is (nil? (state/mount-epoch-for frame rk-a))
+      (rf.epoch.state/drop-render-key-mount-attribution! frame rk-a)
+      (is (nil? (rf.epoch.state/mount-epoch-for frame rk-a))
           "instance A's anchor evicted")
-      (is (nil? (state/render-deps-for frame rk-a))
+      (is (nil? (rf.epoch.state/render-deps-for frame rk-a))
           "instance A's read-set evicted")
-      (is (= :epoch/b (state/mount-epoch-for frame rk-b))
+      (is (= :epoch/b (rf.epoch.state/mount-epoch-for frame rk-b))
           "sibling instance B's anchor survives — eviction is per-render-key")
-      (is (= #{:sub/b} (state/render-deps-for frame rk-b))
+      (is (= #{:sub/b} (rf.epoch.state/render-deps-for frame rk-b))
           "sibling instance B's read-set survives")
 
       ;; Idempotent: dropping an already-absent / never-seen render-key is a
       ;; no-op, never a throw (a late tail / double-unmount must be harmless).
-      (state/drop-render-key-mount-attribution! frame rk-a)
-      (state/drop-render-key-mount-attribution! frame [:never-mounted 0])
-      (is (= :epoch/b (state/mount-epoch-for frame rk-b))
+      (rf.epoch.state/drop-render-key-mount-attribution! frame rk-a)
+      (rf.epoch.state/drop-render-key-mount-attribution! frame [:never-mounted 0])
+      (is (= :epoch/b (rf.epoch.state/mount-epoch-for frame rk-b))
           "idempotent prune left the surviving entry intact"))))
 
 (deftest unmount-prunes-mount-attribution-bounded-across-churn
@@ -1522,9 +1522,9 @@
 
       ;; Every instance now carries a mount-attribution entry.
       (doseq [rk render-keys]
-        (is (some? (state/mount-epoch-for :test/main rk))
+        (is (some? (rf.epoch.state/mount-epoch-for :test/main rk))
             (str "instance " rk " has a mount anchor before unmount"))
-        (is (some? (state/render-deps-for :test/main rk))
+        (is (some? (rf.epoch.state/render-deps-for :test/main rk))
             (str "instance " rk " has a learned read-set before unmount")))
 
       ;; The cascade that removes all rows settles; then (React-teardown
@@ -1537,9 +1537,9 @@
       ;; mount-attribution is BOUNDED across churn — pruned per-instance on
       ;; unmount, not held until frame-destroy.
       (doseq [rk render-keys]
-        (is (nil? (state/mount-epoch-for :test/main rk))
+        (is (nil? (rf.epoch.state/mount-epoch-for :test/main rk))
             (str "instance " rk "'s anchor pruned on unmount — not retained"))
-        (is (nil? (state/render-deps-for :test/main rk))
+        (is (nil? (rf.epoch.state/render-deps-for :test/main rk))
             (str "instance " rk "'s read-set pruned on unmount — not retained")))
 
       ;; And the unmount is STILL observable in its causing cascade's
@@ -1662,7 +1662,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :unmount-during
       (fn [{:keys [db]} _]
-        (trace/emit! :rf.view :rf.view/unmounted
+        (rf.trace/emit! :rf.view :rf.view/unmounted
                      {:rf.view/id         :inline-view
                       :rf.view/render-key [:inline-view 0]
                       :frame              :test/main})
@@ -1736,7 +1736,7 @@
         ;; frame's current last-settled (the anchor a naive back-fill would use).
         (is (not= (:epoch-id target-epoch) (:epoch-id stale-epoch))
             "the restore target and the pre-restore last-settled are distinct")
-        (is (= (:epoch-id stale-epoch) (state/last-settled-epoch-id :test/main))
+        (is (= (:epoch-id stale-epoch) (rf.epoch.state/last-settled-epoch-id :test/main))
             "before the restore, the most-recent counter-inc is last-settled")
 
         ;; Rewind the frame to the OLDER target epoch (counter 1).
@@ -1832,7 +1832,7 @@
     (rf/dispatch-sync [:counter-inc] {:frame :test/main})
     (let [live-epoch (last-epoch :test/main)]
 
-      (is (= (:epoch-id live-epoch) (state/last-settled-epoch-id :test/main))
+      (is (= (:epoch-id live-epoch) (rf.epoch.state/last-settled-epoch-id :test/main))
           "the most-recent cascade is last-settled before the failed restore")
 
       ;; A restore to an epoch that is NOT in history fails (no-op).
@@ -1840,7 +1840,7 @@
           "restore to an unknown epoch fails")
 
       ;; THE INVARIANT — the anchor is untouched.
-      (is (= (:epoch-id live-epoch) (state/last-settled-epoch-id :test/main))
+      (is (= (:epoch-id live-epoch) (rf.epoch.state/last-settled-epoch-id :test/main))
           "rf2-w4q9gt — a failed restore left the last-settled anchor unchanged")
 
       ;; A subsequent post-settle render still attributes to the genuine
@@ -1905,8 +1905,8 @@
           ;; PREMISE — the trap is armed: stale is last-settled, the read-set is
           ;; learned, and the stale epoch genuinely carries value-change evidence
           ;; for the view (so an unbounded scan WOULD return it).
-          (is (= (:epoch-id stale-epoch) (state/last-settled-epoch-id :test/main)))
-          (is (contains? (state/render-deps-for :test/main render-key) :counter)
+          (is (= (:epoch-id stale-epoch) (rf.epoch.state/last-settled-epoch-id :test/main)))
+          (is (contains? (rf.epoch.state/render-deps-for :test/main render-key) :counter)
               "the view's read-set is learned — the deps-match arm can fire")
           (is (contains? (sub-run-ids (epoch-by-id :test/main stale-epoch)) :counter)
               "the STALE newer epoch carries the value-change evidence the scan
@@ -2051,7 +2051,7 @@
         ;; Back-fill the target by id. The index is derived inside the swap, so
         ;; eviction cannot redirect the row to a positional neighbour.
         (let [{:keys [event row]} (bf-sub-event :test/main :late-sub 99)]
-          (state/back-fill-sub-run! :test/main target-id event row))
+          (rf.epoch.state/back-fill-sub-run! :test/main target-id event row))
 
         (let [t          (epoch-by-id :test/main target)
               wrong       (epoch-by-id :test/main {:epoch-id (:epoch-id (nth history-after 1))})]
@@ -2088,7 +2088,7 @@
           "the target epoch is no longer in the ring (evicted)")
 
       (let [{:keys [event row]} (bf-sub-event :test/main :ghost-sub 7)
-            result (state/back-fill-sub-run! :test/main target-id event row)]
+            result (rf.epoch.state/back-fill-sub-run! :test/main target-id event row)]
         (is (nil? result)
             "back-fill of an evicted target returns nil (no record to splice)")
         ;; No surviving record received the ghost row.

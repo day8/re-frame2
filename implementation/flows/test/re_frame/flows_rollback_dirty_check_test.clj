@@ -29,11 +29,11 @@
   rejection path without pulling Malli onto the classpath."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.flows.registry :as registry]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- per-test reset / schema-validator seam ------------------------------
 ;;
@@ -46,14 +46,14 @@
 
 (defn- with-schema-validator-reset
   [test-fn]
-  (schemas/reset-schema-validator!)
+  (rf.schemas/reset-schema-validator!)
   (try
     (test-fn)
     (finally
-      (schemas/reset-schema-validator!))))
+      (rf.schemas/reset-schema-validator!))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   with-schema-validator-reset)
 
 ;; A pluggable predicate validator: a registered "schema" here is a 1-arg
@@ -61,7 +61,7 @@
 ;; the `:schemas/validate-with-registered-fn` seam without Malli (Spec 010
 ;; §Non-Malli validators).
 (defn- install-predicate-validator! []
-  (schemas/set-schema-fns!
+  (rf.schemas/set-schema-fns!
     {:validate (fn [schema value] (boolean (schema value)))
      :explain  (fn [schema value] (when-not (schema value) {:failed value}))}))
 
@@ -115,12 +115,12 @@
       ;; THE LOAD-BEARING ASSERT: the flow's dirty-check row was rolled back
       ;; in lock-step. A surviving advanced row would leave the flow looking
       ;; up-to-date despite its output never reaching app-db.
-      (is (not (contains? (flows/last-inputs-snapshot) :double))
+      (is (not (contains? (rf.flows/last-inputs-snapshot) :double))
           (str "flow :double's last-inputs row was rolled back with the "
                "rejected candidate (pre-fix it stayed advanced to "
                "{:double {:rf/default [1]}}, permanently suppressing the "
                "flow). Got "
-               (pr-str (flows/last-inputs-snapshot))))
+               (pr-str (rf.flows/last-inputs-snapshot))))
 
       ;; Flip the validator to accept, then drive a CLEAN drain whose event
       ;; does NOT change :n (the flow's only input). The rolled-back
@@ -137,7 +137,7 @@
                (pr-str (rf/app-db-value :rf/default))))
       (is (:other (rf/app-db-value :rf/default))
           "the no-op event's own write also landed")
-      (is (= [1] (get-in (flows/last-inputs-snapshot) [:double :rf/default]))
+      (is (= [1] (get-in (rf.flows/last-inputs-snapshot) [:double :rf/default]))
           "after the successful recompute the dirty-check row is advanced to [1]"))))
 
 ;; ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@
     (rf/dispatch-sync [:seed])
     (is (= 6 (:out (rf/app-db-value :rf/default)))
         "the flow output committed durably")
-    (is (= [3] (get-in (flows/last-inputs-snapshot) [:double :rf/default]))
+    (is (= [3] (get-in (rf.flows/last-inputs-snapshot) [:double :rf/default]))
         "last-inputs advanced normally on a durable commit (no over-restore)")))
 
 ;; ===========================================================================
@@ -184,10 +184,10 @@
 
     ;; The aborting event. Its flows :after must NOT advance :derived's row.
     (rf/dispatch-sync [:boom])
-    (is (not (contains? (flows/last-inputs-snapshot) :derived))
+    (is (not (contains? (rf.flows/last-inputs-snapshot) :derived))
         (str "the errored event did NOT advance :derived's dirty-check row "
              "(pre-fix it stayed advanced to [1], suppressing the flow). Got "
-             (pr-str (flows/last-inputs-snapshot))))
+             (pr-str (rf.flows/last-inputs-snapshot))))
     (is (nil? (:out (rf/app-db-value :rf/default)))
         ":out was not committed by the aborted event")
 
@@ -216,7 +216,7 @@
                   (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
     (rf/dispatch-sync [:with-bad-after])
 
-    (is (not (contains? (flows/last-inputs-snapshot) :derived))
+    (is (not (contains? (rf.flows/last-inputs-snapshot) :derived))
         ":derived's dirty-check row was NOT advanced by the user-:after-throw abort")
     (is (nil? (:out (rf/app-db-value :rf/default)))
         ":out not committed (the whole event aborted)")
@@ -242,8 +242,8 @@
     (is (= 99 (:stale    (rf/app-db-value :rf/default))) "precondition: :stale present")
     (is (= 35 (:out-keep (rf/app-db-value :rf/default))) "precondition: :out-keep = 35")
 
-    (registry/record-abandoned-output-path! :rf/default [:stale])
-    (is (= #{[:stale]} (registry/abandoned-output-paths-snapshot :rf/default))
+    (rf.flows.registry/record-abandoned-output-path! :rf/default [:stale])
+    (is (= #{[:stale]} (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))
         "[:stale] is queued for vacation on the next drain")
 
     ;; An errored event. Pre-fix its flows :after drains-and-clears the queued
@@ -252,10 +252,10 @@
     ;; stranded). The guard leaves the queue intact for the next drain.
     (rf/reg-event :boom (fn [_ _] (throw (ex-info "boom" {:src :test}))))
     (rf/dispatch-sync [:boom])
-    (is (= #{[:stale]} (registry/abandoned-output-paths-snapshot :rf/default))
+    (is (= #{[:stale]} (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))
         (str "the queued [:stale] vacation was NOT consumed by the aborted "
              "event (pre-fix it was drained-and-lost). Got "
-             (pr-str (registry/abandoned-output-paths-snapshot :rf/default))))
+             (pr-str (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))))
     (is (= 99 (:stale (rf/app-db-value :rf/default)))
         ":stale not yet vacated (the aborted event committed nothing)")
 
@@ -264,7 +264,7 @@
     (rf/dispatch-sync [:touch])
     (is (not (contains? (rf/app-db-value :rf/default) :stale))
         ":stale finally vacated on the next clean drain (the move re-attempted)")
-    (is (empty? (registry/abandoned-output-paths-snapshot :rf/default))
+    (is (empty? (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))
         "the queue is drained after the successful vacation")
     (is (= 35 (:out-keep (rf/app-db-value :rf/default)))
         ":out-keep (the live sibling flow) is untouched")))
@@ -309,10 +309,10 @@
                   (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:legacy])
 
-    (is (not (contains? (flows/last-inputs-snapshot) :derived))
+    (is (not (contains? (rf.flows/last-inputs-snapshot) :derived))
         (str "the in-band legacy-root abort restored :derived's dirty-check "
              "row (pre-fix#2 it stayed advanced to [4]). Got "
-             (pr-str (flows/last-inputs-snapshot))))
+             (pr-str (rf.flows/last-inputs-snapshot))))
     (is (nil? (:out (rf/app-db-value :rf/default)))
         ":out not committed (the whole event aborted, no partial commit)")
 

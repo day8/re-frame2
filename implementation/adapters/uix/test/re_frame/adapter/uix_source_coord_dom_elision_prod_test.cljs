@@ -25,18 +25,18 @@
   (:require ["react" :as React]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             ;; rf2-5g21s — the react-element-attr accessor lives in the
             ;; dependency-free shared test home (hoisted there to dedupe
             ;; the since-removed Helix twin); reference it rather than
             ;; carry a copy. Kept separate from react-shared-suite so this
             ;; prod-elision build does not pull the suite's heavy deps.
             [re-frame.adapter.react-test-support :refer [react-element-attr]]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- annotation elides under :advanced + goog.DEBUG=false ----------------
 
@@ -100,7 +100,7 @@
         (is (some? view-head) "the view is registered")
         (is (nil? (.-displayName ^js view-head))
             "no .displayName on the registered view under prod-mode")
-        (is (nil? (.-displayName ^js (uix-adapter/wrap-view
+        (is (nil? (.-displayName ^js (rf.adapter.uix/wrap-view
                                        :rf.uix-prod-elision-test/dn-elided-head
                                        {} view-fn)))
             "no .displayName on a directly-built wrap-view head either —

@@ -46,12 +46,12 @@
        leaf — isolates the egress re-root as the redaction site."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.epoch :as epoch]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision :as rf.elision]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect require (mirror epoch_test.clj fixture).
             [re-frame.machines]))
 
@@ -65,8 +65,8 @@
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
@@ -79,13 +79,13 @@
 ;; registry write a `reg-event` returning `:sensitive` / `:large` performs.
 ;; The frame container is make-frame'd by each deftest before this runs.
 (defn- install-sensitive-schema! [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   nil)
 
 (defn- install-large-schema! [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]})))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
   nil)
 
 (defn- big-string [n] (apply str (repeat n "X")))
@@ -160,7 +160,7 @@
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
     (let [raw       (last (rf/epoch-history :test/eg))
-          projected (epoch/projected-record raw)
+          projected (rf.epoch/projected-record raw)
           t-evts    (db-pending-events projected)]
       (is (seq t-evts)
           "the projected record still carries the t1/t2 trace events")
@@ -187,7 +187,7 @@
     (rf/dispatch-sync [:seed]  {:frame :test/eg})
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
-    (let [snapshot (epoch/projected-history :test/eg)]
+    (let [snapshot (rf.epoch/projected-history :test/eg)]
       (is (pos? (count snapshot)))
       (is (not-any? contains-secret? snapshot)
           "no record in the bulk snapshot leaks the secret anywhere —
@@ -227,7 +227,7 @@
                        :sub-runs      []
                        :renders       []
                        :effects       []}
-          projected   (epoch/projected-record record)
+          projected   (rf.epoch/projected-record record)
           [p-t1 p-t2] (:trace-events projected)]
       (is (= :rf/redacted (get-in p-t1 [:tags :rf.event/db :auth :password]))
           "t1 :rf.event/db-pending: nested sensitive leaf re-rooted + redacted")
@@ -263,7 +263,7 @@
                        :sub-runs      []
                        :renders       []
                        :effects       []}
-          projected   (epoch/projected-record record)
+          projected   (rf.epoch/projected-record record)
           p-other     (first (:trace-events projected))]
       (is (= "scoped-marker" (get-in p-other [:tags :some-other-slot :auth :password]))
           "the non-t1/t2 event's nested value is untouched — the re-root is
@@ -293,10 +293,10 @@
                      :sub-runs      []
                      :renders       []
                      :effects       []}
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           p-t1      (first (:trace-events projected))
           leaf      (get-in p-t1 [:tags :rf.event/db :blob :payload])]
-      (is (elision/marker? leaf)
+      (is (rf.elision/marker? leaf)
           "the large leaf nested in the t1 :rf.event/db tag is substituted
            with a :rf.size/large-elided marker — re-root reached it")
       (is (not= payload leaf)
@@ -327,7 +327,7 @@
                      :sub-runs      []
                      :renders       []
                      :effects       []}
-          projected (epoch/projected-record record)]
+          projected (rf.epoch/projected-record record)]
       (is (some? projected) "projection did not throw on the edge shapes")
       (is (= {} (get-in (first (:trace-events projected)) [:tags]))
           "the t1 event lacking :rf.event/db passes through with empty tags")
@@ -351,7 +351,7 @@
                      :sub-runs      []
                      :renders       []
                      :effects       []}
-          projected (epoch/projected-record record)]
+          projected (rf.epoch/projected-record record)]
       (is (= :rf/redacted (:trace-events projected))
           "scalar-sentinel :trace-events passes through the re-root chain"))))
 
@@ -366,8 +366,8 @@
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
     (let [raw    (last (rf/epoch-history :test/eg))
-          once   (epoch/projected-record raw)
-          twice  (epoch/projected-record once)]
+          once   (rf.epoch/projected-record raw)
+          twice  (rf.epoch/projected-record once)]
       (is (= once twice)
           "second projection pass is a no-op — the re-rooted :rf.event/db
            leaves are already :rf/redacted")
@@ -427,7 +427,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/replied :value
                                   {:token http-body-secret :user-id 42} :omit)
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :value]))
           "the unschematized body slot is omitted off-box (fail-closed)")
@@ -440,7 +440,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/accept-failure :decoded
                                   {:token http-body-secret} :omit)
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :decoded]))
           "the unschematized :decoded body slot is omitted off-box"))))
@@ -456,7 +456,7 @@
     (let [classified {:token :rf/redacted :user-id 42}
           record     (http-record :test/http :rf.http/replied :value
                                    classified :classify)
-          projected  (epoch/projected-record record)
+          projected  (rf.epoch/projected-record record)
           ev         (first (:trace-events projected))]
       (is (= classified (get-in ev [:tags :value]))
           "the classified schema body rides off-box untouched (sensitive
@@ -469,7 +469,7 @@
     (rf/make-frame {:id :test/http})
     (let [body      {:token http-body-secret :user-id 42}
           record    (http-record :test/http :rf.http/replied :value body :omit)
-          projected (epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:include-sensitive? true})
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :value]))
           "with :include-sensitive? true the body is NOT omitted (lifted)"))))
@@ -494,7 +494,7 @@
     (rf/make-frame {:id :test/http})
     (let [body      {:k "v"}
           record    (http-record :test/http :rf.http/replied :value body nil)
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :value]))
           "no stamp ⇒ no omission (the projector only omits an explicit :omit)"))))
@@ -517,7 +517,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/http-5xx :body
                                   (str "error echoing " http-body-secret) :omit)
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :body]))
           "the raw 5xx body slot is omitted off-box (fail-closed)")
@@ -529,7 +529,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/http-4xx :body
                                   (str "forbidden " http-body-secret) :omit)
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :body])))
       (is (not (contains-http-secret? projected))))))
@@ -540,7 +540,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/decode-failure :body-text
                                   (str "not-json " http-body-secret) :omit)
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :body-text]))
           "the raw decode-failure body-text is omitted off-box")
@@ -571,7 +571,7 @@
                      :sub-runs      []
                      :renders       []
                      :effects       []}
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :failure :body]))
           "the nested intermediate-failure raw body is omitted off-box")
@@ -586,7 +586,7 @@
     (rf/make-frame {:id :test/http})
     (let [body      (str "raw error " http-body-secret)
           record    (http-record :test/http :rf.http/http-5xx :body body :omit)
-          projected (epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:include-sensitive? true})
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :body]))
           "with :include-sensitive? true the raw error body is NOT omitted"))))
@@ -635,7 +635,7 @@
       ;; the debug gate false — a cold process-start reproduction. Existing
       ;; tests never reach this: their table loaded gate-true. projected-record
       ;; is a pure transform (it never consults the gate), so it runs after.
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (require 're-frame.epoch.tool-pair :reload))
       ;; The five PRODUCTION-REAL operations, one per body slot.
       (doseq [[operation body-slot] [[:rf.http/replied        :value]
@@ -645,7 +645,7 @@
                                      [:rf.http/decode-failure :body-text]]]
         (let [record    (http-record :test/http operation body-slot
                                      {:token http-body-secret :user-id 7} :omit)
-              projected (epoch/projected-record record)
+              projected (rf.epoch/projected-record record)
               ev        (first (:trace-events projected))]
           (is (= :rf/redacted (get-in ev [:tags body-slot]))
               (str "cold gate-false: " operation " body slot " body-slot

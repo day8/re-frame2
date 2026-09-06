@@ -66,13 +66,13 @@
   runtime's to simulate. The DOM rows remain owed to a browser suite;
   the recorded contract says so rather than implying they were measured."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::hmr-remount)
 
@@ -83,11 +83,11 @@
 ;; containing an `(async done …)` test, and a residue baseline is only honest
 ;; past the runtime's own reap horizon (`runtime/quiesced!`).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The source file, as a consumer writes it
@@ -98,9 +98,9 @@
   a head around the same body — which is what an unrelated edit elsewhere
   in the file does."
   [{:keys [tag]}]
-  [:p {:class tag} (h/sub [:hmr-remount/label])])
+  [:p {:class tag} (rf.hicasso/sub [:hmr-remount/label])])
 
-(h/defview panel
+(rf.hicasso/defview panel
   "Declared through the public door, so what a reload re-mints is the real
   product of the real macro."
   [props]
@@ -137,7 +137,7 @@
   [body]
   (rf/reg-event :hmr-remount/seed (fn [_ [_ label]] {:db {:label label}}))
   (rf/reg-sub   :hmr-remount/label (fn [db _] (:label db)))
-  (collector/mint-view! view-name body))
+  (rf.hicasso.impl.collector/mint-view! view-name body))
 
 (defn- element-type-of
   "The React `type` of the element the codec creates for `head` — the
@@ -146,7 +146,7 @@
   rebuilt. Read off a real element rather than off the head's marker, so
   the witness sees what React sees."
   [head]
-  (.-type (codec/as-element [head {:tag "t"}])))
+  (.-type (rf.hicasso.impl.codec/as-element [head {:tag "t"}])))
 
 (defn- painted
   "The text the boundary's emitted element carries — its `<p>`'s only
@@ -163,17 +163,17 @@
   emitted element, the entry, the notification counter, this mount's
   registration object, and React's own cleanup."
   [body]
-  (let [value    (collector/render-body frame-id body {})
-        entry    (collector/last-reads)
+  (let [value    (rf.hicasso.impl.collector/render-body frame-id body {})
+        entry    (rf.hicasso.impl.collector/last-reads)
         notified (volatile! 0)
-        release  (collector/commit-boundary! entry (fn [] (vswap! notified inc)))]
+        release  (rf.hicasso.impl.collector/commit-boundary! entry (fn [] (vswap! notified inc)))]
     {:value    value
      :entry    entry
      :notified notified
      :release  release
      ;; The registration this commit just installed: the newest reader on
      ;; the key's cell. It is the object the hand-over is judged by.
-     :reg      (peek (runtime/cell-readers sub-key))}))
+     :reg      (peek (rf.hicasso.test.runtime/cell-readers sub-key))}))
 
 (defn- same-object?
   "`identical?`, answered as a plain boolean, and every identity assertion
@@ -195,18 +195,18 @@
   "Is `reg` among the registrations currently reading the label key?
   Answered as a boolean, for [[same-object?]]'s reason."
   [reg]
-  (boolean (some #(same-object? % reg) (runtime/cell-readers sub-key))))
+  (boolean (some #(same-object? % reg) (rf.hicasso.test.runtime/cell-readers sub-key))))
 
 (defn- settled
   "Run `f` once the runtime's own reapers have run — the only honest place
   to read a residue baseline."
   [f]
-  (.then (runtime/quiesced!) f))
+  (.then (rf.hicasso.test.runtime/quiesced!) f))
 
 (def ^:private one-boundary {:cells 1 :cell-refs 1 :boundaries 1 :edges 1})
 (def ^:private nothing      {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
-(defn- retention [] (dissoc (runtime/residue) :entries))
+(defn- retention [] (dissoc (rf.hicasso.test.runtime/residue) :entries))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The head is re-minted, so the element type changes — the whole cause
@@ -250,8 +250,8 @@
   ;; `panel-body` is passed to both mints by name, so the "same body" premise
   ;; is carried by the code rather than by an assertion — asserting a var is
   ;; identical to itself would pass without exercising anything.
-  (let [g1 (collector/mint-view! view-name panel-body)
-        g2 (collector/mint-view! view-name panel-body)]
+  (let [g1 (rf.hicasso.impl.collector/mint-view! view-name panel-body)
+        g2 (rf.hicasso.impl.collector/mint-view! view-name panel-body)]
     (is (false? (same-object? g1 g2))
         "same name, same body, different head")
     (is (false? (same-object? (element-type-of g1) (element-type-of g2)))
@@ -266,9 +266,9 @@
   ;; and the recorded contract must be rewritten before the suite can pass.
   ;; That is the intended behaviour: the freeze is falsifiable.
   (let [reloaded (load-namespace! panel-body)]
-    (is (true? (codec/boundary-head? panel))
+    (is (true? (rf.hicasso.impl.codec/boundary-head? panel))
         "the macro's product is a marked boundary head")
-    (is (true? (codec/boundary-head? reloaded))
+    (is (true? (rf.hicasso.impl.codec/boundary-head? reloaded))
         "and so is the reload's, so the two are the same kind of object")
     (is (= (.-displayName ^js panel) (.-displayName ^js reloaded) view-name)
         "minted under the identical name — same address")
@@ -314,7 +314,7 @@
               (testing "and it is the SUCCESSOR's registration, by identity —
                         the assertion a count cannot make, and the one a
                         rendered-markup assertion cannot make at all"
-                (let [readers (runtime/cell-readers sub-key)]
+                (let [readers (rf.hicasso.test.runtime/cell-readers sub-key)]
                   (is (= 1 (count readers)))
                   (is (true? (same-object? reg2 (first readers)))
                       "the survivor is the generation that is mounted")
@@ -328,7 +328,7 @@
                             — zero residue after quiescence, invariant I5's
                             exact-teardown clause across a reload"
                     (is (= nothing (retention)))
-                    (is (= 0 (:entries (runtime/residue)))
+                    (is (= 0 (:entries (rf.hicasso.test.runtime/residue)))
                         "the shared read-set entry is reaped too"))
                   (done))))))))))
 
@@ -352,7 +352,7 @@
           (fn [_]
             (is (= one-boundary (retention))
                 "same terminal retention as destroy-then-create")
-            (is (true? (same-object? reg2 (first (runtime/cell-readers sub-key))))
+            (is (true? (same-object? reg2 (first (rf.hicasso.test.runtime/cell-readers sub-key))))
                 "and the successor still holds the key")
             ((:release m2))
             (settled (fn [_] (is (= nothing (retention))) (done)))))))))
@@ -392,7 +392,7 @@
 
             (testing "RED — and the identity assertion names the culprit,
                       which a count could not"
-              (let [readers (runtime/cell-readers sub-key)]
+              (let [readers (rf.hicasso.test.runtime/cell-readers sub-key)]
                 (is (= 2 (count readers)))
                 (is (true? (holds-key? reg1))
                     "the retired generation is still reading the key")
@@ -416,7 +416,7 @@
                           instrument reports the clean hand-over, so the red
                           above was the leak and not a broken witness"
                   (is (= one-boundary (retention)))
-                  (is (true? (same-object? reg2 (first (runtime/cell-readers sub-key))))))
+                  (is (true? (same-object? reg2 (first (rf.hicasso.test.runtime/cell-readers sub-key))))))
                 ((:release m2))
                 (settled (fn [_] (is (= nothing (retention))) (done)))))))))))
 
@@ -441,14 +441,14 @@
         (fn [_]
           (is (= one-boundary (retention))
               "three saves later, still exactly one cell, one reader, one edge")
-          (is (true? (same-object? (:reg @!live) (first (runtime/cell-readers sub-key))))
+          (is (true? (same-object? (:reg @!live) (first (rf.hicasso.test.runtime/cell-readers sub-key))))
               "and the holder is the newest generation")
-          (is (= 1 (:entries (runtime/residue)))
+          (is (= 1 (:entries (rf.hicasso.test.runtime/residue)))
               "one read-set entry, shared across every generation and handed
                from each to the next rather than re-minted per save")
           ((:release @!live))
           (settled
             (fn [_]
               (is (= nothing (retention)))
-              (is (= 0 (:entries (runtime/residue))))
+              (is (= 0 (:entries (rf.hicasso.test.runtime/residue))))
               (done))))))))

@@ -12,10 +12,10 @@
                           fallback.
 
   Buffer storage and low-level mutation live in `re-frame.epoch.state`."
-  (:require [re-frame.epoch.state :as state]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---- skip-ops catalogue --------------------------------------------------
 ;;
@@ -157,7 +157,7 @@
   [frame-id]
   (some (fn [trace-event]
           (= :rf.event/run-start (:operation trace-event)))
-        (state/buffer-for frame-id)))
+        (rf.epoch.state/buffer-for frame-id)))
 
 (defn capture-event!
   "Capture one trace event through the `:epoch/capture-event` late-bind hook.
@@ -187,7 +187,7 @@
   back-filled through their dedicated hooks when no event is in flight, while
   synchronous occurrences stay in the current buffer."
   [event]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [operation  (:operation event)
           event-tags (:tags event)
           ;; The canonical raw trace-event frame path, and the ONLY one
@@ -212,8 +212,8 @@
                      (contains? render-ops operation)
                      (contains? sub-run-ops operation)
                      (contains? unmount-ops operation)))
-        (when-let [owner-token (frame/frame-incarnation-token frame-id)]
-          (state/claim-frame-owner! frame-id owner-token)))
+        (when-let [owner-token (rf.frame/frame-incarnation-token frame-id)]
+          (rf.epoch.state/claim-frame-owner! frame-id owner-token)))
       ;; Learn which subscriptions each view reads from the
       ;; `:reader-render-key` stamp the runtime sets on a `:rf.sub/run`
       ;; that recomputes SYNCHRONOUSLY inside a view's render (the mount /
@@ -226,7 +226,7 @@
       (when frame-id
         (when-let [reader-render-key (:rf.sub/reader-render-key event-tags)]
           (when (= :rf.sub/run operation)
-            (state/record-render-deps! frame-id reader-render-key
+            (rf.epoch.state/record-render-deps! frame-id reader-render-key
                                        (:rf.sub/id event-tags)))))
       (when (and frame-id (not (contains? skip-ops operation)))
         (cond
@@ -240,18 +240,18 @@
           ;; the render falls through to the normal buffer path.
           (and (contains? render-ops operation)
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-render! (late-bind/get-fn-cached :epoch/record-render!)]
+          (if-let [record-render! (rf.late-bind/get-fn-cached :epoch/record-render!)]
             (record-render! frame-id event)
-            (state/buffer-event! frame-id event))
+            (rf.epoch.state/buffer-event! frame-id event))
 
           ;; Post-settle sub-run. Same
           ;; back-fill shape, distinct hook. Falls through to the normal
           ;; buffer path during the pre-facade-install load-order window.
           (and (contains? sub-run-ops operation)
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-sub-run! (late-bind/get-fn-cached :epoch/record-sub-run!)]
+          (if-let [record-sub-run! (rf.late-bind/get-fn-cached :epoch/record-sub-run!)]
             (record-sub-run! frame-id event)
-            (state/buffer-event! frame-id event))
+            (rf.epoch.state/buffer-event! frame-id event))
 
           ;; Post-settle view unmount.
           ;; A `:rf.view/unmounted` fires at React teardown time, AFTER the
@@ -268,9 +268,9 @@
           ;; window.
           (and (contains? unmount-ops operation)
                (not (in-flight-cascade? frame-id)))
-          (if-let [record-unmount! (late-bind/get-fn-cached :epoch/record-unmount!)]
+          (if-let [record-unmount! (rf.late-bind/get-fn-cached :epoch/record-unmount!)]
             (record-unmount! frame-id event)
-            (state/buffer-event! frame-id event))
+            (rf.epoch.state/buffer-event! frame-id event))
 
           ;; Drop an out-of-cascade orphan from the epoch capture buffer.
           ;; An emit with NO cascade context (no in-flight cascade for the
@@ -298,7 +298,7 @@
           nil
 
           :else
-          (state/buffer-event! frame-id event))))))
+          (rf.epoch.state/buffer-event! frame-id event))))))
 
 ;; ---- run-cause for render attribution -------------------------------------
 ;;
@@ -357,8 +357,8 @@
   ([frame-id]
    (run-cause frame-id 100))
   ([frame-id sub-cap]
-   (when interop/debug-enabled?
-     (let [buffered-events (state/buffer-for frame-id)
+   (when rf.interop/debug-enabled?
+     (let [buffered-events (rf.epoch.state/buffer-for frame-id)
            ;; Single reduce: capture first :rf.event/run-start, accumulate
            ;; distinct sub-ids in first-seen order up to `sub-cap`, and
            ;; count the existing :rf.view/rendered emits so the views.cljs

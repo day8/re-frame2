@@ -24,15 +24,15 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Publishes the Malli validator into the late-bind table so
             ;; reg-app-schema validation actually runs.
             [re-frame.schemas.malli]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (deftest schema-rejection-zero-reaction-notifications
   (testing "a schema-rejected dispatch dirties NO Reagent reaction and a

@@ -21,15 +21,15 @@
   exercised in isolation — no live run needed, fully deterministic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch]
-            [re-frame.epoch.capture :as capture]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.capture :as rf.epoch.capture]
             ;; `state` is used in test BODIES (`state/buffer-event!` /
             ;; `state/buffer-for`) to populate the in-flight buffer the
             ;; run-cause walk reads — NOT for fixture config reset.
-            [re-frame.epoch.state :as state]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect require (mirror epoch_test.clj fixture).
             [re-frame.machines]))
 
@@ -43,8 +43,8 @@
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var for fixture reset.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- synthetic-buffer helpers ---------------------------------------------
@@ -74,7 +74,7 @@
   {:op-type :rf.view :operation :rf.view/rendered-cap-reached :tags {}})
 
 (defn- seed-buffer! [frame-id events]
-  (doseq [ev events] (state/buffer-event! frame-id ev)))
+  (doseq [ev events] (rf.epoch.state/buffer-event! frame-id ev)))
 
 ;; ---- empty / out-of-run buffer --------------------------------------------
 
@@ -85,7 +85,7 @@
             :cause-event-id / :cause-subs / :value-changed-subs slots are
             OMITTED, never nil"
     (rf/make-frame {:id :test/cc})
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= {:rendered-so-far 0} result)
           "empty buffer → only :rendered-so-far 0, other slots omitted")
       (is (not (contains? result :cause-event-id)))
@@ -96,7 +96,7 @@
             trigger) still omits :cause-event-id"
     (rf/make-frame {:id :test/cc2})
     (seed-buffer! :test/cc2 [(sub-run :a true)])
-    (let [result (capture/run-cause :test/cc2)]
+    (let [result (rf.epoch.capture/run-cause :test/cc2)]
       (is (not (contains? result :cause-event-id))
           "no run-start ⇒ no :cause-event-id")
       (is (= [:a] (:cause-subs result))
@@ -114,7 +114,7 @@
                    ;; A second run-start (a child event's marker, defensive)
                    ;; must NOT override the first.
                    (run-start :counter/decorate)])
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= :counter/inc (:cause-event-id result))
           "first run-start wins; a later run-start does not clobber it"))))
 
@@ -131,7 +131,7 @@
                    (sub-run :a)          ;; repeat — deduped
                    (sub-run :c)
                    (sub-run :b)])        ;; repeat — deduped
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= [:a :b :c] (:cause-subs result))
           "distinct, first-seen order — repeats collapse, order preserved"))))
 
@@ -145,13 +145,13 @@
                         (map (fn [i] (sub-run (keyword (str "s" i)))))
                         (range 10)))
     (testing "explicit sub-cap of 3 truncates to the first 3 distinct subs"
-      (let [result (capture/run-cause :test/cc 3)]
+      (let [result (rf.epoch.capture/run-cause :test/cc 3)]
         (is (= 3 (count (:cause-subs result)))
             "capped at 3 distinct sub-ids")
         (is (= [:s0 :s1 :s2] (:cause-subs result))
             "the FIRST 3 (first-seen) are kept; the rest dropped")))
     (testing "the default cap (100) admits all 10 subs"
-      (let [result (capture/run-cause :test/cc)]
+      (let [result (rf.epoch.capture/run-cause :test/cc)]
         (is (= 10 (count (:cause-subs result)))
             "well under the default 100 cap — all subs surface")))))
 
@@ -168,7 +168,7 @@
                    (sub-run :changed   true)
                    (sub-run :unchanged false)
                    (sub-run :also-changed true)])
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= [:changed :unchanged :also-changed] (:cause-subs result))
           "all three subs ran (cause-subs carries every distinct one)")
       (is (= #{:changed :also-changed} (:value-changed-subs result))
@@ -184,7 +184,7 @@
                   [(run-start :ev)
                    (sub-run :a false)
                    (sub-run :b false)])
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= [:a :b] (:cause-subs result))
           "the subs still surface in :cause-subs")
       (is (not (contains? result :value-changed-subs))
@@ -199,7 +199,7 @@
                    (sub-run :a true)
                    (sub-run :a true)
                    (sub-run :a true)])
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= #{:a} (:value-changed-subs result))
           "repeats collapse — :value-changed-subs is a deduped set"))))
 
@@ -216,7 +216,7 @@
                         (map (fn [i] (sub-run (keyword (str "v" i)) true)))
                         (range 10)))
     (testing "explicit sub-cap of 3 truncates the value-changed set to 3"
-      (let [result (capture/run-cause :test/cc 3)]
+      (let [result (rf.epoch.capture/run-cause :test/cc 3)]
         (is (= 3 (count (:value-changed-subs result)))
             "value-changed-subs capped at the sub-cap (3), not the 10
              distinct value-changed sub-ids present in the buffer")
@@ -224,7 +224,7 @@
             "the FIRST 3 (first-seen) value-changed subs are kept; the
              rest dropped — independent of the first-seen :subs scan")))
     (testing "the default cap (100) admits all 10 value-changed subs"
-      (let [result (capture/run-cause :test/cc)]
+      (let [result (rf.epoch.capture/run-cause :test/cc)]
         (is (= 10 (count (:value-changed-subs result)))
             "well under the default 100 cap — all value-changed subs surface")))))
 
@@ -241,7 +241,7 @@
                    (sub-run :a)
                    (rendered)
                    (rendered)])
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= 3 (:rendered-so-far result))
           "three :rf.view/rendered emits ⇒ :rendered-so-far 3"))))
 
@@ -256,7 +256,7 @@
                    (rendered)
                    (rendered)
                    (rendered-cap-reached)])
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= 3 (:rendered-so-far result))
           "two :rf.view/rendered + one :rf.view/rendered-cap-reached ⇒ 3 —
            the cap-reached marker increments the counter so the emit site
@@ -276,7 +276,7 @@
                    (rendered)
                    (sub-run :counter/value true)   ;; repeat
                    (rendered)])
-    (let [result (capture/run-cause :test/cc)]
+    (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= :counter/inc (:cause-event-id result)))
       (is (= [:counter/value :counter/label] (:cause-subs result))
           "distinct, first-seen; the repeat counter/value collapses")
@@ -293,6 +293,6 @@
             elides — views.cljs gates its consumption under the same gate)"
     (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc [(run-start :ev) (sub-run :a true) (rendered)])
-    (with-redefs [interop/debug-enabled? false]
-      (is (nil? (capture/run-cause :test/cc))
+    (with-redefs [rf.interop/debug-enabled? false]
+      (is (nil? (rf.epoch.capture/run-cause :test/cc))
           "run-cause returns nil under the disabled gate"))))

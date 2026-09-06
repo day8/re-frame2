@@ -19,26 +19,26 @@
   `re-frame.core`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loading flows registers its late-bind hooks. The
             ;; `with-hook-as-nil` helper below re-establishes the absent
             ;; state by flipping the hook value at runtime; restoration
             ;; in `finally` keeps cross-test isolation intact.
             [re-frame.flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (defn- with-hook-as-nil
   "Run `f` with the named late-bind hook set to nil. Restores the
   original value after `f` returns or throws."
   [hook-key f]
-  (let [original (late-bind/get-fn hook-key)]
+  (let [original (rf.late-bind/get-fn hook-key)]
     (try
-      (late-bind/set-fn! hook-key nil)
+      (rf.late-bind/set-fn! hook-key nil)
       (f)
       (finally
-        (late-bind/set-fn! hook-key original)))))
+        (rf.late-bind/set-fn! hook-key original)))))
 
 ;; `clear-flow` is not on the `re-frame.core` façade — it is reached through
 ;; `re-frame.flows/clear-flow`, so the façade artefact-missing contract does
@@ -104,14 +104,14 @@
     ;; no-op and the drain completes.
     (with-hook-as-nil :flows/run-flows-on-db
       (fn []
-        (rf/init! plain-atom/adapter)
+        (rf/init! rf.substrate.plain-atom/adapter)
         ;; EP-0002: `init!` does not create `:rf/default`, and a bare
         ;; `dispatch-sync` under no established scope raises
         ;; `:rf.error/no-frame-context`. Register `:rf/default` and pin it
         ;; as the established scope so this absent-flows-artefact drain test
         ;; carries a frame stamp (the carried invariant).
-        (frame/ensure-default-frame!)
-        (binding [frame/*current-frame* :rf/default]
+        (rf.frame/ensure-default-frame!)
+        (binding [rf.frame/*current-frame* :rf/default]
           (rf/reg-event :flows-absent/init (fn [{:keys [db]} _] {:db {:probe :ok}}))
           (is (do (rf/dispatch-sync [:flows-absent/init]) :ok)
               "dispatch completes without throwing when the run-flows! hook is absent")
@@ -129,7 +129,7 @@
     (with-hook-as-nil :flows/reset-flows!
       (fn []
         (let [ran? (atom false)
-              fix  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})]
+              fix  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
           (fix (fn [] (reset! ran? true)))
           (is @ran? "fixture invoked the test-fn without throwing on the absent hook"))))))
 
@@ -141,11 +141,11 @@
     ;; short-circuits.
     (with-hook-as-nil :flows/teardown-on-frame-destroy!
       (fn []
-        (rf/init! plain-atom/adapter)
+        (rf/init! rf.substrate.plain-atom/adapter)
         (rf/make-frame {:id :late-bind-missing/scratch :doc "scratch frame for teardown probe"})
-        (is (some? (get @frame/frames :late-bind-missing/scratch))
+        (is (some? (get @rf.frame/frames :late-bind-missing/scratch))
             "frame registered")
-        (is (do (frame/destroy-frame! :late-bind-missing/scratch) :ok)
+        (is (do (rf.frame/destroy-frame! :late-bind-missing/scratch) :ok)
             "destroy-frame! completes without throwing when the flows-teardown hook is absent")
-        (is (nil? (get @frame/frames :late-bind-missing/scratch))
+        (is (nil? (get @rf.frame/frames :late-bind-missing/scratch))
             "frame was destroyed despite the absent teardown hook")))))

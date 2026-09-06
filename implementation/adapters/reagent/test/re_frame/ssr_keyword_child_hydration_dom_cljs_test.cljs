@@ -43,9 +43,9 @@
             ["react-dom/client" :as react-dom-client]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.ssr.install :as install]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private test-frame :ssr-keyword-child-hydration/frame)
 
@@ -57,15 +57,15 @@
                 (fn [card-id] [:div.card [:h3 (str card-id)]])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn init!})
   ;; No test here INSTALLS a hydration payload, but the ledger is a
   ;; process-global `defonce` that neither `clear-all!` nor a frames
   ;; reset touches (rf2-aorfy), so a future edit that adds an install
   ;; would leak into sibling namespaces rather than fail here. Resetting
   ;; unconditionally keeps that trap shut.
-  (fn [f] (install/reset-installed-payloads!) (f)))
+  (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
 
 (defn- browser? []
   (and (exists? js/document)

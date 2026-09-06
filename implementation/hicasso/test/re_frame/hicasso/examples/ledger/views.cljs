@@ -90,10 +90,10 @@
   is not needed here, because a virtualizer is an ordinary
   React component and the door for an ordinary React component is the
   declaration."
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.ledger.events :as events]
-            [re-frame.hicasso.examples.ledger.subs :as subs]
-            [re-frame.hicasso.examples.ledger.vendor :as vendor]))
+  (:require [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.ledger.events :as rf.hicasso.examples.ledger.events]
+            [re-frame.hicasso.examples.ledger.subs :as rf.hicasso.examples.ledger.subs]
+            [re-frame.hicasso.examples.ledger.vendor :as rf.hicasso.examples.ledger.vendor]))
 
 ;; ---------------------------------------------------------------------------
 ;; Geometry
@@ -119,7 +119,7 @@
 ;; The crossing
 ;; ---------------------------------------------------------------------------
 
-(h/defhost rows
+(rf.hicasso/defhost rows
   "The declared door onto the virtualizer.
 
   `:render-row` carries the `:render` contract, so what the callback
@@ -134,13 +134,13 @@
   offset)`, `onWindow(from, to)` — so there is no event at argument one
   and nothing for a vector's markers to read. The one callback form
   receives the library's own arguments, in order (HD-024)."
-  vendor/virtual-rows)
+  rf.hicasso.examples.ledger.vendor/virtual-rows)
 
 ;; ---------------------------------------------------------------------------
 ;; The screen
 ;; ---------------------------------------------------------------------------
 
-(h/defview ledger-row
+(rf.hicasso/defview ledger-row
   "One record's row: its name, its note and its flag.
 
   Three reads, all parametric on the model index, and every one of them
@@ -154,7 +154,7 @@
   contributes two `role=\"presentation\"` wrappers and knows nothing
   about tables."
   [{:keys [index offset]}]
-  (let [{:keys [id name]} (h/sub [::subs/record index])]
+  (let [{:keys [id name]} (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/record index])]
     [:div {:role          "row"
            :class         "ledger-row"
            :aria-rowindex (str (inc index))
@@ -167,22 +167,22 @@
                            :height   row-height}}
      [:div {:role "gridcell" :aria-colindex "1" :class "ledger-name"} name]
      [:div {:role "gridcell" :aria-colindex "2"}
-      [:input {:id          (events/note-id index)
+      [:input {:id          (rf.hicasso.examples.ledger.events/note-id index)
                :class       "ledger-note"
                :type        "text"
-               :aria-label  (events/note-label index)
+               :aria-label  (rf.hicasso.examples.ledger.events/note-label index)
                :data-record id
-               :value       (h/sub [::subs/note index])
-               :on-focus    [::events/row-focused {:index index}]
-               :on-input    [::events/note index ::h/value]}]]
+               :value       (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/note index])
+               :on-focus    [::rf.hicasso.examples.ledger.events/row-focused {:index index}]
+               :on-input    [::rf.hicasso.examples.ledger.events/note index ::rf.hicasso/value]}]]
      [:div {:role "gridcell" :aria-colindex "3"}
       [:button {:class        "ledger-flag"
-                :aria-label   (events/flag-label index)
-                :aria-pressed (str (h/sub [::subs/flagged? index]))
-                :on-click     [::events/flag {:index index}]}
+                :aria-label   (rf.hicasso.examples.ledger.events/flag-label index)
+                :aria-pressed (str (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/flagged? index]))
+                :on-click     [::rf.hicasso.examples.ledger.events/flag {:index index}]}
        "Flag"]]]))
 
-(h/defview status-line
+(rf.hicasso/defview status-line
   "*Showing rows 41–66 of 10,000.*
 
   Its own boundary, and that is the whole reason it exists as one: it is
@@ -191,12 +191,12 @@
   re-run the screen, re-mint the render callback and re-create the whole
   window's worth of elements."
   [_]
-  (let [{:keys [from to]} (h/sub [::subs/window])
-        total             (h/sub [::subs/total])]
+  (let [{:keys [from to]} (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/window])
+        total             (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/total])]
     [:p.ledger-status {:role "status"}
      (str "Showing rows " (inc from) "–" (inc to) " of " total)]))
 
-(h/defview ledger
+(rf.hicasso/defview ledger
   "The whole application.
 
   Reads the total, which nothing writes after the seed, and the pinned
@@ -204,8 +204,8 @@
   or by a keystroke, so this body runs at mount and on a focus change and
   at no other time."
   [_]
-  (let [total  (h/sub [::subs/total])
-        pinned (h/sub [::subs/pinned-index])]
+  (let [total  (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/total])
+        pinned (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/pinned-index])]
     [:section#ledger
      [:h1 "Ledger"]
      [status-line {}]
@@ -221,10 +221,10 @@
              :viewport-height viewport-height
              :overscan        overscan
              :pinned-index    pinned
-             :render-row      (h/event [i offset]
-                                (h/as-element
+             :render-row      (rf.hicasso/event [i offset]
+                                (rf.hicasso/as-element
                                   [ledger-row {:key    (row-key i)
                                                :index  i
                                                :offset offset}]))
-             :on-window       (h/event [from to]
-                                [::events/window-shown {:from from :to to}])}]]]))
+             :on-window       (rf.hicasso/event [from to]
+                                [::rf.hicasso.examples.ledger.events/window-shown {:from from :to to}])}]]]))

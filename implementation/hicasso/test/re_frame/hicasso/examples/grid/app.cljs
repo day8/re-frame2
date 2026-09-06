@@ -6,11 +6,11 @@
   scaling witness moves. Everything else — the namespaced frame keyword,
   the reload handle, the absence of any registered route — is
   `examples.editor.app`'s, and its docstring carries the reasoning."
-  (:require [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.grid.events :as events]
-            [re-frame.hicasso.examples.grid.views :as views]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.grid.events :as rf.hicasso.examples.grid.events]
+            [re-frame.hicasso.examples.grid.views :as rf.hicasso.examples.grid.views]))
 
 (def frame-id
   "This application's frame. Namespaced, so two applications in one
@@ -24,8 +24,8 @@
   variable of `grid.scaling-dom-cljs-test`: the suite mounts the same
   application twice and the only difference between the two mounts is
   what this returns."
-  ([] (initial-events events/default-dimensions))
-  ([dimensions] [[::events/seed dimensions]]))
+  ([] (initial-events rf.hicasso.examples.grid.events/default-dimensions))
+  ([dimensions] [[::rf.hicasso.examples.grid.events/seed dimensions]]))
 
 (defonce ^:private !root (atom nil))
 
@@ -33,13 +33,13 @@
   "Re-render the mounted root after a hot reload."
   []
   (when-some [root @!root]
-    (h/render! root [views/grid {}])))
+    (rf.hicasso/render! root [rf.hicasso.examples.grid.views/grid {}])))
 
 (defn ^:export -main
   "Mount the 100-cell grid on `#app`."
   []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events (initial-events)})
-  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id}
-                          [views/grid {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id}
+                          [rf.hicasso.examples.grid.views/grid {}]))
   nil)

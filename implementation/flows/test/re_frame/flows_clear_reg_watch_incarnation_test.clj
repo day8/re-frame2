@@ -24,16 +24,16 @@
   fire exactly once, during the lifecycle op under test."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.flows :as flows]
-            [re-frame.flows.registry :as registry]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- install-watching-adapter!
   "Install a plain-atom-backed adapter whose `replace-container!` runs `on-write`
@@ -41,11 +41,11 @@
   `armed?` holds true. The physical write always lands FIRST so A's write that
   linearized before the loss stands."
   [armed? on-write]
-  (let [base-replace (:replace-container! plain-atom/adapter)]
-    (adapter/dispose-adapter!)
-    (reset! frame/frames {})
-    (adapter/install-adapter!
-      (assoc plain-atom/adapter
+  (let [base-replace (:replace-container! rf.substrate.plain-atom/adapter)]
+    (rf.substrate.adapter/dispose-adapter!)
+    (reset! rf.frame/frames {})
+    (rf.substrate.adapter/install-adapter!
+      (assoc rf.substrate.plain-atom/adapter
              :kind :custom
              :replace-container!
              (fn [container value]
@@ -54,9 +54,9 @@
                  (on-write)))))))
 
 (defn- restore-plain-adapter! []
-  (reset! frame/frames {})
-  (adapter/dispose-adapter!)
-  (adapter/install-adapter! plain-atom/adapter))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))
 
 ;; ---------------------------------------------------------------------------
 ;; clear-flow — the output-mark write's watch loses A; the stale tail must not
@@ -82,18 +82,18 @@
       (fn []
         ;; The mark-write watch: destroy A, publish same-id B with its own flow
         ;; state, and snapshot B's stores for the byte-identical assertions.
-        (frame/destroy-frame! id)
+        (rf.frame/destroy-frame! id)
         (rf/make-frame {:id id})
         (rf/reg-flow :flow.incarnation/f
           {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
           (fn [n] (or n 0)))
-        (registry/set-frame-flow-last-inputs! id :flow.incarnation/f [::b-input])
-        (reset! b-token (frame/frame-incarnation-token id))
-        (reset! b-flow-row (get-in (registry/flows-snapshot)
+        (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/f [::b-input])
+        (reset! b-token (rf.frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (rf.flows.registry/flows-snapshot)
                                    [id :flow.incarnation/f]))
-        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
-        (reset! b-commit (frame/frame-commit-epoch id))
-        (reset! b-sensitive (elision/sensitive-declarations id))))
+        (reset! b-dirty (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+        (reset! b-commit (rf.frame/frame-commit-epoch id))
+        (reset! b-sensitive (rf.elision/sensitive-declarations id))))
     (try
       (rf/make-frame {:id id})
       ;; A's flow declares an output classification so clearing it produces a
@@ -102,20 +102,20 @@
         {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
         (fn [n] (or n 0)))
       (reset! armed? true)
-      (is (nil? (flows/clear-flow :flow.incarnation/f {:frame id}))
+      (is (nil? (rf.flows/clear-flow :flow.incarnation/f {:frame id}))
           "clear-flow returns nil; its stale tail is aborted after the watch")
       (let [token-b @b-token]
         (is (some? token-b) "the mark-write watch published a same-id B")
-        (is (identical? token-b (frame/frame-incarnation-token id))
+        (is (identical? token-b (rf.frame/frame-incarnation-token id))
             "B remains the live incarnation")
-        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/f]))
+        (is (= @b-flow-row (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/f]))
             "A's stale clear-flow tail never dissociates B's flow row")
         (is (= @b-dirty
-               (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+               (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/f))
             "A's stale clear-flow tail never drops B's dirty-check cache")
-        (is (= @b-commit (frame/frame-commit-epoch id))
+        (is (= @b-commit (rf.frame/frame-commit-epoch id))
             "A's stale mark write never bumps B's commit epoch")
-        (is (= @b-sensitive (elision/sensitive-declarations id))
+        (is (= @b-sensitive (rf.elision/sensitive-declarations id))
             "A's stale clear-flow tail never rewrites B's output-mark declaration"))
       (finally
         (restore-plain-adapter!)))))
@@ -142,17 +142,17 @@
     (install-watching-adapter!
       armed?
       (fn []
-        (frame/destroy-frame! id)
+        (rf.frame/destroy-frame! id)
         (rf/make-frame {:id id})
         (rf/reg-flow :flow.incarnation/g
           {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
           (fn [n] (or n 0)))
-        (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::b-input])
-        (reset! b-token (frame/frame-incarnation-token id))
-        (reset! b-flow-row (get-in (registry/flows-snapshot)
+        (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::b-input])
+        (reset! b-token (rf.frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (rf.flows.registry/flows-snapshot)
                                    [id :flow.incarnation/g]))
-        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/g))
-        (reset! b-commit (frame/frame-commit-epoch id))))
+        (reset! b-dirty (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/g))
+        (reset! b-commit (rf.frame/frame-commit-epoch id))))
     (try
       (rf/make-frame {:id id})
       (rf/reg-flow :flow.incarnation/g
@@ -161,7 +161,7 @@
       ;; Prime a dirty-check row for A so the (unfixed) stale
       ;; drop-frame-flow-last-inputs!
       ;; would have something to drop off the successor.
-      (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::a-input])
+      (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::a-input])
       (reset! armed? true)
       ;; Replacement registration: refreshes marks (the watch seam), then runs
       ;; the post-mark dirty-cache + dedup tail.
@@ -170,14 +170,14 @@
         (fn [n] (* 2 (or n 0))))
       (let [token-b @b-token]
         (is (some? token-b) "the mark-refresh watch published a same-id B")
-        (is (identical? token-b (frame/frame-incarnation-token id))
+        (is (identical? token-b (rf.frame/frame-incarnation-token id))
             "B remains the live incarnation")
-        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/g]))
+        (is (= @b-flow-row (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/g]))
             "A's stale reg-flow tail never rewrites B's flow row")
         (is (= @b-dirty
-               (registry/get-frame-flow-last-inputs id :flow.incarnation/g))
+               (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/g))
             "A's stale post-mark tail never drops B's dirty-check cache")
-        (is (= @b-commit (frame/frame-commit-epoch id))
+        (is (= @b-commit (rf.frame/frame-commit-epoch id))
             "A's stale mark write never bumps B's commit epoch"))
       (finally
         (restore-plain-adapter!)))))
@@ -204,19 +204,19 @@
       (rf/reg-flow :flow.incarnation/h
         {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
         (fn [n] (or n 0)))
-      (registry/set-frame-flow-last-inputs! id :flow.incarnation/h [::a-input])
-      (let [epoch-before (frame/frame-commit-epoch id)]
+      (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/h [::a-input])
+      (let [epoch-before (rf.frame/frame-commit-epoch id)]
         (reset! armed? true)
-        (is (nil? (flows/clear-flow :flow.incarnation/h {:frame id}))
+        (is (nil? (rf.flows/clear-flow :flow.incarnation/h {:frame id}))
             "clear-flow completes normally against the live owner")
         (is (= 1 @watch-runs) "the container watch fired on the mark write")
-        (is (nil? (get-in (registry/flows-snapshot) [id :flow.incarnation/h]))
+        (is (nil? (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/h]))
             "the flow row is removed for the live owner")
-        (is (nil? (registry/get-frame-flow-last-inputs id :flow.incarnation/h))
+        (is (nil? (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/h))
             "the dirty-check cache row is dropped for the live owner")
-        (is (empty? (elision/sensitive-declarations id))
+        (is (empty? (rf.elision/sensitive-declarations id))
             "the flow's output-mark declaration is cleared for the live owner")
-        (is (> (frame/frame-commit-epoch id) epoch-before)
+        (is (> (rf.frame/frame-commit-epoch id) epoch-before)
             "the mark write advanced the live owner's commit epoch"))
       (finally
         (restore-plain-adapter!)))))
@@ -249,7 +249,7 @@
   value — only the projection reactions are disposed — so the vacation A wrote
   before losing ownership is observable HERE, isolated from B's fresh container."
   [container]
-  (get (adapter/read-container container) frame/app-partition-key))
+  (get (rf.substrate.adapter/read-container container) rf.frame/app-partition-key))
 
 ;; ---------------------------------------------------------------------------
 ;; clear-flow — the app-db path-VACATION write's watch loses A; the stale tail
@@ -280,20 +280,20 @@
       (fn []
         ;; The vacation-write watch: destroy A, publish same-id B with its own
         ;; materialized output leaf + flow state, and snapshot B's stores.
-        (frame/destroy-frame! id)
+        (rf.frame/destroy-frame! id)
         (rf/make-frame {:id id})
-        (frame/swap-frame-db! id assoc :bout ::b-sentinel)
+        (rf.frame/swap-frame-db! id assoc :bout ::b-sentinel)
         (rf/reg-flow :flow.incarnation/f
           {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
           (fn [n] (or n 0)))
-        (registry/set-frame-flow-last-inputs! id :flow.incarnation/f [::b-input])
-        (reset! b-token (frame/frame-incarnation-token id))
-        (reset! b-flow-row (get-in (registry/flows-snapshot)
+        (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/f [::b-input])
+        (reset! b-token (rf.frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (rf.flows.registry/flows-snapshot)
                                    [id :flow.incarnation/f]))
-        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
-        (reset! b-commit (frame/frame-commit-epoch id))
-        (reset! b-app-db (frame/frame-app-db-value id))
-        (reset! b-sensitive (elision/sensitive-declarations id))))
+        (reset! b-dirty (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+        (reset! b-commit (rf.frame/frame-commit-epoch id))
+        (reset! b-app-db (rf.frame/frame-app-db-value id))
+        (reset! b-sensitive (rf.elision/sensitive-declarations id))))
     (try
       (rf/make-frame {:id id})
       (rf/reg-flow :flow.incarnation/f
@@ -302,30 +302,30 @@
       ;; Materialize A's output leaf so clearing it is a REAL app-db path
       ;; vacation (not the no-op the unmaterialized loss fixtures hit) — the
       ;; watch then fires on `swap-frame-db-exact!`, before the mark write.
-      (frame/swap-frame-db! id assoc :out ::a-output)
+      (rf.frame/swap-frame-db! id assoc :out ::a-output)
       ;; Capture A's physical container to prove the vacation linearized HERE.
-      (reset! a-container (:frame-state (frame/frame id)))
+      (reset! a-container (:frame-state (rf.frame/frame id)))
       (reset! armed? true)
-      (is (nil? (flows/clear-flow :flow.incarnation/f {:frame id}))
+      (is (nil? (rf.flows/clear-flow :flow.incarnation/f {:frame id}))
           "clear-flow returns nil; its stale tail is aborted after the vacation watch")
       (let [token-b @b-token]
         (is (some? token-b) "the app-db-vacation watch published a same-id B")
-        (is (identical? token-b (frame/frame-incarnation-token id))
+        (is (identical? token-b (rf.frame/frame-incarnation-token id))
             "B remains the live incarnation")
         (is (not (contains? (a-detached-app-db @a-container) :out))
             "A's vacation physically linearized into A's own detached container")
-        (is (= @b-app-db (frame/frame-app-db-value id))
+        (is (= @b-app-db (rf.frame/frame-app-db-value id))
             "A's exact-incarnation vacation never touches B's app-db")
-        (is (= ::b-sentinel (get (frame/frame-app-db-value id) :bout))
+        (is (= ::b-sentinel (get (rf.frame/frame-app-db-value id) :bout))
             "B's own materialized output leaf stands untouched")
-        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/f]))
+        (is (= @b-flow-row (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/f]))
             "A's stale clear-flow tail never dissociates B's flow row")
         (is (= @b-dirty
-               (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+               (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/f))
             "A's stale clear-flow tail never drops B's dirty-check cache")
-        (is (= @b-commit (frame/frame-commit-epoch id))
+        (is (= @b-commit (rf.frame/frame-commit-epoch id))
             "A's fenced exact vacation never bumps B's commit epoch")
-        (is (= @b-sensitive (elision/sensitive-declarations id))
+        (is (= @b-sensitive (rf.elision/sensitive-declarations id))
             "A's stale clear-flow tail never rewrites B's output-mark declaration"))
       (finally
         (restore-plain-adapter!)))))
@@ -355,28 +355,28 @@
     (install-watching-adapter!
       armed?
       (fn []
-        (frame/destroy-frame! id)
+        (rf.frame/destroy-frame! id)
         (rf/make-frame {:id id})
-        (frame/swap-frame-db! id assoc :bout ::b-sentinel)
+        (rf.frame/swap-frame-db! id assoc :bout ::b-sentinel)
         (rf/reg-flow :flow.incarnation/g
           {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
           (fn [n] (or n 0)))
-        (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::b-input])
-        (reset! b-token (frame/frame-incarnation-token id))
-        (reset! b-flow-row (get-in (registry/flows-snapshot)
+        (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::b-input])
+        (reset! b-token (rf.frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (rf.flows.registry/flows-snapshot)
                                    [id :flow.incarnation/g]))
-        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/g))
-        (reset! b-commit (frame/frame-commit-epoch id))
-        (reset! b-app-db (frame/frame-app-db-value id))))
+        (reset! b-dirty (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/g))
+        (reset! b-commit (rf.frame/frame-commit-epoch id))
+        (reset! b-app-db (rf.frame/frame-app-db-value id))))
     (try
       (rf/make-frame {:id id})
       (rf/reg-flow :flow.incarnation/g
         {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
         (fn [n] (or n 0)))
       ;; Materialize A's OLD output leaf so the path move actually vacates it.
-      (frame/swap-frame-db! id assoc :out ::a-output)
-      (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::a-input])
-      (reset! a-container (:frame-state (frame/frame id)))
+      (rf.frame/swap-frame-db! id assoc :out ::a-output)
+      (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::a-input])
+      (reset! a-container (:frame-state (rf.frame/frame id)))
       (reset! armed? true)
       ;; Replacement with a MOVED output-path: the old-path vacation is the watch
       ;; seam, then the post-vacation dirty-cache drop + dedup trace tail.
@@ -385,20 +385,20 @@
         (fn [n] (* 2 (or n 0))))
       (let [token-b @b-token]
         (is (some? token-b) "the path-move vacation watch published a same-id B")
-        (is (identical? token-b (frame/frame-incarnation-token id))
+        (is (identical? token-b (rf.frame/frame-incarnation-token id))
             "B remains the live incarnation")
         (is (not (contains? (a-detached-app-db @a-container) :out))
             "A's old-path vacation physically linearized into A's own detached container")
-        (is (= @b-app-db (frame/frame-app-db-value id))
+        (is (= @b-app-db (rf.frame/frame-app-db-value id))
             "A's exact-incarnation vacation never touches B's app-db")
-        (is (= ::b-sentinel (get (frame/frame-app-db-value id) :bout))
+        (is (= ::b-sentinel (get (rf.frame/frame-app-db-value id) :bout))
             "B's own materialized output leaf stands untouched")
-        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/g]))
+        (is (= @b-flow-row (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/g]))
             "A's stale reg-flow tail never rewrites B's flow row")
         (is (= @b-dirty
-               (registry/get-frame-flow-last-inputs id :flow.incarnation/g))
+               (rf.flows.registry/get-frame-flow-last-inputs id :flow.incarnation/g))
             "A's stale post-vacation tail never drops B's dirty-check cache")
-        (is (= @b-commit (frame/frame-commit-epoch id))
+        (is (= @b-commit (rf.frame/frame-commit-epoch id))
             "A's fenced exact vacation never bumps B's commit epoch"))
       (finally
         (restore-plain-adapter!)))))
@@ -424,17 +424,17 @@
       (rf/reg-flow :flow.incarnation/k
         {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
         (fn [n] (or n 0)))
-      (frame/swap-frame-db! id assoc :out ::a-output)
-      (let [epoch-before (frame/frame-commit-epoch id)]
+      (rf.frame/swap-frame-db! id assoc :out ::a-output)
+      (let [epoch-before (rf.frame/frame-commit-epoch id)]
         (reset! armed? true)
-        (is (nil? (flows/clear-flow :flow.incarnation/k {:frame id}))
+        (is (nil? (rf.flows/clear-flow :flow.incarnation/k {:frame id}))
             "clear-flow completes normally against the live owner")
         (is (= 1 @watch-runs) "the container watch fired on the app-db vacation write")
-        (is (not (contains? (frame/frame-app-db-value id) :out))
+        (is (not (contains? (rf.frame/frame-app-db-value id) :out))
             "the materialized output leaf is vacated from the live owner's app-db")
-        (is (> (frame/frame-commit-epoch id) epoch-before)
+        (is (> (rf.frame/frame-commit-epoch id) epoch-before)
             "the exact-incarnation vacation advanced the live owner's commit epoch")
-        (is (nil? (get-in (registry/flows-snapshot) [id :flow.incarnation/k]))
+        (is (nil? (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/k]))
             "the flow row is removed for the live owner"))
       (finally
         (restore-plain-adapter!)))))
