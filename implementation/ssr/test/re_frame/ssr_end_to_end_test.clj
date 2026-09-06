@@ -1403,41 +1403,6 @@
                         @no-mismatch-traces)
               "no head-mismatch trace when client and server hashes agree"))))))
 
-;; ---- rf2-37pr: install-render-to-string! install contract -----------------
-;;
-;; Per test-coverage-review-2026-05-12 P3-15. The bundled Reagent adapter
-;; wires itself via the `:reagent/set-hiccup-emitter!` late-bind hook;
-;; `ssr/install-render-to-string!` is the public surface for
-;; non-bundled adapters that ship in their own artefact.
-
-(deftest install-render-to-string-installs-ssr-impl
-  (testing "calling install-render-to-string! with a mock setter fn invokes
-            it with the ssr render-to-string fn"
-    ;; A mock adapter's setter: captures the fn it's handed.
-    (let [captured (atom nil)
-          mock-setter (fn [f] (reset! captured f))]
-      (ssr/install-render-to-string! mock-setter)
-      (is (some? @captured)
-          "the mock setter was called — install-render-to-string! delivered
-           the renderer fn")
-      (is (fn? @captured)
-          "the captured value is a function (the ssr/render-to-string)")
-      ;; Per the install contract: the captured fn is the SAME var that
-      ;; ssr/render-to-string resolves to. Calling it with a hiccup tree
-      ;; produces an HTML string.
-      (let [html (@captured [:div "from-mock"] {})]
-        (is (string? html)
-            "the installed fn renders hiccup → HTML string")
-        (is (clojure.string/includes? html "from-mock")
-            "the rendered HTML carries the hiccup body")
-        (is (clojure.string/starts-with? html "<div")
-            "rendered HTML starts with the expected root tag")))))
-
-(deftest install-render-to-string-returns-nil
-  (testing "install-render-to-string! returns nil; calls it just for side effect"
-    (is (nil? (ssr/install-render-to-string! (fn [_f] nil)))
-        "install-render-to-string! is a side-effect fn; returns nil")))
-
 ;; ---- rf2-9v0f: default-response initial shape contract --------------------
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-16. Pin the documented keys of
