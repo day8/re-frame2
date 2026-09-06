@@ -435,7 +435,7 @@
 ;; identity: attach the next route-plan owner onto a shared ancestor read
 ;; WITHOUT a fetch (the partial-revalidation law), dispatched ahead of the
 ;; prior owner's release. See resources.route/route-resource-plan.
-(rf.events/reg-event :rf.resource/adopt-owner
+(rf.events/reg-event :rf.resource.internal/adopt-owner
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/adopt-route-owner-handler))
@@ -445,7 +445,7 @@
 ;; the new plan dropped, ordered AFTER the attach fx; clears no route slot (the
 ;; replan commit owns them). A framework primitive, not an app verb. See
 ;; resources.route/route-resource-plan (plan mode `:replan`).
-(rf.events/reg-event :rf.resource/release-owner-identities
+(rf.events/reg-event :rf.resource.internal/release-owner-identities
                      framework-authority-meta
                      (rf.resources.events/with-classification-lowering
                        rf.resources.events/release-owner-identities-handler))

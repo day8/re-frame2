@@ -869,7 +869,7 @@
                                           :prev-identities ids1 :branch branch2
                                           :runtime-db rdb})
         ds    (plan-dispatches plan2)
-        adopts  (of-event ds :rf.resource/adopt-owner)
+        adopts  (of-event ds :rf.resource.internal/adopt-owner)
         ensures (of-event ds :rf.resource/ensure)]
     (testing "the kept parent identity is ADOPTED, not re-ensured (partial revalidation)"
       (is (nil? (:plan-error plan2)))
@@ -1398,7 +1398,7 @@
       (is (= :rf.error/resource-route-plan (:rf.error/id (:plan-error plan)))))
     (testing "no partial next owner is attached; the prior owner is released"
       (is (empty? (of-event ds :rf.resource/ensure)))
-      (is (empty? (of-event ds :rf.resource/adopt-owner)))
+      (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
       (is (= 1 (count (of-event ds :rf.resource/release-owner))))
       (is (empty? (:identities plan)) "empty next-ownership set"))))
 
@@ -1778,7 +1778,7 @@
 ;; 16. rf2-kqxe6.6 — EP-0037 R2 follow-through
 ;;
 ;;     (a) RETAINED-ENTRY LOSS. Prior-plan MEMBERSHIP alone does not make an
-;;         identity adoptable. `:rf.resource/adopt-owner` issues no fetch, so
+;;         identity adoptable. `:rf.resource.internal/adopt-owner` issues no fetch, so
 ;;         adopting an identity whose entry has vanished (clear / remove / GC /
 ;;         a hydration-like mismatch) or cannot progress (settled with no data
 ;;         and no live work) commits a blocking slot nothing can ever drain —
@@ -1863,7 +1863,7 @@
       (let [plan (plan-for (rdb-with-entries {shared-key {:resource/id :sh/v :status :loaded
                                                           :data {:n 1} :attempt 1}}))
             ds   (plan-dispatches plan)]
-        (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource/adopt-owner))))
+        (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource.internal/adopt-owner))))
         (is (= [:lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
         (is (not (contains? (:blocking plan) (rf.resources.state/key-id shared-key)))
             "already has usable data — nothing left to wait for")))
@@ -1873,7 +1873,7 @@
                                           :attempt 1 :current-work "w-1"}}
                              (ledger-with "w-1" :running)))
             ds   (plan-dispatches plan)]
-        (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource/adopt-owner))))
+        (is (= [:sh/v] (mapv #(:resource (second %)) (of-event ds :rf.resource.internal/adopt-owner))))
         (is (contains? (:blocking plan) (rf.resources.state/key-id shared-key)) "still outstanding")))
     (testing "a MISSING retained identity takes the ordinary ensure path"
       ;; The bead's repro: prior-plan membership alone dispatched adopt-owner,
@@ -1881,7 +1881,7 @@
       ;; had nothing that could ever drain it.
       (let [plan (plan-for (rdb-with-entries {}))
             ds   (plan-dispatches plan)]
-        (is (empty? (of-event ds :rf.resource/adopt-owner)))
+        (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
         (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
         (is (contains? (:blocking plan) (rf.resources.state/key-id shared-key))
             "recorded blocking — and an ensure now exists to drain it")))
@@ -1889,7 +1889,7 @@
       (let [plan (plan-for (rdb-with-entries {shared-key {:resource/id :sh/v :status :idle
                                                           :data nil :attempt 1}}))
             ds   (plan-dispatches plan)]
-        (is (empty? (of-event ds :rf.resource/adopt-owner)))
+        (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
         (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))
         (is (contains? (:blocking plan) (rf.resources.state/key-id shared-key))
             "a blocking requirement with no usable data at commit must hold the route")))
@@ -1899,7 +1899,7 @@
                                           :attempt 1 :current-work "w-doomed"}}
                              (ledger-with "w-doomed" :abort-requested)))
             ds   (plan-dispatches plan)]
-        (is (empty? (of-event ds :rf.resource/adopt-owner)))
+        (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
         (is (= [:sh/v :lf/b] (mapv #(:resource (second %)) (of-event ds :rf.resource/ensure))))))
     (testing "attach-before-release holds on every route — the release is LAST"
       (doseq [rdb [(rdb-with-entries {shared-key {:resource/id :sh/v :status :loaded
@@ -2077,7 +2077,7 @@
       (testing "the plan stays fail-closed — no partial ensures or adoptions"
         (let [ds (plan-dispatches plan)]
           (is (empty? (of-event ds :rf.resource/ensure)))
-          (is (empty? (of-event ds :rf.resource/adopt-owner)))
+          (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
           (is (empty? (:identities plan)))))))
   (testing "an ancestor :scope resolver returning nil"
     (let [[plan _] (ancestor-plan-error

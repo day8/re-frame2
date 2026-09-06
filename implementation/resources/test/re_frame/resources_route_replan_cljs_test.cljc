@@ -23,7 +23,7 @@
     - retained in-flight work keeps its owner and is not aborted.
     - an EMPTY next plan clears both slots (the activation commit's `cond->`
       trap: a fresh token has no old slot, the replan's token does).
-    - the `:rf.resource/release-owner-identities` primitive itself: only the
+    - the `:rf.resource.internal/release-owner-identities` primitive itself: only the
       named identities, only this owner, no abort while another owner remains.
 
   The routing-side contract (the request gate, the unconditional slot writes
@@ -437,7 +437,7 @@
       (is (= [global-key] (:released (:tags (op traces :rf.resource/owner-released))))))))
 
 ;; ===========================================================================
-;; 7. the :rf.resource/release-owner-identities primitive
+;; 7. the :rf.resource.internal/release-owner-identities primitive
 ;; ===========================================================================
 
 (deftest release-owner-identities-releases-only-the-named-identities-and-only-this-owner
@@ -454,7 +454,7 @@
     (is (= #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)} (owner-index A)))
     (testing "only the NAMED identity, only THIS owner, and no abort while another owner remains"
       (let [traces (record-traces! #{:rf.resource/owner-released}
-                     #(rf/dispatch-sync [:rf.resource/release-owner-identities
+                     #(rf/dispatch-sync [:rf.resource.internal/release-owner-identities
                                          {:owner A :identities (by-id k1)}]))]
         (is (= #{B} (:active-owners (entry k1))) "A released from k1; B survives")
         (is (= #{A} (:active-owners (entry k2))) "A still owns k2 — it was not named")
@@ -466,12 +466,12 @@
           (is (= [k1] (:released tags)))
           (is (= [] (:aborted tags))))))
     (testing "an identity the owner does not hold is a no-op"
-      (rf/dispatch-sync [:rf.resource/release-owner-identities {:owner A :identities (by-id k1)}])
+      (rf/dispatch-sync [:rf.resource.internal/release-owner-identities {:owner A :identities (by-id k1)}])
       (is (= #{B} (:active-owners (entry k1))))
       (is (= #{(rf.resources.state/key-id k2)} (owner-index A))))
     (testing "releasing the LAST owner from an in-flight identity aborts it and drops the index row"
       (let [traces (record-traces! #{:rf.resource/owner-released}
-                     #(rf/dispatch-sync [:rf.resource/release-owner-identities
+                     #(rf/dispatch-sync [:rf.resource.internal/release-owner-identities
                                          {:owner A :identities (by-id k2)}]))]
         (is (empty? (:active-owners (entry k2))))
         (is (not (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k2))))

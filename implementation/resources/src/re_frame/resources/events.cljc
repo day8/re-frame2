@@ -1977,10 +1977,10 @@
     (release-owner-from-identities rdb0 frame-id owner (or owned #{}))))
 
 (defn release-owner-identities-handler
-  "`:rf.resource/release-owner-identities` — release a liveness owner from a
+  "`:rf.resource.internal/release-owner-identities` — release a liveness owner from a
   SUBSET of the identities it holds: `{:owner … :identities {<key-id>
   <scoped-key>}}` (the byte-keyed carrier the route planner already computes —
-  rf2-btdl1). The release-side twin of `:rf.resource/adopt-owner`: a framework
+  rf2-btdl1). The release-side twin of `:rf.resource.internal/adopt-owner`: a framework
   primitive the route planner dispatches on a same-token REPLAN for exactly the
   identities the new plan dropped (rf2-y8jjk, Spec 016 §Route-plan replan —
   same-token reconciliation), never an app verb. The whole-owner
@@ -2007,7 +2007,7 @@
 ;; ---- adopt-owner — the kept-identity attach-before-release primitive -------
 
 (defn adopt-route-owner-handler
-  "`:rf.resource/adopt-owner` — attach an owner to an EXISTING entry WITHOUT a
+  "`:rf.resource.internal/adopt-owner` — attach an owner to an EXISTING entry WITHOUT a
   fetch. The attach-before-release primitive the route planner dispatches for a
   KEPT branch-plan identity (EP-0037 R2 §Plan diff and owner handoff): a full
   activation adopts the next route-plan owner `[:route route-id nav-token]` onto

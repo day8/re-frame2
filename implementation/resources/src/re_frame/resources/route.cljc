@@ -1049,7 +1049,7 @@
     - `prev-id` / `prev-nav-token` ARE the current pair, so the whole-prior-
       owner release the activation mode emits would release the standing
       owner from everything it keeps. The same-owner case therefore emits a
-      SUBSET release — `:rf.resource/release-owner-identities` over exactly the
+      SUBSET release — `:rf.resource.internal/release-owner-identities` over exactly the
       byte-keyed identities the new plan drops — ordered LAST, after the
       attach fx;
     - a FAILED replan releases the standing owner WHOLESALE
@@ -1191,7 +1191,7 @@
                                   :owner owner :cause cause}]
                         (if (adopted? req)
                           ;; kept + reusable — pure owner adoption, NO fetch
-                          [:dispatch [:rf.resource/adopt-owner base]]
+                          [:dispatch [:rf.resource.internal/adopt-owner base]]
                           ;; added, or retained-but-unusable — ordinary ensure
                           [:dispatch [:rf.resource/ensure
                                       (cond-> base
@@ -1304,7 +1304,7 @@
                        plan-error
                        [[:dispatch [:rf.resource/release-owner {:owner owner}]]]
                        (seq removed-by-id)
-                       [[:dispatch [:rf.resource/release-owner-identities
+                       [[:dispatch [:rf.resource.internal/release-owner-identities
                                     {:owner owner :identities removed-by-id}]]]
                        :else nil)
                      ;; activation: release the PREVIOUS route's owner (route
