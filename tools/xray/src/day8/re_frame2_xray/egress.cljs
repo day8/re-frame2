@@ -31,21 +31,6 @@
   the defaults here makes the shortest call the safe one (rf2-rcogp)."
   (:require [re-frame.core :as rf]))
 
-(def ^:private no-frame
-  "Forwarded as `:frame` when a caller passes `:frame` EXPLICITLY as nil, so
-  `elide-wire-value` takes its unresolvable-frame arm instead of resolving
-  the ambient frame. It has to be a value no frame can be registered under,
-  and a keyword is not one: the registry is keyed by whatever `:id`
-  `make-frame` is handed, and every keyword — however it is namespaced — is
-  a public id an app can spell. The second pass used `::no-frame`, which is
-  `:day8.re-frame2-xray.egress/no-frame`; a live frame under that id made an
-  unselected copy resolve to it and egress RAW under its empty registry
-  (rf2-7htk7, third pass). A fresh host object is an IDENTITY rather than a
-  datum — nothing outside this var can produce an equal value — so no
-  registration can match it, and `frame/frame` misses on it exactly as on a
-  destroyed id."
-  (js/Object.))
-
 (defn egress-value
   "Project `value` for an off-box sink (console, clipboard) through the
   framework's wire-elision walker with the off-box defaults BAKED IN.
@@ -70,8 +55,12 @@
   its (normally empty) declaration registry and ships the value RAW. Passing
   the inspected frame — even when it is `nil` or has since been destroyed —
   routes the nil/dead case to the walker's frameless arm, which redacts the
-  whole value to `:rf/redacted` (rf2-7htk7). The contract — no live caller
-  today, and the shape any future panel affordance MUST take:
+  whole value to `:rf/redacted` (rf2-7htk7). The key is forwarded VERBATIM:
+  `elide-wire-value` reads its `:frame` opt by PRESENCE, so an explicit nil
+  is believed. This ns once minted a host object to stand in for that nil,
+  because the walker read nil as absence; the request is now sayable and the
+  sentinel is gone (rf2-kuky.5). The contract — no live caller today, and
+  the shape any future panel affordance MUST take:
 
       (egress/egress-value v {:frame observed})   ; nil / dead ⇒ :rf/redacted
 
@@ -88,10 +77,9 @@
                         (cond-> {:rf.size/include-sensitive? include-sensitive?
                                  :rf.size/include-large?     include-large?}
                           (seq path)              (assoc :path (vec path))
-                          ;; An explicitly-passed `:frame` is forwarded even
-                          ;; when nil — substituting `no-frame`, an identity
-                          ;; no registration can match, so the walker takes
-                          ;; its unresolvable/fail-closed arm instead of
-                          ;; falling through to the ambient frame.
-                          (contains? opts :frame) (assoc :frame (or (:frame opts)
-                                                                    no-frame))))))
+                          ;; An explicitly-passed `:frame` is forwarded
+                          ;; VERBATIM, nil included: the walker reads the opt
+                          ;; by key presence, so an explicit nil means "no
+                          ;; governing frame" and takes its fail-closed arm
+                          ;; instead of falling through to the ambient frame.
+                          (contains? opts :frame) (assoc :frame (:frame opts))))))

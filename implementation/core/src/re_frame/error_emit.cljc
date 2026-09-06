@@ -590,7 +590,17 @@
                ;; via the per-frame `:rf.runtime/elision` registry get their
                ;; per-path substitutions. Skipped for a raw-identity query
                ;; vector, which egresses verbatim.
-               elided-event (if raw-identity-event?
+               ;;
+               ;; ALSO skipped when there is no event at all. Several always-on
+               ;; categories carry none — `:rf.error/write-after-destroy` is a
+               ;; dropped WRITE, not a throw on a dispatch — and their record
+               ;; contract is an ABSENT `:event`. A frameless record of that
+               ;; kind fails closed at the walker (correctly: rf2-kuky.5 made
+               ;; `:frame nil` mean "no governing frame"), which would turn
+               ;; `nil` into `:rf/redacted` and tell a shipper that a payload
+               ;; was withheld where none existed. Redacting nothing protects
+               ;; nothing; skip the walk instead.
+               elided-event (if (or raw-identity-event? (nil? event))
                               event
                               (try
                                 (rf.elision/elide-wire-value event {:frame frame-id})

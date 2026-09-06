@@ -717,39 +717,41 @@ the picker / focus selects). The contract — the shared seam
   the same policy, so a sensitive slot reads `:rf/redacted` on both sides
   and the inline `← was X` annotation never reconstructs the redacted
   content.
-- **Fail-closed.** An unreachable observed frame (nil / destroyed /
-  never-registered) is stamped with a **non-nil dead-frame sentinel** as the
-  `:frame` opt — so the underlying `elide-wire-value` walker takes its
-  **unresolvable-frame** redact-whole branch, redacting the entire value rather
-  than shipping it raw under no policy. The sentinel is stamped, **not** omitted: an absent / nil
-  `:frame` opt would let the walker fall through to the **ambient**
-  dynamically-bound frame (`frame/resolve-current-frame`) and ship
-  value-bearing fields RAW under that borrowed frame's (possibly empty)
-  policy — the exact ambient-borrow leak this seam abolishes (rf2-cra0nq,
-  mirroring the off-box derivation-graph fix rf2-udkj69). Under the
-  `:rf.egress/local-raw` opt-in (explicit `:rf.size/include-sensitive? true`)
-  the walker ships the value raw even under the sentinel — the operator has
-  deliberately waived redaction.
+- **Fail-closed.** The observed frame-id is **stamped verbatim** as the
+  `:frame` opt, whatever it is. `elide-wire-value` reads that opt by **key
+  presence**, so an unreachable observed frame (nil / destroyed /
+  never-registered) takes the walker's **unresolvable-frame** redact-whole
+  branch, redacting the entire value rather than shipping it raw under no
+  policy. The key is stamped, **not** omitted: an ABSENT `:frame` opt would
+  let the walker fall through to the **ambient** dynamically-bound frame
+  (`frame/resolve-current-frame`) and ship value-bearing fields RAW under
+  that borrowed frame's (possibly empty) policy — the exact ambient-borrow
+  leak this seam abolishes (rf2-cra0nq, mirroring the off-box
+  derivation-graph fix rf2-udkj69). Under the `:rf.egress/local-raw` opt-in
+  (explicit `:rf.size/include-sensitive? true`) the walker ships the value
+  raw even under an unresolvable frame — the operator has deliberately
+  waived redaction.
 
-  **What makes the sentinel unresolvable is that nothing outside the seam can
-  ever hold one (rf2-ws60).** The naive reading — "pick an id no app would
-  register" — is wrong three times over, and each wrong reading shipped: a
-  `::`-namespaced keyword is an ordinary public keyword an app CAN register;
-  a private host object handed back to a caller is an id that caller can
-  register; and a per-call host object still travels inside an opts map the
-  caller can register against and then replay. `make-frame` validates no `:id`
-  type and the registry is keyed by whatever id it is handed, so ANY value a
-  caller can obtain is a value a caller can register a live frame under —
-  which makes the stamp RESOLVE, takes the walker's live-frame branch, and
-  ships the value raw under that frame's empty declaration registry. The
-  invariant is therefore about the SEAM, not the sentinel's spelling: the
-  sentinel is minted and consumed entirely inside
-  `panels/local-render`, the opts builder that carries it is private, and the
-  only structure crossing the namespace boundary is the projected value
-  `local-render-value` / `local-render-value-at` return. Sibling egress
-  carriers (`day8.re-frame2-xray.egress`, `re-frame.derivation.egress`) hold
-  the same invariant by building their opts inline as the walker's argument.
-  Pinned by `local_render_cljs_test` §7c.
+  **This seam once minted a DEAD-FRAME SENTINEL, and the reason it no longer
+  needs one is worth keeping (rf2-ws60, retired by rf2-kuky.5).** The walker
+  used to resolve its frame with `(or (:frame opts) …)`, so a nil `:frame`
+  read as ABSENCE and borrowed the ambient frame. To force the fail-closed
+  arm, the seam substituted a fake id that could never resolve — and the
+  naive reading of "pick an id no app would register" was wrong three times
+  over, each wrong reading shipping in turn: a `::`-namespaced keyword is an
+  ordinary public keyword an app CAN register; a private host object handed
+  back to a caller is an id that caller can register; and a per-call host
+  object still travels inside an opts map the caller can register against and
+  then replay. `make-frame` validates no `:id` type and the registry is keyed
+  by whatever id it is handed, so ANY value a caller can obtain is a value a
+  caller can register a live frame under — which makes the stamp RESOLVE and
+  ships the value raw under that frame's empty declaration registry.
+
+  There is exactly one id with no such weakness, and it is `nil`: the walker
+  guards its live-frame arm on the id being non-nil, so a nil `:frame` cannot
+  resolve however the registry is populated. Making the walker believe an
+  explicit nil therefore removed the substitute, the liveness probe and the
+  whole escape-hatch surface at once. Pinned by `local_render_cljs_test` §7.
 
 Revealing sensitive values is **not** a process-global toggle. Per
 [Spec 015 §Cross-tool visibility grain](../../../spec/015-Data-Classification.md#cross-tool-visibility-grain)

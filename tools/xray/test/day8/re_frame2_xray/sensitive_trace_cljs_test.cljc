@@ -10,8 +10,10 @@
   egress PROFILE (`:rf.egress/local-redacted` default / `:rf.egress/local-raw`
   trusted-local reveal) governs the gate. This suite covers:
 
-    1. The predicate vocabulary in `config.cljc` —
-       `sensitive-event?` / `suppress-sensitive?` / `include-sensitive?`.
+    1. The predicate vocabulary — the framework-published
+       `rf/sensitive?` (Xray composes against it directly since
+       rf2-kuky.8 retired the tool-side `sensitive-event?` alias) plus
+       `config.cljc`'s own `suppress-sensitive?` / `include-sensitive?`.
     2. The profile round-trip — `set-egress-profile!` / `get-egress-profile`
        / `configure! {:rf.xray/egress-profile ...}`.
     3. The suppressed-events counter — `note-suppressed!` /
@@ -26,6 +28,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
             [day8.re-frame2-xray.config :as config]
+            [re-frame.privacy :as rf.privacy]
             #?(:cljs [re-frame.frame :as rf.frame])
             #?(:cljs [re-frame.trace :as rf.trace])
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
@@ -47,21 +50,28 @@
 
 ;; ---- (1) predicate vocabulary -------------------------------------------
 
-(deftest sensitive-event?-detects-top-level-flag
+(deftest the-framework-predicate-detects-the-top-level-flag
+  ;; rf2-kuky.8 — Xray composes against `rf/sensitive?` directly; the
+  ;; one-line `config/sensitive-event?` alias is deleted.
   (testing "events with :sensitive? true are sensitive"
-    (is (true? (config/sensitive-event? {:sensitive? true})))
-    (is (true? (config/sensitive-event?
+    (is (true? (rf.privacy/sensitive? {:sensitive? true})))
+    (is (true? (rf.privacy/sensitive?
                  {:op-type :rf.event :operation :rf.event/dispatched
                   :sensitive? true :tags {:rf.trace/event-id :user/login}}))))
   (testing "events without :sensitive? are non-sensitive"
-    (is (false? (config/sensitive-event? {})))
-    (is (false? (config/sensitive-event? {:op-type :rf.event})))
-    (is (false? (config/sensitive-event? {:sensitive? false})))
-    (is (false? (config/sensitive-event? {:sensitive? nil}))))
+    (is (false? (rf.privacy/sensitive? {})))
+    (is (false? (rf.privacy/sensitive? {:op-type :rf.event})))
+    (is (false? (rf.privacy/sensitive? {:sensitive? false})))
+    (is (false? (rf.privacy/sensitive? {:sensitive? nil}))))
   (testing "non-map inputs are non-sensitive (no NPE)"
-    (is (false? (config/sensitive-event? nil)))
-    (is (false? (config/sensitive-event? :keyword)))
-    (is (false? (config/sensitive-event? [:vector])))))
+    (is (false? (rf.privacy/sensitive? nil)))
+    (is (false? (rf.privacy/sensitive? :keyword)))
+    (is (false? (rf.privacy/sensitive? [:vector]))))
+  (testing "a MALFORMED truthy stamp is sensitive — Xray's panels now
+            suppress it, matching what the MCP wire already did"
+    (is (true? (rf.privacy/sensitive? {:sensitive? "true"})))
+    (is (true? (rf.privacy/sensitive? {:sensitive? :yes})))
+    (is (true? (rf.privacy/sensitive? {:sensitive? 1})))))
 
 (deftest suppress-sensitive?-composes-profile-and-gate
   (testing "default profile (local-redacted) + sensitive event = suppressed"

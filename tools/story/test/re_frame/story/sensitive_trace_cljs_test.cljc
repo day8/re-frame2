@@ -10,7 +10,9 @@
 
   ## Coverage
 
-  - **Pure config**: `sensitive-event?`, `suppress-sensitive?`,
+  - **Pure config**: the framework-published `rf/sensitive?` (Story
+    composes against it directly since rf2-kuky.8 retired the tool-side
+    `sensitive-event?` alias), `suppress-sensitive?`,
     `note-suppressed!`, `suppressed-count`, `reset-suppressed-count!`
     against the `egress-profile` (EP-0015 frame-owned egress, rf2-3t26eh).
   - **`configure!`**: the `:rf.story/egress-profile` opts key wires
@@ -30,6 +32,7 @@
   redaction indicator is verified by the CLJS ui-cljs test arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story            :as rf.story]
+            [re-frame.privacy          :as rf.privacy]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.play       :as rf.story.play]
             [re-frame.story.recorder   :as rf.story.recorder]))
@@ -111,19 +114,26 @@
 ;; Pure config helpers
 ;; ---------------------------------------------------------------------------
 
-(deftest sensitive-event?-recognises-flag
+(deftest the-framework-predicate-recognises-the-flag
+  ;; rf2-kuky.8 — Story composes against `rf/sensitive?` directly; the
+  ;; one-line `rf.story.config/sensitive-event?` alias is deleted.
   (testing "events with :sensitive? true are recognised"
-    (is (rf.story.config/sensitive-event? (sensitive-dispatch-event :v/x [:auth/login])))
-    (is (rf.story.config/sensitive-event? {:sensitive? true})))
+    (is (rf.privacy/sensitive? (sensitive-dispatch-event :v/x [:auth/login])))
+    (is (rf.privacy/sensitive? {:sensitive? true})))
   (testing "events without :sensitive? or with :sensitive? false are not"
-    (is (not (rf.story.config/sensitive-event? (plain-dispatch-event :v/x [:counter/inc]))))
-    (is (not (rf.story.config/sensitive-event? {})))
-    (is (not (rf.story.config/sensitive-event? {:sensitive? false})))
-    (is (not (rf.story.config/sensitive-event? {:sensitive? nil}))))
+    (is (not (rf.privacy/sensitive? (plain-dispatch-event :v/x [:counter/inc]))))
+    (is (not (rf.privacy/sensitive? {})))
+    (is (not (rf.privacy/sensitive? {:sensitive? false})))
+    (is (not (rf.privacy/sensitive? {:sensitive? nil}))))
   (testing "non-map inputs are tolerated"
-    (is (not (rf.story.config/sensitive-event? nil)))
-    (is (not (rf.story.config/sensitive-event? "trace event")))
-    (is (not (rf.story.config/sensitive-event? 42)))))
+    (is (not (rf.privacy/sensitive? nil)))
+    (is (not (rf.privacy/sensitive? "trace event")))
+    (is (not (rf.privacy/sensitive? 42))))
+  (testing "a MALFORMED truthy stamp is sensitive — Story's listeners now
+            suppress it, matching what the MCP wire already did"
+    (is (rf.privacy/sensitive? {:sensitive? "true"}))
+    (is (rf.privacy/sensitive? {:sensitive? :yes}))
+    (is (rf.privacy/sensitive? {:sensitive? 1}))))
 
 (deftest suppress-sensitive?-default-suppresses
   (testing "by default (:rf.egress/local-redacted) sensitive events are suppressed"

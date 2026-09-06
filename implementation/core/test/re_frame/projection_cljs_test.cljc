@@ -458,6 +458,105 @@
         (is (redacted? (:event out))
             "a :frame nil record still fails closed (the seed is a no-op, no leak)")))))
 
+;; ---------------------------------------------------------------------------
+;; PRESENCE-AWARE FRAME OWNERSHIP (rf2-kuky.5).
+;;
+;; Three steps, each decided by KEY PRESENCE rather than truthiness:
+;;   1. an explicit `:frame` key in opts wins, nil INCLUDED;
+;;   2. else a RECOGNISED `:rf.observe/*` record's own `:frame` slot, nil
+;;      included;
+;;   3. else nothing is seeded and the walker falls to the carried scope.
+;;
+;; Truthiness at either step made `{:frame nil}` unsayable: it read as absence
+;; and borrowed the AMBIENT frame, which for a tool projecting another app's
+;; value resolves, is live, and has an empty registry — so the value shipped
+;; RAW. Every arm below binds a LIVE ambient frame with declarations of its
+;; own, so a borrow is directly observable rather than vacuous.
+;; ---------------------------------------------------------------------------
+
+(deftest explicit-nil-frame-opt-wins-over-the-ambient-scope
+  (mk-frame! :proj/ambient)
+  (binding [rf.frame/*current-frame* :proj/ambient]
+    (testing "PRECONDITION — the ambient frame is live and classifying"
+      (is (some? (rf.frame/frame :proj/ambient)))
+      (is (redacted? (get-in (rf/project-egress (sample-value) {}) [:auth :token]))
+          "with no :frame key the ambient frame's policy applies"))
+
+    (testing "a BARE value with an explicit nil :frame fails closed WHOLE"
+      (is (redacted? (rf/project-egress (sample-value) {:frame nil}))
+          "{:frame nil} must not borrow :proj/ambient"))
+
+    (testing "a :rf.observe/derived-tree record with an explicit nil :frame opt
+              fails closed, even though the record names a LIVE frame of its own
+              — an explicit opt is the caller's deliberate override. (The
+              derived-tree projector returns the WALKED TREE, not the record.)"
+      (mk-frame! :proj/record-owner)
+      (let [out (rf/project-egress {:kind  :rf.observe/derived-tree
+                                    :frame :proj/record-owner
+                                    :tree  (sample-value)}
+                  {:frame nil
+                   :rf.egress/profile :rf.egress/off-box-tool})]
+        (is (redacted? out)
+            "the opts key wins at step 1, nil included")))
+
+    (testing "a :rf.observe/error record likewise — its own live :frame does
+              not rescue an explicit nil opt"
+      (mk-frame! :proj/err-owner)
+      (let [out (rf/project-egress {:kind  :rf.observe/error
+                                    :frame :proj/err-owner
+                                    :error :rf.error/handler-exception
+                                    :event [:save {:auth {:token "tok"}}]}
+                  {:frame nil
+                   :rf.egress/profile :rf.egress/off-box-tool})]
+        (is (redacted? (:event out))
+            "the explicit nil overrides the record's own live frame")))
+
+    (testing "an ABSENT :frame key still falls through to the carried scope —
+              today's behaviour, pinned"
+      (is (redacted? (get-in (rf/project-egress (sample-value) {}) [:auth :token]))
+          "no :frame key ⇒ step 3, the ambient frame")
+      (is (= {:count 3} (:public (rf/project-egress (sample-value) {})))
+          "and it is a real walk, not a whole-value redact"))))
+
+(deftest a-record-with-an-explicit-nil-frame-slot-fails-closed
+  (mk-frame! :proj/ambient2)
+  (binding [rf.frame/*current-frame* :proj/ambient2]
+    (testing "a recognised record carrying `:frame nil` and NO opts :frame key
+              seeds nil at step 2 and fails closed — it does not fall through
+              to step 3 and borrow the ambient frame"
+      (let [out (rf/project-egress {:kind  :rf.observe/derived-tree
+                                    :frame nil
+                                    :tree  (sample-value)}
+                  {:rf.egress/profile :rf.egress/off-box-tool})]
+        (is (redacted? out)
+            "an explicitly frameless record must not borrow :proj/ambient2")))
+
+    (testing "CONTROL — the same record naming a LIVE frame walks that frame's
+              declarations, so the arm above redacted by contract"
+      (mk-frame! :proj/owner)
+      (let [out (rf/project-egress {:kind  :rf.observe/derived-tree
+                                    :frame :proj/owner
+                                    :tree  (sample-value)}
+                  {:rf.egress/profile :rf.egress/off-box-tool})]
+        (is (redacted? (get-in out [:auth :token])))
+        (is (= {:count 3} (:public out))
+            "non-classified siblings ride through — a walk, not a whole redact")))))
+
+(deftest a-bare-value-carrying-a-frame-key-is-a-value-not-a-record
+  ;; Seeding recognised records only. Before rf2-kuky.5 ANY map with a truthy
+  ;; `:frame` key seeded, so a bare app-db slice that happened to carry a
+  ;; `:frame` key was projected under whatever that key held — fail-closed in
+  ;; practice, but hidden context, and it made recognition a shape test.
+  (mk-frame! :proj/owner3)
+  (binding [rf.frame/*current-frame* nil]
+    (let [value {:frame :proj/owner3 :auth {:token "tok"}}
+          out   (rf/project-egress value
+                  {:rf.egress/profile :rf.egress/off-box-tool})]
+      (is (redacted? out)
+          (str "a kindless map is a VALUE: its :frame key seeds nothing, so "
+               "with no ambient frame the whole value fails closed. got: "
+               (pr-str out))))))
+
 (deftest no-profile-is-the-advanced-raw-flags-path
   (testing "with no profile, :rf.size/* flags pass through to the walker verbatim"
     (mk-frame! :proj/noprof)

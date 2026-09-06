@@ -787,16 +787,6 @@
   []
   (profile-includes-sensitive? @egress-profile))
 
-(defn sensitive-event?
-  "True iff the trace event `ev` carries `:sensitive? true` at the top
-  level. Thin alias over the framework-published `re-frame.privacy/sensitive?`
-  predicate (re-exported as `re-frame.core/sensitive?`) — every consumer
-  of `:sensitive?` (Xray, Story, story-mcp, re-frame2-pair-mcp) composes
-  against ONE framework primitive rather than reimplementing the
-  five-token check. Per Spec 009 §Privacy."
-  [ev]
-  (rf.privacy/sensitive? ev))
-
 (defn suppress-sensitive?
   "Should this trace event be suppressed by Xray's trace collector under
   the current local-render egress profile (EP-0015)?
@@ -808,7 +798,7 @@
   policy is the profile's, resolved through the framework projection
   table — it is NOT a re-implemented boolean."
   [ev]
-  (and (sensitive-event? ev)
+  (and (rf.privacy/sensitive? ev)
        (not (include-sensitive?))))
 
 ;; ---- *suppressed-counters* (UI redaction indicator) ---------------------

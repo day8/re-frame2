@@ -18,13 +18,6 @@
   `re-frame2-pair-mcp.tools.args/parse-bool-arg` table."
   (:require [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]))
 
-(defn sensitive-event?
-  "Delegates to `re-frame.mcp-base.sensitive/sensitive-event?`.
-  The predicate is the conservative spec/009 stamp
-  check: only the literal `true` value drops."
-  [ev]
-  (rf.mcp-base.sensitive/sensitive-event? ev))
-
 (defn sensitive-epoch?
   "Does this projected epoch record carry — or transitively contain — a
   sensitive-rollup signal? Defense-in-depth on top of the per-event
@@ -65,25 +58,28 @@
   [epoch]
   (and (map? epoch)
        (or (rf.mcp-base.sensitive/sensitive-stamp? (:rf.epoch/sensitive? epoch))
-           (boolean (some sensitive-event? (:trace-events epoch))))))
+           (boolean (some rf.mcp-base.sensitive/sensitive-event?
+                          (:trace-events epoch))))))
 
 (defn strip-sensitive
   "Remove `:sensitive? true` items from `items` unless the caller opted
   in. Returns `[kept dropped-count]`. Cheap on the common path
   (no sensitive items ⇒ identical-vector return + zero drop count).
 
-  Applies the union predicate `sensitive-event? OR sensitive-epoch?`
-  so both trace-event vectors AND epoch-record vectors are gated by
-  the same call site (defense-in-depth). A trace event
+  Applies the union predicate `rf.mcp-base.sensitive/sensitive-event? OR
+  sensitive-epoch?` so both trace-event vectors AND epoch-record vectors
+  are gated by the same call site (defense-in-depth). A trace event
   has neither an `:rf.epoch/sensitive?` rollup nor a `:trace-events`
   slot, so `sensitive-epoch?` collapses to false on it and the
-  trace-event arm (`sensitive-event?`'s `:sensitive?` check) governs;
+  trace-event arm (the base predicate's `:sensitive?` check) governs;
   an epoch record drops on EITHER its `:rf.epoch/sensitive?` rollup
   (the qualified key the runtime writes) OR a sensitive
   constituent trace event, even when the other signal is absent.
 
-  Cross-MCP factoring: the predicate `sensitive-event?`
-  delegates to `re-frame.mcp-base.sensitive`. The epoch-level union
+  Cross-MCP factoring: the trace-event predicate IS
+  `re-frame.mcp-base.sensitive/sensitive-event?`, called directly — this
+  namespace carried a one-line alias over it until rf2-kuky.8 retired the
+  tool-side alias layer. The epoch-level union
   check is re-frame2-pair-mcp-specific (story-mcp doesn't emit epoch records);
   the trace-event-only `strip-sensitive` in the base is the right fit
   for story-mcp consumers."
@@ -92,7 +88,8 @@
     include?            [items 0]
     (empty? items)      [items 0]
     :else
-    (let [drop? (fn [x] (or (sensitive-event? x) (sensitive-epoch? x)))
+    (let [drop? (fn [x] (or (rf.mcp-base.sensitive/sensitive-event? x)
+                            (sensitive-epoch? x)))
           kept  (filterv (complement drop?) items)
           n     (- (count items) (count kept))]
       [kept n])))
@@ -111,7 +108,7 @@
 
   Thin delegate to
   `re-frame.mcp-base.sensitive/scrub-snapshot` with the re-frame2-pair-mcp
-  union strip-fn (`strip-sensitive`, which gates both
+  union strip-fn (`strip-sensitive`, which gates both the base
   `sensitive-event?` and `sensitive-epoch?`). Story-mcp uses the base
   helper's two-arity form, which defaults to the trace-event-only
   filter."

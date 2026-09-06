@@ -49,11 +49,12 @@
       `elide-wire-value` under THAT frame's own declared `:sensitive` /
       `:large` policy (passed as the explicit `:frame` opt so the named
       frame's policy applies regardless of any ambient scope);
-    - **fail-closed** on a nil / unreachable frame — an unresolvable frame
-      stamps a dead-frame sentinel so `elide-wire-value` takes its
+    - **fail-closed** on a nil / unreachable frame — the observed frame-id
+      is stamped as the `:frame` opt whatever it is, and `elide-wire-value`
+      reads that opt by KEY PRESENCE, so a nil / destroyed id takes its
       unresolvable-frame branch (whole value ⇒ `:rf/redacted`) rather than
       borrowing an ambient dynamically-bound frame and shipping raw
-      (rf2-udkj69);
+      (rf2-udkj69, rf2-kuky.5);
     - **identity-embedded scoped keys** — the positions the value-path walk
       is structurally blind to (node KEY, `:id`, `:output`, realized
       `:inputs`, `:work-ledger` work-id + `:resource/key`, `:host-transient`
@@ -65,7 +66,6 @@
   JVM-portable (`.cljc`) so the projection + redaction contracts are pinned
   by the JVM test corpus without a CLJS runtime."
   (:require [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             [re-frame.identity :as rf.identity]
             [re-frame.privacy :as rf.privacy]))
 
@@ -245,36 +245,6 @@
           host-transient)
     host-transient))
 
-(def ^:private dead-frame-sentinel
-  "A frame id that can NEVER resolve to a live frame, used to FAIL CLOSED a
-  nil / unreachable egress frame WITHOUT borrowing the ambient scope.
-
-  `elide-wire-value` resolves its governing frame as `(or (:frame opts)
-  (rf.frame/resolve-current-frame))` — so a nil `:frame` opt (or no `:frame` at
-  all) falls through to the AMBIENT dynamically-bound frame, applying that
-  frame's (possibly empty) policy and shipping value-bearing fields RAW. An
-  unreachable but NON-nil `:frame` opt instead takes the unresolvable-frame
-  fail-closed branch (`rf.frame/frame` returns nil ⇒ whole value redacted to
-  `:rf/redacted`). We therefore stamp this sentinel as the `:frame` opt when
-  no live governing frame is known, so the walker fails closed on its own
-  dead-frame branch rather than resolving an ambient frame.
-
-  It has to be a value NO frame can be registered under, and a keyword is not
-  one: `make-frame` validates no `:id` type and the registry is keyed by
-  whatever id it is handed, so every keyword — however it is namespaced — is
-  a public id an app can spell. This was `::no-egress-frame`, i.e.
-  `:re-frame.derivation.egress/no-egress-frame`; a live frame registered
-  under that literal made the stamp RESOLVE, so the walker took its
-  live-frame branch and shipped the graph's value-bearing fields raw under
-  that frame's empty declaration registry (rf2-g1vu — the same defect class
-  the rf2-7htk7 third pass fixed for Xray's `::no-frame`). A fresh host
-  object is an IDENTITY rather than a datum — nothing outside this var can
-  produce an equal value — so no registration can match it, and
-  `rf.frame/frame` misses on it exactly as on a destroyed id. Pinned by the
-  derivation-conformance collision arm
-  `g-graph-egress-nil-frame-fails-closed-under-sentinel-id-collision`."
-  #?(:clj (Object.) :cljs (js/Object.)))
-
 (defn- project-resource-node-identity
   "Project ONE live resource node's secret-bearing identity fields:
   `:id` (the scoped key), `:output` (the scoped key embedded in the runtime
@@ -394,20 +364,22 @@
   overrides any caller-supplied one (egress redacts under the OBSERVED
   frame's policy, never a borrowed one).
 
-  FAIL-CLOSED on a nil / UNREACHABLE frame: `elide-wire-value` resolves its
-  governing frame as `(or (:frame opts) (rf.frame/resolve-current-frame))`, so
-  a nil `:frame` opt (or no `:frame` at all) falls through to the AMBIENT
-  dynamically-bound frame and would ship value-bearing fields RAW under that
-  borrowed frame's (possibly empty) policy. Egress must NOT borrow an ambient
-  frame. So this projection first checks the named frame is LIVE
-  (`rf.frame/frame-ids`); when it is not (nil id, a destroyed / never-registered
-  frame), it stamps a DEAD-FRAME SENTINEL as the `:frame` opt — a non-nil id
-  that can never resolve to a live frame — so `elide-wire-value` takes its
-  unresolvable-frame fail-closed branch (`rf.frame/frame` returns nil for it)
-  and redacts the whole value to `:rf/redacted` rather than borrow the
-  ambient frame's marks. This is the silent-leak this contract abolishes — a
-  graph egressing under no reachable policy redacts, never ships raw, even
-  when an ambient frame is dynamically bound (rf2-udkj69).
+  FAIL-CLOSED on a nil / UNREACHABLE frame: `elide-wire-value` reads its
+  `:frame` opt by KEY PRESENCE, so STAMPING `frame-id` — whatever it is —
+  is the whole mechanism. A nil id, a destroyed frame and a
+  never-registered one all take the walker's unresolvable-frame branch
+  (`rf.frame/frame` returns nil for each) and redact the whole value to
+  `:rf/redacted`, rather than falling through to the AMBIENT
+  dynamically-bound frame and shipping value-bearing fields RAW under that
+  borrowed frame's (possibly empty) policy. Egress must NOT borrow an
+  ambient frame. This is the silent leak the contract abolishes — a graph
+  egressing under no reachable policy redacts, never ships raw, even when
+  an ambient frame is dynamically bound (rf2-udkj69).
+
+  This used to require a local liveness probe plus a minted DEAD-FRAME
+  SENTINEL — a fresh host object stamped as `:frame` because a nil one was
+  read as absence. The walker now believes an explicit nil, so the probe
+  and the sentinel are both gone (rf2-kuky.5).
 
   Returns the graph with redacted node value fields + projected live
   resource identities; `:mode` / `:frame` unchanged. IDEMPOTENT — a value may
@@ -423,16 +395,15 @@
   the focused Xray consumer/wiring tests.)"
   ([graph frame-id] (project-graph graph frame-id nil))
   ([graph frame-id opts]
-   ;; A reachable (live) frame governs egress under its own policy; a nil /
-   ;; unreachable frame stamps the dead-frame sentinel as the `:frame` opt so
-   ;; `elide-wire-value` takes its unresolvable-frame FAIL-CLOSED branch
-   ;; (whole value ⇒ `:rf/redacted`). We must NOT leave the `:frame` opt
-   ;; absent / nil here: that frameless path lets the walker fall through to
-   ;; the AMBIENT dynamically-bound frame (`rf.frame/resolve-current-frame`) and
-   ;; ship value-bearing fields RAW under that frame's policy — the exact
-   ;; ambient-borrow leak this contract abolishes (rf2-udkj69).
-   (let [reachable? (and (some? frame-id) (contains? (rf.frame/frame-ids) frame-id))
-         walk-opts  (assoc opts :frame (if reachable? frame-id dead-frame-sentinel))
+   ;; STAMP the observed frame, whatever it is. `:frame` is read by KEY
+   ;; PRESENCE, so a nil / destroyed / never-registered `frame-id` takes
+   ;; `elide-wire-value`'s unresolvable-frame FAIL-CLOSED branch (whole value
+   ;; ⇒ `:rf/redacted`) instead of falling through to the AMBIENT
+   ;; dynamically-bound frame and shipping value-bearing fields RAW under
+   ;; that frame's policy — the ambient-borrow leak this contract abolishes
+   ;; (rf2-udkj69). The walker validates liveness itself, so there is no
+   ;; local reachability probe and no sentinel frame id to mint (rf2-kuky.5).
+   (let [walk-opts  (assoc opts :frame frame-id)
          redact-node
          (fn [node]
            (-> (reduce

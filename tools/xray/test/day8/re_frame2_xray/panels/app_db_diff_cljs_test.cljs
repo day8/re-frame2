@@ -485,34 +485,37 @@
           (str "the RAW value survived under a destroyed frame (rf2-7htk7). "
                "got: " (pr-str out))))))
 
-(deftest egress-value-with-nil-frame-fails-closed-under-id-collision
-  (testing "rf2-7htk7 (third pass) — an app registers a LIVE frame under the
-            public keyword the earlier explicit-nil substitute expanded to,
-            :day8.re-frame2-xray.egress/no-frame. An explicitly-nil :frame
-            must STILL redact whole: a substitute that is itself a
-            registrable frame id resolved to that live frame, took the
-            walker's live-frame branch, and its empty declaration registry
-            passed the value through RAW"
+(deftest egress-value-with-nil-frame-is-unregistrable-and-fails-closed
+  (testing "rf2-7htk7 / rf2-kuky.5 — an explicitly-nil :frame must redact
+            whole, and nil is the one frame id an app CANNOT make resolve.
+            Earlier passes substituted a fake id for the nil because the
+            walker read nil as absence; each substitute was itself a
+            registrable value, so an app could register a live frame under it,
+            take the walker's live-frame branch, and pass the value through RAW
+            under that frame's empty registry. The walker now believes the nil,
+            and guards its live-frame arm with `(some? frame-id)`, so no
+            registration can reach it"
     ;; The app's own frame holds the secret and declares it sensitive — but
     ;; it is not the frame named here, so its policy is not what governs.
     (rf/make-frame {:id :rf/default})
     (rf/with-frame :rf/default (seed-sensitive-schema!))
-    ;; The colliding frame: an ordinary public keyword any app can spell.
-    (rf/make-frame {:id :day8.re-frame2-xray.egress/no-frame})
-    (try
-      (let [out (egress/egress-value {:auth {:username "ada" :password "shh"}}
-                                     {:frame nil})]
-        (is (= :rf/redacted out)
-            (str "an explicitly-nil frame must egress the whole-value "
-                 "redaction sentinel even with a live frame registered under "
-                 "the substitute's id. got: " (pr-str out)))
-        (is (not (re-find #"shh" (pr-str out)))
-            (str "the RAW secret survived through a live frame colliding "
-                 "with the explicit-nil substitute (rf2-7htk7). got: "
-                 (pr-str out))))
-      (finally
-        ;; Never leave the colliding id live for a sibling test.
-        (rf/destroy-frame! :day8.re-frame2-xray.egress/no-frame)))))
+    ;; Attempt the registration every earlier collision turned on, now aimed
+    ;; at nil itself. A runtime that refuses a nil id is fine — the assertion
+    ;; must hold either way.
+    (let [registered? (try (rf/make-frame {:id nil}) true
+                           (catch :default _ false))]
+      (try
+        (let [out (egress/egress-value {:auth {:username "ada" :password "shh"}}
+                                       {:frame nil})]
+          (is (= :rf/redacted out)
+              (str "an explicitly-nil frame must egress the whole-value "
+                   "redaction sentinel. got: " (pr-str out)))
+          (is (not (re-find #"shh" (pr-str out)))
+              (str "the RAW secret survived an explicit-nil frame "
+                   "(rf2-7htk7, rf2-kuky.5). got: " (pr-str out))))
+        (finally
+          (when registered?
+            (try (rf/destroy-frame! nil) (catch :default _ nil))))))))
 
 ;; ---- (8) view renders — current-state inspector (rf2-okvit) -------------
 ;;

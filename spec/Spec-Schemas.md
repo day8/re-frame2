@@ -3683,7 +3683,7 @@ The opts map `rf/project-egress` accepts (EP-0015 §10/§11). `project-egress` i
 (def ProjectEgressOpts
   [:map {:closed false}
    [:rf.egress/profile          {:optional true} EgressProfile]            ;; the named boundary; resolves to a :rf.size/* opt-set
-   [:frame                      {:optional true} :keyword]                 ;; whose classification applies (override); else the FRAME-BEARING record's own :frame; fail-closed when unknown
+   [:frame                      {:optional true} [:maybe :keyword]]        ;; whose classification applies (override), by KEY PRESENCE: an explicit nil means NO governing frame and fails closed; ABSENT falls to the recognised record's own :frame, else the carried scope
    [:path                       {:optional true} [:vector :any]]           ;; offset for a bare-value walk (direct-read path)
    [:rf.size/include-sensitive? {:optional true} :boolean]                 ;; explicit override (wins over the profile floor)
    [:rf.size/include-large?     {:optional true} :boolean]
@@ -3696,8 +3696,8 @@ Semantics (normative in [015 §Projection](015-Data-Classification.md#projection
 
 - An **unknown** `:rf.egress/profile` raises `:rf.error/unknown-egress-profile` — the enum is closed (no silent fall-through to a permissive walk).
 - With **no profile**, the `:rf.size/*` flags pass through to `elide-wire-value` verbatim (the advanced raw-flags path).
-- **Frame-bearing record.** An `:rf.observe/*` record carries its owning frame under a top-level `:frame` slot. When `opts` omit `:frame`, that owning frame is **seeded** as the governing frame; an explicit `:frame` opt **wins** (override). A kindless / frameless input (or a `:frame nil` record) seeds nothing.
-- **Fail-closed** (EP-0002): a tree-shaped slot is projected only when the frame is known (the `:frame` opt, the record's own `:frame`, or the carried scope); with no frame from any of those and no `:rf.size/include-sensitive? true` opt-out the delegated walker redacts the whole value to `:rf/redacted` — `project-egress` does **not** synthesise `:rf/default`.
+- **Frame ownership is decided by KEY PRESENCE, not truthiness**, in three steps: (1) an explicit `:frame` key in `opts` wins, **`nil` included**; (2) else a **recognised** `:rf.observe/*` record's own top-level `:frame` slot, `nil` included — an `:rf.observe/*` record is frame-bearing, carrying its owning frame there; (3) else the carried scope. A record is recognised by its `:kind`, never by a loose shape test, so a kindless input seeds nothing even when it carries a `:frame` key. An explicit `:frame nil`, in opts or on a recognised record, means **no governing frame** and fails closed — it does not fall through to the carried scope.
+- **Fail-closed** (EP-0002): a tree-shaped slot is projected only when the frame is known. With no frame from any of the three steps — an explicit `nil` included — and no `:rf.size/include-sensitive? true` opt-out, the delegated walker redacts the whole value to `:rf/redacted`; `project-egress` does **not** synthesise `:rf/default`.
 
 ### `:rf/route-pattern`
 

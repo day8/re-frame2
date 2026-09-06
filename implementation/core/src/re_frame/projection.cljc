@@ -473,11 +473,31 @@
 
 ;; ---- dispatch ------------------------------------------------------------
 
+(def ^:private record-kinds
+  "The closed `:rf.observe/*` `:kind` vocabulary `project-egress` RECOGNISES
+  as a frame-bearing record. The `case` in `project-record-by-kind` below
+  dispatches exactly these; this set is the same vocabulary as a value, so
+  the frame-seeding guard can ask \"is this input a recognised record?\"
+  without a loose shape test (rf2-kuky.5 — recognition by `:kind`, never by
+  \"it is a map that happens to carry a `:frame` key\")."
+  #{:rf.observe/handled-event
+    :rf.observe/error
+    :rf.observe/derived-tree})
+
+(defn- recognised-record?
+  "Is `x` a recognised frame-bearing `:rf.observe/*` record? Anything else —
+  a bare app-db slice, a sub value, a kindless map — is a tree-shaped VALUE
+  and owns no frame."
+  [x]
+  (and (map? x) (contains? record-kinds (:kind x))))
+
 (defn- project-record-by-kind
   "Dispatch a `:rf.observe/*` record to its private per-kind projector.
   An unknown / kindless record is treated as a tree-shaped VALUE and walked
   whole — the direct-read path (`app-db-value` / `sub-cache` / a bare
-  value at a `:path` offset, Spec 015 §Direct reads)."
+  value at a `:path` offset, Spec 015 §Direct reads).
+
+  The dispatched kinds are `record-kinds` — one vocabulary, two shapes."
   [record opts elision-opts]
   (case (and (map? record) (:kind record))
     :rf.observe/handled-event
@@ -540,39 +560,57 @@
   (the override wins). An unknown `:rf.egress/profile` throws
   `:rf.error/unknown-egress-profile` — the enum is closed.
 
-  Frame resolution (EP-0015): an `:rf.observe/*` record is
-  FRAME-BEARING — it carries its OWNING frame under a top-level `:frame`
-  slot (the §`project-egress` example record carries `:frame :app/main`
-  with opts supplying only `:rf.egress/profile`). That owning frame is the
-  frame whose classification governs the record's tree-shaped slots, so
-  when `opts` does NOT supply `:frame` it is SEEDED from the record's
-  top-level `:frame`. An explicit `:frame` opt still WINS (override
-  semantics — it is the caller's deliberate reclassification), and a
-  kindless / frameless input seeds nothing. This seed is what lets the
-  record-owned-frame call shape walk every tree slot under the record's
-  OWN frame: without it those slots would fall to the AMBIENT (or no)
-  frame, over-redacting off-box slots and, under a sensitive opt-in
-  profile, shipping raw values the record's frame would have governed.
+  Frame resolution (EP-0015) — three steps, each decided by KEY PRESENCE
+  rather than truthiness:
+
+    1. an explicit `:frame` key in `opts` WINS, `nil` included (override
+       semantics — the caller's deliberate reclassification, and `nil` is
+       the deliberate statement that no frame governs);
+    2. else a RECOGNISED `:rf.observe/*` record's own top-level `:frame`
+       slot, `nil` included — an `:rf.observe/*` record is FRAME-BEARING,
+       carrying the frame whose classification governs its tree-shaped
+       slots (the §`project-egress` example record carries
+       `:frame :app/main` with opts supplying only `:rf.egress/profile`).
+       This seed is what lets the record-owned-frame call shape walk every
+       slot under the record's OWN frame: without it those slots would fall
+       to the AMBIENT (or no) frame, over-redacting off-box slots and,
+       under a sensitive opt-in profile, shipping raw values the record's
+       frame would have governed;
+    3. else nothing is seeded and the delegated walker falls through to the
+       carried-invariant scope.
+
+  A record is recognised by its `:kind` (`record-kinds`), never by a loose
+  shape test: a bare app-db value that happens to carry a `:frame` key is a
+  VALUE, and contributes no frame context (rf2-kuky.5).
 
   Fail-closed (EP-0002 / Spec 015 §Direct reads): a tree-shaped slot is
-  projected only when the frame is KNOWN — the explicit `:frame` opt, the
-  record's owning `:frame`, or the carried-invariant scope. With no frame
-  from ANY of those and no `:rf.size/include-sensitive? true` opt-out the
-  delegated walker redacts the whole value to `:rf/redacted` rather than
-  borrow another frame's policy. `project-egress` does NOT synthesise
-  `:rf/default`.
+  projected only when the frame is KNOWN. With no frame from ANY of the
+  three steps — including an explicit `nil` at step 1 or 2 — and no
+  `:rf.size/include-sensitive? true` opt-out, the delegated walker redacts
+  the whole value to `:rf/redacted` rather than borrow another frame's
+  policy. `project-egress` does NOT synthesise `:rf/default`.
 
   Per [Spec 015 §`project-egress`](../../../../../spec/015-Data-Classification.md#project-egress--the-record-level-boundary-primitive)."
   ([record-or-value] (project-egress record-or-value nil))
   ([record-or-value opts]
-   ;; The record is frame-bearing: seed `:frame` from its owning `:frame`
-   ;; slot when opts omits one (an explicit `:frame` opt WINS). A kindless
-   ;; / frameless input adds nothing, so the fail-closed posture below is
-   ;; preserved when no frame is known from any source.
-   (let [opts         (let [record-frame (and (map? record-or-value)
-                                              (:frame record-or-value))]
-                        (if (and record-frame (not (:frame opts)))
-                          (assoc opts :frame record-frame)
-                          opts))
+   ;; Frame ownership, by KEY PRESENCE at every step (rf2-kuky.5):
+   ;;   1. an explicit `:frame` key in `opts` wins, `nil` INCLUDED;
+   ;;   2. else a RECOGNISED record's own `:frame` slot, `nil` included —
+   ;;      an explicitly frameless record seeds `nil` and fails closed;
+   ;;   3. else no seed at all, and the walker falls to the carried scope.
+   ;; Truthiness at either step made `{:frame nil}` unsayable: it read as
+   ;; absence and borrowed the ambient frame. Recognition is by `:kind`, so
+   ;; a bare app-db value that happens to carry a `:frame` key is a VALUE,
+   ;; not a record, and never contributes hidden frame context.
+   (let [opts         (cond
+                        (contains? opts :frame)
+                        opts
+
+                        (and (recognised-record? record-or-value)
+                             (contains? record-or-value :frame))
+                        (assoc opts :frame (:frame record-or-value))
+
+                        :else
+                        opts)
          elision-opts (resolve-elision-opts opts)]
      (project-record-by-kind record-or-value opts elision-opts))))

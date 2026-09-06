@@ -53,24 +53,24 @@
 
   ## Fail-closed (the silent-leak this seam abolishes)
 
-  `rf/project-egress` delegates to `rf/elide-wire-value`, which resolves its
-  governing frame as `(or (:frame opts) (frame/resolve-current-frame))` — so
-  a nil `:frame` opt (or no `:frame` at all) falls through to the AMBIENT
-  dynamically-bound frame, applying THAT frame's (possibly empty) policy and
-  shipping value-bearing fields RAW under a borrowed scope. The local-render
-  default must not do that. So this seam first checks the named frame is LIVE
-  (`rf/frame-ids`); when it is not (nil id, a destroyed / never-registered
-  frame), it stamps a DEAD-FRAME SENTINEL as the `:frame` opt — a non-nil id
-  that can never resolve to a live frame — so the underlying walker takes its
+  `rf/project-egress` delegates to `rf/elide-wire-value`, which reads its
+  `:frame` opt by KEY PRESENCE — so an ABSENT `:frame` key falls through to
+  the AMBIENT dynamically-bound frame, applying THAT frame's (possibly empty)
+  policy and shipping value-bearing fields RAW under a borrowed scope. At a
+  panel render that ambient frame is Xray's OWN chrome frame, which resolves,
+  is live, and declares nothing — so the borrow is not hypothetical. The local-render
+  default must not do that. So this seam STAMPS the observed `frame-id` as
+  the `:frame` opt, whatever it is. The underlying walker reads that opt by
+  KEY PRESENCE, so a nil / destroyed / never-registered id takes its
   UNRESOLVABLE-FRAME fail-closed branch (`frame/frame` returns nil for it)
   and redacts the whole value to `:rf/redacted` rather than borrow the
-  ambient frame's marks. Stamping the sentinel (NOT omitting `:frame`) is the
-  point: an absent / nil `:frame` opt is exactly the ambient-borrow path this
-  seam abolishes (rf2-cra0nq, mirroring the off-box derivation-graph fix
-  rf2-udkj69). (Under `:rf.egress/local-raw`'s explicit
-  `:rf.size/include-sensitive? true` opt-out the walker ships the value
-  raw even under the dead-frame sentinel — the operator has explicitly asked
-  for it; the opt-out branch precedes the fail-closed redact.)
+  ambient frame's marks. STAMPING (never OMITTING) `:frame` is the point: an
+  absent `:frame` key is exactly the ambient-borrow path this seam abolishes
+  (rf2-cra0nq, mirroring the off-box derivation-graph fix rf2-udkj69).
+  (Under `:rf.egress/local-raw`'s explicit `:rf.size/include-sensitive? true`
+  opt-out the walker ships the value raw even under an unresolvable frame —
+  the operator has explicitly asked for it; the opt-out branch precedes the
+  fail-closed redact.)
 
   ## The edn-inspector renders the sentinels natively
 
@@ -103,89 +103,6 @@
   explicit operator act, never a process-global toggle."
   :rf.egress/local-raw)
 
-(defn- fresh-dead-frame-sentinel
-  "Mint a FRESH frame id that can never resolve to a live frame, stamped as the
-  `:frame` opt to FAIL CLOSED a nil / unreachable egress frame WITHOUT borrowing
-  the ambient scope. A new identity PER CALL — see §Why per-call below, which is
-  the half a shared singleton got wrong.
-
-  `rf/elide-wire-value` resolves its governing frame as `(or (:frame opts)
-  (frame/resolve-current-frame))` — so a nil `:frame` opt (or no `:frame` at
-  all) falls through to the AMBIENT dynamically-bound frame, applying that
-  frame's (possibly empty) policy and shipping value-bearing fields RAW. An
-  unreachable but NON-nil `:frame` opt instead takes the unresolvable-frame
-  fail-closed branch (`frame/frame` returns nil ⇒ whole value redacted to
-  `:rf/redacted`, unless the caller explicitly waived sensitive redaction).
-  We therefore stamp this sentinel as the `:frame` opt when no live governing
-  frame is known, so the walker fails closed on its own dead-frame branch
-  rather than resolving an ambient frame.
-
-  It has to be a value NO frame can be registered under, and a keyword is not
-  one: `make-frame` validates no `:id` type and the registry is keyed by
-  whatever id it is handed, so every keyword — however it is namespaced — is a
-  public id an app can spell. Earlier passes used `::no-egress-frame`, which
-  expands to the ordinary public keyword
-  `:day8.re-frame2-xray.panels.local-render/no-egress-frame`; a live frame
-  registered under that id made the stamp RESOLVE, took the walker's LIVE-frame
-  branch, and shipped the value RAW under that frame's empty declaration
-  registry — the fail-CLOSED stamp becoming fail-OPEN (rf2-ws60, first pass). A
-  host object is an IDENTITY rather than a datum — nothing can *spell* an equal
-  value — so no registration a caller writes by hand can match it, and
-  `frame/frame` misses on it exactly as on a destroyed id.
-
-  ## No public exit — the invariant, and the two passes that missed it
-
-  A private identity is NECESSARY AND NOT SUFFICIENT. The second pass bound one
-  `(Object.)` to a `^:private def` and claimed 'no frame can be registered under
-  it' — but `local-render-opts` was PUBLIC and RETURNED that value in `:frame`
-  for every nil / unreachable target, so a caller never had to manufacture an
-  equal object: it was HANDED the identical one. Registering a frame under the
-  value it received made every SUBSEQUENT unreachable projection resolve to that
-  live frame and ship the secret raw — the same fail-OPEN outcome as the
-  keyword, reached through the return value instead of through the spelling.
-
-  The third pass minted a FRESH identity per call and kept the builder public.
-  That closed the *durable* poisoning route and left an immediate one open: the
-  caller registers a frame under `(:frame opts)` and then hands THAT SAME opts
-  map back to `rf/project-egress`. Reproduced on the JVM lane at the merged
-  commit, source untouched:
-  `{:registered? true, :projected {:auth {:token \"audit-secret-jwt-9f3a\"}}}`.
-
-  So the discriminating question is not 'is the definition private', nor 'is the
-  identity fresh', but **does any PUBLIC fn RETURN a structure containing it**.
-  Both sibling carriers answer NO and are clean for exactly that reason: in
-  `day8.re-frame2-xray.egress` `egress-value` builds its opts map INLINE as the
-  argument to the walker and returns the walker's result; in
-  `re-frame.derivation.egress` `walk-opts` is bound inside `project-graph`'s
-  `let` and `project-graph` returns the transformed graph. Neither ever hands an
-  opts map to anyone.
-
-  This namespace now answers NO the same way: `local-render-opts` is PRIVATE, so
-  the only structures crossing the namespace boundary are the projected values
-  `local-render-value` / `local-render-value-at` return. Nothing outside can
-  obtain a sentinel to register a frame under, or an opts map to replay.
-
-  ## Why per-call as well (defence in depth, and it is free)
-
-  Freshness is no longer the invariant, but it is kept, because it costs a bare
-  allocation on a branch that is already the cold one and it removes the
-  DURABLE identity a future re-exposure of the builder would otherwise hand out.
-  With both properties in place, a sentinel that somehow escaped would govern
-  its own single projection and nothing else. Do not cache, intern, or hoist it,
-  and do not make the builder public again.
-
-  Mirrors the off-box derivation-graph fix (rf2-udkj69); applied to
-  local-render by rf2-cra0nq. Third carrier of the sentinel class, alongside
-  `day8.re-frame2-xray.egress/no-frame` (rf2-7htk7) and
-  `re-frame.derivation.egress` (rf2-g1vu); this file is `.cljc` and IS read on
-  the JVM (its test namespace runs under `clojure -M:test`), so the substitute
-  takes the reader-conditional form rather than a bare `(js/Object.)`.
-
-  Allocation note: the call sits on the UNREACHABLE branch of an `if`, so a
-  live-frame render — the hot path — mints nothing."
-  []
-  #?(:clj (Object.) :cljs (js/Object.)))
-
 (defn local-render-profile
   "Resolve the egress profile a local panel render should project under,
   given the per-(tool,frame) `raw?` grain. `true` ⇒ the trusted-local
@@ -198,33 +115,27 @@
   "Build the `rf/project-egress` opts map for an on-box local render of a
   value sourced from `frame-id`.
 
-  **PRIVATE, and that is the load-bearing half of the rf2-ws60 fix — see
-  §No public exit in `fresh-dead-frame-sentinel`.** This is the one structure
-  that carries a dead-frame sentinel, so it must never leave the namespace:
-  `local-render-value` / `local-render-value-at` build it and hand it straight
-  to `rf/project-egress`, and a caller receives only the PROJECTED VALUE.
-
   - **profile** — `local-render-profile` resolves the named boundary from
     the per-(tool,frame) `raw?` grain (default `:rf.egress/local-redacted`).
-  - **`:frame`** — ALWAYS stamped: the named `frame-id` when it is LIVE
-    (`rf/frame-ids`); otherwise (nil id, a destroyed / never-registered
-    frame) a FRESHLY MINTED dead-frame sentinel. We must NOT omit / leave
-    `:frame` nil for an unreachable frame: an absent / nil `:frame` opt lets
-    the walker fall through to the AMBIENT dynamically-bound frame
-    (`frame/resolve-current-frame`) and ship value-bearing fields RAW under
-    that borrowed frame's policy — the exact ambient-borrow leak this seam
-    abolishes (rf2-cra0nq, mirroring rf2-udkj69). So the walker takes its
-    unresolvable-frame fail-closed branch (redact the whole value) rather
-    than borrow another frame's policy.
+  - **`:frame`** — ALWAYS stamped, with `frame-id` VERBATIM. The walker
+    reads its `:frame` opt by KEY PRESENCE, so a nil / destroyed /
+    never-registered id is believed as `no governing frame` and takes the
+    unresolvable-frame FAIL-CLOSED branch (redact the whole value). What it
+    must never do is OMIT the key: an absent `:frame` falls through to the
+    AMBIENT dynamically-bound frame — at a panel render, Xray's own chrome
+    frame — and ships value-bearing fields RAW under that borrowed frame's
+    policy, the ambient-borrow leak this seam abolishes (rf2-cra0nq,
+    mirroring rf2-udkj69).
 
-    **The opts map this returns must not escape the namespace, and the
-    sentinel it carries is SINGLE-USE (rf2-ws60).** The three passes at
-    this bug were a public keyword, a public shared private-def object,
-    and a public per-call object; each stayed fail-OPEN because the
-    caller could get its hands on the sentinel (or on this very map) and
-    register a live frame under it. Privacy is what closes that, and
-    freshness is what keeps any future escape harmless. Do not cache,
-    intern, or hoist the sentinel, and do not make this fn public.
+    This is why the fn is small again. Three passes (rf2-ws60) fought to
+    mint a fake frame IDENTITY — a namespaced keyword, then a shared
+    private object, then a fresh per-call object — each because a nil
+    `:frame` read as absence, and each fail-OPEN in turn once a caller could
+    get hold of the sentinel and register a live frame under it. The walker
+    now believes an explicit nil, so there is no sentinel to leak and no
+    liveness probe to run (the walker validates liveness itself). The fn
+    stays private as ordinary namespace hygiene, not as a privacy
+    load-bearer (rf2-kuky.5).
   - **`:rf.size/include-large? true`** — the on-box 'keep large' override
     (EP-0015 §10: `local-redacted` *suppresses sensitive display*; the
     local operator IS entitled to large values — Xray's own size-bounding
@@ -234,23 +145,12 @@
     §resolve-elision-opts). Under `:rf.egress/local-raw` the floor already
     includes large; the explicit overlay is a harmless no-op there.
 
-  Pure / JVM-portable except for the live-frame probe, which is a pure read
-  over the runtime frame registry."
+  Pure and JVM-portable."
   ([frame-id] (local-render-opts frame-id false))
   ([frame-id raw?]
-   ;; A reachable (live) frame governs egress under its own policy; a nil /
-   ;; unreachable frame stamps the dead-frame sentinel as the `:frame` opt so
-   ;; `rf/elide-wire-value` takes its unresolvable-frame FAIL-CLOSED branch
-   ;; (whole value ⇒ `:rf/redacted`). We must NOT leave the `:frame` opt
-   ;; absent / nil here: that frameless path lets the walker fall through to
-   ;; the AMBIENT dynamically-bound frame (`frame/resolve-current-frame`) and
-   ;; ship value-bearing fields RAW under that frame's policy — the exact
-   ;; ambient-borrow leak this seam abolishes (rf2-cra0nq, mirroring
-   ;; rf2-udkj69).
-   (let [reachable? (and (some? frame-id) (contains? (rf/frame-ids) frame-id))]
-     {:rf.egress/profile      (local-render-profile raw?)
-      :rf.size/include-large? true
-      :frame                  (if reachable? frame-id (fresh-dead-frame-sentinel))})))
+   {:rf.egress/profile      (local-render-profile raw?)
+    :rf.size/include-large? true
+    :frame                  frame-id}))
 
 ;; ---------------------------------------------------------------------------
 ;; The projection seam.
@@ -294,7 +194,7 @@
 
   Same fail-closed + per-frame guarantees as `local-render-value` — they
   share `local-render-opts`, so an unreachable `frame-id` (nil / destroyed /
-  never registered) stamps the dead-frame sentinel and redacts the whole
+  never registered) is stamped verbatim and redacts the whole
   slice rather than borrow the ambient frame's policy, and the projection
   applies the OBSERVED frame's own `:sensitive` / `:large` classification. The
   explicit `:path` composes with (never overrides) the profile floor + the

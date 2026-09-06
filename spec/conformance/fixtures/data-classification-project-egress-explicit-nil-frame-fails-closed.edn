@@ -1,0 +1,61 @@
+;; Conformance fixture: data-classification/project-egress-explicit-nil-frame-fails-closed
+;;
+;; Per Spec 015 §Direct reads and fail-closed frame resolution — the `:frame`
+;; opt is read by KEY PRESENCE, not truthiness. An EXPLICIT `{:frame nil}` says
+;; "this value has no governing frame" and FAILS CLOSED. Only an ABSENT `:frame`
+;; key falls through to the carried scope.
+;;
+;; This is the case the sibling `project-egress-fails-closed-no-frame.edn` does
+;; NOT reach, and the distinction is the whole point of the fixture. That one
+;; OMITS the key, and a Mode-B runner is expected to make an omitted `:frame`
+;; genuinely frameless, so there is no frame to borrow and it would pass even
+;; under a truthiness resolution. Here the key is PRESENT and nil while a LIVE
+;; frame is in scope, and that frame — `:rf/default`, which this fixture gives
+;; no classification at all — would walk the value to the IDENTITY and ship the
+;; token RAW if the projection fell through to it. The two calls discriminate:
+;;
+;;   [0] `:frame nil`      ⇒ :rf/redacted        (fail closed, no borrow)
+;;   [1] `:frame :rf/default` ⇒ the value VERBATIM  (that frame is live + empty)
+;;
+;; Call [1] is the CONTROL, and it is what makes call [0] evidence rather than a
+;; restatement of the absent-key case: it establishes that the frame in scope
+;; really is live and really is permissive, so a fall-through would have leaked.
+;; Under the pre-rf2-kuky.5 resolution — `(or (:frame opts) (carried scope))` —
+;; call [0] resolved that same live frame and returned the token verbatim.
+;;
+;; A port that resolves `:frame` by truthiness fails call [0] and passes call
+;; [1], which is the signature to look for.
+;;
+;; Three consumers each minted a fresh host object as a fake frame id purely to
+;; force this arm, because the request was otherwise unsayable (Xray's
+;; `egress/no-frame`, Xray's local-render `fresh-dead-frame-sentinel`, and
+;; core's `derivation.egress/dead-frame-sentinel`). All three are deleted; this
+;; fixture is the contract that replaces them.
+;;
+;; Mirrors the unit-level `re-frame.elision-test/explicit-nil-frame-fails-closed-
+;; under-a-live-ambient-frame` and `re-frame.projection-cljs-test/explicit-nil-
+;; frame-opt-wins-over-the-ambient-scope` deftests, lifted to the host-agnostic
+;; corpus.
+
+{:fixture/id           :data-classification/project-egress-explicit-nil-frame-fails-closed
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:data-classification/classification-effects}
+ :fixture/doc          "project-egress with an EXPLICIT :frame nil fails closed to :rf/redacted rather than borrowing the live frame in scope, which the control call shows would have shipped the value verbatim. The opt is read by key presence, not truthiness."
+
+ :fixture/calls
+ ;; [0] The explicit nil, with a live frame in scope.
+ [{:call              :project-egress
+   :rf.egress/profile :rf.egress/off-box-observability
+   :frame             nil
+   :value             {:auth {:token "super-secret"} :public {:count 3}}
+   :expect            :rf/redacted}
+
+  ;; [1] CONTROL — the SAME value under the SAME frame, named explicitly. Its
+  ;; declaration registry is empty, so the walk is the identity and the token
+  ;; rides through. A green here is what makes [0]'s redaction a refusal to
+  ;; borrow rather than an absence of anything to borrow.
+  {:call              :project-egress
+   :rf.egress/profile :rf.egress/off-box-observability
+   :frame             :rf/default
+   :value             {:auth {:token "super-secret"} :public {:count 3}}
+   :expect            {:auth {:token "super-secret"} :public {:count 3}}}]}
