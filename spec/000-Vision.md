@@ -212,7 +212,7 @@ re-frame currently uses `re-frame.interop` (with separate `.clj` and `.cljs` imp
 - `app-db` mutation and snapshot reading.
 - Cofx injection.
 - Machine transition evaluation (`machine-transition` is a pure function; `make-machine-handler` is a pure factory producing a JVM-runnable event handler body).
-- Sub-graph *static topology* (`sub-topology` — the dependency graph derived from `:<-` declarations, pure data from the registrar).
+- Sub-graph *static topology* (`sub-topology` — the dependency graph derived from `:inputs` declarations, pure data from the registrar).
 - Sub-graph *computation* (computing a sub's value from `app-db` directly, without the reactive-tracking layer).
 - The public registrar query API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-db-value`, `frame-state-value`, `sub-topology`).
 
@@ -221,7 +221,7 @@ These cover the entire business-logic layer — enough for `deftest`-style unit 
 #### What is *not* JVM-runnable in v1
 
 - **View rendering.** `reg-view`, `frame-provider`, hiccup interpretation, React/Reagent — all CLJS-only. The substrate-decoupling work in [Spec 006](006-ReactiveSubstrate.md) may eventually move some of this into JVM-runnable territory, but it's out of scope for v1.
-- **Reactive subscription tracking.** The signal-graph reactivity (auto-tracking, dispose lifecycle) is currently Reagent-specific and CLJS-only. Subscription *computation* (running a sub's body against an `app-db` value) and *static topology* (the dependency graph from `:<-` declarations, queryable via `sub-topology`) are JVM-runnable; the reactive-update mechanism and the runtime cache state (`sub-cache`) are not.
+- **Reactive subscription tracking.** The signal-graph reactivity (auto-tracking, dispose lifecycle) is currently Reagent-specific and CLJS-only. Subscription *computation* (running a sub's body against an `app-db` value) and *static topology* (the dependency graph from `:inputs` declarations, queryable via `sub-topology`) are JVM-runnable; the reactive-update mechanism and the runtime cache state (`sub-cache`) are not.
 
 #### Implementation rules
 

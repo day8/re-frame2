@@ -479,7 +479,7 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `cofx-missing-vs-unregistered.edn` | `:cofx/missing-vs-unregistered` | A declared-but-absent REGISTERED provided coeffect is `:rf.error/missing-required-cofx`; a declared coeffect with NO registration is `:rf.error/unregistered-cofx`. Two distinct error ids (per-dispatch `:expect-error`) — a port that conflates them, throws generically, or fails to throw FAILS |
 | `dispatch-opt-retired-draft-name.edn` | `:dispatch-opt/retired-draft-name` | The retired DRAFT dispatch opts `:rf.world/inputs` / `:dispatched-at` earn no dedicated error id (shipped-names-only tombstone rule, Conventions §The tombstone rule) — they ride the generic `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean, the dispatch PROCEEDS unchanged (handler runs), and the key is NOT aliased to `:rf.cofx`. The canonical `:rf.cofx` replacement is accepted (control dispatch runs). A port that throws a dedicated error or silently aliases the retired key FAILS |
 | `drain-depth-limit.edn` | `:drain/depth-limit` | Drain-depth-exceeded error + `:rf.error/drain-depth-exceeded` trace |
-| `sub-chain.edn` | `:sub/chain` | `:<-` chained subs; static dependency topology |
+| `sub-chain.edn` | `:sub/chain` | subs chained through `:inputs`; static dependency topology |
 | `fx-db-first.edn` | `:fx/db-first` | `:db` commits atomically before any `:fx` entry runs; the first `:fx` entry's handler observes the post-`:db` state |
 | `fx-ordering-source-order.edn` | `:fx/ordering-source-order` | `:fx` entries process in source order; the dispatched events accumulate in the runtime FIFO in the same order |
 | `fx-override-by-id.edn` | `:fx/override-by-id` | Pattern-level id-valued override seam |

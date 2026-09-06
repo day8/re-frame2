@@ -466,8 +466,8 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 ;;    sanitised derived value is safe, simply do not classify it; if a derived
 ;;    value is itself sensitive, declare the sub's own output path `:sensitive`:
 (rf/reg-sub :auth/token-prefix
-  :<- [:db/auth]
-  (fn [auth _] (str (subs (:token auth) 0 8) "...")))   ;; sanitised — ships raw
+  {:inputs [[:db/auth]]}
+  (fn [[auth] _] (str (subs (:token auth) 0 8) "...")))   ;; sanitised — ships raw
 
 ;; 6. (Optional) — install a PROJECTION-SIDE epoch redact-fn for
 ;;    defence-in-depth redaction of slots no classification covered (raw

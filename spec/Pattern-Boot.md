@@ -374,16 +374,16 @@ A view reads the machine snapshot through the framework-shipped `:rf/machine` su
 
 ```clojure
 (rf/reg-sub :app.boot/phase
-  :<- [:rf/machine :app/boot]                          ;; the boot snapshot, read from runtime-db
-  (fn sub-app-boot-phase [snap _] (get-in snap [:data :phase])))
+  {:inputs [[:rf/machine :app/boot]]}                          ;; the boot snapshot, read from runtime-db
+  (fn sub-app-boot-phase [[snap] _] (get-in snap [:data :phase])))
 
 (rf/reg-sub :app.boot/error
-  :<- [:rf/machine :app/boot]
-  (fn sub-app-boot-error [snap _] (get-in snap [:data :error])))
+  {:inputs [[:rf/machine :app/boot]]}
+  (fn sub-app-boot-error [[snap] _] (get-in snap [:data :error])))
 
 (rf/reg-sub :app.boot/state
-  :<- [:rf/machine :app/boot]
-  (fn sub-app-boot-state [snap _] (:state snap)))
+  {:inputs [[:rf/machine :app/boot]]}
+  (fn sub-app-boot-state [[snap] _] (:state snap)))
 
 (rf/reg-view boot-screen []
   (let [state @(subscribe [:app.boot/state])

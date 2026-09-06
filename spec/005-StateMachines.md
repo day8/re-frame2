@@ -1148,7 +1148,7 @@ Without `defmachine`, the Epoch machine-cascade (and any tool reading `cascade-r
 
 ## Design rule — data DSLs vs functions
 
-> **Use data DSLs** for *deferred function calls* (`:fx [[fx-id args]]`), *named effects* (`:on-match [event]`), *declarative shape descriptions* (schemas, hiccup), and *static dependency declarations* (`:<-`, `:platforms`).
+> **Use data DSLs** for *deferred function calls* (`:fx [[fx-id args]]`), *named effects* (`:on-match [event]`), *declarative shape descriptions* (schemas, hiccup), and *static dependency declarations* (`:inputs`, `:platforms`).
 >
 > **Use functions** for *imperative composition* and *predicate composition*.
 
@@ -2252,8 +2252,8 @@ A view that wants "render the loading spinner whenever any data-loading state is
 
 ```clojure
 (rf/reg-sub :ui.state/loading?
-  :<- [:todos/status]
-  (fn [status _] (= status :loading)))
+  {:inputs [[:todos/status]]}
+  (fn [[status] _] (= status :loading)))
 
 (when @(rf/subscribe [:ui.state/loading?])
   [view-loading])
@@ -4079,22 +4079,21 @@ The framework provides the entry point — `:rf/machine` returns the whole snaps
 ```clojure
 ;; project just :state
 (rf/reg-sub :drawer/editor-state
-  :<- [:rf/machine :drawer/editor]
-  (fn [{:keys [state]} _] state))
+  {:inputs [[:rf/machine :drawer/editor]]}
+  (fn [[{:keys [state]}] _] state))
 
 ;; a boolean over :state
 (rf/reg-sub :drawer/editing?
-  :<- [:rf/machine :drawer/editor]
-  (fn [{:keys [state]} _] (= state :editing)))
+  {:inputs [[:rf/machine :drawer/editor]]}
+  (fn [[{:keys [state]}] _] (= state :editing)))
 
 ;; combine with other subs
 (rf/reg-sub :drawer/editor-and-circles
-  :<- [:rf/machine :drawer/editor]
-  :<- [:drawer/circles]
+  {:inputs [[:rf/machine :drawer/editor] [:drawer/circles]]}
   (fn [[ed circles] _] {:editor ed :circles circles}))
 ```
 
-The framework provides the entry point; users write the derivations. Same pattern as every other `:<-` chain in re-frame.
+The framework provides the entry point; users write the derivations. Same pattern as every other declared subscription input in re-frame.
 
 ### Pure-factory invariant preserved
 
@@ -4329,17 +4328,15 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 (rf/reg-sub :drawer/circles      (fn [db _] (get-in db [:drawer :circles])))
 ;; The framework-registered :rf/machine sub returns the snapshot {:state :data}
 ;; for any machine — we parameterise it on :drawer/editor and compose against
-;; it via :<-. (Read directly with @(rf/subscribe [:rf/machine :drawer/editor]).)
-(rf/reg-sub :drawer/editor-state :<- [:rf/machine :drawer/editor] (fn [snap _] (:state snap)))
-(rf/reg-sub :drawer/editor-data  :<- [:rf/machine :drawer/editor] (fn [snap _] (:data snap)))
-(rf/reg-sub :drawer/editing? :<- [:drawer/editor-state] (fn [s _] (= s :editing)))
+;; it via :inputs. (Read directly with @(rf/subscribe [:rf/machine :drawer/editor]).)
+(rf/reg-sub :drawer/editor-state {:inputs [[:rf/machine :drawer/editor]]} (fn [[snap] _] (:state snap)))
+(rf/reg-sub :drawer/editor-data  {:inputs [[:rf/machine :drawer/editor]]} (fn [[snap] _] (:data snap)))
+(rf/reg-sub :drawer/editing? {:inputs [[:drawer/editor-state]]} (fn [[s] _] (= s :editing)))
 (rf/reg-sub :drawer/can-undo? (fn [db _] (seq (get-in db [:drawer :undo]))))
 (rf/reg-sub :drawer/can-redo? (fn [db _] (seq (get-in db [:drawer :redo]))))
 
 (rf/reg-sub :drawer/circles-with-preview
-  :<- [:drawer/circles]
-  :<- [:drawer/editor-data]
-  :<- [:drawer/editing?]
+  {:inputs [[:drawer/circles] [:drawer/editor-data] [:drawer/editing?]]}
   (fn [[circles ed editing?] _]
     (if editing?
       (mapv #(if (= (:id %) (:circle-id ed))

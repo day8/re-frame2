@@ -1,17 +1,17 @@
 ;; Conformance fixture: sub/chain
-;; :<- chained subscriptions. Layer 2 subs derive from layer 1 subs, never
-;; reading app-db directly. Implementations must support :<- composition.
+;; Subscriptions chained through `:inputs`. Layer 2 subs derive from layer 1 subs, never
+;; reading app-db directly. Implementations must support `:inputs` composition.
 
 {:fixture/id           :sub/chain
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/sub}
- :fixture/doc          "A sub composed via :<- against another sub. Total derives from items; updating items propagates."
+ :fixture/doc          "A sub composed via :inputs against another sub. Total derives from items; updating items propagates."
 
  :fixture/registry
  {:event {:cart/initialise {:doc "Seed the cart."}
           :cart.item/add   {:doc "Add an item with qty + price."}}
   :sub   {:cart/items {:doc "All items in the cart."}
-          :cart/total {:doc "Sum of qty * price — a :<- derivation over :cart/items."}}}
+          :cart/total {:doc "Sum of qty * price — a declared-input derivation over :cart/items."}}}
 
  :fixture/handlers
  {:event {:cart/initialise [[:set [:cart] {:items []}]]

@@ -49,7 +49,7 @@ The core is the substrate-agnostic part. It owns:
 - **The frame contract.** Each frame holds a **frame-state** *value* (the two-partition container — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`), a queue, a sub-cache, and an id. The "value" interface is what the core requires; the adapter provides the reactive container that holds it and the two partition projections over it (per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections)).
 - **The dispatch envelope and event queue.** Per [002 §Routing](002-Frames.md#routing-the-dispatch-envelope). Pure data, FIFO.
 - **The drain mechanism.** Run-to-completion drain (per [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)). Pure logic over the queue.
-- **Subscription topology.** The static dependency graph derived from `reg-sub` registrations — the literal `:<-` edges plus the per-sub input-kind discriminator (`:db` / `:static` / `:parametric`). Pure data, JVM-runnable. (Realized parametric edges per concrete query vector are runtime cache state, not static topology — see [§Subscription input producers](#subscription-input-producers--app-db-reader-static-parametric-input-fn).)
+- **Subscription topology.** The static dependency graph derived from `reg-sub` registrations — the literal declared edges plus the per-sub input-kind discriminator (`:db` / `:static` / `:parametric`). Pure data, JVM-runnable. (Realized parametric edges per concrete query vector are runtime cache state, not static topology — see [§Subscription input producers](#subscription-input-producers--app-db-reader-static-parametric-input-fn).)
 - **Subscription computation.** `(compute-sub query-v db)` — running a sub's body against an `app-db` value. Pure function. JVM-runnable.
 - **Effect map interpretation.** Walking `:fx` and dispatching to registered fx handlers. Per [Spec-Schemas §:rf/effect-map](Spec-Schemas.md#rfeffect-map).
 - **The trace event stream.** Per [009](009-Instrumentation.md). Pure data.
@@ -94,7 +94,7 @@ This is **pattern contract**, not merely one acceptable representation. A confor
 
 **Commit boundary.** The drain's commit step (per [002 §Run-to-completion §commit](002-Frames.md#run-to-completion-dispatch-drain-semantics)) installs an app-db change (`:db` effect), a runtime-db change (`:rf.db/runtime` effect), or both as **one atomic `replace-container!` on the frame-state container** (`commit-frame-transition!`). There is never a window where one partition is committed and the other is not; an app/runtime cascade is one coherent frame-state transition. **Single-commit contract (rf2-uhk9ko):** dev-mode schema validation runs over the complete CANDIDATE transition BEFORE this install — a settling event performs at most ONE `replace-container!` on the frame-state container, and a schema-REJECTED candidate performs ZERO (no forward write, no restore write). The substrate therefore never observes an invalid candidate: no container watch fires, no derived value recomputes, and no subscriber (a Reagent reaction, a `useSyncExternalStore` snapshot, an epoch-scheduler drain) is notified for a rejected dispatch — the retired install-then-rollback write-pair, whose forward write leaked the invalid value to synchronous observers, no longer exists. The frame-state coeffect is injected by reference (no copy), so a pure app event pays nothing for the runtime partition it never touches.
 
-Layer-1 app subs read the **app-db** projection; framework subs (`[:rf/machine <id>]`, `[:rf.route/*]`) read the **runtime-db** projection. Both are ordinary derived-value sources to the rest of the sub-cache machinery — the projection split is invisible to the invalidation algorithm below, which sees two layer-1 inputs instead of one. These runtime-db framework subs are read the same way as any other subscription — the ordinary `subscribe` naming the reserved `:rf/*` vector (`[:rf/machine <id>]` per [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub), `[:rf/route]` / `[:rf/pending-navigation]` per [012 §Reading the route is a sub](012-Routing.md#reading-the-route-is-a-sub), and — for the optional Resources artefact — `[:rf/resource <query>]` / `[:rf/mutation {:instance <instance>}]` per [016 §Subscriptions (passive)](016-Resources.md#subscriptions-passive)). There is no named-read-sugar fn layered over them: a runtime-db framework read is a subscription vector, one grammar (per [Conventions §Reserved sub-ids](Conventions.md#reserved-sub-ids)). The vectors stay canonical (a `:<-` chain still names the vector), and the same grammar covers ordinary app-db content — including flow output — read with the plain `subscribe`.
+Layer-1 app subs read the **app-db** projection; framework subs (`[:rf/machine <id>]`, `[:rf.route/*]`) read the **runtime-db** projection. Both are ordinary derived-value sources to the rest of the sub-cache machinery — the projection split is invisible to the invalidation algorithm below, which sees two layer-1 inputs instead of one. These runtime-db framework subs are read the same way as any other subscription — the ordinary `subscribe` naming the reserved `:rf/*` vector (`[:rf/machine <id>]` per [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub), `[:rf/route]` / `[:rf/pending-navigation]` per [012 §Reading the route is a sub](012-Routing.md#reading-the-route-is-a-sub), and — for the optional Resources artefact — `[:rf/resource <query>]` / `[:rf/mutation {:instance <instance>}]` per [016 §Subscriptions (passive)](016-Resources.md#subscriptions-passive)). There is no named-read-sugar fn layered over them: a runtime-db framework read is a subscription vector, one grammar (per [Conventions §Reserved sub-ids](Conventions.md#reserved-sub-ids)). The vectors stay canonical (an `:inputs` declaration still names the vector), and the same grammar covers ordinary app-db content — including flow output — read with the plain `subscribe`.
 
 ## The adapter API contract
 
@@ -905,7 +905,7 @@ Each frame holds one sub-cache, keyed by `[query-vector]`:
 {[query-vector]
  {:reaction  r            ;; the substrate-specific derived container
   :inputs    [[q1] [q2]]  ;; the realized input query-vectors for THIS cache entry —
-                          ;; the literal :<- chain for a static sub, or the
+                          ;; the literal :inputs list for a static sub, or the
                           ;; (input-fn query-v) result for a parametric sub (per
                           ;; [§Subscription input producers]). Fixed for the entry's
                           ;; lifetime (fixed-topology-per-cache-entry invariant).
@@ -930,7 +930,7 @@ Lookup [query-v] in frame F:
     ;; (per [§Subscription input producers]), then resolve each recursively.
     input-qs ← match meta.input-kind:
                  :db          → []                        ;; layer-1: no producer
-                 :static      → meta.input-signals        ;; literal :<- query-vectors
+                 :static      → meta.input-signals        ;; literal :inputs query-vectors
                  :parametric  → validate((meta.input-fn query-v))  ;; vector of query-vectors
     inputs   ← input-qs.map(q → subscribe(F, q))  ;; recurse — resolve each input → containers
     body     ← meta.fn
@@ -953,7 +953,7 @@ Lookup [query-v] in frame F:
 Two properties this guarantees:
 
 1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself, compared by `rf=` (per [§Host value model](#host-value-model--rf-equality-and-value-keyed-caching) — two `rf=`-equal query vectors are one key on every host, however the host realises value-keyed lookup). v2 has a single disposal algorithm (synchronous ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)).
-2. **Layer-1/2/3 chaining.** A layer-2 sub's `:<-` inputs are themselves resolved via this same lookup, recursively. The recursion terminates at layer-1 subs whose inputs are not other subs but readers over a **partition projection** directly — the **app-db** projection for ordinary app subs, the **runtime-db** projection for framework subs (`[:rf/machine <id>]`, `[:rf.route/*]`). Per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections).
+2. **Layer-1/2/3 chaining.** A layer-2 sub's declared inputs are themselves resolved via this same lookup, recursively. The recursion terminates at layer-1 subs whose inputs are not other subs but readers over a **partition projection** directly — the **app-db** projection for ordinary app subs, the **runtime-db** projection for framework subs (`[:rf/machine <id>]`, `[:rf.route/*]`). Per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections).
 
 ### Invalidation algorithm
 
@@ -1002,9 +1002,9 @@ Three load-bearing properties:
 
 1. **No path-overlap means no recompute.** A `:cart/total` sub depending on `[:cart :items]` does not recompute when `:user-profile` changes. (How the implementation knows: `=`-equality on the input value. If the input is value-equal, the sub stays cached.)
 2. **Value-equal means no propagation.** A no-op `(assoc db :x (:x db))` produces a `=`-equal `app-db`; no sub recomputes; no view re-renders.
-3. **Topological cascade.** Layer-2 subs see the new layer-1 values when they recompute. Layer-3 subs see new layer-2 values. The cascade respects the static `:<-` topology recorded during registration.
+3. **Topological cascade.** Layer-2 subs see the new layer-1 values when they recompute. Layer-3 subs see new layer-2 values. The cascade respects the static declared-input topology recorded during registration.
 
-Reagent realises this automatically: each `Reaction` re-runs only when its derefs change by `=`; the reactive graph is built from the `:<-` chain. Non-CLJS implementations (or the plain-atom adapter) must satisfy the contract explicitly — Phase 1 / Phase 2 / Phase 3 above is the fallback algorithm.
+Reagent realises this automatically: each `Reaction` re-runs only when its derefs change by `=`; the reactive graph is built from the declared inputs. Non-CLJS implementations (or the plain-atom adapter) must satisfy the contract explicitly — Phase 1 / Phase 2 / Phase 3 above is the fallback algorithm.
 
 The `=` test in Phase 1 and Phase 2 is a contract on the *verdict*, not a mandate to walk the structure every time. A single-source consumer whose source publishes a [movement witness](#movement-witness-optional) may reach the same verdict by pointer comparison when the witness determines it, and must reach it by the `=` walk otherwise — obligation C1 there makes the two indistinguishable from outside.
 
@@ -1017,12 +1017,12 @@ The terminology comes from re-frame v1; the semantics carry over.
 | Layer | Inputs | Example | Recompute trigger |
 |---|---|---|---|
 | **Layer-1** | Reads `app-db` directly | `(reg-sub :user (fn [db _] (:user db)))` | The body re-runs on **every** commit (the algorithm above runs each layer-1 body against the new partition projection unconditionally); the `=` check on the *result* gates propagation, not the run. |
-| **Layer-2** | Reads other subs via `:<-` | `(reg-sub :user-name :<- [:user] (fn [u _] (:name u)))` | Any input sub's value changes by `=`. |
-| **Layer-3** | Reads other subs via `:<-`, where one or more inputs are themselves layer-2 | `(reg-sub :user-greeting :<- [:user-name] :<- [:locale] (fn [...] ...))` | Any input sub's value changes by `=`. |
+| **Layer-2** | Reads other subs via `:inputs` | `(reg-sub :user-name {:inputs [[:user]]} (fn [[u] _] (:name u)))` | Any input sub's value changes by `=`. |
+| **Layer-3** | Reads other subs via `:inputs`, where one or more inputs are themselves layer-2 | `(reg-sub :user-greeting {:inputs [[:user-name] [:locale]]} (fn [...] ...))` | Any input sub's value changes by `=`. |
 
-Layers ≥ 3 are conventionally just "layer-2+" — the algorithm treats them all the same. The distinction matters for understanding the cascade order (layer-1 settles before layer-2, layer-2 before layer-3) but not for the implementation, which uses `:<-` chain depth implicitly via topological iteration.
+Layers ≥ 3 are conventionally just "layer-2+" — the algorithm treats them all the same. The distinction matters for understanding the cascade order (layer-1 settles before layer-2, layer-2 before layer-3) but not for the implementation, which uses declared-input depth implicitly via topological iteration.
 
-**Layer-1 bodies MUST be cheap.** Because every layer-1 body re-runs on every commit (it is the propagation gate — it must run to decide whether to propagate), a layer-1 body must be a plain slice: a `get` / `get-in`, nothing more. Put a `sort-by` or any real computation in a layer-1 body and that work runs on every commit, in every frame, including commits that touch unrelated state. Push the computation into a layer-2 `:<-` sub, where it runs only when the extracted slice actually changes by `=`.
+**Layer-1 bodies MUST be cheap.** Because every layer-1 body re-runs on every commit (it is the propagation gate — it must run to decide whether to propagate), a layer-1 body must be a plain slice: a `get` / `get-in`, nothing more. Put a `sort-by` or any real computation in a layer-1 body and that work runs on every commit, in every frame, including commits that touch unrelated state. Push the computation into a layer-2 sub, where it runs only when the extracted slice actually changes by `=`.
 
 ### Subscription input producers — app-db reader, static, parametric input-fn
 
@@ -1140,7 +1140,7 @@ The `on-dispose` hook lets the adapter release substrate-specific resources (a R
 
 1. **A sub can become live again after disposal.** A view unmounts and its last subscription drops; the slot disposes. Later, the same view re-mounts (cache miss, fresh computation). This is correct — the cache is performance, not state. The recomputed value will `=` what was disposed (same body, same `app-db`); no observable difference. **Shared-component re-mount in the same cascade**: when view A unmounts and view B (which subscribes to the same `query-v`) mounts in the same React commit, the sub is disposed by A's cleanup then re-built by B's mount. The disposed reaction and the rebuilt reaction are distinct objects but compute the same value; the cost is one extra `compute-and-cache!` call (one reaction allocation, one body run) — accepted as the "most honest" cost of closing the wasted-recompute window.
 2. **Eager subs.** A future `:reg-sub-by-path` (post-v1) might keep its cache slot live regardless of ref-count, for performance. v1 has no eager subs; if added, the contract surface is `entry.eager? = true` and the disposal path skips the slot. **SA-4 — untracked note (no bead filed yet):** this is a post-v1 design direction with no concrete tracking bead, so it does not qualify as `:post-v1 tracked` (which requires a `rf2-<id>`). **Fires-when trigger:** measured perf demand — a real workload where the per-subscribe rebuild cost of an always-recomputed path sub is the dominant cost. The disposal seam is already pinned (`entry.eager? = true` ⇒ disposal skips the slot), so the note tracks the *decision to add eager subs*, not an open disposal question; a tracking bead is filed only when that perf trigger fires.
-3. **Disposal cascades.** When a layer-2 sub disposes, its layer-1 inputs lose one reader each (the parent's `on-dispose` callback calls `unsubscribe` on every `:<-` input symmetrically with the construction-time subscribes). If an input was held only by that layer-2 sub, it cascades to disposal in the same tick. The whole cascade — parent + every transitively-held input — completes within the call that drove the parent's 1 → 0 transition.
+3. **Disposal cascades.** When a layer-2 sub disposes, its layer-1 inputs lose one reader each (the parent's `on-dispose` callback calls `unsubscribe` on every declared input symmetrically with the construction-time subscribes). If an input was held only by that layer-2 sub, it cascades to disposal in the same tick. The whole cascade — parent + every transitively-held input — completes within the call that drove the parent's 1 → 0 transition.
 
 #### Render-phase provisional acquisition and commit adoption
 
@@ -1706,18 +1706,18 @@ compiled tier additionally proves a finite set of possible read sites. What `v/s
 
 ## What happens when a sub references an unknown sub
 
-A sub registered via `:<-` referencing an undefined input is an error:
+A sub declaring an undefined input is an error:
 
 ```clojure
 (rf/reg-sub :cart/total
-  :<- [:cart/items]                                 ;; OK
-  :<- [:nonexistent/data]                           ;; ❌ no :nonexistent/data registered
+  {:inputs [[:cart/items]                           ;; OK
+            [:nonexistent/data]]}                   ;; ❌ no :nonexistent/data registered
   (fn [...] ...))
 ```
 
 The behaviour is environment-specific:
 
-- **At registration time** (when the macro runs), the runtime cannot fully validate `:<-` — the input might be registered later in the load order.
+- **At registration time** (when the macro runs), the runtime cannot fully validate `:inputs` — an input might be registered later in the load order.
 - **At first use** (when something tries to subscribe to `:cart/total`), the runtime resolves all inputs. If any input is unregistered, the runtime emits a `:rf.error/no-such-sub` trace event (per [009 §Error contract](009-Instrumentation.md#error-contract)) and returns `nil` for that input. Recovery: `:replaced-with-default`.
 
 The subscription's body still runs with `nil` substituted for the unresolved input. This is intentional: it keeps the trace stream readable (the agent sees one error event rather than a chain of cascading throws) and lets the caller handle the missing data gracefully if it can.
@@ -1864,7 +1864,7 @@ The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-c
         ;; Produce the realized input query-vectors for THIS entry from the sub's
         ;; input producer (per [§Subscription input producers]):
         ;;   :db         → []                          ; layer-1 reads app-db directly
-        ;;   :static     → (:input-signals meta)       ; literal :<- query-vectors
+        ;;   :static     → (:input-signals meta)       ; literal :inputs query-vectors
         ;;   :parametric → (normalize-sub-inputs       ; (input-fn query-v), validated
         ;;                   ((:input-fn meta) query-v))
         ;; normalize-sub-inputs enforces the input grammar (a vector of query
@@ -1910,7 +1910,7 @@ What this gives:
 
 - **Hot reload** ([001-Registration](001-Registration.md), bead-tracked): re-registering a sub disposes the cache slot for that query; next subscribe rebuilds with the new body.
 - **Frame teardown** ([002 §Destroy](002-Frames.md#destroy)): `dispose-frame-subs!` fires from the frame's lifecycle hook; every reaction is disposed; no leaks.
-- **Layer-1/2/3 semantics**: the recursion in `compute-and-cache` builds a chain. A layer-2 sub's reaction `:<-`s into a layer-1 sub's reaction; Reagent's tracking propagates `=`-equality up the chain.
+- **Layer-1/2/3 semantics**: the recursion in `compute-and-cache` builds a chain. A layer-2 sub's reaction reads a layer-1 sub's reaction; Reagent's tracking propagates `=`-equality up the chain.
 
 ### Frame-provider via React context
 
@@ -2149,9 +2149,9 @@ All the adapters read the **same** React Context object (`re-frame.adapter.conte
 
 A subtle distinction worth pulling out: **the static topology of the sub graph is core; the runtime tracking is adapter**.
 
-The topology is "what depends on what" — the static dependency graph you can derive from registrations alone, without running any code. `(rf/sub-topology)` returns this graph as data, shaped `{sub-id {:input-kind <kind> :inputs <inputs> :doc :ns :line :file}}` per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api). `:input-kind` discriminates `:db` (layer-1 / direct-app-db reader; `:inputs []`), `:static` (`:<-` chains; `:inputs` lists the literal upstream query vectors in declaration order), and `:parametric` (`input-fn`; `:inputs :parametric` — the realized edge set depends on the concrete outer query vector and is therefore NOT statically enumerable). `:doc` and the source-coord keys are present when the registration carries them. JVM-runnable. No adapter needed. **Realized parametric edges** per concrete query vector are runtime cache state, surfaced by `sub-cache` / live sub-cache inspection (e.g. `{[:article/page :a1] {:sub-id :article/page :input-kind :parametric :realized-inputs [[:article/by-id :a1] ...]}}`), not by the static `sub-topology` — the static query must not pretend every possible parametric edge is enumerable before concrete query vectors exist.
+The topology is "what depends on what" — the static dependency graph you can derive from registrations alone, without running any code. `(rf/sub-topology)` returns this graph as data, shaped `{sub-id {:input-kind <kind> :inputs <inputs> :doc :ns :line :file}}` per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api). `:input-kind` discriminates `:db` (layer-1 / direct-app-db reader; `:inputs []`), `:static` (a literal `:inputs` list of the upstream query vectors, in declaration order), and `:parametric` (`input-fn`; `:inputs :parametric` — the realized edge set depends on the concrete outer query vector and is therefore NOT statically enumerable). `:doc` and the source-coord keys are present when the registration carries them. JVM-runnable. No adapter needed. **Realized parametric edges** per concrete query vector are runtime cache state, surfaced by `sub-cache` / live sub-cache inspection (e.g. `{[:article/page :a1] {:sub-id :article/page :input-kind :parametric :realized-inputs [[:article/by-id :a1] ...]}}`), not by the static `sub-topology` — the static query must not pretend every possible parametric edge is enumerable before concrete query vectors exist.
 
-`sub-topology` is a *literal projection* of the registrar — it does not validate the resulting graph. Cycle detection, "this `:<-` references an unregistered sub", and similar diagnostics are debugger / tool-pair concerns that traverse the returned map; the topology query itself reports verbatim what was registered. (Cycles in `:<-` are not legal at runtime — the resolved sub will throw — but the topology query stays a static projection.)
+`sub-topology` is a *literal projection* of the registrar — it does not validate the resulting graph. Cycle detection, "this declared input references an unregistered sub", and similar diagnostics are debugger / tool-pair concerns that traverse the returned map; the topology query itself reports verbatim what was registered. (Cycles in the declared-input graph are not legal at runtime — the resolved sub will throw — but the topology query stays a static projection.)
 
 The tracking is "when source X changes, recompute everyone who depends on X" — the runtime mechanism that makes views update reactively. This requires the adapter's `make-derived-value` and is substrate-specific.
 

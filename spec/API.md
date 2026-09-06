@@ -981,7 +981,7 @@ v1 transition-table grammar subset is enumerated in [005 §Capability matrix](00
 | `[:rf/machine <machine-id>]` | The machine's snapshot `{:state :data :tags}` (or `nil` if not yet initialised) | 005 |
 | `[:rf.machine/has-tag? <machine-id> <tag>]` | `true` iff the machine's current snapshot's `:tags` set contains `tag` (`false` for an unknown / not-yet-initialised machine) | 005 |
 
-The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub). It is read like any other subscription — `@(rf/subscribe [:rf/machine machine-id])`, `@(rf/subscribe [:rf.machine/has-tag? machine-id tag])` — and named projections chain off it with `:<-`. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one grammar.
+The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub). It is read like any other subscription — `@(rf/subscribe [:rf/machine machine-id])`, `@(rf/subscribe [:rf.machine/has-tag? machine-id tag])` — and named projections chain off it by declaring it under `:inputs`. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one grammar.
 
 ---
 
