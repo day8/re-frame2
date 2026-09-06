@@ -1692,10 +1692,10 @@ The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and 
 
 1. Identify every call site of `(rf/init!)` / `(rf/init! :keyword)`.
 2. For each, add a `:require` of the relevant adapter ns (if not already present):
-   - Reagent: `[re-frame.adapter.reagent :as reagent]`
-   - UIx: `[re-frame.adapter.uix :as uix]`
-   - SSR (JVM-side): `[re-frame.ssr :as ssr]`
-   - Plain-atom (headless tests): `[re-frame.substrate.plain-atom :as plain-atom]`
+   - Reagent: `[re-frame.adapter.reagent :as rf.adapter.reagent]`
+   - UIx: `[re-frame.adapter.uix :as rf.adapter.uix]`
+   - SSR (JVM-side): `[re-frame.ssr :as rf.ssr]`
+   - Plain-atom (headless tests): `[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]`
 3. Replace the call:
 
 ```clojure
@@ -1703,13 +1703,13 @@ The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and 
 (rf/init!)
 
 ;; after — Reagent
-(rf/init! reagent/adapter)
+(rf/init! rf.adapter.reagent/adapter)
 
 ;; after — UIx
-(rf/init! uix/adapter)
+(rf/init! rf.adapter.uix/adapter)
 
 ;; after — SSR (JVM-side bootstrap)
-(rf/init! ssr/adapter)
+(rf/init! rf.ssr/adapter)
 ```
 
 **Error categories dropped:** `:rf.error/no-adapter-registered`, `:rf.error/multiple-default-adapters`, `:rf.error/unknown-adapter-key` (none survive — there is no registry to disambiguate). The replacement single category is `:rf.error/no-adapter-specified`.
