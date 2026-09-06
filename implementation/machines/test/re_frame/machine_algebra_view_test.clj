@@ -290,7 +290,7 @@
 ;; ---- machine-selector? recognizer ----------------------------------------
 
 (deftest machine-selector-recognizer
-  (testing "a static :<- [:rf/machine …] sub is recognized as a machine selector"
+  (testing "a static `[:rf/machine …]` input sub is recognized as a machine selector"
     (rf/reg-machine :upload/main upload-machine)
     (rf/reg-sub :upload/progress
       {:inputs [[:rf/machine :upload/main]]}

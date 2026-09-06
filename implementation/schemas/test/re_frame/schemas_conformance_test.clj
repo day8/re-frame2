@@ -336,12 +336,10 @@
         (case kind
           :layer-1 (if (seq meta) (rf/reg-sub id meta body) (rf/reg-sub id body))
           ;; Use the fn-form `subs/reg-sub` — the public `rf/reg-sub`
-          ;; is a JVM macro (Spec 001 §Source-coordinate capture); a
-          ;; macro var isn't `apply`-able.
-          :layer-2 (apply rf.subs/reg-sub id
-                          (concat (when (seq meta) [meta])
-                                  (interleave (repeat :<-) inputs)
-                                  [body])))))
+          ;; is a JVM macro (Spec 001 §Source-coordinate capture).
+          ;; A declared dependency list rides the metadata map
+          ;; (rf2-kuky.50), so the fixture's inputs go in as DATA.
+          :layer-2 (rf.subs/reg-sub id (assoc meta :inputs (vec inputs)) body))))
     ;; ---- fxs -----------------------------------------------------------
     ;; Schema fixtures rarely register fx bodies, but cover the case for
     ;; symmetry with the other runners (and for any future fixture that

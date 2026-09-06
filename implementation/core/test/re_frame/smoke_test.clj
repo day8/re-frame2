@@ -122,9 +122,9 @@
     (rf/reg-sub :n+m   {:inputs [[:n] [:m]]} (fn [[n m] _] (+ n m)))
     ;; Layer-1 read.
     (is (= 7 (rf/compute-sub [:n] {:n 7})))
-    ;; Layer-2 single :<-.
+    ;; Layer-2, one declared input.
     (is (= 14 (rf/compute-sub [:n*2] {:n 7})))
-    ;; Layer-2 multi :<-.
+    ;; Layer-2, two declared inputs.
     (is (= 10 (rf/compute-sub [:n+m] {:n 7 :m 3})))
     ;; Unknown sub returns nil instead of throwing.
     (is (nil? (rf/compute-sub [:no-such-sub] {})))))
@@ -435,7 +435,7 @@
 ;; ---- compute-sub per-call memoisation (rf2-gyxm3) -------------------------
 ;;
 ;; `compute-sub` threads a per-call `{query-v -> value}` memo through its
-;; `:<-` recursion so each DISTINCT sub in the dependency graph computes
+;; declared-input recursion so each DISTINCT sub in the dependency graph computes
 ;; at most once per top-level call. These tests pin that contract by
 ;; counting body invocations against a known graph shape, AND confirm the
 ;; memo does not change computed values (it is a pure dedup).

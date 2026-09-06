@@ -16,7 +16,7 @@
   The sub-cache wires symmetric input-release through
   `re-frame.interop/add-on-dispose!` at slot construction (Spec 006
   §Reference counting and disposal) and `re-frame.interop/dispose!` at
-  slot evict — so a layer-2+ sub's `:<-` inputs lose their reader when
+  slot evict — so a layer-2+ sub's declared inputs lose their reader when
   the parent reaction disposes. Both runtimes must honour that contract
   or input ref-counts leak monotonically until `clear-sub-cache!`.
 

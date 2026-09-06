@@ -4,7 +4,7 @@
   EP-0014) and the `:rf/derivation-node` shape in [spec/Spec-Schemas.md].
 
   `re-frame.subs.tooling/sub-algebra-view` lowers every registered
-  subscription — a layer-1 `:db` reader, a static `:<-` sub, a parametric
+  subscription — a layer-1 `:db` reader, a static declared-input sub, a parametric
   input-fn sub, the framework `reg-runtime-sub`, and the framework
   `reg-frame-state-sub` — into the normalized algebra node every declared
   fact/process shares: a `:derivation` whose ephemeral output fact is
@@ -123,10 +123,10 @@
     (is (nil? (rf.subs.tooling/sub-algebra-view :ghost))
         "an unregistered sub id projects to nil")))
 
-;; ---- reg-sub static :<- --------------------------------------------------
+;; ---- reg-sub static inputs --------------------------------------------------
 
 (deftest static-sub-lowers-each-input-to-a-sub-edge
-  (testing "a static :<- sub lowers each literal input query-vector to a [:sub q] declared input"
+  (testing "a static declared-input sub lowers each literal input query-vector to a [:sub q] declared input"
     (rf/reg-sub :cart/items      (fn [db _] (:items db)))
     (rf/reg-sub :pricing/discounts (fn [db _] (:discounts db)))
     (rf/reg-sub :cart/total
@@ -138,16 +138,16 @@
       (is (= [[:sub [:cart/items]]
               [:sub [:pricing/discounts]]]
              (:inputs node))
-          "each :<- input is a [:sub query-vector] declared input, in declaration order")
+          "each declared input is a [:sub query-vector] declared input, in declaration order")
       (is (not (contains? node :input-producer))))))
 
 (deftest static-sub-preserves-query-vector-args
-  (testing "static declared inputs preserve the full :<- query-vector args"
+  (testing "static declared inputs preserve the full declared query-vector args"
     (rf/reg-sub :upstream (fn [db [_ _arg]] (:n db)))
     (rf/reg-sub :downstream {:inputs [[:upstream :some-arg]]} (fn [[u] _] u))
     (is (= [[:sub [:upstream :some-arg]]]
            (:inputs ((rf.subs.tooling/sub-algebra-view) :downstream)))
-        "the declared input carries the full :<- query-vector, args and all")))
+        "the declared input carries the full declared query-vector, args and all")))
 
 ;; ---- reg-sub parametric input-fn -----------------------------------------
 
@@ -266,7 +266,7 @@
     (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] b))
     (let [node ((rf.subs.tooling/sub-algebra-view) :a)]
       (is (= [[:sub [:b]]] (:inputs node))
-          "the re-registered :<- chain replaces the prior :db reader's inputs")
+          "the re-registered declared-input chain replaces the prior :db reader's inputs")
       (is (has-fixed-classifications? node)))))
 
 (deftest cleared-sub-is-removed

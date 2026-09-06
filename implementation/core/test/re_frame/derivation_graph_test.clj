@@ -93,7 +93,7 @@
                :selector-targets  rf.machines.tooling/machine-selector-targets}})
 
 (defn- register-one-of-each! []
-  ;; :subs — a static `:<-` sub (an :input edge source) + a layer-1 sub.
+  ;; :subs — a static declared-input sub (an :input edge source) + a layer-1 sub.
   (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
   (rf/reg-sub :cart/total
               {:inputs [[:cart/items]]}
@@ -183,7 +183,7 @@
                        :to   [:sub :cart/total]
                        :role :input})
                 edges)
-          "the static :<- input edge from :cart/items to :cart/total")
+          "the static declared-input edge from :cart/items to :cart/total")
       ;; :selector — :upload/main → :upload/progress (the machine selector).
       (is (some #(= % {:from [:machine :upload/main]
                        :to   [:sub :upload/progress]

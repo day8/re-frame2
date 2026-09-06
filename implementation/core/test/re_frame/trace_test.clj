@@ -211,7 +211,7 @@
       (rf/dispatch-sync [:run-client-fx] {:frame :test/main})
 
       ;; ---- :rf.error/no-such-sub ------------------------------------------
-      ;; A sub whose :<- input isn't registered.
+      ;; A sub whose declared input isn't registered.
       (rf/reg-sub :unresolved
         {:inputs [[:no-such/input]]}
         (fn [[v] _] v))

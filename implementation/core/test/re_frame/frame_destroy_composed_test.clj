@@ -361,12 +361,12 @@
           (rf/unregister-listener! :trace ::dispose-emit))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3b-2. Frame-destroy on a layered (:<- ) sub emits exactly one
+;; 3b-2. Frame-destroy on a layered (declared-input) sub emits exactly one
 ;; :rf.sub/dispose PER cached slot — no cascade re-emit (rf2-awhtpc)
 ;;
 ;; dispose-all-for-frame-destroy! used to walk the cache and call
 ;; rf.interop/dispose! per slot WITHOUT first evicting the whole cache atom.
-;; A layer-2+ sub's on-dispose callback releases its `:<-` input refs via
+;; A layer-2+ sub's on-dispose callback releases its declared-input refs via
 ;; unsubscribe! — if an input's slot was still present in the
 ;; not-yet-cleared cache, dropping its ref-count to 0 fired a SECOND
 ;; :rf.sub/dispose (reason :no-more-derefers) for that input, racing the
@@ -377,7 +377,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest destroy-emits-exactly-one-dispose-per-slot-for-layered-sub
-  (testing "a layer-2 sub (:<- two inputs) held live at frame-destroy: every
+  (testing "a layer-2 sub (two declared inputs) held live at frame-destroy: every
             cached slot (the sum + its two inputs) gets EXACTLY ONE
             :rf.sub/dispose, reasoned :frame-destroy — no double-emit from
             the on-dispose ref-count cascade racing the frame-destroy walk

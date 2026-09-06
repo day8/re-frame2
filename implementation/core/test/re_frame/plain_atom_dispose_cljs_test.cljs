@@ -9,7 +9,7 @@
   through the `:adapter/add-on-dispose!` / `:adapter/dispose!` late-bind
   hooks — which the plain-atom adapter did NOT publish, and its derived
   value reified no disposal protocol. The consequence was a monotonic
-  leak: a layer-2+ sub's `:<-` input ref-counts never decremented on slot
+  leak: a layer-2+ sub's declared-input ref-counts never decremented on slot
   evict, pinning the inputs in the cache until `clear-sub-cache!`.
 
   These tests run a CLJS-plain-atom host (the SSR / headless-on-CLJS
@@ -37,7 +37,7 @@
 
 (deftest layer-2-disposal-decrements-input-ref-counts-on-cljs-plain-atom
   (testing "rf2-uatcy — disposing a layer-2 sub on the CLJS-plain-atom
-            adapter decrements ref-counts on every :<- input and cascades
+            adapter decrements ref-counts on every declared input and cascades
             their disposal, mirroring the JVM contract"
     (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))

@@ -9,7 +9,7 @@
   N recomputes per app-db change instead of one. Each redundant recompute
   re-runs the user's sub body and emits a `:sub/run` trace; a layer-3 sub
   re-fires per redundant layer-2 notification, fanning the waste across
-  the whole `:<-` graph. Reagent is immune (native batched `r/flush!`);
+  the whole input graph. Reagent is immune (native batched `r/flush!`);
   the spine must satisfy the Spec 006 §Invalidation algorithm Phase 1/2/3
   contract explicitly (one recompute + one Phase-3 notification per dirty
   entry per app-db change).
@@ -167,7 +167,7 @@
   (testing "a layer-3 sub over a multi-input layer-2 sub propagates ONE
             coherent notification per tier per replace-container! — the
             cascade settles to the right value with no spurious extra
-            notifications down the :<- chain.
+            notifications down the declared-input chain.
 
             (Recompute counts are deliberately NOT asserted here: the
             spine is pull-based, so a downstream `-deref` of layer-2

@@ -411,10 +411,10 @@
           :runtime-db (if (seq sub-meta)
                         (rf.subs/reg-runtime-sub id sub-meta body)
                         (rf.subs/reg-runtime-sub id body))
-          :layer-2 (apply rf.subs/reg-sub id
-                          (concat (when (seq sub-meta) [sub-meta])
-                                  (interleave (repeat :<-) inputs)
-                                  [body])))))
+          ;; A declared dependency list rides the metadata map (rf2-kuky.50):
+          ;; the fixture's `:inputs` go in as DATA rather than spliced
+          ;; positionally, so the corpus registers through the one public form.
+          :layer-2 (rf.subs/reg-sub id (assoc sub-meta :inputs (vec inputs)) body))))
     ;; fx handlers — DSL bodies. Per rf2-yhfgf: an id with NO body in
     ;; :fixture/handlers but a meta in :fixture/registry is "declare the
     ;; dependency, leave the framework registration alone" — the harness does
@@ -1434,10 +1434,8 @@
                   :runtime-db (if (seq sub-meta)
                                 (rf.subs/reg-runtime-sub sub-id sub-meta body)
                                 (rf.subs/reg-runtime-sub sub-id body))
-                  :layer-2 (apply rf.subs/reg-sub sub-id
-                                  (concat (when (seq sub-meta) [sub-meta])
-                                          (interleave (repeat :<-) inputs)
-                                          [body]))))
+                  :layer-2 (rf.subs/reg-sub
+                             sub-id (assoc sub-meta :inputs (vec inputs)) body)))
 
               ;; EP-0017 (rf2-d8mvke.3): a dispatch asserting a boundary /
               ;; context-assembly THROW. The throw escapes `dispatch-sync`, so

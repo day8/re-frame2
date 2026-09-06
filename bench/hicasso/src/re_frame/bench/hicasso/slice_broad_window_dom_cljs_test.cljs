@@ -196,7 +196,7 @@
   IT IS THE REALISED SUBGRAPH, NOT THE BOUNDARY READ SET, and the
   difference is worth stating because it makes this comparison STRONGER
   rather than looser. A cache entry exists for every reaction that was
-  materialised, so a `:<-` sub's inputs are in here beside the values a
+  materialised, so a declared-input sub's inputs are in here beside the values a
   body asked for: reading `[::rf.hicasso.examples.slice.subs/current-page]` puts `[::rf.hicasso.examples.slice.subs/listed]`,
   `[::rf.hicasso.examples.slice.subs/page]`, `[:rf.route/query]` and `[:rf/route]` in the roster
   too. A donor whose extra read were hidden one layer down — a different
@@ -483,7 +483,7 @@
                   (is (contains? don [:rf.route/query])
                       "and the roster reaches INPUTS, not just the values a body
                        asked for: neither page reads the route's query directly,
-                       and it is here because `[::rf.hicasso.examples.slice.subs/page]` is `:<-` it — so a
+                       and it is here because `[::rf.hicasso.examples.slice.subs/page]` declares it as an input — so a
                        read hidden one layer down would still show up")
 
                   (is (empty? (set/difference don hic))

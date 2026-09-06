@@ -44,7 +44,7 @@
   (`bodyRuns = 2.00N` vs Reagent's `1.00N`, rf2-2rtt6.12,
   `docs/design/hicasso/studio/uix-spine-per-read-decomposition.md`), and
   this instrument priced the CLOCK of that second construction — the
-  second sub-body run, the `:<-` input-chain re-deref, and the reaction
+  second sub-body run, the declared-input re-deref, and the reaction
   allocation on the commit-phase rebuild — at >= 20% of the mount
   red-zone in every round at layers 1, 2 and 3.
 
@@ -82,16 +82,16 @@
 
   ## The sub layers
 
-  The `:<-` input-chain re-deref lives at layer 2+, so the witnesses run
+  The declared-input re-deref lives at layer 2+, so the witnesses run
   at three depths over the converged witness set's own layer-1 sub:
 
       layer 1   [:p0/cell i]                  (rf2-2rtt6.2's, unchanged)
-      layer 2   [:cm/l2 i]  :<-  [:p0/cell i]  (parametric input-fn)
-      layer 3   [:cm/l3 i]  :<-  [:cm/l2 i]
+      layer 2   [:cm/l2 i]  over  [:p0/cell i]  (parametric input-fn)
+      layer 3   [:cm/l3 i]  over  [:cm/l2 i]
 
   The chain fns are identity, deliberately: the sub BODIES here are the
   witness set's near-zero bodies, so the layer ladder isolates the
-  per-hop `:<-` machinery (input subscribe, input reaction construction,
+  per-hop declared-input machinery (input subscribe, input reaction construction,
   input re-deref) rather than user compute.
 
   ## The counting witnesses
@@ -182,14 +182,14 @@
 
 (defn register!
   "The full sub graph for one segment: the converged set's layer-1
-  `:p0/cell` (via `rf.bench.hicasso.p0-reagent-views/register!`, unchanged), the identity `:<-` chain the
+  `:p0/cell` (via `rf.bench.hicasso.p0-reagent-views/register!`, unchanged), the identity input chain the
   layer-2/3 rows read, and the counter-instrumented witness chain.
   Re-registering overwrites with identical handlers, so the per-segment
   re-register is idempotent (the converged arm's own pattern)."
   []
   (rf.bench.hicasso.p0-reagent-views/register!)
-  ;; Parametric `:<-` producers — the index rides the query vector, which
-  ;; the static literal `:<-` form cannot express. A parametric single
+  ;; Parametric `:inputs` producers — the index rides the query vector, which
+  ;; the static literal `:inputs` form cannot express. A parametric single
   ;; input is delivered as `[value]` (Spec 006 §Single input contract).
   (rf/reg-sub :cm/l2
     {:inputs (fn [qv] [[:p0/cell (second qv)]])}

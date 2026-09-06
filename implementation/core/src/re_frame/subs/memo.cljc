@@ -20,7 +20,7 @@
   layer-1 sub × every dispatch that touches it pays this — the hottest
   allocation in the artefact.
 
-  Layer-2 with a single `:<-` input gets the same fixed-arity-1
+  Layer-2 with a single declared input gets the same fixed-arity-1
   treatment. The adapter's `make-derived-value` specialises its
   recompute closure to `(compute-fn @s0)` for the 1-source case, and the
   memo wrapper mirrors the layer-1 specialisation: a fixed-arity-1
@@ -65,7 +65,7 @@
   recompute. `prev-in-vals` is the memo wrapper's last-seen input value(s)
   (the `::unset` sentinel on the first recompute, otherwise a seq parallel
   to `input-signals`); `in-vals` is the freshly-resolved input value(s);
-  `input-signals` is the vector of upstream `:<-` query-vectors in
+  `input-signals` is the vector of upstream declared query-vectors in
   registration order. Returns the FIRST input-signal query-vector whose
   value differs from its prior, or nil when none differ / no prior exists
   (first recompute → `::unset` sentinel, cause unknown).
@@ -171,7 +171,7 @@
                        `:rf.sub/cascade?`). `true` when this is a layer-2+
                        sub (an upstream SUB drove the recompute); `false`
                        for a layer-1 sub (an app-db path change drove it).
-    :cause-sub       — for a cascade, the upstream `:<-` query-vector
+    :cause-sub       — for a cascade, the upstream declared query-vector
                        whose value changed (`changed-cause-sub`); nil
                        for a layer-1 sub OR a layer-2+ first recompute
                        (no prior input to diff against).
@@ -225,8 +225,8 @@
   `last-result` cell, `::unset` on first recompute) and `prev-in-vals`
   (the wrapper's last-seen input value(s), `::unset` on first recompute,
   else a coll parallel to `input-signals`)."
-  [body-fn in-vals query-id query-v frame-id input-signals sub-meta sub-scope
-   prev-value prev-in-vals vector-inputs?]
+  [body-fn body-arg in-vals query-id query-v frame-id input-signals sub-meta sub-scope
+   prev-value prev-in-vals]
   ;; Publish the sub's HandlerScope for the duration of body-fn
   ;; invocation + validation + the `:rf.sub/run` emit. Per Spec 009
   ;; §:rf.trace/trigger-handler the sub's source-coord rides every emit
@@ -245,16 +245,16 @@
   ;; always-on readers — the EP-0027 `make-frame`-in-handler guard and the
   ;; `:dispatch-id` correlation reads — are untouched.
   ;;
-  ;; `vector-inputs?`: when true, the body ALWAYS receives the resolved
-  ;; inputs as a VECTOR (in producer order) at every count — `[]`, `[v]`,
-  ;; `[a b]`. That is the contract for DECLARED dependencies, whether the
-  ;; declaration is a literal `{:inputs [[:a]]}` or a producer fn (Spec 006
-  ;; §Subscription input producers; ruled on rf2-kuky.45). When false — the
-  ;; TRANSITIONAL `:<-` chain, deleted by rf2-kuky.50 — the v1 convention
-  ;; holds: a single `:<-` input is delivered as the bare value, ≥2 as a
-  ;; vector. The layer-1 wrapper passes false: a single-source reader
-  ;; (`:db` / `:runtime-db` / `:frame-state`) has no declared dependencies
-  ;; and its body receives the CONTAINER VALUE, never a vector.
+  ;; `body-arg` is the value the user's body is called with, SHAPED BY THE
+  ;; WRAPPER that built this reaction rather than by a runtime flag: the lone
+  ;; container value for a single-source reader (`:db` / `:runtime-db` /
+  ;; `:frame-state`), and the resolved inputs as a VECTOR in producer order —
+  ;; `[]`, `[v]`, `[a b]` — for a DECLARED dependency list, at every count,
+  ;; whether the declaration is a literal `{:inputs [[:a]]}` or a producer fn
+  ;; (Spec 006 §Subscription input producers; ruled on rf2-kuky.45). Those are
+  ;; the only two shapes, and each wrapper knows which one it is, so there is
+  ;; nothing to dispatch on here. `in-vals` still arrives raw, because the
+  ;; cascade attribution below diffs it positionally against `input-signals`.
   (rf.trace/with-handler-scope
     sub-scope
     (try
@@ -267,23 +267,7 @@
       ;; browser-only, NOT on the trace stream).
       (let [t0        (when rf.interop/debug-enabled? (rf.interop/now-ms))
             computed (rf.performance/mark-and-measure :sub query-id
-                      (cond
-                        ;; DECLARED dependencies — always a vector of input
-                        ;; values (producer order), at every count.
-                        vector-inputs?
-                        (body-fn (vec in-vals) query-v)
-
-                        ;; Single-source reader: the lone container value.
-                        (empty? input-signals)
-                        (body-fn (first in-vals) query-v)
-
-                        ;; TRANSITIONAL `:<-`: single input → bare value;
-                        ;; ≥2 inputs → vector (the v1 convention).
-                        (= 1 (count input-signals))
-                        (body-fn (first in-vals) query-v)
-
-                        :else
-                        (body-fn (vec in-vals) query-v)))
+                       (body-fn body-arg query-v))
             elapsed-ms (when rf.interop/debug-enabled? (- (rf.interop/now-ms) t0))
             validated (maybe-validate-sub! computed query-v query-id sub-meta frame-id)]
         ;; Emit AFTER compute+validate so the trace carries the computed
@@ -347,7 +331,7 @@
                                   :rf.sub/cascade?       cascade?
                                   ;; The REALIZED input
                                   ;; query-vectors for this concrete cache
-                                  ;; entry (the literal `:<-` list for
+                                  ;; entry (the literal `:inputs` list for
                                   ;; `:static`, the `(input-fn query-v)`
                                   ;; result for `:parametric`, `[]` for
                                   ;; layer-1). `input-signals` is the
@@ -482,7 +466,7 @@
   "Emit the memo-hit `:rf.sub/skip` trace for a sub that was reactively
   considered but did NOT recompute (input value-equal).
   `input-paths-unchanged` is the inputs-stable set (`[]` for layer-1, the
-  realized `:<-` query-vectors for layer-n). Outer `rf.interop/debug-enabled?`
+  realized declared query-vectors for layer-n). Outer `rf.interop/debug-enabled?`
   gate elides the tag-map construction + emit in CLJS production (Closure DCE
   under `:advanced` + `goog.DEBUG=false`).
 
@@ -625,9 +609,9 @@
           ;; from `(= unset prev-value)`.
           (let [prev-result (if (= ::unset @last-db) unset @last-result)
                 computed    (validate-and-trace
-                              body-fn (list db) query-id query-v
+                              body-fn db (list db) query-id query-v
                               frame-id [] sub-meta sub-scope
-                              prev-result unset false)]
+                              prev-result unset)]
             (vreset! last-db db)
             (vreset! last-result computed)
             computed))))))
@@ -649,21 +633,16 @@
 
   `validate-and-trace` receives `in-vals` as a singleton list — the
   same shape the varargs wrapper would have produced for arity-1 — so the
-  invocation path inside the validate/trace bracket is the varargs one.
-
-  `vector-inputs?` decides ONLY the body's argument: `[v0]` when the sub
-  DECLARED its dependency under `:inputs`, the bare `v0` for the
-  transitional `:<-` chain (rf2-kuky.50 deletes that half with the arrow
-  grammar). It does not touch the memo cells — the wrapper compares the
-  upstream value either way, so both spellings share this arm's allocation
-  profile and its memo-hit structure identically.
+  cascade attribution inside the validate/trace bracket is the varargs one.
+  The body's argument is `[v0]`, the same declared-dependency VECTOR every
+  other declared count receives; only the MEMO CELL is specialised here,
+  comparing the upstream value rather than a seq.
 
   `source-container` is the reaction's LONE signal source — here the
   upstream sub's own derived container — used only to resolve the movement
   witness once at construction (§The movement-witness short-circuit above).
   Pre-alpha posture: plain positional parameters, no compatibility arity."
-  [body-fn query-id query-v frame-id input-signals sub-meta source-container
-   vector-inputs?]
+  [body-fn query-id query-v frame-id input-signals sub-meta source-container]
   (let [last-v0     (volatile! ::unset)
         last-result (volatile! nil)
         sub-scope   (rf.trace/handler-scope-from-meta :sub query-id sub-meta)
@@ -702,9 +681,9 @@
                                unset
                                (list prev-v0))
                 computed     (validate-and-trace
-                               body-fn (list v0) query-id query-v
+                               body-fn [v0] (list v0) query-id query-v
                                frame-id input-signals sub-meta sub-scope
-                               prev-result prev-in-vals vector-inputs?)]
+                               prev-result prev-in-vals)]
             (vreset! last-v0 v0)
             (vreset! last-result computed)
             computed))))))
@@ -719,20 +698,15 @@
   Returns a `(fn [& in-vals])`. When `body-fn` is nil the wrapper
   yields nil on every call without touching the memo cells.
 
-  `vector-inputs?` (optional — defaults false): forwarded to
-  `validate-and-trace`. True for DECLARED dependencies (`{:inputs …}`,
-  literal or producer) and for the transitional two-fn parametric tail, so
-  the body always receives a VECTOR of input values in producer order at
-  every count — `[]`, `[v]`, `[a b]`. False (or omitted) for a
-  transitional `:<-` multi-input sub, where the v1 convention holds.
+  The body always receives a VECTOR of input values in producer order at
+  every count — `[]`, `[v]`, `[a b]` — which is the contract for DECLARED
+  dependencies, whether the declaration is a literal `{:inputs …}` or a
+  producer fn.
 
   See `make-layer-1-memoised-body` for the layer-1 specialisation and
   `make-layer-n-single-input-memoised-body` for the single-declared-input
   specialisation."
-  ([body-fn query-id query-v frame-id input-signals sub-meta]
-   (make-layer-n-memoised-body
-     body-fn query-id query-v frame-id input-signals sub-meta false))
-  ([body-fn query-id query-v frame-id input-signals sub-meta vector-inputs?]
+  [body-fn query-id query-v frame-id input-signals sub-meta]
   (let [last-in-vals (volatile! ::unset)
         last-result  (volatile! nil)
         sub-scope    (rf.trace/handler-scope-from-meta :sub query-id sub-meta)]
@@ -741,7 +715,7 @@
         (if (= @last-in-vals in-vals)
           ;; Memo hit — see `make-layer-1-memoised-body` for the
           ;; `:rf.sub/skip` rationale. `:input-paths-unchanged`
-          ;; carries every upstream `:<-` query-vector whose value was
+          ;; carries every upstream declared query-vector whose value was
           ;; stable (the varargs path has ≥2 inputs and the memo
           ;; compare is whole-seq `=`, so every input was stable).
           (do
@@ -761,9 +735,9 @@
           (let [prev-result  (if (= ::unset @last-in-vals) unset @last-result)
                 prev-in-vals @last-in-vals
                 computed     (validate-and-trace
-                               body-fn in-vals query-id query-v
+                               body-fn (vec in-vals) in-vals query-id query-v
                                frame-id input-signals sub-meta sub-scope
-                               prev-result prev-in-vals vector-inputs?)]
+                               prev-result prev-in-vals)]
             (vreset! last-in-vals in-vals)
             (vreset! last-result computed)
-            computed)))))))
+            computed))))))

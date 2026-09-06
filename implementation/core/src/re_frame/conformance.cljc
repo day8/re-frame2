@@ -905,7 +905,10 @@
             mapper  (when mapper-form (resolve-value mapper-form {}))]
         {:kind   :layer-2
          :inputs [[input-sub-id]]
-         :body   (fn [input-val _query]
+         ;; A DECLARED dependency list arrives as a VECTOR at every count, so
+         ;; the fold destructures its one input rather than reducing over the
+         ;; singleton wrapper (rf2-kuky.50).
+         :body   (fn [[input-val] _query]
                    (reduce reducer
                            (if mapper (map mapper input-val) input-val)))})
 

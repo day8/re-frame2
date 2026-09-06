@@ -81,7 +81,7 @@
   ;; `:rf.machine/has-tag?` subs, which register at re-frame.machines load
   ;; time (see re-frame.machines §framework-shipped subs). The state-machine-
   ;; walkthrough example's `:walkthrough.login/state` / `:walkthrough.login/error` named
-  ;; subs CHAIN off `:rf/machine` (`:<- [:rf/machine :walkthrough.login/flow]`), so
+  ;; subs CHAIN off `:rf/machine` (`{:inputs [[:rf/machine :walkthrough.login/flow]]}`), so
   ;; their input sub must be present in the registrar. The transitive require
   ;; from the example ns wouldn't re-fire re-frame.machines' toplevel reg-sub
   ;; forms once the ns is already loaded (Clojure require is idempotent), so
