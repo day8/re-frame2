@@ -46,9 +46,13 @@ Two distinct facts that must not be conflated:
   `resource-cache-algebra-view` projections) to feed the `:resources`
   contributor of the cross-family graph composer. Resources is no longer
   dependency-optional for Xray; the resources artefact depends only on
-  core, its tooling body is `interop/debug-enabled?`-gated + DCE'd, and
-  Xray is dev-only via `:devtools/preloads`, so the dep never reaches
-  production bundles (the bundle-isolation gate confirms this). The
+  core, its tooling body is `interop/debug-enabled?`-gated, and Xray's
+  canonical install is `:devtools/preloads` (dev build config), so a
+  host that keeps Xray out of its release build does not pay for the
+  dep. `check-bundle-isolation.cjs` pins that the counter example's
+  no-feature production bundle carries no tooling-sibling sentinels —
+  a leak check on a bundle that never installed Xray, not a proof about
+  one that did. The
   Derivation-Graph tab needs the algebra-view PROJECTION; the panel below
   needs only the raw runtime-db slice — hence the panel's read path stays
   decoupled even though the artefact pulls the dep.

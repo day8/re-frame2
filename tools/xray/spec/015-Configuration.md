@@ -984,9 +984,13 @@ phase plan above.
 
 ## Production posture
 
-Per [`API.md`](./API.md) §Force-disable, production builds DCE the
-Xray shell. The config atoms survive (`configure!` is CLJC) but are
-never read; calling `configure!` in production is a no-op observable
-only through the atoms. Hosts MAY guard the call behind
-`goog.DEBUG` / `^boolean js/goog.DEBUG` if avoiding the no-op write
-matters — typically it does not.
+Per [`API.md`](./API.md) §Force-disable and
+[`Principles.md`](./Principles.md) §Production posture is build
+placement, a release build carries no Xray shell when the host doesn't
+load Xray — build placement, not a gate inside these namespaces. On a
+build that *does* load Xray with `goog.DEBUG=false`, the preload's boot
+block folds away, so the shell never mounts and never reads the config
+atoms; `configure!` is then a write nobody observes but the atoms
+themselves. Hosts MAY guard the call behind `goog.DEBUG` /
+`^boolean js/goog.DEBUG` if avoiding that write matters — typically it
+does not, and it is not what keeps Xray out of the bundle.

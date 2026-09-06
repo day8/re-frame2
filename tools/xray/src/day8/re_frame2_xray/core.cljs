@@ -77,8 +77,11 @@
 
   Returns the mount-state map or a missing-host diagnostic map (for
   tests / introspection). No-op (returns nil) when no substrate adapter
-  is installed — production builds, hosts that never called `rf/init!`,
-  etc."
+  is installed — hosts that never called `rf/init!`. Adapter presence is
+  NOT a production discriminator: an app that called `rf/init!` has one
+  in production exactly as in dev, and this fn carries no `goog.DEBUG`
+  gate. Keeping it out of a release build is build placement — see the
+  `init!` docstring."
   mount/open!)
 
 (def open-overlay!
@@ -152,6 +155,23 @@
   Unknown opt keys are silently ignored (forward-compat): a future
   release adds keys here without breaking older callers, and a host
   passing a newer key against an older Xray MUST NOT break either.
+
+  ## Production posture
+
+  This fn carries NO `goog.DEBUG` gate. It registers the `:rf.xray/*`
+  handlers, the trace and epoch collectors, the browser-global exports
+  and the keybinding listener unconditionally. Requiring this namespace
+  at all runs load-time registrations (`mount.cljs`'s seven top-level
+  `register-first-mount-hook!` forms, `shell.cljs`'s top-level
+  `reg-view` forms, `keybinding.cljs`), so wrapping the CALL in
+  `(when ^boolean goog.DEBUG …)` is not enough.
+
+  Exclusion is the host's job, and it is build placement: prefer the
+  preload (`:devtools/preloads` is dev build config, so a release build
+  never loads the namespace), or keep the `:require` AND the calls in a
+  namespace only the dev entry point loads. No CI gate in this repo
+  proves Xray's absence from a release bundle — `npm run test:elision`
+  roots `re-frame.*` sentinels only.
 
   Returns nothing."
   ([]

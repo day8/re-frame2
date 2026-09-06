@@ -72,8 +72,10 @@
   nodes — the no-machines / no-resources story now holds PER-APP (an app
   that registers no machines) rather than per-tool (Xray missing the
   artefact). The tooling siblings' bodies are dev-gated
-  (`interop/debug-enabled?`) + bundle-isolated; Xray itself is dev-only
-  (`:devtools/preloads`), so none of these reach a production bundle. The
+  (`interop/debug-enabled?`) + bundle-isolated; Xray itself is dev-only by
+  build placement (`:devtools/preloads` is dev build config), so a host
+  that keeps Xray out of its release build carries none of these. Nothing
+  in this ns gates on `goog.DEBUG`, and no CI gate proves the absence. The
   Resources panel (024) + Machine Inspector (003) still read those
   families' runtime-db slices decoupled — those are SEPARATE surfaces; the
   Derivation-Graph tab needs the algebra-view projection, not the raw

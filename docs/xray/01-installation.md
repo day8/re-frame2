@@ -133,6 +133,8 @@ The Settings picker overrides the boot-time `configure!` value per-machine, so a
 
 ## Production Posture
 
-Production builds should not include the preload. Even if a dev-only path accidentally remains reachable, Xray's substrate is gated by re-frame2's debug flag and the bundle-isolation checks guard against Xray strings leaking into production bundles.
+**Xray is kept out of production by where you put it, not by anything inside Xray.** The practical rule is the whole rule: put Xray in dev build config, not app code.
 
-The practical rule is simple: put Xray in dev build config, not app code.
+- **The preload path is dev-only build config.** `:devtools/preloads` belongs to the dev build, so a release build never loads `day8.re-frame2-xray.preload`. Its boot block is additionally wrapped in `(when rf.interop/debug-enabled? …)`, which Closure folds away under `:advanced` + `goog.DEBUG=false` — a second line of defence for that path. The trace and epoch collectors gate their own entry points the same way.
+- **The manual `init!` / mount path has no `goog.DEBUG` gate.** `init!` registers Xray's handlers, the collectors, the browser globals and the keybinding listener unconditionally; `open!` gates only on a substrate adapter being installed, which every app that called `rf/init!` has in production exactly as in dev. Requiring `day8.re-frame2-xray.core` at all runs load-time registrations, so guarding the *calls* is not enough — keep the `:require` **and** the calls in a namespace only your dev entry point loads. See [Mount control §Production: what keeps Xray out](api/mount-control.md#production-what-keeps-xray-out).
+- **No CI gate proves Xray's absence from a release bundle.** `npm run test:elision` roots `re-frame.*` sentinels only; the bundle-isolation check greps a no-feature bundle that never installed Xray. If you want certainty for your own build, grep your release output for `rf-xray-root` or `rf.xray` — both survive Closure as string literals. That is a leak detector, not proof of zero retained bytes.

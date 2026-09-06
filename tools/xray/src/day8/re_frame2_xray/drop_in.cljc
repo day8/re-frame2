@@ -83,10 +83,15 @@
 
   ## Production posture
 
-  Like the rest of Xray, every entry point is gated on
-  `re-frame.interop/debug-enabled?` — production builds elide the
-  drop-in's pushes through Closure DCE. Hosts MAY call `attach!`
-  unconditionally; in production it is a silent no-op.
+  Every entry point in THIS ns is gated on
+  `re-frame.interop/debug-enabled?`, so a `goog.DEBUG=false` build folds
+  away the drop-in's pushes and `attach!` is a silent no-op. Hosts MAY
+  therefore call `attach!` unconditionally.
+
+  That self-gate is this namespace's only; it is not a property of Xray
+  as a whole. `init!` and the mount verbs carry no `goog.DEBUG` gate,
+  and Xray stays out of a release build by build placement — see
+  preload.cljs and the `core/init!` docstring.
 
   The API is a single arity-1 `attach!` taking an options map. Future
   modes (binary trace decoders, transit-over-websocket, etc.) add

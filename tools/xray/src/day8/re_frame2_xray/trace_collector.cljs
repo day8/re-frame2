@@ -20,11 +20,14 @@
 
   ## Production posture
 
-  Every entry point is gated on `re-frame.interop/debug-enabled?` so
-  Closure DCE drops the whole namespace in `:advanced` + `goog.DEBUG
-  false` builds. Listener registration lives in `install.cljs` and is
-  invoked by the preload under the same gate. See
-  `spec/013-Trace-Consumer.md`."
+  Every entry point in this ns is gated on
+  `re-frame.interop/debug-enabled?`, so `:advanced` + `goog.DEBUG false`
+  folds away the collector's bodies and the top-level registration.
+  Listener registration lives in `install.cljs` and is invoked by the
+  preload under the same gate — but `core/init!` invokes it with no
+  gate, and Xray as a whole stays out of a release build by build
+  placement rather than by this self-gate. See
+  `spec/013-Trace-Consumer.md` §Production posture."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]

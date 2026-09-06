@@ -2,7 +2,7 @@
 
 This chapter is about the surfaces that bring Xray's shell into view and take it away again. The core of it is **three distinct mount verbs** — `open!`, `open-overlay!`, `popout!` — that name three distinct surfaces, not modal variants of one shape. `open!` is the default; you reach for the other two when the host's layout can't accommodate the inline column, or when the user wants the panel in its own window. Around the open verbs sit `close!`, `toggle!`, and `status` for state inspection, plus a frame picker (`target-frame` / `set-target-frame!`) for telling Xray which host frame to observe, plus `init!` for the manual-install path that bypasses shadow-cljs preloads.
 
-There's also a small JS-side mirror — the same six verbs exposed on `window.day8.re_frame2_xray.*` so a devtools console, a JS host that doesn't `:require` CLJS, or a `puppeteer` script can reach the same shell. Production builds elide the install entirely via the `:advanced` + `goog.DEBUG=false` gate; you never have to scrub the global manually.
+There's also a small JS-side mirror — the same six verbs exposed on `window.day8.re_frame2_xray.*` so a devtools console, a JS host that doesn't `:require` CLJS, or a `puppeteer` script can reach the same shell. The **preload's** install of that mirror sits inside its `(when rf.interop/debug-enabled? …)` block, so an `:advanced` + `goog.DEBUG=false` build folds it away; `init!` installs the same globals with no such gate — see [Production: what keeps Xray out](#production-what-keeps-xray-out).
 
 ## The three open verbs
 
@@ -60,9 +60,11 @@ The three verbs are **not** a mode-symmetric triplet — there is no `open-inlin
 
 ## Manual install — the alternative to `:preloads`
 
-The canonical install path is wiring `day8.re-frame2-xray.preload` into shadow-cljs's `:devtools/preloads`. The preload runs six side-effects (registry, trace collector, epoch collector, browser-global install, keybinding listener, auto-open into the inline host) on app boot, all gated on `re-frame.interop/debug-enabled?` and all idempotent so shadow-cljs's `:after-load` cycle re-runs them safely.
+The canonical install path is wiring `day8.re-frame2-xray.preload` into shadow-cljs's `:devtools/preloads`. The preload runs six side-effects (registry, trace collector, epoch collector, browser-global install, keybinding listener, auto-open into the inline host) on app boot, all inside a `(when rf.interop/debug-enabled? …)` block and all idempotent so shadow-cljs's `:after-load` cycle re-runs them safely.
 
 For hosts that want to control the install timing — a custom boot pipeline with steps between adapter install and Xray attach, a test harness needing fine-grained sequencing, a host that ships its own preload bundle — `init!` is the alternative.
+
+**`init!` is not behind that gate.** If you take this path, keeping Xray out of your release build is your job, and the way to discharge it is placement: keep the `:require` **and** the calls in a namespace only your dev entry point loads, exactly as the [dev-only namespace sample](#dev-only-install-namespace) below does. Guarding only the calls is not enough — read [Production: what keeps Xray out](#production-what-keeps-xray-out) before shipping.
 
 ### `init!`
 
@@ -132,7 +134,7 @@ window.day8.re_frame2_xray.popout_BANG_()       // (xray/popout!)
 window.day8.re_frame2_xray.status()             // (xray/status) → map
 ```
 
-The mirror is gated on `re-frame.interop/debug-enabled?` — production builds (`:advanced` + `goog.DEBUG=false`) elide the install entirely; there is no `window.day8` pollution in shipped binaries.
+The **preload's** install of the mirror sits inside its `(when rf.interop/debug-enabled? …)` block, so an `:advanced` + `goog.DEBUG=false` build folds that install away. `init!` installs the same globals with no such gate, so a release build that loads your `init!` call gets `window.day8` — see [Production: what keeps Xray out](#production-what-keeps-xray-out).
 
 Once `core.cljs` has loaded, the same six fns are also reachable under `window.day8.re_frame2_xray.core.*` so JS-console users see the canonical facade names. Both spellings are stable contracts.
 
@@ -178,10 +180,13 @@ A complete boot, from preload-wiring through to the first scrubber tick:
 
 That's the full boot. The preload registers Xray's listeners and auto-opens into `[data-rf-xray-host]` once `rf/init!` has installed the substrate. No `(require '[day8.re-frame2-xray.core])`, no `init!` call. The preload plus the host element are the integration surface.
 
-Hosts that want explicit control — a Story tool page that suppresses auto-open, an embed host that needs to bypass the preload — reach for the imperative facade above:
+### Dev-only install namespace
+
+Hosts that want explicit control — a Story tool page that suppresses auto-open, an embed host that needs to bypass the preload — reach for the imperative facade above. Put it in a namespace **only your dev entry point loads**, and keep the `:require` there too:
 
 ```clojure
-(ns my.app.tool-page
+;; src-dev/my/app/xray_install.cljs — on the dev build's source path only.
+(ns my.app.xray-install
   (:require [day8.re-frame2-xray.core :as xray]
             [day8.re-frame2-xray.config :as xray-config]))
 
@@ -193,16 +198,17 @@ Hosts that want explicit control — a Story tool page that suppresses auto-open
 (xray/set-target-frame! :app/tool-canvas)
 ```
 
-## Production: nothing ships
+The release build's entry point never requires `my.app.xray-install`, so nothing above ever reaches it. That placement — not a flag — is what keeps Xray out.
 
-Xray is **dev-only** by construction. Under `:advanced` compilation with `goog.DEBUG=false`:
+## Production: what keeps Xray out
 
-- The preload entry is reachable only through dev-build paths; production builds don't `:require` it.
-- The framework's trace bus is gated on `re-frame.interop/debug-enabled?`. Every `register-listener!` registration elides at the source.
-- The browser-global JS mirror's install is gated the same way; production bundles carry no `window.day8` pollution.
-- Source-coord stamping (`data-rf2-source-coord` on every rendered DOM element) elides under the same gate; rendered HTML in production carries no source-coord bytes.
+**Build placement, not construction.** Xray stays out of a release build because the host doesn't load it. There are three facts, and it is worth having all three:
 
-A CI gate ([`implementation/scripts/check-bundle-isolation.cjs`](https://github.com/day8/re-frame2/blob/main/implementation/scripts/check-bundle-isolation.cjs)) greps the plain production bundle for Xray-internal sentinel strings; any hit is a PR-failing regression. The elision holds whether you remember to remove the preload or not.
+**1. The preload path is dev-only build configuration.** `:devtools/preloads` belongs to the dev build, so a release build never loads `day8.re-frame2-xray.preload`. Its boot block is additionally wrapped in `(when rf.interop/debug-enabled? …)`, which Closure folds away under `:advanced` + `goog.DEBUG=false` — a second line of defence for that path. The trace and epoch collectors gate their own entry points the same way. Separately, the framework's own instrumentation elides under that flag: the trace bus's `register-listener!` registrations and source-coord stamping (`data-rf2-source-coord`) are gone from a `goog.DEBUG=false` build whatever else is in it.
+
+**2. `init!` and the mount verbs carry no `goog.DEBUG` gate.** `init!` registers Xray's `:rf.xray/*` handlers, the trace and epoch collectors, the browser-global exports and the keybinding listener unconditionally. `open!` gates only on a substrate adapter being installed — which every app that called `rf/init!` has, in production exactly as in dev; adapter presence is not a production discriminator. And requiring `day8.re-frame2-xray.core` at all runs load-time registrations, so wrapping `(xray/init!)` in `(when ^boolean goog.DEBUG …)` inside a namespace your release build still requires does not help. Guard the `:require`, not just the call — see [Dev-only install namespace](#dev-only-install-namespace) above.
+
+**3. No CI gate proves Xray's absence from a release bundle.** `npm run test:elision` compiles `re-frame.elision-probe` under `:advanced` twice and greps sentinels drawn from `re-frame.*` namespaces; it roots no Xray namespace, so a green run attests the *framework's* elision and says nothing about whether Xray reached your bundle. [`implementation/scripts/check-bundle-isolation.cjs`](https://github.com/day8/re-frame2/blob/main/implementation/scripts/check-bundle-isolation.cjs) pins that the counter example's *no-feature* production bundle carries no tooling-sibling or Xray-only-dependency sentinels — a leak check on a bundle that never installed Xray. If you want certainty about your own build, grep your release output for `rf-xray-root` or `rf.xray`; both survive Closure as string literals. That is a leak detector, not proof of zero retained bytes.
 
 ## See also
 

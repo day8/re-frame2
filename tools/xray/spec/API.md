@@ -16,10 +16,12 @@ wins.
 {:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-Loading the preload runs the foundation side-effects — all
-gated on `interop/debug-enabled?` so production bundles strip them
-via Closure DCE, and all idempotent so shadow-cljs's `:after-load`
-cycle re-runs without double-registration:
+Loading the preload runs the foundation side-effects — all inside the
+preload's `(when interop/debug-enabled? …)` block, so Closure folds
+them away under `:advanced` + `goog.DEBUG=false`, and all idempotent so
+shadow-cljs's `:after-load` cycle re-runs without double-registration.
+That block gates the *preload* path only; `init!` and the mount verbs
+carry no `goog.DEBUG` gate (§Force-disable):
 
 1. Registers Xray's `:rf.xray/*` subs / events / fxs via
    `registry/register-xray-handlers!`.
@@ -135,8 +137,22 @@ inline host).
 ```
 
 When set false (or in a production build via `goog.DEBUG=false`), the
-preload's entry point is a no-op; no DOM root, no listeners, zero
-bytes after elision.
+**preload's** entry point is a no-op: no DOM root, no listeners, and
+Closure folds the boot block away.
+
+This is not a switch that turns Xray off wherever it is installed.
+`init!`, `open!`, `open-overlay!`, `toggle!` and `popout!` carry no
+`goog.DEBUG` gate — `init!` registers the `:rf.xray/*` handlers, the
+collectors, the browser-global exports and the keybinding listener
+unconditionally, and `open!` gates only on a substrate adapter being
+installed, which every app that called `rf/init!` has. Requiring
+`day8.re-frame2-xray.core` at all runs load-time registrations, so a
+host on the manual path keeps the `:require` **and** the calls in a
+namespace only the dev entry point loads
+(`skills/re-frame2-xray/references/launch-programmatic.md` §Keeping the
+manual path out of production; [`Principles.md`](./Principles.md)
+§Production posture is build placement). No CI gate proves Xray's
+absence from a release bundle.
 
 ## Public CLJS API
 
@@ -299,7 +315,7 @@ authoritative list.
 | `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 standalone-mountable Dynamic `Panel` reg-views — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `resources/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 10 tabs). The three remaining Dynamic tabs — `derivation_graph/Panel` (Graph, EP-0014), `module_view/Panel` (Frames, EP-0023) and `hicasso/Panel` (Hicasso, rf2-hic-023) — are **L4-only registry tabs**: focusable via `focus!` but with no standalone `mount-*!` facade (shell-internal). rf2-gbz39 removed `issues-ribbon/Panel` + `mount-issues-ribbon!` per Mike's Option (c) ruling — the Issues tab + its aggregate panel were removed; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (the `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
 | `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-egress-profile!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-xray.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Xray's preload and wants to take the chord back. |
-| `window.day8.re_frame2_xray.*` | `preload.cljs` | The browser-global JS API the preload installs (`interop/debug-enabled?`-gated). The exact Closure-name-mangled spellings: `open_BANG_`, `open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_`, `status`. Mirrored under `window.day8.re_frame2_xray.core.*` once `core.cljs` has loaded so JS-console users see the canonical facade names. Production builds elide the install entirely via the `interop/debug-enabled?` gate. |
+| `window.day8.re_frame2_xray.*` | `preload.cljs` | The browser-global JS API the preload installs (`interop/debug-enabled?`-gated). The exact Closure-name-mangled spellings: `open_BANG_`, `open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_`, `status`. Mirrored under `window.day8.re_frame2_xray.core.*` once `core.cljs` has loaded so JS-console users see the canonical facade names. The preload's install sits inside its `(when interop/debug-enabled? …)` block, so a `goog.DEBUG=false` build folds that install away; `init!` installs the same globals with no such gate. |
 
 Two surfaces deliberately not re-exported through the canonical
 facade:
@@ -433,8 +449,11 @@ Xray ships **no npm package and no ESM/CJS adapter** — there is no
 `@day8/re-frame2-xray` JS entry point, no `package.json` under
 `tools/xray`, and no `init({defaultFrame})` JS surface. A JS-console
 user (or a JS host) drives Xray through the **dev-only browser globals**
-the preload installs on `window`, gated by `interop/debug-enabled?` so
-they are absent from production builds:
+the preload installs on `window`. The preload's install sits inside its
+`(when interop/debug-enabled? …)` block, so a `goog.DEBUG=false` build
+folds it away; a host that reaches the same globals via `init!` installs
+them with no such gate, and keeps that call out of release by build
+placement (§Force-disable):
 
 ```javascript
 // Closure-name-mangled spellings (preload-only bundles):
@@ -452,8 +471,9 @@ window.day8.re_frame2_xray.core.open_BANG_();      // etc.
 
 These mirror the canonical CLJS facade fns (`open!` / `open-overlay!` /
 `close!` / `toggle!` / `popout!` / `status` — §Public CLJS API); the
-exact spellings + the `interop/debug-enabled?` gate are catalogued in
-§Wider public surface (`window.day8.re_frame2_xray.*`). The host-side
+exact spellings + the preload's `interop/debug-enabled?` block are
+catalogued in §Wider public surface
+(`window.day8.re_frame2_xray.*`). The host-side
 **install + boot config** is the CLJS `init!` (kebab opts
 `:target-frame` / `:theme` / `:density` / `:buffer-depths`) or the
 `:devtools/preloads` path — NOT a JS `init`, and there is **no**

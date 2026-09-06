@@ -414,7 +414,10 @@ Nothing is pinned, dispatched or acquired; the read is `try`-guarded and degrade
 to `{}`, which the advisor renders as a capped window rather than as a quiet
 application. Every underlying read is `nil` or `[]` in a production build (the
 Hicasso door and the trace ring both nil-gate on
-`re-frame.interop/debug-enabled?`), and Xray never reaches a production bundle.
+`re-frame.interop/debug-enabled?`). Xray itself stays out of a release build
+by build placement — the host doesn't load it (see
+[`Principles.md`](./Principles.md) §Production posture is build placement) —
+rather than by any gate of its own.
 The dependency points one way only: `tools/xray` → `implementation/`.
 
 Production erasure is rf2-hic-024's sentinel proof and is unchanged by this

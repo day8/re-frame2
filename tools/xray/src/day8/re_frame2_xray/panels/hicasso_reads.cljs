@@ -36,8 +36,11 @@
   ## DEV-ONLY
 
   Every read is `nil` in a production build: the Hicasso door nil-gates on
-  `re-frame.interop/debug-enabled?`, and Xray itself never reaches a
-  production bundle (the tools/README bundle-isolation contract)."
+  `re-frame.interop/debug-enabled?`. That gate is the door's, not this
+  ns's — nothing here gates on `goog.DEBUG`. Xray is dev-only by build
+  placement (see preload.cljs); the tools/README bundle-isolation
+  contract pins that `implementation/` never requires Xray, not that a
+  host's release bundle is free of it."
   (:require [re-frame.hicasso.tool :as rf.hicasso.tool]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 

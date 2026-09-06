@@ -82,7 +82,7 @@ The dev-only side-effect bundle. You don't call anything here directly — you l
 5. Attach the global `Ctrl+Shift+C` keydown listener.
 6. Auto-open the shell true-inline into the host's layout host once the substrate adapter is ready.
 
-All gated on `re-frame.interop/debug-enabled?` so production bundles strip them via Closure DCE, and all idempotent so shadow-cljs's `:after-load` cycle re-runs without double-registration.
+All six sit inside the preload's `(when rf.interop/debug-enabled? …)` block, so Closure folds them away under `:advanced` + `goog.DEBUG=false`, and all are idempotent so shadow-cljs's `:after-load` cycle re-runs without double-registration. That block gates the **preload** path only — `init!` runs the same six side-effects with no `goog.DEBUG` gate, and keeping that call out of a release build is build placement (see [Mount control §Production: what keeps Xray out](mount-control.md#production-what-keeps-xray-out)).
 
 ## `window.day8.re_frame2_xray.*` (browser-global JS mirror)
 

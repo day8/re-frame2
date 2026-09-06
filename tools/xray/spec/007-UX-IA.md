@@ -1749,9 +1749,16 @@ Per-tab lazy loading via shadow-cljs's per-output-target slicing:
 
 ## Production posture
 
-The launch pill doesn't render in production builds (per Spec 009 §
-Production builds — `goog.DEBUG=false` elides the entire surface).
-`Ctrl+Shift+C` does nothing. CI verifies via `npm run test:elision`.
+A release build that never loads Xray has no launch pill and no
+`Ctrl+Shift+C` binding, because the namespaces are not in the bundle.
+That is a **build-placement** property, not a construction one: the
+preload rides `:devtools/preloads` (dev build config) and folds its boot
+block under `goog.DEBUG=false`, but the manual `init!` path carries no
+`goog.DEBUG` gate — a host installing Xray from app code keeps the
+`:require` and the calls in a dev-only namespace, per
+[`Principles.md`](./Principles.md) §Production posture is build
+placement. No CI gate proves Xray's absence from a release bundle:
+`npm run test:elision` roots `re-frame.*` sentinels only.
 
 > **Status (rf2-2oug): the posture banner below is normative-future —
 > nothing in `tools/xray/src` implements it.** The paragraph is retained as
@@ -1759,12 +1766,13 @@ Production builds — `goog.DEBUG=false` elides the entire surface).
 > `tools/xray/src`: zero hits for the banner text both line-oriented and
 > whitespace-collapsed, against a `dismiss` control returning 43.
 >
-> It is deliberately not built. The posture question it answers is already
-> answered by the elision gate above — a production build carries no Xray
-> surface at all, and `npm run test:elision` holds that in CI — so the
-> banner is a dev-build courtesy rather than a privacy control, and
-> building it speculatively to make this sentence true would be the wrong
-> direction of causation. The `skills/re-frame2-xray` reference
+> It is deliberately not built. The posture question it answers is
+> answered by build placement — a release build that doesn't load Xray
+> carries no Xray surface — so the banner is a dev-build courtesy rather
+> than a privacy control, and building it speculatively to make this
+> sentence true would be the wrong direction of causation. The tell that
+> Xray shipped is simply that its surface is there. The
+> `skills/re-frame2-xray` reference
 > `references/launch-lifecycle.md` §Production posture records the same
 > status in the same words; the two carriers must stay in step.
 

@@ -1,6 +1,8 @@
 # Xray — UX/UI Design
 
 > Bead **rf2-90d5 (P2 research)**. Local-only working draft. **Not committed; not normative.** Companion to [`re-frame-10x-v2-design.md`](re-frame-10x-v2-design.md) (rf2-buor). rf2-buor establishes **what** Xray is; this document designs **how it feels**. Visuals are described in prose plus ASCII layout sketches; every pixel size, colour token, and timing is concrete enough that a programmer can implement against it.
+>
+> **Superseded on production elision (rf2-qqn9, ruled 2026-09-06).** §Production builds below says Xray's surface elides in prod and that "CI verifies via `npm run test:elision`". Both are wrong: `test:elision` roots `re-frame.*` sentinels only, and Xray carries no `goog.DEBUG` gate on the manual install path. The shipped contract is build placement — see [`Principles.md`](../Principles.md) §Production posture is build placement. The paragraph is preserved as the record of what was proposed; do not build on it.
 
 ---
 

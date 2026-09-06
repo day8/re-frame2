@@ -26,10 +26,9 @@
 
   ## Production posture
 
-  Rides Xray's dev-only preload (gated on `interop/debug-enabled?`),
-  so production builds DCE this ns. Every read / write guards
-  `js/window` existence so the JVM test path doesn't blow up on
-  classpath load.
+  Dev-only by build placement (see preload.cljs); nothing in this ns
+  gates on `goog.DEBUG`. Every read / write guards `js/window`
+  existence so the JVM test path doesn't blow up on classpath load.
 
   ## Test-only
 
