@@ -206,3 +206,66 @@
       (is (= 12 @rc))
       (is (= [3 2 2] [@a-runs @b-runs @c-runs])
           "real change propagates through the chain once"))))
+
+;; ---- the same specialisation under a DECLARED `:inputs` (rf2-kuky.46) -----
+;;
+;; A single DECLARED input routes through this same fixed-arity-1 wrapper; the
+;; only thing that differs is the body's argument — `[v0]` rather than the bare
+;; `v0` the transitional `:<-` chain still delivers. The wrapper compares the
+;; upstream value either way, so the memo-hit structure these tests pin must be
+;; identical across the two spellings. That is what makes the vector delivery
+;; free: it is a change to the CALL, not to the memo cells.
+
+(deftest layer-n-1-memo-holds-for-a-declared-single-input
+  (testing "a single declared `:inputs` short-circuits on an `=`-equal upstream
+            value exactly as the `:<-` spelling does, while delivering `[v0]`"
+    (let [runs (atom 0)
+          seen (atom nil)]
+      (rf/reg-event :seed   (fn [_ _]              {:db {:n 7 :unrelated 0}}))
+      (rf/reg-event :touch  (fn [{:keys [db]} _]   {:db (update db :unrelated inc)}))
+      (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
+      (rf/reg-sub :n   (fn [db _] (:n db)))
+      (rf/reg-sub :n*2 {:inputs [[:n]]}
+                  (fn [in _] (swap! runs inc) (reset! seen in) (* 2 (first in))))
+      (rf/dispatch-sync [:seed])
+      (let [r (rf/subscribe [:n*2])]
+        (is (= 14 @r))
+        (is (= 1 @runs) "first deref runs the body")
+        (is (= [7] @seen) "the declared input arrives as a ONE-ELEMENT VECTOR")
+        (is (= 14 @r))
+        (is (= 1 @runs) "a second deref against the same upstream does NOT re-run")
+        (rf/dispatch-sync [:touch])
+        (is (= 14 @r))
+        (is (= 1 @runs)
+            "an unrelated db change leaves the upstream value equal — still no re-run")
+        (rf/dispatch-sync [:update 3])
+        (is (= 6 @r))
+        (is (= 2 @runs) "body re-runs when the upstream value changed")
+        (is (= [3] @seen) "…and the new value is still delivered wrapped")
+        (rf/unsubscribe [:n*2])))))
+
+(deftest layer-n-1-declared-and-arrow-spellings-run-the-body-equally-often
+  (testing "the two spellings produce the same VALUE stream and the same NUMBER
+            of body runs over an identical sequence of commits — the delivery
+            shape is the only difference"
+    (let [arrow-runs    (atom 0)
+          declared-runs (atom 0)]
+      (rf/reg-event :seed   (fn [_ _]                {:db {:n 0 :unrelated 0}}))
+      (rf/reg-event :touch  (fn [{:keys [db]} _]     {:db (update db :unrelated inc)}))
+      (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
+      (rf/reg-sub :n (fn [db _] (:n db)))
+      (rf/reg-sub :arrow    :<- [:n]        (fn [n _]  (swap! arrow-runs inc) (* 2 n)))
+      (rf/reg-sub :declared {:inputs [[:n]]} (fn [[n] _] (swap! declared-runs inc) (* 2 n)))
+      (rf/dispatch-sync [:seed])
+      (let [a (rf/subscribe [:arrow])
+            d (rf/subscribe [:declared])
+            read! (fn [] [@a @d])]
+        (is (= [0 0] (read!)))
+        (doseq [ev [[:touch] [:update 3] [:touch] [:update 3] [:update 5]]]
+          (rf/dispatch-sync ev)
+          (let [[av dv] (read!)]
+            (is (= av dv) (str "the two spellings disagree after " (pr-str ev)))))
+        (is (= @arrow-runs @declared-runs)
+            "the declared spelling costs no extra body run")
+        (rf/unsubscribe [:arrow])
+        (rf/unsubscribe [:declared])))))
