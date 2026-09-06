@@ -497,6 +497,35 @@
 
 ;; ---- public API ----------------------------------------------------------
 
+(defn ensure-seated!
+  "SEAT the Xray shell frame if the host runtime is ready, so a dispatch
+  into `:rf/xray` has a frame to land in. Idempotent and cheap: a
+  re-seat is skipped by `image-reads/xray-frame-seated?`, and the whole
+  call is a no-op until the host has installed a substrate adapter
+  (`rf/make-frame` raises `:rf.error/no-adapter-installed` without one —
+  the constraint `boot-on-runtime-ready!` polls for).
+
+  ## Why this is NOT `ensure-xray-frame!` (rf2-88f1)
+
+  `ensure-xray-frame!` is the seat PLUS the first-mount hook fan-out,
+  and the fan-out must stay at first OPEN: it harvests the trace rings
+  and epoch ring the user produced BEFORE opening Xray, so running it
+  early would snapshot an empty ring and then skip — its `seeded-frame-
+  ids` guard runs it once — leaving a later first open with no pre-open
+  history to show.
+
+  So a caller that merely needs the frame to EXIST takes this fn.
+  `boot-on-runtime-ready!` already made exactly that distinction on the
+  readiness path (rf2-avi7); this is that call, named, so the public
+  facade can make it too.
+
+  Returns nothing."
+  ([] (ensure-seated! shell/default-frame-id))
+  ([frame-id]
+   (when (rf.substrate.adapter/current-adapter)
+     (image-reads/seat-xray-frame! frame-id))
+   nil))
+
 (defn ensure-xray-frame!
   "Register the shell frame if not already registered, then run each
   registered first-mount hook — but ONLY on the first call for a given
@@ -1209,7 +1238,9 @@
                     ;; Idempotent (`xray-frame-seated?` skips a re-seat), and
                     ;; seed-free — `open!` here, or a later first open, still
                     ;; runs the first-mount hooks through `ensure-xray-frame!`.
-                    (image-reads/seat-xray-frame! shell/default-frame-id)
+                    ;; Same call the public facade takes (rf2-88f1), so the
+                    ;; seat-without-seeding rule is expressed once.
+                    (ensure-seated! shell/default-frame-id)
                     (if (config/auto-open-enabled?)
                       (open!)
                       (note-auto-open-disabled!)))

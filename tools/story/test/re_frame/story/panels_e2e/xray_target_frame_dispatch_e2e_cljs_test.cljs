@@ -18,6 +18,18 @@
   Pin: the variant-id IS the frame-id (Story `make-frame`s each variant
   under its variant-id; see `re-frame.story.frames`).
 
+  ## Why each selection edge is followed by a queue flush (rf2-88f1)
+
+  The watcher now makes this gesture through Xray's host-facing facade,
+  `core/set-target-frame!`, rather than hand-rolling `(rf/with-frame :rf/xray
+  (rf/dispatch-sync …))` — a host has no business knowing that `:rf/xray` is
+  Xray's frame, and the hand-rolled form raced Xray's seat at boot. The facade
+  rides the ordinary async queue, as Story's sibling Xray gestures already do,
+  so the slot lands on a later task rather than before `select-variant!`
+  returns. These deftests are synchronous, so they flush the queue themselves
+  instead of racing the host scheduler. What they assert is unchanged: WHICH
+  edges re-orient Xray and which do not.
+
   Sub-second per surface; no DOM / no React mount / no Playwright."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -47,6 +59,18 @@
   []
   ((deref #'rf.story.ui.shell/remove-selection-watcher!)))
 
+(defn- select-variant!
+  "Drive a selection edge and flush `:rf/xray`'s queue, so the watcher's
+  facade dispatch is observable to the synchronous assertion that follows.
+  `dispatch-sync!` seeds at the FRONT of the queue and then runs the drain
+  loop to fixed point, so a benign chrome event flushes whatever the edge
+  enqueued behind it. `:rf.xray/clear-reset-flash` is that benign event — a
+  `dissoc` of a slot nothing here sets."
+  [variant-id]
+  (rf.story.test-helpers.e2e-multi-frame/select-variant! variant-id)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/clear-reset-flash])))
+
 ;; ---- the contract --------------------------------------------------------
 
 (deftest selection-watcher-dispatches-set-target-frame-on-variant-select
@@ -68,7 +92,7 @@
         (install-selection-watcher!)
         (try
           ;; Variant-id IS the frame-id per `re-frame.story.frames`.
-          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.cart/empty)
+          (select-variant! :story.cart/empty)
           ;; Inspect the slot Xray's `:rf.xray/set-target-frame`
           ;; reducer writes to. If the watcher's dispatch fired, the
           ;; slot reflects the freshly-selected variant.
@@ -94,12 +118,12 @@
       (fn []
         (install-selection-watcher!)
         (try
-          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.cart/empty)
+          (select-variant! :story.cart/empty)
           (rf/with-frame :rf/xray
             (is (= :story.cart/empty
                    @(rf/subscribe [:rf.xray/target-frame]))
                 "first selection lands"))
-          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.cart/with-items)
+          (select-variant! :story.cart/with-items)
           (rf/with-frame :rf/xray
             (is (= :story.cart/with-items
                    @(rf/subscribe [:rf.xray/target-frame]))
@@ -122,7 +146,7 @@
       (fn []
         (install-selection-watcher!)
         (try
-          (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.cart/empty)
+          (select-variant! :story.cart/empty)
           (rf/with-frame :rf/xray
             (is (= :story.cart/empty
                    @(rf/subscribe [:rf.xray/target-frame]))
@@ -130,7 +154,7 @@
           ;; Now clear the selection. The watcher's `(when now ...)`
           ;; guard short-circuits, so no dispatch fires; the slot
           ;; retains the last variant-id.
-          (rf.story.test-helpers.e2e-multi-frame/select-variant! nil)
+          (select-variant! nil)
           (rf/with-frame :rf/xray
             (is (= :story.cart/empty
                    @(rf/subscribe [:rf.xray/target-frame]))

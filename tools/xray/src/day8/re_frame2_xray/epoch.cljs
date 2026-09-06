@@ -18,8 +18,10 @@
     target-frame slot and `:rf.xray/set-target-frame` event. (Pre
     rf2-kmhvg the reader was `core/active-frame`; the rename eliminated
     the `active` / `target` split.)
-  - `preload/install-epoch-listener!` dispatches `:rf.xray/epoch-
-    recorded` whenever the framework records a new epoch (any frame).
+  - `install/register-epoch-collector!` (re-exported as
+    `preload/register-epoch-collector!`) dispatches `:rf.xray/epoch-
+    recorded` when the framework records a new epoch (any frame),
+    task-coalesced to one dispatch per frame per tick (rf2-chs7).
   - `mount.cljs` seeds `:rf.xray/sync-epoch-history` at first open.
   - `panels.app-db-diff-sections` dispatches `:rf.xray/select-epoch`
     when a section's epoch chip is clicked.
@@ -114,10 +116,19 @@
           (some? frame-id) (assoc :target-frame frame-id)
           (some? frame-id) (assoc-in [:focus :frame] frame-id)))}))
 
-  ;; `:rf.xray/epoch-recorded` — dispatched from `preload/install-
-  ;; epoch-listener!` whenever the framework records a new epoch on any
+  ;; `:rf.xray/epoch-recorded` — dispatched from `install/register-
+  ;; epoch-collector!` when the framework records a new epoch on any
   ;; frame. Re-reads the per-frame ring into `:epoch-history` so the
   ;; companion sub re-fires on the standard app-db-write reactive path.
+  ;;
+  ;; ONE DISPATCH PER FRAME PER TASK, not one per epoch (rf2-chs7). The
+  ;; collector coalesces a same-tick burst into a single dispatch per
+  ;; distinct frame — the un-coalesced form overflowed `:rf/xray`'s own
+  ;; queue past the depth-100 cap under load, and the events the router
+  ;; then dropped were Xray's own chrome events. The arg's meaning is
+  ;; unchanged ("this frame recorded"), and so is this reducer: for a
+  ;; non-target frame it is still a no-op re-read, just one that no
+  ;; longer costs a queue slot per epoch.
   ;; `:rf.trace/no-emit? true` — the dispatch must not itself emit a
   ;; trace event (the listener is part of Xray's instrumentation loop;
   ;; a self-emit would re-enter the listener).

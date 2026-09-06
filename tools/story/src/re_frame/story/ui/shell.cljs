@@ -62,6 +62,11 @@
             [re-frame.story.ui.backgrounds-switcher :as rf.story.ui.backgrounds-switcher]
             [re-frame.story.ui.canvas :as rf.story.ui.canvas]
             [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]
+            ;; rf2-88f1: the target-frame gesture goes through Xray's
+            ;; host-facing facade, not a hand-rolled dispatch into
+            ;; Xray's own frame. Direct :require against the declared
+            ;; `day8/re-frame2-xray` dep, per `xray_preset.cljc`.
+            [day8.re-frame2-xray.core :as xray-core]
             [re-frame.story.ui.command-palette.view :as rf.story.ui.command-palette.view]
             [re-frame.story.ui.controls :as rf.story.ui.controls]
             [re-frame.story.ui.dispatch-console :as rf.story.ui.dispatch-console]
@@ -392,18 +397,31 @@
                      ;; list, App-DB diff and downstream subs all flip
                      ;; in one frame.
                      ;;
-                     ;; `dispatch-sync` (rather than the async `dispatch`)
-                     ;; so the slot is observable immediately — the watcher
-                     ;; runs outside any event-handler / drain cycle
-                     ;; (it's an atom-watch callback on the shell
-                     ;; ratom), so the in-drain guard does not apply.
-                     ;; The rf2-q9kv5 sibling dispatches in
-                     ;; `rf.story.xray-preset/on-variant-selected!` below still
-                     ;; ride the async queue — they're Xray's own
-                     ;; preset-applies and don't gate the next-frame
-                     ;; panel paint the way the target-frame slot does.
-                     (rf/with-frame :rf/xray
-                       (rf/dispatch-sync [:rf.xray/set-target-frame now]))
+                     ;; rf2-88f1 — through Xray's FACADE, not a
+                     ;; hand-rolled `(rf/with-frame :rf/xray (rf/dispatch-
+                     ;; sync [:rf.xray/set-target-frame now]))`. A host
+                     ;; has no business knowing that `:rf/xray` is Xray's
+                     ;; frame, nor that its lifecycle is tied to substrate-
+                     ;; adapter readiness — and knowing it was wrong here in
+                     ;; the measurable sense too: Story's boot runs
+                     ;; `rf/init!`, mounts the shell and selects a variant
+                     ;; inside the preload's 50ms seat poll, so the raw
+                     ;; dispatch reached a frame that did not exist yet and
+                     ;; emitted `:rf.error/frame-destroyed` once per page.
+                     ;; `set-target-frame!` seats `:rf/xray` first, so the
+                     ;; gesture is correct at boot instant. This call site
+                     ;; was the last exception: Story already uses the
+                     ;; facade for the sibling gesture below and already has
+                     ;; the ensure-before-dispatch pattern for its OWN
+                     ;; frames (`ensure-variant-frame!`, rf2-zme7).
+                     ;;
+                     ;; The facade rides the async queue, as the rf2-q9kv5
+                     ;; sibling dispatches in `rf.story.xray-preset/on-
+                     ;; variant-selected!` below already do. Queue order is
+                     ;; what the panels need and FIFO preserves it: the
+                     ;; re-orientation is enqueued before the preset applies
+                     ;; and lands before them.
+                     (xray-core/set-target-frame! now)
                      ;; rf2-v1ach: Xray now mounts per-panel into the
                      ;; RHS via `rf.story.ui.xray-embed/xray-embed-panel`. The
                      ;; embed owns its own React lifecycle — selecting
