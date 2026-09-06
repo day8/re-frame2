@@ -154,22 +154,51 @@
     (is (= :rf.error/reg-sub-bad-args (reg-sub-error :x {:inputs [[:a]]})))
     (is (= :rf.error/reg-sub-bad-args (reg-sub-error :x {:inputs [[:a]]} :not-a-fn)))))
 
-(deftest inputs-is-a-known-registration-key
+;; ^:requires-debug — the unknown-bare-key warning is dev-gated end to end:
+;; `reg-meta/validate-registration-metadata!` binds `known` but reads it only
+;; inside `(when interop/debug-enabled? …)`, so under `-Dre-frame.debug=false`
+;; nothing warns and there is no production behaviour here to assert. The tag
+;; rather than a `(when interop/debug-enabled? …)` split around the control:
+;; the subject is "nothing warned", which the production gate satisfies
+;; VACUOUSLY, so guarding only the control would leave a deftest reporting
+;; success for an assertion that inspected nothing — the class-2 false green
+;; `scripts/test-core-prod-gate.sh` exists to close.
+;;
+;; THE INLINE CALL IS THE DISCRIMINATING ONE, and the public call alone would
+;; NOT be. The two registration paths lift `:inputs` in opposite orders:
+;; `parse-reg-sub-args` dissocs it BEFORE `normalize-sub-metadata` runs, so on
+;; the public path the key check never sees `:inputs` and this assertion holds
+;; however the vocabulary is spelled. `lower-inline-sub` normalizes the RAW
+;; metadata and lifts AFTER, so `:inputs` IS present at the check there — the
+;; inline path is the only one where the `:sub` vocabulary entry is load-
+;; bearing. Verified by planting the removal of `:inputs` from
+;; `reg-meta/known-bare-keys`: the public-path form passed unchanged; the
+;; inline form below goes red.
+(deftest ^:requires-debug inputs-is-a-known-registration-key
   (testing "`:inputs` does not warn as an unknown registration key"
-    (let [acc (atom [])]
+    (let [acc     (atom [])
+          warned? #(seq (filterv (fn [ev]
+                                   (= :rf.warning/unknown-registration-key
+                                      (:operation ev)))
+                                 @acc))]
       (rf.trace/register-listener! ::inputs-warnings (fn [ev] (swap! acc conj ev)))
       (try
         (rf/reg-sub :a (fn [db _] (:a db)))
+        ;; Public path: `:inputs` is stripped before the check (see above), so
+        ;; this pins the strip's effect rather than the vocabulary.
         (rf/reg-sub :k {:doc "documented" :inputs [[:a]]} (fn [[a] _] a))
-        (is (empty? (filterv #(= :rf.warning/unknown-registration-key (:operation %)) @acc))
+        ;; Inline path: `:inputs` reaches the check, so THIS is what fails if
+        ;; the `:sub` vocabulary entry is dropped.
+        (rf.subs/lower-inline-sub :inline {:doc "documented" :inputs [[:a]]}
+                                  (fn [[a] _] a))
+        (is (not (warned?))
             "`:inputs` is in the `:sub` bare-key vocabulary")
-        ;; The control: a genuinely unknown bare key on the same registrar
+        ;; The control: a genuinely unknown bare key on the SAME inline seam
         ;; DOES warn, so the empty result above is a pass and not a listener
         ;; that never fired.
         (reset! acc [])
-        (rf/reg-sub :typo {:inpts [[:a]]} (fn [db _] db))
-        (is (seq (filterv #(= :rf.warning/unknown-registration-key (:operation %)) @acc))
-            "control: an unknown bare key still warns")
+        (rf.subs/lower-inline-sub :typo {:inpts [[:a]]} (fn [db _] db))
+        (is (warned?) "control: an unknown bare key still warns")
         (finally (rf.trace/unregister-listener! ::inputs-warnings))))))
 
 (deftest a-literal-declaration-does-not-require-its-upstream-to-exist-yet
